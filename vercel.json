@@ -1,12 +1,12 @@
 {
     "version": 2,
-    "buildCommand": "npm run build",
-    "outputDirectory": "frontend/dist",
+    "buildCommand": "cd implementation && npm install && npm run build",
+    "outputDirectory": "implementation/frontend/dist",
     "framework": "vite",
     "rewrites": [
         {
             "source": "/api/(.*)",
-            "destination": "/api/index.js"
+            "destination": "implementation/api/index.js"
         },
         {
             "source": "/(.*)",
