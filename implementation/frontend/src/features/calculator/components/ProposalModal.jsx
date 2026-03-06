@@ -93,12 +93,29 @@ export function ProposalModal({ isOpen, onClose, result, inputs }) {
             // Enviar al backend para generar PDF con Puppeteer
             const response = await axios.post('/api/pdf/generate',
                 { html: fullHtml },
-                { responseType: 'blob', timeout: 30000 }
+                { responseType: 'blob', timeout: 45000 }
             );
+
+            const blob = response.data;
+
+            // Si el backend devuelve un error en JSON (aunque la petición sea blob)
+            if (blob.type === 'application/json') {
+                const reader = new FileReader();
+                reader.onload = () => {
+                    try {
+                        const errorData = JSON.parse(reader.result);
+                        alert(`Error al generar PDF: ${errorData.message || 'Error desconocido'}`);
+                    } catch (e) {
+                        alert('Error al generar el PDF. El servidor devolvió una respuesta inesperada.');
+                    }
+                };
+                reader.readAsText(blob);
+                setGenerating(false);
+                return;
+            }
 
             // Descargar el PDF recibido
             const safeRc = (inputs?.rc || 'Simulacion').replace(/[^a-zA-Z0-9_\-]/g, '_');
-            const blob = new Blob([response.data], { type: 'application/pdf' });
             const url = window.URL.createObjectURL(blob);
             const link = document.createElement('a');
             link.href = url;
@@ -109,7 +126,17 @@ export function ProposalModal({ isOpen, onClose, result, inputs }) {
             window.URL.revokeObjectURL(url);
         } catch (error) {
             console.error('Error generating PDF:', error);
-            alert('Hubo un error al generar el PDF. Comprueba tu conexión.');
+            if (error.response && error.response.data instanceof Blob) {
+                const text = await error.response.data.text();
+                try {
+                    const json = JSON.parse(text);
+                    alert(`Error: ${json.message || 'Error en el servidor'}`);
+                } catch (e) {
+                    alert('Error al generar el PDF. El servidor no pudo procesar la solicitud.');
+                }
+            } else {
+                alert('Hubo un error al generar el PDF. Comprueba tu conexión o inténtalo más tarde.');
+            }
         } finally {
             setGenerating(false);
         }

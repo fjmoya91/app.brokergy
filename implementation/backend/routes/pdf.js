@@ -58,10 +58,10 @@ router.post('/generate', async (req, res) => {
 
         await page.setViewport({ width: 794, height: 1123, deviceScaleFactor: 2 });
 
-        // setContent con timeout y espera a que la red esté inactiva (para imágenes)
+        // setContent con timeout y espera a que la red esté inactiva
         await page.setContent(html, {
-            waitUntil: ['domcontentloaded', 'networkidle0'],
-            timeout: 15000
+            waitUntil: ['domcontentloaded', 'networkidle2'],
+            timeout: 30000
         });
 
         const pdfBuffer = await page.pdf({
@@ -75,10 +75,10 @@ router.post('/generate', async (req, res) => {
         res.set({
             'Content-Type': 'application/pdf',
             'Content-Disposition': 'attachment; filename="Propuesta_Brokergy.pdf"',
-            'Content-Length': pdfBuffer.length,
+            'Cache-Control': 'no-cache'
         });
 
-        res.send(pdfBuffer);
+        res.end(pdfBuffer);
     } catch (error) {
         console.error('Error generando PDF:', error);
         res.status(500).json({
