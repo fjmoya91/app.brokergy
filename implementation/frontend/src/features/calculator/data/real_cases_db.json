@@ -1,0 +1,4622 @@
+[
+  {
+    "id": "10004-5073 CEE FINAL AEROTERMIA.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2004,
+    "superficie": 164.8,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 180.83,
+    "certType": "FINAL"
+  },
+  {
+    "id": "10004-5073 CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2004,
+    "superficie": 164.8,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 180.83,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "10004-5073 CEE PREVISTO AEROTERMIA.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2004,
+    "superficie": 164.8,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 180.83,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "10021-4854 CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1940,
+    "superficie": 163,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 239.09,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "10021-4854 CEE INICIAL_1.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1940,
+    "superficie": 163,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 247.88,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "10021-4854 CEE PREVISTO CUBIERTA.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1940,
+    "superficie": 163,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 187.11,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "10021-4854 CEE PROYECTO CAE.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1940,
+    "superficie": 163,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 174.88,
+    "certType": "PROYECTO"
+  },
+  {
+    "id": "10070 - CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1956,
+    "superficie": 98,
+    "tipo": "ViviendaIndividualEnBloque",
+    "demandaCalefaccion": 228.82,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "10070 - CEE PREVISTA RD 853-21 + AEROTERMIA IRPF.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1956,
+    "superficie": 98,
+    "tipo": "ViviendaIndividualEnBloque",
+    "demandaCalefaccion": 161.43,
+    "certType": "DESCONOCIDO"
+  },
+  {
+    "id": "10070 - CEE PREVISTA RD 853-21.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1956,
+    "superficie": 98,
+    "tipo": "ViviendaIndividualEnBloque",
+    "demandaCalefaccion": 164.8,
+    "certType": "DESCONOCIDO"
+  },
+  {
+    "id": "10434-5231 CEE FINAL AEROTERMIA.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2007,
+    "superficie": 224.8,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 124.89,
+    "certType": "FINAL"
+  },
+  {
+    "id": "10434-5231 CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2007,
+    "superficie": 224.8,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 124.89,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "10434-5231 CEE PREVISTO AEROTERMIA.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2007,
+    "superficie": 224.8,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 124.89,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "11289-5471 CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1956,
+    "superficie": 128.8,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 235.79,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "2024CEE_03 - CEE FINAL AEROTERMIA.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2021,
+    "superficie": 230,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 147.66,
+    "certType": "FINAL"
+  },
+  {
+    "id": "2024CEE_03 - CEE INICIAL - MAE AEROTERMIA.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2021,
+    "superficie": 230,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 147.66,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "2024CEE_03 - CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2021,
+    "superficie": 230,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 147.66,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "2024P4_07 - CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1976,
+    "superficie": 106,
+    "tipo": "ViviendaIndividualEnBloque",
+    "demandaCalefaccion": 145.3,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "2024P4_07 - CEE INICIAL_1.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1976,
+    "superficie": 106,
+    "tipo": "ViviendaIndividualEnBloque",
+    "demandaCalefaccion": 145.3,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "2024P4_07 - CEE MAE AEROTERMIA.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1976,
+    "superficie": 106,
+    "tipo": "ViviendaIndividualEnBloque",
+    "demandaCalefaccion": 145.3,
+    "certType": "DESCONOCIDO"
+  },
+  {
+    "id": "2024P4_08 - CEE_AEROTERMIA - CALLE CANALEJAS 5.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1985,
+    "superficie": 100,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 331.63,
+    "certType": "DESCONOCIDO"
+  },
+  {
+    "id": "2024P4_09 - CEE FINAL CAE.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "C4",
+    "anoConstruccion": 1984,
+    "superficie": 163,
+    "tipo": "ViviendaIndividualEnBloque",
+    "demandaCalefaccion": 76.18,
+    "certType": "FINAL"
+  },
+  {
+    "id": "2024P4_09 - CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "C4",
+    "anoConstruccion": 1984,
+    "superficie": 163,
+    "tipo": "ViviendaIndividualEnBloque",
+    "demandaCalefaccion": 103.2,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "2024P4_09 - CEE INICIAL_1.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "C4",
+    "anoConstruccion": 1984,
+    "superficie": 163,
+    "tipo": "ViviendaIndividualEnBloque",
+    "demandaCalefaccion": 103.2,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "2024P4_09 - CEE PREVISTO CAE.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "C4",
+    "anoConstruccion": 1984,
+    "superficie": 163,
+    "tipo": "ViviendaIndividualEnBloque",
+    "demandaCalefaccion": 86.54,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "2024P4_09 - CEE PREVISTO VENTANAS.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "C4",
+    "anoConstruccion": 1984,
+    "superficie": 163,
+    "tipo": "ViviendaIndividualEnBloque",
+    "demandaCalefaccion": 91.41,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "2024P4_09 - CEE PREVISTO VENTANAS_1.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "C4",
+    "anoConstruccion": 1984,
+    "superficie": 163,
+    "tipo": "ViviendaIndividualEnBloque",
+    "demandaCalefaccion": 91.41,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "2024P4_15 - CEE INICIAL MAE AEROTERMIA.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1992,
+    "superficie": 137,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 243.2,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "2024P4_15 - CEE PREVISTO MAE AEROTERMIA.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1992,
+    "superficie": 137,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 243.2,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "2024P4_16 - CEE INICIAL MAE AEROTERMIA.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1956,
+    "superficie": 171,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 303.48,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "2024P4_16 - CEE PREVISTO AEROTERMIA.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1956,
+    "superficie": 171,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 303.48,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "2024RES060_XX_CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1992,
+    "superficie": 118,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 241.97,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "2406OTRO0405__1_estado_inicial.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1968,
+    "superficie": 567.85,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 190.74,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "2406OTRO0405__2_estado propuesto FML.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1968,
+    "superficie": 567.85,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 100.82,
+    "certType": "DESCONOCIDO"
+  },
+  {
+    "id": "24P4_11 - CEE INICIAL MAE AEROTERMIA.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2006,
+    "superficie": 122,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 215.27,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "24P4_11 - CEE INICIAL MAE AEROTERMIA_1.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2006,
+    "superficie": 122,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 215.27,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "24P4_11 - CEE INICIAL VIRGEN.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2006,
+    "superficie": 122,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 215.27,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "24P4_11 - CEE INICIAL VIRGEN_1.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2006,
+    "superficie": 122,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 215.27,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "24P4_11 - CEE PREVISTO AEROTERMIA.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2006,
+    "superficie": 122,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 257.75,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "24P4_11 - CEE PREVISTO AEROTERMIA_1.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2006,
+    "superficie": 122,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 215.27,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "24RES060_11 - CEE FINAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2009,
+    "superficie": 121,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 181.99,
+    "certType": "FINAL"
+  },
+  {
+    "id": "24RES060_11 - CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2009,
+    "superficie": 121,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 181.99,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "24RES060_12 - CEE FINAL AEROTERMIA.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1992,
+    "superficie": 118,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 241.97,
+    "certType": "FINAL"
+  },
+  {
+    "id": "24RES060_13 - CEE FINAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2009,
+    "superficie": 284,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 187.63,
+    "certType": "FINAL"
+  },
+  {
+    "id": "24RES060_13 - CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2009,
+    "superficie": 284,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 187.63,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "24RES060_15 - CEE FINAL MAE AEROTERMIA.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1992,
+    "superficie": 137,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 292.13,
+    "certType": "FINAL"
+  },
+  {
+    "id": "24RES060_15 - CEE FINAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1997,
+    "superficie": 373,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 185.74,
+    "certType": "FINAL"
+  },
+  {
+    "id": "24RES060_15 - CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1997,
+    "superficie": 373,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 185.74,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "24RES060_16 - CEE FINAL CAE.xml",
+    "provincia": "Madrid",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1987,
+    "superficie": 143.1,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 248.51,
+    "certType": "FINAL"
+  },
+  {
+    "id": "24RES060_17 - CEE FINAL CAE.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "E1",
+    "anoConstruccion": 1970,
+    "superficie": 98,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 376.04,
+    "certType": "FINAL"
+  },
+  {
+    "id": "24RES060_17 - CEE FINAL CAE_1.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "E1",
+    "anoConstruccion": 1970,
+    "superficie": 98,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 376.04,
+    "certType": "FINAL"
+  },
+  {
+    "id": "24RES060_17 - CEE INICIAL CAE.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "E1",
+    "anoConstruccion": 1970,
+    "superficie": 98,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 376.04,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "24RES060_18 - CEE FINAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "B4",
+    "anoConstruccion": 1981,
+    "superficie": 346,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 73.15,
+    "certType": "FINAL"
+  },
+  {
+    "id": "24RES060_18 - CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "B4",
+    "anoConstruccion": 1981,
+    "superficie": 346,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 73.15,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "24RES060_19 - CEE FINAL CAE.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2004,
+    "superficie": 129.6,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 196.16,
+    "certType": "FINAL"
+  },
+  {
+    "id": "24RES060_2 - CEE FINAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D2",
+    "anoConstruccion": 1950,
+    "superficie": 176,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 311.75,
+    "certType": "FINAL"
+  },
+  {
+    "id": "24RES060_2 - CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D2",
+    "anoConstruccion": 1950,
+    "superficie": 176,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 311.75,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "24RES060_20 - CEE FINAL CAE.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1950,
+    "superficie": 330,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 230.48,
+    "certType": "FINAL"
+  },
+  {
+    "id": "24RES060_3 - CEE FINAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2003,
+    "superficie": 95,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 208.2,
+    "certType": "FINAL"
+  },
+  {
+    "id": "24RES060_5 CEE FINAL AEROTERMIA.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1989,
+    "superficie": 110,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 244.52,
+    "certType": "FINAL"
+  },
+  {
+    "id": "24RES060_5 CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1989,
+    "superficie": 110,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 244.52,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "24RES060_6 - CEE FINAL AEROTERMIA.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2006,
+    "superficie": 122,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 257.75,
+    "certType": "FINAL"
+  },
+  {
+    "id": "24RES060_7 - CEE FINAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "E1",
+    "anoConstruccion": 2003,
+    "superficie": 160,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 358.77,
+    "certType": "FINAL"
+  },
+  {
+    "id": "24RES060_7 - CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "E1",
+    "anoConstruccion": 2003,
+    "superficie": 160,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 358.77,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "24RES060_8 - CEE FINAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1992,
+    "superficie": 108,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 332.43,
+    "certType": "FINAL"
+  },
+  {
+    "id": "24RES060_9 - CEE FINAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1987,
+    "superficie": 165,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 218.98,
+    "certType": "FINAL"
+  },
+  {
+    "id": "24RES060_X3 - CEE INICIAL 1.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2006,
+    "superficie": 130,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 194.75,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "24RES060_X3 - CEE INICIAL 2.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2006,
+    "superficie": 130,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 194.75,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "24RES060_X3 - CEE INICIAL 3.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2006,
+    "superficie": 130,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 194.75,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "24RES060_X3 - CEE PREVISTO 1.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2006,
+    "superficie": 130,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 172.64,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "24RES060_X3 - CEE PREVISTO 2.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2006,
+    "superficie": 130,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 172.64,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "24RES060_XX - CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1998,
+    "superficie": 123,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 299.42,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "24RES060_XX - CEE INICIAL_1.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2004,
+    "superficie": 163,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 229.12,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "24RES060_XX - CEE INICIAL_2.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1990,
+    "superficie": 210,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 220.48,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "24RES060_XX - CEE PREVISTO AISLAMIENTO.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1990,
+    "superficie": 210,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 203.3,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "24RES060_XX - CEE PREVISTO CAE.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1998,
+    "superficie": 123,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 299.42,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "24RES060_XX - CEE PREVISTO.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2004,
+    "superficie": 163,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 229.12,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "24RES060_XX - CEE PREVISTO_1.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1990,
+    "superficie": 210,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 214.19,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "24RES080_01 - CEE MAE AEROTERMIA Y VENTANAS.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1976,
+    "superficie": 106,
+    "tipo": "ViviendaIndividualEnBloque",
+    "demandaCalefaccion": 131.08,
+    "certType": "DESCONOCIDO"
+  },
+  {
+    "id": "24RES080_01_CEE FINAL AEROTERMIA Y VENTANAS.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1992,
+    "superficie": 118,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 233.24,
+    "certType": "FINAL"
+  },
+  {
+    "id": "24RES080_3 - CEE FINAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1996,
+    "superficie": 202,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 151.48,
+    "certType": "FINAL"
+  },
+  {
+    "id": "24RES080_5  - CEE FINAL CAE.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1994,
+    "superficie": 246,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 190.93,
+    "certType": "FINAL"
+  },
+  {
+    "id": "24RES080_5  - CEE FINAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1994,
+    "superficie": 246,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 167.21,
+    "certType": "FINAL"
+  },
+  {
+    "id": "24RES080_5  - CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1994,
+    "superficie": 246,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 204.44,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "24RES080_5  - CEE PREVISTO.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1994,
+    "superficie": 246,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 196.12,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "24RES080_6 - CEE  INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1960,
+    "superficie": 249,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 174.43,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "24RES080_8 - CEE INICIAL MAE REFORMA.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1975,
+    "superficie": 311,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 209.42,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "24RES080_XX - CEE PREVISTO CAE.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1900,
+    "superficie": 186,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 234.77,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "25RES060_21 - CEE FINAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2003,
+    "superficie": 276,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 206.79,
+    "certType": "FINAL"
+  },
+  {
+    "id": "25RES060_21 - CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2003,
+    "superficie": 276,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 206.79,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "25RES060_21 - CEE PREVISTO.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2003,
+    "superficie": 276,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 206.79,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "25RES060_22 CEE FINAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1996,
+    "superficie": 176,
+    "tipo": "ViviendaIndividualEnBloque",
+    "demandaCalefaccion": 197.95,
+    "certType": "FINAL"
+  },
+  {
+    "id": "25RES060_23 - CEE FINAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1998,
+    "superficie": 123,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 299.42,
+    "certType": "FINAL"
+  },
+  {
+    "id": "25RES060_24 - CEE FINAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1998,
+    "superficie": 130,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 229.31,
+    "certType": "FINAL"
+  },
+  {
+    "id": "25RES060_25 - CEE FINAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1920,
+    "superficie": 179,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 298.54,
+    "certType": "FINAL"
+  },
+  {
+    "id": "25RES060_25 - CEE INICIAL SIM.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1920,
+    "superficie": 179,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 298.54,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "25RES060_26 - CEE FINAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2008,
+    "superficie": 174.4,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 197.6,
+    "certType": "FINAL"
+  },
+  {
+    "id": "25RES060_27 - CEE FINAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2003,
+    "superficie": 152,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 180.75,
+    "certType": "FINAL"
+  },
+  {
+    "id": "25RES060_27 - CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2003,
+    "superficie": 152,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 180.75,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "25RES060_28 - CEE FINAL CAE.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2009,
+    "superficie": 118,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 212.49,
+    "certType": "FINAL"
+  },
+  {
+    "id": "25RES060_28 - CEE FINAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2009,
+    "superficie": 118,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 212.49,
+    "certType": "FINAL"
+  },
+  {
+    "id": "25RES060_29 - CEE FINAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1977,
+    "superficie": 120,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 190.15,
+    "certType": "FINAL"
+  },
+  {
+    "id": "25RES060_30 - CEE FINAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1998,
+    "superficie": 221,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 201.47,
+    "certType": "FINAL"
+  },
+  {
+    "id": "25RES060_30 - CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1998,
+    "superficie": 221,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 201.47,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "25RES060_31 - CEE FINAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1985,
+    "superficie": 121,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 260.08,
+    "certType": "FINAL"
+  },
+  {
+    "id": "25RES060_31 - CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1985,
+    "superficie": 121,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 260.08,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "25RES060_32 - CEE FINAL CAE.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2004,
+    "superficie": 164.8,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 224.55,
+    "certType": "FINAL"
+  },
+  {
+    "id": "25RES060_32 - CEE INICIAL CAE.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2004,
+    "superficie": 164.8,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 224.55,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "25RES060_33 - CEE FINAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "C4",
+    "anoConstruccion": 2005,
+    "superficie": 305,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 194.6,
+    "certType": "FINAL"
+  },
+  {
+    "id": "25RES060_33 - CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "C4",
+    "anoConstruccion": 2005,
+    "superficie": 305,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 194.6,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "25RES060_34 - CEE FINAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2004,
+    "superficie": 206,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 266.07,
+    "certType": "FINAL"
+  },
+  {
+    "id": "25RES060_34 - CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2004,
+    "superficie": 206,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 266.07,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "25RES060_35 - CEE FINAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1990,
+    "superficie": 93,
+    "tipo": "ViviendaIndividualEnBloque",
+    "demandaCalefaccion": 257.1,
+    "certType": "FINAL"
+  },
+  {
+    "id": "25RES060_35 - CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1990,
+    "superficie": 93,
+    "tipo": "ViviendaIndividualEnBloque",
+    "demandaCalefaccion": 257.1,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "25RES060_36 - CEE FINAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1950,
+    "superficie": 302,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 184.71,
+    "certType": "FINAL"
+  },
+  {
+    "id": "25RES060_36 - CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1950,
+    "superficie": 302,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 184.71,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "25RES060_37 - CEE FINAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1970,
+    "superficie": 232,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 213.61,
+    "certType": "FINAL"
+  },
+  {
+    "id": "25RES060_38 - CEE FINAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2008,
+    "superficie": 177,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 157.93,
+    "certType": "FINAL"
+  },
+  {
+    "id": "25RES060_38 - CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2008,
+    "superficie": 177,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 157.93,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "25RES060_39 - CEE FINAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1994,
+    "superficie": 164,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 190.11,
+    "certType": "FINAL"
+  },
+  {
+    "id": "25RES060_39 - CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1994,
+    "superficie": 164,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 190.11,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "25RES060_40 - CEE FINAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2002,
+    "superficie": 122,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 216.16,
+    "certType": "FINAL"
+  },
+  {
+    "id": "25RES060_40 - CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2002,
+    "superficie": 122,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 216.16,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "25RES060_40 - CEE PREVISTO.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2002,
+    "superficie": 122,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 216.16,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "25RES060_41 - CEE FINAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2007,
+    "superficie": 108,
+    "tipo": "ViviendaIndividualEnBloque",
+    "demandaCalefaccion": 173.31,
+    "certType": "FINAL"
+  },
+  {
+    "id": "25RES060_41 - CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2007,
+    "superficie": 108,
+    "tipo": "ViviendaIndividualEnBloque",
+    "demandaCalefaccion": 173.31,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "25RES060_42 - CEE FINAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2018,
+    "superficie": 227,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 166.82,
+    "certType": "FINAL"
+  },
+  {
+    "id": "25RES060_43 - CEE FINAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2005,
+    "superficie": 220,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 208.53,
+    "certType": "FINAL"
+  },
+  {
+    "id": "25RES060_43 - CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2005,
+    "superficie": 220,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 208.53,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "25RES060_44 - CEE FINAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2006,
+    "superficie": 126,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 224,
+    "certType": "FINAL"
+  },
+  {
+    "id": "25RES060_44 - CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2006,
+    "superficie": 126,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 224,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "25RES060_46 - CEE FINAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2008,
+    "superficie": 153,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 179.04,
+    "certType": "FINAL"
+  },
+  {
+    "id": "25RES060_46 - CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2008,
+    "superficie": 153,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 179.04,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "25RES060_47 - CEE FINAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1955,
+    "superficie": 369,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 215.52,
+    "certType": "FINAL"
+  },
+  {
+    "id": "25RES060_47 - CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1955,
+    "superficie": 369,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 215.52,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "25RES060_48 - CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1999,
+    "superficie": 252,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 250.45,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "25RES060_49 - CEE FINAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2007,
+    "superficie": 231,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 294.37,
+    "certType": "FINAL"
+  },
+  {
+    "id": "25RES060_50 - CEE FINAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2007,
+    "superficie": 433,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 147.51,
+    "certType": "FINAL"
+  },
+  {
+    "id": "25RES060_51 - CEE FINAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2008,
+    "superficie": 365,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 170.9,
+    "certType": "FINAL"
+  },
+  {
+    "id": "25RES060_51 - CEE INICIAL_SIMULADO.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2008,
+    "superficie": 365,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 170.9,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "25RES060_52 - CEE FINAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2006,
+    "superficie": 184,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 236.74,
+    "certType": "FINAL"
+  },
+  {
+    "id": "25RES060_52 - CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2006,
+    "superficie": 184,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 236.74,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "25RES060_53 - CEE FINAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1997,
+    "superficie": 365,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 240.94,
+    "certType": "FINAL"
+  },
+  {
+    "id": "25RES060_53 - CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1997,
+    "superficie": 365,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 240.94,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "25RES060_54 - CEE FINAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2006,
+    "superficie": 140,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 246.48,
+    "certType": "FINAL"
+  },
+  {
+    "id": "25RES060_54 - CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2006,
+    "superficie": 140,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 246.48,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "25RES060_55 - CEE FINAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1978,
+    "superficie": 151,
+    "tipo": "ViviendaIndividualEnBloque",
+    "demandaCalefaccion": 214.15,
+    "certType": "FINAL"
+  },
+  {
+    "id": "25RES060_55 - CEE FINAL_1.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1978,
+    "superficie": 151,
+    "tipo": "ViviendaIndividualEnBloque",
+    "demandaCalefaccion": 214.15,
+    "certType": "FINAL"
+  },
+  {
+    "id": "25RES060_56 - CEE FINAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2003,
+    "superficie": 160,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 255.9,
+    "certType": "FINAL"
+  },
+  {
+    "id": "25RES060_56 - CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2003,
+    "superficie": 160,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 255.9,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "25RES060_57 - CEE FINAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2007,
+    "superficie": 95,
+    "tipo": "ViviendaIndividualEnBloque",
+    "demandaCalefaccion": 240.38,
+    "certType": "FINAL"
+  },
+  {
+    "id": "25RES060_57 - CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2007,
+    "superficie": 95,
+    "tipo": "ViviendaIndividualEnBloque",
+    "demandaCalefaccion": 240.38,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "25RES060_58 - CEE FINAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1995,
+    "superficie": 100,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 259.4,
+    "certType": "FINAL"
+  },
+  {
+    "id": "25RES060_58 - CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1995,
+    "superficie": 100,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 259.4,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "25RES060_59 - CEE FINAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2011,
+    "superficie": 244,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 165.29,
+    "certType": "FINAL"
+  },
+  {
+    "id": "25RES060_59 - CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2011,
+    "superficie": 244,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 165.29,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "25RES060_60 - CEE FINAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1999,
+    "superficie": 176,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 222.9,
+    "certType": "FINAL"
+  },
+  {
+    "id": "25RES060_60 - CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1999,
+    "superficie": 176,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 222.9,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "25RES060_61 - CEE FINAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2017,
+    "superficie": 94,
+    "tipo": "ViviendaIndividualEnBloque",
+    "demandaCalefaccion": 184.11,
+    "certType": "FINAL"
+  },
+  {
+    "id": "25RES060_61 - CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2017,
+    "superficie": 94,
+    "tipo": "ViviendaIndividualEnBloque",
+    "demandaCalefaccion": 184.11,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "25RES060_62 - CEE FINAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1958,
+    "superficie": 137,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 253.88,
+    "certType": "FINAL"
+  },
+  {
+    "id": "25RES060_62 - CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1958,
+    "superficie": 137,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 253.88,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "25RES060_63 - CEE FINAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1972,
+    "superficie": 200.61,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 186.09,
+    "certType": "FINAL"
+  },
+  {
+    "id": "25RES060_63 - CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1972,
+    "superficie": 200.61,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 186.09,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "25RES060_65 - CEE FINAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1983,
+    "superficie": 236,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 200.1,
+    "certType": "FINAL"
+  },
+  {
+    "id": "25RES060_66 - CEE FINAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1984,
+    "superficie": 195,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 256.27,
+    "certType": "FINAL"
+  },
+  {
+    "id": "25RES060_66 - CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1984,
+    "superficie": 195,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 256.27,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "25RES060_67 - CEE FINAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2014,
+    "superficie": 160,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 165.23,
+    "certType": "FINAL"
+  },
+  {
+    "id": "25RES060_67 - CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2014,
+    "superficie": 160,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 165.23,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "25RES060_68 - CEE FINAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2010,
+    "superficie": 196,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 156.93,
+    "certType": "FINAL"
+  },
+  {
+    "id": "25RES060_68 - CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2010,
+    "superficie": 196,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 156.93,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "25RES060_69 - CEE FINAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1974,
+    "superficie": 211,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 217.86,
+    "certType": "FINAL"
+  },
+  {
+    "id": "25RES060_69 - CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1974,
+    "superficie": 211,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 217.86,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "25RES060_70 - CEE FINAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2007,
+    "superficie": 185,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 230.42,
+    "certType": "FINAL"
+  },
+  {
+    "id": "25RES060_71 - CEE FINAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1995,
+    "superficie": 181,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 195.64,
+    "certType": "FINAL"
+  },
+  {
+    "id": "25RES060_71 - CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1995,
+    "superficie": 181,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 195.64,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "25RES060_72 - CEE FINAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2012,
+    "superficie": 157,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 206.09,
+    "certType": "FINAL"
+  },
+  {
+    "id": "25RES060_72 - CEE FINAL_1.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2012,
+    "superficie": 157,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 206.09,
+    "certType": "FINAL"
+  },
+  {
+    "id": "25RES060_73 - CEE FINAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2013,
+    "superficie": 194,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 187.05,
+    "certType": "FINAL"
+  },
+  {
+    "id": "25RES060_73 - CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2013,
+    "superficie": 194,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 187.05,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "25RES060_75 - CEE FINAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1976,
+    "superficie": 121,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 342.01,
+    "certType": "FINAL"
+  },
+  {
+    "id": "25RES060_75 - CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1976,
+    "superficie": 121,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 342.01,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "25RES060_CEE INICIAL_SIMULADO.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2007,
+    "superficie": 433,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 147.51,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "25RES080_1 - CEE FINAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2006,
+    "superficie": 130,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 142.38,
+    "certType": "FINAL"
+  },
+  {
+    "id": "25RES080_1 - CEE FINAL_rev1.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2006,
+    "superficie": 130,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 164.32,
+    "certType": "FINAL"
+  },
+  {
+    "id": "25RES080_1 - CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2006,
+    "superficie": 130,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 194.75,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "25RES080_1 - CEE PREVISTO.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2006,
+    "superficie": 130,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 172.79,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "25RES080_11 - CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1900,
+    "superficie": 186,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 238.47,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "25RES080_14 - CEE FINAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1977,
+    "superficie": 150,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 297.47,
+    "certType": "FINAL"
+  },
+  {
+    "id": "25RES080_14 - CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1977,
+    "superficie": 150,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 298.25,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "25RES080_16 - CEE FINAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2008,
+    "superficie": 117,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 163.69,
+    "certType": "FINAL"
+  },
+  {
+    "id": "25RES080_16 - CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2008,
+    "superficie": 117,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 174.76,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "25RES080_17 - CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1980,
+    "superficie": 140,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 264.96,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "25RES080_18 - CEE FINAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1965,
+    "superficie": 207,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 215.34,
+    "certType": "FINAL"
+  },
+  {
+    "id": "25RES080_18 - CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1965,
+    "superficie": 207,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 230.03,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "25RES080_19 - CEE FINAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1998,
+    "superficie": 130,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 284.55,
+    "certType": "FINAL"
+  },
+  {
+    "id": "25RES080_19 - CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1998,
+    "superficie": 130,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 294.38,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "25RES080_2 - CEE FINAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1976,
+    "superficie": 106,
+    "tipo": "ViviendaIndividualEnBloque",
+    "demandaCalefaccion": 101.15,
+    "certType": "FINAL"
+  },
+  {
+    "id": "25RES080_20 - CEE FINAL REFORMA.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1940,
+    "superficie": 315,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 213.88,
+    "certType": "FINAL"
+  },
+  {
+    "id": "25RES080_20 - CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1940,
+    "superficie": 315,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 313.33,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "25RES080_21 - CEE FINAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2009,
+    "superficie": 205,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 195.09,
+    "certType": "FINAL"
+  },
+  {
+    "id": "25RES080_21 - CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2009,
+    "superficie": 205,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 213.84,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "25RES080_22 - CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1970,
+    "superficie": 219,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 269.37,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "25RES080_24 - CEE FINAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1956,
+    "superficie": 178,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 205.52,
+    "certType": "FINAL"
+  },
+  {
+    "id": "25RES080_24 - CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1956,
+    "superficie": 178,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 224.87,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "25RES080_3 - CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1996,
+    "superficie": 202,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 174.69,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "25RES080_48 - CEE FINAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1999,
+    "superficie": 252,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 250.45,
+    "certType": "FINAL"
+  },
+  {
+    "id": "25RES080_6 - CEE FINAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1960,
+    "superficie": 249,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 118.09,
+    "certType": "FINAL"
+  },
+  {
+    "id": "25RES080_6 - CEE PREVISTO.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1960,
+    "superficie": 249,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 120.52,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "25RES080_8 - CEE FINAL CAE V2.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1956,
+    "superficie": 171,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 112.65,
+    "certType": "FINAL"
+  },
+  {
+    "id": "25RES080_8 - CEE FINAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1956,
+    "superficie": 171,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 114.49,
+    "certType": "FINAL"
+  },
+  {
+    "id": "25RES080_9 - CEE FINAL AEROTERMIA.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1990,
+    "superficie": 210,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 211.11,
+    "certType": "FINAL"
+  },
+  {
+    "id": "25RES080_9 - CEE FINAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1990,
+    "superficie": 210,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 211.11,
+    "certType": "FINAL"
+  },
+  {
+    "id": "25RES080_XX - CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1930,
+    "superficie": 105,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 295.02,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "25RES080_XX - CEE INICIAL_1.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1972,
+    "superficie": 193,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 232.16,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "25RES080_XX - CEE INICIAL_2.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2005,
+    "superficie": 160,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 277.36,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "25RES080_XX - CEE PREVISTO AISLAMIENTO, VENTANAS Y FV.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1930,
+    "superficie": 105,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 150.94,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "25RES080_XX - CEE PREVISTO REFORMA MINIMA.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1930,
+    "superficie": 105,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 265.06,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "25RES080_XX - CEE PREVISTO REFORMA MÍNIMA.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1930,
+    "superficie": 105,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 295.02,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "25RES080_XX - CEE PREVISTO SUELO.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1972,
+    "superficie": 193,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 186.71,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "25RES080_XX - CEE PREVISTO.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2005,
+    "superficie": 160,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 268.92,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "25TER100_1 - CEE FINAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1996,
+    "superficie": 1272,
+    "tipo": "EdificioUsoTerciario",
+    "demandaCalefaccion": 164.84,
+    "certType": "FINAL"
+  },
+  {
+    "id": "25TER100_1 - CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1996,
+    "superficie": 1272,
+    "tipo": "EdificioUsoTerciario",
+    "demandaCalefaccion": 164.84,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "25TER100_2 - CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1990,
+    "superficie": 360,
+    "tipo": "LocalUsoTerciario",
+    "demandaCalefaccion": 159.47,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "25TER100_2 - CEE INICIAL_1.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1985,
+    "superficie": 179,
+    "tipo": "EdificioUsoTerciario",
+    "demandaCalefaccion": 268.03,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "8958-4738 CEE FINAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1970,
+    "superficie": 94.71,
+    "tipo": "ViviendaIndividualEnBloque",
+    "demandaCalefaccion": 191.41,
+    "certType": "FINAL"
+  },
+  {
+    "id": "8958-4738 CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1970,
+    "superficie": 94.71,
+    "tipo": "ViviendaIndividualEnBloque",
+    "demandaCalefaccion": 219.84,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "8958-4738 CEE INICIAL_1.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1970,
+    "superficie": 94.71,
+    "tipo": "ViviendaIndividualEnBloque",
+    "demandaCalefaccion": 219.84,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "8958-4738 CEE PROYECTO CAE.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1970,
+    "superficie": 94.71,
+    "tipo": "ViviendaIndividualEnBloque",
+    "demandaCalefaccion": 187.72,
+    "certType": "PROYECTO"
+  },
+  {
+    "id": "9364 - CEE PROYECTO SOLO VENTANAS.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1977,
+    "superficie": 120,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 138.69,
+    "certType": "PROYECTO"
+  },
+  {
+    "id": "9364 - CEE PROYECTO SOLO VENTANAS_1.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1977,
+    "superficie": 120,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 138.69,
+    "certType": "PROYECTO"
+  },
+  {
+    "id": "9364 - CEE PROYECTO VENTANAS, AISLAMIENTO Y AEROTERMIA.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1977,
+    "superficie": 120,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 64.41,
+    "certType": "PROYECTO"
+  },
+  {
+    "id": "9364 - CEE PROYECTO VENTANAS, AISLAMIENTO Y AEROTERMIA_1.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1977,
+    "superficie": 120,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 64.41,
+    "certType": "PROYECTO"
+  },
+  {
+    "id": "9364-4837 CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1977,
+    "superficie": 120,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 147.02,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "9364-4837 CEE INICIAL_1.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1977,
+    "superficie": 120,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 147.02,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "9366-4839 CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1980,
+    "superficie": 203.82,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 246.23,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "9366-4839 CEE PROYECTO PROTECTADO.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1980,
+    "superficie": 203.82,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 224.12,
+    "certType": "PROYECTO"
+  },
+  {
+    "id": "9413-4854 CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1940,
+    "superficie": 163,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 239.09,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "9700-4909 - CEE LEEX.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1950,
+    "superficie": 92.4,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 321.44,
+    "certType": "DESCONOCIDO"
+  },
+  {
+    "id": "9700-4909 CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1950,
+    "superficie": 92.4,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 321.44,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "9751-4935 CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2008,
+    "superficie": 174.4,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 153.34,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "9751-4935 CEE PREVISTO.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2008,
+    "superficie": 174.4,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 160,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "9751-4935 CEE PREVISTO_1.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2008,
+    "superficie": 174.4,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 153.34,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "9777-4948 CEE FINAL AEROTERMIA.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2009,
+    "superficie": 118,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 132.46,
+    "certType": "FINAL"
+  },
+  {
+    "id": "9777-4948 CEE FINAL AEROTERMIA_1.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2009,
+    "superficie": 118,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 132.46,
+    "certType": "FINAL"
+  },
+  {
+    "id": "9777-4948 CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2009,
+    "superficie": 118,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 132.46,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "9777-4948 CEE PREVISTO.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2009,
+    "superficie": 118,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 132.46,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "9857-5039 CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1950,
+    "superficie": 311.2,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 202.38,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "9857-5039 CEE PREVISTO.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1950,
+    "superficie": 311.2,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 202.38,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "9897-5025 CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1999,
+    "superficie": 200,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 159.64,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "9997-5063 CEE FINAL AEROTERMIA.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2004,
+    "superficie": 129.6,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 174.71,
+    "certType": "FINAL"
+  },
+  {
+    "id": "9997-5063 CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2004,
+    "superficie": 129.6,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 174.71,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "9997-5063 CEE PREVISTO AEROTERMIA.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2004,
+    "superficie": 129.6,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 174.71,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "AEROTERMIA.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1960,
+    "superficie": 159,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 279.83,
+    "certType": "DESCONOCIDO"
+  },
+  {
+    "id": "AISLAMIENTO.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1980,
+    "superficie": 203.82,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 135.85,
+    "certType": "DESCONOCIDO"
+  },
+  {
+    "id": "CEE ESTADO ACTUAL - BARRIONUEVO 39, 13610.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1984,
+    "superficie": 178.04,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 177.12,
+    "certType": "DESCONOCIDO"
+  },
+  {
+    "id": "CEE FINAL AEROTERMIA - LGCR - MONTES DE TOLEDO 58.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2004,
+    "superficie": 150,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 234.27,
+    "certType": "FINAL"
+  },
+  {
+    "id": "CEE FINAL CAE.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2009,
+    "superficie": 118,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 212.49,
+    "certType": "FINAL"
+  },
+  {
+    "id": "CEE FINAL CANALEJAS 5.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1985,
+    "superficie": 190,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 136.25,
+    "certType": "FINAL"
+  },
+  {
+    "id": "CEE FINAL MAE VENTANAS Y AEROTERMIA.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1989,
+    "superficie": 192,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 214.84,
+    "certType": "FINAL"
+  },
+  {
+    "id": "CEE FINAL MAE VENTANAS Y AEROTERMIA_v1.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1989,
+    "superficie": 192,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 237.84,
+    "certType": "FINAL"
+  },
+  {
+    "id": "CEE FINAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2012,
+    "superficie": 225,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 198.64,
+    "certType": "FINAL"
+  },
+  {
+    "id": "CEE FINAL_1.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1980,
+    "superficie": 190,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 321.1,
+    "certType": "FINAL"
+  },
+  {
+    "id": "CEE FINAL_10.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1977,
+    "superficie": 150,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 297.47,
+    "certType": "FINAL"
+  },
+  {
+    "id": "CEE FINAL_11.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1980,
+    "superficie": 140,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 211.1,
+    "certType": "FINAL"
+  },
+  {
+    "id": "CEE FINAL_2.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1960,
+    "superficie": 123,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 291.2,
+    "certType": "FINAL"
+  },
+  {
+    "id": "CEE FINAL_3.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2008,
+    "superficie": 140,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 206.8,
+    "certType": "FINAL"
+  },
+  {
+    "id": "CEE FINAL_4.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2000,
+    "superficie": 193,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 189.42,
+    "certType": "FINAL"
+  },
+  {
+    "id": "CEE FINAL_5.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1974,
+    "superficie": 211,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 176.98,
+    "certType": "FINAL"
+  },
+  {
+    "id": "CEE FINAL_6.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2008,
+    "superficie": 111,
+    "tipo": "ViviendaIndividualEnBloque",
+    "demandaCalefaccion": 150.82,
+    "certType": "FINAL"
+  },
+  {
+    "id": "CEE FINAL_7.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1993,
+    "superficie": 145,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 293.41,
+    "certType": "FINAL"
+  },
+  {
+    "id": "CEE FINAL_8.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1993,
+    "superficie": 196,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 207.56,
+    "certType": "FINAL"
+  },
+  {
+    "id": "CEE FINAL_9.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1981,
+    "superficie": 108,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 248.12,
+    "certType": "FINAL"
+  },
+  {
+    "id": "CEE FINAL_TER080.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1996,
+    "superficie": 1272,
+    "tipo": "EdificioUsoTerciario",
+    "demandaCalefaccion": 149.98,
+    "certType": "FINAL"
+  },
+  {
+    "id": "CEE IICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2003,
+    "superficie": 117,
+    "tipo": "ViviendaIndividualEnBloque",
+    "demandaCalefaccion": 262.75,
+    "certType": "DESCONOCIDO"
+  },
+  {
+    "id": "CEE INICIAL - CALLE CANALEJAS 5.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1985,
+    "superficie": 100,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 331.63,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL ACS BUTANO Y RADIADORES ELECTRICOS.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1982,
+    "superficie": 110,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 292.52,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL ACS BUTANO.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1982,
+    "superficie": 110,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 292.52,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL CON GAS.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2007,
+    "superficie": 200,
+    "tipo": "LocalUsoTerciario",
+    "demandaCalefaccion": 104.38,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL MAE VENTANAS Y AEROTERMIA.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1989,
+    "superficie": 192,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 258.88,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL SIMULACION.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2008,
+    "superficie": 153,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 167.33,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL SIMULACION_1.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1940,
+    "superficie": 315,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 313.34,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL SIN AACC.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2007,
+    "superficie": 200,
+    "tipo": "LocalUsoTerciario",
+    "demandaCalefaccion": 104.38,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL SOBRE APORTADO.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1920,
+    "superficie": 179,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 264.47,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL URALITA.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1940,
+    "superficie": 163,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 351.34,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2020,
+    "superficie": 131,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 83.08,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL_1.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1991,
+    "superficie": 87,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 302.37,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL_10.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1980,
+    "superficie": 152,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 276.33,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL_11.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1960,
+    "superficie": 215,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 230.91,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL_12.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1999,
+    "superficie": 276,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 272.38,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL_13.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1980,
+    "superficie": 190,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 321.1,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL_14.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1960,
+    "superficie": 123,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 291.2,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL_15.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1980,
+    "superficie": 190,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 323.13,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL_16.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1990,
+    "superficie": 210,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 240.71,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL_17.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2008,
+    "superficie": 140,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 206.8,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL_18.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2000,
+    "superficie": 278,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 201.24,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL_19.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1986,
+    "superficie": 122,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 249.9,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL_2.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1995,
+    "superficie": 110,
+    "tipo": "ViviendaIndividualEnBloque",
+    "demandaCalefaccion": 172.39,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL_20.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2007,
+    "superficie": 215,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 195.9,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL_21.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1994,
+    "superficie": 182,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 265.16,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL_22.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2007,
+    "superficie": 153,
+    "tipo": "ViviendaIndividualEnBloque",
+    "demandaCalefaccion": 179.99,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL_23.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2000,
+    "superficie": 193,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 189.42,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL_24.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1950,
+    "superficie": 262,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 226.77,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL_25.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1987,
+    "superficie": 165,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 218.98,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL_26.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1978,
+    "superficie": 151,
+    "tipo": "ViviendaIndividualEnBloque",
+    "demandaCalefaccion": 214.15,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL_27.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2007,
+    "superficie": 185,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 230.42,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL_28.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2020,
+    "superficie": 131,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 83.08,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL_29.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D1",
+    "anoConstruccion": 1984,
+    "superficie": 464,
+    "tipo": "EdificioUsoTerciario",
+    "demandaCalefaccion": 132.42,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL_3.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2002,
+    "superficie": 271,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 190.56,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL_30.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1980,
+    "superficie": 290,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 265.59,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL_31.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2001,
+    "superficie": 144,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 271.22,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL_32.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2002,
+    "superficie": 144,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 272.26,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL_33.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1994,
+    "superficie": 144,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 243.06,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL_34.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1999,
+    "superficie": 209,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 250.62,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL_35.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2008,
+    "superficie": 153,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 165.32,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL_36.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1994,
+    "superficie": 110,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 274.19,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL_37.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1900,
+    "superficie": 130,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 254.85,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL_38.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1991,
+    "superficie": 110,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 275.97,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL_39.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2008,
+    "superficie": 159,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 217.37,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL_4.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1950,
+    "superficie": 270,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 267.16,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL_40.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1954,
+    "superficie": 154,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 222.66,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL_41.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2005,
+    "superficie": 220,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 208.53,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL_42.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2018,
+    "superficie": 227,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 166.82,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL_43.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2008,
+    "superficie": 365,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 170.9,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL_44.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1978,
+    "superficie": 151,
+    "tipo": "ViviendaIndividualEnBloque",
+    "demandaCalefaccion": 214.15,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL_45.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2001,
+    "superficie": 170,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 245.96,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL_46.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1960,
+    "superficie": 159,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 295.48,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL_47.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1984,
+    "superficie": 303,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 301.67,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL_48.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2007,
+    "superficie": 170,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 249.9,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL_49.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1993,
+    "superficie": 145,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 299.28,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL_5.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D2",
+    "anoConstruccion": 2009,
+    "superficie": 454,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 255.86,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL_50.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1930,
+    "superficie": 113,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 366.85,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL_51.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1968,
+    "superficie": 334,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 277.06,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL_52.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2000,
+    "superficie": 227,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 309.91,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL_53.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1993,
+    "superficie": 196,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 223.31,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL_54.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1985,
+    "superficie": 121,
+    "tipo": "ViviendaIndividualEnBloque",
+    "demandaCalefaccion": 158.67,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL_55.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1940,
+    "superficie": 226,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 288.31,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL_56.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1985,
+    "superficie": 155,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 300.56,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL_57.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1991,
+    "superficie": 140,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 315.22,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL_58.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1955,
+    "superficie": 150,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 238.22,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL_59.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1981,
+    "superficie": 108,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 268.75,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL_6.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1992,
+    "superficie": 210,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 234.79,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL_60.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2004,
+    "superficie": 131,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 214.34,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL_61.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1987,
+    "superficie": 159,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 224.03,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL_62.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1997,
+    "superficie": 170,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 234.96,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL_63.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1982,
+    "superficie": 110,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 292.52,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL_64.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1992,
+    "superficie": 112,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 270.49,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL_65.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2007,
+    "superficie": 200,
+    "tipo": "LocalUsoTerciario",
+    "demandaCalefaccion": 104.38,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL_66.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1994,
+    "superficie": 110,
+    "tipo": "LocalUsoTerciario",
+    "demandaCalefaccion": 177.41,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL_67.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1970,
+    "superficie": 550,
+    "tipo": "EdificioUsoTerciario",
+    "demandaCalefaccion": 145.33,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL_68.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1985,
+    "superficie": 179,
+    "tipo": "EdificioUsoTerciario",
+    "demandaCalefaccion": 334.08,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL_7.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1956,
+    "superficie": 60,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 307.35,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL_8.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2012,
+    "superficie": 225,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 198.64,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE INICIAL_9.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1999,
+    "superficie": 224,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 232.49,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "CEE PREVISTO + AIRES.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1991,
+    "superficie": 140,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 300.96,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "CEE PREVISTO +FV.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1980,
+    "superficie": 290,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 265.59,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "CEE PREVISTO .xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1997,
+    "superficie": 170,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 204.6,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "CEE PREVISTO AEROTERMIA - LGCR - MONTES DE TOLEDO 58.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2004,
+    "superficie": 150,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 234.27,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "CEE PREVISTO AEROTERMIA SATE Y VENTANAS.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1982,
+    "superficie": 110,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 173.74,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "CEE PREVISTO AEROTERMIA SATE.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1982,
+    "superficie": 110,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 191.71,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "CEE PREVISTO AEROTERMIA.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2020,
+    "superficie": 131,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 83.08,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "CEE PREVISTO AEROTERMIA_1.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2020,
+    "superficie": 131,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 83.08,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "CEE PREVISTO AEROTERMIA_2.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1998,
+    "superficie": 221,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 201.47,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "CEE PREVISTO AEROTERMIA_3.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1982,
+    "superficie": 110,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 292.52,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "CEE PREVISTO AEROTERMIA_4.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1982,
+    "superficie": 110,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 280.41,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "CEE PREVISTO CAE.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1950,
+    "superficie": 92.4,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 183.71,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "CEE PREVISTO CAE_1.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2008,
+    "superficie": 117,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 162.71,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "CEE PREVISTO CON ACS.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1993,
+    "superficie": 145,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 299.28,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "CEE PREVISTO CON AISLAMIENTO.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1956,
+    "superficie": 60,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 176.82,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "CEE PREVISTO CONDUCTOS.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1972,
+    "superficie": 193,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 186.71,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "CEE PREVISTO FML.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1984,
+    "superficie": 195,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 242.83,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "CEE PREVISTO FV + AEROTERMIA.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1999,
+    "superficie": 252,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 250.45,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "CEE PREVISTO FV.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2002,
+    "superficie": 271,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 190.56,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "CEE PREVISTO MAE VENTANAS Y AEROTERMIA.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1989,
+    "superficie": 192,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 215.63,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "CEE PREVISTO RADIADORES.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1972,
+    "superficie": 193,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 186.71,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "CEE PREVISTO RADIADORES_1.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1985,
+    "superficie": 155,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 239.25,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "CEE PREVISTO RES080.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1950,
+    "superficie": 270,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 227.65,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "CEE PREVISTO RES080_1.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1950,
+    "superficie": 262,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 212.41,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "CEE PREVISTO RES080_2.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1976,
+    "superficie": 121,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 328.46,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "CEE PREVISTO RES080_3.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1994,
+    "superficie": 110,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 208.42,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "CEE PREVISTO RES080_4.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1995,
+    "superficie": 100,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 242.07,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "CEE PREVISTO RES080_5.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1956,
+    "superficie": 128.8,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 232.18,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "CEE PREVISTO RES080_6.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1977,
+    "superficie": 150,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 291.03,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "CEE PREVISTO SIMULACION.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1940,
+    "superficie": 315,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 313.34,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "CEE PREVISTO SIN ACS.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1993,
+    "superficie": 145,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 299.28,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "CEE PREVISTO SOLO AEROTERMIA.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1956,
+    "superficie": 178,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 214.74,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "CEE PREVISTO TER 1000.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1996,
+    "superficie": 1272,
+    "tipo": "EdificioUsoTerciario",
+    "demandaCalefaccion": 164.84,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "CEE PREVISTO VENTANAS.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1970,
+    "superficie": 550,
+    "tipo": "LocalUsoTerciario",
+    "demandaCalefaccion": 145.33,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "CEE PREVISTO.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1956,
+    "superficie": 60,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 286.94,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "CEE PREVISTO_1.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1990,
+    "superficie": 210,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 227.61,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "CEE PREVISTO_10.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2008,
+    "superficie": 177,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 157.93,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "CEE PREVISTO_11.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "C4",
+    "anoConstruccion": 2005,
+    "superficie": 305,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 194.6,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "CEE PREVISTO_12.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1978,
+    "superficie": 151,
+    "tipo": "ViviendaIndividualEnBloque",
+    "demandaCalefaccion": 214.15,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "CEE PREVISTO_13.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2001,
+    "superficie": 170,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 209.79,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "CEE PREVISTO_14.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1970,
+    "superficie": 219,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 236.33,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "CEE PREVISTO_15.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2000,
+    "superficie": 227,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 291.6,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "CEE PREVISTO_16.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1991,
+    "superficie": 140,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 300.96,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "CEE PREVISTO_17.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1981,
+    "superficie": 108,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 254.17,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "CEE PREVISTO_18.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1980,
+    "superficie": 140,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 260.2,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "CEE PREVISTO_19.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1998,
+    "superficie": 130,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 282.34,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "CEE PREVISTO_2.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2000,
+    "superficie": 278,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 201.24,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "CEE PREVISTO_20.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1965,
+    "superficie": 207,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 215.34,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "CEE PREVISTO_21.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2009,
+    "superficie": 205,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 194.48,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "CEE PREVISTO_22.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1992,
+    "superficie": 112,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 270.49,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "CEE PREVISTO_23.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2007,
+    "superficie": 200,
+    "tipo": "LocalUsoTerciario",
+    "demandaCalefaccion": 99.19,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "CEE PREVISTO_24.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1994,
+    "superficie": 110,
+    "tipo": "LocalUsoTerciario",
+    "demandaCalefaccion": 89.98,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "CEE PREVISTO_25.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1996,
+    "superficie": 1272,
+    "tipo": "EdificioUsoTerciario",
+    "demandaCalefaccion": 118.03,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "CEE PREVISTO_3.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2009,
+    "superficie": 284,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 187.63,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "CEE PREVISTO_4.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1987,
+    "superficie": 165,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 218.98,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "CEE PREVISTO_5.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1978,
+    "superficie": 151,
+    "tipo": "ViviendaIndividualEnBloque",
+    "demandaCalefaccion": 214.15,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "CEE PREVISTO_6.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1994,
+    "superficie": 164,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 183.17,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "CEE PREVISTO_7.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1955,
+    "superficie": 369,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 203.54,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "CEE PREVISTO_8.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1980,
+    "superficie": 290,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 265.59,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "CEE PREVISTO_9.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2002,
+    "superficie": 144,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 272.26,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "CEE PREVISTO_SUELO RADIANTE.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1985,
+    "superficie": 155,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 239.25,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "CEE RES060.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1977,
+    "superficie": 120,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 190.15,
+    "certType": "DESCONOCIDO"
+  },
+  {
+    "id": "CEE VIRGEN.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1965,
+    "superficie": 207,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 229.52,
+    "certType": "DESCONOCIDO"
+  },
+  {
+    "id": "CEEPREVISTO RES080.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1955,
+    "superficie": 150,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 194.24,
+    "certType": "PREVISTO"
+  },
+  {
+    "id": "CEE_20240204_01.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1974,
+    "superficie": 211,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 176.98,
+    "certType": "DESCONOCIDO"
+  },
+  {
+    "id": "CERTIFICADO DE EFICIENCIA ENERGÉTICA 11-03-2025 .xml",
+    "provincia": "Cuenca",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2005,
+    "superficie": 220,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 113.66,
+    "certType": "DESCONOCIDO"
+  },
+  {
+    "id": "CERTIFICADO INICIAL_MOD.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1983,
+    "superficie": 236,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 200.1,
+    "certType": "INICIAL"
+  },
+  {
+    "id": "Certificado.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1920,
+    "superficie": 129,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 221.84,
+    "certType": "DESCONOCIDO"
+  },
+  {
+    "id": "Certificado_1.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1920,
+    "superficie": 129,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 220.16,
+    "certType": "DESCONOCIDO"
+  },
+  {
+    "id": "CERTIFICADO_RES080.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1983,
+    "superficie": 236,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 197.78,
+    "certType": "DESCONOCIDO"
+  },
+  {
+    "id": "INFORME CL VILLAVERDE 2_FINAL.xml",
+    "provincia": "Madrid",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1987,
+    "superficie": 143.1,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 201.87,
+    "certType": "FINAL"
+  },
+  {
+    "id": "INTEGRAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1960,
+    "superficie": 159,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 154.4,
+    "certType": "DESCONOCIDO"
+  },
+  {
+    "id": "INTEGRAL1.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1940,
+    "superficie": 315,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 213.56,
+    "certType": "DESCONOCIDO"
+  },
+  {
+    "id": "INTEGRAL_1.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1984,
+    "superficie": 303,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 213.56,
+    "certType": "DESCONOCIDO"
+  },
+  {
+    "id": "INTEGRAL_2.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1930,
+    "superficie": 113,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 127.75,
+    "certType": "DESCONOCIDO"
+  },
+  {
+    "id": "INTEGRAL_3.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1968,
+    "superficie": 334,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 214.08,
+    "certType": "DESCONOCIDO"
+  },
+  {
+    "id": "INTEGRAL_4.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1940,
+    "superficie": 226,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 207.12,
+    "certType": "DESCONOCIDO"
+  },
+  {
+    "id": "INTEGRAL_5.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1940,
+    "superficie": 315,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 216.43,
+    "certType": "DESCONOCIDO"
+  },
+  {
+    "id": "MAE 1.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1950,
+    "superficie": 92.4,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 210.68,
+    "certType": "DESCONOCIDO"
+  },
+  {
+    "id": "MAE 1_1.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1940,
+    "superficie": 163,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 165.07,
+    "certType": "DESCONOCIDO"
+  },
+  {
+    "id": "MAE 1_2.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1940,
+    "superficie": 163,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 165.07,
+    "certType": "DESCONOCIDO"
+  },
+  {
+    "id": "MAE 1_3.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1940,
+    "superficie": 163,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 112.12,
+    "certType": "DESCONOCIDO"
+  },
+  {
+    "id": "MAE 1_INTEGRAL.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1956,
+    "superficie": 171,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 149.56,
+    "certType": "DESCONOCIDO"
+  },
+  {
+    "id": "MAE 2.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1950,
+    "superficie": 92.4,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 210.68,
+    "certType": "DESCONOCIDO"
+  },
+  {
+    "id": "MAE 2_1.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1999,
+    "superficie": 200,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 159.64,
+    "certType": "DESCONOCIDO"
+  },
+  {
+    "id": "MAE 2_2.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1940,
+    "superficie": 163,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 140.93,
+    "certType": "DESCONOCIDO"
+  },
+  {
+    "id": "MAE 2_3.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1940,
+    "superficie": 163,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 140.93,
+    "certType": "DESCONOCIDO"
+  },
+  {
+    "id": "MAE 3.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1950,
+    "superficie": 92.4,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 145.82,
+    "certType": "DESCONOCIDO"
+  },
+  {
+    "id": "MAE 3_1.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1999,
+    "superficie": 200,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 57.27,
+    "certType": "DESCONOCIDO"
+  },
+  {
+    "id": "MAE 3_2.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1940,
+    "superficie": 163,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 140.93,
+    "certType": "DESCONOCIDO"
+  },
+  {
+    "id": "MAE 3_3.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1940,
+    "superficie": 163,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 140.93,
+    "certType": "DESCONOCIDO"
+  },
+  {
+    "id": "MAE 4.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1950,
+    "superficie": 92.4,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 210.68,
+    "certType": "DESCONOCIDO"
+  },
+  {
+    "id": "MAE1.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1999,
+    "superficie": 200,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 106.64,
+    "certType": "DESCONOCIDO"
+  },
+  {
+    "id": "Nivel 2 de priorización.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1940,
+    "superficie": 163,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 127.22,
+    "certType": "DESCONOCIDO"
+  },
+  {
+    "id": "Nivel 2 de priorización_1.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1940,
+    "superficie": 163,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 127.22,
+    "certType": "DESCONOCIDO"
+  },
+  {
+    "id": "P02816-23.1_AER-v2.xml",
+    "provincia": "Barcelona",
+    "zonaClimatica": "C2",
+    "anoConstruccion": 2003,
+    "superficie": 266.99,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 86.17,
+    "certType": "DESCONOCIDO"
+  },
+  {
+    "id": "P02816-23.1_AER.xml",
+    "provincia": "Barcelona",
+    "zonaClimatica": "C2",
+    "anoConstruccion": 2003,
+    "superficie": 266.99,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 86.17,
+    "certType": "DESCONOCIDO"
+  },
+  {
+    "id": "PyE.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2007,
+    "superficie": 442.22,
+    "tipo": "ViviendaIndividualEnBloque",
+    "demandaCalefaccion": 74.51,
+    "certType": "DESCONOCIDO"
+  },
+  {
+    "id": "RES080.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D2",
+    "anoConstruccion": 2009,
+    "superficie": 454,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 218.07,
+    "certType": "DESCONOCIDO"
+  },
+  {
+    "id": "RES080_1.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1991,
+    "superficie": 110,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 263.7,
+    "certType": "DESCONOCIDO"
+  },
+  {
+    "id": "RES080_2.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1954,
+    "superficie": 154,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 199.68,
+    "certType": "DESCONOCIDO"
+  },
+  {
+    "id": "RES080_3.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2007,
+    "superficie": 170,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 118.83,
+    "certType": "DESCONOCIDO"
+  },
+  {
+    "id": "RES080_4.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1985,
+    "superficie": 121,
+    "tipo": "ViviendaIndividualEnBloque",
+    "demandaCalefaccion": 132.35,
+    "certType": "DESCONOCIDO"
+  },
+  {
+    "id": "RES080_5.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 2004,
+    "superficie": 131,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 146.39,
+    "certType": "DESCONOCIDO"
+  },
+  {
+    "id": "RES080_6.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1987,
+    "superficie": 159,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 189.55,
+    "certType": "DESCONOCIDO"
+  },
+  {
+    "id": "VENTANAS.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1984,
+    "superficie": 303,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 278.83,
+    "certType": "DESCONOCIDO"
+  },
+  {
+    "id": "VENTANAS_1.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1968,
+    "superficie": 334,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 234.6,
+    "certType": "DESCONOCIDO"
+  },
+  {
+    "id": "VENTANAS_2.xml",
+    "provincia": "Ciudad Real",
+    "zonaClimatica": "D3",
+    "anoConstruccion": 1940,
+    "superficie": 315,
+    "tipo": "ViviendaUnifamiliar",
+    "demandaCalefaccion": 298.67,
+    "certType": "DESCONOCIDO"
+  }
+]
