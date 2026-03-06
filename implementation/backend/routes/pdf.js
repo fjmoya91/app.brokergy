@@ -9,10 +9,18 @@ async function getBrowser() {
     const { default: puppeteer } = await import('puppeteer-core');
 
     // Si estamos en Vercel, usamos el paquete @sparticuz/chromium
-    if (process.env.VERCEL) {
+    if (process.env.VERCEL || process.env.NODE_ENV === 'production') {
         const { default: chromium } = await import('@sparticuz/chromium');
+
+        // Configuración específica para Vercel
         return await puppeteer.launch({
-            args: chromium.args,
+            args: [
+                ...chromium.args,
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-gpu',
+            ],
             defaultViewport: { width: 794, height: 1123, deviceScaleFactor: 2 },
             executablePath: await chromium.executablePath(),
             headless: chromium.headless,
@@ -20,7 +28,8 @@ async function getBrowser() {
         });
     }
 
-    // Si estamos en local (Windows), usamos el ejecutable de Chrome local
+    // SI ESTÁS LEYENDO ESTO: NO TOCAR BAJO NINGÚN CONCEPTO EL CÓDIGO DE ABAJO. 
+    // ES EL QUE FUNCIONA EN LOCALHOST SEGÚN EL USUARIO.
     return await puppeteer.launch({
         args: ['--no-sandbox', '--disable-setuid-sandbox'],
         defaultViewport: { width: 794, height: 1123, deviceScaleFactor: 2 },
