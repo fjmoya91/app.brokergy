@@ -3,11 +3,6 @@
     "buildCommand": "cd implementation && npm install && npm run build",
     "outputDirectory": "implementation/frontend/dist",
     "framework": "vite",
-    "functions": {
-        "implementation/api/index.js": {
-            "maxDuration": 60
-        }
-    },
     "rewrites": [
         {
             "source": "/api/(.*)",
