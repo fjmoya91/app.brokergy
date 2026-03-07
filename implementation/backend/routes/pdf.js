@@ -58,11 +58,20 @@ router.post('/generate', async (req, res) => {
 
         await page.setViewport({ width: 794, height: 1123, deviceScaleFactor: 2 });
 
-        // setContent con timeout y espera a que la red esté inactiva
+        // setContent con timeout; usamos domcontentloaded para no bloquear
+        // en recursos externos como Google Fonts (que pueden timeout en Lambda)
         await page.setContent(html, {
-            waitUntil: ['domcontentloaded', 'networkidle2'],
+            waitUntil: 'domcontentloaded',
             timeout: 30000
         });
+
+        // Esperar a que las fuentes estén listas (si se cargaron)
+        try {
+            await Promise.race([
+                page.evaluateHandle('document.fonts.ready'),
+                new Promise(r => setTimeout(r, 3000))
+            ]);
+        } catch (_) { /* continuar si falla */ }
 
         const pdfBuffer = await page.pdf({
             format: 'A4',
@@ -72,13 +81,10 @@ router.post('/generate', async (req, res) => {
             scale: 1,
         });
 
-        res.set({
-            'Content-Type': 'application/pdf',
-            'Content-Disposition': 'attachment; filename="Propuesta_Brokergy.pdf"',
-            'Cache-Control': 'no-cache'
-        });
-
-        res.end(pdfBuffer);
+        // Enviar como base64 JSON para evitar problemas de serialización
+        // binaria en Vercel serverless (Buffer → JSON.stringify issue)
+        const pdfBase64 = Buffer.from(pdfBuffer).toString('base64');
+        res.json({ pdf: pdfBase64 });
     } catch (error) {
         console.error('Error generando PDF:', error);
         res.status(500).json({

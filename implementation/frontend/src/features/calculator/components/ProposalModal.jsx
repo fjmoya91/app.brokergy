@@ -93,26 +93,24 @@ export function ProposalModal({ isOpen, onClose, result, inputs }) {
             // Enviar al backend para generar PDF con Puppeteer
             const response = await axios.post('/api/pdf/generate',
                 { html: fullHtml },
-                { responseType: 'blob', timeout: 45000 }
+                { timeout: 60000 }
             );
 
-            const blob = response.data;
+            // El backend devuelve { pdf: base64string } para evitar problemas
+            // de serialización binaria en Vercel serverless
+            const { pdf: pdfBase64, error: serverError, message: serverMessage } = response.data;
 
-            // Si el backend devuelve un error en JSON (aunque la petición sea blob)
-            if (blob.type === 'application/json') {
-                const reader = new FileReader();
-                reader.onload = () => {
-                    try {
-                        const errorData = JSON.parse(reader.result);
-                        alert(`Error al generar PDF: ${errorData.message || 'Error desconocido'}`);
-                    } catch (e) {
-                        alert('Error al generar el PDF. El servidor devolvió una respuesta inesperada.');
-                    }
-                };
-                reader.readAsText(blob);
+            if (serverError || !pdfBase64) {
+                alert(`Error al generar PDF: ${serverMessage || 'Error desconocido'}`);
                 setGenerating(false);
                 return;
             }
+
+            // Decodificar base64 a Blob
+            const binaryStr = atob(pdfBase64);
+            const bytes = new Uint8Array(binaryStr.length);
+            for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
+            const blob = new Blob([bytes], { type: 'application/pdf' });
 
             // Descargar el PDF recibido
             const safeRc = (inputs?.rc || 'Simulacion').replace(/[^a-zA-Z0-9_\-]/g, '_');
@@ -126,17 +124,8 @@ export function ProposalModal({ isOpen, onClose, result, inputs }) {
             window.URL.revokeObjectURL(url);
         } catch (error) {
             console.error('Error generating PDF:', error);
-            if (error.response && error.response.data instanceof Blob) {
-                const text = await error.response.data.text();
-                try {
-                    const json = JSON.parse(text);
-                    alert(`Error: ${json.message || 'Error en el servidor'}`);
-                } catch (e) {
-                    alert('Error al generar el PDF. El servidor no pudo procesar la solicitud.');
-                }
-            } else {
-                alert('Hubo un error al generar el PDF. Comprueba tu conexión o inténtalo más tarde.');
-            }
+            const msg = error.response?.data?.message || error.message || 'Error desconocido';
+            alert(`Error al generar el PDF: ${msg}`);
         } finally {
             setGenerating(false);
         }
