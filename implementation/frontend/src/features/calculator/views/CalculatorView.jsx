@@ -263,7 +263,12 @@ export function CalculatorView({ initialData, onBack }) {
                     </div>
                 </div>
 
-                <div className="hidden md:block">
+                <div className="hidden md:flex items-center gap-4">
+                    {inputs.referenciaCliente && (
+                        <span className="text-[10px] font-bold text-cyan-400 uppercase tracking-widest bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20">
+                            {inputs.referenciaCliente}
+                        </span>
+                    )}
                     {inputs.rc && (
                         <span className="px-3 py-1 bg-white/5 rounded-full border border-white/10 text-[10px] font-mono text-slate-400">
                             RC: {inputs.rc}
