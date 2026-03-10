@@ -210,7 +210,7 @@ function App() {
       {/* Content */}
       <div className="relative z-10 px-4 py-8 md:py-12">
         {(step === 'SEARCH' || step === 'CONFIRM') && (
-          <header className="max-w-4xl mx-auto text-center mb-10 animate-slide-down">
+          <header className="max-w-6xl mx-auto text-center mb-10 animate-slide-down">
             <div className="inline-flex items-center gap-4 mb-4">
               <h1 className="text-3xl md:text-5xl font-bold tracking-tight">
                 <span className="text-white">Calculadora</span>{' '}
@@ -238,7 +238,7 @@ function App() {
         )}
 
         {/* Main Content */}
-        <main className="max-w-5xl mx-auto">
+        <main className="max-w-[1600px] mx-auto">
           {step === 'SEARCH' && (
             <div className="animate-fade-in max-w-4xl mx-auto">
               <CatastroSearchBox
@@ -301,16 +301,9 @@ function App() {
                         onClick={() => {
                           setShowExistingModal(false);
                           const inputs = existingOpportunityData.datos_calculo?.inputs || {};
-                          setCalculatorData({
-                            ...pendingPropertyData,
-                            ...inputs,
-                            referenciaCliente: existingOpportunityData.referencia_cliente || inputs.referenciaCliente,
-                            id_oportunidad: existingOpportunityData.id_oportunidad,
-                            isPersistent: true
-                          });
                           setPersistentCalculatorInputs(inputs);
                           setPropertyData(pendingPropertyData);
-                          setStep('CALCULATOR');
+                          setStep('RESULT');
                         }}
                       >
                         Cargar datos existentes
@@ -431,16 +424,27 @@ function App() {
                 </svg>
                 Volver a la Calculadora
               </button>
-              <AdminPanelView onLoadOpportunity={(op) => {
-                const inputs = op.datos_calculo?.inputs || {};
-                setCalculatorData({
-                  ...inputs,
-                  rc: op.ref_catastral,
-                  referenciaCliente: op.referencia_cliente || inputs.referenciaCliente,
-                  id_oportunidad: op.id_oportunidad,
-                  isPersistent: true
-                });
-                setStep('CALCULATOR');
+              <AdminPanelView onLoadOpportunity={async (op) => {
+                setLoading(true);
+                setError(null);
+                try {
+                  // Fetch full catastro data by RC
+                  const res = await axios.get(`${API_URL}/property-data`, { params: { rc: op.ref_catastral } });
+                  const catastroData = res.data;
+
+                  // Setup existing data for the calculator context
+                  setExistingOpportunityData(op);
+
+                  const inputs = op.datos_calculo?.inputs || {};
+                  setPersistentCalculatorInputs(inputs);
+                  setPropertyData(catastroData);
+                  setStep('RESULT');
+                } catch (err) {
+                  console.error('Error loading opportunity data:', err);
+                  setError('No se pudieron cargar los datos catastrales de esta oportunidad.');
+                } finally {
+                  setLoading(false);
+                }
               }} />
             </div>
           )}
@@ -448,7 +452,7 @@ function App() {
         </main>
 
         {/* Footer */}
-        <footer className="max-w-4xl mx-auto mt-16 text-center">
+        <footer className="max-w-6xl mx-auto mt-16 text-center">
           <p className="text-white/30 text-sm">
             Datos oficiales del Catastro de España · Ministerio de Hacienda
           </p>

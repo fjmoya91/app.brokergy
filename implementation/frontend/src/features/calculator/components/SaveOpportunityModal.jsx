@@ -14,6 +14,7 @@ export function SaveOpportunityModal({ isOpen, onClose, onSaveSuccess, inputs, r
     const [success, setSuccess] = useState(false);
     const [savedOportunidadId, setSavedOportunidadId] = useState(null);
     const [showConfirmation, setShowConfirmation] = useState(false);
+    const [nota, setNota] = useState('');
 
     if (!isOpen) return null;
 
@@ -30,7 +31,8 @@ export function SaveOpportunityModal({ isOpen, onClose, onSaveSuccess, inputs, r
                 datos_calculo: {
                     inputs,
                     result
-                }
+                },
+                nota: nota.trim() || null
             };
 
             const response = await axios.post('/api/oportunidades', payload);
@@ -76,6 +78,7 @@ export function SaveOpportunityModal({ isOpen, onClose, onSaveSuccess, inputs, r
             // Solo limpiamos si ha habido éxito, para que si cancelas se mantenga lo escrito
             if (success) {
                 setReferenciaCliente('');
+                setNota('');
             }
             setSuccess(false);
             setSavedOportunidadId(null);
@@ -123,6 +126,18 @@ export function SaveOpportunityModal({ isOpen, onClose, onSaveSuccess, inputs, r
                                         placeholder="Ej: Cliente Martínez, Proyecto Centro..."
                                         value={referenciaCliente}
                                         onChange={(e) => setReferenciaCliente(e.target.value)}
+                                    />
+                                </div>
+
+                                <div>
+                                    <Label htmlFor="nota">Nota inicial (opcional)</Label>
+                                    <textarea
+                                        id="nota"
+                                        rows="3"
+                                        placeholder="Añade una nota que aparecerá en el historial de la oportunidad..."
+                                        className="w-full bg-slate-800/50 border border-slate-700/50 rounded-xl px-4 py-3 text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/50 transition-all resize-none text-sm"
+                                        value={nota}
+                                        onChange={(e) => setNota(e.target.value)}
                                     />
                                 </div>
 

@@ -28,7 +28,11 @@ app.use('/api/pdf', pdfRoutes);
 
 // Health check
 app.get('/health', (req, res) => {
-  res.status(200).json({ status: 'OK', timestamp: new Date() });
+  res.status(200).json({ status: 'OK', timestamp: new Date(), version: '1.0.1-debug' });
+});
+
+app.get('/api/debug-direct', (req, res) => {
+  res.json({ message: 'Direct API access works', time: new Date() });
 });
 
 // Start server only if run directly

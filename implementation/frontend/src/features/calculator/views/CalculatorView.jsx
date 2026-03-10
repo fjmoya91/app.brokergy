@@ -185,7 +185,8 @@ export function CalculatorView({ initialData, onBack }) {
             prescriptorMode: sanitizedInputs.prescriptorMode,
             tipo: sanitizedInputs.tipo,
             participation: sanitizedInputs.participation,
-            numOwners: sanitizedInputs.numOwners
+            numOwners: sanitizedInputs.numOwners,
+            discountCertificates: sanitizedInputs.discountCertificates
         });
 
         // 4. Cálculos de Ahorro Anual (€)
@@ -230,6 +231,29 @@ export function CalculatorView({ initialData, onBack }) {
 
     return (
         <div className="animate-fade-in text-white">
+            {/* Sticky Bono Badge */}
+            {result?.financials?.caeBonus !== undefined && (
+                <div className="fixed bottom-0 md:bottom-auto md:top-0 left-0 right-0 z-[100] p-2 md:p-4 flex justify-center pointer-events-none">
+                    <div className="w-full max-w-md bg-slate-950/90 md:bg-slate-950/80 backdrop-blur-xl border border-amber-500/40 rounded-2xl md:rounded-3xl p-3 md:p-4 shadow-[0_-10px_40px_rgba(245,158,11,0.15)] md:shadow-[0_20px_50px_rgba(245,158,11,0.2)] flex items-center justify-between pointer-events-auto transform hover:scale-[1.02] transition-all duration-500 ring-1 ring-white/10 group">
+                        <div className="flex items-center gap-3 md:gap-4">
+                            <div className="w-10 h-10 md:w-12 md:h-12 rounded-xl md:rounded-2xl bg-gradient-to-br from-amber-400 to-orange-600 flex items-center justify-center shadow-lg shadow-amber-500/20 group-hover:rotate-12 transition-transform duration-500">
+                                <svg className="w-5 h-5 md:w-6 md:h-6 text-slate-900" fill="currentColor" viewBox="0 0 24 24">
+                                    <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
+                                </svg>
+                            </div>
+                            <div>
+                                <p className="text-[9px] md:text-[10px] font-black text-amber-500 uppercase tracking-[0.2em]">Bono Energético</p>
+                            </div>
+                        </div>
+                        <div className="flex items-baseline gap-1.5 md:gap-2 bg-white/5 py-1.5 px-4 md:py-2 md:px-6 rounded-xl md:rounded-2xl border border-white/5">
+                            <span className="text-3xl md:text-4xl font-black text-white tracking-tighter animate-pulse-slow">
+                                {new Intl.NumberFormat('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(result.financials.caeBonus)}
+                            </span>
+                            <span className="text-lg md:text-xl font-black text-amber-500">€</span>
+                        </div>
+                    </div>
+                </div>
+            )}
             {/* Header de la Calculadora */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
                 <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4 w-full md:w-auto">
@@ -240,7 +264,7 @@ export function CalculatorView({ initialData, onBack }) {
                         <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
                         </svg>
-                        Volver
+                        Volver a Ficha Técnica
                     </button>
 
                     {/* Selector de Vista Global (Experto UI/UX) */}

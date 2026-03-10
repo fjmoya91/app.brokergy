@@ -352,6 +352,13 @@ export function calculateSavings({
 }
 
 // ============================================================================
+// CONSTANTES DE COSTES FIJOS
+// ============================================================================
+export const CERTIFICATE_COST = 220.00; // CEE inicial + final
+export const CERTIFICATE_FEES = 32.78; // Tasas de registro
+export const TOTAL_CERTIFICATE_COST = CERTIFICATE_COST + CERTIFICATE_FEES;
+
+// ============================================================================
 // CÁLCULO FINANCIERO (IRPF + CAE)
 // ============================================================================
 export function calculateFinancials({
@@ -363,7 +370,8 @@ export function calculateFinancials({
     prescriptorMode = 'brokergy', // 'client', 'brokergy', 'both'
     tipo = 'unifamiliar',
     participation = 100, // Porcentaje de participación en la propiedad
-    numOwners = 1 // Número de propietarios para dividir la deducción
+    numOwners = 1, // Número de propietarios para dividir la deducción
+    discountCertificates = false // Si Brokergy asume el coste de los certificados
 }) {
     const savingsMwh = savingsKwh / 1000;
     const priceClientBase = parseFloat(caePriceClient) || 0;
@@ -383,13 +391,23 @@ export function calculateFinancials({
     }
 
     // 1. Bono CAE Cliente (Ajustado)
-    const finalPriceClient = Math.max(0, priceClientBase - discountClient);
-    const caeBonus = savingsMwh * finalPriceClient;
+    const priceClientDiscounted = Math.max(0, priceClientBase - discountClient);
+    let caeBonus = savingsMwh * priceClientDiscounted;
 
     // 2. Beneficio Brokergy (Ajustado)
     const rawSpread = priceSOBase - priceClientBase;
     const caePriceBrokergy = rawSpread - discountBrokergy;
-    const profitBrokergy = savingsMwh * caePriceBrokergy;
+    let profitBrokergy = savingsMwh * caePriceBrokergy;
+
+    // Lógica de Descuento de Certificados
+    if (discountCertificates) {
+        // Brokergy asume el coste -> Restamos del beneficio de Brokergy
+        profitBrokergy = Math.max(-TOTAL_CERTIFICATE_COST, profitBrokergy - TOTAL_CERTIFICATE_COST);
+        // El cliente recibe el bono íntegro (ya descontado el prescriptor si corresponde)
+    } else {
+        // El cliente asume el coste -> Restamos del bono del cliente
+        caeBonus = Math.max(0, caeBonus - TOTAL_CERTIFICATE_COST);
+    }
 
     // 3. Pago a Prescriptor
     const totalPrescriptor = savingsMwh * pricePrescriptor;
@@ -438,7 +456,7 @@ export function calculateFinancials({
         profitBrokergy,
         totalPrescriptor,
         prescriptorMode,
-        finalPriceClient
+        finalPriceClient: priceClientDiscounted
     };
 }
 
