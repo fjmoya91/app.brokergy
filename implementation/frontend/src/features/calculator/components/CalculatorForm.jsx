@@ -1,3 +1,4 @@
+// CalculatorForm v2.1 - Economic Data section + UI refinements (2026-03-10)
 import React, { useEffect, useState } from 'react';
 import { SectionCard, Button, Input, Label, Select, Divider } from './UIComponents';
 import { getUByYear, getVentanaYACHByYear, TYPE_DEFAULTS, BOILER_EFFICIENCIES, FUEL_PRICES, AEROTHERMIA_MODELS } from '../logic/calculation';

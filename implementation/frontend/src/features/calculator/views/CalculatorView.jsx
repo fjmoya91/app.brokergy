@@ -1,3 +1,4 @@
+// CalculatorView v2.1 - Updated 2026-03-10
 import React, { useState, useEffect } from 'react';
 import { CalculatorForm } from '../components/CalculatorForm';
 import { ResultsPanel } from '../components/ResultsPanel';
