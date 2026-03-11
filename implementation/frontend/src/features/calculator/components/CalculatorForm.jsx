@@ -839,6 +839,89 @@ export function CalculatorForm({ inputs, onInputChange, onCalculate, result, sho
                     {showEconomicData && (
                         <div className="p-4 pt-0 border-t border-slate-800/30 animate-scale-in">
                             <div className="pt-4 space-y-6">
+                                {/* Subsección Presupuesto y Propietarios */}
+                                <div className="p-4 rounded-xl bg-slate-950/40 border border-white/5 space-y-4">
+                                    <div className="flex items-center justify-between mb-2">
+                                        <div className="flex items-center gap-2">
+                                            <div className="w-1 h-3 bg-lime-500 rounded-full"></div>
+                                            <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Presupuesto y Configuración</span>
+                                        </div>
+                                        <label className="flex items-center gap-2 cursor-pointer group">
+                                            <span className={`text-[10px] font-bold uppercase tracking-wider transition-colors ${inputs.includeIVA ? 'text-lime-400' : 'text-slate-500'}`}>
+                                                {inputs.includeIVA ? 'IVA Incluido' : 'Sin IVA'}
+                                            </span>
+                                            <div className="relative flex items-center">
+                                                <input
+                                                    type="checkbox"
+                                                    className="peer sr-only"
+                                                    checked={inputs.includeIVA || false}
+                                                    onChange={e => toggleIVA(e.target.checked)}
+                                                />
+                                                <div className="w-8 h-4 bg-slate-800 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-lime-500"></div>
+                                            </div>
+                                        </label>
+                                    </div>
+
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <Label htmlFor="presupuesto" className="flex items-center gap-1.5">
+                                                <svg className="w-3 h-3 text-lime-500/80" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
+                                                </svg>
+                                                {showBrokergy ? 'Presupuesto (€)' : 'Presupuesto instalación (€)'}
+                                            </Label>
+                                            <Input
+                                                id="presupuesto"
+                                                type="text"
+                                                inputMode="decimal"
+                                                min={0}
+                                                value={formatDisplay(inputs.presupuesto)}
+                                                onChange={e => handleSmartNumberChange('presupuesto', e.target.value)}
+                                                className="bg-slate-900/60 border-slate-700/50 focus:border-lime-500/50"
+                                            />
+                                        </div>
+                                        <div>
+                                            <Label htmlFor="numOwners" className="flex items-center gap-1.5">
+                                                <svg className="w-3 h-3 text-lime-500/80" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                                                </svg>
+                                                {showBrokergy ? 'Propietarios' : 'Nº Propietarios'}
+                                            </Label>
+                                            <Input
+                                                id="numOwners"
+                                                type="number"
+                                                min={1}
+                                                max={10}
+                                                step={1}
+                                                value={inputs.numOwners || 1}
+                                                onChange={e => handleChange('numOwners', parseInt(e.target.value) || 1)}
+                                                className="bg-slate-900/60 border-slate-700/50 focus:border-lime-500/50"
+                                            />
+                                        </div>
+                                    </div>
+
+                                    {showBrokergy && (
+                                        <div className="animate-fade-in mt-2 border-t border-white/5 pt-4">
+                                            <Label htmlFor="caePriceClient" className="flex items-center gap-1.5">
+                                                <svg className="w-3 h-3 text-lime-500/80" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                                                </svg>
+                                                CAE Cliente (€/MWh)
+                                            </Label>
+                                            <Input
+                                                id="caePriceClient"
+                                                type="number"
+                                                inputMode="decimal"
+                                                min={0}
+                                                value={inputs.caePriceClient}
+                                                onChange={e => handleChange('caePriceClient', parseFloat(e.target.value) || 0)}
+                                                placeholder="Ej: 95"
+                                                className="bg-slate-900/60 border-slate-700/50 focus:border-lime-500/50"
+                                            />
+                                        </div>
+                                    )}
+                                </div>
+
                                 {/* Sección Descuento Certificados */}
                                 <div className="p-4 rounded-xl bg-gradient-to-br from-amber-900/20 to-orange-900/20 border border-amber-500/20">
                                     <div className="flex items-center justify-between">
@@ -863,6 +946,66 @@ export function CalculatorForm({ inputs, onInputChange, onCalculate, result, sho
                                             </span>
                                         </label>
                                     </div>
+                                </div>
+
+                                {/* Sección Legalización - VISIBILIDAD CONTROLADA */}
+                                <div className="p-4 rounded-xl bg-gradient-to-br from-amber-900/10 to-orange-900/10 border border-amber-500/10 transition-all duration-300">
+                                    <div className="flex items-center justify-between">
+                                        <h4 className="text-xs font-bold text-amber-400 uppercase tracking-wider flex items-center gap-2">
+                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                            </svg>
+                                            Tramitación Legalización
+                                        </h4>
+                                        <label className="flex items-center gap-2 cursor-pointer group">
+                                            <div className="relative flex items-center">
+                                                <input
+                                                    type="checkbox"
+                                                    className="peer sr-only"
+                                                    checked={inputs.includeLegalization}
+                                                    onChange={e => handleChange('includeLegalization', e.target.checked)}
+                                                />
+                                                <div className="w-9 h-5 bg-slate-700 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-amber-500"></div>
+                                            </div>
+                                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest group-hover:text-amber-400 transition-colors">
+                                                {inputs.includeLegalization ? 'Activado' : 'Desactivado'}
+                                            </span>
+                                        </label>
+                                    </div>
+
+                                    {inputs.includeLegalization && (
+                                        <div className="mt-4 pt-4 border-t border-amber-500/10 space-y-4 animate-fade-in text-sm">
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                                <div className="space-y-1.5">
+                                                    <Label htmlFor="legalizationPrice" className="text-[10px] text-amber-400/70 font-bold uppercase tracking-widest">Importe Legalización (€)</Label>
+                                                    <Input
+                                                        id="legalizationPrice"
+                                                        type="text"
+                                                        inputMode="decimal"
+                                                        value={formatDisplay(inputs.legalizationPrice)}
+                                                        onChange={e => handleSmartNumberChange('legalizationPrice', e.target.value)}
+                                                        className="bg-slate-950/40 border-amber-500/20 focus:border-amber-500/50 h-9 font-mono text-amber-50"
+                                                    />
+                                                </div>
+                                                <div className="flex flex-col justify-end pb-1.5">
+                                                    <label className="flex items-center gap-2 cursor-pointer group">
+                                                        <div className="relative flex items-center">
+                                                            <input
+                                                                type="checkbox"
+                                                                className="peer sr-only"
+                                                                checked={inputs.installerNoCard}
+                                                                onChange={e => handleChange('installerNoCard', e.target.checked)}
+                                                            />
+                                                            <div className="w-8 h-4 bg-slate-700 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-amber-600"></div>
+                                                        </div>
+                                                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest group-hover:text-amber-400 transition-colors">
+                                                            INSTALADOR SIN CARNET (+100€)
+                                                        </span>
+                                                    </label>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
 
                                 {/* Sección Ahorro Anual */}
@@ -1006,88 +1149,6 @@ export function CalculatorForm({ inputs, onInputChange, onCalculate, result, sho
                                     )}
                                 </div>
 
-                                {/* Subsección Presupuesto y Propietarios */}
-                                <div className="p-4 rounded-xl bg-slate-950/40 border border-white/5 space-y-4">
-                                    <div className="flex items-center justify-between mb-2">
-                                        <div className="flex items-center gap-2">
-                                            <div className="w-1 h-3 bg-lime-500 rounded-full"></div>
-                                            <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Presupuesto y Configuración</span>
-                                        </div>
-                                        <label className="flex items-center gap-2 cursor-pointer group">
-                                            <span className={`text-[10px] font-bold uppercase tracking-wider transition-colors ${inputs.includeIVA ? 'text-lime-400' : 'text-slate-500'}`}>
-                                                {inputs.includeIVA ? 'IVA Incluido' : 'Sin IVA'}
-                                            </span>
-                                            <div className="relative flex items-center">
-                                                <input
-                                                    type="checkbox"
-                                                    className="peer sr-only"
-                                                    checked={inputs.includeIVA || false}
-                                                    onChange={e => toggleIVA(e.target.checked)}
-                                                />
-                                                <div className="w-8 h-4 bg-slate-800 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-lime-500"></div>
-                                            </div>
-                                        </label>
-                                    </div>
-
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <div>
-                                            <Label htmlFor="presupuesto" className="flex items-center gap-1.5">
-                                                <svg className="w-3 h-3 text-lime-500/80" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
-                                                </svg>
-                                                {showBrokergy ? 'Presupuesto (€)' : 'Presupuesto instalación (€)'}
-                                            </Label>
-                                            <Input
-                                                id="presupuesto"
-                                                type="text"
-                                                inputMode="decimal"
-                                                min={0}
-                                                value={formatDisplay(inputs.presupuesto)}
-                                                onChange={e => handleSmartNumberChange('presupuesto', e.target.value)}
-                                                className="bg-slate-900/60 border-slate-700/50 focus:border-lime-500/50"
-                                            />
-                                        </div>
-                                        <div>
-                                            <Label htmlFor="numOwners" className="flex items-center gap-1.5">
-                                                <svg className="w-3 h-3 text-lime-500/80" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-                                                </svg>
-                                                {showBrokergy ? 'Propietarios' : 'Nº Propietarios'}
-                                            </Label>
-                                            <Input
-                                                id="numOwners"
-                                                type="number"
-                                                min={1}
-                                                max={10}
-                                                step={1}
-                                                value={inputs.numOwners || 1}
-                                                onChange={e => handleChange('numOwners', parseInt(e.target.value) || 1)}
-                                                className="bg-slate-900/60 border-slate-700/50 focus:border-lime-500/50"
-                                            />
-                                        </div>
-                                    </div>
-
-                                    {showBrokergy && (
-                                        <div className="animate-fade-in mt-2 border-t border-white/5 pt-4">
-                                            <Label htmlFor="caePriceClient" className="flex items-center gap-1.5">
-                                                <svg className="w-3 h-3 text-lime-500/80" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
-                                                </svg>
-                                                CAE Cliente (€/MWh)
-                                            </Label>
-                                            <Input
-                                                id="caePriceClient"
-                                                type="number"
-                                                inputMode="decimal"
-                                                min={0}
-                                                value={inputs.caePriceClient}
-                                                onChange={e => handleChange('caePriceClient', parseFloat(e.target.value) || 0)}
-                                                placeholder="Ej: 95"
-                                                className="bg-slate-900/60 border-slate-700/50 focus:border-lime-500/50"
-                                            />
-                                        </div>
-                                    )}
-                                </div>
 
                                 {/* INTERNAL: Brokergy Profit (Solo si el toggle está activo) */}
                                 {showBrokergy && result && (

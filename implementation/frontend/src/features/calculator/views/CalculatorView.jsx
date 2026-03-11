@@ -55,6 +55,9 @@ const INITIAL_INPUTS = {
     emitterType: 'radiadores_convencionales',
     includeAnnualSavings: false,
     discountCertificates: false,
+    includeLegalization: false,
+    installerNoCard: false,
+    legalizationPrice: 200,
     numOwners: 1,
     referenciaCliente: ''
 };
@@ -159,7 +162,8 @@ export function CalculatorView({ initialData, onBack }) {
             caePriceClient: parseFloat(inputs.caePriceClient) || 95,
             caePriceSO: parseFloat(inputs.caePriceSO) || 160,
             caePricePrescriptor: parseFloat(inputs.caePricePrescriptor) || 0,
-            numOwners: parseInt(inputs.numOwners) || 1
+            numOwners: parseInt(inputs.numOwners) || 1,
+            legalizationPrice: parseFloat(inputs.legalizationPrice) || 250
         };
 
         // 1. Calcular Demanda (usando inputs sanitizados)
@@ -186,7 +190,10 @@ export function CalculatorView({ initialData, onBack }) {
             tipo: sanitizedInputs.tipo,
             participation: sanitizedInputs.participation,
             numOwners: sanitizedInputs.numOwners,
-            discountCertificates: sanitizedInputs.discountCertificates
+            discountCertificates: sanitizedInputs.discountCertificates,
+            includeLegalization: sanitizedInputs.includeLegalization,
+            installerNoCard: sanitizedInputs.installerNoCard,
+            legalizationPrice: sanitizedInputs.legalizationPrice
         });
 
         // 4. Cálculos de Ahorro Anual (€)
@@ -225,7 +232,8 @@ export function CalculatorView({ initialData, onBack }) {
             annualSavings: annualSavingsRes,
             payback: paybackRes,
             includeAnnualSavings: inputs.includeAnnualSavings,
-            discountCertificates: inputs.discountCertificates
+            discountCertificates: inputs.discountCertificates,
+            discountLegalization: inputs.discountLegalization
         });
     };
 

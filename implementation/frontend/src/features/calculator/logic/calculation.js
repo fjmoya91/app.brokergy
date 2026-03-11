@@ -371,7 +371,10 @@ export function calculateFinancials({
     tipo = 'unifamiliar',
     participation = 100, // Porcentaje de participación en la propiedad
     numOwners = 1, // Número de propietarios para dividir la deducción
-    discountCertificates = false // Si Brokergy asume el coste de los certificados
+    discountCertificates = false, // Si Brokergy asume el coste de los certificados
+    includeLegalization = false, // Si se incluye el trámite de legalización
+    installerNoCard = false, // Si el instalador no tiene carnet (+100€)
+    legalizationPrice = 200 // Precio base de la legalización
 }) {
     const savingsMwh = savingsKwh / 1000;
     const priceClientBase = parseFloat(caePriceClient) || 0;
@@ -400,13 +403,21 @@ export function calculateFinancials({
     let profitBrokergy = savingsMwh * caePriceBrokergy;
 
     // Lógica de Descuento de Certificados
+    let caeMaintenanceCost = 0;
     if (discountCertificates) {
         // Brokergy asume el coste -> Restamos del beneficio de Brokergy
         profitBrokergy = Math.max(-TOTAL_CERTIFICATE_COST, profitBrokergy - TOTAL_CERTIFICATE_COST);
         // El cliente recibe el bono íntegro (ya descontado el prescriptor si corresponde)
     } else {
-        // El cliente asume el coste -> Restamos del bono del cliente
-        caeBonus = Math.max(0, caeBonus - TOTAL_CERTIFICATE_COST);
+        // El cliente asume el coste -> Reportamos como coste aparte en lugar de restar del bono
+        caeMaintenanceCost = TOTAL_CERTIFICATE_COST;
+    }
+    
+    // Lógica de Legalización
+    let legalizationCost = 0;
+    if (includeLegalization) {
+        // El coste es el precio base + recargo si el instalador no tiene carnet
+        legalizationCost = legalizationPrice + (installerNoCard ? 100 : 0);
     }
 
     // 3. Pago a Prescriptor
@@ -439,7 +450,8 @@ export function calculateFinancials({
     // 5. Totales
     const totalAyuda = caeBonus + irpfDeductionTotal;
     const porcentajeCubierto = Math.min(100, (totalAyuda / budgetNum) * 100);
-    const costeFinal = Math.max(0, budgetNum - totalAyuda);
+    // El coste final ahora incluye el coste de tramitación y de legalización si el cliente los paga
+    const costeFinal = Math.max(0, budgetNum + caeMaintenanceCost + legalizationCost - totalAyuda);
 
     return {
         presupuesto: budgetNum,
@@ -450,6 +462,8 @@ export function calculateFinancials({
         totalAyuda,
         porcentajeCubierto,
         costeFinal,
+        caeMaintenanceCost,
+        legalizationCost,
         irpfRate: irpfRate * 100,
         irpfCap,
         caePriceBrokergy,

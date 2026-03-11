@@ -442,6 +442,18 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy }) {
                                         <span className="text-slate-400">Ayuda 1: BONO ENERGÉTICO CAE BROKERGY (Nota 1)</span>
                                         <span className="text-amber-400 font-mono font-bold whitespace-nowrap flex-shrink-0">+{formatNumber(result.financials.caeBonus)} €</span>
                                     </div>
+                                    {result.financials.caeMaintenanceCost > 0 && (
+                                        <div className="flex justify-between items-start text-sm py-3 border-b border-white/5 gap-4">
+                                            <span className="text-slate-400">Gestión tramitación Expediente CAE</span>
+                                            <span className="text-red-400 font-mono font-bold whitespace-nowrap flex-shrink-0">+{formatNumber(result.financials.caeMaintenanceCost)} €</span>
+                                        </div>
+                                    )}
+                                    {result.financials.legalizationCost > 0 && (
+                                        <div className="flex justify-between items-start text-sm py-3 border-b border-white/5 gap-4">
+                                            <span className="text-slate-400">Legalización Instalación</span>
+                                            <span className="text-red-400 font-mono font-bold whitespace-nowrap flex-shrink-0">+{formatNumber(result.financials.legalizationCost)} €</span>
+                                        </div>
+                                    )}
                                     <div className="flex justify-between items-start text-sm py-3 border-b border-white/5 gap-4">
                                         <div className="flex flex-col">
                                             <span className="text-slate-400">Ayuda 2: Deducciones en el IRPF (Nota 2)</span>

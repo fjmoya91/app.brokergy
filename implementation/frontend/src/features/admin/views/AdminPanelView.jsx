@@ -18,6 +18,7 @@ export function AdminPanelView({ onLoadOpportunity }) {
     const [showCommentForm, setShowCommentForm] = useState(false);
     const [modalError, setModalError] = useState(null);
     const [showStats, setShowStats] = useState(true);
+    const [viewMode, setViewMode] = useState('brokergy'); // 'brokergy' | 'prescriptor'
 
     // Filter Stats
     const [filters, setFilters] = useState({
@@ -208,11 +209,13 @@ export function AdminPanelView({ onLoadOpportunity }) {
     const financialStats = filteredOportunidades.reduce((acc, op) => {
         const cae = op.datos_calculo?.result?.financials?.caeBonus || 0;
         const profit = op.datos_calculo?.result?.financials?.profitBrokergy || 0;
+        const budget = op.datos_calculo?.result?.financials?.presupuesto || 0;
         return {
             totalCae: acc.totalCae + cae,
-            totalProfit: acc.totalProfit + profit
+            totalProfit: acc.totalProfit + profit,
+            totalBudget: acc.totalBudget + budget
         };
-    }, { totalCae: 0, totalProfit: 0 });
+    }, { totalCae: 0, totalProfit: 0, totalBudget: 0 });
 
     const stats = {
         total: oportunidades.length,
@@ -237,6 +240,29 @@ export function AdminPanelView({ onLoadOpportunity }) {
                         Panel de Control
                     </h2>
 
+                    <div className="flex bg-white/[0.03] p-1 rounded-xl border border-white/[0.06] ml-2">
+                        <button
+                            onClick={() => setViewMode('brokergy')}
+                            className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all ${
+                                viewMode === 'brokergy'
+                                    ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/20'
+                                    : 'text-white/40 hover:text-white/60'
+                            }`}
+                        >
+                            Brokergy
+                        </button>
+                        <button
+                            onClick={() => setViewMode('prescriptor')}
+                            className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all ${
+                                viewMode === 'prescriptor'
+                                    ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/20'
+                                    : 'text-white/40 hover:text-white/60'
+                            }`}
+                        >
+                            Prescriptor
+                        </button>
+                    </div>
+
                     {!showStats && (
                         <div className="hidden md:flex items-center gap-4 animate-in fade-in slide-in-from-left-4 duration-500">
                             <div className="h-4 w-px bg-white/10 mx-2"></div>
@@ -247,9 +273,11 @@ export function AdminPanelView({ onLoadOpportunity }) {
                                 </span>
                             </div>
                             <div className="flex flex-col">
-                                <span className="text-[9px] uppercase tracking-tighter font-black text-cyan-400/50">Beneficio</span>
+                                <span className="text-[9px] uppercase tracking-tighter font-black text-cyan-400/50">
+                                    {viewMode === 'brokergy' ? 'Beneficio' : 'Presupuesto'}
+                                </span>
                                 <span className="text-sm font-bold text-cyan-400 leading-none">
-                                    {financialStats.totalProfit.toLocaleString('es-ES', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 })}
+                                    {(viewMode === 'brokergy' ? financialStats.totalProfit : financialStats.totalBudget).toLocaleString('es-ES', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 })}
                                 </span>
                             </div>
                         </div>
@@ -336,9 +364,11 @@ export function AdminPanelView({ onLoadOpportunity }) {
                                         </svg>
                                     </div>
                                     <div>
-                                        <span className="text-[9px] uppercase tracking-wider font-black text-cyan-400/50 block">Beneficio</span>
+                                        <span className="text-[9px] uppercase tracking-wider font-black text-cyan-400/50 block">
+                                            {viewMode === 'brokergy' ? 'Beneficio' : 'Presupuesto'}
+                                        </span>
                                         <div className="text-xl md:text-2xl font-black text-cyan-400 leading-none">
-                                            {financialStats.totalProfit.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}
+                                            {(viewMode === 'brokergy' ? financialStats.totalProfit : financialStats.totalBudget).toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}
                                         </div>
                                     </div>
                                 </div>
@@ -353,21 +383,11 @@ export function AdminPanelView({ onLoadOpportunity }) {
                     {/* Status Filter Cards */}
                     <div className="flex overflow-x-auto gap-2 pb-2 mb-4 md:mb-6 md:grid md:grid-cols-5 md:overflow-visible md:pb-0 snap-x snap-mandatory scrollbar-hide" style={{ WebkitOverflowScrolling: 'touch' }}>
                         {[
-                            { label: 'Total', count: stats.total, filter: '', dotColor: 'bg-white/30', borderActive: 'border-amber-500/40', iconColor: 'text-white/30',
-                              icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-                            },
-                            { label: 'Pendientes', count: stats.pending, filter: 'PTE ENVIAR', dotColor: 'bg-amber-500', borderActive: 'border-amber-500/40', iconColor: 'text-amber-500/40',
-                              icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                            },
-                            { label: 'Enviadas', count: stats.sent, filter: 'ENVIADA', dotColor: 'bg-blue-400', borderActive: 'border-blue-500/40', iconColor: 'text-blue-400/40',
-                              icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                            },
-                            { label: 'Aceptadas', count: stats.accepted, filter: 'ACEPTADA', dotColor: 'bg-emerald-400', borderActive: 'border-emerald-500/40', iconColor: 'text-emerald-400/40',
-                              icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                            },
-                            { label: 'Rechazadas', count: stats.rejected, filter: 'RECHAZADA', dotColor: 'bg-red-400', borderActive: 'border-red-500/40', iconColor: 'text-red-400/40',
-                              icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                            }
+                            { label: 'Total', count: stats.total, filter: '', dotColor: 'bg-white/30', borderActive: 'border-amber-500 shadow-amber-500/20' },
+                            { label: 'Pendientes', count: stats.pending, filter: 'PTE ENVIAR', dotColor: 'bg-amber-500', borderActive: 'border-amber-500 shadow-amber-500/20' },
+                            { label: 'Enviadas', count: stats.sent, filter: 'ENVIADA', dotColor: 'bg-blue-400', borderActive: 'border-blue-500 shadow-blue-500/20' },
+                            { label: 'Aceptadas', count: stats.accepted, filter: 'ACEPTADA', dotColor: 'bg-emerald-400', borderActive: 'border-emerald-500 shadow-emerald-500/20' },
+                            { label: 'Rechazadas', count: stats.rejected, filter: 'RECHAZADA', dotColor: 'bg-red-400', borderActive: 'border-red-500 shadow-red-500/20' }
                         ].map((stat, i) => (
                             <button
                                 key={i}
@@ -379,8 +399,10 @@ export function AdminPanelView({ onLoadOpportunity }) {
                                 }`}
                             >
                                 <div className="flex items-center gap-2">
-                                    <span className={`w-1.5 h-1.5 rounded-full ${stat.dotColor} ${filters.estado === stat.filter ? 'animate-pulse' : 'opacity-60'}`}></span>
-                                    <span className="text-[9px] uppercase tracking-wider font-bold text-white/35">{stat.label}</span>
+                                    <span className={`w-1.5 h-1.5 rounded-full ${stat.dotColor} ${filters.estado === stat.filter ? 'animate-pulse' : 'opacity-80'}`}></span>
+                                    <span className={`text-[9px] uppercase tracking-wider font-bold transition-colors ${filters.estado === stat.filter ? 'text-white' : 'text-white/60'}`}>
+                                        {stat.label}
+                                    </span>
                                 </div>
                                 <div className={`text-sm font-black tracking-tight ${stat.count > 0 ? 'text-white' : 'text-white/15'}`}>{stat.count}</div>
                             </button>
@@ -400,7 +422,9 @@ export function AdminPanelView({ onLoadOpportunity }) {
                                 <th className="p-3.5 text-[10px] font-black uppercase tracking-[0.15em] text-white/25 border-b border-white/[0.06]">Ref. Catastral</th>
                                 <th className="p-3.5 text-[10px] font-black uppercase tracking-[0.15em] text-white/25 text-right border-b border-white/[0.06]">Demanda</th>
                                 <th className="p-3.5 text-[10px] font-black uppercase tracking-[0.15em] text-emerald-400/40 text-right border-b border-white/[0.06]">Bono CAE</th>
-                                <th className="p-3.5 text-[10px] font-black uppercase tracking-[0.15em] text-cyan-400/40 text-right border-b border-white/[0.06]">Beneficio Brokergy</th>
+                                <th className="p-3.5 text-[10px] font-black uppercase tracking-[0.15em] text-cyan-400/40 text-right border-b border-white/[0.06]">
+                                    {viewMode === 'brokergy' ? 'Beneficio Brokergy' : 'Presupuesto'}
+                                </th>
                                 <th className="p-3.5 text-[10px] font-black uppercase tracking-[0.15em] text-white/25 border-b border-white/[0.06]">Fecha</th>
                                 <th className="p-3.5 text-[10px] font-black uppercase tracking-[0.15em] text-white/25 border-b border-white/[0.06]">Estado</th>
                             </tr>
@@ -494,7 +518,10 @@ export function AdminPanelView({ onLoadOpportunity }) {
                                                 {caeBonus > 0 ? caeBonus.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' }) : '-'}
                                             </td>
                                             <td className="p-3.5 text-sm font-bold text-cyan-400 text-right">
-                                                {op.datos_calculo?.result?.financials?.profitBrokergy ? op.datos_calculo.result.financials.profitBrokergy.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' }) : '-'}
+                                                {viewMode === 'brokergy'
+                                                    ? (op.datos_calculo?.result?.financials?.profitBrokergy ? op.datos_calculo.result.financials.profitBrokergy.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' }) : '-')
+                                                    : (op.datos_calculo?.result?.financials?.presupuesto ? op.datos_calculo.result.financials.presupuesto.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' }) : '-')
+                                                }
                                             </td>
                                             <td className="p-3.5 text-[11px] text-white/25 whitespace-nowrap font-mono">
                                                 {new Date(op.created_at).toLocaleDateString('es-ES')}
@@ -553,7 +580,7 @@ export function AdminPanelView({ onLoadOpportunity }) {
                                     </td>
                                     <td className="p-3.5 text-right">
                                         <span className="text-sm font-black text-cyan-400">
-                                            {financialStats.totalProfit.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}
+                                            {(viewMode === 'brokergy' ? financialStats.totalProfit : financialStats.totalBudget).toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}
                                         </span>
                                     </td>
                                     <td colSpan="2" className="p-3.5">
