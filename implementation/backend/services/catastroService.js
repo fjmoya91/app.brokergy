@@ -98,6 +98,7 @@ async function getCoordinatesByRC(rc) {
             zone: 30
         };
     } catch (error) {
+        console.error(`Catastro Coordinates Error [${rc}]:`, error.message);
         return null;
     }
 }
@@ -130,10 +131,12 @@ async function getByRC(rc) {
             let errDesc = 'Error en Catastro';
             if (consulta?.lerr?.err) {
                 const errs = Array.isArray(consulta.lerr.err) ? consulta.lerr.err : [consulta.lerr.err];
-                errDesc = errs.map(e => e.des).filter(Boolean).join('. ') || errDesc;
+                // Use getText to be safe with xml2js output
+                errDesc = errs.map(e => getText(e.des)).filter(Boolean).join('. ') || errDesc;
             } else if (consulta?.lerr?.des) {
-                errDesc = consulta.lerr.des;
+                errDesc = getText(consulta.lerr.des);
             }
+            console.warn(`Catastro API Error [${cleanRC}]:`, errDesc);
             throw new Error(errDesc);
         }
 

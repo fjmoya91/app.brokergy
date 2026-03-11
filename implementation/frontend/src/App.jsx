@@ -82,7 +82,7 @@ function App() {
       } else if (err.response?.data?.details) {
         errorMsg = err.response.data.details;
       }
-      setError(`Error en la consulta.\n${errorMsg}`);
+      setError(errorMsg);
     } finally {
       setLoading(false);
     }
