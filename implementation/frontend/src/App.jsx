@@ -76,7 +76,13 @@ function App() {
     } catch (err) {
       console.error(err);
       const details = err.response?.data?.details || err.message || '';
-      setError(`Error en la consulta. ${details.includes('timeout') ? 'El servidor de Catastro está tardando demasiado.' : 'Verifica el servidor o la referencia.'}`);
+      let errorMsg = 'Verifica el servidor o la referencia.';
+      if (details.includes('timeout')) {
+        errorMsg = 'El servidor de Catastro está tardando demasiado.';
+      } else if (err.response?.data?.details) {
+        errorMsg = err.response.data.details;
+      }
+      setError(`Error en la consulta.\n${errorMsg}`);
     } finally {
       setLoading(false);
     }
@@ -148,7 +154,8 @@ function App() {
         checkExistingOpportunity(res.data);
       } catch (err) {
         console.error(err);
-        setError('No se pudo obtener el detalle de esta propiedad.');
+        const details = err.response?.data?.details || '';
+        setError(details || 'No se pudo obtener el detalle de esta propiedad.');
       } finally {
         setLoading(false);
       }
@@ -274,7 +281,7 @@ function App() {
                   </div>
                   <div>
                     <h3 className="text-red-400 font-semibold mb-1">Error en la consulta</h3>
-                    <p className="text-white/70">{error}</p>
+                    <p className="text-white/70 whitespace-pre-line text-sm leading-relaxed">{error}</p>
                   </div>
                 </div>
               </div>

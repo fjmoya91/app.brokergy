@@ -127,7 +127,13 @@ async function getByRC(rc) {
         const consulta = result.consulta_dnp || result['consulta_dnp'];
 
         if (!consulta || consulta.lerr) {
-            const errDesc = consulta?.lerr?.des || 'Error en Catastro';
+            let errDesc = 'Error en Catastro';
+            if (consulta?.lerr?.err) {
+                const errs = Array.isArray(consulta.lerr.err) ? consulta.lerr.err : [consulta.lerr.err];
+                errDesc = errs.map(e => e.des).filter(Boolean).join('. ') || errDesc;
+            } else if (consulta?.lerr?.des) {
+                errDesc = consulta.lerr.des;
+            }
             throw new Error(errDesc);
         }
 
