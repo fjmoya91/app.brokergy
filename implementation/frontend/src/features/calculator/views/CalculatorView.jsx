@@ -19,6 +19,7 @@ const INITIAL_INPUTS = {
     zona: 'D3',
     anio: 2000,
     superficie: 120,
+    superficieCalefactable: 120,
     plantas: 2,
     altura: 2.7,
     ventanaU: 3.0,
@@ -75,7 +76,10 @@ export function CalculatorView({ initialData, onBack }) {
             // Aseguramos conversiones de tipo para campos críticos que puedan venir como strings del catastro
             if (initialData.anio) base.anio = Number(initialData.anio);
             if (initialData.plantas) base.plantas = Number(initialData.plantas);
-            if (initialData.superficie) base.superficie = Number(initialData.superficie);
+            if (initialData.superficie) {
+                base.superficie = Number(initialData.superficie);
+                if (!initialData.superficieCalefactable) base.superficieCalefactable = base.superficie;
+            }
 
             // isPersistent = true solo si viene explícitamente marcado desde App.jsx
             // (datos guardados en BD o inputs persistentes de sesión).
@@ -145,6 +149,7 @@ export function CalculatorView({ initialData, onBack }) {
         const sanitizedInputs = {
             ...inputs,
             superficie: parseFloat(inputs.superficie) || 0,
+            superficieCalefactable: parseFloat(inputs.superficieCalefactable) || 0,
             plantas: parseInt(inputs.plantas) || 1,
             altura: parseFloat(inputs.altura) || 2.7,
             presupuesto: parseFloat(inputs.presupuesto) || 0,

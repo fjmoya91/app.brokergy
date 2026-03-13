@@ -247,7 +247,7 @@ export function CalculatorForm({ inputs, onInputChange, onCalculate, result, sho
                                     {inputs.anio < 1900 ? 'Ant. 1900' : inputs.anio}
                                 </span>
                                 <span className="px-2 py-0.5 rounded bg-slate-800 text-[11px] text-slate-300 font-medium">
-                                    {inputs.superficie} m²
+                                    Útil: {inputs.superficie} m² | Calef: {inputs.superficieCalefactable} m²
                                 </span>
                                 <span className="px-2 py-0.5 rounded bg-slate-800 text-[11px] text-slate-300 font-medium capitalize">
                                     {inputs.tipo === 'unifamiliar' ? 'Unifamiliar' : inputs.tipo === 'piso' ? 'Piso' : 'Adosada'}
@@ -286,7 +286,7 @@ export function CalculatorForm({ inputs, onInputChange, onCalculate, result, sho
                                             value={inputs.zona}
                                             onChange={e => handleChange('zona', e.target.value)}
                                         >
-                                            {['A3', 'B3', 'C3', 'D2', 'D3', 'E1', 'E2'].map(z => (
+                                            {['A3', 'A4', 'B3', 'B4', 'C1', 'C2', 'C3', 'C4', 'D1', 'D2', 'D3', 'E1'].map(z => (
                                                 <option key={z} value={z}>{z}</option>
                                             ))}
                                         </Select>
@@ -311,14 +311,35 @@ export function CalculatorForm({ inputs, onInputChange, onCalculate, result, sho
                                 {/* Dimensiones */}
                                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                                     <div>
-                                        <Label htmlFor="superficie">Superficie útil (m²)</Label>
+                                        <div className="flex justify-between items-center mb-1">
+                                            <Label htmlFor="superficie">Superficie útil (m²)</Label>
+                                        </div>
                                         <Input
                                             id="superficie"
                                             type="text"
                                             inputMode="decimal"
                                             min={20}
                                             value={formatDisplay(inputs.superficie)}
-                                            onChange={e => handleSmartNumberChange('superficie', e.target.value)}
+                                            onChange={e => {
+                                                const val = e.target.value;
+                                                handleSmartNumberChange('superficie', val);
+                                                // If calefactable is not set or was same as surface, keep them in sync or just help the user
+                                                if (!inputs.superficieCalefactable || inputs.superficieCalefactable === inputs.superficie) {
+                                                    handleSmartNumberChange('superficieCalefactable', val);
+                                                }
+                                            }}
+                                        />
+                                    </div>
+                                    <div>
+                                        <Label htmlFor="superficieCalefactable">Sup. Calefactable (m²)</Label>
+                                        <Input
+                                            id="superficieCalefactable"
+                                            type="text"
+                                            inputMode="decimal"
+                                            min={0}
+                                            value={formatDisplay(inputs.superficieCalefactable)}
+                                            onChange={e => handleSmartNumberChange('superficieCalefactable', e.target.value)}
+                                            placeholder="Igual o mayor a útil"
                                         />
                                     </div>
                                     <div>

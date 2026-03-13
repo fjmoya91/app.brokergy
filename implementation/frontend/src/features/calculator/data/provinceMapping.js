@@ -16,7 +16,7 @@ export const PROVINCE_CLIMATE_MAP = {
     '10': { name: 'Cáceres', zone: 'C4' },
     '11': { name: 'Cádiz', zone: 'A3' },
     '12': { name: 'Castellón', zone: 'B3' },
-    '13': { name: 'Ciudad Real', zone: 'D4' },
+    '13': { name: 'Ciudad Real', zone: 'D3' },
     '14': { name: 'Córdoba', zone: 'B4' },
     '15': { name: 'A Coruña', zone: 'C1' },
     '16': { name: 'Cuenca', zone: 'D3' },

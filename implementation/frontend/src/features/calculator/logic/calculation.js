@@ -16,7 +16,7 @@ export const HDD = {
     B3: 950, B4: 900,
     C1: 1100, C2: 1150, C3: 1330, C4: 1250,
     D1: 1400, D2: 1520, D3: 1710,
-    E1: 2090, E2: 2470,
+    E1: 2090,
 };
 
 // ============================================================================
@@ -234,15 +234,18 @@ export function estimateAreas(inputs) {
 
 export function calculateDemand(inputs) {
     const {
-        zona, anio, superficie: S, plantas, altura: H,
+        zona, anio, superficie: S_util, superficieCalefactable: S_cal, plantas, altura: H,
         ventanaU: Uw, ach, tipo, subtipo, gla,
         orientacion, uMuro: U_wall, uCubierta: U_roof
     } = inputs;
 
+    // Siempre se coge la mayor de las dos para el cálculo de la demanda
+    const S = Math.max(S_util || 0, S_cal || 0);
+
     const Ubase = getUByYear(anio);
     const U_floor = Ubase.floor;
 
-    const areas = estimateAreas(inputs);
+    const areas = estimateAreas({ ...inputs, superficie: S });
 
     const Awin = areas.A_fachada * (gla / 100);
     const Awall = Math.max(0, areas.A_fachada - Awin);
@@ -476,7 +479,11 @@ export function calculateFinancials({
 
 function estimateHeatingDays(zona) {
     const days = {
-        A3: 100, B3: 130, C3: 160, D2: 180, D3: 190, E1: 220, E2: 250,
+        A3: 100, A4: 100,
+        B3: 130, B4: 130,
+        C1: 160, C2: 160, C3: 160, C4: 160,
+        D1: 180, D2: 180, D3: 190,
+        E1: 220,
     };
     return days[zona] || 190;
 }
