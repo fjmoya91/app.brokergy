@@ -414,6 +414,7 @@ export function PrescriptoresList() {
                                             <label className="block text-[10px] uppercase font-black text-white/50 mb-2 ml-1 tracking-widest">DNI / NIE</label>
                                             <input required type="text" value={formData.usuario_nif} onChange={e => setFormData({...formData, usuario_nif: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-fuchsia-500 focus:bg-black/60 outline-none transition-all uppercase font-mono" placeholder="12345678Z"/>
                                         </div>
+
                                     </>
                                 ) : (
                                     <>
@@ -446,14 +447,11 @@ export function PrescriptoresList() {
                                         <label className="block text-[10px] uppercase font-black text-white/50 mb-2 ml-1 tracking-widest">Apellidos</label>
                                         <input required type="text" value={formData.usuario_apellidos} onChange={e => setFormData({...formData, usuario_apellidos: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-cyan-500 focus:bg-black/60 outline-none transition-all uppercase" placeholder="GONZÁLEZ"/>
                                     </div>
-                                    <div>
+                                    <div className="lg:col-span-2">
                                         <label className="block text-[10px] uppercase font-black text-white/50 mb-2 ml-1 tracking-widest">Cargo en la Entidad</label>
                                         <input type="text" value={formData.cargo} onChange={e => setFormData({...formData, cargo: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-cyan-500 focus:bg-black/60 outline-none transition-all uppercase" placeholder="GERENTE / PROPIETARIO"/>
                                     </div>
-                                    <div>
-                                        <label className="block text-[10px] uppercase font-black text-white/50 mb-2 ml-1 tracking-widest">NIF Personal</label>
-                                        <input required type="text" value={formData.usuario_nif} onChange={e => setFormData({...formData, usuario_nif: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-cyan-500 focus:bg-black/60 outline-none transition-all uppercase font-mono" placeholder="12345678Z"/>
-                                    </div>
+
                                 </div>
                             </div>
                         )}

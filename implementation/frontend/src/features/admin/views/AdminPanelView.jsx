@@ -312,12 +312,21 @@ export function AdminPanelView({ onLoadOpportunity, onBackToCalculator }) {
                     <div className={`border border-white/5 bg-white/[0.02] rounded-2xl p-4 relative shadow-lg ${isSidebarCollapsed ? 'flex flex-col items-center justify-center min-h-[80px]' : ''}`}>
                         {!isSidebarCollapsed && (
                             <>
-                                <div className="text-[10px] text-white/50 uppercase font-black tracking-widest mb-1.5">Usuario</div>
-                                <div className="font-black text-xs text-white uppercase tracking-wider truncate mb-1 pr-6">
-                                    {user?.nombre} {user?.apellidos}
-                                </div>
-                                <div className="text-[10px] text-amber-500 font-black uppercase tracking-widest truncate max-w-[200px]" title={user?.razon_social || user?.rol}>
-                                    {user?.razon_social || user?.rol || 'ADMIN'}
+                                <div className="text-[10px] text-white/40 uppercase font-black tracking-[0.2em] mb-2.5">Usuario</div>
+                                <div className="flex flex-col gap-1 overflow-hidden">
+                                    <span className="text-sm font-black text-amber-500 uppercase tracking-tight truncate" title={user?.razon_social || user?.nombre}>
+                                        {user?.razon_social || `${user?.nombre || ''} ${user?.apellidos || ''}`.trim() || 'Usuario'}
+                                    </span>
+                                    {user?.razon_social && (
+                                        <span className="text-[9px] font-black text-white/30 uppercase tracking-widest bg-white/5 px-1.5 py-0.5 rounded border border-white/[0.03] self-start truncate max-w-full">
+                                            {user?.nombre} {user?.apellidos}
+                                        </span>
+                                    )}
+                                    {!user?.razon_social && (
+                                        <span className="text-[9px] font-black text-white/30 uppercase tracking-widest bg-white/5 px-1.5 py-0.5 rounded border border-white/[0.03] self-start truncate">
+                                            {user?.rol || 'ADMIN'}
+                                        </span>
+                                    )}
                                 </div>
                             </>
                         )}

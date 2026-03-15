@@ -59,14 +59,16 @@ export const AuthProvider = ({ children }) => {
         // En lugar de leer a pelo, llamamos al backend que es el punto real de acceso con el rol decodificado
         const res = await axios.get('/api/usuarios/me');
         if (res.data) {
-           setUser(prev => ({
-              ...sessionData.user, // Siempre mantener lo base as-is
-              businessProfile: res.data.perfilCompleto,
-              rol: res.data.rol_nombre,
-              id_usuario: res.data.id_usuario,
-              prescriptor_id: res.data.prescriptor_id,
-              razon_social: res.data.razon_social
-           }));
+            setUser(prev => ({
+               ...sessionData.user,
+               nombre: res.data.perfilCompleto?.nombre || sessionData.user?.user_metadata?.nombre,
+               apellidos: res.data.perfilCompleto?.apellidos || sessionData.user?.user_metadata?.apellidos,
+               businessProfile: res.data.perfilCompleto,
+               rol: res.data.rol_nombre,
+               id_usuario: res.data.id_usuario,
+               prescriptor_id: res.data.prescriptor_id,
+               razon_social: res.data.razon_social
+            }));
         }
     } catch (e) {
         console.error("Error de catch cargando perfil desde backend", e.response?.data || e.message);
