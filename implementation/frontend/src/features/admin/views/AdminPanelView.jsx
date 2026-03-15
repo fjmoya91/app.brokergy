@@ -1,12 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import { useAuth } from '../../../context/AuthContext';
+import { PrescriptoresList } from './PrescriptoresList';
 
-export function AdminPanelView({ onLoadOpportunity }) {
+export function AdminPanelView({ onLoadOpportunity, onBackToCalculator }) {
+    const { user, signOut } = useAuth();
+    const [activeTab, setActiveTab] = useState('oportunidades');
+
     const [oportunidades, setOportunidades] = useState([]);
+    const [prescriptores, setPrescriptores] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [oportunidadToDelete, setOportunidadToDelete] = useState(null);
     const [deleting, setDeleting] = useState(false);
+    const [assigningPrescriptor, setAssigningPrescriptor] = useState(null);
 
     // CRM States
     const [updatingStatus, setUpdatingStatus] = useState(null);
@@ -18,19 +25,45 @@ export function AdminPanelView({ onLoadOpportunity }) {
     const [showCommentForm, setShowCommentForm] = useState(false);
     const [modalError, setModalError] = useState(null);
     const [showStats, setShowStats] = useState(true);
-    const [viewMode, setViewMode] = useState('brokergy'); // 'brokergy' | 'prescriptor'
+    const [viewMode, setViewMode] = useState(user?.rol === 'ADMIN' ? 'brokergy' : 'prescriptor');
+    const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+    
+    // Pagination state
+    const [currentPage, setCurrentPage] = useState(1);
+    const [itemsPerPage, setItemsPerPage] = useState(10); // Default to 10
+    const [showAll, setShowAll] = useState(false);
+
+    // Forzar siempre vista prescriptor si no es admin (seguridad extra)
+    useEffect(() => {
+        if (user?.rol !== 'ADMIN' && viewMode !== 'prescriptor') {
+            setViewMode('prescriptor');
+        }
+    }, [user, viewMode]);
 
     // Filter Stats
     const [filters, setFilters] = useState({
         id_oportunidad: '',
         referencia_cliente: '',
         ref_catastral: '',
+        prescriptor_id: '',
         estado: ''
     });
 
     useEffect(() => {
         fetchOportunidades();
-    }, []);
+        if (user?.rol === 'ADMIN') {
+            fetchPrescriptores();
+        }
+    }, [user]);
+
+    const fetchPrescriptores = async () => {
+        try {
+            const res = await axios.get('/api/prescriptores');
+            setPrescriptores(res.data);
+        } catch (err) {
+            console.error('Error fetching prescriptores', err);
+        }
+    };
 
     const fetchOportunidades = async () => {
         setLoading(true);
@@ -100,6 +133,39 @@ export function AdminPanelView({ onLoadOpportunity }) {
             setError('Error al actualizar el estado de la oportunidad.');
         } finally {
             setUpdatingStatus(null);
+        }
+    };
+
+    const handleAssignPrescriptor = async (e, op, nuevoPrescriptorId) => {
+        e.stopPropagation();
+        
+        let prescriptorName = 'BROKERGY';
+        if (nuevoPrescriptorId) {
+            const selected = prescriptores.find(p => p.id_empresa === nuevoPrescriptorId);
+            if (selected) {
+                prescriptorName = selected.razon_social || `${selected.usuarios?.nombre} ${selected.usuarios?.apellidos || ''}`.trim();
+            }
+        }
+        
+        setAssigningPrescriptor(op.id_oportunidad);
+        try {
+            await axios.patch(`/api/oportunidades/${op.id_oportunidad}/asignar`, { 
+                prescriptor_id: nuevoPrescriptorId || null, 
+                prescriptor_name: prescriptorName 
+            });
+
+            // Refrescar localmente
+            setOportunidades(prev => prev.map(o => {
+                if (o.id_oportunidad === op.id_oportunidad) {
+                    return { ...o, prescriptor_id: nuevoPrescriptorId || null, prescriptor: prescriptorName };
+                }
+                return o;
+            }));
+        } catch (err) {
+            console.error('Error al asignar prescriptor:', err);
+            setError('Error al asignar el prescriptor.');
+        } finally {
+            setAssigningPrescriptor(null);
         }
     };
 
@@ -201,9 +267,21 @@ export function AdminPanelView({ onLoadOpportunity }) {
             (filters.id_oportunidad === '' || op.id_oportunidad.toLowerCase().includes(filters.id_oportunidad.toLowerCase())) &&
             (filters.referencia_cliente === '' || (op.referencia_cliente || '').toLowerCase().includes(filters.referencia_cliente.toLowerCase())) &&
             (filters.ref_catastral === '' || op.ref_catastral.toLowerCase().includes(filters.ref_catastral.toLowerCase())) &&
+            (filters.prescriptor_id === '' || (filters.prescriptor_id === 'none' ? !op.prescriptor_id : op.prescriptor_id === filters.prescriptor_id)) &&
             (filters.estado === '' || (op.datos_calculo?.estado || 'PTE ENVIAR') === filters.estado)
         );
     });
+
+    // Reset pagination when filters change
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [filters]);
+
+    // Pagination logic
+    const totalItems = filteredOportunidades.length;
+    const totalPages = showAll ? 1 : Math.ceil(totalItems / itemsPerPage);
+    const startIndex = showAll ? 0 : (currentPage - 1) * itemsPerPage;
+    const paginatedOportunidades = showAll ? filteredOportunidades : filteredOportunidades.slice(startIndex, startIndex + itemsPerPage);
 
     // Cálculos financieros dinámicos basados en filtros
     const financialStats = filteredOportunidades.reduce((acc, op) => {
@@ -226,42 +304,131 @@ export function AdminPanelView({ onLoadOpportunity }) {
     };
 
     return (
-        <div className="animate-fade-in w-full max-w-[1600px] mx-auto px-4 sm:px-6 py-8">
-            {/* ─── Header ─── */}
-            <header className="mb-4 md:mb-6 flex flex-wrap items-center justify-between gap-3 pb-4 relative">
-                <div className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-amber-500/20 to-transparent"></div>
-                <div className="flex items-center gap-3 md:gap-6 min-w-0">
-                    <h2 className="text-xl md:text-2xl font-black text-white flex items-center gap-2 md:gap-3 whitespace-nowrap">
-                        <div className="p-1 md:p-1.5 bg-gradient-to-br from-amber-500/20 to-orange-600/10 rounded-lg border border-amber-500/20">
-                            <svg className="w-4 h-4 md:w-5 md:h-5 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+        <div className="flex h-screen w-full relative bg-slate-950 overflow-hidden">
+            {/* ====== SIDEBAR ====== */}
+            <aside className={`bg-[#0A0D14] border-r border-white/5 flex flex-col h-full flex-shrink-0 z-20 transition-all duration-300 ease-in-out ${isSidebarCollapsed ? 'w-20' : 'w-[280px]'}`}>
+                {/* User card at the top */}
+                <div className={`p-4 ${isSidebarCollapsed ? 'sm:p-2' : 'sm:p-6'}`}>
+                    <div className={`border border-white/5 bg-white/[0.02] rounded-2xl p-4 relative shadow-lg ${isSidebarCollapsed ? 'flex flex-col items-center justify-center min-h-[80px]' : ''}`}>
+                        {!isSidebarCollapsed && (
+                            <>
+                                <div className="text-[10px] text-white/50 uppercase font-black tracking-widest mb-1.5">Usuario</div>
+                                <div className="font-black text-xs text-white uppercase tracking-wider truncate mb-1 pr-6">
+                                    {user?.nombre} {user?.apellidos}
+                                </div>
+                                <div className="text-[10px] text-amber-500 font-black uppercase tracking-widest truncate max-w-[200px]" title={user?.razon_social || user?.rol}>
+                                    {user?.razon_social || user?.rol || 'ADMIN'}
+                                </div>
+                            </>
+                        )}
+                        {isSidebarCollapsed && (
+                            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-amber-500 to-orange-500 flex items-center justify-center text-slate-950 font-black text-xs">
+                                {user?.nombre?.charAt(0)}{user?.apellidos?.charAt(0)}
+                            </div>
+                        )}
+                        <button 
+                             onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+                             className={`absolute ${isSidebarCollapsed ? 'bottom-[-12px] left-1/2 -translate-x-1/2' : 'right-3 top-1/2 -translate-y-1/2'} w-6 h-6 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center text-white/40 hover:text-white transition-all z-30`}
+                             title={isSidebarCollapsed ? "Expandir Panel" : "Colapsar Panel"}
+                        >
+                            <svg className={`w-3 h-3 transition-transform duration-300 ${isSidebarCollapsed ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M15 19l-7-7 7-7" />
                             </svg>
-                        </div>
-                        Panel de Control
-                    </h2>
-
-                    <div className="flex bg-white/[0.03] p-1 rounded-xl border border-white/[0.06] ml-2">
-                        <button
-                            onClick={() => setViewMode('brokergy')}
-                            className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all ${
-                                viewMode === 'brokergy'
-                                    ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/20'
-                                    : 'text-white/40 hover:text-white/60'
-                            }`}
-                        >
-                            Brokergy
-                        </button>
-                        <button
-                            onClick={() => setViewMode('prescriptor')}
-                            className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all ${
-                                viewMode === 'prescriptor'
-                                    ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/20'
-                                    : 'text-white/40 hover:text-white/60'
-                            }`}
-                        >
-                            Prescriptor
                         </button>
                     </div>
+                </div>
+
+                {/* Tabs */}
+                <nav className="flex-1 px-4 space-y-3">
+                    <button
+                        onClick={() => setActiveTab('oportunidades')}
+                        className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all ${
+                            activeTab === 'oportunidades'
+                                ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 shadow-lg shadow-orange-500/20'
+                                : 'text-white/50 hover:bg-white/5 hover:text-white'
+                        } ${isSidebarCollapsed ? 'justify-center px-0' : ''}`}
+                    >
+                        <svg className="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
+                        </svg>
+                        {!isSidebarCollapsed && <span>Oportunidades</span>}
+                    </button>
+                    
+                    {user?.rol === 'ADMIN' && (
+                        <button
+                            onClick={() => setActiveTab('prescriptores')}
+                            className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all ${
+                                activeTab === 'prescriptores'
+                                    ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 shadow-lg shadow-orange-500/20'
+                                    : 'text-white/50 hover:bg-white/5 hover:text-white border border-transparent'
+                            } ${isSidebarCollapsed ? 'justify-center px-0' : ''}`}
+                        >
+                            <svg className="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                            </svg>
+                            {!isSidebarCollapsed && <span>Prescriptores</span>}
+                        </button>
+                    )}
+                </nav>
+
+                <div className="p-4 mt-auto">
+                    <button 
+                        onClick={signOut}
+                        className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl bg-[#1A0E12]/50 hover:bg-[#1A0E12] border border-red-500/10 hover:border-red-500/30 text-red-500 group transition-all ${isSidebarCollapsed ? 'justify-center px-0' : 'justify-start'}`}
+                    >
+                        <svg className="w-5 h-5 transition-transform group-hover:-translate-x-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                        </svg>
+                        {!isSidebarCollapsed && <span className="font-bold uppercase tracking-wider text-[11px]">Salir</span>}
+                    </button>
+                </div>
+            </aside>
+
+            {/* ====== MAIN CONTENT ====== */}
+            <main className="flex-1 overflow-y-auto h-full relative">
+                {/* Subtle Background Accent */}
+                <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-amber-500/5 rounded-full blur-[120px] pointer-events-none"></div>
+
+                {activeTab === 'prescriptores' ? (
+                     <PrescriptoresList />
+                ) : (
+                    <div className="animate-fade-in w-full max-w-[1600px] mx-auto px-6 sm:px-10 py-10 relative z-10">
+                        {/* ─── Header ─── */}
+                        <header className="mb-8 flex flex-wrap items-center justify-between gap-4 pb-4">
+                            <div className="flex items-center gap-4 md:gap-6 min-w-0">
+                                <h2 className="text-2xl md:text-3xl font-black text-white flex items-center gap-3 whitespace-nowrap">
+                                    <div className="p-2 bg-gradient-to-br from-amber-500/20 to-orange-600/10 rounded-xl border border-amber-500/20 text-amber-500 shadow-lg shadow-amber-500/10">
+                            <svg className="w-4 h-4 md:w-5 md:h-5 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                                    </svg>
+                                </div>
+                                {user?.rol === 'ADMIN' ? 'Panel de Control' : 'Mis Oportunidades'}
+                            </h2>
+
+                    {user?.rol === 'ADMIN' && (
+                        <div className="flex bg-white/[0.03] p-1 rounded-xl border border-white/[0.06] ml-2">
+                            <button
+                                onClick={() => setViewMode('brokergy')}
+                                className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all ${
+                                    viewMode === 'brokergy'
+                                        ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/20'
+                                        : 'text-white/40 hover:text-white/60'
+                                }`}
+                            >
+                                Brokergy
+                            </button>
+                            <button
+                                onClick={() => setViewMode('prescriptor')}
+                                className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all ${
+                                    viewMode === 'prescriptor'
+                                        ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/20'
+                                        : 'text-white/40 hover:text-white/60'
+                                }`}
+                            >
+                                Prescriptor
+                            </button>
+                        </div>
+                    )}
 
                     {!showStats && (
                         <div className="hidden md:flex items-center gap-4 animate-in fade-in slide-in-from-left-4 duration-500">
@@ -284,7 +451,17 @@ export function AdminPanelView({ onLoadOpportunity }) {
                     )}
                 </div>
 
-                <div className="flex items-center gap-2 md:gap-3">
+                <div className="flex items-center gap-3">
+                    <button
+                        onClick={onBackToCalculator}
+                        className="px-4 py-2 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 rounded-xl font-black uppercase tracking-wider text-[10px] md:text-xs flex items-center gap-2 shadow-lg shadow-amber-500/20 transition-all hover:scale-105 active:scale-95"
+                    >
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" />
+                        </svg>
+                        Nueva Simulación
+                    </button>
+                    <div className="w-px h-6 bg-white/10 mx-1"></div>
                     <button
                         onClick={() => setShowStats(!showStats)}
                         className={`px-2 md:px-3 py-2 rounded-xl border transition-all flex items-center gap-1.5 md:gap-2 text-[10px] font-black uppercase tracking-wider ${
@@ -301,17 +478,6 @@ export function AdminPanelView({ onLoadOpportunity }) {
                             }
                         </svg>
                         <span className="hidden sm:inline">{showStats ? 'Ocultar Resumen' : 'Mostrar Resumen'}</span>
-                    </button>
-                    <div className="h-6 w-px bg-white/10"></div>
-                    <button
-                        onClick={fetchOportunidades}
-                        className="p-2 md:px-4 md:py-2 bg-white/[0.04] hover:bg-white/[0.08] text-white rounded-xl transition-all border border-white/[0.06] flex items-center gap-2 text-[10px] font-black uppercase tracking-wider hover:border-white/15 active:scale-95"
-                        title="Refrescar datos"
-                    >
-                        <svg className={`w-3.5 h-3.5 md:w-3 md:h-3 ${loading ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                        </svg>
-                        <span className="hidden md:inline">Refrescar</span>
                     </button>
                 </div>
             </header>
@@ -426,6 +592,9 @@ export function AdminPanelView({ onLoadOpportunity }) {
                                     {viewMode === 'brokergy' ? 'Beneficio Brokergy' : 'Presupuesto'}
                                 </th>
                                 <th className="p-3.5 text-[10px] font-black uppercase tracking-[0.15em] text-white/25 border-b border-white/[0.06]">Fecha</th>
+                                {user?.rol === 'ADMIN' && (
+                                    <th className="p-3.5 text-[10px] font-black uppercase tracking-[0.15em] text-white/25 border-b border-white/[0.06] text-center w-36">Prescriptor</th>
+                                )}
                                 <th className="p-3.5 text-[10px] font-black uppercase tracking-[0.15em] text-white/25 border-b border-white/[0.06]">Estado</th>
                             </tr>
                             {/* Fila de Filtros */}
@@ -433,8 +602,8 @@ export function AdminPanelView({ onLoadOpportunity }) {
                                 <td className="p-2.5 border-b border-white/[0.06]">
                                     <input
                                         type="text"
-                                        placeholder="Filtrar ID..."
-                                        className="w-full bg-black/30 border border-white/[0.08] rounded-lg px-2.5 py-1.5 text-[10px] text-white placeholder-white/20 focus:outline-none focus:border-amber-500/40 focus:bg-black/40 transition-all"
+                                        placeholder="ID..."
+                                        className="w-full bg-black/30 border border-white/[0.08] rounded-lg px-2 py-1.5 text-[10px] text-cyan-400 placeholder-white/20 focus:outline-none focus:border-cyan-500/40 focus:bg-black/40 transition-all font-mono"
                                         value={filters.id_oportunidad}
                                         onChange={e => setFilters(prev => ({ ...prev, id_oportunidad: e.target.value }))}
                                     />
@@ -442,8 +611,8 @@ export function AdminPanelView({ onLoadOpportunity }) {
                                 <td className="p-2.5 border-b border-white/[0.06]">
                                     <input
                                         type="text"
-                                        placeholder="Filtrar Cliente..."
-                                        className="w-full bg-black/30 border border-white/[0.08] rounded-lg px-2.5 py-1.5 text-[10px] text-white placeholder-white/20 focus:outline-none focus:border-amber-500/40 focus:bg-black/40 transition-all"
+                                        placeholder="Buscar cliente..."
+                                        className="w-full bg-black/30 border border-white/[0.08] rounded-lg px-2.5 py-1.5 text-[10px] text-white placeholder-white/20 focus:outline-none focus:border-amber-500/40 focus:bg-black/40 transition-all font-mono"
                                         value={filters.referencia_cliente}
                                         onChange={e => setFilters(prev => ({ ...prev, referencia_cliente: e.target.value }))}
                                     />
@@ -451,8 +620,8 @@ export function AdminPanelView({ onLoadOpportunity }) {
                                 <td className="p-2.5 border-b border-white/[0.06]">
                                     <input
                                         type="text"
-                                        placeholder="Filtrar Catastro..."
-                                        className="w-full bg-black/30 border border-white/[0.08] rounded-lg px-2.5 py-1.5 text-[10px] text-white placeholder-white/20 focus:outline-none focus:border-amber-500/40 focus:bg-black/40 transition-all"
+                                        placeholder="Catastro..."
+                                        className="w-full bg-black/30 border border-white/[0.08] rounded-lg px-2 py-1.5 text-[10px] text-white placeholder-white/20 focus:outline-none focus:border-amber-500/40 focus:bg-black/40 transition-all font-mono uppercase"
                                         value={filters.ref_catastral}
                                         onChange={e => setFilters(prev => ({ ...prev, ref_catastral: e.target.value }))}
                                     />
@@ -461,25 +630,37 @@ export function AdminPanelView({ onLoadOpportunity }) {
                                 <td className="p-2.5 border-b border-white/[0.06]"></td>
                                 <td className="p-2.5 border-b border-white/[0.06]"></td>
                                 <td className="p-2.5 border-b border-white/[0.06]"></td>
-                                <td className="p-2.5 border-b border-white/[0.06]">
-                                    <select
-                                        className="w-full bg-black/30 border border-white/[0.08] rounded-lg px-2.5 py-1.5 text-[10px] text-white focus:outline-none focus:border-amber-500/40 transition-all cursor-pointer"
-                                        value={filters.estado}
-                                        onChange={e => setFilters(prev => ({ ...prev, estado: e.target.value }))}
-                                    >
-                                        <option value="">TODOS</option>
-                                        <option value="PTE ENVIAR">PTE ENVIAR</option>
-                                        <option value="ENVIADA">ENVIADA</option>
-                                        <option value="ACEPTADA">ACEPTADA</option>
-                                        <option value="RECHAZADA">RECHAZADA</option>
-                                    </select>
-                                </td>
+                                {user?.rol === 'ADMIN' && (
+                                    <td className="p-2.5 border-b border-white/[0.06]">
+                                        <div className="relative group/sel">
+                                            <select
+                                                className="w-full appearance-none bg-black/40 border border-white/[0.1] rounded-xl px-3 py-2 text-[10px] font-black tracking-wider text-white hover:border-amber-500/30 focus:outline-none focus:border-amber-500/50 transition-all cursor-pointer pr-8 uppercase"
+                                                value={filters.prescriptor_id}
+                                                onChange={e => setFilters(prev => ({ ...prev, prescriptor_id: e.target.value }))}
+                                            >
+                                                <option value="" className="bg-slate-900 border-none">TODOS LOS PRESCRIPTORES</option>
+                                                <option value="none" className="bg-slate-900 border-none">BROKERGY (Sin asignar)</option>
+                                                {prescriptores.map(p => (
+                                                    <option key={p.id_empresa} value={p.id_empresa} className="bg-slate-900 border-none">
+                                                        {p.razon_social || `${p.usuarios?.nombre} ${p.usuarios?.apellidos || ''}`}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                            <div className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-white/20 group-hover/sel:text-amber-500/50 transition-colors">
+                                                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M19 9l-7 7-7-7" />
+                                                </svg>
+                                            </div>
+                                        </div>
+                                    </td>
+                                )}
+                                <td className="p-2.5 border-b border-white/[0.06]"></td>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-white/[0.04]">
                             {loading && filteredOportunidades.length === 0 ? (
                                 <tr>
-                                    <td colSpan="8" className="p-12 text-center">
+                                    <td colSpan={user?.rol === 'ADMIN' ? "9" : "8"} className="p-12 text-center">
                                         <div className="flex flex-col items-center gap-3">
                                             <svg className="w-6 h-6 text-white/15 animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
@@ -488,9 +669,9 @@ export function AdminPanelView({ onLoadOpportunity }) {
                                         </div>
                                     </td>
                                 </tr>
-                            ) : filteredOportunidades.length === 0 ? (
+                            ) : paginatedOportunidades.length === 0 ? (
                                 <tr>
-                                    <td colSpan="8" className="p-12 text-center">
+                                    <td colSpan={user?.rol === 'ADMIN' ? "9" : "8"} className="p-12 text-center">
                                         <div className="flex flex-col items-center gap-3">
                                             <svg className="w-8 h-8 text-white/10" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -500,7 +681,7 @@ export function AdminPanelView({ onLoadOpportunity }) {
                                     </td>
                                 </tr>
                             ) : (
-                                filteredOportunidades.map((op) => {
+                                paginatedOportunidades.map((op) => {
                                     const caeBonus = op.datos_calculo?.result?.financials?.caeBonus || 0;
                                     return (
                                         <tr
@@ -526,6 +707,32 @@ export function AdminPanelView({ onLoadOpportunity }) {
                                             <td className="p-3.5 text-[11px] text-white/25 whitespace-nowrap font-mono">
                                                 {new Date(op.created_at).toLocaleDateString('es-ES')}
                                             </td>
+                                            
+                                            {user?.rol === 'ADMIN' && (
+                                                <td className="p-3.5 text-center" onClick={e => e.stopPropagation()}>
+                                                    <div className="relative group/sel-row">
+                                                        <select
+                                                            value={op.prescriptor_id || ''}
+                                                            onChange={(e) => handleAssignPrescriptor(e, op, e.target.value)}
+                                                            disabled={assigningPrescriptor === op.id_oportunidad}
+                                                            className={`appearance-none bg-black/40 border border-white/[0.08] text-white/70 text-[10px] font-bold rounded-lg px-3 py-1.5 w-full outline-none transition-all pr-8 ${assigningPrescriptor === op.id_oportunidad ? 'opacity-50 cursor-wait' : 'hover:border-white/20 hover:text-white cursor-pointer'}`}
+                                                        >
+                                                            <option value="" className="bg-slate-900 border-none">BROKERGY (Sin asignar)</option>
+                                                            {prescriptores.map(p => (
+                                                                <option key={p.id_empresa} value={p.id_empresa} className="bg-slate-900 border-none">
+                                                                    {p.razon_social || `${p.usuarios?.nombre} ${p.usuarios?.apellidos || ''}`}
+                                                                </option>
+                                                            ))}
+                                                        </select>
+                                                        <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-white/10 group-hover/sel-row:text-white/30 transition-colors">
+                                                            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M19 9l-7 7-7-7" />
+                                                            </svg>
+                                                        </div>
+                                                    </div>
+                                                </td>
+                                            )}
+
                                             <td className="p-3.5" onClick={e => e.stopPropagation()}>
                                                 <div className="flex items-center gap-2">
                                                     <select
@@ -567,31 +774,80 @@ export function AdminPanelView({ onLoadOpportunity }) {
                                 })
                             )}
                         </tbody>
-                        {filteredOportunidades.length > 0 && (
-                            <tfoot>
-                                <tr style={{ background: 'rgba(255,255,255,0.03)' }} className="border-t border-white/[0.08]">
-                                    <td colSpan="4" className="p-3.5 text-right">
-                                        <span className="text-[10px] uppercase tracking-[0.15em] font-black text-white/20">Totales</span>
-                                    </td>
-                                    <td className="p-3.5 text-right">
-                                        <span className="text-sm font-black text-emerald-400">
-                                            {financialStats.totalCae.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}
-                                        </span>
-                                    </td>
-                                    <td className="p-3.5 text-right">
-                                        <span className="text-sm font-black text-cyan-400">
-                                            {(viewMode === 'brokergy' ? financialStats.totalProfit : financialStats.totalBudget).toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}
-                                        </span>
-                                    </td>
-                                    <td colSpan="2" className="p-3.5">
-                                        <span className="text-[10px] text-white/15 font-medium">{filteredOportunidades.length} registros</span>
-                                    </td>
-                                </tr>
-                            </tfoot>
-                        )}
+
                     </table>
                 </div>
             </div>
+
+            {/* Pagination Controls */}
+            {totalItems > 0 && (
+                <div className="mt-4 flex flex-col sm:flex-row items-center justify-between gap-4 px-2">
+                    <div className="flex items-center gap-3">
+                        <span className="text-[11px] text-white/40 uppercase font-bold tracking-wider">
+                            Mostrando <span className="text-white">{showAll ? 1 : startIndex + 1} - {showAll ? totalItems : Math.min(startIndex + itemsPerPage, totalItems)}</span> de <span className="text-white">{totalItems}</span> oportunidades
+                        </span>
+                        <div className="h-4 w-px bg-white/10 mx-1"></div>
+                        <button 
+                            onClick={() => setShowAll(!showAll)}
+                            className={`text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-lg border transition-all ${
+                                showAll 
+                                    ? 'bg-amber-500 text-black border-amber-500 shadow-lg shadow-amber-500/20' 
+                                    : 'bg-white/5 text-white/60 border-white/10 hover:border-white/20 hover:text-white'
+                            }`}
+                        >
+                            {showAll ? 'MOSTRAR POR PÁGINAS' : 'MOSTRAR TODAS'}
+                        </button>
+                    </div>
+
+                    {!showAll && totalPages > 1 && (
+                        <div className="flex items-center gap-1.5 bg-black/20 p-1 rounded-xl border border-white/5">
+                            <button
+                                onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                                disabled={currentPage === 1}
+                                className="w-8 h-8 flex items-center justify-center rounded-lg text-white/40 hover:text-white hover:bg-white/5 disabled:opacity-20 disabled:pointer-events-none transition-all"
+                            >
+                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" />
+                                </svg>
+                            </button>
+                            
+                            {Array.from({ length: Math.min(5, totalPages) }).map((_, i) => {
+                                // Simple pagination logic for 5 pages around current
+                                let pageNum = i + 1;
+                                if (totalPages > 5) {
+                                    if (currentPage > 3) pageNum = currentPage - 3 + i;
+                                    if (pageNum > totalPages) pageNum = totalPages - 4 + i;
+                                    if (pageNum < 1) pageNum = i + 1;
+                                }
+                                
+                                return (
+                                    <button
+                                        key={pageNum}
+                                        onClick={() => setCurrentPage(pageNum)}
+                                        className={`w-8 h-8 flex items-center justify-center rounded-lg text-[11px] font-black transition-all ${
+                                            currentPage === pageNum 
+                                                ? 'bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/20' 
+                                                : 'text-white/40 hover:text-white hover:bg-white/5'
+                                        }`}
+                                    >
+                                        {pageNum}
+                                    </button>
+                                );
+                            })}
+                            
+                            <button
+                                onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                                disabled={currentPage === totalPages}
+                                className="w-8 h-8 flex items-center justify-center rounded-lg text-white/40 hover:text-white hover:bg-white/5 disabled:opacity-20 disabled:pointer-events-none transition-all"
+                            >
+                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
+                                </svg>
+                            </button>
+                        </div>
+                    )}
+                </div>
+            )}
 
             {/* Modal de Confirmación de Borrado */}
             {oportunidadToDelete && (
@@ -874,6 +1130,9 @@ export function AdminPanelView({ onLoadOpportunity }) {
                     </div>
                 </div>
             )}
+                    </div>
+                )}
+            </main>
         </div>
     );
 }

@@ -5,13 +5,19 @@ import { ConfirmationCard } from './components/ConfirmationCard';
 import { PropertySheet } from './components/PropertySheet';
 import { CalculatorView } from './features/calculator/views/CalculatorView';
 import { AdminPanelView } from './features/admin/views/AdminPanelView';
+import { useAuth } from './context/AuthContext';
+import { LoginView } from './features/auth/views/LoginView';
 
 import { DynamicNetworkBackground } from './components/DynamicNetworkBackground';
+
 
 const API_URL = '/api/catastro'; // Vercel force redeploy v2
 
 function App() {
-  const [step, setStep] = useState('SEARCH');
+  const { user, loading: authLoading } = useAuth();
+  const [step, setStep] = useState('ADMIN');
+  const [showSearchModal, setShowSearchModal] = useState(false);
+
   const [candidates, setCandidates] = useState([]);
   const [selectedCandidate, setSelectedCandidate] = useState(null);
   const [propertyData, setPropertyData] = useState(null);
@@ -209,264 +215,305 @@ function App() {
     }
   };
 
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+        <div className="animate-pulse text-primary-500 font-bold tracking-widest text-sm uppercase">Cargando...</div>
+      </div>
+    );
+  }
+
   return (
-    <div className="min-h-screen bg-[#020617] font-sans selection:bg-primary-500/30">
-      {/* Nuevo Fondo Dinámico */}
+    <div className="min-h-screen bg-slate-950 overflow-x-hidden relative">
       <DynamicNetworkBackground />
+      
+      <div className={`relative z-10 ${user && step === 'ADMIN' ? 'p-0 h-screen overflow-hidden' : 'px-4 py-8'}`}>
+        {!user ? (
+          <div className="flex items-center justify-center min-h-[70vh]">
+            <LoginView onSuccess={() => setStep('ADMIN')} />
+          </div>
+        ) : step === 'ADMIN' ? (
+          <AdminPanelView
+            onBackToCalculator={() => setShowSearchModal(true)} 
+            onLoadOpportunity={async (op) => {
+              setLoading(true);
+              setError(null);
+              try {
+                // Fetch full catastro data by RC
+                const res = await axios.get(`${API_URL}/property-data`, { params: { rc: op.ref_catastral } });
+                const catastroData = res.data;
 
-      {/* Content */}
-      <div className="relative z-10 px-4 py-8 md:py-12">
-        {(step === 'SEARCH' || step === 'CONFIRM') && (
-          <header className="max-w-6xl mx-auto text-center mb-10 animate-slide-down">
-            <div className="inline-flex items-center gap-4 mb-4">
-              <h1 className="text-3xl md:text-5xl font-bold tracking-tight">
-                <span className="text-white">Calculadora</span>{' '}
-                <span className="text-gradient">BROKERGY</span>
-                <span className="text-xs text-white/20 ml-2">v2.0</span>
-              </h1>
-            </div>
-            <div className="flex justify-center mb-6">
-              <button
-                onClick={() => setStep('ADMIN')}
-                className="px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-full text-xs font-bold text-white tracking-widest uppercase transition-colors flex items-center gap-2"
-              >
-                <svg className="w-4 h-4 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                </svg>
-                Panel de Administración
-              </button>
-            </div>
-            <p className="text-white/60 text-lg max-w-3xl mx-auto">
-              La herramienta líder en valoración de ahorros y bonos energéticos CAE.
-              Transforma los datos de cualquier vivienda en una oportunidad de inversión energética en segundos.
-            </p>
-          </header>
-        )}
+                // Setup existing data for the calculator context
+                setExistingOpportunityData(op);
 
-        {/* Main Content */}
-        <main className="max-w-[1600px] mx-auto">
-          {step === 'SEARCH' && (
-            <div className="animate-fade-in max-w-4xl mx-auto">
-              <CatastroSearchBox
-                onSearch={handleSearch}
-                onAddressSelect={handleAddressSelect}
-                onManualEntry={() => handleOpenCalculator(null)}
-              />
-            </div>
-          )}
-
-          {loading && (
-            <div className="mt-8 animate-fade-in max-w-4xl mx-auto">
-              <div className="glass-card p-8 text-center">
-                <div className="inline-flex items-center gap-3">
-                  <svg className="w-6 h-6 animate-spin text-primary-400" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                const inputs = op.datos_calculo?.inputs || {};
+                setPersistentCalculatorInputs(inputs);
+                setPropertyData(catastroData);
+                setStep('RESULT');
+              } catch (err) {
+                console.error('Error loading opportunity data:', err);
+                setError('No se pudieron cargar los datos catastrales de esta oportunidad.');
+              } finally {
+                setLoading(false);
+              }
+            }} 
+          />
+        ) : (
+          <main className="max-w-[1600px] mx-auto min-h-screen flex flex-col pt-8">
+            {/* Header / Nav for logged in users */}
+            <header className="flex justify-between items-center mb-12">
+              <div className="flex items-center gap-3">
+                <div className="size-10 bg-primary-500 rounded-xl flex items-center justify-center shadow-lg shadow-primary-500/20">
+                  <span className="font-black text-white">B</span>
+                </div>
+                <div>
+                  <h1 className="text-2xl font-black text-white tracking-tighter uppercase leading-none">Brokergy</h1>
+                  <p className="text-[10px] text-white/30 uppercase tracking-[0.3em] font-bold">Analytics Engine</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="text-right hidden sm:block">
+                  <div className="text-xs font-black text-white uppercase tracking-wider">{user.nombre} {user.apellidos}</div>
+                  <div className="text-[10px] text-white/40 uppercase tracking-widest">{user.rol}</div>
+                </div>
+                <button 
+                  onClick={() => setStep(step === 'ADMIN' ? 'SEARCH' : 'ADMIN')}
+                  className="p-3 bg-white/5 hover:bg-white/10 rounded-xl border border-white/10 transition-all text-white/40 hover:text-white"
+                  title="Panel de Oportunidades"
+                >
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
                   </svg>
-                  <span className="text-white/80 text-lg">Consultando servicios oficiales...</span>
-                </div>
+                </button>
               </div>
-            </div>
-          )}
+            </header>
 
-          {error && (
-            <div className="mt-8 animate-fade-in max-w-4xl mx-auto">
-              <div className="glass-card p-6 border-l-4 border-red-500">
-                <div className="flex items-start gap-4">
-                  <div className="w-10 h-10 rounded-full bg-red-500/20 flex items-center justify-center flex-shrink-0">
-                    <svg className="w-5 h-5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            {(step === 'SEARCH' || step === 'CONFIRM') && (
+              <header className="max-w-6xl mx-auto text-center mb-10 animate-slide-down">
+                <div className="inline-flex items-center gap-4 mb-4">
+                  <h1 className="text-3xl md:text-5xl font-bold tracking-tight">
+                    <span className="text-white">Calculadora</span>{' '}
+                    <span className="text-gradient">BROKERGY</span>
+                    <span className="text-xs text-white/20 ml-2">v2.0</span>
+                  </h1>
+                </div>
+                <p className="text-white/60 text-lg max-w-3xl mx-auto">
+                  La herramienta líder en valoración de ahorros y bonos energéticos CAE.
+                  Transforma los datos de cualquier vivienda en una oportunidad de inversión energética en segundos.
+                </p>
+              </header>
+            )}
+
+            {/* Main Content Areas */}
+            {step === 'SEARCH' && (
+              <div className="animate-fade-in max-w-4xl mx-auto">
+                <CatastroSearchBox
+                  onSearch={handleSearch}
+                  onAddressSelect={handleAddressSelect}
+                  onManualEntry={() => handleOpenCalculator(null)}
+                />
+              </div>
+            )}
+
+            {loading && (
+              <div className="mt-8 animate-fade-in max-w-4xl mx-auto">
+                <div className="glass-card p-8 text-center">
+                  <div className="inline-flex items-center gap-3">
+                    <svg className="w-6 h-6 animate-spin text-primary-400" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                     </svg>
-                  </div>
-                  <div>
-                    <h3 className="text-red-400 font-semibold mb-1">Error en la consulta</h3>
-                    <p className="text-white/70 whitespace-pre-line text-sm leading-relaxed">{error}</p>
+                    <span className="text-white/80 text-lg">Consultando servicios oficiales...</span>
                   </div>
                 </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {showExistingModal && existingOpportunityData && (
-            <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
-              <div className="bg-slate-900 rounded-2xl max-w-md w-full p-8 border border-amber-500/30 shadow-2xl relative">
-                <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-amber-500 to-orange-500"></div>
+            {error && (
+              <div className="mt-8 animate-fade-in max-w-4xl mx-auto">
+                <div className="glass-card p-6 border-l-4 border-red-500">
+                  <div className="flex items-start gap-4">
+                    <div className="w-10 h-10 rounded-full bg-red-500/20 flex items-center justify-center flex-shrink-0">
+                      <svg className="w-5 h-5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                    </div>
+                    <div>
+                      <h3 className="text-red-400 font-semibold mb-1">Error en la consulta</h3>
+                      <p className="text-white/70 whitespace-pre-line text-sm leading-relaxed">{error}</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
 
-                {!showOverwriteConfirm ? (
-                  <>
-                    <h3 className="text-2xl font-bold text-white text-center mb-2 flex flex-col items-center">
-                      <span className="text-4xl mb-3">📂</span>
-                      Oportunidad Existente
+            {showExistingModal && existingOpportunityData && (
+              <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
+                <div className="bg-slate-900 rounded-2xl max-w-md w-full p-8 border border-amber-500/30 shadow-2xl relative">
+                  <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-amber-500 to-orange-500"></div>
+
+                  {!showOverwriteConfirm ? (
+                    <>
+                      <h3 className="text-2xl font-bold text-white text-center mb-2 flex flex-col items-center">
+                        <span className="text-4xl mb-3">📂</span>
+                        Oportunidad Existente
+                      </h3>
+                      <p className="text-slate-400 text-center mb-6 text-sm">
+                        La ref. catastral <span className="text-white font-mono">{existingOpportunityData.ref_catastral}</span> ya se calculó anteriormente por <strong className="text-amber-400">{existingOpportunityData.prescriptor || 'BROKERGY'}</strong> con la referencia del cliente: <br /><strong className="text-amber-400 block mt-2 text-lg uppercase">{existingOpportunityData.referencia_cliente || 'SIN NOMBRE'}</strong>.
+                      </p>
+                      <div className="flex flex-col gap-3">
+                        <button
+                          className="w-full py-3 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-900 font-black rounded-xl transition-all shadow-lg shadow-amber-500/20"
+                          onClick={() => {
+                            setShowExistingModal(false);
+                            const inputs = existingOpportunityData.datos_calculo?.inputs || {};
+                            setPersistentCalculatorInputs(inputs);
+                            setPropertyData(pendingPropertyData);
+                            setStep('RESULT');
+                          }}
+                        >
+                          Cargar datos existentes
+                        </button>
+                        <button
+                          className="w-full py-3 bg-white/5 hover:bg-white/10 border border-white/10 text-white font-bold rounded-xl transition-all"
+                          onClick={() => setShowOverwriteConfirm(true)}
+                        >
+                          Sobrescribir (Cargar nueva)
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="animate-fade-in text-center">
+                      <div className="w-16 h-16 bg-red-500/20 rounded-full flex items-center justify-center mx-auto mb-4 border border-red-500/30">
+                        <span className="text-3xl">⚠️</span>
+                      </div>
+                      <h3 className="text-2xl font-bold text-white mb-2">¿Estás seguro?</h3>
+                      <p className="text-slate-400 mb-6 text-sm">
+                        Si seleccionas sobrescribir, todos los datos guardados anteriormente por <strong className="text-white">{existingOpportunityData.prescriptor}</strong> para este cliente se perderán permanentemente.
+                      </p>
+                      <div className="flex flex-col gap-3">
+                        <button
+                          className="w-full py-3 bg-red-600 hover:bg-red-500 text-white font-bold rounded-xl transition-all shadow-lg shadow-red-500/20"
+                          onClick={() => {
+                            setShowExistingModal(false);
+                            setShowOverwriteConfirm(false);
+                            setPersistentCalculatorInputs(null);
+                            setPropertyData(pendingPropertyData);
+                            setStep('RESULT');
+                          }}
+                        >
+                          Sí, sobrescribir datos
+                        </button>
+                        <button
+                          className="w-full py-3 bg-white/5 hover:bg-white/10 border border-white/10 text-white font-bold rounded-xl transition-all"
+                          onClick={() => setShowOverwriteConfirm(false)}
+                        >
+                          Cancelar y volver
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {step === 'CONFIRM' && candidates.length > 0 && (
+              <div className="animate-slide-up max-w-4xl mx-auto">
+                {candidates.length > 1 && (
+                  <div className="glass-card p-6 mb-6">
+                    <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                      <svg className="w-5 h-5 text-primary-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                      </svg>
+                      Hemos encontrado varias opciones
                     </h3>
-                    <p className="text-slate-400 text-center mb-6 text-sm">
-                      La ref. catastral <span className="text-white font-mono">{existingOpportunityData.ref_catastral}</span> ya se calculó anteriormente por <strong className="text-amber-400">{existingOpportunityData.prescriptor || 'BROKERGY'}</strong> con la referencia del cliente: <br /><strong className="text-amber-400 block mt-2 text-lg uppercase">{existingOpportunityData.referencia_cliente || 'SIN NOMBRE'}</strong>.
-                    </p>
-                    <div className="flex flex-col gap-3">
-                      <button
-                        className="w-full py-3 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-900 font-black rounded-xl transition-all shadow-lg shadow-amber-500/20"
-                        onClick={() => {
-                          setShowExistingModal(false);
-                          const inputs = existingOpportunityData.datos_calculo?.inputs || {};
-                          setPersistentCalculatorInputs(inputs);
-                          setPropertyData(pendingPropertyData);
-                          setStep('RESULT');
-                        }}
-                      >
-                        Cargar datos existentes
-                      </button>
-                      <button
-                        className="w-full py-3 bg-white/5 hover:bg-white/10 border border-white/10 text-white font-bold rounded-xl transition-all"
-                        onClick={() => setShowOverwriteConfirm(true)}
-                      >
-                        Sobrescribir (Cargar nueva)
-                      </button>
-                    </div>
-                  </>
-                ) : (
-                  <div className="animate-fade-in text-center">
-                    <div className="w-16 h-16 bg-red-500/20 rounded-full flex items-center justify-center mx-auto mb-4 border border-red-500/30">
-                      <span className="text-3xl">⚠️</span>
-                    </div>
-                    <h3 className="text-2xl font-bold text-white mb-2">¿Estás seguro?</h3>
-                    <p className="text-slate-400 mb-6 text-sm">
-                      Si seleccionas sobrescribir, todos los datos guardados anteriormente por <strong className="text-white">{existingOpportunityData.prescriptor}</strong> para este cliente se perderán permanentemente.
-                    </p>
-                    <div className="flex flex-col gap-3">
-                      <button
-                        className="w-full py-3 bg-red-600 hover:bg-red-500 text-white font-bold rounded-xl transition-all shadow-lg shadow-red-500/20"
-                        onClick={() => {
-                          setShowExistingModal(false);
-                          setShowOverwriteConfirm(false);
-                          setPersistentCalculatorInputs(null);
-                          setPropertyData(pendingPropertyData);
-                          setStep('RESULT');
-                        }}
-                      >
-                        Sí, sobrescribir datos
-                      </button>
-                      <button
-                        className="w-full py-3 bg-white/5 hover:bg-white/10 border border-white/10 text-white font-bold rounded-xl transition-all"
-                        onClick={() => setShowOverwriteConfirm(false)}
-                      >
-                        Cancelar y volver
-                      </button>
+                    <div className="space-y-2">
+                      {candidates.map((c) => (
+                        <button
+                          key={c.place_id}
+                          className={`w-full text-left p-4 rounded-xl transition-all ${selectedCandidate?.place_id === c.place_id
+                            ? 'bg-primary-500/20 border border-primary-500/50'
+                            : 'bg-white/5 border border-transparent hover:bg-white/10'
+                            }`}
+                          onClick={() => setSelectedCandidate(c)}
+                        >
+                          <span className="text-white/90">{c.description}</span>
+                        </button>
+                      ))}
                     </div>
                   </div>
                 )}
+
+                <ConfirmationCard
+                  candidate={selectedCandidate}
+                  onConfirm={handleConfirmAddress}
+                  onCancel={reset}
+                />
               </div>
-            </div>
-          )}
+            )}
 
-          {step === 'CONFIRM' && candidates.length > 0 && (
-            <div className="animate-slide-up max-w-4xl mx-auto">
-              {candidates.length > 1 && (
-                <div className="glass-card p-6 mb-6">
-                  <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                    <svg className="w-5 h-5 text-primary-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                    </svg>
-                    Hemos encontrado varias opciones
-                  </h3>
-                  <div className="space-y-2">
-                    {candidates.map((c) => (
-                      <button
-                        key={c.place_id}
-                        className={`w-full text-left p-4 rounded-xl transition-all ${selectedCandidate?.place_id === c.place_id
-                          ? 'bg-primary-500/20 border border-primary-500/50'
-                          : 'bg-white/5 border border-transparent hover:bg-white/10'
-                          }`}
-                        onClick={() => setSelectedCandidate(c)}
-                      >
-                        <span className="text-white/90">{c.description}</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
+            {step === 'RESULT' && propertyData && (
+              <div className="animate-slide-up max-w-4xl mx-auto">
+                <button
+                  onClick={existingOpportunityData ? () => { reset(); setStep('ADMIN'); } : reset}
+                  className="mb-6 flex items-center gap-2 text-white/60 hover:text-white transition-colors group"
+                >
+                  <svg className="w-5 h-5 group-hover:-translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                  </svg>
+                  {existingOpportunityData ? 'Volver al panel de oportunidades' : 'Nueva búsqueda'}
+                </button>
+                <PropertySheet
+                  data={propertyData}
+                  onCalculateDemand={handleOpenCalculator}
+                />
+              </div>
+            )}
 
-              <ConfirmationCard
-                candidate={selectedCandidate}
-                onConfirm={handleConfirmAddress}
-                onCancel={reset}
+            {step === 'CALCULATOR' && (
+              <CalculatorView
+                key={calculatorData?.rc || 'manual'}
+                initialData={calculatorData}
+                onBack={handleBackFromCalculator}
               />
-            </div>
-          )}
+            )}
 
-          {step === 'RESULT' && propertyData && (
-            <div className="animate-slide-up max-w-4xl mx-auto">
-              <button
-                onClick={reset}
-                className="mb-6 flex items-center gap-2 text-white/60 hover:text-white transition-colors group"
-              >
-                <svg className="w-5 h-5 group-hover:-translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-                </svg>
-                Nueva búsqueda
-              </button>
-              <PropertySheet
-                data={propertyData}
-                onCalculateDemand={handleOpenCalculator}
-              />
-            </div>
-          )}
-
-          {step === 'CALCULATOR' && (
-            <CalculatorView
-              key={calculatorData?.rc || 'manual'}
-              initialData={calculatorData}
-              onBack={handleBackFromCalculator}
-            />
-          )}
-
-          {step === 'ADMIN' && (
-            <div className="animate-slide-up">
-              <button
-                onClick={reset}
-                className="mb-6 flex items-center gap-2 text-white/60 hover:text-white transition-colors group px-4"
-              >
-                <svg className="w-5 h-5 group-hover:-translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-                </svg>
-                Volver a la Calculadora
-              </button>
-              <AdminPanelView onLoadOpportunity={async (op) => {
-                setLoading(true);
-                setError(null);
-                try {
-                  // Fetch full catastro data by RC
-                  const res = await axios.get(`${API_URL}/property-data`, { params: { rc: op.ref_catastral } });
-                  const catastroData = res.data;
-
-                  // Setup existing data for the calculator context
-                  setExistingOpportunityData(op);
-
-                  const inputs = op.datos_calculo?.inputs || {};
-                  setPersistentCalculatorInputs(inputs);
-                  setPropertyData(catastroData);
-                  setStep('RESULT');
-                } catch (err) {
-                  console.error('Error loading opportunity data:', err);
-                  setError('No se pudieron cargar los datos catastrales de esta oportunidad.');
-                } finally {
-                  setLoading(false);
-                }
-              }} />
-            </div>
-          )}
-
-        </main>
+            {/* step ADMIN was moved to the parent condition wrapper */}
+          </main>
+        )}
 
         {/* Footer */}
-        <footer className="max-w-6xl mx-auto mt-16 text-center">
-          <p className="text-white/30 text-sm">
-            Datos oficiales del Catastro de España · Ministerio de Hacienda
+        <footer className="max-w-6xl mx-auto mt-16 text-center border-t border-white/5 pt-8">
+          <p className="text-white/20 text-[10px] uppercase tracking-[0.2em] font-bold">
+            Brokergy Analytics · © 2026
           </p>
         </footer>
       </div>
+
+      {showSearchModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/90 backdrop-blur-md p-4 animate-fade-in">
+            <button 
+                onClick={() => setShowSearchModal(false)} 
+                className="absolute top-6 right-6 text-white/50 hover:text-white transition-colors bg-white/5 p-3 rounded-full hover:bg-red-500/20 hover:text-red-500 z-50"
+            >
+                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+            </button>
+            <div className="w-full max-w-3xl relative z-10 animate-slide-up">
+              <CatastroSearchBox
+                onSearch={(q) => { setShowSearchModal(false); handleSearch(q); }}
+                onAddressSelect={(c) => { setShowSearchModal(false); handleAddressSelect(c); }}
+                onManualEntry={() => { setShowSearchModal(false); handleOpenCalculator(null); }}
+              />
+            </div>
+        </div>
+      )}
     </div>
   );
 }
+
+
 
 export default App;

@@ -262,8 +262,8 @@ export function CalculatorForm({ inputs, onInputChange, onCalculate, result, sho
                     {showBuildingData && (
                         <div className="p-4 pt-0 border-t border-slate-800/30 animate-scale-in">
                             <div className="pt-4 space-y-4">
-                                {/* Ubicación y Año */}
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                {/* Ubicación y Año - REJILLA 4 COLUMNAS */}
+                                <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
                                     <div className="md:col-span-2">
                                         <Label htmlFor="provincia">Provincia</Label>
                                         <Select
@@ -291,10 +291,8 @@ export function CalculatorForm({ inputs, onInputChange, onCalculate, result, sho
                                             ))}
                                         </Select>
                                     </div>
-                                </div>
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
                                     <div>
-                                        <Label htmlFor="anio">Año de construcción</Label>
+                                        <Label htmlFor="anio">Año de const.</Label>
                                         <Select
                                             id="anio"
                                             value={inputs.anio < 1900 ? 1899 : inputs.anio}
@@ -308,12 +306,10 @@ export function CalculatorForm({ inputs, onInputChange, onCalculate, result, sho
                                     </div>
                                 </div>
 
-                                {/* Dimensiones */}
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                {/* Métricas - REJILLA 4 COLUMNAS */}
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                                     <div>
-                                        <div className="flex justify-between items-center mb-1">
-                                            <Label htmlFor="superficie">Superficie útil (m²)</Label>
-                                        </div>
+                                        <Label htmlFor="superficie">Sup. útil (m²)</Label>
                                         <Input
                                             id="superficie"
                                             type="text"
@@ -323,7 +319,6 @@ export function CalculatorForm({ inputs, onInputChange, onCalculate, result, sho
                                             onChange={e => {
                                                 const val = e.target.value;
                                                 handleSmartNumberChange('superficie', val);
-                                                // If calefactable is not set or was same as surface, keep them in sync or just help the user
                                                 if (!inputs.superficieCalefactable || inputs.superficieCalefactable === inputs.superficie) {
                                                     handleSmartNumberChange('superficieCalefactable', val);
                                                 }
@@ -331,7 +326,7 @@ export function CalculatorForm({ inputs, onInputChange, onCalculate, result, sho
                                         />
                                     </div>
                                     <div>
-                                        <Label htmlFor="superficieCalefactable">Sup. Calefactable (m²)</Label>
+                                        <Label htmlFor="superficieCalefactable">Sup. Calef. (m²)</Label>
                                         <Input
                                             id="superficieCalefactable"
                                             type="text"
@@ -339,11 +334,11 @@ export function CalculatorForm({ inputs, onInputChange, onCalculate, result, sho
                                             min={0}
                                             value={formatDisplay(inputs.superficieCalefactable)}
                                             onChange={e => handleSmartNumberChange('superficieCalefactable', e.target.value)}
-                                            placeholder="Igual o mayor a útil"
+                                            placeholder="Igual o mayor"
                                         />
                                     </div>
                                     <div>
-                                        <Label htmlFor="plantas">Nº de plantas</Label>
+                                        <Label htmlFor="plantas">Plantas</Label>
                                         <Input
                                             id="plantas"
                                             type="text"
@@ -354,7 +349,7 @@ export function CalculatorForm({ inputs, onInputChange, onCalculate, result, sho
                                         />
                                     </div>
                                     <div>
-                                        <Label htmlFor="altura">Altura libre (m)</Label>
+                                        <Label htmlFor="altura">Altura (m)</Label>
                                         <Input
                                             id="altura"
                                             type="text"
@@ -366,7 +361,7 @@ export function CalculatorForm({ inputs, onInputChange, onCalculate, result, sho
                                     </div>
                                 </div>
 
-                                {/* Tipología */}
+                                {/* Tipología - REJILLA COMPACTA */}
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                     <div>
                                         <Label htmlFor="tipo">Tipo de vivienda</Label>
@@ -382,16 +377,16 @@ export function CalculatorForm({ inputs, onInputChange, onCalculate, result, sho
                                     </div>
                                     {inputs.tipo === 'piso' && (
                                         <div>
-                                            <Label htmlFor="subtipo">Posición en el edificio</Label>
+                                            <Label htmlFor="subtipo">Posición en edificio</Label>
                                             <Select
                                                 id="subtipo"
                                                 value={inputs.subtipo}
                                                 onChange={e => handleChange('subtipo', e.target.value)}
                                             >
-                                                <option value="intermedio">Piso intermedio (entre viviendas)</option>
-                                                <option value="atico">Ático (cubierta expuesta)</option>
-                                                <option value="bajo">Planta baja (local inf. no calefactado)</option>
-                                                <option value="bajo_terreno">Planta baja (en contacto con terreno)</option>
+                                                <option value="intermedio">Piso intermedio</option>
+                                                <option value="atico">Ático (cubierta exp.)</option>
+                                                <option value="bajo">Planta baja (local inf.)</option>
+                                                <option value="bajo_terreno">Planta baja (terreno)</option>
                                             </Select>
                                         </div>
                                     )}
@@ -451,9 +446,9 @@ export function CalculatorForm({ inputs, onInputChange, onCalculate, result, sho
                     {showEnvolvente && (
                         <div className="p-4 pt-0 border-t border-slate-800/30 animate-scale-in">
                             <div className="pt-4 space-y-4">
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                                     <div>
-                                        <Label htmlFor="uMuro">U Muros (W/m²K)</Label>
+                                        <Label htmlFor="uMuro">U Muros</Label>
                                         <Input
                                             id="uMuro"
                                             type="text"
@@ -468,7 +463,7 @@ export function CalculatorForm({ inputs, onInputChange, onCalculate, result, sho
                                         />
                                     </div>
                                     <div>
-                                        <Label htmlFor="uCubierta">U Cubierta (W/m²K)</Label>
+                                        <Label htmlFor="uCubierta">U Cubierta</Label>
                                         <Input
                                             id="uCubierta"
                                             type="text"
@@ -482,28 +477,8 @@ export function CalculatorForm({ inputs, onInputChange, onCalculate, result, sho
                                             className={!dirtyURoof ? 'text-cyan-400 font-bold' : ''}
                                         />
                                     </div>
-                                </div>
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                    <div>
-                                        <Label htmlFor="ventana">Tipo de ventana</Label>
-                                        <Select
-                                            id="ventana"
-                                            value={inputs.ventanaU}
-                                            onChange={e => {
-                                                handleChange('ventanaU', parseFloat(e.target.value));
-                                                setDirtyVentana(true);
-                                            }}
-                                            className={!dirtyVentana ? 'text-cyan-400 font-bold' : ''}
-                                        >
-                                            <option value="5">Sencilla aluminio (U=5.0)</option>
-                                            <option value="3">Doble antiguo (U=3.0)</option>
-                                            <option value="2">Doble con RPT (U=2.0)</option>
-                                            <option value="1.4">Doble bajo emisivo (U=1.4)</option>
-                                            <option value="1.1">Triple eficiente (U=1.1)</option>
-                                        </Select>
-                                    </div>
-                                    <div>
-                                        <Label htmlFor="ach">Ventilación (ren/h)</Label>
+                                    <div className="col-span-1">
+                                        <Label htmlFor="ach">ACH</Label>
                                         <Input
                                             id="ach"
                                             type="text"
@@ -517,20 +492,39 @@ export function CalculatorForm({ inputs, onInputChange, onCalculate, result, sho
                                             className={!dirtyAch ? 'text-cyan-400 font-bold' : ''}
                                         />
                                     </div>
+                                    <div className="col-span-2 md:col-span-1">
+                                        <Label htmlFor="ventana">U Ventana</Label>
+                                        <Select
+                                            id="ventana"
+                                            value={inputs.ventanaU}
+                                            onChange={e => {
+                                                handleChange('ventanaU', parseFloat(e.target.value));
+                                                setDirtyVentana(true);
+                                            }}
+                                            className={!dirtyVentana ? 'text-cyan-400 font-bold' : ''}
+                                        >
+                                            <option value="5">U=5.0 (Alum.)</option>
+                                            <option value="3">U=3.0 (Dbl. Ant.)</option>
+                                            <option value="2">U=2.0 (RPT)</option>
+                                            <option value="1.4">U=1.4 (B. Emis.)</option>
+                                            <option value="1.1">U=1.1 (Triple)</option>
+                                        </Select>
+                                    </div>
                                 </div>
 
-                                {/* Advanced Section - Integrated into Envolvente */}
+                                {/* Advanced Section - Integrated and Compacted */}
                                 <div className="mt-4 pt-4 border-t border-slate-800/30">
-                                    <h4 className="text-xs font-bold text-slate-500 uppercase tracking-tight mb-4 flex items-center gap-2">
-                                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4 flex items-center gap-2">
+                                        <svg className="w-3 h-3 text-cyan-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37a1.724 1.724 0 002.572-1.065z" />
                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                                         </svg>
-                                        Parámetros de cálculo
+                                        Parámetros de cálculo (GEOMETRÍA)
                                     </h4>
-                                    <div className="grid grid-cols-2 gap-4">
+                                    
+                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                                         <div>
-                                            <Label htmlFor="gla">% Huecos en fachada</Label>
+                                            <Label htmlFor="gla">% Huecos</Label>
                                             <Input
                                                 id="gla"
                                                 type="text"
@@ -540,7 +534,7 @@ export function CalculatorForm({ inputs, onInputChange, onCalculate, result, sho
                                             />
                                         </div>
                                         <div>
-                                            <Label htmlFor="fachadas">Fachadas expuestas</Label>
+                                            <Label htmlFor="fachadas">Fachadas exp.</Label>
                                             <Input
                                                 id="fachadas"
                                                 type="number"
@@ -550,11 +544,8 @@ export function CalculatorForm({ inputs, onInputChange, onCalculate, result, sho
                                                 onChange={e => handleChange('fachadas', parseFloat(e.target.value))}
                                             />
                                         </div>
-                                    </div>
-
-                                    <div className="grid grid-cols-2 mt-4 gap-4">
                                         <div>
-                                            <Label htmlFor="patios">Patios interiores</Label>
+                                            <Label htmlFor="patios">Patios int.</Label>
                                             <Input
                                                 id="patios"
                                                 type="number"
@@ -577,7 +568,7 @@ export function CalculatorForm({ inputs, onInputChange, onCalculate, result, sho
                                         </div>
                                     </div>
 
-                                    <div className="mt-4">
+                                    <div className="mt-3">
                                         <Label htmlFor="sueloTipo">Tipo de suelo</Label>
                                         <Select
                                             id="sueloTipo"
@@ -640,112 +631,114 @@ export function CalculatorForm({ inputs, onInputChange, onCalculate, result, sho
                     {showInstalaciones && (
                         <div className="p-4 pt-0 border-t border-slate-800/30 animate-scale-in">
                             <div className="pt-4 space-y-4">
-                                {/* Caldera Existente */}
-                                <div>
-                                    <Label htmlFor="boilerId">Caldera existente</Label>
-                                    <Select
-                                        id="boilerId"
-                                        value={inputs.boilerId}
-                                        onChange={e => {
-                                            const id = e.target.value;
-                                            const selected = BOILER_EFFICIENCIES.find(b => b.id === id);
-                                            if (selected) {
-                                                setIsPriceLocked(true);
-                                                onInputChange(prev => {
-                                                    let fuelUpdate = {};
-                                                    if (id.startsWith('gas_')) {
-                                                        fuelUpdate.fuelType = 'gas_natural';
-                                                        fuelUpdate.fuelPrice = FUEL_PRICES.gas_natural.price;
-                                                    } else if (id.startsWith('oil_')) {
-                                                        fuelUpdate.fuelType = 'gasoleo';
-                                                        fuelUpdate.fuelPrice = FUEL_PRICES.gasoleo.price;
-                                                    } else if (id.startsWith('solid_')) {
-                                                        fuelUpdate.fuelType = 'carbon';
-                                                        fuelUpdate.fuelPrice = FUEL_PRICES.carbon.price;
-                                                    }
-
-                                                    return {
-                                                        ...prev,
-                                                        boilerId: id,
-                                                        boilerEff: selected.value,
-                                                        ...fuelUpdate
-                                                    };
-                                                });
-                                            }
-                                        }}
-                                        className="font-mono text-sm"
-                                    >
-                                        {BOILER_EFFICIENCIES.map((b) => (
-                                            <option key={b.id} value={b.id}>
-                                                {b.label} (η={(b.value * 100).toFixed(0)}%)
-                                            </option>
-                                        ))}
-                                    </Select>
-                                </div>
-
-                                <div>
-                                    <Label htmlFor="aerothermiaModel">Modelo de máquina (Aerotermia)</Label>
-                                    <Select
-                                        id="aerothermiaModel"
-                                        value={inputs.aerothermiaModel || 'custom'}
-                                        onChange={e => {
-                                            const modelId = e.target.value;
-                                            const selectedModel = AEROTHERMIA_MODELS.find(m => m.id === modelId);
-                                            const currentEmitter = inputs.emitterType || 'radiadores_convencionales';
-
-                                            let updates = { aerothermiaModel: modelId };
-
-                                            if (selectedModel && modelId !== 'custom') {
-                                                updates.scopHeating = currentEmitter === 'radiadores_convencionales'
-                                                    ? selectedModel.scop55
-                                                    : selectedModel.scop35;
-                                            }
-
-                                            onInputChange(prev => ({ ...prev, ...updates }));
-                                        }}
-                                    >
-                                        {AEROTHERMIA_MODELS.map(m => (
-                                            <option key={m.id} value={m.id}>{m.label}</option>
-                                        ))}
-                                    </Select>
-                                </div>
-
-                                <div>
-                                    <Label htmlFor="emitterType">Tipo de emisor</Label>
-                                    <Select
-                                        id="emitterType"
-                                        value={inputs.emitterType || 'radiadores_convencionales'}
-                                        onChange={e => {
-                                            const type = e.target.value;
-                                            const currentModelId = inputs.aerothermiaModel || 'custom';
-                                            const selectedModel = AEROTHERMIA_MODELS.find(m => m.id === currentModelId);
-
-                                            let newScop = 3.2;
-                                            if (type === 'radiadores_baja_temp') newScop = 3.8;
-                                            if (type === 'suelo_radiante') newScop = 4.5;
-
-                                            if (selectedModel && currentModelId !== 'custom') {
-                                                newScop = type === 'radiadores_convencionales'
-                                                    ? selectedModel.scop55
-                                                    : selectedModel.scop35;
-                                            }
-
-                                            onInputChange(prev => ({
-                                                ...prev,
-                                                emitterType: type,
-                                                scopHeating: newScop
-                                            }));
-                                        }}
-                                    >
-                                        <option value="radiadores_convencionales">Radiadores convencionales (55°C)</option>
-                                        <option value="radiadores_baja_temp">Radiadores de baja temperatura (35°C)</option>
-                                        <option value="suelo_radiante">Suelo radiante (35°C)</option>
-                                    </Select>
-                                </div>
-
+                                {/* Calderas y Aerotermia - REJILLA COMPACTA */}
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                     <div>
-                                        <Label htmlFor="scopHeating">SCOP Calefacción</Label>
+                                        <Label htmlFor="boilerId">Caldera existente</Label>
+                                        <Select
+                                            id="boilerId"
+                                            value={inputs.boilerId}
+                                            onChange={e => {
+                                                const id = e.target.value;
+                                                const selected = BOILER_EFFICIENCIES.find(b => b.id === id);
+                                                if (selected) {
+                                                    setIsPriceLocked(true);
+                                                    onInputChange(prev => {
+                                                        let fuelUpdate = {};
+                                                        if (id.startsWith('gas_')) {
+                                                            fuelUpdate.fuelType = 'gas_natural';
+                                                            fuelUpdate.fuelPrice = FUEL_PRICES.gas_natural.price;
+                                                        } else if (id.startsWith('oil_')) {
+                                                            fuelUpdate.fuelType = 'gasoleo';
+                                                            fuelUpdate.fuelPrice = FUEL_PRICES.gasoleo.price;
+                                                        } else if (id.startsWith('solid_')) {
+                                                            fuelUpdate.fuelType = 'carbon';
+                                                            fuelUpdate.fuelPrice = FUEL_PRICES.carbon.price;
+                                                        }
+
+                                                        return {
+                                                            ...prev,
+                                                            boilerId: id,
+                                                            boilerEff: selected.value,
+                                                            ...fuelUpdate
+                                                        };
+                                                    });
+                                                }
+                                            }}
+                                            className="font-mono text-sm"
+                                        >
+                                            {BOILER_EFFICIENCIES.map((b) => (
+                                                <option key={b.id} value={b.id}>
+                                                    {b.label} (η={(b.value * 100).toFixed(0)}%)
+                                                </option>
+                                            ))}
+                                        </Select>
+                                    </div>
+
+                                    <div>
+                                        <Label htmlFor="aerothermiaModel">Modelo Máquina (Aerotermia)</Label>
+                                        <Select
+                                            id="aerothermiaModel"
+                                            value={inputs.aerothermiaModel || 'custom'}
+                                            onChange={e => {
+                                                const modelId = e.target.value;
+                                                const selectedModel = AEROTHERMIA_MODELS.find(m => m.id === modelId);
+                                                const currentEmitter = inputs.emitterType || 'radiadores_convencionales';
+
+                                                let updates = { aerothermiaModel: modelId };
+
+                                                if (selectedModel && modelId !== 'custom') {
+                                                    updates.scopHeating = currentEmitter === 'radiadores_convencionales'
+                                                        ? selectedModel.scop55
+                                                        : selectedModel.scop35;
+                                                }
+
+                                                onInputChange(prev => ({ ...prev, ...updates }));
+                                            }}
+                                        >
+                                            {AEROTHERMIA_MODELS.map(m => (
+                                                <option key={m.id} value={m.id}>{m.label}</option>
+                                            ))}
+                                        </Select>
+                                    </div>
+                                </div>
+
+                                {/* Emisor y Rendimiento - REJILLA 4 COLUMNAS */}
+                                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                                    <div className="col-span-2">
+                                        <Label htmlFor="emitterType">Tipo de emisor</Label>
+                                        <Select
+                                            id="emitterType"
+                                            value={inputs.emitterType || 'radiadores_convencionales'}
+                                            onChange={e => {
+                                                const type = e.target.value;
+                                                const currentModelId = inputs.aerothermiaModel || 'custom';
+                                                const selectedModel = AEROTHERMIA_MODELS.find(m => m.id === currentModelId);
+
+                                                let newScop = 3.2;
+                                                if (type === 'radiadores_baja_temp') newScop = 3.8;
+                                                if (type === 'suelo_radiante') newScop = 4.5;
+
+                                                if (selectedModel && currentModelId !== 'custom') {
+                                                    newScop = type === 'radiadores_convencionales'
+                                                        ? selectedModel.scop55
+                                                        : selectedModel.scop35;
+                                                }
+
+                                                onInputChange(prev => ({
+                                                    ...prev,
+                                                    emitterType: type,
+                                                    scopHeating: newScop
+                                                }));
+                                            }}
+                                        >
+                                            <option value="radiadores_convencionales">Convencionales (55°C)</option>
+                                            <option value="radiadores_baja_temp">Baja Temp. (35°C)</option>
+                                            <option value="suelo_radiante">Suelo Radiante (35°C)</option>
+                                        </Select>
+                                    </div>
+                                    <div>
+                                        <Label htmlFor="scopHeating">SCOP Calef.</Label>
                                         <Input
                                             id="scopHeating"
                                             type="text"
@@ -757,7 +750,7 @@ export function CalculatorForm({ inputs, onInputChange, onCalculate, result, sho
                                         />
                                     </div>
                                     <div className="flex flex-col justify-end pb-2">
-                                        <label className="flex items-center gap-3 cursor-pointer group">
+                                        <label className="flex items-center gap-2 cursor-pointer group">
                                             <div className="relative flex items-center">
                                                 <input
                                                     type="checkbox"
@@ -765,46 +758,37 @@ export function CalculatorForm({ inputs, onInputChange, onCalculate, result, sho
                                                     checked={inputs.changeAcs}
                                                     onChange={e => handleChange('changeAcs', e.target.checked)}
                                                 />
-                                                <div className="w-11 h-6 bg-slate-700 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-cyan-500/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-cyan-600"></div>
+                                                <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-cyan-500/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-cyan-600"></div>
                                             </div>
-                                            <span className="text-sm font-medium text-slate-300 group-hover:text-white transition-colors">
-                                                Incluir cambio de ACS
+                                            <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 group-hover:text-white transition-colors">
+                                                Cambio ACS
                                             </span>
                                         </label>
                                     </div>
                                 </div>
 
                                 {inputs.changeAcs && (
-                                    <>
-                                        <div className="animate-fade-in">
-                                            <Label htmlFor="scopAcs">SCOP ACS</Label>
-                                            <Input
-                                                id="scopAcs"
-                                                type="text"
-                                                inputMode="decimal"
-                                                step={0.1}
-                                                min={1}
-                                                value={formatDisplay(inputs.scopAcs)}
-                                                onChange={e => handleSmartNumberChange('scopAcs', e.target.value)}
-                                            />
+                                    <div className="animate-fade-in pt-2 border-l-2 border-cyan-500/30 pl-3">
+                                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 items-end">
+                                            <div className="col-span-1">
+                                                <Label htmlFor="scopAcs">SCOP ACS</Label>
+                                                <Input
+                                                    id="scopAcs"
+                                                    type="text"
+                                                    inputMode="decimal"
+                                                    step={0.1}
+                                                    min={1}
+                                                    value={formatDisplay(inputs.scopAcs)}
+                                                    onChange={e => handleSmartNumberChange('scopAcs', e.target.value)}
+                                                />
+                                            </div>
+                                            <div className="col-span-1 pb-2">
+                                                <span className="text-[10px] text-slate-500 font-bold uppercase tracking-tight italic">
+                                                    ACS Fijo: 2731,4 kWh
+                                                </span>
+                                            </div>
                                         </div>
-
-                                        <div className="animate-fade-in">
-                                            <Label htmlFor="dacs">Demanda ACS (kWh/día)</Label>
-                                            <Input
-                                                id="dacs"
-                                                type="text"
-                                                inputMode="decimal"
-                                                min={0}
-                                                value={formatDisplay(inputs.dacs)}
-                                                onChange={e => handleSmartNumberChange('dacs', e.target.value)}
-                                                placeholder="Ej: 10.5"
-                                            />
-                                            <p className="text-[10px] text-slate-500 mt-1">
-                                                Demanda diaria de Agua Caliente Sanitaria
-                                            </p>
-                                        </div>
-                                    </>
+                                    </div>
                                 )}
                             </div>
                         </div>
@@ -883,13 +867,13 @@ export function CalculatorForm({ inputs, onInputChange, onCalculate, result, sho
                                         </label>
                                     </div>
 
-                                    <div className="grid grid-cols-2 gap-4">
+                                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                                         <div>
                                             <Label htmlFor="presupuesto" className="flex items-center gap-1.5">
                                                 <svg className="w-3 h-3 text-lime-500/80" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
                                                 </svg>
-                                                {showBrokergy ? 'Presupuesto (€)' : 'Presupuesto instalación (€)'}
+                                                Presupuesto (€)
                                             </Label>
                                             <Input
                                                 id="presupuesto"
@@ -906,7 +890,7 @@ export function CalculatorForm({ inputs, onInputChange, onCalculate, result, sho
                                                 <svg className="w-3 h-3 text-lime-500/80" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
                                                 </svg>
-                                                {showBrokergy ? 'Propietarios' : 'Nº Propietarios'}
+                                                Propietarios
                                             </Label>
                                             <Input
                                                 id="numOwners"
@@ -919,28 +903,27 @@ export function CalculatorForm({ inputs, onInputChange, onCalculate, result, sho
                                                 className="bg-slate-900/60 border-slate-700/50 focus:border-lime-500/50"
                                             />
                                         </div>
+                                        {showBrokergy && (
+                                            <div className="animate-fade-in col-span-2 md:col-span-1">
+                                                <Label htmlFor="caePriceClient" className="flex items-center gap-1.5">
+                                                    <svg className="w-3 h-3 text-lime-500/80" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                                                    </svg>
+                                                    CAE (€/MWh)
+                                                </Label>
+                                                <Input
+                                                    id="caePriceClient"
+                                                    type="number"
+                                                    inputMode="decimal"
+                                                    min={0}
+                                                    value={inputs.caePriceClient}
+                                                    onChange={e => handleChange('caePriceClient', parseFloat(e.target.value) || 0)}
+                                                    placeholder="Ej: 95"
+                                                    className="bg-slate-900/60 border-slate-700/50 focus:border-lime-500/50"
+                                                />
+                                            </div>
+                                        )}
                                     </div>
-
-                                    {showBrokergy && (
-                                        <div className="animate-fade-in mt-2 border-t border-white/5 pt-4">
-                                            <Label htmlFor="caePriceClient" className="flex items-center gap-1.5">
-                                                <svg className="w-3 h-3 text-lime-500/80" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
-                                                </svg>
-                                                CAE Cliente (€/MWh)
-                                            </Label>
-                                            <Input
-                                                id="caePriceClient"
-                                                type="number"
-                                                inputMode="decimal"
-                                                min={0}
-                                                value={inputs.caePriceClient}
-                                                onChange={e => handleChange('caePriceClient', parseFloat(e.target.value) || 0)}
-                                                placeholder="Ej: 95"
-                                                className="bg-slate-900/60 border-slate-700/50 focus:border-lime-500/50"
-                                            />
-                                        </div>
-                                    )}
                                 </div>
 
                                 {/* Sección Descuento Certificados */}

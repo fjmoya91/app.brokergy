@@ -142,6 +142,7 @@ class ClimateService {
             // Finding correct indices
             const headers = lines[0].split(';');
             const provIdx = headers.indexOf('COD_PROV');
+            const provNameIdx = headers.indexOf('PROVINCIA');
             const geoIdx = headers.indexOf('COD_GEO'); // 01010 format?
             const altIdx = headers.indexOf('ALTITUD');
             const nameIdx = headers.indexOf('NOMBRE_ACTUAL');
@@ -179,10 +180,11 @@ class ClimateService {
 
                 const altitude = parseInt(cols[altIdx]) || 0;
                 const name = cols[nameIdx] || 'Unknown';
+                const provName = provNameIdx !== -1 ? cols[provNameIdx] : 'Unknown';
 
                 if (provCode && munCode) {
                     const key = `${provCode}${munCode}`;
-                    this.municipalityMap.set(key, { altitude, name, provCode, munCode });
+                    this.municipalityMap.set(key, { altitude, name, provCode, munCode, provName });
                     count++;
                 }
             }
@@ -228,8 +230,18 @@ class ClimateService {
         return {
             altitude: muniData.altitude,
             climateZone: zone,
-            municipalityName: muniData.name
+            municipalityName: muniData.name,
+            provName: muniData.provName
         };
+    }
+
+    getAllMunicipalities() {
+        return Array.from(this.municipalityMap.values()).map(m => ({
+            provCode: m.provCode,
+            munCode: m.munCode,
+            name: m.name,
+            provName: m.provName
+        }));
     }
 }
 

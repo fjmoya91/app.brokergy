@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const supabase = require('../services/supabaseClient');
+const { requireAuth } = require('../middleware/auth');
 
 router.use((req, res, next) => {
     console.log(`[Router Oportunidades] ${req.method} ${req.url}`);
@@ -12,9 +13,9 @@ router.get('/test-router', (req, res) => {
 });
 
 // 1. Registrar una nueva oportunidad (POST /api/oportunidades)
-router.post('/', async (req, res) => {
+router.post('/', requireAuth, async (req, res) => {
     try {
-        const { id_oportunidad, ref_catastral, prescriptor, referencia_cliente, demanda_calefaccion, datos_calculo, nota } = req.body;
+        const { id_oportunidad, ref_catastral, prescriptor, referencia_cliente, demanda_calefaccion, datos_calculo, nota, creador_id, prescriptor_id } = req.body;
 
         if (!ref_catastral) {
             return res.status(400).json({ error: 'La referencia catastral es obligatoria.' });
@@ -77,14 +78,25 @@ router.post('/', async (req, res) => {
         datosCalculoFinal.estado = estadoActual;
         datosCalculoFinal.historial = historial;
 
+        let payloadPrescriptorStr = prescriptor || 'BROKERGY';
+        if (!prescriptor && req.user && req.user.perfilCompleto) {
+            payloadPrescriptorStr = `${req.user.perfilCompleto.nombre || ''} ${req.user.perfilCompleto.apellidos || ''}`.trim();
+        }
+
         const newRecord = {
             id_oportunidad: newIdOportunidad,
             ref_catastral,
-            prescriptor: prescriptor || 'BROKERGY',
+            prescriptor: payloadPrescriptorStr,
             referencia_cliente: referencia_cliente || null,
             demanda_calefaccion: demanda_calefaccion || null,
             datos_calculo: datosCalculoFinal
         };
+
+        // Si tenemos sesión, anexamos los rastros UUID silenciosamente
+        if (req.user) {
+            newRecord.creador_id = creador_id || req.user.id_usuario;
+            newRecord.prescriptor_id = prescriptor_id || req.user.prescriptor_id;
+        }
 
         let resultError;
         if (existingData) {
@@ -108,14 +120,26 @@ router.post('/', async (req, res) => {
 });
 
 // 2. Obtener lista completa (GET /api/oportunidades)
-router.get('/', async (req, res) => {
+router.get('/', requireAuth, async (req, res) => {
     try {
-        const { data, error } = await supabase
+        let query = supabase
             .from('oportunidades')
-            .select('id, id_oportunidad, ref_catastral, referencia_cliente, prescriptor, demanda_calefaccion, datos_calculo, created_at')
+            .select('id, id_oportunidad, ref_catastral, referencia_cliente, prescriptor, demanda_calefaccion, datos_calculo, created_at, creador_id, prescriptor_id')
             .order('created_at', { ascending: false });
 
-        if (error) return res.status(500).json({ error: 'Error al recuperar.', details: error.message });
+        // Seguridad Node-Level: Si está autenticado y NO es ADMIN, filtramos por su ID/Empresa
+        if (req.user && req.user.rol_nombre !== 'ADMIN') {
+            const userId = req.user.id_usuario;
+            const empresaId = req.user.prescriptor_id;
+            
+            if (empresaId) {
+                query = query.or(`creador_id.eq.${userId},prescriptor_id.eq.${empresaId}`);
+            } else {
+                query = query.eq('creador_id', userId);
+            }
+        }
+
+        const { data, error } = await query;
         res.status(200).json(data);
     } catch (error) {
         res.status(500).json({ error: 'Error del servidor.' });
@@ -175,6 +199,29 @@ router.patch('/:id/estado', async (req, res) => {
 
         const { data: upData, error: upErr } = await supabase.from('oportunidades').update({ datos_calculo: dc }).eq('id_oportunidad', id).select();
         if (upErr) return res.status(500).json({ error: 'Error al actualizar.' });
+        res.status(200).json({ success: true, data: upData[0] });
+    } catch (error) {
+        res.status(500).json({ error: 'Error del servidor.' });
+    }
+});
+
+// Asignar Prescriptor (PATCH /api/oportunidades/:id/asignar)
+router.patch('/:id/asignar', async (req, res) => {
+    const { id } = req.params;
+    const { prescriptor_id, prescriptor_name } = req.body;
+    try {
+        const updateData = {
+            prescriptor_id: prescriptor_id || null,
+            prescriptor: prescriptor_name || 'BROKERGY'
+        };
+
+        const { data: upData, error: upErr } = await supabase
+            .from('oportunidades')
+            .update(updateData)
+            .eq('id_oportunidad', id)
+            .select();
+
+        if (upErr) return res.status(500).json({ error: 'Error al asignar prescriptor.', details: upErr.message });
         res.status(200).json({ success: true, data: upData[0] });
     } catch (error) {
         res.status(500).json({ error: 'Error del servidor.' });

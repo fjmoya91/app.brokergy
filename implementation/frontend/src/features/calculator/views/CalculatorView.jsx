@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { CalculatorForm } from '../components/CalculatorForm';
 import { ResultsPanel } from '../components/ResultsPanel';
+import { useAuth } from '../../../context/AuthContext';
 import {
     calculateDemand,
     calculateSavings,
@@ -64,7 +65,15 @@ const INITIAL_INPUTS = {
 };
 
 export function CalculatorView({ initialData, onBack }) {
+    const { user } = useAuth();
     const [showBrokergy, setShowBrokergy] = useState(false);
+    
+    // Forzar siempre vista prescriptor si no es admin (seguridad extra)
+    useEffect(() => {
+        if (user?.rol !== 'ADMIN' && showBrokergy) {
+            setShowBrokergy(false);
+        }
+    }, [user, showBrokergy]);
 
     // Inicializar estado. Si hay initialData, lo usamos como base absoluta.
     const [inputs, setInputs] = useState(() => {
@@ -153,7 +162,7 @@ export function CalculatorView({ initialData, onBack }) {
             plantas: parseInt(inputs.plantas) || 1,
             altura: parseFloat(inputs.altura) || 2.7,
             presupuesto: parseFloat(inputs.presupuesto) || 0,
-            dacs: parseFloat(inputs.dacs) || 0,
+            dacs: 2731.4, // Valor fijo solicitado por el usuario
             boilerEff: parseFloat(inputs.boilerEff) || 0.92,
             scopHeating: parseFloat(inputs.scopHeating) || 3.2,
             scopAcs: parseFloat(inputs.scopAcs) || 3.0,
@@ -280,25 +289,27 @@ export function CalculatorView({ initialData, onBack }) {
                         Volver a Ficha Técnica
                     </button>
 
-                    {/* Selector de Vista Global (Experto UI/UX) */}
-                    <div className="flex bg-slate-900/60 p-1 rounded-xl border border-white/5 shadow-inner w-full sm:min-w-[280px]">
-                        <button
-                            onClick={() => setShowBrokergy(false)}
-                            className={`flex-1 flex items-center justify-center gap-2 py-2 px-4 rounded-lg text-[9px] sm:text-[10px] font-black uppercase tracking-widest transition-all duration-300 ${!showBrokergy
-                                ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-900 shadow-lg'
-                                : 'text-slate-500 hover:text-slate-300'}`}
-                        >
-                            VISTA PRESCRIPTOR
-                        </button>
-                        <button
-                            onClick={() => setShowBrokergy(true)}
-                            className={`flex-1 flex items-center justify-center gap-2 py-2 px-4 rounded-lg text-[9px] sm:text-[10px] font-black uppercase tracking-widest transition-all duration-300 ${showBrokergy
-                                ? 'bg-gradient-to-r from-emerald-500 to-lime-600 text-white shadow-lg shadow-emerald-500/20'
-                                : 'text-slate-500 hover:text-slate-300'}`}
-                        >
-                            VISTA BROKERGY
-                        </button>
-                    </div>
+                    {/* Selector de Vista Global (Experto UI/UX) - Solo ADMIN */}
+                    {user?.rol === 'ADMIN' && (
+                        <div className="flex bg-slate-900/60 p-1 rounded-xl border border-white/5 shadow-inner w-full sm:min-w-[280px]">
+                            <button
+                                onClick={() => setShowBrokergy(false)}
+                                className={`flex-1 flex items-center justify-center gap-2 py-2 px-4 rounded-lg text-[9px] sm:text-[10px] font-black uppercase tracking-widest transition-all duration-300 ${!showBrokergy
+                                    ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-900 shadow-lg'
+                                    : 'text-slate-500 hover:text-slate-300'}`}
+                            >
+                                VISTA PRESCRIPTOR
+                            </button>
+                            <button
+                                onClick={() => setShowBrokergy(true)}
+                                className={`flex-1 flex items-center justify-center gap-2 py-2 px-4 rounded-lg text-[9px] sm:text-[10px] font-black uppercase tracking-widest transition-all duration-300 ${showBrokergy
+                                    ? 'bg-gradient-to-r from-emerald-500 to-lime-600 text-white shadow-lg shadow-emerald-500/20'
+                                    : 'text-slate-500 hover:text-slate-300'}`}
+                            >
+                                VISTA BROKERGY
+                            </button>
+                        </div>
+                    )}
                 </div>
 
                 <div className="hidden md:flex items-center gap-4">

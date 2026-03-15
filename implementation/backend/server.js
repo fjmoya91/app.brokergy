@@ -6,6 +6,8 @@ const express = require('express');
 const cors = require('cors');
 const catastroRoutes = require('./routes/catastro');
 const oportunidadesRoutes = require('./routes/oportunidades');
+const prescriptoresRoutes = require('./routes/prescriptores');
+const usuariosRoutes = require('./routes/usuarios');
 const pdfRoutes = require('./routes/pdf');
 
 const app = express();
@@ -24,6 +26,8 @@ app.use((req, res, next) => {
 // Routes
 app.use('/api/catastro', catastroRoutes);
 app.use('/api/oportunidades', oportunidadesRoutes);
+app.use('/api/prescriptores', prescriptoresRoutes);
+app.use('/api/usuarios', usuariosRoutes);
 app.use('/api/pdf', pdfRoutes);
 
 // Health check

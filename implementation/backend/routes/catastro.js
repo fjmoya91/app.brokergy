@@ -165,6 +165,47 @@ router.get('/parcel-image/:rc', async (req, res) => {
     }
 });
 
+// GET /municipios?provincia=...
+router.get('/municipios', async (req, res) => {
+    try {
+        const climateService = require('../services/climateService');
+        const { provincia } = req.query;
+        let allMunis = climateService.getAllMunicipalities();
+
+        if (provincia) {
+            const normalize = (str) => str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+            const qProv = normalize(provincia);
+
+            // Mapas de provincias que chocan por idioma
+            const mapAlias = {
+                "la coruna": "a coruna",
+                "orense": "ourense",
+                "gerona": "girona",
+                "lerida": "lleida",
+                "vizcaya": "bizkaia",
+                "guipuzcoa": "gipuzkoa",
+                "islas baleares": "illes balears",
+                "baleares": "illes balears",
+                "alava": "araba/alava"
+            };
+            const mappedQProv = mapAlias[qProv] || qProv;
+
+            allMunis = allMunis.filter(m => {
+                const pN = normalize(m.provName);
+                return pN.includes(mappedQProv) || mappedQProv.includes(pN);
+            });
+        }
+        
+        // Sorting alfabético
+        allMunis.sort((a,b) => a.name.localeCompare(b.name, 'es'));
+        res.json(allMunis);
+
+    } catch (error) {
+        console.error('Municipios error:', error.message);
+        res.status(500).json({ error: 'Failed to fetch municipalities' });
+    }
+});
+
 // GET /property-data?rc=...
 router.get('/property-data', async (req, res) => {
     try {
