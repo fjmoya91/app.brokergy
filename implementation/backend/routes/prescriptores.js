@@ -124,7 +124,8 @@ router.post('/avanzado', enforceAuth, async (req, res) => {
             marca_secundaria: payload.marca_secundaria,
             tiene_carnet_rite: payload.tiene_carnet_rite || false,
             numero_carnet_rite: payload.numero_carnet_rite,
-            cargo: payload.cargo
+            cargo: payload.cargo,
+            logo_empresa: payload.logo_empresa
         };
 
         const { data: empData, error: empErr } = await supabase.from('prescriptores').insert([empresaPayload]).select();
@@ -133,6 +134,7 @@ router.post('/avanzado', enforceAuth, async (req, res) => {
              throw new Error(`Enterprise Error: ${empErr.message}`);
         }
 
+        console.log(`[Avanzado] Empresa creada con logo: ${!!empresaPayload.logo_empresa} (Size: ${empresaPayload.logo_empresa?.length || 0})`);
         res.status(201).json({ message: 'Alta completada', prescriptor: empData[0] });
 
     } catch (err) {
@@ -171,8 +173,9 @@ router.patch('/:id', enforceAuth, async (req, res) => {
             cargo: payload.cargo
         };
 
-        if (payload.logo_empresa) {
+        if (payload.logo_empresa !== undefined) {
             prescriptorPayload.logo_empresa = payload.logo_empresa;
+            console.log(`[PATCH] Logo recibido en payload (Size: ${payload.logo_empresa?.length || 0})`);
         }
 
         // Limpiar undefined

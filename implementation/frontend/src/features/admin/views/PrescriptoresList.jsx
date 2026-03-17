@@ -26,7 +26,7 @@ const CCAA_PROVINCIAS = {
 };
 
 export function PrescriptoresList() {
-    const { user } = useAuth();
+    const { user, refreshProfile } = useAuth();
     const [prescriptores, setPrescriptores] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
@@ -117,7 +117,7 @@ export function PrescriptoresList() {
         if (file) {
             const reader = new FileReader();
             reader.onloadend = () => {
-                setFormData({ ...formData, logo_empresa: reader.result }); // guarda data URL base64 truncada
+                setFormData(prev => ({ ...prev, logo_empresa: reader.result }));
             };
             reader.readAsDataURL(file);
         }
@@ -189,6 +189,7 @@ export function PrescriptoresList() {
 
         setSaving(true);
         setError(null);
+        console.log('Guardando partner:', { ...formData, logo_empresa: formData.logo_empresa ? `SI (${formData.logo_empresa.length} chars)` : 'NO' });
         try {
             if (editingId) {
                 // Actualizar entidad existente
@@ -202,6 +203,10 @@ export function PrescriptoresList() {
             setShowForm(false);
             setEditingId(null);
             fetchData();
+            // Si el usuario editado es el mismo que está logueado, refrescamos su perfil global
+            if (editingId === user?.prescriptor_id || !editingId) {
+                refreshProfile();
+            }
             // Reset form
             setFormData({
                 es_autonomo: false, nuevo_usuario: true,

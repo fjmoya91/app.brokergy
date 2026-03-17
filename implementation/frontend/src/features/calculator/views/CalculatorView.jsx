@@ -66,7 +66,7 @@ const INITIAL_INPUTS = {
 
 export function CalculatorView({ initialData, onBack }) {
     const { user } = useAuth();
-    const [showBrokergy, setShowBrokergy] = useState(false);
+    const [showBrokergy, setShowBrokergy] = useState(user?.rol === 'ADMIN');
     
     // Forzar siempre vista prescriptor si no es admin (seguridad extra)
     useEffect(() => {

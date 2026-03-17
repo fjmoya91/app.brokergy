@@ -49,22 +49,22 @@ export function CalculatorForm({ inputs, onInputChange, onCalculate, result, sho
     };
     const [dirtyUWall, setDirtyUWall] = useState(() => {
         if (!inputs.anio || !inputs.uMuro) return false;
-        const defaults = getUByYear(inputs.anio);
+        const defaults = getUByYear(inputs.anio, inputs.zona);
         return inputs.uMuro !== defaults.wall;
     });
     const [dirtyURoof, setDirtyURoof] = useState(() => {
         if (!inputs.anio || !inputs.uCubierta) return false;
-        const defaults = getUByYear(inputs.anio);
+        const defaults = getUByYear(inputs.anio, inputs.zona);
         return inputs.uCubierta !== defaults.roof;
     });
     const [dirtyVentana, setDirtyVentana] = useState(() => {
         if (!inputs.anio || !inputs.ventanaU) return false;
-        const defaults = getVentanaYACHByYear(inputs.anio);
+        const defaults = getVentanaYACHByYear(inputs.anio, inputs.zona);
         return inputs.ventanaU !== defaults.ventanaU;
     });
     const [dirtyAch, setDirtyAch] = useState(() => {
         if (!inputs.anio || !inputs.ach) return false;
-        const defaults = getVentanaYACHByYear(inputs.anio);
+        const defaults = getVentanaYACHByYear(inputs.anio, inputs.zona);
         return inputs.ach !== defaults.ach;
     });
     const [showBuildingData, setShowBuildingData] = useState(false);
@@ -77,8 +77,8 @@ export function CalculatorForm({ inputs, onInputChange, onCalculate, result, sho
     useEffect(() => {
         if (!inputs.anio) return;
 
-        const defaultsU = getUByYear(inputs.anio);
-        const defaultsVentanaAch = getVentanaYACHByYear(inputs.anio);
+        const defaultsU = getUByYear(inputs.anio, inputs.zona);
+        const defaultsVentanaAch = getVentanaYACHByYear(inputs.anio, inputs.zona);
         let updates = {};
 
         // Actualizar valores si no han sido editados manualmente (dirty)
@@ -99,7 +99,7 @@ export function CalculatorForm({ inputs, onInputChange, onCalculate, result, sho
         if (Object.keys(updates).length > 0) {
             onInputChange(prev => ({ ...prev, ...updates }));
         }
-    }, [inputs.anio, dirtyUWall, dirtyURoof, dirtyVentana, dirtyAch, inputs.uMuro, inputs.uCubierta, inputs.ventanaU, inputs.ach]);
+    }, [inputs.anio, inputs.zona, dirtyUWall, dirtyURoof, dirtyVentana, dirtyAch, inputs.uMuro, inputs.uCubierta, inputs.ventanaU, inputs.ach]);
 
     const handleTypeChange = (t) => {
         const defs = TYPE_DEFAULTS[t];
@@ -688,9 +688,14 @@ export function CalculatorForm({ inputs, onInputChange, onCalculate, result, sho
                                                 let updates = { aerothermiaModel: modelId };
 
                                                 if (selectedModel && modelId !== 'custom') {
-                                                    updates.scopHeating = currentEmitter === 'radiadores_convencionales'
-                                                        ? selectedModel.scop55
-                                                        : selectedModel.scop35;
+                                                    if (currentEmitter === 'radiadores_convencionales') {
+                                                        updates.scopHeating = selectedModel.scop55;
+                                                    } else if (currentEmitter === 'radiadores_baja_temp') {
+                                                        // Interpolar a 45ºC (estimación)
+                                                        updates.scopHeating = parseFloat(((selectedModel.scop35 + selectedModel.scop55) / 2).toFixed(2));
+                                                    } else { // Suelo radiante (35ºC)
+                                                        updates.scopHeating = selectedModel.scop35;
+                                                    }
                                                 }
 
                                                 onInputChange(prev => ({ ...prev, ...updates }));
@@ -715,14 +720,19 @@ export function CalculatorForm({ inputs, onInputChange, onCalculate, result, sho
                                                 const currentModelId = inputs.aerothermiaModel || 'custom';
                                                 const selectedModel = AEROTHERMIA_MODELS.find(m => m.id === currentModelId);
 
-                                                let newScop = 3.2;
-                                                if (type === 'radiadores_baja_temp') newScop = 3.8;
-                                                if (type === 'suelo_radiante') newScop = 4.5;
+                                                let newScop = 3.2; // Convencionales 55ºC
+                                                if (type === 'radiadores_baja_temp') newScop = 3.6; // Baja Temp 45ºC (estimado)
+                                                if (type === 'suelo_radiante') newScop = 4.5; // Suelo Radiante 35ºC
 
                                                 if (selectedModel && currentModelId !== 'custom') {
-                                                    newScop = type === 'radiadores_convencionales'
-                                                        ? selectedModel.scop55
-                                                        : selectedModel.scop35;
+                                                    if (type === 'radiadores_convencionales') {
+                                                        newScop = selectedModel.scop55;
+                                                    } else if (type === 'radiadores_baja_temp') {
+                                                        // Interpolar a 45ºC (estimación)
+                                                        newScop = parseFloat(((selectedModel.scop35 + selectedModel.scop55) / 2).toFixed(2));
+                                                    } else { // Suelo radiante (35ºC)
+                                                        newScop = selectedModel.scop35;
+                                                    }
                                                 }
 
                                                 onInputChange(prev => ({
@@ -732,9 +742,9 @@ export function CalculatorForm({ inputs, onInputChange, onCalculate, result, sho
                                                 }));
                                             }}
                                         >
-                                            <option value="radiadores_convencionales">Convencionales (55°C)</option>
-                                            <option value="radiadores_baja_temp">Baja Temp. (35°C)</option>
-                                            <option value="suelo_radiante">Suelo Radiante (35°C)</option>
+                                            <option value="suelo_radiante">Suelo radiante (35ºC)</option>
+                                            <option value="radiadores_baja_temp">Fancoils o Radiadores de Baja temperatura (45º)</option>
+                                            <option value="radiadores_convencionales">Radiadores convencionales (55º)</option>
                                         </Select>
                                     </div>
                                     <div>

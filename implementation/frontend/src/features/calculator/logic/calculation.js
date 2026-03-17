@@ -73,43 +73,63 @@ export const AEROTHERMIA_MODELS = [
 // ============================================================================
 // TRANSMITANCIAS TÉRMICAS POR ÉPOCA DE CONSTRUCCIÓN
 // ============================================================================
-export function getUByYear(year) {
+const U_MAX_CTE_2006 = {
+    A: { wall: 1.22, roof: 0.63, floor: 0.82, window: 5.70 },
+    B: { wall: 1.07, roof: 0.59, floor: 0.65, window: 4.20 },
+    C: { wall: 0.73, roof: 0.50, floor: 0.52, window: 3.80 },
+    D: { wall: 0.66, roof: 0.45, floor: 0.49, window: 3.50 },
+    E: { wall: 0.57, roof: 0.40, floor: 0.48, window: 3.10 }
+};
+
+const getZoneLetter = (zone) => (zone ? zone.charAt(0).toUpperCase() : 'D');
+
+export function getUByYear(year, zone) {
+    const letter = getZoneLetter(zone);
+
     if (year >= 2020) {
         // CTE 2019 - nZEB
         return { wall: 0.27, roof: 0.22, floor: 0.30 };
     }
-    if (year >= 2013) {
+    if (year >= 2014) {
         // CTE 2013
         return { wall: 0.35, roof: 0.25, floor: 0.35 };
     }
     if (year >= 2008) {
         // CTE 2006 (en vigor desde 2008 aprox.)
-        return { wall: 0.82, roof: 0.50, floor: 0.65 };
+        const z = U_MAX_CTE_2006[letter] || U_MAX_CTE_2006.D;
+        return { wall: z.wall, roof: z.roof, floor: z.floor };
     }
-    if (year >= 1979) {
-        // NBE-CT-79 - Valores del XML real: U~1.69
+    if (year >= 1991) {
+        // NBE-CT-79 Maduro
         return { wall: 1.69, roof: 1.69, floor: 1.00 };
     }
+    if (year >= 1979) {
+        // NBE-CT-79 Transición
+        return { wall: 1.80, roof: 1.90, floor: 1.05 };
+    }
     if (year >= 1960) {
-        // Mejorado para edificios antiguos (muros de carga etc funcionan mejor que teórica)
-        return { wall: 1.80, roof: 2.00, floor: 1.00 };
+        // 1960 - 1978 pre-normativa
+        return { wall: 1.90, roof: 2.10, floor: 1.10 };
     }
     // Anterior a 1960 - Construcción tradicional
-    return { wall: 2.00, roof: 2.20, floor: 1.10 };
+    return { wall: 2.20, roof: 2.50, floor: 1.25 };
 }
 
-export function getVentanaYACHByYear(year) {
+export function getVentanaYACHByYear(year, zone) {
+    const letter = getZoneLetter(zone);
+
     if (year >= 2020) {
         // CTE 2019 - nZEB
         return { ventanaU: 1.1, ach: 0.60 }; // Triple eficiente (U=1.1)
     }
-    if (year >= 2013) {
+    if (year >= 2014) {
         // CTE 2013
         return { ventanaU: 1.4, ach: 0.63 }; // Doble bajo emisivo (U=1.4)
     }
     if (year >= 2008) {
         // CTE 2006 (en vigor desde 2008 aprox.)
-        return { ventanaU: 2.0, ach: 0.83 }; // Doble con RPT (U=2.0)
+        const z = U_MAX_CTE_2006[letter] || U_MAX_CTE_2006.D;
+        return { ventanaU: z.window, ach: 0.83 }; 
     }
     if (year >= 1979) {
         // NBE-CT-79
@@ -242,7 +262,7 @@ export function calculateDemand(inputs) {
     // Siempre se coge la mayor de las dos para el cálculo de la demanda
     const S = Math.max(S_util || 0, S_cal || 0);
 
-    const Ubase = getUByYear(anio);
+    const Ubase = getUByYear(anio, zona);
     const U_floor = Ubase.floor;
 
     const areas = estimateAreas({ ...inputs, superficie: S });

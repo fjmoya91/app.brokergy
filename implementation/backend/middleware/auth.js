@@ -55,16 +55,22 @@ const requireAuth = async (req, res, next) => {
 
         // Extraemos prescriptores si aplica (para inyectar prescriptor_id)
         if (userProfile && userProfile.id_usuario) {
-             const { data: isPrescriptor } = await supabase
+             console.log(`[Auth] Buscando partner para usuario: ${userProfile.id_usuario}`);
+             const { data: isPrescriptor, error: presErr } = await supabase
                 .from('prescriptores')
-                .select('id_empresa, razon_social')
+                .select('id_empresa, razon_social, logo_empresa')
                 .eq('representante_legal_id', userProfile.id_usuario)
                 .maybeSingle();
              
+             if (presErr) console.error('[Auth] Error buscando partner:', presErr.message);
+             
              req.user.prescriptor_id = isPrescriptor?.id_empresa || null;
              req.user.razon_social = isPrescriptor?.razon_social || null;
+             req.user.logo_empresa = isPrescriptor?.logo_empresa || null;
+             
+             console.log(`[Auth] Partner encontrado: ${!!isPrescriptor}, Logo: ${!!req.user.logo_empresa} (${req.user.logo_empresa?.length || 0} chars)`);
         }
-
+        
         next();
     } catch (error) {
         console.error('[Auth Middleware] Error fatal:', error);
