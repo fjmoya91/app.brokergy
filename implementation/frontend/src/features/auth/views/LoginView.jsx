@@ -17,12 +17,15 @@ export function LoginView({ onBack, onSuccess }) {
         setLocalLoading(true);
 
         try {
+            const cleanEmail = email.trim();
+            const cleanPassword = password.trim();
+
             if (isResetMode) {
-                const { error: resetErr } = await resetPassword(email);
+                const { error: resetErr } = await resetPassword(cleanEmail);
                 if (resetErr) throw resetErr;
                 setMsg('Te hemos enviado un enlace para recuperar tu contraseña.');
             } else {
-                const { error: signErr } = await signIn(email, password);
+                const { error: signErr } = await signIn(cleanEmail, cleanPassword);
                 if (signErr) throw signErr;
                 if (onSuccess) onSuccess();
             }
