@@ -12,7 +12,7 @@ import { DynamicNetworkBackground } from './components/DynamicNetworkBackground'
 import { DashboardLayout } from './components/layout/DashboardLayout';
 
 
-const API_URL = '/api/catastro'; // Vercel force redeploy v2
+const API_URL = '/api/catastro'; // Vercel force redeploy v3
 
 function App() {
   const { user, loading: authLoading } = useAuth();
