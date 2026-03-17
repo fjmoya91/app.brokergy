@@ -43,8 +43,8 @@ export const AuthProvider = ({ children }) => {
       setAxiosAuth(session?.access_token);
       
       if (session?.user) {
-         setUser(prev => ({ ...session.user, ...prev })); // Mergea datos base primero
-         fetchBusinessProfile(session);
+         setUser(session.user); // Establecemos el usuario base de auth
+         fetchBusinessProfile(session); // Enriquecemos con el perfil de nuestra DB
       } else {
         setUser(null);
         setLoading(false);
