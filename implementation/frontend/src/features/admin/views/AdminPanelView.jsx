@@ -24,19 +24,21 @@ export function AdminPanelView({ onLoadOpportunity, onBackToCalculator, activeTa
     const [showCommentForm, setShowCommentForm] = useState(false);
     const [modalError, setModalError] = useState(null);
     const [showStats, setShowStats] = useState(true);
-    const [viewMode, setViewMode] = useState(user?.rol === 'ADMIN' ? 'brokergy' : 'prescriptor');
+    const [viewMode, setViewMode] = useState(user?.rol?.toUpperCase() === 'ADMIN' ? 'brokergy' : 'prescriptor');
     
     // Pagination state
     const [currentPage, setCurrentPage] = useState(1);
     const [itemsPerPage, setItemsPerPage] = useState(10); // Default to 10
     const [showAll, setShowAll] = useState(false);
 
-    // Forzar siempre vista prescriptor si no es admin (seguridad extra)
+    // Sincronizar viewMode cuando el rol del usuario esté disponible
     useEffect(() => {
-        if (user?.rol !== 'ADMIN' && viewMode !== 'prescriptor') {
+        if (user?.rol?.toUpperCase() === 'ADMIN' && viewMode !== 'brokergy') {
+            setViewMode('brokergy');
+        } else if (user?.rol && user.rol.toUpperCase() !== 'ADMIN' && viewMode !== 'prescriptor') {
             setViewMode('prescriptor');
         }
-    }, [user, viewMode]);
+    }, [user?.rol]);
 
     // Filter Stats
     const [filters, setFilters] = useState({

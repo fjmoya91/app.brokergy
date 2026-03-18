@@ -19,7 +19,6 @@ const getCachedProfile = () => {
 const setCachedProfile = (profile) => {
   try {
     if (profile) {
-      // Guardamos solo los campos necesarios para la UI (no toda la sesión Supabase)
       const toCache = {
         nombre: profile.nombre,
         apellidos: profile.apellidos,
@@ -39,23 +38,14 @@ const setCachedProfile = (profile) => {
 
 export const AuthProvider = ({ children }) => {
   const cachedProfile = getCachedProfile();
-  // Si hay un perfil cacheado, lo usamos como estado inicial → render instantáneo
   const [user, setUser] = useState(cachedProfile);
   const [session, setSession] = useState(null);
-  // Si ya tenemos caché, no bloqueamos el render
   const [loading, setLoading] = useState(!cachedProfile);
-  const profileFetched = useRef(false);
+  
+  // Refs para controlar el flujo sin depender de closures obsoletas
+  const hasRichProfile = useRef(!!cachedProfile?.rol);
+  const profileFetchInProgress = useRef(false);
 
-  // Wrapper para setUser que también actualiza la caché
-  const setUserAndCache = (updater) => {
-    setUser(prev => {
-      const newUser = typeof updater === 'function' ? updater(prev) : updater;
-      setCachedProfile(newUser);
-      return newUser;
-    });
-  };
-
-  // Almacenar el JWT en Axios automáticamente
   const setAxiosAuth = (token) => {
     if (token) {
       axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
@@ -65,47 +55,59 @@ export const AuthProvider = ({ children }) => {
   };
 
   useEffect(() => {
-    // 1. Obtener la sesión actual inicialmente
+    let isMounted = true;
+
     supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!isMounted) return;
       setSession(session);
       setAxiosAuth(session?.access_token);
       
       if (session?.user) {
-        // Si tenemos caché, el user ya está mostrado. Solo enriquecemos.
-        if (!cachedProfile) {
+        // SOLO establecer usuario base si NO tenemos datos ricos (de caché o fetch previo)
+        if (!hasRichProfile.current) {
           setUser({ ...session.user });
         }
         fetchBusinessProfile(session);
       } else {
-        // No hay sesión: limpiar todo
-        setUserAndCache(null);
+        // Sin sesión → limpiar todo (incluida la caché)
+        hasRichProfile.current = false;
+        setCachedProfile(null);
+        setUser(null);
         setLoading(false);
       }
     });
 
-    // 2. Escuchar cambios de estado
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!isMounted) return;
       setSession(session);
       setAxiosAuth(session?.access_token);
       
       if (session?.user) {
-         // No machacamos el user cacheado con datos parciales de auth
-         if (!user?.rol) {
-           setUser(session.user);
-         }
-         fetchBusinessProfile(session);
+        // NUNCA sobreescribir si ya tenemos perfil rico (caché o API)
+        if (!hasRichProfile.current) {
+          setUser({ ...session.user });
+        }
+        // Solo fetchear si no hay ya un fetch en curso
+        if (!profileFetchInProgress.current) {
+          fetchBusinessProfile(session);
+        }
       } else {
-        setUserAndCache(null);
+        hasRichProfile.current = false;
+        setCachedProfile(null);
+        setUser(null);
         setLoading(false);
       }
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      isMounted = false;
+      subscription.unsubscribe();
+    };
   }, []);
 
-  const fetchBusinessProfile = async (sessionData = session) => {
-    if (!sessionData || profileFetched.current) return;
-    profileFetched.current = true;
+  const fetchBusinessProfile = async (sessionData) => {
+    if (!sessionData || profileFetchInProgress.current) return;
+    profileFetchInProgress.current = true;
 
     try {
         const res = await axios.get('/api/usuarios/me');
@@ -136,13 +138,15 @@ export const AuthProvider = ({ children }) => {
                 email: sessionData.user?.email,
             };
 
-            setUserAndCache(enrichedUser);
+            hasRichProfile.current = true;
+            setCachedProfile(enrichedUser);
+            setUser(enrichedUser);
         }
     } catch (e) {
         console.error("Error cargando perfil:", e.response?.data || e.message);
     } finally {
         setLoading(false);
-        profileFetched.current = false;
+        profileFetchInProgress.current = false;
     }
   };
 
@@ -151,7 +155,8 @@ export const AuthProvider = ({ children }) => {
   };
 
   const signOut = () => {
-      setCachedProfile(null); // Limpiar caché al salir
+      hasRichProfile.current = false;
+      setCachedProfile(null);
       return supabase.auth.signOut();
   };
 
@@ -165,3 +170,4 @@ export const AuthProvider = ({ children }) => {
     </AuthContext.Provider>
   );
 };
+
