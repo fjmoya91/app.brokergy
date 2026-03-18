@@ -66,11 +66,11 @@ const INITIAL_INPUTS = {
 
 export function CalculatorView({ initialData, onBack }) {
     const { user } = useAuth();
-    const [showBrokergy, setShowBrokergy] = useState(user?.rol === 'ADMIN');
+    const [showBrokergy, setShowBrokergy] = useState(user?.rol?.toUpperCase() === 'ADMIN');
     
     // Forzar siempre vista prescriptor si no es admin (seguridad extra)
     useEffect(() => {
-        if (user?.rol !== 'ADMIN' && showBrokergy) {
+        if (user?.rol?.toUpperCase() !== 'ADMIN' && showBrokergy) {
             setShowBrokergy(false);
         }
     }, [user, showBrokergy]);
@@ -256,7 +256,7 @@ export function CalculatorView({ initialData, onBack }) {
             {/* Sticky Bono Badge */}
             {result?.financials?.caeBonus !== undefined && (
                 <div className="fixed bottom-0 md:bottom-auto md:top-0 left-0 right-0 z-[100] p-2 md:p-4 flex justify-center pointer-events-none">
-                    <div className="w-full max-w-md bg-slate-950/90 md:bg-slate-950/80 backdrop-blur-xl border border-amber-500/40 rounded-2xl md:rounded-3xl p-3 md:p-4 shadow-[0_-10px_40px_rgba(245,158,11,0.15)] md:shadow-[0_20px_50px_rgba(245,158,11,0.2)] flex items-center justify-between pointer-events-auto transform hover:scale-[1.02] transition-all duration-500 ring-1 ring-white/10 group">
+                    <div className={`w-full ${showBrokergy ? 'max-w-xl' : 'max-w-md'} bg-slate-950/90 md:bg-slate-950/80 backdrop-blur-xl border border-amber-500/40 rounded-2xl md:rounded-3xl p-3 md:p-4 shadow-[0_-10px_40px_rgba(245,158,11,0.15)] md:shadow-[0_20px_50px_rgba(245,158,11,0.2)] flex items-center justify-between pointer-events-auto transform hover:scale-[1.02] transition-all duration-500 ring-1 ring-white/10 group`}>
                         <div className="flex items-center gap-3 md:gap-4">
                             <div className="w-10 h-10 md:w-12 md:h-12 rounded-xl md:rounded-2xl bg-gradient-to-br from-amber-400 to-orange-600 flex items-center justify-center shadow-lg shadow-amber-500/20 group-hover:rotate-12 transition-transform duration-500">
                                 <svg className="w-5 h-5 md:w-6 md:h-6 text-slate-900" fill="currentColor" viewBox="0 0 24 24">
@@ -267,52 +267,41 @@ export function CalculatorView({ initialData, onBack }) {
                                 <p className="text-[9px] md:text-[10px] font-black text-amber-500 uppercase tracking-[0.2em]">Bono Energético</p>
                             </div>
                         </div>
-                        <div className="flex items-baseline gap-1.5 md:gap-2 bg-white/5 py-1.5 px-4 md:py-2 md:px-6 rounded-xl md:rounded-2xl border border-white/5">
-                            <span className="text-3xl md:text-4xl font-black text-white tracking-tighter animate-pulse-slow">
-                                {new Intl.NumberFormat('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(result.financials.caeBonus)}
-                            </span>
-                            <span className="text-lg md:text-xl font-black text-amber-500">€</span>
+                        <div className="flex items-center gap-3 md:gap-4">
+                            <div className="flex items-baseline gap-1.5 md:gap-2 bg-white/5 py-1.5 px-4 md:py-2 md:px-6 rounded-xl md:rounded-2xl border border-white/5">
+                                <span className="text-3xl md:text-4xl font-black text-white tracking-tighter animate-pulse-slow">
+                                    {new Intl.NumberFormat('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(result.financials.caeBonus)}
+                                </span>
+                                <span className="text-lg md:text-xl font-black text-amber-500">€</span>
+                            </div>
+                            {showBrokergy && result.financials.profitBrokergy !== undefined && (
+                                <div className="flex items-baseline gap-1 bg-emerald-500/10 py-1.5 px-3 md:py-2 md:px-4 rounded-xl md:rounded-2xl border border-emerald-500/20">
+                                    <span className="text-[8px] md:text-[9px] font-black text-emerald-400/60 uppercase tracking-wider mr-1">Beneficio</span>
+                                    <span className="text-xl md:text-2xl font-black text-emerald-400 tracking-tighter">
+                                        {new Intl.NumberFormat('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(result.financials.profitBrokergy)}
+                                    </span>
+                                    <span className="text-sm font-black text-emerald-500">€</span>
+                                </div>
+                            )}
                         </div>
                     </div>
                 </div>
             )}
             {/* Header de la Calculadora */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
-                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4 w-full md:w-auto">
+                <div className="flex items-center gap-4">
                     <button
                         onClick={() => onBack(inputs)}
-                        className="flex items-center justify-center sm:justify-start gap-2 text-white/40 hover:text-white transition-colors text-xs uppercase tracking-widest font-bold py-2"
+                        className="flex items-center gap-2 text-white/40 hover:text-white transition-colors text-xs uppercase tracking-widest font-bold py-2"
                     >
                         <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
                         </svg>
                         Volver a Ficha Técnica
                     </button>
-
-                    {/* Selector de Vista Global (Experto UI/UX) - Solo ADMIN */}
-                    {user?.rol === 'ADMIN' && (
-                        <div className="flex bg-slate-900/60 p-1 rounded-xl border border-white/5 shadow-inner w-full sm:min-w-[280px]">
-                            <button
-                                onClick={() => setShowBrokergy(false)}
-                                className={`flex-1 flex items-center justify-center gap-2 py-2 px-4 rounded-lg text-[9px] sm:text-[10px] font-black uppercase tracking-widest transition-all duration-300 ${!showBrokergy
-                                    ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-900 shadow-lg'
-                                    : 'text-slate-500 hover:text-slate-300'}`}
-                            >
-                                VISTA PRESCRIPTOR
-                            </button>
-                            <button
-                                onClick={() => setShowBrokergy(true)}
-                                className={`flex-1 flex items-center justify-center gap-2 py-2 px-4 rounded-lg text-[9px] sm:text-[10px] font-black uppercase tracking-widest transition-all duration-300 ${showBrokergy
-                                    ? 'bg-gradient-to-r from-emerald-500 to-lime-600 text-white shadow-lg shadow-emerald-500/20'
-                                    : 'text-slate-500 hover:text-slate-300'}`}
-                            >
-                                VISTA BROKERGY
-                            </button>
-                        </div>
-                    )}
                 </div>
 
-                <div className="hidden md:flex items-center gap-4">
+                <div className="hidden md:flex items-center gap-3">
                     {inputs.referenciaCliente && (
                         <span className="text-[10px] font-bold text-cyan-400 uppercase tracking-widest bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20">
                             {inputs.referenciaCliente}
@@ -322,6 +311,25 @@ export function CalculatorView({ initialData, onBack }) {
                         <span className="px-3 py-1 bg-white/5 rounded-full border border-white/10 text-[10px] font-mono text-slate-400">
                             RC: {inputs.rc}
                         </span>
+                    )}
+
+                    {/* Toggle Vista Brokergy/Prescriptor - Solo ADMIN */}
+                    {user?.rol?.toUpperCase() === 'ADMIN' && (
+                        <button
+                            onClick={() => setShowBrokergy(!showBrokergy)}
+                            title={showBrokergy ? 'Cambiar a Vista Prescriptor' : 'Cambiar a Vista Brokergy'}
+                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[9px] font-black uppercase tracking-wider transition-all duration-300 ${
+                                showBrokergy
+                                    ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/25'
+                                    : 'bg-white/5 border-white/10 text-white/40 hover:text-white hover:bg-white/10'
+                            }`}
+                        >
+                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                            </svg>
+                            {showBrokergy ? 'BKG' : 'PRE'}
+                        </button>
                     )}
                 </div>
             </div>
