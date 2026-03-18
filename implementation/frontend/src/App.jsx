@@ -338,7 +338,7 @@ function App() {
                 {step === 'RESULT' && propertyData && (
                   <div className="animate-slide-up">
                     <button
-                      onClick={existingOpportunityData ? () => { reset(); setStep('ADMIN'); } : reset}
+                      onClick={() => { reset(); if (user) setStep('ADMIN'); }}
                       className="mb-8 flex items-center gap-2 text-white/60 hover:text-white transition-colors group px-2"
                     >
                       <svg className="w-5 h-5 group-hover:-translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -384,6 +384,15 @@ function App() {
                 </svg>
             </button>
             <div className="w-full max-w-3xl relative z-10 animate-slide-up">
+              <div className="text-center mb-8">
+                <h2 className="text-3xl md:text-4xl font-bold tracking-tight mb-2">
+                  <span className="text-white">Calculadora</span>{' '}
+                  <span className="text-gradient">BROKERGY</span>
+                  <span className="text-[10px] text-white/20 ml-2">v2.0</span>
+                </h2>
+                <p className="text-white/40 text-sm uppercase tracking-widest font-black">Nueva Consulta Catastral</p>
+              </div>
+
               <CatastroSearchBox
                 onSearch={(q) => { setShowSearchModal(false); handleSearch(q); }}
                 onAddressSelect={(c) => { setShowSearchModal(false); handleAddressSelect(c); }}
