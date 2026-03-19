@@ -39,7 +39,7 @@ export function SaveOpportunityModal({ isOpen, onClose, onSaveSuccess, inputs, r
             setSavedOportunidadId(response.data.id_oportunidad);
             setSuccess(true);
             setShowConfirmation(false);
-            if (onSaveSuccess) onSaveSuccess(referenciaCliente);
+            if (onSaveSuccess) onSaveSuccess(referenciaCliente, response.data.id_oportunidad);
         } catch (err) {
             console.error('Error guardando oportunidad:', err);
             setError('No se pudo guardar la oportunidad. Inténtalo de nuevo.');

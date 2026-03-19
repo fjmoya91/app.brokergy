@@ -196,6 +196,7 @@ function App() {
     if (existingOpportunityData && existingOpportunityData.ref_catastral === data.rc) {
       baseData = {
         ...baseData,
+        id_oportunidad: existingOpportunityData.id_oportunidad,
         referenciaCliente: existingOpportunityData.referencia_cliente || baseData.referenciaCliente || ''
       };
     }

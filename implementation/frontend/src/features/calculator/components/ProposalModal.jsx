@@ -113,11 +113,12 @@ export function ProposalModal({ isOpen, onClose, result, inputs }) {
             const blob = new Blob([bytes], { type: 'application/pdf' });
 
             // Descargar el PDF recibido
-            const safeRc = (inputs?.rc || 'Simulacion').replace(/[^a-zA-Z0-9_\-]/g, '_');
+            const fileName = inputs?.id_oportunidad || inputs?.rc || 'Simulacion';
+            const safeName = fileName.replace(/[^a-zA-Z0-9_\-]/g, '_');
             const url = window.URL.createObjectURL(blob);
             const link = document.createElement('a');
             link.href = url;
-            link.download = `Propuesta_Brokergy_${safeRc}.pdf`;
+            link.download = `Propuesta_Brokergy_${safeName}.pdf`;
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
@@ -433,7 +434,7 @@ export function ProposalModal({ isOpen, onClose, result, inputs }) {
                                 <div className="prop-hero">
                                     <div className="prop-hero-top">
                                         <div className="prop-logo"><h1>BROKER<span>GY</span></h1><div className="prop-ltag">Especialistas en eficiencia energética</div></div>
-                                        <div className="prop-hmeta"><strong>Propuesta {inputs?.rc ? `Nº ${inputs.rc.substring(0, 6)}` : 'Simulación'}</strong>Fecha: {formattedDate}<br />Oferta válida hasta: {formattedValidDate}</div>
+                                        <div className="prop-hmeta"><strong>Propuesta {inputs?.id_oportunidad ? `Nº ${inputs.id_oportunidad}` : 'Simulación'}</strong>Fecha: {formattedDate}<br />Oferta válida hasta: {formattedValidDate}</div>
                                     </div>
                                     <div className="prop-hline"></div>
                                     <div className="prop-htitle"><h2>Propuesta de <em>Bono Energético CAE</em> y servicios de eficiencia energética</h2></div>

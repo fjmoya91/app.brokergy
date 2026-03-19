@@ -596,7 +596,7 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy }) {
             <SaveOpportunityModal
                 isOpen={showSaveOpportunity}
                 onClose={() => setShowSaveOpportunity(false)}
-                onSaveSuccess={(ref) => onInputChange({ ...inputs, referenciaCliente: ref })}
+                onSaveSuccess={(ref, id) => onInputChange({ ...inputs, referenciaCliente: ref, id_oportunidad: id })}
                 inputs={inputs}
                 result={result}
             />
