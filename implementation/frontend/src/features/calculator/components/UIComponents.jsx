@@ -10,7 +10,7 @@ export function SectionCard({ children, className = '' }) {
 
 export function Label({ htmlFor, children }) {
     return (
-        <label htmlFor={htmlFor} className="block text-sm font-medium text-slate-300 mb-2">
+        <label htmlFor={htmlFor} className="block text-sm font-medium text-white/60 mb-2">
             {children}
         </label>
     );
@@ -30,8 +30,8 @@ export function Input({ id, type = 'text', value, onChange, placeholder, min, ma
             step={step}
             disabled={disabled}
             className={`
-                w-full px-4 py-3 bg-slate-950/50 border border-slate-700 rounded-xl 
-                text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500
+                w-full px-4 py-3 bg-bkg-deep/50 border border-white/[0.1] rounded-xl 
+                text-white placeholder-white/30 focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand/50
                 disabled:opacity-50 disabled:cursor-not-allowed transition-all
                 text-base min-h-[48px] shadow-sm
                 ${className}
@@ -48,8 +48,8 @@ export function Select({ id, value, onChange, children, className = '' }) {
                 value={value}
                 onChange={onChange}
                 className={`
-                    w-full px-4 py-3 bg-slate-950/50 border border-slate-700 rounded-xl 
-                    text-white focus:outline-none focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500
+                    w-full px-4 py-3 bg-bkg-deep/50 border border-white/[0.1] rounded-xl 
+                    text-white focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand/50
                     appearance-none cursor-pointer transition-all
                     text-base min-h-[48px] shadow-sm
                     ${className}
@@ -57,7 +57,7 @@ export function Select({ id, value, onChange, children, className = '' }) {
             >
                 {children}
             </select>
-            <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
+            <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-white/30">
                 <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                 </svg>
@@ -67,12 +67,12 @@ export function Select({ id, value, onChange, children, className = '' }) {
 }
 
 export function Button({ children, onClick, variant = 'primary', size = 'md', className = '', disabled = false }) {
-    const baseStyles = "inline-flex items-center justify-center font-semibold rounded-xl transition-all focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-900 disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98]";
+    const baseStyles = "inline-flex items-center justify-center font-semibold rounded-xl transition-all focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-bkg-base disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98]";
 
     const variants = {
-        primary: "bg-gradient-to-r from-amber-500 to-lime-500 hover:from-amber-400 hover:to-lime-400 text-slate-900 font-bold shadow-lg shadow-amber-500/20 hover:shadow-amber-500/30",
-        secondary: "bg-slate-800 hover:bg-slate-700 text-white border border-slate-700 hover:border-slate-600",
-        ghost: "bg-transparent hover:bg-white/5 text-slate-300 hover:text-white",
+        primary: "bg-gradient-to-r from-brand to-brand-700 hover:from-brand-400 hover:to-brand-600 text-bkg-deep font-bold shadow-lg shadow-brand/20 hover:shadow-brand/30",
+        secondary: "bg-bkg-elevated hover:bg-bkg-hover text-white border border-white/[0.1] hover:border-white/[0.15]",
+        ghost: "bg-transparent hover:bg-bkg-hover text-white/60 hover:text-white",
         danger: "bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/20"
     };
 
@@ -94,5 +94,5 @@ export function Button({ children, onClick, variant = 'primary', size = 'md', cl
 }
 
 export function Divider() {
-    return <div className="h-px bg-slate-800/50 my-6" />;
+    return <div className="h-px bg-white/[0.06] my-6" />;
 }

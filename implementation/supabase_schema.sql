@@ -64,6 +64,7 @@ CREATE TABLE IF NOT EXISTS public.prescriptores (
     id_empresa UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     es_autonomo BOOLEAN DEFAULT false,
     razon_social VARCHAR(150),
+    acronimo VARCHAR(50),
     cif VARCHAR(20),
     email VARCHAR(150),
     tlf VARCHAR(20),

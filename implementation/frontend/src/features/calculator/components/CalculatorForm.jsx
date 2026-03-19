@@ -290,6 +290,19 @@ export function CalculatorForm({ inputs, onInputChange, onCalculate, result, sho
                             </svg>
                             Cálculo Real (CEE)
                         </button>
+                        <button
+                            onClick={() => onDemandModeChange('manual')}
+                            className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all duration-300 ${
+                                demandMode === 'manual'
+                                    ? 'bg-gradient-to-r from-amber-500 to-orange-600 text-white shadow-lg shadow-amber-500/20'
+                                    : 'text-slate-500 hover:text-slate-300'
+                            }`}
+                        >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                            </svg>
+                            CEE Aportado
+                        </button>
                     </div>
 
                     {demandMode === 'real' && xmlDemandData && (
@@ -303,6 +316,39 @@ export function CalculatorForm({ inputs, onInputChange, onCalculate, result, sho
                                 </svg>
                                 Cambiar Certificado XML
                             </button>
+                        </div>
+                    )}
+
+                    {demandMode === 'manual' && (
+                        <div className="mt-4 p-4 bg-amber-500/5 border border-amber-500/20 rounded-xl animate-scale-in">
+                            <div className="flex items-center justify-between gap-4">
+                                <div className="flex-1">
+                                    <Label htmlFor="manualDemand" className="text-amber-400 mb-1.5 flex items-center gap-2">
+                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                                        </svg>
+                                        Demanda de Calefacción (CEE)
+                                    </Label>
+                                    <div className="relative">
+                                        <Input
+                                            id="manualDemand"
+                                            type="text"
+                                            inputMode="decimal"
+                                            className="bg-slate-900/80 border-amber-500/30 text-amber-50 focus:border-amber-500 transition-all pr-24"
+                                            placeholder="Ej: 125.4"
+                                            value={formatDisplay(inputs.manualDemand)}
+                                            onChange={e => handleSmartNumberChange('manualDemand', e.target.value)}
+                                        />
+                                        <div className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-amber-500/40 uppercase pointer-events-none">
+                                            kWh/m²·año
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="hidden sm:block text-right">
+                                    <p className="text-[10px] text-slate-500 uppercase tracking-widest font-bold">Modo Manual</p>
+                                    <p className="text-[9px] text-slate-600 mt-1 italic">Introduce el dato<br/>directo del CEE</p>
+                                </div>
+                            </div>
                         </div>
                     )}
                 </div>
@@ -567,10 +613,10 @@ export function CalculatorForm({ inputs, onInputChange, onCalculate, result, sho
                 </div>
                 )}
 
-                {demandMode !== 'real' && <Divider />}
+                {demandMode === 'estimated' && <Divider />}
 
                 {/* Envolvente térmica - COLAPSABLE (oculto en modo REAL) */}
-                {demandMode !== 'real' && (
+                {demandMode === 'estimated' && (
                 <div className="rounded-2xl bg-slate-900/40 border border-slate-800/50 overflow-hidden transition-all duration-300">
                     <button
                         onClick={() => setShowEnvolvente(!showEnvolvente)}

@@ -143,7 +143,7 @@ export function AdminPanelView({ onLoadOpportunity, onBackToCalculator, activeTa
         if (nuevoPrescriptorId) {
             const selected = prescriptores.find(p => p.id_empresa === nuevoPrescriptorId);
             if (selected) {
-                prescriptorName = selected.razon_social || `${selected.usuarios?.nombre} ${selected.usuarios?.apellidos || ''}`.trim();
+                prescriptorName = selected.acronimo || selected.razon_social || `${selected.usuarios?.nombre} ${selected.usuarios?.apellidos || ''}`.trim();
             }
         }
         
@@ -258,7 +258,7 @@ export function AdminPanelView({ onLoadOpportunity, onBackToCalculator, activeTa
             case 'ENVIADA': return 'bg-blue-500/10 text-blue-400 border-blue-500/30';
             case 'ACEPTADA': return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30';
             case 'RECHAZADA': return 'bg-red-500/10 text-red-400 border-red-500/30';
-            default: return 'bg-slate-500/10 text-slate-400 border-slate-500/30'; // PTE ENVIAR
+            default: return 'bg-white/[0.06] text-white/40 border-white/10'; // PTE ENVIAR
         }
     };
 
@@ -313,8 +313,8 @@ export function AdminPanelView({ onLoadOpportunity, onBackToCalculator, activeTa
                     <header className="mb-8 flex flex-wrap items-center justify-between gap-4 pb-4">
                             <div className="flex items-center gap-4 md:gap-6 min-w-0">
                                 <h2 className="text-2xl md:text-3xl font-black text-white flex items-center gap-3 whitespace-nowrap">
-                                    <div className="p-2 bg-gradient-to-br from-amber-500/20 to-orange-600/10 rounded-xl border border-amber-500/20 text-amber-500 shadow-lg shadow-amber-500/10">
-                            <svg className="w-4 h-4 md:w-5 md:h-5 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <div className="p-2 bg-gradient-to-br from-brand/20 to-brand-700/10 rounded-xl border border-brand/20 text-brand shadow-lg shadow-brand/10">
+                            <svg className="w-4 h-4 md:w-5 md:h-5 text-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                                     </svg>
                                 </div>
@@ -322,12 +322,12 @@ export function AdminPanelView({ onLoadOpportunity, onBackToCalculator, activeTa
                             </h2>
 
                     {user?.rol === 'ADMIN' && (
-                        <div className="flex bg-white/[0.03] p-1 rounded-xl border border-white/[0.06] ml-2">
+                        <div className="flex bg-bkg-surface p-1 rounded-xl border border-white/[0.06] ml-2">
                             <button
                                 onClick={() => setViewMode('brokergy')}
                                 className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all ${
                                     viewMode === 'brokergy'
-                                        ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/20'
+                                        ? 'bg-brand text-black shadow-lg shadow-brand/20'
                                         : 'text-white/40 hover:text-white/60'
                                 }`}
                             >
@@ -337,7 +337,7 @@ export function AdminPanelView({ onLoadOpportunity, onBackToCalculator, activeTa
                                 onClick={() => setViewMode('prescriptor')}
                                 className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all ${
                                     viewMode === 'prescriptor'
-                                        ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/20'
+                                        ? 'bg-brand text-black shadow-lg shadow-brand/20'
                                         : 'text-white/40 hover:text-white/60'
                                 }`}
                             >
@@ -370,7 +370,7 @@ export function AdminPanelView({ onLoadOpportunity, onBackToCalculator, activeTa
                 <div className="flex items-center gap-3">
                     <button
                         onClick={onBackToCalculator}
-                        className="px-4 py-2 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 rounded-xl font-black uppercase tracking-wider text-[10px] md:text-xs flex items-center gap-2 shadow-lg shadow-amber-500/20 transition-all hover:scale-105 active:scale-95"
+                        className="px-4 py-2 bg-gradient-to-r from-brand to-brand-700 hover:from-brand-400 hover:to-brand-600 text-bkg-deep rounded-xl font-black uppercase tracking-wider text-[10px] md:text-xs flex items-center gap-2 shadow-lg shadow-brand/20 transition-all hover:scale-105 active:scale-95"
                     >
                         <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" />
@@ -382,8 +382,8 @@ export function AdminPanelView({ onLoadOpportunity, onBackToCalculator, activeTa
                         onClick={() => setShowStats(!showStats)}
                         className={`px-2 md:px-3 py-2 rounded-xl border transition-all flex items-center gap-1.5 md:gap-2 text-[10px] font-black uppercase tracking-wider ${
                             showStats 
-                                ? 'bg-amber-500/10 border-amber-500/20 text-amber-500' 
-                                : 'bg-white/[0.04] border-white/[0.06] text-white/40 hover:text-white hover:bg-white/[0.08]'
+                                ? 'bg-brand/10 border-brand/20 text-brand' 
+                                : 'bg-bkg-surface border-white/[0.06] text-white/40 hover:text-white hover:bg-bkg-hover'
                         }`}
                         title={showStats ? 'Ocultar Resumen' : 'Mostrar Resumen'}
                     >
@@ -413,7 +413,7 @@ export function AdminPanelView({ onLoadOpportunity, onBackToCalculator, activeTa
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4 mb-3 md:mb-4">
                         {/* Bono CAE Card */}
                         <div className="relative overflow-hidden p-4 rounded-xl border border-emerald-500/15"
-                             style={{ background: 'linear-gradient(135deg, rgba(16,185,129,0.06) 0%, rgba(6,78,59,0.03) 100%)' }}>
+                             style={{ background: 'linear-gradient(135deg, rgba(0,200,83,0.05) 0%, rgba(0,200,83,0.01) 100%)' }}>
                             <div className="relative flex justify-between items-center">
                                 <div className="flex items-center gap-3">
                                     <div className="p-1.5 bg-emerald-500/10 rounded-lg border border-emerald-500/10">
@@ -437,7 +437,7 @@ export function AdminPanelView({ onLoadOpportunity, onBackToCalculator, activeTa
 
                         {/* Beneficio Brokergy Card */}
                         <div className="relative overflow-hidden p-4 rounded-xl border border-cyan-500/15"
-                             style={{ background: 'linear-gradient(135deg, rgba(6,182,212,0.06) 0%, rgba(8,47,73,0.03) 100%)' }}>
+                             style={{ background: 'linear-gradient(135deg, rgba(41,182,246,0.05) 0%, rgba(41,182,246,0.01) 100%)' }}>
                             <div className="relative flex justify-between items-center">
                                 <div className="flex items-center gap-3">
                                     <div className="p-1.5 bg-cyan-500/10 rounded-lg border border-cyan-500/10">
@@ -465,8 +465,8 @@ export function AdminPanelView({ onLoadOpportunity, onBackToCalculator, activeTa
                     {/* Status Filter Cards */}
                     <div className="flex overflow-x-auto gap-2 pb-2 mb-4 md:mb-6 md:grid md:grid-cols-5 md:overflow-visible md:pb-0 snap-x snap-mandatory scrollbar-hide" style={{ WebkitOverflowScrolling: 'touch' }}>
                         {[
-                            { label: 'Total', count: stats.total, filter: '', dotColor: 'bg-white/30', borderActive: 'border-amber-500 shadow-amber-500/20' },
-                            { label: 'Pendientes', count: stats.pending, filter: 'PTE ENVIAR', dotColor: 'bg-amber-500', borderActive: 'border-amber-500 shadow-amber-500/20' },
+                            { label: 'Total', count: stats.total, filter: '', dotColor: 'bg-white/30', borderActive: 'border-brand shadow-brand/20' },
+                            { label: 'Pendientes', count: stats.pending, filter: 'PTE ENVIAR', dotColor: 'bg-brand', borderActive: 'border-brand shadow-brand/20' },
                             { label: 'Enviadas', count: stats.sent, filter: 'ENVIADA', dotColor: 'bg-blue-400', borderActive: 'border-blue-500 shadow-blue-500/20' },
                             { label: 'Aceptadas', count: stats.accepted, filter: 'ACEPTADA', dotColor: 'bg-emerald-400', borderActive: 'border-emerald-500 shadow-emerald-500/20' },
                             { label: 'Rechazadas', count: stats.rejected, filter: 'RECHAZADA', dotColor: 'bg-red-400', borderActive: 'border-red-500 shadow-red-500/20' }
@@ -494,11 +494,11 @@ export function AdminPanelView({ onLoadOpportunity, onBackToCalculator, activeTa
             )}
 
             {/* ─── Data Table ─── */}
-            <div className="rounded-2xl border border-white/[0.06] overflow-hidden" style={{ background: 'rgba(255,255,255,0.02)' }}>
+            <div className="rounded-2xl border border-white/[0.06] overflow-hidden" style={{ background: 'rgba(19,21,26,0.6)' }}>
                 <div className="overflow-x-auto">
                     <table className="w-full text-left border-collapse">
                         <thead>
-                            <tr style={{ background: 'rgba(255,255,255,0.03)' }}>
+                            <tr style={{ background: 'rgba(26,28,34,0.8)' }}>
                                 <th className="p-3.5 text-[10px] font-black uppercase tracking-[0.15em] text-white/25 w-24 border-b border-white/[0.06]">ID</th>
                                 <th className="p-3.5 text-[10px] font-black uppercase tracking-[0.15em] text-white/25 border-b border-white/[0.06]">Ref. Cliente</th>
                                 <th className="p-3.5 text-[10px] font-black uppercase tracking-[0.15em] text-white/25 border-b border-white/[0.06]">Ref. Catastral</th>
@@ -516,7 +516,7 @@ export function AdminPanelView({ onLoadOpportunity, onBackToCalculator, activeTa
                                 <th className="p-3.5 text-[10px] font-black uppercase tracking-[0.15em] text-white/25 border-b border-white/[0.06]">Estado</th>
                             </tr>
                             {/* Fila de Filtros */}
-                            <tr style={{ background: 'rgba(255,255,255,0.02)' }}>
+                            <tr style={{ background: 'rgba(19,21,26,0.5)' }}>
                                 <td className="p-2.5 border-b border-white/[0.06]">
                                     <input
                                         type="text"
@@ -530,7 +530,7 @@ export function AdminPanelView({ onLoadOpportunity, onBackToCalculator, activeTa
                                     <input
                                         type="text"
                                         placeholder="Buscar cliente..."
-                                        className="w-full bg-black/30 border border-white/[0.08] rounded-lg px-2.5 py-1.5 text-[10px] text-white placeholder-white/20 focus:outline-none focus:border-amber-500/40 focus:bg-black/40 transition-all font-mono"
+                                        className="w-full bg-bkg-deep border border-white/[0.08] rounded-lg px-2.5 py-1.5 text-[10px] text-white placeholder-white/20 focus:outline-none focus:border-brand/40 focus:bg-bkg-elevated transition-all font-mono"
                                         value={filters.referencia_cliente}
                                         onChange={e => setFilters(prev => ({ ...prev, referencia_cliente: e.target.value }))}
                                     />
@@ -539,7 +539,7 @@ export function AdminPanelView({ onLoadOpportunity, onBackToCalculator, activeTa
                                     <input
                                         type="text"
                                         placeholder="Catastro..."
-                                        className="w-full bg-black/30 border border-white/[0.08] rounded-lg px-2 py-1.5 text-[10px] text-white placeholder-white/20 focus:outline-none focus:border-amber-500/40 focus:bg-black/40 transition-all font-mono uppercase"
+                                        className="w-full bg-bkg-deep border border-white/[0.08] rounded-lg px-2 py-1.5 text-[10px] text-white placeholder-white/20 focus:outline-none focus:border-brand/40 focus:bg-bkg-elevated transition-all font-mono uppercase"
                                         value={filters.ref_catastral}
                                         onChange={e => setFilters(prev => ({ ...prev, ref_catastral: e.target.value }))}
                                     />
@@ -554,19 +554,19 @@ export function AdminPanelView({ onLoadOpportunity, onBackToCalculator, activeTa
                                     <td className="p-2.5 border-b border-white/[0.06]">
                                         <div className="relative group/sel">
                                             <select
-                                                className="w-full appearance-none bg-black/40 border border-white/[0.1] rounded-xl px-3 py-2 text-[10px] font-black tracking-wider text-white hover:border-amber-500/30 focus:outline-none focus:border-amber-500/50 transition-all cursor-pointer pr-8 uppercase"
+                                                className="w-full appearance-none bg-bkg-deep border border-white/[0.1] rounded-xl px-3 py-2 text-[10px] font-black tracking-wider text-white hover:border-brand/30 focus:outline-none focus:border-brand/50 transition-all cursor-pointer pr-8 uppercase"
                                                 value={filters.prescriptor_id}
                                                 onChange={e => setFilters(prev => ({ ...prev, prescriptor_id: e.target.value }))}
                                             >
-                                                <option value="" className="bg-slate-900 border-none">TODOS LOS PRESCRIPTORES</option>
-                                                <option value="none" className="bg-slate-900 border-none">BROKERGY (Sin asignar)</option>
+                                                <option value="" className="bg-bkg-deep border-none">TODOS LOS PRESCRIPTORES</option>
+                                                <option value="none" className="bg-bkg-deep border-none">BROKERGY (Sin asignar)</option>
                                                 {prescriptores.map(p => (
-                                                    <option key={p.id_empresa} value={p.id_empresa} className="bg-slate-900 border-none">
-                                                        {p.razon_social || `${p.usuarios?.nombre} ${p.usuarios?.apellidos || ''}`}
+                                                    <option key={p.id_empresa} value={p.id_empresa} className="bg-bkg-deep border-none">
+                                                        {(p.acronimo || p.razon_social || `${p.usuarios?.nombre} ${p.usuarios?.apellidos || ''}`).trim().toUpperCase()}
                                                     </option>
                                                 ))}
                                             </select>
-                                            <div className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-white/20 group-hover/sel:text-amber-500/50 transition-colors">
+                                            <div className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-white/20 group-hover/sel:text-brand/50 transition-colors">
                                                 <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M19 9l-7 7-7-7" />
                                                 </svg>
@@ -642,7 +642,7 @@ export function AdminPanelView({ onLoadOpportunity, onBackToCalculator, activeTa
                                                             <option value="" className="bg-slate-900 border-none">BROKERGY (Sin asignar)</option>
                                                             {prescriptores.map(p => (
                                                                 <option key={p.id_empresa} value={p.id_empresa} className="bg-slate-900 border-none">
-                                                                    {p.razon_social || `${p.usuarios?.nombre} ${p.usuarios?.apellidos || ''}`}
+                                                                    {(p.acronimo || p.razon_social || `${p.usuarios?.nombre} ${p.usuarios?.apellidos || ''}`).trim().toUpperCase()}
                                                                 </option>
                                                             ))}
                                                         </select>
@@ -713,8 +713,8 @@ export function AdminPanelView({ onLoadOpportunity, onBackToCalculator, activeTa
                             onClick={() => setShowAll(!showAll)}
                             className={`text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-lg border transition-all ${
                                 showAll 
-                                    ? 'bg-amber-500 text-black border-amber-500 shadow-lg shadow-amber-500/20' 
-                                    : 'bg-white/5 text-white/60 border-white/10 hover:border-white/20 hover:text-white'
+                                    ? 'bg-brand text-black border-brand shadow-lg shadow-brand/20' 
+                                    : 'bg-bkg-surface text-white/60 border-white/10 hover:border-white/20 hover:text-white'
                             }`}
                         >
                             {showAll ? 'MOSTRAR POR PÁGINAS' : 'MOSTRAR TODAS'}
@@ -722,7 +722,7 @@ export function AdminPanelView({ onLoadOpportunity, onBackToCalculator, activeTa
                     </div>
 
                     {!showAll && totalPages > 1 && (
-                        <div className="flex items-center gap-1.5 bg-black/20 p-1 rounded-xl border border-white/5">
+                        <div className="flex items-center gap-1.5 bg-bkg-deep p-1 rounded-xl border border-white/[0.06]">
                             <button
                                 onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
                                 disabled={currentPage === 1}
@@ -748,8 +748,8 @@ export function AdminPanelView({ onLoadOpportunity, onBackToCalculator, activeTa
                                         onClick={() => setCurrentPage(pageNum)}
                                         className={`w-8 h-8 flex items-center justify-center rounded-lg text-[11px] font-black transition-all ${
                                             currentPage === pageNum 
-                                                ? 'bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/20' 
-                                                : 'text-white/40 hover:text-white hover:bg-white/5'
+                                                ? 'bg-brand text-bkg-deep shadow-lg shadow-brand/20' 
+                                                : 'text-white/40 hover:text-white hover:bg-bkg-hover'
                                         }`}
                                     >
                                         {pageNum}
@@ -774,7 +774,7 @@ export function AdminPanelView({ onLoadOpportunity, onBackToCalculator, activeTa
             {/* Modal de Confirmación de Borrado */}
             {oportunidadToDelete && (
                 <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in" onClick={(e) => e.stopPropagation()}>
-                    <div className="bg-slate-900 border border-white/10 p-6 rounded-2xl w-full max-w-sm shadow-2xl relative" onClick={e => e.stopPropagation()}>
+                    <div className="bg-bkg-surface border border-white/10 p-6 rounded-2xl w-full max-w-sm shadow-2xl relative" onClick={e => e.stopPropagation()}>
                         <div className="absolute top-0 right-0 p-4">
                             <button
                                 onClick={() => setOportunidadToDelete(null)}
@@ -824,9 +824,9 @@ export function AdminPanelView({ onLoadOpportunity, onBackToCalculator, activeTa
             {/* Modal de Huella Temporal (Historial) */}
             {historyModalOp && (
                 <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in" onClick={() => setHistoryModalOp(null)}>
-                    <div className="bg-slate-900 border border-slate-700/50 p-6 rounded-2xl w-full max-w-lg shadow-2xl relative" onClick={e => e.stopPropagation()}>
+                    <div className="bg-bkg-surface border border-white/[0.1] p-6 rounded-2xl w-full max-w-lg shadow-2xl relative" onClick={e => e.stopPropagation()}>
                         <div className="absolute top-0 right-0 p-4">
-                            <button onClick={() => { setHistoryModalOp(null); setShowHistoryDeleteConfirm(false); setModalError(null); }} className="text-slate-400 hover:text-white transition-colors">
+                            <button onClick={() => { setHistoryModalOp(null); setShowHistoryDeleteConfirm(false); setModalError(null); }} className="text-white/40 hover:text-white transition-colors">
                                 <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                                 </svg>
@@ -834,7 +834,7 @@ export function AdminPanelView({ onLoadOpportunity, onBackToCalculator, activeTa
                         </div>
                         <div className="flex justify-between items-center mb-6">
                             <h3 className="text-xl font-bold text-white flex items-center gap-3">
-                                <svg className="w-6 h-6 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <svg className="w-6 h-6 text-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                                 </svg>
                                 Historial de Estados

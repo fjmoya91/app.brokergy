@@ -46,7 +46,7 @@ export function LoginView({ onBack, onSuccess }) {
                     
                     <h1 className="flex items-baseline justify-center gap-x-2 md:gap-x-4 mb-2 relative z-10">
                          <span className="text-white text-3xl md:text-4xl font-medium tracking-tight">Portal</span>
-                         <span className="text-4xl md:text-6xl font-black tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-amber-500 via-amber-500 to-[#84cc16]">
+                         <span className="text-4xl md:text-6xl font-black tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-brand via-brand to-brand-700">
                               BROKERGY
                          </span>
                          <span className="text-[10px] font-bold text-white/20 self-center mt-1">v2.0</span>
@@ -58,8 +58,8 @@ export function LoginView({ onBack, onSuccess }) {
 
                 <div className="relative group">
                     <div className="absolute -bottom-24 -right-24 w-64 h-64 bg-orange-600/10 rounded-full blur-[100px] pointer-events-none animate-pulse" style={{ animationDelay: '2s' }}></div>
-                    <div className="bg-slate-900 shadow-[0_20px_50px_rgba(0,0,0,0.5)] border border-white/5 rounded-[2rem] p-10 relative overflow-hidden backdrop-blur-xl">
-                    <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-transparent via-amber-500/40 to-transparent"></div>
+                    <div className="bg-bkg-surface shadow-[0_20px_50px_rgba(0,0,0,0.5)] border border-white/[0.06] rounded-[2rem] p-10 relative overflow-hidden backdrop-blur-xl">
+                    <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-transparent via-brand/40 to-transparent"></div>
 
                     {onBack && (
                          <button
@@ -79,7 +79,7 @@ export function LoginView({ onBack, onSuccess }) {
                         <h2 className="text-3xl font-black text-white mb-2 tracking-tight">
                             {isResetMode ? 'Recuperar Acceso' : 'Iniciar Sesión'}
                         </h2>
-                        <p className="text-slate-400 text-sm">
+                        <p className="text-white/40 text-sm">
                             {isResetMode 
                                 ? 'Introduce tu email para resetear la contraseña.' 
                                 : 'Accede a tu panel para gestionar tus simulaciones.'}
@@ -106,12 +106,12 @@ export function LoginView({ onBack, onSuccess }) {
 
                     <form onSubmit={handleSubmit} className="space-y-5">
                         <div>
-                            <label className="block text-sm font-semibold text-slate-300 mb-1.5" htmlFor="email">Email de acceso</label>
+                            <label className="block text-sm font-semibold text-white/60 mb-1.5" htmlFor="email">Email de acceso</label>
                             <input
                                 id="email"
                                 type="email"
                                 required
-                                className="w-full bg-slate-800/80 border border-slate-700 rounded-xl px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 transition-colors"
+                                className="w-full bg-bkg-elevated border border-white/[0.1] rounded-xl px-4 py-3 text-white placeholder-white/30 focus:outline-none focus:border-brand focus:ring-1 focus:ring-brand transition-colors"
                                 placeholder="mi@email.com"
                                 value={email}
                                 onChange={(e) => setEmail(e.target.value)}
@@ -122,11 +122,11 @@ export function LoginView({ onBack, onSuccess }) {
                         {!isResetMode && (
                             <div>
                                 <div className="flex justify-between items-center mb-1.5">
-                                    <label className="block text-sm font-semibold text-slate-300" htmlFor="password">Contraseña</label>
+                                    <label className="block text-sm font-semibold text-white/60" htmlFor="password">Contraseña</label>
                                     <button
                                         type="button"
                                         onClick={() => setIsResetMode(true)}
-                                        className="text-xs text-amber-500 hover:text-amber-400 transition-colors"
+                                        className="text-xs text-brand hover:text-brand-300 transition-colors"
                                     >
                                         ¿Olvidaste tu contraseña?
                                     </button>
@@ -135,7 +135,7 @@ export function LoginView({ onBack, onSuccess }) {
                                     id="password"
                                     type="password"
                                     required
-                                    className="w-full bg-slate-800/80 border border-slate-700 rounded-xl px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 transition-colors"
+                                    className="w-full bg-bkg-elevated border border-white/[0.1] rounded-xl px-4 py-3 text-white placeholder-white/30 focus:outline-none focus:border-brand focus:ring-1 focus:ring-brand transition-colors"
                                     placeholder="••••••••"
                                     value={password}
                                     onChange={(e) => setPassword(e.target.value)}
@@ -147,7 +147,7 @@ export function LoginView({ onBack, onSuccess }) {
                         <button
                             type="submit"
                             disabled={localLoading || loading}
-                            className="w-full py-3.5 mt-2 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-900 font-bold rounded-xl transition-all shadow-lg shadow-amber-500/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                            className="w-full py-3.5 mt-2 bg-gradient-to-r from-brand to-brand-700 hover:from-brand-400 hover:to-brand-600 text-bkg-deep font-bold rounded-xl transition-all shadow-lg shadow-brand/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                         >
                             {(localLoading || loading) && (
                                 <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
@@ -162,7 +162,7 @@ export function LoginView({ onBack, onSuccess }) {
                              <button
                                 type="button"
                                 onClick={() => { setIsResetMode(false); setMsg(null); setError(null); }}
-                                className="w-full py-3 text-slate-500 text-xs font-black uppercase tracking-widest hover:text-white transition-colors"
+                                className="w-full py-3 text-white/30 text-xs font-black uppercase tracking-widest hover:text-white transition-colors"
                             >
                                 Volver al login
                             </button>

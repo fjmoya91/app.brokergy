@@ -65,7 +65,8 @@ const INITIAL_INPUTS = {
     
     // Modo de demanda y datos (real o estimado)
     demandMode: 'estimated',
-    xmlDemandData: null
+    xmlDemandData: null,
+    manualDemand: 0
 };
 
 export function CalculatorView({ initialData, onBack }) {
@@ -181,7 +182,8 @@ export function CalculatorView({ initialData, onBack }) {
             caePriceSO: parseFloat(inputs.caePriceSO) || 160,
             caePricePrescriptor: parseFloat(inputs.caePricePrescriptor) || 0,
             numOwners: parseInt(inputs.numOwners) || 1,
-            legalizationPrice: parseFloat(inputs.legalizationPrice) || 250
+            legalizationPrice: parseFloat(inputs.legalizationPrice) || 250,
+            manualDemand: parseFloat(inputs.manualDemand) || 0
         };
 
         // 1. Calcular Demanda
@@ -193,6 +195,13 @@ export function CalculatorView({ initialData, onBack }) {
                 Q_net: xmlDemandTotal,
                 q_net: inputs.xmlDemandData.demandaCalefaccion,
                 fromXml: true
+            };
+        } else if (showBrokergy && inputs.demandMode === 'manual') {
+            // Modo MANUAL: usar la demanda introducida a mano (kWh/m²·año) × superficie calefactable
+            demandRes = {
+                Q_net: sanitizedInputs.manualDemand * sanitizedInputs.superficieCalefactable,
+                q_net: sanitizedInputs.manualDemand,
+                fromManual: true
             };
         } else {
             // Modo ESTIMADO: cálculo tradicional
@@ -273,23 +282,23 @@ export function CalculatorView({ initialData, onBack }) {
             {/* Sticky Bono Badge */}
             {result?.financials?.caeBonus !== undefined && (
                 <div className="fixed bottom-0 md:bottom-auto md:top-0 left-0 right-0 z-[100] p-2 md:p-4 flex justify-center pointer-events-none">
-                    <div className={`w-full ${showBrokergy ? 'max-w-xl' : 'max-w-md'} bg-slate-950/90 md:bg-slate-950/80 backdrop-blur-xl border border-amber-500/40 rounded-2xl md:rounded-3xl p-3 md:p-4 shadow-[0_-10px_40px_rgba(245,158,11,0.15)] md:shadow-[0_20px_50px_rgba(245,158,11,0.2)] flex items-center justify-between pointer-events-auto transform hover:scale-[1.02] transition-all duration-500 ring-1 ring-white/10 group`}>
+                    <div className={`w-full ${showBrokergy ? 'max-w-xl' : 'max-w-md'} bg-bkg-deep/90 md:bg-bkg-deep/80 backdrop-blur-xl border border-brand/40 rounded-2xl md:rounded-3xl p-3 md:p-4 shadow-[0_-10px_40px_rgba(255,160,0,0.12)] md:shadow-[0_20px_50px_rgba(255,160,0,0.15)] flex items-center justify-between pointer-events-auto transform hover:scale-[1.02] transition-all duration-500 ring-1 ring-white/10 group`}>
                         <div className="flex items-center gap-3 md:gap-4">
-                            <div className="w-10 h-10 md:w-12 md:h-12 rounded-xl md:rounded-2xl bg-gradient-to-br from-amber-400 to-orange-600 flex items-center justify-center shadow-lg shadow-amber-500/20 group-hover:rotate-12 transition-transform duration-500">
-                                <svg className="w-5 h-5 md:w-6 md:h-6 text-slate-900" fill="currentColor" viewBox="0 0 24 24">
+                            <div className="w-10 h-10 md:w-12 md:h-12 rounded-xl md:rounded-2xl bg-gradient-to-br from-brand-300 to-brand-700 flex items-center justify-center shadow-lg shadow-brand/20 group-hover:rotate-12 transition-transform duration-500">
+                                <svg className="w-5 h-5 md:w-6 md:h-6 text-bkg-deep" fill="currentColor" viewBox="0 0 24 24">
                                     <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
                                 </svg>
                             </div>
                             <div>
-                                <p className="text-[9px] md:text-[10px] font-black text-amber-500 uppercase tracking-[0.2em]">Bono Energético</p>
+                                <p className="text-[9px] md:text-[10px] font-black text-brand uppercase tracking-[0.2em]">Bono Energético</p>
                             </div>
                         </div>
                         <div className="flex items-center gap-3 md:gap-4">
-                            <div className="flex items-baseline gap-1.5 md:gap-2 bg-white/5 py-1.5 px-4 md:py-2 md:px-6 rounded-xl md:rounded-2xl border border-white/5">
+                            <div className="flex items-baseline gap-1.5 md:gap-2 bg-bkg-surface py-1.5 px-4 md:py-2 md:px-6 rounded-xl md:rounded-2xl border border-white/[0.06]">
                                 <span className="text-3xl md:text-4xl font-black text-white tracking-tighter animate-pulse-slow">
                                     {new Intl.NumberFormat('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(result.financials.caeBonus)}
                                 </span>
-                                <span className="text-lg md:text-xl font-black text-amber-500">€</span>
+                                <span className="text-lg md:text-xl font-black text-brand">€</span>
                             </div>
                             {showBrokergy && result.financials.profitBrokergy !== undefined && (
                                 <div className="flex items-baseline gap-1 bg-emerald-500/10 py-1.5 px-3 md:py-2 md:px-4 rounded-xl md:rounded-2xl border border-emerald-500/20">
@@ -325,7 +334,7 @@ export function CalculatorView({ initialData, onBack }) {
                         </span>
                     )}
                     {inputs.rc && (
-                        <span className="px-3 py-1 bg-white/5 rounded-full border border-white/10 text-[10px] font-mono text-slate-400">
+                        <span className="px-3 py-1 bg-bkg-surface rounded-full border border-white/[0.06] text-[10px] font-mono text-white/40">
                             RC: {inputs.rc}
                         </span>
                     )}

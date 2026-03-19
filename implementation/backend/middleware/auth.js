@@ -58,7 +58,7 @@ const requireAuth = async (req, res, next) => {
              console.log(`[Auth] Buscando partner para usuario: ${userProfile.id_usuario}`);
              const { data: isPrescriptor, error: presErr } = await supabase
                 .from('prescriptores')
-                .select('id_empresa, razon_social, logo_empresa')
+                .select('id_empresa, razon_social, logo_empresa, acronimo')
                 .eq('representante_legal_id', userProfile.id_usuario)
                 .maybeSingle();
              
@@ -66,6 +66,7 @@ const requireAuth = async (req, res, next) => {
              
              req.user.prescriptor_id = isPrescriptor?.id_empresa || null;
              req.user.razon_social = isPrescriptor?.razon_social || null;
+             req.user.acronimo = isPrescriptor?.acronimo || null;
              req.user.logo_empresa = isPrescriptor?.logo_empresa || null;
              
              console.log(`[Auth] Partner encontrado: ${!!isPrescriptor}, Logo: ${!!req.user.logo_empresa} (${req.user.logo_empresa?.length || 0} chars)`);

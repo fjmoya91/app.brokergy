@@ -134,6 +134,7 @@ export const AuthProvider = ({ children }) => {
                 id_usuario: res.data.id_usuario,
                 prescriptor_id: res.data.prescriptor_id,
                 razon_social: res.data.razon_social,
+                acronimo: res.data.acronimo,
                 logo_empresa: logo,
                 email: sessionData.user?.email,
             };

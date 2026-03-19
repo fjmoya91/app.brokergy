@@ -8,7 +8,8 @@ router.get('/', enforceAuth, async (req, res) => {
     try {
         let query = supabase.from('prescriptores').select(`
             *,
-            usuarios (nombre, apellidos, nif, email)
+            acronimo,
+            usuarios (nombre, apellidos, nif, email, tlf)
         `).order('created_at', { ascending: false });
 
         if (req.user.rol_nombre !== 'ADMIN') {
@@ -110,6 +111,7 @@ router.post('/avanzado', enforceAuth, async (req, res) => {
         let empresaPayload = {
             es_autonomo: payload.es_autonomo,
             razon_social: payload.es_autonomo ? `${payload.usuario_nombre} ${payload.usuario_apellidos || ''}`.trim() : payload.razon_social,
+            acronimo: payload.acronimo,
             cif: payload.es_autonomo ? payload.usuario_nif : payload.cif,
             email: payload.es_autonomo ? payload.usuario_email : payload.email,
             tlf: payload.es_autonomo ? payload.usuario_tlf : payload.tlf,
@@ -128,13 +130,15 @@ router.post('/avanzado', enforceAuth, async (req, res) => {
             logo_empresa: payload.logo_empresa
         };
 
+        console.log(`[Avanzado] Creando Empresa:`, empresaPayload);
         const { data: empData, error: empErr } = await supabase.from('prescriptores').insert([empresaPayload]).select();
         
         if (empErr) {
+             console.error('[Avanzado] Error Supabase:', empErr);
              throw new Error(`Enterprise Error: ${empErr.message}`);
         }
 
-        console.log(`[Avanzado] Empresa creada con logo: ${!!empresaPayload.logo_empresa} (Size: ${empresaPayload.logo_empresa?.length || 0})`);
+        console.log(`[Avanzado] Empresa creada OK:`, empData[0]);
         res.status(201).json({ message: 'Alta completada', prescriptor: empData[0] });
 
     } catch (err) {
@@ -157,6 +161,7 @@ router.patch('/:id', enforceAuth, async (req, res) => {
         let prescriptorPayload = {
             es_autonomo: payload.es_autonomo,
             razon_social: payload.es_autonomo ? `${payload.usuario_nombre || ''} ${payload.usuario_apellidos || ''}`.trim() : payload.razon_social,
+            acronimo: payload.acronimo,
             cif: payload.es_autonomo ? payload.usuario_nif : payload.cif,
             email: payload.es_autonomo ? payload.usuario_email : payload.email,
             tlf: payload.es_autonomo ? payload.usuario_tlf : payload.tlf,
@@ -182,16 +187,20 @@ router.patch('/:id', enforceAuth, async (req, res) => {
         Object.keys(prescriptorPayload).forEach(key => prescriptorPayload[key] === undefined && delete prescriptorPayload[key]);
 
         // 2. Actualizamos prescriptor
+        console.log(`[PATCH] Actualizando prescriptor ${req.params.id} con payload:`, prescriptorPayload);
         const { data: presData, error: presError } = await supabase
             .from('prescriptores')
             .update(prescriptorPayload)
             .eq('id_empresa', req.params.id)
-            .select('*')
+            .select('*, acronimo')
             .single();
 
-        if (presError) throw presError;
+        if (presError) {
+            console.error('[PATCH] Error Supabase:', presError);
+            throw presError;
+        }
 
-        console.log(`[PATCH] Prescriptor ${req.params.id} actualizado. Buscando usuario representante: ${presData.representante_legal_id}`);
+        console.log(`[PATCH] Prescriptor actualizado OK:`, presData);
 
         // 3. Actualizar Identidad (Usuario y Auth)
         if (presData && presData.representante_legal_id) {
@@ -211,8 +220,8 @@ router.patch('/:id', enforceAuth, async (req, res) => {
                 
                 // B. Actualizar tabla usuarios (Metadatos)
                 const usuarioUpdate = {
-                    nombre: payload.usuario_nombre,
-                    apellidos: payload.usuario_apellidos,
+                    nombre: payload.usuario_nombre || '',
+                    apellidos: payload.usuario_apellidos || '',
                     nif: payload.usuario_nif,
                     tlf: payload.usuario_tlf
                 };
@@ -268,6 +277,73 @@ router.patch('/:id', enforceAuth, async (req, res) => {
     } catch (err) {
         console.error('Error PATCH prescriptores:', err);
         res.status(500).json({ error: err.message || 'Error al actualizar prescriptor' });
+    }
+});
+
+// 4. Eliminar Prescriptor (Sólo ADMIN)
+router.delete('/:id', requireAuth, async (req, res) => {
+    // Seguridad: Solo ADMIN puede borrar
+    if (req.user.rol_nombre !== 'ADMIN') {
+        return res.status(403).json({ error: 'No tienes permisos para esta acción.' });
+    }
+
+    try {
+        const { id } = req.params;
+        console.log(`[DELETE] Petición de eliminación para prescriptor: ${id}`);
+
+        // A. Obtener IDs asociados (Usuario y Auth ID) para limpieza completa
+        const { data: prescriptor, error: getErr } = await supabase
+            .from('prescriptores')
+            .select('representante_legal_id, usuarios(auth_user_id)')
+            .eq('id_empresa', id)
+            .single();
+
+        if (getErr || !prescriptor) {
+            return res.status(404).json({ error: 'Prescriptor no encontrado.' });
+        }
+
+        const repId = prescriptor.representante_legal_id;
+        const authUserId = prescriptor.usuarios?.auth_user_id;
+
+        // B. Eliminar el prescriptor
+        // Ojo: Si hay FKs en oportunidades sin CASCADE, esto fallará. 
+        // En una app real se haría Soft Delete o se manejarían las dependencias.
+        const { error: delPresErr } = await supabase
+            .from('prescriptores')
+            .delete()
+            .eq('id_empresa', id);
+        
+        if (delPresErr) {
+            console.error('[DELETE] Error eliminando de tabla prescriptores:', delPresErr.message);
+            throw new Error(`No se puede eliminar el partner: ${delPresErr.message}`);
+        }
+
+        // C. Eliminar usuario asociado de la tabla 'usuarios'
+        if (repId) {
+            const { error: delUserErr } = await supabase
+                .from('usuarios')
+                .delete()
+                .eq('id_usuario', repId);
+            
+            if (delUserErr) {
+                console.warn('[DELETE] No se pudo borrar el usuario local asociado:', delUserErr.message);
+            }
+        }
+
+        // D. Eliminar de Supabase Auth
+        if (authUserId) {
+            const { error: delAuthErr } = await supabase.auth.admin.deleteUser(authUserId);
+            if (delAuthErr) {
+                console.warn('[DELETE] No se pudo borrar el usuario de Auth:', delAuthErr.message);
+            } else {
+                console.log('[DELETE] Usuario de Auth eliminado correctamente:', authUserId);
+            }
+        }
+
+        res.json({ success: true, message: 'Prescriptor y accesos eliminados correctamente.' });
+    } catch (err) {
+        console.error('Error fatal DELETE prescriptor:', err);
+        res.status(500).json({ error: err.message || 'Error al eliminar el prescriptor' });
     }
 });
 

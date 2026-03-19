@@ -1,6 +1,7 @@
 // Prescriptores Management View - Updated 2026-03-15
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import { supabase } from '../../../services/supabaseClient';
 import { useAuth } from '../../../context/AuthContext';
 
 // --- Constantes de Localización ---
@@ -41,6 +42,7 @@ export function PrescriptoresList() {
         nuevo_usuario: true, // Por defecto crearemos el usuario para el super formulario
         // Datos Empresa
         razon_social: '',
+        acronimo: '',
         cif: '',
         email: '',
         tlf: '',
@@ -129,6 +131,7 @@ export function PrescriptoresList() {
             es_autonomo: p.es_autonomo || false,
             nuevo_usuario: false, // En edición, no tocamos usuario base
             razon_social: p.razon_social || '',
+            acronimo: p.acronimo || '',
             cif: p.cif || '',
             email: p.email || '',
             tlf: p.tlf || '',
@@ -152,7 +155,7 @@ export function PrescriptoresList() {
             usuario_nif: p.usuarios?.nif || '',
             usuario_password: '', // Vacío para indicar que se puede cambiar
             usuario_confirm_password: '',
-            usuario_tlf: p.usuarios?.tlf || ''
+            usuario_tlf: p.usuarios?.tlf || p.tlf || ''
         });
         window.scrollTo({ top: 0, behavior: 'smooth' });
         setShowForm(true);
@@ -162,7 +165,9 @@ export function PrescriptoresList() {
         setEditingId(null);
         setFormData({
             es_autonomo: false, nuevo_usuario: true,
-            razon_social: '', cif: '', email: '', tlf: '', ccaa: '', provincia: '',
+            razon_social: '',
+            acronimo: '',
+            cif: '', email: '', tlf: '', ccaa: '', provincia: '',
             municipio: '', direccion: '', codigo_postal: '', tipo_empresa: 'DISTRIBUIDOR',
             marca_referencia: '', marca_secundaria: '', tiene_carnet_rite: false,
             numero_carnet_rite: '', cargo: 'REPRESENTANTE LEGAL', logo_empresa: '',
@@ -170,6 +175,58 @@ export function PrescriptoresList() {
             usuario_nif: '', usuario_tlf: '', usuario_confirm_password: ''
         });
         setShowForm(!showForm);
+    };
+
+    const [deleting, setDeleting] = useState(false);
+    const [modalConfig, setModalConfig] = useState({
+        show: false,
+        title: '',
+        message: '',
+        type: 'confirm',
+        onConfirm: null,
+        confirmLabel: 'Aceptar',
+        cancelLabel: 'Cancelar'
+    });
+
+    const handleDelete = async (id, e) => {
+        if (e) e.stopPropagation();
+        
+        const pres = prescriptores.find(p => p.id_empresa === id);
+        const name = pres?.acronimo || pres?.razon_social || 'esta entidad';
+
+        setModalConfig({
+            show: true,
+            type: 'confirm',
+            title: '⚠️ ¿ELIMINAR PERMANENTEMENTE?',
+            message: `Vas a borrar a "${name.toUpperCase()}". Esta acción eliminará la empresa, su usuario de acceso y no se podrá deshacer.`,
+            confirmLabel: 'SÍ, ELIMINAR',
+            cancelLabel: 'CANCELAR',
+            onConfirm: async () => {
+                setDeleting(true);
+                setModalConfig(prev => ({ ...prev, show: false }));
+                try {
+                    await axios.delete(`/api/prescriptores/${id}`);
+                    setShowForm(false);
+                    setEditingId(null);
+                    fetchData();
+                    
+                    // Mostrar éxito tras borrar
+                    setModalConfig({
+                        show: true,
+                        type: 'success',
+                        title: 'ELIMINADO',
+                        message: 'La entidad ha sido borrada correctamente.',
+                        confirmLabel: 'ENTENDIDO',
+                        onConfirm: () => setModalConfig(prev => ({ ...prev, show: false }))
+                    });
+                } catch (err) {
+                    console.error(err);
+                    setError(err.response?.data?.error || 'Error al eliminar el prescriptor.');
+                } finally {
+                    setDeleting(false);
+                }
+            }
+        });
     };
 
     const handleSave = async (e) => {
@@ -194,11 +251,25 @@ export function PrescriptoresList() {
             if (editingId) {
                 // Actualizar entidad existente
                 await axios.patch(`/api/prescriptores/${editingId}`, formData);
-                alert('¡Entidad actualizada correctamente!');
+                setModalConfig({
+                    show: true,
+                    type: 'success',
+                    title: '✅ ACTUALIZADO',
+                    message: 'La información de la entidad ha sido actualizada correctamente.',
+                    confirmLabel: 'ENTENDIDO',
+                    onConfirm: () => setModalConfig(prev => ({ ...prev, show: false }))
+                });
             } else {
                 // El payload va al nuevo endpoint avanzado
                 await axios.post('/api/prescriptores/avanzado', formData);
-                alert('¡Prescriptor y Usuario creados correctamente!');
+                setModalConfig({
+                    show: true,
+                    type: 'success',
+                    title: '✅ ALTA CORRECTA',
+                    message: 'El nuevo partner y su usuario han sido creados correctamente.',
+                    confirmLabel: 'ENTENDIDO',
+                    onConfirm: () => setModalConfig(prev => ({ ...prev, show: false }))
+                });
             }
             setShowForm(false);
             setEditingId(null);
@@ -210,7 +281,7 @@ export function PrescriptoresList() {
             // Reset form
             setFormData({
                 es_autonomo: false, nuevo_usuario: true,
-                razon_social: '', cif: '', email: '', tlf: '', ccaa: '', provincia: '',
+                razon_social: '', acronimo: '', cif: '', email: '', tlf: '', ccaa: '',
                 municipio: '', direccion: '', codigo_postal: '', tipo_empresa: 'DISTRIBUIDOR',
                 marca_referencia: '', marca_secundaria: '', tiene_carnet_rite: false,
                 numero_carnet_rite: '', cargo: 'REPRESENTANTE LEGAL', logo_empresa: '',
@@ -230,7 +301,8 @@ export function PrescriptoresList() {
     const [searchCIF, setSearchCIF] = useState('');
 
     const filteredPrescriptores = prescriptores.filter(p => {
-        const matchesName = (p.razon_social || '').toLowerCase().includes(searchTerm.toLowerCase());
+        const displayName = (p.acronimo || p.razon_social || '').toLowerCase();
+        const matchesName = displayName.includes(searchTerm.toLowerCase());
         const matchesCIF = (p.cif || '').toLowerCase().includes(searchCIF.toLowerCase());
         return matchesName && matchesCIF;
     });
@@ -299,28 +371,44 @@ export function PrescriptoresList() {
             {error && <div className="p-4 bg-red-500/10 border border-red-500/20 text-red-400 rounded-xl mb-6 text-sm flex items-center gap-2"><svg className="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>{error}</div>}
 
             {showForm && (
-                <div className="p-6 bg-slate-900 shadow-2xl shadow-black/50 border border-amber-500/30 rounded-2xl mb-8 animate-slide-down relative overflow-hidden">
-                    <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-amber-500 to-orange-500"></div>
+                <div className="p-6 bg-bkg-surface shadow-2xl shadow-black/50 border border-brand/20 rounded-2xl mb-8 animate-slide-down relative overflow-hidden">
+                    <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-brand to-brand-700"></div>
                      
                     <form onSubmit={handleSave} className="relative">
                         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
-                             <h3 className="text-xl font-black text-amber-500 flex items-center gap-2">
+                             <h3 className="text-xl font-black text-brand flex items-center gap-2">
                                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" /></svg>
                                  {editingId ? 'Edición de Entidad y Representante' : 'Alta de Nuevo Partner B2B'}
                              </h3>
                              <div className="flex items-center gap-3">
-                                <button 
-                                    type="button" 
-                                    onClick={() => setShowForm(false)} 
-                                    className="px-6 py-3 bg-white/[0.05] border border-white/10 hover:bg-white/[0.08] text-white font-black uppercase tracking-widest text-[10px] rounded-xl transition-all"
-                                    disabled={saving}
-                                >
-                                    DESCARTAR
-                                </button>
+                                    <button 
+                                        type="button" 
+                                        onClick={() => setShowForm(false)} 
+                                        className="px-6 py-3 bg-white/[0.05] border border-white/10 hover:bg-white/[0.08] text-white font-black uppercase tracking-widest text-[10px] rounded-xl transition-all"
+                                        disabled={saving || deleting}
+                                    >
+                                        DESCARTAR
+                                    </button>
+                                    
+                                    {editingId && (
+                                        <button 
+                                            type="button" 
+                                            onClick={() => handleDelete(editingId)} 
+                                            className="p-3 bg-red-500/10 border border-red-500/20 hover:bg-red-500/20 text-red-500 rounded-xl transition-all group"
+                                            title="Eliminar partner permanentemente"
+                                            disabled={saving || deleting}
+                                        >
+                                            {deleting ? (
+                                                <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                                            ) : (
+                                                <svg className="w-5 h-5 group-hover:scale-110 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                            )}
+                                        </button>
+                                    )}
                                 <button 
                                     type="submit" 
                                     disabled={saving} 
-                                    className="px-6 py-3 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-black font-black uppercase tracking-widest text-[10px] rounded-xl shadow-lg shadow-amber-500/20 transition-all flex items-center gap-2 active:scale-95 whitespace-nowrap"
+                                    className="px-6 py-3 bg-gradient-to-r from-brand to-brand-700 hover:from-brand-400 hover:to-brand-600 text-bkg-deep font-black uppercase tracking-widest text-[10px] rounded-xl shadow-lg shadow-brand/20 transition-all flex items-center gap-2 active:scale-95 whitespace-nowrap"
                                 >
                                     {saving ? (
                                         <><svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> GUARDANDO... </>
@@ -347,7 +435,7 @@ export function PrescriptoresList() {
                                             onChange={(e) => setFormData({...formData, es_autonomo: e.target.checked})}
                                             className="sr-only peer"
                                         />
-                                        <div className="w-full h-full bg-white/10 border border-white/5 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-amber-500/50 rounded-full peer peer-checked:after:translate-x-[20px] after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500 shadow-inner"></div>
+                                        <div className="w-full h-full bg-white/10 border border-white/5 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-brand/50 rounded-full peer peer-checked:after:translate-x-[20px] after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand shadow-inner"></div>
                                     </div>
                                     <div>
                                         <span className="font-black text-white text-xs uppercase tracking-wider block">Es Trabajador Autónomo</span>
@@ -358,7 +446,7 @@ export function PrescriptoresList() {
 
                             {/* Email Único (Acceso y Contacto) */}
                             <div className="lg:col-span-1">
-                                <label className="block text-[10px] uppercase font-black text-white/40 mb-2 ml-1 tracking-widest">Email (Acceso y Contacto)</label>
+                                <label className="block text-[10px] uppercase font-black text-white/40 mb-2 ml-1 tracking-widest">Email (Acceso y Contacto) <span className="text-brand">*</span></label>
                                 <div className="relative">
                                     <span className="absolute left-4 top-1/2 -translate-y-1/2 text-white/20">
                                         <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
@@ -370,7 +458,7 @@ export function PrescriptoresList() {
                                             const val = e.target.value;
                                             setFormData(prev => ({ ...prev, usuario_email: val, email: val }));
                                         }} 
-                                        className="w-full bg-black/40 border border-white/10 rounded-xl pl-11 pr-4 py-3 text-sm focus:border-amber-500 focus:bg-black/60 outline-none transition-all placeholder:text-white/10" 
+                                        className="w-full bg-bkg-deep border border-white/10 rounded-xl pl-11 pr-4 py-3 text-sm focus:border-brand focus:bg-bkg-elevated outline-none transition-all placeholder:text-white/10"
                                         placeholder="ejemplo@entidad.com"
                                     />
                                 </div>
@@ -390,7 +478,7 @@ export function PrescriptoresList() {
                                             const val = e.target.value;
                                             setFormData(prev => ({ ...prev, usuario_tlf: val, tlf: val }));
                                         }} 
-                                        className="w-full bg-black/40 border border-white/10 rounded-xl pl-11 pr-4 py-3 text-sm focus:border-amber-500 focus:bg-black/60 outline-none transition-all placeholder:text-white/10" 
+                                        className="w-full bg-bkg-deep border border-white/10 rounded-xl pl-11 pr-4 py-3 text-sm focus:border-brand focus:bg-bkg-elevated outline-none transition-all placeholder:text-white/10" 
                                         placeholder="+34 600 000 000"
                                     />
                                 </div>
@@ -398,9 +486,9 @@ export function PrescriptoresList() {
                         </div>
 
                         {/* 2. DATOS DE ENTIDAD O PROFESIONAL */}
-                        <div className="lg:col-span-3 p-6 bg-white/[0.01] border border-white/5 rounded-2xl">
-                             <h4 className={`text-xs uppercase tracking-[0.2em] font-black mb-6 flex items-center gap-3 ${formData.es_autonomo ? 'text-fuchsia-500' : 'text-emerald-500'}`}>
-                                <span className={`w-2 h-2 rounded-full ${formData.es_autonomo ? 'bg-fuchsia-500 shadow-[0_0_10px_rgba(217,70,239,0.5)]' : 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)]'}`}></span> 
+                        <div className="lg:col-span-3 p-6 bg-bkg-base/50 border border-white/5 rounded-2xl">
+                             <h4 className="text-xs uppercase tracking-[0.2em] text-brand font-black mb-6 flex items-center gap-3">
+                                <span className="w-2 h-2 rounded-full bg-brand shadow-[0_0_10px_rgba(255,160,0,0.5)]"></span> 
                                 {formData.es_autonomo ? 'Identidad del Profesional Autónomo' : 'Información Mercantil de la Entidad'}
                              </h4>
                              
@@ -408,28 +496,32 @@ export function PrescriptoresList() {
                                 {formData.es_autonomo ? (
                                     <>
                                         <div className="lg:col-span-1">
-                                            <label className="block text-[10px] uppercase font-black text-white/50 mb-2 ml-1 tracking-widest">Nombre</label>
-                                            <input required type="text" value={formData.usuario_nombre} onChange={e => setFormData({...formData, usuario_nombre: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-fuchsia-500 focus:bg-black/60 outline-none transition-all uppercase" placeholder="JUAN"/>
+                                            <label className="block text-[10px] uppercase font-black text-white/50 mb-2 ml-1 tracking-widest">Nombre <span className="text-brand">*</span></label>
+                                            <input required type="text" value={formData.usuario_nombre} onChange={e => setFormData({...formData, usuario_nombre: e.target.value})} className="w-full bg-bkg-deep border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-brand focus:bg-bkg-elevated outline-none transition-all uppercase" placeholder="JUAN"/>
                                         </div>
                                         <div className="lg:col-span-2">
-                                            <label className="block text-[10px] uppercase font-black text-white/50 mb-2 ml-1 tracking-widest">Apellidos</label>
-                                            <input required type="text" value={formData.usuario_apellidos} onChange={e => setFormData({...formData, usuario_apellidos: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-fuchsia-500 focus:bg-black/60 outline-none transition-all uppercase" placeholder="PÉREZ GARCÍA"/>
+                                            <label className="block text-[10px] uppercase font-black text-white/50 mb-2 ml-1 tracking-widest">Apellidos <span className="text-brand">*</span></label>
+                                            <input required type="text" value={formData.usuario_apellidos} onChange={e => setFormData({...formData, usuario_apellidos: e.target.value})} className="w-full bg-bkg-deep border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-brand focus:bg-bkg-elevated outline-none transition-all uppercase" placeholder="PÉREZ GARCÍA"/>
                                         </div>
                                         <div className="lg:col-span-1">
-                                            <label className="block text-[10px] uppercase font-black text-white/50 mb-2 ml-1 tracking-widest">DNI / NIE</label>
-                                            <input required type="text" value={formData.usuario_nif} onChange={e => setFormData({...formData, usuario_nif: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-fuchsia-500 focus:bg-black/60 outline-none transition-all uppercase font-mono" placeholder="12345678Z"/>
+                                            <label className="block text-[10px] uppercase font-black text-white/50 mb-2 ml-1 tracking-widest">DNI / NIE <span className="text-brand">*</span></label>
+                                            <input required type="text" value={formData.usuario_nif} onChange={e => setFormData({...formData, usuario_nif: e.target.value})} className="w-full bg-bkg-deep border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-brand focus:bg-bkg-elevated outline-none transition-all uppercase font-mono" placeholder="12345678Z"/>
                                         </div>
 
                                     </>
                                 ) : (
                                     <>
-                                        <div className="lg:col-span-3">
-                                            <label className="block text-[10px] uppercase font-black text-white/50 mb-2 ml-1 tracking-widest">Razón Social</label>
-                                            <input required type="text" value={formData.razon_social} onChange={e => setFormData({...formData, razon_social: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-emerald-500 focus:bg-black/60 outline-none transition-all uppercase" placeholder="EMPRESA SL"/>
+                                        <div className="lg:col-span-2">
+                                            <label className="block text-[10px] uppercase font-black text-white/50 mb-2 ml-1 tracking-widest">Razón Social <span className="text-brand">*</span></label>
+                                            <input required type="text" value={formData.razon_social} onChange={e => setFormData({...formData, razon_social: e.target.value})} className="w-full bg-bkg-deep border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-brand focus:bg-bkg-elevated outline-none transition-all uppercase" placeholder="EMPRESA SL"/>
                                         </div>
                                         <div className="lg:col-span-1">
-                                            <label className="block text-[10px] uppercase font-black text-white/50 mb-2 ml-1 tracking-widest">CIF Entidad</label>
-                                            <input required type="text" value={formData.cif} onChange={e => setFormData({...formData, cif: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-emerald-500 focus:bg-black/60 outline-none transition-all uppercase font-mono" placeholder="B12345678"/>
+                                            <label className="block text-[10px] uppercase font-black text-white/50 mb-2 ml-1 tracking-widest">Acrónimo / Marca</label>
+                                            <input type="text" value={formData.acronimo} onChange={e => setFormData({...formData, acronimo: e.target.value})} className="w-full bg-bkg-deep border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-brand focus:bg-bkg-elevated outline-none transition-all uppercase" placeholder="MARCA"/>
+                                        </div>
+                                        <div className="lg:col-span-1">
+                                            <label className="block text-[10px] uppercase font-black text-white/50 mb-2 ml-1 tracking-widest">CIF Entidad <span className="text-brand">*</span></label>
+                                            <input required type="text" value={formData.cif} onChange={e => setFormData({...formData, cif: e.target.value})} className="w-full bg-bkg-deep border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-brand focus:bg-bkg-elevated outline-none transition-all uppercase" placeholder="B12345678"/>
                                         </div>
                                     </>
                                 )}
@@ -438,23 +530,23 @@ export function PrescriptoresList() {
 
                         {/* 3. PERSONA REPRESENTANTE (Solo si NO es autónomo) */}
                         {!formData.es_autonomo && (
-                            <div className="lg:col-span-3 p-6 bg-white/[0.01] border border-white/5 rounded-2xl">
-                                <h4 className="text-xs uppercase tracking-[0.2em] text-cyan-500 font-black mb-6 flex items-center gap-3">
-                                    <span className="w-2 h-2 rounded-full bg-cyan-500 shadow-[0_0_10px_rgba(6,182,212,0.5)]"></span> 
+                            <div className="lg:col-span-3 p-6 bg-bkg-base/50 border border-white/5 rounded-2xl">
+                                <h4 className="text-xs uppercase tracking-[0.2em] text-brand font-black mb-6 flex items-center gap-3">
+                                    <span className="w-2 h-2 rounded-full bg-brand shadow-[0_0_10px_rgba(255,160,0,0.5)]"></span> 
                                     Persona de Contacto / Representante
                                 </h4>
                                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                                     <div>
-                                        <label className="block text-[10px] uppercase font-black text-white/50 mb-2 ml-1 tracking-widest">Nombre</label>
-                                        <input required type="text" value={formData.usuario_nombre} onChange={e => setFormData({...formData, usuario_nombre: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-cyan-500 focus:bg-black/60 outline-none transition-all uppercase" placeholder="PEDRO"/>
+                                        <label className="block text-[10px] uppercase font-black text-white/50 mb-2 ml-1 tracking-widest">Nombre <span className="text-brand">*</span></label>
+                                        <input required type="text" value={formData.usuario_nombre} onChange={e => setFormData({...formData, usuario_nombre: e.target.value})} className="w-full bg-bkg-deep border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-brand focus:bg-bkg-elevated outline-none transition-all uppercase" placeholder="PEDRO"/>
                                     </div>
                                     <div>
                                         <label className="block text-[10px] uppercase font-black text-white/50 mb-2 ml-1 tracking-widest">Apellidos</label>
-                                        <input required type="text" value={formData.usuario_apellidos} onChange={e => setFormData({...formData, usuario_apellidos: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-cyan-500 focus:bg-black/60 outline-none transition-all uppercase" placeholder="GONZÁLEZ"/>
+                                        <input type="text" value={formData.usuario_apellidos} onChange={e => setFormData({...formData, usuario_apellidos: e.target.value})} className="w-full bg-bkg-deep border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-brand focus:bg-bkg-elevated outline-none transition-all uppercase" placeholder="GONZÁLEZ"/>
                                     </div>
                                     <div className="lg:col-span-2">
                                         <label className="block text-[10px] uppercase font-black text-white/50 mb-2 ml-1 tracking-widest">Cargo en la Entidad</label>
-                                        <input type="text" value={formData.cargo} onChange={e => setFormData({...formData, cargo: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-cyan-500 focus:bg-black/60 outline-none transition-all uppercase" placeholder="GERENTE / PROPIETARIO"/>
+                                        <input type="text" value={formData.cargo} onChange={e => setFormData({...formData, cargo: e.target.value})} className="w-full bg-bkg-deep border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-brand focus:bg-bkg-elevated outline-none transition-all uppercase" placeholder="GERENTE / PROPIETARIO"/>
                                     </div>
 
                                 </div>
@@ -462,15 +554,15 @@ export function PrescriptoresList() {
                         )}
 
                         {/* 4. SEGURIDAD Y ACCESO */}
-                        <div className="lg:col-span-3 p-6 bg-amber-500/[0.02] border border-amber-500/10 rounded-2xl">
-                             <h4 className="text-xs uppercase tracking-[0.2em] text-amber-500 font-black mb-6 flex items-center gap-3">
-                                <span className="w-2 h-2 rounded-full bg-amber-500 shadow-[0_0_10px_rgba(245,158,11,0.5)]"></span> 
+                        <div className="lg:col-span-3 p-6 bg-brand/[0.02] border border-brand/10 rounded-2xl">
+                             <h4 className="text-xs uppercase tracking-[0.2em] text-brand font-black mb-6 flex items-center gap-3">
+                                <span className="w-2 h-2 rounded-full bg-brand shadow-[0_0_10px_rgba(255,160,0,0.5)]"></span> 
                                 Seguridad y Acceso al Portal
                              </h4>
                              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                 <div>
                                     <label className="block text-[10px] uppercase font-black text-white/40 mb-2 ml-1 tracking-widest">
-                                        {editingId ? 'Nueva Contraseña (opcional)' : 'Contraseña de Acceso'}
+                                        {editingId ? 'Nueva Contraseña (opcional)' : <><span className="text-brand">*</span> Contraseña de Acceso</>}
                                     </label>
                                     <div className="relative">
                                         <input 
@@ -478,7 +570,7 @@ export function PrescriptoresList() {
                                             type={formData.show_password ? "text" : "password"} 
                                             value={formData.usuario_password} 
                                             onChange={e => setFormData({...formData, usuario_password: e.target.value})} 
-                                            className="w-full bg-black/40 border border-amber-500/20 rounded-xl px-4 py-3 text-sm focus:border-amber-500 focus:bg-black/60 outline-none transition-all font-mono text-amber-500 placeholder:text-amber-500/10" 
+                                            className="w-full bg-bkg-deep border border-brand/20 rounded-xl px-4 py-3 text-sm focus:border-brand focus:bg-bkg-elevated outline-none transition-all font-mono text-brand placeholder:text-brand/10" 
                                             placeholder={editingId ? "Dejar en blanco para no cambiar" : "••••••••"}
                                         />
                                         <button 
@@ -497,16 +589,16 @@ export function PrescriptoresList() {
                                     </div>
                                 </div>
                                 <div>
-                                    <label className="block text-[10px] uppercase font-black text-white/40 mb-2 ml-1 tracking-widest">Confirmar Contraseña</label>
+                                    <label className="block text-[10px] uppercase font-black text-white/40 mb-2 ml-1 tracking-widest">Confirmar Contraseña {!!formData.usuario_password && <span className="text-brand">*</span>}</label>
                                     <input 
                                         required={!!formData.usuario_password} 
                                         type={formData.show_password ? "text" : "password"} 
                                         value={formData.usuario_confirm_password} 
                                         onChange={e => setFormData({...formData, usuario_confirm_password: e.target.value})} 
-                                        className={`w-full bg-black/40 border rounded-xl px-4 py-3 text-sm focus:bg-black/60 outline-none transition-all font-mono placeholder:text-white/5 ${
+                                        className={`w-full bg-bkg-deep border rounded-xl px-4 py-3 text-sm focus:bg-bkg-elevated outline-none transition-all font-mono placeholder:text-white/5 ${
                                             formData.usuario_password && formData.usuario_password !== formData.usuario_confirm_password 
                                             ? 'border-red-500/50 text-red-400 focus:border-red-500' 
-                                            : 'border-white/10 text-white focus:border-amber-500'
+                                            : 'border-white/10 text-white focus:border-brand'
                                         }`} 
                                         placeholder="••••••••"
                                     />
@@ -518,15 +610,15 @@ export function PrescriptoresList() {
                         </div>
 
                         {/* 5. UBICACIÓN */}
-                        <div className="lg:col-span-3 p-6 bg-white/[0.01] border border-white/5 rounded-2xl">
-                            <h4 className="text-xs uppercase tracking-[0.2em] text-fuchsia-500 font-black mb-6 flex items-center gap-3">
-                                <span className="w-2 h-2 rounded-full bg-fuchsia-500 shadow-[0_0_10px_rgba(192,38,211,0.5)]"></span> 
+                        <div className="lg:col-span-3 p-6 bg-bkg-base/50 border border-white/5 rounded-2xl">
+                            <h4 className="text-xs uppercase tracking-[0.2em] text-brand font-black mb-6 flex items-center gap-3">
+                                <span className="w-2 h-2 rounded-full bg-brand shadow-[0_0_10px_rgba(255,160,0,0.5)]"></span> 
                                 Localización y Sede
                             </h4>
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                                 <div>
                                     <label className="block text-[10px] uppercase font-black text-white/50 mb-2 ml-1 tracking-widest">CCAA</label>
-                                    <select value={formData.ccaa} onChange={e => setFormData({...formData, ccaa: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-fuchsia-500 transition-all appearance-none cursor-pointer uppercase">
+                                    <select value={formData.ccaa} onChange={e => setFormData({...formData, ccaa: e.target.value})} className="w-full bg-bkg-deep border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-brand transition-all appearance-none cursor-pointer uppercase">
                                         <option value="">-- SELECCIONAR --</option>
                                         {Object.keys(CCAA_PROVINCIAS).sort().map(ccaa => (
                                             <option key={ccaa} value={ccaa}>{ccaa}</option>
@@ -535,7 +627,7 @@ export function PrescriptoresList() {
                                 </div>
                                 <div>
                                     <label className="block text-[10px] uppercase font-black text-white/50 mb-2 ml-1 tracking-widest">Provincia</label>
-                                    <select value={formData.provincia} onChange={e => setFormData({...formData, provincia: e.target.value})} disabled={!formData.ccaa} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-fuchsia-500 outline-none text-white disabled:opacity-30 appearance-none cursor-pointer uppercase">
+                                    <select value={formData.provincia} onChange={e => setFormData({...formData, provincia: e.target.value})} disabled={!formData.ccaa} className="w-full bg-bkg-deep border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-brand outline-none text-white disabled:opacity-30 appearance-none cursor-pointer uppercase">
                                         <option value="">-- SELECCIONAR --</option>
                                         {availableProvinces.map(prov => (
                                             <option key={prov} value={prov}>{prov}</option>
@@ -544,7 +636,7 @@ export function PrescriptoresList() {
                                 </div>
                                 <div>
                                     <label className="block text-[10px] uppercase font-black text-white/50 mb-2 ml-1 tracking-widest">Municipio / Población</label>
-                                    <select disabled={availableMunicipios.length === 0} value={formData.municipio} onChange={e => setFormData({...formData, municipio: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-fuchsia-500 outline-none text-white disabled:opacity-30 appearance-none cursor-pointer uppercase">
+                                    <select disabled={availableMunicipios.length === 0} value={formData.municipio} onChange={e => setFormData({...formData, municipio: e.target.value})} className="w-full bg-bkg-deep border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-brand outline-none text-white disabled:opacity-30 appearance-none cursor-pointer uppercase">
                                         <option value="">{availableMunicipios.length === 0 ? '-- PRIMERO PROVINCIA --' : '-- SELECCIONAR --'}</option>
                                         {availableMunicipios.map(muni => (
                                             <option key={`${muni.provCode}-${muni.munCode}`} value={muni.name}>{muni.name}</option>
@@ -553,25 +645,25 @@ export function PrescriptoresList() {
                                 </div>
                                 <div>
                                     <label className="block text-[10px] uppercase font-black text-white/50 mb-2 ml-1 tracking-widest">Cód. Postal</label>
-                                    <input type="text" value={formData.codigo_postal} onChange={e => setFormData({...formData, codigo_postal: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-fuchsia-500 focus:bg-black/60 outline-none transition-all font-mono uppercase" placeholder="41001"/>
+                                    <input type="text" value={formData.codigo_postal} onChange={e => setFormData({...formData, codigo_postal: e.target.value})} className="w-full bg-bkg-deep border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-brand focus:bg-bkg-elevated outline-none transition-all uppercase" placeholder="41001"/>
                                 </div>
                                 <div className="lg:col-span-4">
                                      <label className="block text-[10px] uppercase font-black text-white/50 mb-2 ml-1 tracking-widest">Dirc. Fiscal / Social</label>
-                                     <input type="text" value={formData.direccion} onChange={e => setFormData({...formData, direccion: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-fuchsia-500 focus:bg-black/60 outline-none transition-all uppercase" placeholder="CALLE EJEMPLO, 1, 1ºA"/>
-                                </div>
+                                     <input type="text" value={formData.direccion} onChange={e => setFormData({...formData, direccion: e.target.value})} className="w-full bg-bkg-deep border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-brand focus:bg-bkg-elevated outline-none transition-all uppercase" placeholder="CALLE EJEMPLO, 1, 1ºA"/>
+                                 </div>
                             </div>
                         </div>
 
                         {/* 6. ESPECIALIDAD */}
-                        <div className="lg:col-span-3 p-6 bg-amber-500/[0.01] border border-amber-500/10 rounded-2xl">
-                            <h4 className="text-xs uppercase tracking-[0.2em] text-amber-500 font-black mb-6 flex items-center gap-3">
-                                <span className="w-2 h-2 rounded-full bg-amber-500 shadow-[0_0_10px_rgba(245,158,11,0.5)]"></span> 
+                        <div className="lg:col-span-3 p-6 bg-brand/[0.01] border border-brand/10 rounded-2xl">
+                            <h4 className="text-xs uppercase tracking-[0.2em] text-brand font-black mb-6 flex items-center gap-3">
+                                <span className="w-2 h-2 rounded-full bg-brand shadow-[0_0_10px_rgba(255,160,0,0.5)]"></span> 
                                 Especialidad y Homologaciones
                             </h4>
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-end">
                                 <div>
-                                    <label className="block text-[10px] uppercase font-black text-white/40 mb-2 ml-1 tracking-widest">Rol del Partner</label>
-                                    <select value={formData.tipo_empresa} onChange={e => setFormData({...formData, tipo_empresa: e.target.value})} className="w-full bg-amber-500/10 border border-amber-500/20 rounded-xl px-4 py-3 text-sm text-amber-500 font-black outline-none cursor-pointer appearance-none uppercase">
+                                    <label className="block text-[10px] uppercase font-black text-white/40 mb-2 ml-1 tracking-widest">Rol del Partner <span className="text-brand">*</span></label>
+                                    <select value={formData.tipo_empresa} onChange={e => setFormData({...formData, tipo_empresa: e.target.value})} className="w-full bg-brand/10 border border-brand/20 rounded-xl px-4 py-3 text-sm text-brand font-black outline-none cursor-pointer appearance-none uppercase">
                                         <option value="DISTRIBUIDOR">DISTRIBUIDOR</option>
                                         <option value="INSTALADOR">INSTALADOR</option>
                                         <option value="CERTIFICADOR">CERTIFICADOR</option>
@@ -581,15 +673,15 @@ export function PrescriptoresList() {
 
                                 <div>
                                     <label className="block text-[10px] uppercase font-black text-white/40 mb-2 ml-1 tracking-widest">Marca Ref. Principal</label>
-                                    <input type="text" value={formData.marca_referencia} onChange={e => setFormData({...formData, marca_referencia: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-amber-500 focus:bg-black/60 outline-none transition-all uppercase" placeholder="DAIKIN / VAILLANT..."/>
+                                    <input type="text" value={formData.marca_referencia} onChange={e => setFormData({...formData, marca_referencia: e.target.value})} className="w-full bg-bkg-deep border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-brand focus:bg-bkg-elevated outline-none transition-all uppercase" placeholder="DAIKIN / VAILLANT..."/>
                                 </div>
                                 <div>
                                     <label className="block text-[10px] uppercase font-black text-white/40 mb-2 ml-1 tracking-widest">Marca Secundaria</label>
-                                    <input type="text" value={formData.marca_secundaria} onChange={e => setFormData({...formData, marca_secundaria: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-amber-500 focus:bg-black/60 outline-none transition-all uppercase" placeholder="MITSUBISHI..."/>
+                                    <input type="text" value={formData.marca_secundaria} onChange={e => setFormData({...formData, marca_secundaria: e.target.value})} className="w-full bg-bkg-deep border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-brand focus:bg-bkg-elevated outline-none transition-all uppercase" placeholder="MITSUBISHI..."/>
                                 </div>
 
                                 {formData.tipo_empresa === 'INSTALADOR' && (
-                                     <div className="md:col-span-3 grid grid-cols-1 md:grid-cols-3 gap-6 p-6 bg-amber-500/5 border border-amber-500/10 rounded-2xl mt-2">
+                                     <div className="md:col-span-3 grid grid-cols-1 md:grid-cols-3 gap-6 p-6 bg-brand/5 border border-brand/10 rounded-2xl mt-2">
                                          <label className="flex items-center gap-4 cursor-pointer group p-2">
                                             <div className="relative h-5 w-9 shrink-0">
                                                 <input 
@@ -644,6 +736,7 @@ export function PrescriptoresList() {
                              <th className="p-4 text-[10px] uppercase tracking-[0.2em] text-white/30 border-b border-white/[0.06] hidden sm:table-cell">Especialidad</th>
                              <th className="p-4 text-[10px] uppercase tracking-[0.2em] text-white/30 border-b border-white/[0.06]">Contacto Principal</th>
                              <th className="p-4 text-[10px] uppercase tracking-[0.2em] text-white/30 border-b border-white/[0.06] text-right">Antigüedad</th>
+                             <th className="p-4 text-[10px] uppercase tracking-[0.2em] text-white/30 border-b border-white/[0.06] text-right">Acciones</th>
                          </tr>
                          {/* Filter Row */}
                          <tr className="bg-white/[0.01]">
@@ -666,6 +759,7 @@ export function PrescriptoresList() {
                                  />
                              </td>
                              <td className="p-2.5 border-b border-white/[0.06] hidden sm:table-cell"></td>
+                             <td className="p-2.5 border-b border-white/[0.06]"></td>
                              <td className="p-2.5 border-b border-white/[0.06]"></td>
                              <td className="p-2.5 border-b border-white/[0.06]"></td>
                          </tr>
@@ -696,7 +790,10 @@ export function PrescriptoresList() {
                                             <div className="w-8 h-8 rounded-lg border border-white/5 bg-white/5 flex items-center justify-center shrink-0 font-bold text-white/20 text-xs uppercase">{p.razon_social ? p.razon_social.substring(0,2) : ''}</div>
                                         )}
                                         <div>
-                                            <div className="font-bold text-sm text-white/90 truncate max-w-[200px]">{p.razon_social || '-'}</div>
+                                            <div className="font-bold text-sm text-white/90 truncate max-w-[200px] flex items-center gap-2 uppercase">
+                                                {p.acronimo || p.razon_social || '-'}
+                                                {p.acronimo && <span className="text-[9px] text-white/20 font-normal">({p.razon_social})</span>}
+                                            </div>
                                             <div className="flex gap-2 items-center mt-1">
                                                 {p.es_autonomo && <span className="text-[8px] tracking-wider uppercase bg-fuchsia-500/10 text-fuchsia-400 px-1.5 py-0.5 rounded border border-fuchsia-500/20">AUTÓNOMO</span>}
                                                 <span className="text-[9px] text-white/30 md:hidden">{p.cif}</span>
@@ -730,11 +827,73 @@ export function PrescriptoresList() {
                                     )}
                                 </td>
                                 <td className="p-4 text-xs font-mono text-white/20 text-right">{new Date(p.created_at).toLocaleDateString()}</td>
+                                <td className="p-4 text-right">
+                                     <button 
+                                         onClick={(e) => handleDelete(p.id_empresa, e)}
+                                         className="p-2 bg-red-500/10 hover:bg-red-500/20 text-red-500/40 hover:text-red-500 rounded-lg transition-all"
+                                         disabled={deleting}
+                                         title="Eliminar partner"
+                                     >
+                                         <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                     </button>
+                                </td>
                             </tr>
                         ))}
                      </tbody>
                  </table>
             </div>
+
+            {/* Custom Modal Premium */}
+            {modalConfig.show && (
+                <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fade-in">
+                    <div className={`relative w-full max-w-md bg-bkg-surface border shadow-2xl rounded-2xl overflow-hidden animate-slide-up ${modalConfig.type === 'confirm' ? 'border-red-500/30' : 'border-brand/30'}`}>
+                        {/* Header decorativo */}
+                        <div className={`h-1.5 w-full bg-gradient-to-r ${modalConfig.type === 'confirm' ? 'from-red-600 to-red-400' : 'from-brand to-brand-700'}`}></div>
+                        
+                        <div className="p-8">
+                            <div className="flex flex-col items-center text-center">
+                                {/* Icono */}
+                                <div className={`w-16 h-16 rounded-full flex items-center justify-center mb-6 ${modalConfig.type === 'confirm' ? 'bg-red-500/10 text-red-500 border border-red-500/20' : 'bg-brand/10 text-brand border border-brand/20'}`}>
+                                    {modalConfig.type === 'confirm' ? (
+                                        <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                    ) : (
+                                        <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>
+                                    )}
+                                </div>
+
+                                <h3 className="text-xl font-black text-white mb-3 tracking-tight uppercase">
+                                    {modalConfig.title}
+                                </h3>
+                                
+                                <p className="text-white/50 text-sm leading-relaxed mb-8">
+                                    {modalConfig.message}
+                                </p>
+
+                                <div className="flex w-full gap-3">
+                                    {modalConfig.type === 'confirm' && (
+                                        <button 
+                                            onClick={() => setModalConfig(prev => ({ ...prev, show: false }))}
+                                            className="flex-1 py-3.5 px-6 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] border border-white/10 text-white text-[10px] font-black uppercase tracking-[0.2em] transition-all"
+                                        >
+                                            {modalConfig.cancelLabel}
+                                        </button>
+                                    )}
+                                    <button 
+                                        onClick={modalConfig.onConfirm}
+                                        className={`flex-1 py-3.5 px-6 rounded-xl font-black text-[10px] uppercase tracking-[0.2em] transition-all shadow-lg active:scale-95 ${
+                                            modalConfig.type === 'confirm' 
+                                                ? 'bg-red-600 hover:bg-red-500 text-white shadow-red-600/20' 
+                                                : 'bg-gradient-to-r from-brand to-brand-700 hover:from-brand-400 hover:to-brand-600 text-black shadow-brand/20'
+                                        }`}
+                                    >
+                                        {modalConfig.confirmLabel}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
 
         </div>
     );

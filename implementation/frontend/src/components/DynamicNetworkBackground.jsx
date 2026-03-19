@@ -29,7 +29,7 @@ export const DynamicNetworkBackground = () => {
                 this.baseY = this.y;
                 this.dx = (Math.random() - 0.5) * 0.8;
                 this.dy = (Math.random() - 0.5) * 0.8;
-                this.color = Math.random() > 0.85 ? '#2dd4bf' : '#f59e0b';
+                this.color = Math.random() > 0.85 ? '#29B6F6' : '#FFA000';
             }
 
             update() {
@@ -87,7 +87,7 @@ export const DynamicNetworkBackground = () => {
                     if (distance < connectionDistance) {
                         // El color de la línea es un degradado entre los dos nodos
                         const opacity = 1 - (distance / connectionDistance);
-                        ctx.strokeStyle = `rgba(245, 158, 11, ${opacity * 0.2})`;
+                        ctx.strokeStyle = `rgba(255, 160, 0, ${opacity * 0.15})`;
                         ctx.lineWidth = 1;
                         ctx.beginPath();
                         ctx.moveTo(particles[i].x, particles[i].y);
@@ -128,12 +128,12 @@ export const DynamicNetworkBackground = () => {
         <>
             <canvas
                 ref={canvasRef}
-                className="fixed inset-0 z-0 pointer-events-none bg-[#020617]"
+                className="fixed inset-0 z-0 pointer-events-none bg-bkg-base"
                 style={{ filter: 'contrast(120%) brightness(110%)' }}
             />
             {/* Capas de profundidad con gradientes para suavizar los bordes del canvas */}
-            <div className="fixed inset-0 z-1 pointer-events-none shadow-[inset_0_0_150px_rgba(2,6,23,0.9)]"></div>
-            <div className="fixed inset-0 z-1 pointer-events-none bg-gradient-to-b from-[#020617]/40 via-transparent to-[#020617]/40"></div>
+            <div className="fixed inset-0 z-1 pointer-events-none shadow-[inset_0_0_150px_rgba(8,9,12,0.9)]"></div>
+            <div className="fixed inset-0 z-1 pointer-events-none bg-gradient-to-b from-bkg-base/40 via-transparent to-bkg-base/40"></div>
         </>
     );
 };

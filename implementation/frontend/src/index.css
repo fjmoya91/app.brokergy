@@ -3,50 +3,49 @@
 @tailwind utilities;
 
 /* ===================================
-   PORTAL CATASTRAL - DESIGN SYSTEM
+   BROKERGY - UNIFIED DESIGN SYSTEM
    =================================== */
 
 :root {
-  /* Primary Colors - Deep Blue to Purple Gradient */
-  --primary-50: #eef2ff;
-  --primary-100: #e0e7ff;
-  --primary-200: #c7d2fe;
-  --primary-300: #a5b4fc;
-  --primary-400: #818cf8;
-  --primary-500: #6366f1;
-  --primary-600: #4f46e5;
-  --primary-700: #4338ca;
-  --primary-800: #3730a3;
-  --primary-900: #312e81;
+  /* ── Brand Colors ── */
+  --brand-primary: #FFA000;
+  --brand-secondary: #FF6D00;
+  --brand-gradient: linear-gradient(135deg, #FFA000 0%, #FF6D00 100%);
 
-  /* Accent - Teal */
-  --accent-400: #2dd4bf;
-  --accent-500: #14b8a6;
-  --accent-600: #0d9488;
+  /* ── Backgrounds (Warm Neutral Dark) ── */
+  --bg-deep: #08090C;
+  --bg-base: #0C0E12;
+  --bg-surface: #13151A;
+  --bg-elevated: #1A1C22;
+  --bg-hover: #22242B;
 
-  /* Neutral */
-  --neutral-50: #fafafa;
-  --neutral-100: #f4f4f5;
-  --neutral-200: #e4e4e7;
-  --neutral-300: #d4d4d8;
-  --neutral-400: #a1a1aa;
-  --neutral-500: #71717a;
-  --neutral-600: #52525b;
-  --neutral-700: #3f3f46;
-  --neutral-800: #27272a;
-  --neutral-900: #18181b;
+  /* ── Borders ── */
+  --border-subtle: rgba(255, 255, 255, 0.06);
+  --border-default: rgba(255, 255, 255, 0.10);
+  --border-strong: rgba(255, 255, 255, 0.15);
+
+  /* ── Text ── */
+  --text-primary: #F0F0F2;
+  --text-secondary: #8B8D98;
+  --text-muted: #5C5E6A;
+
+  /* ── Semantic Colors ── */
+  --success: #00C853;
+  --info: #29B6F6;
+  --warning: #FFA000;
+  --danger: #FF5252;
 
   /* Gradients */
-  --gradient-primary: linear-gradient(135deg, #f97316 0%, #84cc16 100%);
-  --gradient-dark: linear-gradient(135deg, #1e1e2f 0%, #2d2d44 100%);
-  --gradient-glass: linear-gradient(135deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0.05) 100%);
+  --gradient-primary: linear-gradient(135deg, #FFA000 0%, #FF6D00 100%);
+  --gradient-dark: linear-gradient(135deg, #0C0E12 0%, #13151A 100%);
+  --gradient-glass: linear-gradient(135deg, rgba(255, 255, 255, 0.06) 0%, rgba(255, 255, 255, 0.02) 100%);
 
   /* Shadows */
-  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
-  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
-  --shadow-glow: 0 0 40px rgba(249, 115, 22, 0.3);
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.2);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.3), 0 2px 4px -1px rgba(0, 0, 0, 0.2);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.3), 0 4px 6px -2px rgba(0, 0, 0, 0.2);
+  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.3), 0 10px 10px -5px rgba(0, 0, 0, 0.2);
+  --shadow-glow: 0 0 40px rgba(255, 160, 0, 0.15);
 
   /* Typography */
   --font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;

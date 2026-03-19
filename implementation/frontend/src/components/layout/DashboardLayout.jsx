@@ -6,9 +6,9 @@ export function DashboardLayout({ children, activeTab, onTabChange }) {
     const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
     return (
-        <div className="flex h-screen w-full relative bg-slate-950 overflow-hidden">
+        <div className="flex h-screen w-full relative bg-bkg-base overflow-hidden">
             {/* ====== SIDEBAR ====== */}
-            <aside className={`bg-[#0A0D14] border-r border-white/5 flex flex-col h-full flex-shrink-0 z-20 transition-all duration-300 ease-in-out ${isSidebarCollapsed ? 'w-20' : 'w-[280px]'}`}>
+            <aside className={`bg-bkg-deep border-r border-white/[0.06] flex flex-col h-full flex-shrink-0 z-20 transition-all duration-300 ease-in-out ${isSidebarCollapsed ? 'w-20' : 'w-[280px]'}`}>
                 {/* ====== LOGO SECTION ====== */}
                 <div className={`p-4 ${isSidebarCollapsed ? 'sm:p-2' : 'sm:p-6'} flex items-center justify-center relative`}>
                     <div className={`w-full flex items-center justify-center transition-all ${isSidebarCollapsed ? 'h-10 w-10' : 'h-32'} relative`}>
@@ -37,24 +37,24 @@ export function DashboardLayout({ children, activeTab, onTabChange }) {
                     {/* sidebarToggle - Professional SaaS Floating Toggle */}
                     <button 
                         onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-                        className="absolute -right-3 top-10 w-6 h-6 rounded-full bg-[#0A0D14] border border-white/10 flex items-center justify-center text-white/40 hover:text-[#FFA000] hover:border-[#FFA000]/50 transition-all duration-300 z-50 shadow-[0_2px_8px_rgba(0,0,0,0.4)] group active:scale-90"
+                        className="absolute -right-3 top-8 w-7 h-7 rounded-full bg-bkg-deep border border-white/10 flex items-center justify-center text-white/40 hover:text-brand hover:border-brand/50 transition-all duration-300 z-50 shadow-[0_2px_10px_rgba(0,0,0,0.5)] group active:scale-90"
                         title={isSidebarCollapsed ? "Mostrar menú" : "Ocultar menú"}
                     >
                         <svg 
-                            className={`w-3.5 h-3.5 transition-transform duration-300 ${isSidebarCollapsed ? '' : ''}`} 
-                            fill="none" 
+                            className="w-4 h-4 transition-transform duration-300" 
                             viewBox="0 0 24 24" 
+                            fill="none" 
                             stroke="currentColor"
+                            strokeWidth="2.5"
+                            strokeLinecap="round" 
+                            strokeLinejoin="round"
                         >
-                            {isSidebarCollapsed ? (
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M9 5l7 7-7 7" />
-                            ) : (
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M15 19l-7-7 7-7" />
-                            )}
+                            <rect x="3" y="3" width="18" height="18" rx="2" />
+                            <path d="M9 3V21" />
                         </svg>
                         
                         {/* Subtle Hover Glow */}
-                        <div className="absolute inset-0 rounded-full bg-amber-500/0 group-hover:bg-amber-500/5 transition-colors duration-300 -z-10"></div>
+                        <div className="absolute inset-0 rounded-full bg-brand/0 group-hover:bg-brand/5 transition-colors duration-300 -z-10"></div>
                     </button>
                 </div>
 
@@ -64,8 +64,8 @@ export function DashboardLayout({ children, activeTab, onTabChange }) {
                         onClick={() => onTabChange('oportunidades')}
                         className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all ${
                             activeTab === 'oportunidades'
-                                ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 shadow-lg shadow-orange-500/20'
-                                : 'text-white/50 hover:bg-white/5 hover:text-white'
+                                ? 'bg-gradient-to-r from-brand to-brand-700 text-bkg-deep shadow-lg shadow-brand/20'
+                                : 'text-white/50 hover:bg-bkg-hover hover:text-white'
                         } ${isSidebarCollapsed ? 'justify-center px-0' : ''}`}
                     >
                         <svg className="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -79,8 +79,8 @@ export function DashboardLayout({ children, activeTab, onTabChange }) {
                             onClick={() => onTabChange('prescriptores')}
                             className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all ${
                                 activeTab === 'prescriptores'
-                                    ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 shadow-lg shadow-orange-500/20'
-                                    : 'text-white/50 hover:bg-white/5 hover:text-white border border-transparent'
+                                    ? 'bg-gradient-to-r from-brand to-brand-700 text-bkg-deep shadow-lg shadow-brand/20'
+                                    : 'text-white/50 hover:bg-bkg-hover hover:text-white border border-transparent'
                             } ${isSidebarCollapsed ? 'justify-center px-0' : ''}`}
                         >
                             <svg className="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -93,21 +93,21 @@ export function DashboardLayout({ children, activeTab, onTabChange }) {
 
                 {/* ====== USER PROFILE AT BOTTOM ====== */}
                 <div className="p-4 mt-auto space-y-3">
-                    <div className={`border border-white/5 bg-white/[0.02] rounded-2xl p-4 shadow-lg ${isSidebarCollapsed ? 'flex items-center justify-center px-0' : ''}`}>
+                    <div className={`border border-white/[0.06] bg-bkg-surface rounded-2xl p-4 shadow-lg ${isSidebarCollapsed ? 'flex items-center justify-center px-0' : ''}`}>
                         {!isSidebarCollapsed && (
                             <>
                                 <div className="text-[10px] text-white/40 uppercase font-black tracking-[0.2em] mb-2.5">Usuario</div>
                                 <div className="flex flex-col gap-1 overflow-hidden">
-                                    <span className="text-sm font-black text-amber-500 uppercase tracking-tight truncate" title={user?.razon_social || user?.nombre}>
-                                        {user?.razon_social || `${user?.nombre || ''} ${user?.apellidos || ''}`.trim() || 'Usuario'}
+                                    <span className="text-sm font-black text-brand uppercase tracking-tight truncate" title={user?.acronimo || user?.razon_social || user?.nombre}>
+                                        {(user?.acronimo || user?.razon_social || `${user?.nombre || ''} ${user?.apellidos || ''}`).trim().toUpperCase() || 'USUARIO'}
                                     </span>
                                     {user?.razon_social && (
-                                        <span className="text-[9px] font-black text-white/30 uppercase tracking-widest bg-white/5 px-1.5 py-0.5 rounded border border-white/[0.03] self-start truncate max-w-full">
-                                            {user?.nombre} {user?.apellidos}
+                                        <span className="text-[9px] font-black text-white/30 lowercase tracking-widest bg-bkg-elevated px-1.5 py-0.5 rounded border border-white/[0.06] self-start truncate max-w-full">
+                                            {user?.email}
                                         </span>
                                     )}
                                     {!user?.razon_social && (
-                                        <span className="text-[9px] font-black text-white/30 uppercase tracking-widest bg-white/5 px-1.5 py-0.5 rounded border border-white/[0.03] self-start truncate">
+                                        <span className="text-[9px] font-black text-white/30 uppercase tracking-widest bg-bkg-elevated px-1.5 py-0.5 rounded border border-white/[0.06] self-start truncate">
                                             {user?.rol || 'ADMIN'}
                                         </span>
                                     )}
@@ -115,8 +115,8 @@ export function DashboardLayout({ children, activeTab, onTabChange }) {
                             </>
                         )}
                         {isSidebarCollapsed && (
-                            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-amber-500 to-orange-500 flex items-center justify-center text-slate-950 font-black text-xs" title={`${user?.nombre} ${user?.apellidos}`}>
-                                {user?.nombre?.charAt(0)}{user?.apellidos?.charAt(0)}
+                            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-brand to-brand-700 flex items-center justify-center text-bkg-deep font-black text-[10px]" title={user?.acronimo || `${user?.nombre} ${user?.apellidos}`}>
+                                {user?.acronimo ? user.acronimo.substring(0, 2).toUpperCase() : `${user?.nombre?.charAt(0) || ''}${user?.apellidos?.charAt(0) || ''}`}
                             </div>
                         )}
                     </div>
@@ -136,7 +136,7 @@ export function DashboardLayout({ children, activeTab, onTabChange }) {
             {/* ====== MAIN CONTENT ====== */}
             <main className="flex-1 overflow-y-auto h-full relative">
                 {/* Subtle Background Accent */}
-                <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-amber-500/5 rounded-full blur-[120px] pointer-events-none"></div>
+                <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-brand/[0.03] rounded-full blur-[120px] pointer-events-none"></div>
                 {children}
             </main>
         </div>
