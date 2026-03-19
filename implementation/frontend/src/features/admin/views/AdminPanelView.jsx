@@ -559,7 +559,7 @@ export function AdminPanelView({ onLoadOpportunity, onBackToCalculator, activeTa
                                                 onChange={e => setFilters(prev => ({ ...prev, prescriptor_id: e.target.value }))}
                                             >
                                                 <option value="" className="bg-bkg-deep border-none">TODOS LOS PRESCRIPTORES</option>
-                                                <option value="none" className="bg-bkg-deep border-none">BROKERGY (Sin asignar)</option>
+                                                <option value="none" className="bg-bkg-deep border-none">Sin asignar</option>
                                                 {prescriptores.map(p => (
                                                     <option key={p.id_empresa} value={p.id_empresa} className="bg-bkg-deep border-none">
                                                         {(p.acronimo || p.razon_social || `${p.usuarios?.nombre} ${p.usuarios?.apellidos || ''}`).trim().toUpperCase()}
@@ -639,7 +639,7 @@ export function AdminPanelView({ onLoadOpportunity, onBackToCalculator, activeTa
                                                             disabled={assigningPrescriptor === op.id_oportunidad}
                                                             className={`appearance-none bg-black/40 border border-white/[0.08] text-white/70 text-[10px] font-bold rounded-lg px-3 py-1.5 w-full outline-none transition-all pr-8 ${assigningPrescriptor === op.id_oportunidad ? 'opacity-50 cursor-wait' : 'hover:border-white/20 hover:text-white cursor-pointer'}`}
                                                         >
-                                                            <option value="" className="bg-slate-900 border-none">BROKERGY (Sin asignar)</option>
+                                                            <option value="" className="bg-slate-900 border-none">Sin asignar</option>
                                                             {prescriptores.map(p => (
                                                                 <option key={p.id_empresa} value={p.id_empresa} className="bg-slate-900 border-none">
                                                                     {(p.acronimo || p.razon_social || `${p.usuarios?.nombre} ${p.usuarios?.apellidos || ''}`).trim().toUpperCase()}
