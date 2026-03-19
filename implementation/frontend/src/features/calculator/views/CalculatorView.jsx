@@ -61,7 +61,11 @@ const INITIAL_INPUTS = {
     installerNoCard: false,
     legalizationPrice: 200,
     numOwners: 1,
-    referenciaCliente: ''
+    referenciaCliente: '',
+    
+    // Modo de demanda y datos (real o estimado)
+    demandMode: 'estimated',
+    xmlDemandData: null
 };
 
 export function CalculatorView({ initialData, onBack }) {
@@ -180,8 +184,21 @@ export function CalculatorView({ initialData, onBack }) {
             legalizationPrice: parseFloat(inputs.legalizationPrice) || 250
         };
 
-        // 1. Calcular Demanda (usando inputs sanitizados)
-        const demandRes = calculateDemand(sanitizedInputs);
+        // 1. Calcular Demanda
+        let demandRes;
+        if (showBrokergy && inputs.demandMode === 'real' && inputs.xmlDemandData?.demandaCalefaccion) {
+            // Modo REAL: usar la demanda del XML (kWh/m²·año) × superficie calefactable
+            const xmlDemandTotal = inputs.xmlDemandData.demandaCalefaccion * sanitizedInputs.superficieCalefactable;
+            demandRes = {
+                Q_net: xmlDemandTotal,
+                q_net: inputs.xmlDemandData.demandaCalefaccion,
+                fromXml: true
+            };
+        } else {
+            // Modo ESTIMADO: cálculo tradicional
+            demandRes = calculateDemand(sanitizedInputs);
+            demandRes.fromXml = false;
+        }
 
         // 2. Calcular Ahorro
         const savingsRes = calculateSavings({
@@ -343,6 +360,10 @@ export function CalculatorView({ initialData, onBack }) {
                         onCalculate={handleCalculate}
                         result={result}
                         showBrokergy={showBrokergy}
+                        demandMode={inputs.demandMode}
+                        onDemandModeChange={(mode) => setInputs(prev => ({...prev, demandMode: mode}))}
+                        xmlDemandData={inputs.xmlDemandData}
+                        onXmlDemandDataChange={(data) => setInputs(prev => ({...prev, xmlDemandData: data}))}
                     />
                 </div>
 

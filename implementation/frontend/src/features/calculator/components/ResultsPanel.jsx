@@ -206,7 +206,6 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy }) {
     const [showComparative, setShowComparative] = React.useState(false);
     const [generatingImage, setGeneratingImage] = React.useState(false);
     const [generatedImage, setGeneratedImage] = React.useState(null);
-    const [imageType, setImageType] = React.useState('summary'); // 'summary' | 'capture'
     const [showAerotermia, setShowAerotermia] = React.useState(false);
     const [showProposal, setShowProposal] = React.useState(false);
     const [showSaveOpportunity, setShowSaveOpportunity] = React.useState(false);
@@ -232,7 +231,6 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy }) {
     const handleGenerateImagePopup = async () => {
         if (!tableRef.current) return;
         setGeneratingImage(true);
-        setImageType('summary');
         try {
             const canvas = await html2canvas(tableRef.current, {
                 scale: 3,
@@ -272,9 +270,7 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy }) {
     const handleDownloadImage = () => {
         if (!generatedImage) return;
         const link = document.createElement('a');
-        const filename = imageType === 'summary'
-            ? `BROKERGY-RESUMEN AYUDAS_${inputs?.rc || 'REF'}.png`
-            : `DATOS INTRODUCIDOS_${inputs?.rc || 'REF'}.png`;
+        const filename = `BROKERGY-RESUMEN AYUDAS_${inputs?.rc || 'REF'}.png`;
         link.download = filename;
         link.href = generatedImage;
         link.click();
@@ -287,7 +283,11 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy }) {
                     <div className="mb-6 flex justify-between items-start text-white">
                         <div>
                             <h2 className="text-2xl font-bold text-white mb-1">Resultados</h2>
-                            {showBrokergy && <p className="text-sm text-slate-400">Estimación de demanda de calefacción</p>}
+                            {showBrokergy && (
+                                <p className="text-sm text-slate-400">
+                                    {result?.fromXml ? 'Demanda real (desde certificado CEE)' : 'Estimación de demanda de calefacción'}
+                                </p>
+                            )}
                         </div>
                         <div className="flex items-center">
                             <button
@@ -319,7 +319,7 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy }) {
 
                     {/* ACTION BUTTONS: Always Visible at top level */}
                     {result.financials && (
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3 animate-fade-in">
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-3 animate-fade-in">
                             <button
                                 onClick={handleGenerateImagePopup}
                                 disabled={generatingImage}
@@ -333,40 +333,6 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy }) {
                                 <div className="text-center mt-1">
                                     <span className="block uppercase tracking-tight text-[10px] sm:text-xs font-bold leading-tight">Ver Tabla</span>
                                     <span className="block uppercase tracking-tight text-[8px] text-white/50 font-bold leading-tight">Word / Excel</span>
-                                </div>
-                            </button>
-
-                            <button
-                                onClick={async () => {
-                                    setGeneratingImage(true);
-                                    setImageType('capture');
-                                    try {
-                                        const captureTarget = document.querySelector('.animate-fade-in');
-                                        const canvas = await html2canvas(captureTarget, {
-                                            scale: 2,
-                                            backgroundColor: '#111827',
-                                            useCORS: true,
-                                            logging: false
-                                        });
-                                        const dataUrl = canvas.toDataURL('image/png');
-                                        setGeneratedImage(dataUrl);
-                                    } catch (err) {
-                                        console.error("Capture failed:", err);
-                                    } finally {
-                                        setGeneratingImage(false);
-                                    }
-                                }}
-                                className="flex flex-col items-center justify-center gap-1.5 py-3 px-2 bg-white/5 hover:bg-white/10 border border-white/10 text-white rounded-xl transition-all hover:scale-105 active:scale-95 group shadow-sm"
-                            >
-                                <div className="w-10 h-10 rounded-lg bg-lime-500/20 flex items-center justify-center group-hover:bg-lime-500/30 transition-colors">
-                                    <svg className="w-5 h-5 text-lime-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
-                                    </svg>
-                                </div>
-                                <div className="text-center mt-1">
-                                    <span className="block uppercase tracking-tight text-[10px] sm:text-xs font-bold leading-tight">Capturar</span>
-                                    <span className="block uppercase tracking-tight text-[8px] text-white/50 font-bold leading-tight">Pantalla HQ</span>
                                 </div>
                             </button>
 

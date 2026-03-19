@@ -502,7 +502,9 @@ export function AdminPanelView({ onLoadOpportunity, onBackToCalculator, activeTa
                                 <th className="p-3.5 text-[10px] font-black uppercase tracking-[0.15em] text-white/25 w-24 border-b border-white/[0.06]">ID</th>
                                 <th className="p-3.5 text-[10px] font-black uppercase tracking-[0.15em] text-white/25 border-b border-white/[0.06]">Ref. Cliente</th>
                                 <th className="p-3.5 text-[10px] font-black uppercase tracking-[0.15em] text-white/25 border-b border-white/[0.06]">Ref. Catastral</th>
-                                <th className="p-3.5 text-[10px] font-black uppercase tracking-[0.15em] text-white/25 text-right border-b border-white/[0.06]">Demanda</th>
+                                {viewMode === 'brokergy' && (
+                                    <th className="p-3.5 text-[10px] font-black uppercase tracking-[0.15em] text-white/25 text-right border-b border-white/[0.06]">Demanda</th>
+                                )}
                                 <th className="p-3.5 text-[10px] font-black uppercase tracking-[0.15em] text-emerald-400/40 text-right border-b border-white/[0.06]">Bono CAE</th>
                                 <th className="p-3.5 text-[10px] font-black uppercase tracking-[0.15em] text-cyan-400/40 text-right border-b border-white/[0.06]">
                                     {viewMode === 'brokergy' ? 'Beneficio Brokergy' : 'Presupuesto'}
@@ -542,7 +544,9 @@ export function AdminPanelView({ onLoadOpportunity, onBackToCalculator, activeTa
                                         onChange={e => setFilters(prev => ({ ...prev, ref_catastral: e.target.value }))}
                                     />
                                 </td>
-                                <td className="p-2.5 border-b border-white/[0.06]"></td>
+                                {viewMode === 'brokergy' && (
+                                    <td className="p-2.5 border-b border-white/[0.06]"></td>
+                                )}
                                 <td className="p-2.5 border-b border-white/[0.06]"></td>
                                 <td className="p-2.5 border-b border-white/[0.06]"></td>
                                 <td className="p-2.5 border-b border-white/[0.06]"></td>
@@ -576,7 +580,7 @@ export function AdminPanelView({ onLoadOpportunity, onBackToCalculator, activeTa
                         <tbody className="divide-y divide-white/[0.04]">
                             {loading && filteredOportunidades.length === 0 ? (
                                 <tr>
-                                    <td colSpan={user?.rol === 'ADMIN' ? "9" : "8"} className="p-12 text-center">
+                                    <td colSpan={user?.rol === 'ADMIN' ? (viewMode === 'brokergy' ? 9 : 8) : 7} className="p-12 text-center">
                                         <div className="flex flex-col items-center gap-3">
                                             <svg className="w-6 h-6 text-white/15 animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
@@ -587,7 +591,7 @@ export function AdminPanelView({ onLoadOpportunity, onBackToCalculator, activeTa
                                 </tr>
                             ) : paginatedOportunidades.length === 0 ? (
                                 <tr>
-                                    <td colSpan={user?.rol === 'ADMIN' ? "9" : "8"} className="p-12 text-center">
+                                    <td colSpan={user?.rol === 'ADMIN' ? (viewMode === 'brokergy' ? 9 : 8) : 7} className="p-12 text-center">
                                         <div className="flex flex-col items-center gap-3">
                                             <svg className="w-8 h-8 text-white/10" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -608,9 +612,11 @@ export function AdminPanelView({ onLoadOpportunity, onBackToCalculator, activeTa
                                             <td className="p-3.5 text-xs font-mono text-cyan-400/80 whitespace-nowrap">{op.id_oportunidad}</td>
                                             <td className="p-3.5 text-sm text-white/90 font-medium max-w-[140px] truncate" title={op.referencia_cliente}>{op.referencia_cliente || '-'}</td>
                                             <td className="p-3.5 text-[11px] font-mono text-white/30">{op.ref_catastral}</td>
-                                            <td className="p-3.5 text-sm text-white/40 font-mono text-right">
-                                                {op.demanda_calefaccion ? parseFloat(op.demanda_calefaccion).toFixed(2) : '-'}
-                                            </td>
+                                            {viewMode === 'brokergy' && (
+                                                <td className="p-3.5 text-sm text-white/40 font-mono text-right">
+                                                    {op.demanda_calefaccion ? parseFloat(op.demanda_calefaccion).toFixed(2) : '-'}
+                                                </td>
+                                            )}
                                             <td className="p-3.5 text-sm font-bold text-emerald-400 text-right">
                                                 {caeBonus > 0 ? caeBonus.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' }) : '-'}
                                             </td>

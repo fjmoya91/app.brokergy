@@ -3,8 +3,12 @@ import React, { useEffect, useState } from 'react';
 import { SectionCard, Button, Input, Label, Select, Divider } from './UIComponents';
 import { getUByYear, getVentanaYACHByYear, TYPE_DEFAULTS, BOILER_EFFICIENCIES, FUEL_PRICES, AEROTHERMIA_MODELS } from '../logic/calculation';
 import { PROVINCE_CLIMATE_MAP } from '../data/provinceMapping';
+import { parseCeeXml } from '../logic/xmlCeeParser';
 
-export function CalculatorForm({ inputs, onInputChange, onCalculate, result, showBrokergy }) {
+export function CalculatorForm({ inputs, onInputChange, onCalculate, result, showBrokergy, demandMode, onDemandModeChange, xmlDemandData, onXmlDemandDataChange }) {
+    const [showXmlModal, setShowXmlModal] = useState(false);
+    const [xmlError, setXmlError] = useState(null);
+    const [isDragging, setIsDragging] = useState(false);
     const formatDisplay = (value) => {
         if (value === '' || value === null || value === undefined) return '';
 
@@ -201,6 +205,47 @@ export function CalculatorForm({ inputs, onInputChange, onCalculate, result, sho
         });
     };
 
+    // Handler para procesar el archivo XML
+    const handleXmlFile = (file) => {
+        if (!file) return;
+        if (!file.name.toLowerCase().endsWith('.xml')) {
+            setXmlError('Por favor, selecciona un archivo .xml válido.');
+            return;
+        }
+        setXmlError(null);
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            try {
+                const xmlData = parseCeeXml(e.target.result);
+                onXmlDemandDataChange(xmlData);
+                onDemandModeChange('real');
+                setShowXmlModal(false);
+
+                // Si el XML trae superficie, actualizar los inputs
+                if (xmlData.superficieHabitable) {
+                    onInputChange(prev => ({
+                        ...prev,
+                        superficie: xmlData.superficieHabitable,
+                        superficieCalefactable: xmlData.superficieHabitable
+                    }));
+                }
+            } catch (err) {
+                setXmlError(err.message);
+            }
+        };
+        reader.onerror = () => setXmlError('Error al leer el archivo.');
+        reader.readAsText(file);
+    };
+
+    // Drag & Drop handlers
+    const handleDragOver = (e) => { e.preventDefault(); e.stopPropagation(); setIsDragging(true); };
+    const handleDragLeave = (e) => { e.preventDefault(); e.stopPropagation(); setIsDragging(false); };
+    const handleDrop = (e) => {
+        e.preventDefault(); e.stopPropagation(); setIsDragging(false);
+        const file = e.dataTransfer.files?.[0];
+        handleXmlFile(file);
+    };
+
     return (
         <SectionCard className="h-full">
             <div className="flex items-center justify-between mb-6">
@@ -209,9 +254,134 @@ export function CalculatorForm({ inputs, onInputChange, onCalculate, result, sho
                     <p className="text-sm text-slate-400">Personaliza los parámetros técnicos</p>
                 </div>
             </div>
+            {/* ===== TOGGLE MODO DEMANDA: Estimado / Real (CEE XML) - Solo en vista Brokergy (Admin) ===== */}
+            {showBrokergy && (
+                <div className="mb-6">
+                    <div className="flex bg-slate-900/60 p-1 rounded-xl border border-slate-800/50 shadow-inner">
+                        <button
+                            onClick={() => onDemandModeChange('estimated')}
+                            className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all duration-300 ${
+                                demandMode === 'estimated'
+                                    ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-lg shadow-cyan-500/20'
+                                    : 'text-slate-500 hover:text-slate-300'
+                            }`}
+                        >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                            </svg>
+                            Cálculo Estimado
+                        </button>
+                        <button
+                            onClick={() => {
+                                if (xmlDemandData) {
+                                    onDemandModeChange('real');
+                                } else {
+                                    setShowXmlModal(true);
+                                }
+                            }}
+                            className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all duration-300 ${
+                                demandMode === 'real'
+                                    ? 'bg-gradient-to-r from-emerald-500 to-lime-600 text-white shadow-lg shadow-emerald-500/20'
+                                    : 'text-slate-500 hover:text-slate-300'
+                            }`}
+                        >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                            </svg>
+                            Cálculo Real (CEE)
+                        </button>
+                    </div>
+
+                    {demandMode === 'real' && xmlDemandData && (
+                        <div className="mt-2 flex justify-end">
+                            <button
+                                onClick={() => setShowXmlModal(true)}
+                                className="text-[9px] font-bold text-emerald-400/60 hover:text-emerald-400 uppercase tracking-widest transition-colors flex items-center gap-1"
+                            >
+                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                </svg>
+                                Cambiar Certificado XML
+                            </button>
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* ===== POPUP CARGA XML - Solo en vista Brokergy ===== */}
+            {showBrokergy && showXmlModal && (
+                <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/70 backdrop-blur-sm animate-fade-in" onClick={() => setShowXmlModal(false)}>
+                    <div
+                        className="w-full max-w-lg mx-4 bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl p-6 animate-scale-in"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div className="flex items-center justify-between mb-6">
+                            <div>
+                                <h3 className="text-xl font-bold text-white">Importar Certificado CEE</h3>
+                                <p className="text-sm text-slate-400 mt-1">Sube el archivo .xml del Certificado de Eficiencia Energética</p>
+                            </div>
+                            <button onClick={() => setShowXmlModal(false)} className="w-8 h-8 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center text-white/40 hover:text-white transition-all">
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+                        </div>
+
+                        {/* Drag & Drop Zone */}
+                        <div
+                            onDragOver={handleDragOver}
+                            onDragLeave={handleDragLeave}
+                            onDrop={handleDrop}
+                            className={`relative border-2 border-dashed rounded-xl p-10 text-center transition-all duration-300 cursor-pointer ${
+                                isDragging
+                                    ? 'border-emerald-400 bg-emerald-500/10 scale-[1.02]'
+                                    : 'border-slate-700 bg-slate-800/30 hover:border-slate-500 hover:bg-slate-800/50'
+                            }`}
+                            onClick={() => document.getElementById('xml-file-input').click()}
+                        >
+                            <input
+                                id="xml-file-input"
+                                type="file"
+                                accept=".xml"
+                                className="hidden"
+                                onChange={(e) => handleXmlFile(e.target.files?.[0])}
+                            />
+                            <div className="flex flex-col items-center gap-3">
+                                <div className={`w-16 h-16 rounded-2xl flex items-center justify-center transition-all duration-300 ${
+                                    isDragging ? 'bg-emerald-500/20 text-emerald-400' : 'bg-slate-700/50 text-slate-400'
+                                }`}>
+                                    <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                                    </svg>
+                                </div>
+                                <div>
+                                    <p className="text-sm font-bold text-white mb-1">
+                                        {isDragging ? 'Suelta el archivo aquí' : 'Arrastra tu archivo XML aquí'}
+                                    </p>
+                                    <p className="text-xs text-slate-500">o haz clic para buscar en tus carpetas</p>
+                                </div>
+                                <span className="px-3 py-1 rounded-full bg-slate-700/50 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                                    .XML
+                                </span>
+                            </div>
+                        </div>
+
+                        {/* Error */}
+                        {xmlError && (
+                            <div className="mt-4 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm flex items-start gap-2 animate-fade-in">
+                                <svg className="w-5 h-5 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                                {xmlError}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
 
             <div className="space-y-4">
-                {/* Datos del edificio - COLAPSABLE */}
+                {/* Datos del edificio - COLAPSABLE (oculto en modo REAL) */}
+                {demandMode !== 'real' && (
                 <div className="rounded-2xl bg-slate-900/40 border border-slate-800/50 overflow-hidden transition-all duration-300">
                     <button
                         onClick={() => setShowBuildingData(!showBuildingData)}
@@ -395,10 +565,12 @@ export function CalculatorForm({ inputs, onInputChange, onCalculate, result, sho
                         </div>
                     )}
                 </div>
+                )}
 
-                <Divider />
+                {demandMode !== 'real' && <Divider />}
 
-                {/* Envolvente térmica - COLAPSABLE */}
+                {/* Envolvente térmica - COLAPSABLE (oculto en modo REAL) */}
+                {demandMode !== 'real' && (
                 <div className="rounded-2xl bg-slate-900/40 border border-slate-800/50 overflow-hidden transition-all duration-300">
                     <button
                         onClick={() => setShowEnvolvente(!showEnvolvente)}
@@ -585,8 +757,10 @@ export function CalculatorForm({ inputs, onInputChange, onCalculate, result, sho
                         </div>
                     )}
                 </div>
+                )}
 
-                <Divider />
+                {demandMode !== 'real' && <Divider />}
+                {demandMode === 'real' && <Divider />}
 
                 {/* Instalaciones y Mejoras - COLAPSABLE */}
                 <div className="rounded-2xl bg-slate-900/40 border border-slate-800/50 overflow-hidden transition-all duration-300">
