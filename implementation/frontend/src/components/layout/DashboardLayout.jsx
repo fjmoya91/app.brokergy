@@ -32,18 +32,30 @@ export function DashboardLayout({ children, activeTab, onTabChange }) {
                                 {!isSidebarCollapsed && <span className="text-[10px] font-black uppercase tracking-widest text-center px-2">Logo Partner</span>}
                             </div>
                         )}
-                        
-                        {/* Collapse/Expand Toggle */}
-                        <button 
-                             onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-                             className={`absolute ${isSidebarCollapsed ? 'bottom-[-12px] left-1/2 -translate-x-1/2' : '-right-2 -bottom-2'} w-6 h-6 rounded-full bg-slate-900 hover:bg-white/10 flex items-center justify-center text-white/40 hover:text-white transition-all z-30 border border-white/10 shadow-xl`}
-                             title={isSidebarCollapsed ? "Expandir Panel" : "Colapsar Panel"}
-                        >
-                            <svg className={`w-3 h-3 transition-transform duration-300 ${isSidebarCollapsed ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M15 19l-7-7 7-7" />
-                            </svg>
-                        </button>
                     </div>
+
+                    {/* sidebarToggle - Professional SaaS Floating Toggle */}
+                    <button 
+                        onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+                        className="absolute -right-3 top-10 w-6 h-6 rounded-full bg-[#0A0D14] border border-white/10 flex items-center justify-center text-white/40 hover:text-[#FFA000] hover:border-[#FFA000]/50 transition-all duration-300 z-50 shadow-[0_2px_8px_rgba(0,0,0,0.4)] group active:scale-90"
+                        title={isSidebarCollapsed ? "Mostrar menú" : "Ocultar menú"}
+                    >
+                        <svg 
+                            className={`w-3.5 h-3.5 transition-transform duration-300 ${isSidebarCollapsed ? '' : ''}`} 
+                            fill="none" 
+                            viewBox="0 0 24 24" 
+                            stroke="currentColor"
+                        >
+                            {isSidebarCollapsed ? (
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M9 5l7 7-7 7" />
+                            ) : (
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M15 19l-7-7 7-7" />
+                            )}
+                        </svg>
+                        
+                        {/* Subtle Hover Glow */}
+                        <div className="absolute inset-0 rounded-full bg-amber-500/0 group-hover:bg-amber-500/5 transition-colors duration-300 -z-10"></div>
+                    </button>
                 </div>
 
                 {/* Tabs */}
