@@ -397,7 +397,8 @@ export function calculateFinancials({
     discountCertificates = false, // Si Brokergy asume el coste de los certificados
     includeLegalization = false, // Si se incluye el trámite de legalización
     installerNoCard = false, // Si el instalador no tiene carnet (+100€)
-    legalizationPrice = 200 // Precio base de la legalización
+    legalizationPrice = 200, // Precio base de la legalización
+    itpPercent = 6 // Porcentaje de ITP a deducir del beneficio de Brokergy
 }) {
     const savingsMwh = savingsKwh / 1000;
     const priceClientBase = parseFloat(caePriceClient) || 0;
@@ -424,6 +425,10 @@ export function calculateFinancials({
     const rawSpread = priceSOBase - priceClientBase;
     const caePriceBrokergy = rawSpread - discountBrokergy;
     let profitBrokergy = savingsMwh * caePriceBrokergy;
+
+    // Descuento del ITP (Impuesto de Transmisiones Patrimoniales) pagado por Brokergy
+    const itpCost = caeBonus * (itpPercent / 100);
+    profitBrokergy -= itpCost;
 
     // Lógica de Descuento de Certificados
     let caeMaintenanceCost = 0;
@@ -493,7 +498,9 @@ export function calculateFinancials({
         profitBrokergy,
         totalPrescriptor,
         prescriptorMode,
-        finalPriceClient: priceClientDiscounted
+        finalPriceClient: priceClientDiscounted,
+        itpCost,
+        itpPercent
     };
 }
 

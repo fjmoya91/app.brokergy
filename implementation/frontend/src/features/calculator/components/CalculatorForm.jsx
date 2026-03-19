@@ -1396,7 +1396,7 @@ export function CalculatorForm({ inputs, onInputChange, onCalculate, result, sho
                                                 <span className="text-orange-500 text-[10px] font-black uppercase tracking-[0.2em]">Configuración y Margen Brokergy</span>
                                             </div>
 
-                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
                                                 <div className="space-y-2">
                                                     <Label htmlFor="private-cae-so">Precio CAE S.O. (€/MWh)</Label>
                                                     <Input
@@ -1405,6 +1405,20 @@ export function CalculatorForm({ inputs, onInputChange, onCalculate, result, sho
                                                         className="bg-slate-950/80 border-orange-500/40 text-orange-100 focus:border-orange-500 focus:ring-orange-500/20"
                                                         value={inputs.caePriceSO}
                                                         onChange={e => handleChange('caePriceSO', parseFloat(e.target.value) || 0)}
+                                                    />
+                                                </div>
+
+                                                <div className="space-y-2">
+                                                    <Label htmlFor="private-itp-percent">Retención ITP (%)</Label>
+                                                    <Input
+                                                        id="private-itp-percent"
+                                                        type="number"
+                                                        step="1"
+                                                        max="100"
+                                                        min="0"
+                                                        className="bg-slate-950/80 border-orange-500/40 text-orange-100 focus:border-orange-500 focus:ring-orange-500/20"
+                                                        value={inputs.itpPercent}
+                                                        onChange={e => handleChange('itpPercent', parseFloat(e.target.value) || 0)}
                                                     />
                                                 </div>
 
@@ -1482,6 +1496,17 @@ export function CalculatorForm({ inputs, onInputChange, onCalculate, result, sho
                                                     <span className="text-orange-300/60 text-[10px] font-bold uppercase tracking-wider">Pago a Prescriptor</span>
                                                     <span className="text-orange-400 font-mono font-bold text-base sm:text-lg whitespace-nowrap">
                                                         {formatDisplay((result.totalPrescriptor || result.financials.totalPrescriptor)?.toFixed(2))} €
+                                                    </span>
+                                                </div>
+                                                <div className="flex justify-between items-center py-2 border-t border-orange-500/20 mt-1 gap-4">
+                                                    <span className="text-orange-300/60 text-[10px] font-bold uppercase tracking-wider flex items-center gap-1">
+                                                        Retención ITP 
+                                                        <span className="bg-orange-500/20 text-orange-400 px-1.5 py-0.5 rounded text-[8px] border border-orange-500/30">
+                                                            {result.financials.itpPercent}%
+                                                        </span>
+                                                    </span>
+                                                    <span className="text-red-400/80 font-mono font-bold text-base sm:text-lg whitespace-nowrap">
+                                                        - {formatDisplay(result.financials.itpCost?.toFixed(2))} €
                                                     </span>
                                                 </div>
                                                 <div className="flex justify-start text-[10px] text-orange-500/40 font-bold uppercase tracking-widest mt-1">

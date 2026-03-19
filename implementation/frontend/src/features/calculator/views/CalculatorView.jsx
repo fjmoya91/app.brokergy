@@ -62,6 +62,7 @@ const INITIAL_INPUTS = {
     legalizationPrice: 200,
     numOwners: 1,
     referenciaCliente: '',
+    itpPercent: 6,
     
     // Modo de demanda y datos (real o estimado)
     demandMode: 'estimated',
@@ -183,7 +184,8 @@ export function CalculatorView({ initialData, onBack }) {
             caePricePrescriptor: parseFloat(inputs.caePricePrescriptor) || 0,
             numOwners: parseInt(inputs.numOwners) || 1,
             legalizationPrice: parseFloat(inputs.legalizationPrice) || 250,
-            manualDemand: parseFloat(inputs.manualDemand) || 0
+            manualDemand: parseFloat(inputs.manualDemand) || 0,
+            itpPercent: inputs.itpPercent !== undefined ? parseFloat(inputs.itpPercent) : 6
         };
 
         // 1. Calcular Demanda
@@ -233,7 +235,8 @@ export function CalculatorView({ initialData, onBack }) {
             discountCertificates: sanitizedInputs.discountCertificates,
             includeLegalization: sanitizedInputs.includeLegalization,
             installerNoCard: sanitizedInputs.installerNoCard,
-            legalizationPrice: sanitizedInputs.legalizationPrice
+            legalizationPrice: sanitizedInputs.legalizationPrice,
+            itpPercent: sanitizedInputs.itpPercent
         });
 
         // 4. Cálculos de Ahorro Anual (€)
