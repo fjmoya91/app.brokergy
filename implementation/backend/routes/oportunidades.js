@@ -99,8 +99,9 @@ router.post('/', requireAuth, async (req, res) => {
             newRecord.prescriptor_id = prescriptor_id || req.user.prescriptor_id;
         }
 
-        // Automatización de Google Drive (solo para nuevas oportunidades)
-        if (!existingData) {
+        // Automatización de Google Drive (para nuevas oportunidades o existentes sin carpeta)
+        const hasFolder = existingData?.datos_calculo?.drive_folder_id;
+        if (!hasFolder) {
             try {
                 const driveResult = await driveService.setupOpportunityFolder(newIdOportunidad, referencia_cliente);
                 if (driveResult) {
@@ -111,6 +112,10 @@ router.post('/', requireAuth, async (req, res) => {
                 console.error('Error al crear carpeta en Drive:', err);
                 // No bloqueamos el proceso principal si falla Drive
             }
+        } else {
+            // Si ya tiene carpeta, mantenemos los IDs originales
+            newRecord.datos_calculo.drive_folder_id = existingData.datos_calculo.drive_folder_id;
+            newRecord.datos_calculo.drive_folder_link = existingData.datos_calculo.drive_folder_link;
         }
 
         let resultError;
