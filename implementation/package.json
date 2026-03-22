@@ -14,7 +14,8 @@
         "xml2js": "^0.6.2",
         "@supabase/supabase-js": "^2.39.0",
         "puppeteer-core": "^24.38.0",
-        "@sparticuz/chromium": "^143.0.4"
+        "@sparticuz/chromium": "^143.0.4",
+        "googleapis": "^171.4.0"
     },
     "engines": {
         "node": "22.x"
