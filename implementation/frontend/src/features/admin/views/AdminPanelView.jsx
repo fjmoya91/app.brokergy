@@ -677,6 +677,20 @@ export function AdminPanelView({ onLoadOpportunity, onBackToCalculator, activeTa
                                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                                                         </svg>
                                                     </button>
+                                                    {op.datos_calculo?.drive_folder_link && (
+                                                        <a
+                                                            href={op.datos_calculo.drive_folder_link}
+                                                            target="_blank"
+                                                            rel="noopener noreferrer"
+                                                            onClick={(e) => e.stopPropagation()}
+                                                            className="p-1 text-cyan-400/40 hover:text-cyan-400 transition-all rounded-lg hover:bg-cyan-500/10"
+                                                            title="Abrir carpeta en Google Drive"
+                                                        >
+                                                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                                                            </svg>
+                                                        </a>
+                                                    )}
                                                     <button
                                                         onClick={(e) => {
                                                             e.stopPropagation();

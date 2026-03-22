@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const supabase = require('../services/supabaseClient');
+const driveService = require('../services/driveService');
 const { requireAuth } = require('../middleware/auth');
 
 router.use((req, res, next) => {
@@ -96,6 +97,20 @@ router.post('/', requireAuth, async (req, res) => {
         if (req.user) {
             newRecord.creador_id = creador_id || req.user.id_usuario;
             newRecord.prescriptor_id = prescriptor_id || req.user.prescriptor_id;
+        }
+
+        // Automatización de Google Drive (solo para nuevas oportunidades)
+        if (!existingData) {
+            try {
+                const driveResult = await driveService.setupOpportunityFolder(newIdOportunidad, referencia_cliente);
+                if (driveResult) {
+                    newRecord.datos_calculo.drive_folder_id = driveResult.id;
+                    newRecord.datos_calculo.drive_folder_link = driveResult.link;
+                }
+            } catch (err) {
+                console.error('Error al crear carpeta en Drive:', err);
+                // No bloqueamos el proceso principal si falla Drive
+            }
         }
 
         let resultError;
