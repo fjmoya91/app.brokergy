@@ -111,6 +111,35 @@ async function setupOpportunityFolder(opportunityId, clientRef) {
     }
 }
 
+/**
+ * Mueve una carpeta de una ubicación a otra
+ */
+async function moveFolder(fileId, newParentId) {
+    try {
+        // Obtener los padres actuales
+        const file = await drive.files.get({
+            fileId: fileId,
+            fields: 'parents'
+        });
+        const previousParents = file.data.parents.join(',');
+
+        // Mover el archivo al nuevo padre
+        await drive.files.update({
+            fileId: fileId,
+            addParents: newParentId,
+            removeParents: previousParents,
+            fields: 'id, parents'
+        });
+
+        console.log(`✅ Carpeta ${fileId} movida a ${newParentId}`);
+        return true;
+    } catch (error) {
+        console.error('❌ Error al mover carpeta en Drive:', error.message);
+        return false;
+    }
+}
+
 module.exports = {
-    setupOpportunityFolder
+    setupOpportunityFolder,
+    moveFolder
 };

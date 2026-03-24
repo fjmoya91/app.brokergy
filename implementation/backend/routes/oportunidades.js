@@ -219,6 +219,28 @@ router.patch('/:id/estado', async (req, res) => {
 
         const { data: upData, error: upErr } = await supabase.from('oportunidades').update({ datos_calculo: dc }).eq('id_oportunidad', id).select();
         if (upErr) return res.status(500).json({ error: 'Error al actualizar.' });
+
+        // --- Automatización de MOVIMIENTO en Drive ---
+        const folderId = dc.drive_folder_id;
+        if (folderId && driveService.moveFolder) {
+            // Mapa de IDs según el estado (Sacados de la petición del usuario)
+            const FOLDER_MAP = {
+                'ENVIADA': '1C4XSprT61mOgpW6LSNXwXefwuFRqudjn',
+                'ACEPTADA': '1L2Wl9OIOpvmihySZkT09S1FG14Pu3VNy',
+                'PTE ENVIAR': process.env.DRIVE_ROOT_FOLDER_ID // Volver a la raíz
+            };
+
+            const targetFolderId = FOLDER_MAP[nuevo_estado];
+            if (targetFolderId) {
+                console.log(`[Drive] Moviendo expediente ${id} a carpeta de estado: ${nuevo_estado}`);
+                // Lo hacemos sin esperar (background) para no bloquear la UI del usuario
+                driveService.moveFolder(folderId, targetFolderId).catch(err => {
+                    console.error('Error background moveFolder:', err.message);
+                });
+            }
+        }
+        // ----------------------------------------------
+
         res.status(200).json({ success: true, data: upData[0] });
     } catch (error) {
         res.status(500).json({ error: 'Error del servidor.' });
