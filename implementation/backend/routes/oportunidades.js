@@ -222,7 +222,8 @@ router.patch('/:id/estado', async (req, res) => {
 
         // --- Automatización de MOVIMIENTO en Drive ---
         const folderId = dc.drive_folder_id;
-        if (folderId && driveService.moveFolder) {
+        if (folderId) {
+            console.log(`[StatusUpdate] Detectada carpeta Drive vinculada (${folderId}). Procesando automovimiento...`);
             // Mapa de IDs según el estado (Sacados de la petición del usuario)
             const FOLDER_MAP = {
                 'ENVIADA': '1C4XSprT61mOgpW6LSNXwXefwuFRqudjn',
@@ -232,12 +233,18 @@ router.patch('/:id/estado', async (req, res) => {
 
             const targetFolderId = FOLDER_MAP[nuevo_estado];
             if (targetFolderId) {
-                console.log(`[Drive] Moviendo expediente ${id} a carpeta de estado: ${nuevo_estado}`);
-                // Lo hacemos sin esperar (background) para no bloquear la UI del usuario
-                driveService.moveFolder(folderId, targetFolderId).catch(err => {
-                    console.error('Error background moveFolder:', err.message);
+                console.log(`[StatusUpdate] Enviando comando de movimiento a carpeta ID Target: ${targetFolderId}`);
+                driveService.moveFolder(folderId, targetFolderId).then(success => {
+                    if (success) console.log(`[StatusUpdate] ✅ Carpeta movida con éxito.`);
+                    else console.error(`[StatusUpdate] ❌ Falló el movimiento de carpeta.`);
+                }).catch(err => {
+                    console.error('[StatusUpdate] Error fatal moviendo carpeta:', err.message);
                 });
+            } else {
+                console.log(`[StatusUpdate] El estado '${nuevo_estado}' no tiene carpeta de destino configurada.`);
             }
+        } else {
+            console.warn(`[StatusUpdate] La oportunidad ${id} no tiene una carpeta de Drive vinculada. No se puede mover.`);
         }
         // ----------------------------------------------
 

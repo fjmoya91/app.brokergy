@@ -115,13 +115,20 @@ async function setupOpportunityFolder(opportunityId, clientRef) {
  * Mueve una carpeta de una ubicación a otra
  */
 async function moveFolder(fileId, newParentId) {
+    console.log(`[DriveService] Intento de movimiento: Carpeta=${fileId} -> Destino=${newParentId}`);
     try {
-        // Obtener los padres actuales
         const file = await drive.files.get({
             fileId: fileId,
-            fields: 'parents'
+            fields: 'parents, name'
         });
+        
+        if (!file.data.parents) {
+            console.error(`[DriveService] La carpeta ${fileId} no tiene padres.`);
+            return false;
+        }
+
         const previousParents = file.data.parents.join(',');
+        console.log(`[DriveService] Moviendo folder '${file.data.name}' (${fileId}). Padres antiguos: ${previousParents}`);
 
         // Mover el archivo al nuevo padre
         await drive.files.update({
