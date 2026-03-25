@@ -236,7 +236,6 @@ router.patch('/:id/estado', async (req, res) => {
         if (upErr) return res.status(500).json({ error: 'Error al actualizar.' });
 
         // --- Automatización de MOVIMIENTO en Drive ---
-        const folderId = dc.drive_folder_id;
         if (folderId) {
             console.log(`[StatusUpdate] Detectada carpeta Drive vinculada (${folderId}). Procesando automovimiento...`);
             // Mapa de IDs según el estado (Sacados de la petición del usuario)
