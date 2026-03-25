@@ -226,6 +226,7 @@ router.patch('/:id/estado', async (req, res) => {
             console.log(`[StatusUpdate] Detectada carpeta Drive vinculada (${folderId}). Procesando automovimiento...`);
             // Mapa de IDs según el estado (Sacados de la petición del usuario)
             const FOLDER_MAP = {
+                'EN CURSO': '1sXDU-s-MqZ6EJSZnoMtAXJHcm_AIjL78',
                 'ENVIADA': '1C4XSprT61mOgpW6LSNXwXefwuFRqudjn',
                 'ACEPTADA': '1L2Wl9OIOpvmihySZkT09S1FG14Pu3VNy',
                 'PTE ENVIAR': process.env.DRIVE_ROOT_FOLDER_ID // Volver a la raíz

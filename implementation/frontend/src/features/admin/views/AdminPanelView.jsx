@@ -255,6 +255,7 @@ export function AdminPanelView({ onLoadOpportunity, onBackToCalculator, activeTa
 
     const getStatusColor = (status) => {
         switch (status) {
+            case 'EN CURSO': return 'bg-orange-500/10 text-orange-400 border-orange-500/30';
             case 'ENVIADA': return 'bg-blue-500/10 text-blue-400 border-blue-500/30';
             case 'ACEPTADA': return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30';
             case 'RECHAZADA': return 'bg-red-500/10 text-red-400 border-red-500/30';
@@ -298,6 +299,7 @@ export function AdminPanelView({ onLoadOpportunity, onBackToCalculator, activeTa
     const stats = {
         total: oportunidades.length,
         pending: oportunidades.filter(op => (op.datos_calculo?.estado || 'PTE ENVIAR') === 'PTE ENVIAR').length,
+        inProgress: oportunidades.filter(op => op.datos_calculo?.estado === 'EN CURSO').length,
         sent: oportunidades.filter(op => op.datos_calculo?.estado === 'ENVIADA').length,
         accepted: oportunidades.filter(op => op.datos_calculo?.estado === 'ACEPTADA').length,
         rejected: oportunidades.filter(op => op.datos_calculo?.estado === 'RECHAZADA').length,
@@ -467,6 +469,7 @@ export function AdminPanelView({ onLoadOpportunity, onBackToCalculator, activeTa
                         {[
                             { label: 'Total', count: stats.total, filter: '', dotColor: 'bg-white/30', borderActive: 'border-brand shadow-brand/20' },
                             { label: 'Pendientes', count: stats.pending, filter: 'PTE ENVIAR', dotColor: 'bg-brand', borderActive: 'border-brand shadow-brand/20' },
+                            { label: 'En Curso', count: stats.inProgress, filter: 'EN CURSO', dotColor: 'bg-orange-400', borderActive: 'border-orange-500 shadow-orange-500/20' },
                             { label: 'Enviadas', count: stats.sent, filter: 'ENVIADA', dotColor: 'bg-blue-400', borderActive: 'border-blue-500 shadow-blue-500/20' },
                             { label: 'Aceptadas', count: stats.accepted, filter: 'ACEPTADA', dotColor: 'bg-emerald-400', borderActive: 'border-emerald-500 shadow-emerald-500/20' },
                             { label: 'Rechazadas', count: stats.rejected, filter: 'RECHAZADA', dotColor: 'bg-red-400', borderActive: 'border-red-500 shadow-red-500/20' }
@@ -664,6 +667,7 @@ export function AdminPanelView({ onLoadOpportunity, onBackToCalculator, activeTa
                                                         className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-1.5 rounded-lg border outline-none cursor-pointer transition-all appearance-none ${getStatusColor(op.datos_calculo?.estado || 'PTE ENVIAR')} ${updatingStatus === op.id_oportunidad ? 'opacity-50' : ''}`}
                                                     >
                                                         <option value="PTE ENVIAR" className="bg-slate-800 text-slate-300">PTE ENVIAR</option>
+                                                        <option value="EN CURSO" className="bg-slate-800 text-orange-400">EN CURSO</option>
                                                         <option value="ENVIADA" className="bg-slate-800 text-blue-400">ENVIADA</option>
                                                         <option value="ACEPTADA" className="bg-slate-800 text-emerald-400">ACEPTADA</option>
                                                         <option value="RECHAZADA" className="bg-slate-800 text-red-500">RECHAZADA</option>
