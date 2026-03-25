@@ -203,10 +203,25 @@ router.patch('/:id/estado', async (req, res) => {
     const { id } = req.params;
     const { nuevo_estado } = req.body;
     try {
-        const { data: op, error: getErr } = await supabase.from('oportunidades').select('datos_calculo').eq('id_oportunidad', id).single();
+        const { data: op, error: getErr } = await supabase.from('oportunidades').select('datos_calculo, id_oportunidad, referencia_cliente').eq('id_oportunidad', id).single();
         if (getErr || !op) return res.status(404).json({ error: 'No encontrada.' });
 
         const dc = op.datos_calculo || {};
+        
+        // --- GENERACIÓN BAJO DEMANDA si no existe carpeta ---
+        let folderId = dc.drive_folder_id;
+        if (!folderId && nuevo_estado !== 'PTE ENVIAR') {
+            console.log(`[StatusUpdate] Oportunidad ${id} sin carpeta. Generando ahora...`);
+            const driveResult = await driveService.setupOpportunityFolder(id, op.referencia_cliente);
+            if (driveResult) {
+                folderId = driveResult.id;
+                dc.drive_folder_id = folderId;
+                dc.drive_folder_link = driveResult.link;
+                console.log(`[StatusUpdate] ✅ Carpeta generada bajo demanda: ${folderId}`);
+            }
+        }
+        // ----------------------------------------------------
+
         dc.estado = nuevo_estado;
         const hist = dc.historial || [];
         hist.push({
