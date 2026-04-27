@@ -331,7 +331,7 @@ ${notesStr}
 ¡Muchas gracias!
 *BROKERGY — Ingeniería Energética*`;
 
-                whatsappService.sendText('34623926179', adminMsg)
+                whatsappService.sendText(process.env.WHATSAPP_ADMIN_CHAT || '34623926179', adminMsg)
                     .catch(e => console.warn('[Expedientes POST] Error WhatsApp Admin:', e.message));
 
                 // --- EMAIL A ADMIN ---

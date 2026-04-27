@@ -86,6 +86,16 @@ router.post('/send-text', adminOnly, requireService, async (req, res) => {
     }
 });
 
+// GET /api/whatsapp/groups  → lista los grupos del número conectado
+router.get('/groups', adminOnly, requireService, async (req, res) => {
+    try {
+        const groups = await wwa.getGroups();
+        res.json(groups);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // POST /api/whatsapp/send-media  { phone, caption, media: { url?, base64?, mimetype?, filename? }, asDocument? }
 router.post('/send-media', adminOnly, requireService, async (req, res) => {
     try {

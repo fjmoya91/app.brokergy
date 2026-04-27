@@ -335,7 +335,7 @@ ${uploadLink}
                     : 'Aceptado por el cliente desde el portal público.';
 
                 const adminMsg = `🚀 *ACEPTACIÓN (PORTAL PÚBLICO)*\n\nOportunidad *${id}*\n👤 *Cliente:* ${formFields.nombre_razon_social} ${formFields.apellidos || ''}\n📍 ${opp.datos_calculo?.inputs?.direccion || 'S/N'}\n👷 *Instalador:* ${installerName}\n📋 Expediente: *${numeroExpediente || 'Pte.'}*\n\n${notesStr}\n\n${process.env.FRONTEND_URL || 'https://app.brokergy.es'}?exp=${numeroExpediente || ''}`;
-                whatsappService.sendText('34623926179', adminMsg).catch(e => console.warn('[Public] Error WhatsApp Admin:', e.message));
+                whatsappService.sendText(process.env.WHATSAPP_ADMIN_CHAT || '34623926179', adminMsg).catch(e => console.warn('[Public] Error WhatsApp Admin:', e.message));
 
                 await emailService.sendAdminNotificationEmail({
                     numeroExpediente,

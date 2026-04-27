@@ -104,6 +104,18 @@ function toChatId(phone) {
     return `${normalizePhone(phone)}@c.us`;
 }
 
+/**
+ * Resuelve cualquier destino (teléfono o chatId de grupo) a un chatId WhatsApp.
+ * - Si ya contiene '@', se devuelve tal cual (ej: "120363XXXX@g.us" o "34612345@c.us")
+ * - Si no, se trata como número de teléfono → "34612345678@c.us"
+ */
+function resolveTarget(target) {
+    if (!target) throw new Error('Destino vacío');
+    const t = String(target).trim();
+    if (t.includes('@')) return t; // ya es un chatId completo
+    return toChatId(t);
+}
+
 function isReady() {
     return state === 'READY' && !!client;
 }
@@ -124,14 +136,15 @@ function loadWwebModule() {
  * Inserta un mensaje en la cola persistente de Supabase.
  */
 async function dbEnqueue(phone, message) {
-    const normalized = normalizePhone(phone);
+    // Si el destino ya es un chatId (contiene '@'), almacenar tal cual; si no, normalizar como teléfono
+    const stored = String(phone).trim().includes('@') ? phone : normalizePhone(phone);
     const { data, error } = await supabase
         .from('whatsapp_queue')
-        .insert({ phone: normalized, message, status: 'PENDING' })
+        .insert({ phone: stored, message, status: 'PENDING' })
         .select()
         .single();
     if (error) throw new Error(`Error guardando en cola BD: ${error.message}`);
-    console.log(`[wwa-queue] Encolado mensaje ID ${data.id} para ${normalized}`);
+    console.log(`[wwa-queue] Encolado mensaje ID ${data.id} para ${stored}`);
     return data;
 }
 
@@ -200,20 +213,25 @@ async function processQueue() {
             try {
                 await waitForRateSlot();
 
-                const chatId = toChatId(job.phone);
+                const chatId = resolveTarget(job.phone);
+                const isGroup = chatId.endsWith('@g.us');
 
-                // Verificar que el número existe en WhatsApp
-                const isRegistered = await client.isRegisteredUser(chatId);
-                if (!isRegistered) {
-                    throw new Error(`El número ${job.phone} no está registrado en WhatsApp`);
+                // Verificar que el número existe en WhatsApp (omitir para grupos)
+                if (!isGroup) {
+                    const isRegistered = await client.isRegisteredUser(chatId);
+                    if (!isRegistered) {
+                        throw new Error(`El número ${job.phone} no está registrado en WhatsApp`);
+                    }
                 }
 
-                // Typing indicator (patrón humano)
-                try {
-                    const chat = await client.getChatById(chatId);
-                    await chat.sendStateTyping();
-                    await sleep(CONFIG.typingMs);
-                } catch (_) { /* no bloqueante */ }
+                // Typing indicator (patrón humano, omitir para grupos)
+                if (!isGroup) {
+                    try {
+                        const chat = await client.getChatById(chatId);
+                        await chat.sendStateTyping();
+                        await sleep(CONFIG.typingMs);
+                    } catch (_) { /* no bloqueante */ }
+                }
 
                 await client.sendMessage(chatId, job.message);
 
@@ -487,16 +505,19 @@ async function sendMedia(phone, media, { caption, asDocument = true } = {}) {
     if (!media || (!media.url && !media.base64)) throw new Error('media requiere url o base64');
     if (!isReady()) throw new Error(`Cliente WhatsApp no listo (estado: ${state}). Conecta WhatsApp primero.`);
 
-    const chatId = toChatId(phone);
+    const chatId = resolveTarget(phone);
+    const isGroup = chatId.endsWith('@g.us');
     console.log(`[wwa] sendMedia → ${chatId}, archivo: ${media.filename || 'sin nombre'}`);
     await waitForRateSlot();
 
-    try {
-        const chat = await withTimeout(client.getChatById(chatId), 10_000, 'getChatById');
-        await chat.sendStateTyping();
-        await sleep(CONFIG.typingMs);
-    } catch (e) {
-        console.warn('[wwa] typing indicator fallido (no bloqueante):', e.message);
+    if (!isGroup) {
+        try {
+            const chat = await withTimeout(client.getChatById(chatId), 10_000, 'getChatById');
+            await chat.sendStateTyping();
+            await sleep(CONFIG.typingMs);
+        } catch (e) {
+            console.warn('[wwa] typing indicator fallido (no bloqueante):', e.message);
+        }
     }
 
     const wweb = loadWwebModule();
@@ -543,6 +564,22 @@ async function sendMedia(phone, media, { caption, asDocument = true } = {}) {
     };
 }
 
+/**
+ * Devuelve los grupos de WhatsApp en los que está el teléfono conectado.
+ * Útil para que el admin obtenga el chatId de su grupo de notificaciones.
+ */
+async function getGroups() {
+    if (!isReady()) throw new Error('Cliente WhatsApp no listo');
+    const chats = await client.getChats();
+    return chats
+        .filter(c => c.isGroup)
+        .map(c => ({
+            id: c.id._serialized,
+            name: c.name,
+            participants: c.participants?.length || 0,
+        }));
+}
+
 module.exports = {
     init,
     disconnect,
@@ -550,6 +587,7 @@ module.exports = {
     getQr,
     sendText,
     sendMedia,
+    getGroups,
     normalizePhone,
     _config: CONFIG,
 };

@@ -17,6 +17,8 @@ export function WhatsappSettingsView() {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
     const pollRef = useRef(null);
+    const [groups, setGroups] = useState(null);
+    const [loadingGroups, setLoadingGroups] = useState(false);
 
     const fetchStatus = useCallback(async () => {
         try {
@@ -173,6 +175,59 @@ export function WhatsappSettingsView() {
                     )}
                 </div>
             </div>
+
+            {status?.state === 'READY' && (
+                <div className="bg-bkg-surface border border-white/5 rounded-2xl p-6 mb-6">
+                    <div className="flex items-center justify-between mb-4">
+                        <h2 className="text-sm font-bold uppercase tracking-widest text-white/60">Grupos de WhatsApp</h2>
+                        <button
+                            onClick={async () => {
+                                setLoadingGroups(true);
+                                try {
+                                    const res = await axios.get('/api/whatsapp/groups');
+                                    setGroups(res.data);
+                                } catch (e) {
+                                    setGroups([]);
+                                } finally {
+                                    setLoadingGroups(false);
+                                }
+                            }}
+                            disabled={loadingGroups}
+                            className="px-4 py-2 rounded-lg bg-brand/10 hover:bg-brand/20 border border-brand/20 text-brand text-xs font-black uppercase tracking-wider transition-all disabled:opacity-40"
+                        >
+                            {loadingGroups ? 'Cargando...' : 'Ver Grupos'}
+                        </button>
+                    </div>
+                    {groups !== null && (
+                        groups.length === 0 ? (
+                            <p className="text-white/30 text-sm text-center py-4">No hay grupos disponibles.</p>
+                        ) : (
+                            <div className="space-y-2">
+                                <p className="text-white/40 text-xs mb-3">
+                                    Copia el <strong className="text-white/60">ID</strong> del grupo al que quieres redirigir las notificaciones admin y añádelo como <code className="px-1.5 py-0.5 bg-black/30 rounded text-brand">WHATSAPP_ADMIN_CHAT</code> en el <code className="px-1.5 py-0.5 bg-black/30 rounded">.env</code> del servidor.
+                                </p>
+                                {groups.map(g => (
+                                    <div key={g.id} className="flex items-center justify-between gap-3 p-3 rounded-xl bg-white/[0.03] border border-white/[0.06]">
+                                        <div className="min-w-0">
+                                            <div className="text-white text-sm font-medium truncate">{g.name}</div>
+                                            <div className="text-white/30 text-xs font-mono">{g.id} · {g.participants} participantes</div>
+                                        </div>
+                                        <button
+                                            onClick={() => {
+                                                navigator.clipboard.writeText(g.id);
+                                                showAlert(`ID copiado: ${g.id}`, 'Copiado', 'success');
+                                            }}
+                                            className="shrink-0 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-brand/10 border border-white/10 hover:border-brand/30 text-white/50 hover:text-brand text-[10px] font-black uppercase tracking-wider transition-all"
+                                        >
+                                            Copiar ID
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        )
+                    )}
+                </div>
+            )}
 
             {status && (
                 <div className="bg-bkg-surface border border-white/5 rounded-2xl p-6">
