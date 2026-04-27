@@ -18,6 +18,14 @@ const authRoutes = require('./routes/auth');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Evitar que errores no capturados (ej. Puppeteer/WhatsApp) maten el proceso
+process.on('uncaughtException', (err) => {
+  console.error('[server] uncaughtException (no fatal):', err.message);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[server] unhandledRejection (no fatal):', reason?.message || reason);
+});
+
 // Middleware
 const allowedOrigins = (process.env.FRONTEND_URL || 'https://app.brokergy.es')
   .split(',')
