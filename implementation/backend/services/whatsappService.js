@@ -437,6 +437,16 @@ async function sendText(phone, message) {
     return { ok: true, queued: true, id: queued.id, state };
 }
 
+function withTimeout(promise, ms, label) {
+    let timer;
+    return Promise.race([
+        promise,
+        new Promise((_, reject) => {
+            timer = setTimeout(() => reject(new Error(`Timeout en ${label} (${ms / 1000}s)`)), ms);
+        }),
+    ]).finally(() => clearTimeout(timer));
+}
+
 /**
  * Envío de media (PDF, imagen...). Solo funciona con cliente activo.
  * Si no está listo, lanza error (media no se puede persistir fácilmente en BD).
@@ -444,16 +454,19 @@ async function sendText(phone, message) {
 async function sendMedia(phone, media, { caption, asDocument = true } = {}) {
     if (!CONFIG.enabled) throw new Error('WhatsApp deshabilitado (WHATSAPP_ENABLED=false)');
     if (!media || (!media.url && !media.base64)) throw new Error('media requiere url o base64');
-    if (!isReady()) throw new Error(`Cliente WhatsApp no listo (estado: ${state}). Sube el media cuando el cliente esté conectado.`);
+    if (!isReady()) throw new Error(`Cliente WhatsApp no listo (estado: ${state}). Conecta WhatsApp primero.`);
 
     const chatId = toChatId(phone);
+    console.log(`[wwa] sendMedia → ${chatId}, archivo: ${media.filename || 'sin nombre'}`);
     await waitForRateSlot();
 
     try {
-        const chat = await client.getChatById(chatId);
+        const chat = await withTimeout(client.getChatById(chatId), 10_000, 'getChatById');
         await chat.sendStateTyping();
         await sleep(CONFIG.typingMs);
-    } catch (_) { /* no bloqueante */ }
+    } catch (e) {
+        console.warn('[wwa] typing indicator fallido (no bloqueante):', e.message);
+    }
 
     const wweb = loadWwebModule();
     const { MessageMedia } = wweb;
@@ -468,12 +481,18 @@ async function sendMedia(phone, media, { caption, asDocument = true } = {}) {
         );
     }
 
-    const result = await client.sendMessage(chatId, mediaObj, {
-        caption: caption || undefined,
-        sendMediaAsDocument: asDocument !== false,
-    });
+    console.log(`[wwa] Llamando client.sendMessage a ${chatId}...`);
+    const result = await withTimeout(
+        client.sendMessage(chatId, mediaObj, {
+            caption: caption || undefined,
+            sendMediaAsDocument: asDocument !== false,
+        }),
+        60_000,
+        'sendMessage'
+    );
 
     sentTimestamps.push(Date.now());
+    console.log(`[wwa] ✅ Media enviada a ${chatId}`);
     return {
         ok: true,
         id: result?.id?._serialized || null,
