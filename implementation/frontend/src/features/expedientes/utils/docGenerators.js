@@ -4,6 +4,8 @@
  * Generadores compartidos para Anexo I y Anexo de Cesión.
  */
 
+const APP_URL = import.meta.env.VITE_APP_URL || APP_URL;
+
 export const ANEXO_I_TEXTS = {
     TITULO_PRINCIPAL: "ANEXO I DECLARACIÓN RESPONSABLE FORMALIZADA POR EL PROPIETARIO INICIAL DEL AHORRO REFERIDA A LA SOLICITUD Y/U OBTENCIÓN DE AYUDAS O SUBVENCIONES PÚBLICAS PARA LA MISMA ACTUACIÓN DE AHORRO DE ENERGÍA",
     NOMBRE_ACTUACION_FIXED: "Sustitución caldera existente por bomba de calor (aerotermia)",
@@ -318,7 +320,7 @@ export const buildAnexoCesionHtml = (expediente, results) => {
             <span class="conv-expte-label">Nº Expediente</span>
             <span class="conv-expte-num">${numexpte}</span>
           </div>
-          <img src="${window.location.origin}/logo_brokergy_dark.png" class="conv-logo-img" alt="BROKERGY">
+          <img src="${APP_URL}/logo_brokergy_dark.png" class="conv-logo-img" alt="BROKERGY">
         </div>`;
     const footer = (pg) => `
         <div class="conv-footer">
@@ -401,7 +403,7 @@ export const buildAnexoCesionHtml = (expediente, results) => {
                 <div class="conv-sign-col">
                   <div class="conv-sign-lbl">El Cesionario</div>
                   <div class="conv-sign-box">
-                    <img src="${window.location.origin}/firma_brokergy.png" class="conv-sign-img" alt="Firma">
+                    <img src="${APP_URL}/firma_brokergy.png" class="conv-sign-img" alt="Firma">
                   </div>
                   <div class="conv-sign-name">Dª/D. FRANCISCO JAVIER MOYA LÓPEZ</div>
                 </div>
