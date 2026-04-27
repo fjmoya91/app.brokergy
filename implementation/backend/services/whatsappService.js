@@ -252,18 +252,24 @@ function startPolling() {
 
 // ─── Chrome executable resolution ────────────────────────────────────────────
 
-async function resolveChromiumPath() {
+async function resolveChromium() {
     if (process.env.PUPPETEER_EXECUTABLE_PATH) {
-        return process.env.PUPPETEER_EXECUTABLE_PATH;
+        return {
+            executablePath: process.env.PUPPETEER_EXECUTABLE_PATH,
+            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
+        };
     }
     try {
         const sparticuz = require('@sparticuz/chromium');
-        const p = await sparticuz.executablePath();
-        console.log('[wwa] Chrome via @sparticuz/chromium:', p);
-        return p;
+        const executablePath = await sparticuz.executablePath();
+        console.log('[wwa] Chrome via @sparticuz/chromium:', executablePath);
+        return { executablePath, args: sparticuz.args };
     } catch (e) {
-        console.warn('[wwa] @sparticuz/chromium no disponible, usando fallback:', e.message);
-        return '/usr/bin/chromium-browser';
+        console.warn('[wwa] @sparticuz/chromium no disponible:', e.message);
+        return {
+            executablePath: '/usr/bin/chromium-browser',
+            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
+        };
     }
 }
 
@@ -288,7 +294,7 @@ async function init() {
     state = 'INITIALIZING';
     lastError = null;
 
-    const executablePath = await resolveChromiumPath();
+    const { executablePath, args: chromiumArgs } = await resolveChromium();
     console.log('[wwa] Lanzando Chrome desde:', executablePath);
 
     client = new Client({
@@ -300,11 +306,12 @@ async function init() {
             headless: true,
             executablePath,
             args: [
-                '--no-sandbox',
-                '--disable-setuid-sandbox',
-                '--disable-dev-shm-usage',
-                '--disable-gpu',
+                ...chromiumArgs,
                 '--no-first-run',
+                '--disable-extensions',
+                '--disable-background-networking',
+                '--disable-default-apps',
+                '--disable-translate',
             ],
         },
     });
@@ -482,14 +489,26 @@ async function sendMedia(phone, media, { caption, asDocument = true } = {}) {
     }
 
     console.log(`[wwa] Llamando client.sendMessage a ${chatId}...`);
-    const result = await withTimeout(
-        client.sendMessage(chatId, mediaObj, {
-            caption: caption || undefined,
-            sendMediaAsDocument: asDocument !== false,
-        }),
-        60_000,
-        'sendMessage'
-    );
+    let result;
+    try {
+        result = await withTimeout(
+            client.sendMessage(chatId, mediaObj, {
+                caption: caption || undefined,
+                sendMediaAsDocument: asDocument !== false,
+            }),
+            60_000,
+            'sendMessage'
+        );
+    } catch (err) {
+        // Chrome crash: resetear cliente para que el estado sea correcto en el frontend
+        if (/detached Frame|Session closed|Target closed|Protocol error/i.test(err.message)) {
+            console.error('[wwa] Chrome crash detectado. Reseteando cliente...');
+            client = null;
+            state = 'DISCONNECTED';
+            meInfo = null;
+        }
+        throw err;
+    }
 
     sentTimestamps.push(Date.now());
     console.log(`[wwa] ✅ Media enviada a ${chatId}`);
