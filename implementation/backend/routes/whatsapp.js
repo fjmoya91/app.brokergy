@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { adminOnly } = require('../middleware/auth');
+const { adminOnly, requireAuth } = require('../middleware/auth');
 
 // Cargamos el servicio de forma tolerante: si falla, la app sigue viva.
 let wwa = null;
@@ -23,7 +23,7 @@ function requireService(req, res, next) {
 }
 
 // GET /api/whatsapp/status
-router.get('/status', adminOnly, requireService, (req, res) => {
+router.get('/status', requireAuth, requireService, (req, res) => {
     try {
         res.json(wwa.getStatus());
     } catch (err) {
@@ -73,7 +73,7 @@ router.post('/disconnect', adminOnly, requireService, async (req, res) => {
 });
 
 // POST /api/whatsapp/send-text  { phone, message }
-router.post('/send-text', adminOnly, requireService, async (req, res) => {
+router.post('/send-text', requireAuth, requireService, async (req, res) => {
     try {
         const { phone, message } = req.body || {};
         if (!phone || !message) {
@@ -97,7 +97,7 @@ router.get('/groups', adminOnly, requireService, async (req, res) => {
 });
 
 // POST /api/whatsapp/send-media  { phone, caption, media: { url?, base64?, mimetype?, filename? }, asDocument? }
-router.post('/send-media', adminOnly, requireService, async (req, res) => {
+router.post('/send-media', requireAuth, requireService, async (req, res) => {
     try {
         const { phone, caption, media, asDocument } = req.body || {};
         if (!phone || !media) {
