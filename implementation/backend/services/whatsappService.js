@@ -250,6 +250,23 @@ function startPolling() {
     console.log(`[wwa-queue] Polling iniciado cada ${CONFIG.pollIntervalMs / 1000}s.`);
 }
 
+// ─── Chrome executable resolution ────────────────────────────────────────────
+
+async function resolveChromiumPath() {
+    if (process.env.PUPPETEER_EXECUTABLE_PATH) {
+        return process.env.PUPPETEER_EXECUTABLE_PATH;
+    }
+    try {
+        const sparticuz = require('@sparticuz/chromium');
+        const p = await sparticuz.executablePath();
+        console.log('[wwa] Chrome via @sparticuz/chromium:', p);
+        return p;
+    } catch (e) {
+        console.warn('[wwa] @sparticuz/chromium no disponible, usando fallback:', e.message);
+        return '/usr/bin/chromium-browser';
+    }
+}
+
 // ─── Init & Lifecycle ─────────────────────────────────────────────────────────
 
 async function init() {
@@ -271,6 +288,9 @@ async function init() {
     state = 'INITIALIZING';
     lastError = null;
 
+    const executablePath = await resolveChromiumPath();
+    console.log('[wwa] Lanzando Chrome desde:', executablePath);
+
     client = new Client({
         authStrategy: new LocalAuth({
             clientId: CONFIG.clientId,
@@ -278,7 +298,7 @@ async function init() {
         }),
         puppeteer: {
             headless: true,
-            executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium',
+            executablePath,
             args: [
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
