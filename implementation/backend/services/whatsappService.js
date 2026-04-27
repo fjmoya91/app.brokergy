@@ -331,6 +331,15 @@ async function init() {
 
     ensureSessionDir();
 
+    // Eliminar locks de Chrome que quedan al reiniciar el contenedor
+    try {
+        const sessionDir = path.join(SESSION_ROOT, `session-${CONFIG.clientId}`);
+        ['SingletonLock', 'SingletonCookie', 'SingletonSocket'].forEach(f => {
+            const p = path.join(sessionDir, f);
+            if (fs.existsSync(p)) { fs.unlinkSync(p); console.log(`[wwa] Lock eliminado: ${f}`); }
+        });
+    } catch (e) { console.warn('[wwa] No se pudieron eliminar locks de Chrome:', e.message); }
+
     const { Client, LocalAuth } = wweb;
 
     state = 'INITIALIZING';
