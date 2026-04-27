@@ -265,23 +265,23 @@ router.post('/aceptar/:id', async (req, res) => {
             console.log(`[Public] La oportunidad ${id} ya estaba en estado ACEPTADA`);
         }
 
-        // Responder inmediatamente al cliente — las operaciones lentas van en background
-        res.json({ success: true, message: 'Propuesta procesada correctamente.', numeroExpediente: null });
+        // Crear expediente de forma síncrona para devolver el número al cliente
+        let numeroExpediente = null;
+        const uploadLink = `${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/firma/${paramId}`;
+        try {
+            console.log(`[Public] Solicitando creación de expediente para OP UUID: ${opp.id}`);
+            const newExp = await expedienteService.createExpediente(opp.id, id_cliente);
+            numeroExpediente = newExp?.numero_expediente;
+            console.log(`[Public] Resultado expediente: ${numeroExpediente || 'NO GENERADO/ERROR'}`);
+        } catch (expErr) {
+            console.error("[Public] Error crítico creando expediente automático:", expErr.message);
+        }
 
-        // Background: expediente + emails + WhatsApp (no bloquea la respuesta HTTP)
+        // Responder con el número de expediente real
+        res.json({ success: true, message: 'Propuesta procesada correctamente.', numeroExpediente });
+
+        // Background: emails + WhatsApp (no bloquea la respuesta HTTP)
         setImmediate(async () => {
-            let numeroExpediente = null;
-            const uploadLink = `${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/firma/${paramId}`;
-
-            // 2. Crear/Recuperar Expediente
-            try {
-                console.log(`[Public] Solicitando creación de expediente para OP UUID: ${opp.id}`);
-                const newExp = await expedienteService.createExpediente(opp.id, id_cliente);
-                numeroExpediente = newExp?.numero_expediente;
-                console.log(`[Public] Resultado expediente: ${numeroExpediente || 'NO GENERADO/ERROR'}`);
-            } catch (expErr) {
-                console.error("[Public] Error crítico creando expediente automático:", expErr.message);
-            }
 
             // 3. Email cliente
             try {
@@ -343,7 +343,7 @@ ${uploadLink}
                     numeroExpediente,
                     clientName: `${formFields.nombre_razon_social} ${formFields.apellidos || ''}`,
                     address: opp.datos_calculo?.inputs?.direccion,
-                    distributorName: 'Portal Público (Cliente)',
+                    distributorName: 'Firma del Cliente (Portal Público)',
                     installerName,
                     notes: notesStr,
                     expedienteId: numeroExpediente

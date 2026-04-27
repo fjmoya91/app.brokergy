@@ -589,7 +589,7 @@ const sendAdminNotificationEmail = async ({ numeroExpediente, clientName, addres
                                 ¡Hola BROKERGY! 👋
                             </p>
                             <p style="margin:0 0 20px; font-size:15px; line-height:1.6; color:rgba(255,255,255,0.7);">
-                                Te informamos que el Distribuidor <strong>${distributorName || 'S/N'}</strong> ha marcado como aceptada una oportunidad. Se ha generado un nuevo expediente.
+                                El cliente <strong>${clientName || 'S/N'}</strong> ha firmado y aceptado la propuesta desde el portal público. Se ha generado un nuevo expediente automáticamente.
                             </p>
                             
                             <div style="background-color:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:16px; padding:20px; margin-bottom:25px;">
