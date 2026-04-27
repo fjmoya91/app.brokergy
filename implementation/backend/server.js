@@ -81,6 +81,21 @@ try {
     console.warn('[server] WhatsApp no disponible o error al cargar: ', err.message);
 }
 
+// SMTP startup check
+try {
+    const emailService = require('./services/emailService');
+    if (process.env.SMTP_PASS) {
+        emailService.verifySmtp().then(ok => {
+            if (ok) console.log('[server] SMTP: Conexión verificada OK');
+            else console.warn('[server] SMTP: Verificación fallida — revisa credenciales');
+        }).catch(e => console.error('[server] SMTP: Error de verificación:', e.message));
+    } else {
+        console.warn('[server] SMTP: SMTP_PASS no está configurado — los emails no se enviarán');
+    }
+} catch (e) {
+    console.warn('[server] SMTP: No se pudo cargar emailService:', e.message);
+}
+
 // Health check
 app.get('/health', (req, res) => {
   res.status(200).json({ status: 'OK', timestamp: new Date(), version: '1.0.1-debug' });

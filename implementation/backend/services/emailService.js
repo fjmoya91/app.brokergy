@@ -36,10 +36,13 @@ const sendMail = async ({ to, subject, html, text, attachments }) => {
         console.log(`[Email] Enviado a ${to}: ${info.messageId}`);
         return { success: true, messageId: info.messageId };
     } catch (error) {
-        console.error(`[Email] Error enviando a ${to}:`, error.message);
+        console.error(`[Email] Error enviando a ${to}: [${error.code}] ${error.message}`);
+        if (error.response) console.error(`[Email] SMTP response: ${error.response}`);
         throw error;
     }
 };
+
+const verifySmtp = () => transporter.verify();
 
 /**
  * Envía email de recuperación de contraseña con plantilla HTML Brokergy
@@ -642,6 +645,7 @@ const sendAdminNotificationEmail = async ({ numeroExpediente, clientName, addres
 
 module.exports = {
     sendMail,
+    verifySmtp,
     sendPasswordResetEmail,
     sendProposalEmail,
     sendAcceptanceNotificationEmail,
