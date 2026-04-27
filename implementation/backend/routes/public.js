@@ -324,8 +324,9 @@ ${uploadLink}
             // 5. Notificación administración
             try {
                 let installerName = 'No asignado';
-                if (opp.instalador_asociado_id) {
-                    const { data: inst } = await supabase.from('prescriptores').select('razon_social, acronimo').eq('id_empresa', opp.instalador_asociado_id).maybeSingle();
+                const installerId = opp.instalador_asociado_id || opp.prescriptor_id;
+                if (installerId) {
+                    const { data: inst } = await supabase.from('prescriptores').select('razon_social, acronimo').eq('id_empresa', installerId).maybeSingle();
                     if (inst) installerName = inst.razon_social || inst.acronimo || 'No asignado';
                 }
                 const dc = opp.datos_calculo || {};
