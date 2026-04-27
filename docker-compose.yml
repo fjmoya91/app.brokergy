@@ -1,0 +1,41 @@
+version: '3.8'
+
+services:
+  backend:
+    build: ./implementation/backend
+    container_name: brokergy-backend
+    restart: unless-stopped
+    env_file: ./implementation/backend/.env
+    environment:
+      - NODE_ENV=production
+      - PUPPETEER_EXECUTABLE_PATH=/usr/bin/google-chrome-stable
+    volumes:
+      - whatsapp_auth:/app/.wwebjs_auth
+      - whatsapp_cache:/app/.wwebjs_cache
+    networks:
+      - brokergy
+
+  nginx:
+    image: nginx:alpine
+    container_name: brokergy-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./implementation/frontend/dist:/usr/share/nginx/html:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+      - /var/www/certbot:/var/www/certbot:ro
+    depends_on:
+      - backend
+    networks:
+      - brokergy
+
+volumes:
+  whatsapp_auth:
+  whatsapp_cache:
+
+networks:
+  brokergy:
+    driver: bridge
