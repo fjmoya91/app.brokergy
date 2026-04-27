@@ -325,8 +325,8 @@ ${uploadLink}
             try {
                 let installerName = 'No asignado';
                 if (opp.instalador_asociado_id) {
-                    const { data: inst } = await supabase.from('usuarios').select('nombre, apellidos').eq('id_usuario', opp.instalador_asociado_id).maybeSingle();
-                    if (inst) installerName = `${inst.nombre} ${inst.apellidos || ''}`.trim();
+                    const { data: inst } = await supabase.from('prescriptores').select('razon_social, acronimo').eq('id_empresa', opp.instalador_asociado_id).maybeSingle();
+                    if (inst) installerName = inst.razon_social || inst.acronimo || 'No asignado';
                 }
                 const dc = opp.datos_calculo || {};
                 const notesList = dc.historial?.filter(h => h.tipo === 'comentario') || [];
