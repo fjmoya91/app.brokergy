@@ -252,24 +252,48 @@ function startPolling() {
 
 // ─── Chrome executable resolution ────────────────────────────────────────────
 
+const LINUX_ARGS = [
+    '--no-sandbox',
+    '--disable-setuid-sandbox',
+    '--disable-dev-shm-usage',
+    '--disable-gpu',
+    '--no-first-run',
+    '--disable-extensions',
+    '--disable-background-networking',
+];
+
 async function resolveChromium() {
     if (process.env.PUPPETEER_EXECUTABLE_PATH) {
-        return {
-            executablePath: process.env.PUPPETEER_EXECUTABLE_PATH,
-            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
-        };
+        console.log('[wwa] Chrome desde env:', process.env.PUPPETEER_EXECUTABLE_PATH);
+        return { executablePath: process.env.PUPPETEER_EXECUTABLE_PATH, args: LINUX_ARGS };
     }
+
+    // Windows: buscar Chrome instalado
+    if (process.platform === 'win32') {
+        const winPaths = [
+            'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+            'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+            process.env.LOCALAPPDATA + '\\Google\\Chrome\\Application\\chrome.exe',
+        ].filter(Boolean);
+        for (const p of winPaths) {
+            if (fs.existsSync(p)) {
+                console.log('[wwa] Chrome detectado en Windows:', p);
+                return { executablePath: p, args: [] };
+            }
+        }
+        console.warn('[wwa] Chrome no encontrado en Windows. Instala Google Chrome.');
+        return { executablePath: '', args: [] };
+    }
+
+    // Linux: intentar @sparticuz/chromium (entornos containerizados)
     try {
         const sparticuz = require('@sparticuz/chromium');
         const executablePath = await sparticuz.executablePath();
         console.log('[wwa] Chrome via @sparticuz/chromium:', executablePath);
-        return { executablePath, args: sparticuz.args };
+        return { executablePath, args: [...sparticuz.args, ...LINUX_ARGS] };
     } catch (e) {
         console.warn('[wwa] @sparticuz/chromium no disponible:', e.message);
-        return {
-            executablePath: '/usr/bin/chromium-browser',
-            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
-        };
+        return { executablePath: '/usr/bin/chromium-browser', args: LINUX_ARGS };
     }
 }
 
