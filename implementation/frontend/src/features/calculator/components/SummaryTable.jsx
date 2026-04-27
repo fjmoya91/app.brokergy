@@ -1,19 +1,18 @@
 import React from 'react';
 
-export function SummaryTable({ result }) {
+export function SummaryTable({ result, isReforma = false }) {
     if (!result || !result.financials) return null;
 
     const { financials, annualSavings, payback } = result;
 
-    // Formateador robusto para moneda (7.474,39 €)
+    // Formateador robusto para moneda (7.474 €)
     const formatCurrency = (value) => {
         const num = typeof value === 'number' ? value : parseFloat(value) || 0;
-        const d = (num % 1 === 0) ? 0 : 2;
         return new Intl.NumberFormat('es-ES', {
-            minimumFractionDigits: d,
-            maximumFractionDigits: d,
+            minimumFractionDigits: 0,
+            maximumFractionDigits: 0,
             useGrouping: true
-        }).format(num) + ' €';
+        }).format(Math.round(num)) + ' €';
     };
 
     // Formateador para enteros con punto de miles (2.084)
@@ -22,18 +21,17 @@ export function SummaryTable({ result }) {
         return new Intl.NumberFormat('es-ES', {
             maximumFractionDigits: 0,
             useGrouping: true
-        }).format(num);
+        }).format(Math.round(num));
     };
 
-    // Formateador para decimales con coma (14,3)
+    // Formateador para decimales con coma (14)
     const formatDecimal = (value) => {
         const num = typeof value === 'number' ? value : parseFloat(value) || 0;
-        const d = (num % 1 === 0) ? 0 : 2;
         return new Intl.NumberFormat('es-ES', {
-            minimumFractionDigits: d,
-            maximumFractionDigits: d,
+            minimumFractionDigits: 0,
+            maximumFractionDigits: 0,
             useGrouping: true
-        }).format(num);
+        }).format(Math.round(num));
     };
 
     const cellStyle = {
@@ -53,10 +51,10 @@ export function SummaryTable({ result }) {
                     </colgroup>
                     <thead>
                         <tr>
-                            <th className="bg-[#e67e22] text-white py-3 sm:py-4 px-3 sm:px-6 text-left text-xs sm:text-base font-black uppercase tracking-wide" style={cellStyle}>
+                            <th className="bg-[#FF6D00] text-white py-3 sm:py-4 px-3 sm:px-6 text-left text-xs sm:text-base font-black uppercase tracking-wide" style={cellStyle}>
                                 ANÁLISIS DE SUBVENCIONES Y DEDUCCIONES
                             </th>
-                            <th className="bg-[#e67e22] text-white py-3 sm:py-4 px-3 sm:px-6 text-right text-xs sm:text-base font-black uppercase tracking-wide" style={cellStyle}>
+                            <th className="bg-[#FF6D00] text-white py-3 sm:py-4 px-3 sm:px-6 text-right text-xs sm:text-base font-black uppercase tracking-wide" style={cellStyle}>
                                 IMPORTE
                             </th>
                         </tr>
@@ -64,7 +62,7 @@ export function SummaryTable({ result }) {
                     <tbody className="text-sm sm:text-base">
                         <tr>
                             <td className="py-3 sm:py-4 px-3 sm:px-6 border-b border-slate-200 text-slate-900 font-semibold" style={cellStyle}>
-                                Inversión Inicial estimada (IVA INCLUIDO)
+                                {isReforma ? 'Inversión Reforma de Vivienda + Aerotermia (IVA INC.)' : 'Inversión sustitución de caldera por aerotermia (IVA INC.)'}
                             </td>
                             <td className="py-3 sm:py-4 px-3 sm:px-6 border-b border-slate-200 text-right font-black text-slate-900 text-lg sm:text-xl" style={cellStyle}>
                                 {formatCurrency(financials.presupuesto)}
@@ -72,12 +70,22 @@ export function SummaryTable({ result }) {
                         </tr>
                         <tr>
                             <td className="py-3 sm:py-4 px-3 sm:px-6 border-b border-slate-200 text-slate-700" style={cellStyle}>
-                                Ayuda 1: Bono Energético CAE (Nota 1)
+                                Bono Energético CAE (Ingreso Bruto) {!financials.isParticular && financials.titularType !== 'particular' ? '(IVA INC.)' : ''}
                             </td>
                             <td className="py-3 sm:py-4 px-3 sm:px-6 border-b border-slate-200 text-right text-slate-900 font-bold text-lg sm:text-xl" style={cellStyle}>
                                 - {formatCurrency(financials.caeBonus)}
                             </td>
                         </tr>
+                        {financials.irpfCaeAmount > 0 && (
+                            <tr>
+                                <td className="py-3 sm:py-4 px-3 sm:px-6 border-b border-slate-200 text-pink-700 italic" style={cellStyle}>
+                                    Impuestos aplicables por cobro de ayuda CAE (Estimado)
+                                </td>
+                                <td className="py-3 sm:py-4 px-3 sm:px-6 border-b border-slate-200 text-right text-pink-600 font-bold text-lg sm:text-xl" style={cellStyle}>
+                                    + {formatCurrency(financials.irpfCaeAmount)}
+                                </td>
+                            </tr>
+                        )}
                         {financials.caeMaintenanceCost > 0 && (
                             <tr>
                                 <td className="py-3 sm:py-4 px-3 sm:px-6 border-b border-slate-200 text-slate-700" style={cellStyle}>
@@ -98,10 +106,10 @@ export function SummaryTable({ result }) {
                                 </td>
                             </tr>
                         )}
-                        {Array.from({ length: Math.max(1, financials.numOwners || 1) }).map((_, index) => (
+                        {financials.irpfCap > 0 && Array.from({ length: Math.max(1, financials.numOwners || 1) }).map((_, index) => (
                             <tr key={`owner-${index}`}>
                                 <td className="py-3 sm:py-4 px-3 sm:px-6 border-b border-slate-200 text-slate-700" style={cellStyle}>
-                                    Ayuda {2 + index}: Deducciones en el IRPF Propietario {index + 1}
+                                    Deducción en el IRPF Propietario {index + 1}
                                     <span className="text-[10px] sm:text-xs text-slate-500 ml-1 sm:ml-2">
                                         ({financials.irpfRate}%, Límite {formatCurrency(financials.irpfCap)})
                                     </span>
@@ -111,23 +119,23 @@ export function SummaryTable({ result }) {
                                 </td>
                             </tr>
                         ))}
-                        <tr className="bg-[#f1c40f]">
+                        <tr className="bg-[#F59E0B]">
                             <td className="py-4 sm:py-5 px-3 sm:px-6 font-black text-slate-900 text-sm sm:text-base uppercase" style={cellStyle}>
-                                TOTAL AYUDAS CONSEGUIDAS
+                                AYUDA TOTAL ESTIMADA
                             </td>
                             <td className="py-4 sm:py-5 px-3 sm:px-6 text-right font-black text-slate-900 text-xl sm:text-2xl" style={cellStyle}>
-                                {formatCurrency(financials.totalAyuda)}
+                                {formatCurrency(financials.totalBeneficioFiscal || financials.totalAyuda)}
                             </td>
                         </tr>
-                        <tr className="bg-[#90f296]">
-                            <td className="py-4 sm:py-5 px-3 sm:px-6 text-slate-900 font-bold uppercase text-xs sm:text-base" style={cellStyle}>
+                        <tr className="bg-[#00C853]">
+                            <td className="py-4 sm:py-5 px-3 sm:px-6 text-white font-bold uppercase text-xs sm:text-base" style={cellStyle}>
                                 Porcentaje cubierto gracias a las ayudas
                             </td>
-                            <td className="py-4 sm:py-5 px-3 sm:px-6 text-right font-black text-slate-900 text-xl sm:text-2xl" style={cellStyle}>
+                            <td className="py-4 sm:py-5 px-3 sm:px-6 text-right font-black text-white text-xl sm:text-2xl" style={cellStyle}>
                                 {formatInteger(financials.porcentajeCubierto)}%
                             </td>
                         </tr>
-                        <tr className="bg-[#2c3e50] text-white">
+                        <tr className="bg-[#08090C] text-white">
                             <td className="py-5 sm:py-6 px-3 sm:px-6 font-black text-lg sm:text-2xl uppercase" style={cellStyle}>
                                 INVERSIÓN NETA FINAL
                             </td>
@@ -148,7 +156,7 @@ export function SummaryTable({ result }) {
                             <col style={{ width: '38%' }} />
                         </colgroup>
                         <tbody className="text-base">
-                            <tr className="bg-[#2c3e50] text-white">
+                            <tr className="bg-[#08090C] text-white">
                                 <td colSpan={2} className="py-3 sm:py-4 px-3 sm:px-6 text-center text-sm sm:text-base font-black uppercase tracking-wide" style={cellStyle}>
                                     ANÁLISIS DE AHORRO Y RENTABILIDAD
                                 </td>
@@ -169,11 +177,11 @@ export function SummaryTable({ result }) {
                                     {formatInteger(annualSavings.costeNuevo)} €/año
                                 </td>
                             </tr>
-                            <tr className="bg-[#90f296]">
-                                <td className="py-4 sm:py-5 px-3 sm:px-6 font-black text-slate-900 text-sm sm:text-base uppercase" style={cellStyle}>
+                            <tr className="bg-[#00C853]">
+                                <td className="py-4 sm:py-5 px-3 sm:px-6 font-black text-white text-sm sm:text-base uppercase" style={cellStyle}>
                                     AHORRO ECONÓMICO ANUAL
                                 </td>
-                                <td className="py-4 sm:py-5 px-3 sm:px-6 text-right font-black text-slate-900 text-xl sm:text-3xl" style={cellStyle}>
+                                <td className="py-4 sm:py-5 px-3 sm:px-6 text-right font-black text-white text-xl sm:text-3xl" style={cellStyle}>
                                     {formatInteger(annualSavings.ahorroAnual)} €
                                 </td>
                             </tr>
@@ -201,10 +209,12 @@ export function SummaryTable({ result }) {
                     <span className="font-bold text-slate-700 uppercase mr-1">Nota 1:</span>
                     La ayuda Bono Energético CAE está garantizada por Brokergy. El importe indicado es una estimación técnica y se ajustará de forma definitiva una vez se emitan y validen los certificados de eficiencia energética (CEE) inicial y final de la instalación.
                 </p>
-                <p>
-                    <span className="font-bold text-slate-700 uppercase mr-1">Nota 2:</span>
-                    Las deducciones en el IRPF por eficiencia energética no suponen un descuento directo sobre el precio de la actuación, sino un derecho a deducción en la declaración de la renta. El ahorro real dependerá de la situación fiscal personal del contribuyente y de la normativa vigente en el momento de la aplicación.
-                </p>
+                {financials.irpfCap > 0 && (
+                    <p>
+                        <span className="font-bold text-slate-700 uppercase mr-1">Nota 2:</span>
+                        Las deducciones en el IRPF por eficiencia energética no suponen un descuento directo sobre el precio de la actuación, sino un derecho a deducción en la declaración de la renta. El ahorro real dependerá de la situación fiscal personal del contribuyente y de la normativa vigente en el momento de la aplicación.
+                    </p>
+                )}
                 {result.includeAnnualSavings && (
                     <p>
                         <span className="font-bold text-slate-700 uppercase mr-1">Nota 3:</span>

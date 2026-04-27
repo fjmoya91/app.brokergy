@@ -2,8 +2,16 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { useAuth } from '../../../context/AuthContext';
 import { PrescriptoresList } from './PrescriptoresList';
+import { ClienteFormModal } from '../../clientes/components/ClienteFormModal';
+import { ClienteDetailModal } from '../../clientes/components/ClienteDetailModal';
 
-export function AdminPanelView({ onLoadOpportunity, onBackToCalculator, activeTab }) {
+export function AdminPanelView({ 
+    onLoadOpportunity, 
+    onBackToCalculator, 
+    activeTab,
+    returnToExpediente,
+    onReturnToExpediente
+}) {
     const { user } = useAuth();
 
     const [oportunidades, setOportunidades] = useState([]);
@@ -24,12 +32,163 @@ export function AdminPanelView({ onLoadOpportunity, onBackToCalculator, activeTa
     const [showCommentForm, setShowCommentForm] = useState(false);
     const [modalError, setModalError] = useState(null);
     const [showStats, setShowStats] = useState(true);
-    const [viewMode, setViewMode] = useState(user?.rol?.toUpperCase() === 'ADMIN' ? 'brokergy' : 'prescriptor');
+    const [historyFilter, setHistoryFilter] = useState('all'); // 'all', 'notes' o 'status'
     
+    // Estados para edición de notas
+    const [editingEntryId, setEditingEntryId] = useState(null);
+    const [editingText, setEditingText] = useState('');
+    const [updatingEntry, setUpdatingEntry] = useState(false);
+    const [viewMode, setViewMode] = useState(user?.rol?.toUpperCase() === 'ADMIN' ? 'brokergy' : 'prescriptor');
+    const [clienteModalOp, setClienteModalOp] = useState(null); // oportunidad para crear cliente
+    const [clienteDetailId, setClienteDetailId] = useState(null); // cliente_id para ver detalle
+    const [pendingStatusUpdate, setPendingStatusUpdate] = useState(null); // { op, nuevoEstado }
+
     // Pagination state
     const [currentPage, setCurrentPage] = useState(1);
     const [itemsPerPage, setItemsPerPage] = useState(10); // Default to 10
     const [showAll, setShowAll] = useState(false);
+    const [openDropdownId, setOpenDropdownId] = useState(null); // 'filter' or opportunity id
+    const [partnerSearch, setPartnerSearch] = useState('');
+    const [globalSearch, setGlobalSearch] = useState('');
+
+    // Cerrar dropdown al hacer click fuera
+    useEffect(() => {
+        const handleClickOutside = () => {
+            if (openDropdownId) setOpenDropdownId(null);
+        };
+        window.addEventListener('click', handleClickOutside);
+        return () => window.removeEventListener('click', handleClickOutside);
+    }, [openDropdownId]);
+
+    const CCAA_MAP = {
+        '01': 'País Vasco', '20': 'País Vasco', '48': 'País Vasco',
+        '02': 'Castilla-La Mancha', '13': 'Castilla-La Mancha', '16': 'Castilla-La Mancha', '19': 'Castilla-La Mancha', '45': 'Castilla-La Mancha',
+        '03': 'C. Valenciana', '12': 'C. Valenciana', '46': 'C. Valenciana',
+        '04': 'Andalucía', '11': 'Andalucía', '14': 'Andalucía', '18': 'Andalucía', '21': 'Andalucía', '23': 'Andalucía', '29': 'Andalucía', '41': 'Andalucía',
+        '05': 'Castilla y León', '09': 'Castilla y León', '24': 'Castilla y León', '34': 'Castilla y León', '37': 'Castilla y León', '40': 'Castilla y León', '42': 'Castilla y León', '47': 'Castilla y León', '49': 'Castilla y León',
+        '06': 'Extremadura', '10': 'Extremadura',
+        '07': 'I. Baleares',
+        '08': 'Cataluña', '17': 'Cataluña', '25': 'Cataluña', '43': 'Cataluña',
+        '15': 'Galicia', '27': 'Galicia', '32': 'Galicia', '36': 'Galicia',
+        '22': 'Aragón', '44': 'Aragón', '50': 'Aragón',
+        '26': 'La Rioja',
+        '28': 'Madrid',
+        '30': 'Murcia',
+        '31': 'Navarra',
+        '33': 'Asturias',
+        '35': 'Canarias', '38': 'Canarias',
+        '39': 'Cantabria',
+        '51': 'Ceuta', '52': 'Melilla'
+    };
+
+    const getCCAA = (op) => {
+        const provCode = op?.datos_calculo?.inputs?.provincia;
+        return provCode ? (CCAA_MAP[provCode] || '-') : '-';
+    };
+
+    const SearchablePartnerSelect = ({ value, onSelect, placeholder = "Seleccionar Partner...", isFilter = false }) => {
+        const isOpen = openDropdownId === (isFilter ? 'filter' : value?.id_oportunidad || 'new');
+        // El valor seleccionado es el ID del prescriptor
+        const currentId = isFilter ? value : value?.prescriptor_id;
+        const selected = prescriptores.find(p => p.id_empresa === currentId);
+        
+        const filtered = prescriptores.filter(p => {
+            const name = (p.acronimo || p.razon_social || '').toLowerCase();
+            return name.includes(partnerSearch.toLowerCase());
+        });
+
+        return (
+            <div className="relative w-full" onClick={e => e.stopPropagation()}>
+                <div 
+                    onClick={() => {
+                        if (isOpen) {
+                            setOpenDropdownId(null);
+                        } else {
+                            setOpenDropdownId(isFilter ? 'filter' : value?.id_oportunidad || 'new');
+                            setPartnerSearch('');
+                        }
+                    }}
+                    className={`flex items-center justify-between gap-2 px-3 py-1.5 rounded-lg border transition-all cursor-pointer ${
+                        isOpen ? 'border-brand ring-1 ring-brand bg-black/40' : 'border-white/[0.08] bg-black/30 hover:border-white/20'
+                    }`}
+                >
+                    <div className="flex items-center gap-2 overflow-hidden">
+                        {selected?.logo_empresa ? (
+                            <img src={selected.logo_empresa} alt="" className="w-4 h-4 rounded object-contain shrink-0" />
+                        ) : (
+                            <div className="w-4 h-4 rounded bg-white/5 flex items-center justify-center shrink-0">
+                                <svg className="w-2.5 h-2.5 text-white/20" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                                </svg>
+                            </div>
+                        )}
+                        <span className={`text-[10px] font-bold truncate uppercase tracking-tight ${selected ? 'text-white' : 'text-white/20 italic'}`}>
+                            {selected ? (selected.acronimo || selected.razon_social) : (isFilter ? 'TODOS' : 'Sin asignar')}
+                        </span>
+                    </div>
+                    <svg className={`w-3 h-3 text-white/20 transition-transform ${isOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M19 9l-7 7-7-7" />
+                    </svg>
+                </div>
+
+                {isOpen && (
+                    <div className="absolute z-[100] left-0 right-0 mt-1 bg-bkg-surface border border-white/10 rounded-xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150 min-w-[200px]">
+                        <div className="p-2 border-b border-white/[0.05] bg-white/[0.02]">
+                            <input 
+                                autoFocus
+                                type="text" 
+                                placeholder="Buscar..."
+                                className="w-full bg-black/40 border border-white/[0.08] rounded-md px-2 py-1 text-[10px] text-white focus:outline-none focus:border-brand/40"
+                                value={partnerSearch}
+                                onChange={e => setPartnerSearch(e.target.value)}
+                            />
+                        </div>
+                        <div className="max-h-[200px] overflow-y-auto custom-scrollbar p-1">
+                            <div 
+                                onClick={() => { onSelect(''); setOpenDropdownId(null); }}
+                                className={`flex items-center gap-2 p-2 rounded-lg cursor-pointer hover:bg-white/[0.05] transition-colors ${((isFilter ? value : value?.prescriptor_id) === '' || (isFilter && value === 'none')) ? 'bg-brand/10 text-brand' : 'text-white/60'}`}
+                            >
+                                <div className="w-5 h-5 rounded bg-white/5 flex items-center justify-center shrink-0">
+                                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+                                    </svg>
+                                </div>
+                                <span className="text-[10px] font-black uppercase tracking-widest">{isFilter ? 'TODOS' : 'Sin asignar'}</span>
+                            </div>
+                            
+                            {isFilter && (
+                                <div 
+                                    onClick={() => { onSelect('none'); setOpenDropdownId(null); }}
+                                    className={`flex items-center gap-2 p-2 rounded-lg cursor-pointer hover:bg-white/[0.05] transition-colors ${filters.prescriptor_id === 'none' ? 'bg-brand/10 text-brand' : 'text-white/60'}`}
+                                >
+                                    <span className="text-[10px] font-black uppercase tracking-widest ml-7">Sin asignar</span>
+                                </div>
+                            )}
+
+                            {filtered.map(p => (
+                                <div 
+                                    key={p.id_empresa}
+                                    onClick={() => { onSelect(p.id_empresa); setOpenDropdownId(null); }}
+                                    className={`flex items-center gap-2 p-2 rounded-lg cursor-pointer hover:bg-white/[0.05] transition-colors ${(isFilter ? value : value?.prescriptor_id) === p.id_empresa ? 'bg-brand/10 text-brand' : 'text-white/60'}`}
+                                >
+                                    {p.logo_empresa ? (
+                                        <img src={p.logo_empresa} alt="" className="w-5 h-5 rounded object-contain bg-white/5 shrink-0" />
+                                    ) : (
+                                        <div className="w-5 h-5 rounded bg-white/5 flex items-center justify-center shrink-0">
+                                            <span className="text-[8px] font-black">{(p.acronimo || p.razon_social).charAt(0)}</span>
+                                        </div>
+                                    )}
+                                    <div className="flex flex-col min-w-0">
+                                        <span className="text-[10px] font-bold truncate uppercase">{p.acronimo || p.razon_social}</span>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+            </div>
+        );
+    };
 
     // Sincronizar viewMode cuando el rol del usuario esté disponible
     useEffect(() => {
@@ -45,8 +204,11 @@ export function AdminPanelView({ onLoadOpportunity, onBackToCalculator, activeTa
         id_oportunidad: '',
         referencia_cliente: '',
         ref_catastral: '',
+        ficha: '',
+        ccaa: '',
         prescriptor_id: '',
-        estado: ''
+        estado: '',
+        cod_cliente_interno: ''
     });
 
     useEffect(() => {
@@ -94,11 +256,18 @@ export function AdminPanelView({ onLoadOpportunity, onBackToCalculator, activeTa
             await axios.delete(`/api/oportunidades/${oportunidadToDelete.id_oportunidad}`);
             setOportunidades(prev => prev.filter(op => op.id_oportunidad !== oportunidadToDelete.id_oportunidad));
             setOportunidadToDelete(null);
+            setError(null);
         } catch (err) {
             console.error('Error al eliminar:', err);
-            setError('Error interno al eliminar la oportunidad.');
+            const serverError = err.response?.data;
+            if (serverError?.error === 'HAS_EXPEDIENTE') {
+                setError(serverError.message);
+            } else {
+                setError('Error interno al eliminar la oportunidad.');
+            }
         } finally {
             setDeleting(false);
+            setOportunidadToDelete(null);
         }
     };
 
@@ -109,25 +278,25 @@ export function AdminPanelView({ onLoadOpportunity, onBackToCalculator, activeTa
 
         if (nuevoEstado === currentEstado) return;
 
+        // Validar cliente para estado ACEPTADA
+        if (nuevoEstado === 'ACEPTADA' && !op.cliente_id) {
+            setError('No se puede marcar como ACEPTADA sin haber creado/vinculado un cliente primero.');
+            setPendingStatusUpdate({ op, nuevoEstado });
+            setClienteModalOp(op);
+            // Forzar re-render para revertir el select visualmente
+            setOportunidades(prev => [...prev]);
+            return;
+        }
+
         setUpdatingStatus(op.id_oportunidad);
         try {
-            await axios.patch(`/api/oportunidades/${op.id_oportunidad}/estado`, { nuevo_estado: nuevoEstado });
+            const res = await axios.patch(`/api/oportunidades/${op.id_oportunidad}/estado`, { nuevo_estado: nuevoEstado });
+            const updatedOp = res.data.data;
 
-            // Refrescar localmente (evitamos hacer reload entero)
-            setOportunidades(prev => prev.map(o => {
-                if (o.id_oportunidad === op.id_oportunidad) {
-                    const clonedDatos = { ...(o.datos_calculo || {}) };
-                    clonedDatos.estado = nuevoEstado;
-                    const hist = clonedDatos.historial || [];
-                    clonedDatos.historial = [...hist, {
-                        estado: nuevoEstado,
-                        fecha: new Date().toISOString(),
-                        usuario: 'Administrador'
-                    }];
-                    return { ...o, datos_calculo: clonedDatos };
-                }
-                return o;
-            }));
+            // Refrescar localmente
+            setOportunidades(prev => prev.map(o => 
+                o.id_oportunidad === op.id_oportunidad ? updatedOp : o
+            ));
         } catch (err) {
             console.error('Error al actualizar estado:', err);
             setError('Error al actualizar el estado de la oportunidad.');
@@ -253,6 +422,28 @@ export function AdminPanelView({ onLoadOpportunity, onBackToCalculator, activeTa
         }
     };
 
+    const handleEditEntry = async (entryId) => {
+        if (!historyModalOp || !editingText.trim()) return;
+        const id = historyModalOp.id_oportunidad;
+
+        setUpdatingEntry(true);
+        try {
+            const res = await axios.put(`/api/oportunidades/${id}/historial/${entryId}`, { texto: editingText });
+            const updatedOp = res.data.data;
+
+            // Actualizar localmente
+            setOportunidades(prev => prev.map(o => o.id_oportunidad === id ? updatedOp : o));
+            setHistoryModalOp(updatedOp);
+            setEditingEntryId(null);
+            setEditingText('');
+        } catch (err) {
+            console.error('Error al editar entrada del historial:', err);
+            setError('Error al actualizar la nota.');
+        } finally {
+            setUpdatingEntry(false);
+        }
+    };
+
     const getStatusColor = (status) => {
         switch (status) {
             case 'EN CURSO': return 'bg-orange-500/10 text-orange-400 border-orange-500/30';
@@ -263,20 +454,64 @@ export function AdminPanelView({ onLoadOpportunity, onBackToCalculator, activeTa
         }
     };
 
-    const filteredOportunidades = oportunidades.filter(op => {
-        return (
-            (filters.id_oportunidad === '' || op.id_oportunidad.toLowerCase().includes(filters.id_oportunidad.toLowerCase())) &&
+    const filteredOportunidades = (oportunidades || []).filter(op => {
+        if (!op) return false;
+
+        // 1. Filtros por columna (los que están en la parte superior de la tabla)
+        const matchesColFilters = (
+            (filters.id_oportunidad === '' || (op.id_oportunidad || '').toLowerCase().includes(filters.id_oportunidad.toLowerCase())) &&
             (filters.referencia_cliente === '' || (op.referencia_cliente || '').toLowerCase().includes(filters.referencia_cliente.toLowerCase())) &&
-            (filters.ref_catastral === '' || op.ref_catastral.toLowerCase().includes(filters.ref_catastral.toLowerCase())) &&
+            (filters.ref_catastral === '' || (op.ref_catastral || '').toLowerCase().includes(filters.ref_catastral.toLowerCase())) &&
+            (filters.ficha === '' || (() => {
+                const isReforma = (op.datos_calculo?.isReforma === true) || 
+                                (op.datos_calculo?.reformaType && op.datos_calculo?.reformaType !== 'none') ||
+                                (op.ficha === 'RES080') ||
+                                (op.referencia_cliente?.includes('RES080')) ||
+                                (op.id_oportunidad?.includes('RES080'));
+                const isHybrid = !isReforma && ((op.datos_calculo?.hibridacion === true) || (op.ficha === 'RES093'));
+                const fichaValue = isReforma ? 'RES080' : (isHybrid ? 'RES093' : 'RES060');
+                return fichaValue === filters.ficha;
+            })()) &&
+            (filters.ccaa === '' || getCCAA(op) === filters.ccaa) &&
             (filters.prescriptor_id === '' || (filters.prescriptor_id === 'none' ? !op.prescriptor_id : op.prescriptor_id === filters.prescriptor_id)) &&
-            (filters.estado === '' || (op.datos_calculo?.estado || 'PTE ENVIAR') === filters.estado)
+            (filters.estado === '' || (op.datos_calculo?.estado || 'PTE ENVIAR') === filters.estado) &&
+            (filters.cod_cliente_interno === '' || (op.datos_calculo?.cod_cliente_interno || '').toLowerCase().includes(filters.cod_cliente_interno.toLowerCase()))
         );
+
+        if (!matchesColFilters) return false;
+
+        // 2. Búsqueda Global (el buscador central)
+        if (!globalSearch) return true;
+        const gs = globalSearch.toLowerCase();
+        const inputs = op.datos_calculo?.inputs || {};
+        
+        const searchFields = [
+            op.id_oportunidad,
+            op.referencia_cliente,
+            op.ref_catastral,
+            op.prescriptor,
+            op.id_oportunidad_ref,
+            op.numero_expediente,
+            inputs.nombre,
+            inputs.apellidos,
+            inputs.razon_social,
+            inputs.dni,
+            inputs.nif,
+            inputs.email,
+            inputs.telefono,
+            inputs.direccion,
+            inputs.municipio,
+            inputs.provincia,
+            user?.rol === 'DISTRIBUIDOR' ? op.datos_calculo?.cod_cliente_interno : null
+        ];
+
+        return searchFields.some(field => field && String(field).toLowerCase().includes(gs));
     });
 
-    // Reset pagination when filters change
+    // Reset pagination when filters or global search change
     useEffect(() => {
         setCurrentPage(1);
-    }, [filters]);
+    }, [filters, globalSearch]);
 
     // Pagination logic
     const totalItems = filteredOportunidades.length;
@@ -286,23 +521,36 @@ export function AdminPanelView({ onLoadOpportunity, onBackToCalculator, activeTa
 
     // Cálculos financieros dinámicos basados en filtros
     const financialStats = filteredOportunidades.reduce((acc, op) => {
-        const cae = op.datos_calculo?.result?.financials?.caeBonus || 0;
-        const profit = op.datos_calculo?.result?.financials?.profitBrokergy || 0;
-        const budget = op.datos_calculo?.result?.financials?.presupuesto || 0;
+        const isReforma = (op.datos_calculo?.isReforma === true) || 
+                         (op.datos_calculo?.reformaType && op.datos_calculo?.reformaType !== 'none') ||
+                         (op.ficha === 'RES080') ||
+                         (op.referencia_cliente?.includes('RES080')) ||
+                         (op.id_oportunidad?.includes('RES080'));
+                         
+        const financials = isReforma ? op.datos_calculo?.result?.financialsRes080 : op.datos_calculo?.result?.financials;
+        const cae = financials?.caeBonus || 0;
+        const profit = financials?.profitBrokergy || 0;
+        const budget = financials?.presupuesto || 0;
+        
+        const savingsKwh = isReforma 
+            ? (op.datos_calculo?.result?.res080?.ahorroEnergiaFinalTotal || 0)
+            : (op.datos_calculo?.result?.savings?.savingsKwh || 0);
+
         return {
             totalCae: acc.totalCae + cae,
             totalProfit: acc.totalProfit + profit,
-            totalBudget: acc.totalBudget + budget
+            totalBudget: acc.totalBudget + budget,
+            totalSavings: acc.totalSavings + savingsKwh
         };
-    }, { totalCae: 0, totalProfit: 0, totalBudget: 0 });
+    }, { totalCae: 0, totalProfit: 0, totalBudget: 0, totalSavings: 0 });
 
     const stats = {
-        total: oportunidades.length,
-        pending: oportunidades.filter(op => (op.datos_calculo?.estado || 'PTE ENVIAR') === 'PTE ENVIAR').length,
-        inProgress: oportunidades.filter(op => op.datos_calculo?.estado === 'EN CURSO').length,
-        sent: oportunidades.filter(op => op.datos_calculo?.estado === 'ENVIADA').length,
-        accepted: oportunidades.filter(op => op.datos_calculo?.estado === 'ACEPTADA').length,
-        rejected: oportunidades.filter(op => op.datos_calculo?.estado === 'RECHAZADA').length,
+        total: (oportunidades || []).length,
+        pending: (oportunidades || []).filter(op => (op.datos_calculo?.estado || 'PTE ENVIAR') === 'PTE ENVIAR').length,
+        inProgress: (oportunidades || []).filter(op => op.datos_calculo?.estado === 'EN CURSO').length,
+        sent: (oportunidades || []).filter(op => op.datos_calculo?.estado === 'ENVIADA').length,
+        accepted: (oportunidades || []).filter(op => op.datos_calculo?.estado === 'ACEPTADA').length,
+        rejected: (oportunidades || []).filter(op => op.datos_calculo?.estado === 'RECHAZADA').length,
     };
 
     return (
@@ -320,10 +568,10 @@ export function AdminPanelView({ onLoadOpportunity, onBackToCalculator, activeTa
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                                     </svg>
                                 </div>
-                                {user?.rol === 'ADMIN' ? 'Panel de Control' : 'Mis Oportunidades'}
+                                {user?.rol?.toUpperCase() === 'ADMIN' ? 'Panel de Control' : 'Mis Oportunidades'}
                             </h2>
 
-                    {user?.rol === 'ADMIN' && (
+                    {user?.rol?.toUpperCase() === 'ADMIN' && (
                         <div className="flex bg-bkg-surface p-1 rounded-xl border border-white/[0.06] ml-2">
                             <button
                                 onClick={() => setViewMode('brokergy')}
@@ -369,7 +617,46 @@ export function AdminPanelView({ onLoadOpportunity, onBackToCalculator, activeTa
                     )}
                 </div>
 
+                {/* ─── Buscador Global ─── */}
+                <div className="flex-1 max-w-xl mx-8 hidden lg:block">
+                    <div className="relative group">
+                        <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                            <svg className="w-4 h-4 text-white/20 group-focus-within:text-brand transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                            </svg>
+                        </div>
+                        <input
+                            type="text"
+                            placeholder="Buscar por nombre, email, DNI..."
+                            className="w-full bg-black/40 border border-white/[0.06] rounded-2xl pl-12 pr-4 py-3 text-xs font-medium text-white placeholder-white/20 focus:outline-none focus:border-brand/40 focus:bg-black/60 transition-all shadow-2xl shadow-black/20"
+                            value={globalSearch}
+                            onChange={e => setGlobalSearch(e.target.value)}
+                        />
+                        {globalSearch && (
+                            <button 
+                                onClick={() => setGlobalSearch('')}
+                                className="absolute inset-y-0 right-0 pr-4 flex items-center text-white/20 hover:text-white transition-colors"
+                            >
+                                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+                        )}
+                    </div>
+                </div>
+
                 <div className="flex items-center gap-3">
+                    {returnToExpediente && (
+                        <button
+                            onClick={onReturnToExpediente}
+                            className="flex items-center gap-2 px-4 py-2 bg-amber-500/10 border border-amber-500/20 text-amber-500 font-black text-[10px] uppercase tracking-widest rounded-xl hover:bg-amber-500/20 transition-all group"
+                        >
+                            <svg className="w-3.5 h-3.5 group-hover:-translate-x-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M11 15l-3-3m0 0l3-3m-3 3h8M3 12a9 9 0 1118 0 8.959 8.959 0 01-9 9" />
+                            </svg>
+                            Volver al Expediente
+                        </button>
+                    )}
                     <button
                         onClick={onBackToCalculator}
                         className="px-4 py-2 bg-gradient-to-r from-brand to-brand-700 hover:from-brand-400 hover:to-brand-600 text-bkg-deep rounded-xl font-black uppercase tracking-wider text-[10px] md:text-xs flex items-center gap-2 shadow-lg shadow-brand/20 transition-all hover:scale-105 active:scale-95"
@@ -412,7 +699,7 @@ export function AdminPanelView({ onLoadOpportunity, onBackToCalculator, activeTa
             {/* ─── Panel de Resumen Financiero y Estados ─── */}
             {showStats && (
                 <div className="animate-in fade-in slide-in-from-top-4 duration-500">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4 mb-3 md:mb-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4 mb-3 md:mb-4">
                         {/* Bono CAE Card */}
                         <div className="relative overflow-hidden p-4 rounded-xl border border-emerald-500/15"
                              style={{ background: 'linear-gradient(135deg, rgba(0,200,83,0.05) 0%, rgba(0,200,83,0.01) 100%)' }}>
@@ -462,6 +749,30 @@ export function AdminPanelView({ onLoadOpportunity, onBackToCalculator, activeTa
                                 </div>
                             </div>
                         </div>
+
+                        {/* Ahorro Card */}
+                        <div className="relative overflow-hidden p-4 rounded-xl border border-blue-500/15"
+                             style={{ background: 'linear-gradient(135deg, rgba(59,130,246,0.05) 0%, rgba(59,130,246,0.01) 100%)' }}>
+                            <div className="relative flex justify-between items-center">
+                                <div className="flex items-center gap-3">
+                                    <div className="p-1.5 bg-blue-500/10 rounded-lg border border-blue-500/10">
+                                        <svg className="w-4 h-4 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                                        </svg>
+                                    </div>
+                                    <div>
+                                        <span className="text-[9px] uppercase tracking-wider font-black text-blue-400/50 block">Ahorro Generado</span>
+                                        <div className="text-xl md:text-2xl font-black text-blue-400 leading-none">
+                                            {(financialStats.totalSavings / 1000000).toLocaleString('es-ES', { minimumFractionDigits: 3, maximumFractionDigits: 3 })} <span className="text-xs text-blue-400/60 ml-0.5">GWh</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="text-right">
+                                    <span className="text-[10px] text-white/20 font-medium block">{filteredOportunidades.length} ops</span>
+                                    <span className="text-[8px] text-blue-400/40 uppercase font-bold tracking-widest">Total</span>
+                                </div>
+                            </div>
+                        </div>
                     </div>
 
                     {/* Status Filter Cards */}
@@ -504,9 +815,13 @@ export function AdminPanelView({ onLoadOpportunity, onBackToCalculator, activeTa
                             <tr style={{ background: 'rgba(26,28,34,0.8)' }}>
                                 <th className="p-3.5 text-[10px] font-black uppercase tracking-[0.15em] text-white/25 w-24 border-b border-white/[0.06]">ID</th>
                                 <th className="p-3.5 text-[10px] font-black uppercase tracking-[0.15em] text-white/25 border-b border-white/[0.06]">Ref. Cliente</th>
-                                <th className="p-3.5 text-[10px] font-black uppercase tracking-[0.15em] text-white/25 border-b border-white/[0.06]">Ref. Catastral</th>
-                                {viewMode === 'brokergy' && (
-                                    <th className="p-3.5 text-[10px] font-black uppercase tracking-[0.15em] text-white/25 text-right border-b border-white/[0.06]">Demanda</th>
+                                {user?.rol === 'DISTRIBUIDOR' && (
+                                    <th className="p-3.5 text-[10px] font-black uppercase tracking-[0.15em] text-amber-400/60 border-b border-white/[0.06]">Nº Cliente</th>
+                                )}
+                                <th className="p-3.5 text-[10px] font-black uppercase tracking-[0.15em] text-white/25 border-b border-white/[0.06]">CCAA</th>
+                                <th className="p-3.5 text-[10px] font-black uppercase tracking-[0.15em] text-white/25 border-b border-white/[0.06]">Ficha</th>
+                                {user?.rol === 'ADMIN' && (
+                                    <th className="p-3.5 text-[10px] font-black uppercase tracking-[0.15em] text-blue-400/60 text-right border-b border-white/[0.06]">Ahorro (MWh)</th>
                                 )}
                                 <th className="p-3.5 text-[10px] font-black uppercase tracking-[0.15em] text-emerald-400/40 text-right border-b border-white/[0.06]">Bono CAE</th>
                                 <th className="p-3.5 text-[10px] font-black uppercase tracking-[0.15em] text-cyan-400/40 text-right border-b border-white/[0.06]">
@@ -538,16 +853,45 @@ export function AdminPanelView({ onLoadOpportunity, onBackToCalculator, activeTa
                                         onChange={e => setFilters(prev => ({ ...prev, referencia_cliente: e.target.value }))}
                                     />
                                 </td>
+                                {user?.rol === 'DISTRIBUIDOR' && (
+                                    <td className="p-2.5 border-b border-white/[0.06]">
+                                        <input
+                                            type="text"
+                                            placeholder="Código..."
+                                            className="w-full bg-bkg-deep border border-white/[0.08] rounded-lg px-2.5 py-1.5 text-[10px] text-amber-400 placeholder-white/20 focus:outline-none focus:border-amber-500/40 focus:bg-bkg-elevated transition-all font-mono"
+                                            value={filters.cod_cliente_interno}
+                                            onChange={e => setFilters(prev => ({ ...prev, cod_cliente_interno: e.target.value }))}
+                                        />
+                                    </td>
+                                )}
                                 <td className="p-2.5 border-b border-white/[0.06]">
-                                    <input
-                                        type="text"
-                                        placeholder="Catastro..."
-                                        className="w-full bg-bkg-deep border border-white/[0.08] rounded-lg px-2 py-1.5 text-[10px] text-white placeholder-white/20 focus:outline-none focus:border-brand/40 focus:bg-bkg-elevated transition-all font-mono uppercase"
-                                        value={filters.ref_catastral}
-                                        onChange={e => setFilters(prev => ({ ...prev, ref_catastral: e.target.value }))}
-                                    />
+                                    <select
+                                        className="w-full bg-bkg-deep border border-white/[0.08] rounded-lg px-2 py-1.5 text-[10px] text-white focus:outline-none focus:border-brand/40 focus:bg-bkg-elevated transition-all font-mono uppercase"
+                                        value={filters.ccaa}
+                                        onChange={e => setFilters(prev => ({ ...prev, ccaa: e.target.value }))}
+                                    >
+                                        <option value="" className="bg-slate-800 text-white/50">Todas</option>
+                                        {Array.from(new Set((oportunidades || []).map(op => getCCAA(op))))
+                                            .filter(ccaa => ccaa && ccaa !== '-')
+                                            .sort()
+                                            .map(ccaa => (
+                                                <option key={ccaa} value={ccaa} className="bg-slate-800 text-white">{ccaa}</option>
+                                            ))}
+                                    </select>
                                 </td>
-                                {viewMode === 'brokergy' && (
+                                <td className="p-2.5 border-b border-white/[0.06]">
+                                    <select
+                                        className="w-full bg-bkg-deep border border-white/[0.08] rounded-lg px-2 py-1.5 text-[10px] text-white focus:outline-none focus:border-brand/40 focus:bg-bkg-elevated transition-all font-mono uppercase"
+                                        value={filters.ficha}
+                                        onChange={e => setFilters(prev => ({ ...prev, ficha: e.target.value }))}
+                                    >
+                                        <option value="" className="bg-slate-800 text-white/50">TODAS</option>
+                                        <option value="RES060" className="bg-slate-800 text-brand">RES060</option>
+                                        <option value="RES080" className="bg-slate-800 text-emerald-400">RES080</option>
+                                        <option value="RES093" className="bg-slate-800 text-indigo-400">RES093</option>
+                                    </select>
+                                </td>
+                                {user?.rol === 'ADMIN' && (
                                     <td className="p-2.5 border-b border-white/[0.06]"></td>
                                 )}
                                 <td className="p-2.5 border-b border-white/[0.06]"></td>
@@ -555,26 +899,11 @@ export function AdminPanelView({ onLoadOpportunity, onBackToCalculator, activeTa
                                 <td className="p-2.5 border-b border-white/[0.06]"></td>
                                 {user?.rol === 'ADMIN' && (
                                     <td className="p-2.5 border-b border-white/[0.06]">
-                                        <div className="relative group/sel">
-                                            <select
-                                                className="w-full appearance-none bg-bkg-deep border border-white/[0.1] rounded-xl px-3 py-2 text-[10px] font-black tracking-wider text-white hover:border-brand/30 focus:outline-none focus:border-brand/50 transition-all cursor-pointer pr-8 uppercase"
-                                                value={filters.prescriptor_id}
-                                                onChange={e => setFilters(prev => ({ ...prev, prescriptor_id: e.target.value }))}
-                                            >
-                                                <option value="" className="bg-bkg-deep border-none">TODOS LOS PRESCRIPTORES</option>
-                                                <option value="none" className="bg-bkg-deep border-none">Sin asignar</option>
-                                                {prescriptores.map(p => (
-                                                    <option key={p.id_empresa} value={p.id_empresa} className="bg-bkg-deep border-none">
-                                                        {(p.acronimo || p.razon_social || `${p.usuarios?.nombre} ${p.usuarios?.apellidos || ''}`).trim().toUpperCase()}
-                                                    </option>
-                                                ))}
-                                            </select>
-                                            <div className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-white/20 group-hover/sel:text-brand/50 transition-colors">
-                                                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M19 9l-7 7-7-7" />
-                                                </svg>
-                                            </div>
-                                        </div>
+                                        <SearchablePartnerSelect 
+                                            isFilter 
+                                            value={filters.prescriptor_id} 
+                                            onSelect={val => setFilters(prev => ({ ...prev, prescriptor_id: val }))}
+                                        />
                                     </td>
                                 )}
                                 <td className="p-2.5 border-b border-white/[0.06]"></td>
@@ -583,7 +912,7 @@ export function AdminPanelView({ onLoadOpportunity, onBackToCalculator, activeTa
                         <tbody className="divide-y divide-white/[0.04]">
                             {loading && filteredOportunidades.length === 0 ? (
                                 <tr>
-                                    <td colSpan={user?.rol === 'ADMIN' ? (viewMode === 'brokergy' ? 9 : 8) : 7} className="p-12 text-center">
+                                    <td colSpan={user?.rol === 'ADMIN' ? 10 : (user?.rol === 'DISTRIBUIDOR' ? 9 : 8)} className="p-12 text-center">
                                         <div className="flex flex-col items-center gap-3">
                                             <svg className="w-6 h-6 text-white/15 animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
@@ -594,7 +923,7 @@ export function AdminPanelView({ onLoadOpportunity, onBackToCalculator, activeTa
                                 </tr>
                             ) : paginatedOportunidades.length === 0 ? (
                                 <tr>
-                                    <td colSpan={user?.rol === 'ADMIN' ? (viewMode === 'brokergy' ? 9 : 8) : 7} className="p-12 text-center">
+                                    <td colSpan={user?.rol === 'ADMIN' ? 10 : (user?.rol === 'DISTRIBUIDOR' ? 9 : 8)} className="p-12 text-center">
                                         <div className="flex flex-col items-center gap-3">
                                             <svg className="w-8 h-8 text-white/10" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -605,7 +934,29 @@ export function AdminPanelView({ onLoadOpportunity, onBackToCalculator, activeTa
                                 </tr>
                             ) : (
                                 paginatedOportunidades.map((op) => {
-                                    const caeBonus = op.datos_calculo?.result?.financials?.caeBonus || 0;
+                                    const calcInputs = op.datos_calculo?.inputs || {};
+                                    const isReforma = calcInputs.isReforma === true || op.datos_calculo?.isReforma === true || 
+                                                     (calcInputs.reformaType && calcInputs.reformaType !== 'none') ||
+                                                     (op.ficha === 'RES080') ||
+                                                     (op.referencia_cliente?.toUpperCase().includes('RES080')) ||
+                                                     (op.id_oportunidad?.toUpperCase().includes('RES080'));
+                                    const isHybrid = calcInputs.hibridacion === true || op.datos_calculo?.hibridacion === true || 
+                                                     (op.ficha === 'RES093') ||
+                                                     (op.referencia_cliente?.toUpperCase().includes('RES093')) ||
+                                                     (op.id_oportunidad?.toUpperCase().includes('RES093'));
+                                    
+                                    const currentFicha = isReforma ? 'RES080' : (isHybrid ? 'RES093' : 'RES060');
+                                    
+                                    // Seleccionar financieros correctos según ficha
+                                    // Solo RES080 (Reforma) usa financialsRes080 si existe. RES093 y RES060 usan financials estándar.
+                                    const financials = (isReforma && op.datos_calculo?.result?.financialsRes080) 
+                                        ? op.datos_calculo.result.financialsRes080 
+                                        : op.datos_calculo?.result?.financials;
+                                        
+                                    const caeBonus = financials?.caeBonus || 0;
+                                    const profitBrokergy = financials?.profitBrokergy || 0;
+                                    const presupuesto = financials?.presupuesto || 0;
+
                                     return (
                                         <tr
                                             key={op.id}
@@ -614,10 +965,33 @@ export function AdminPanelView({ onLoadOpportunity, onBackToCalculator, activeTa
                                         >
                                             <td className="p-3.5 text-xs font-mono text-cyan-400/80 whitespace-nowrap">{op.id_oportunidad}</td>
                                             <td className="p-3.5 text-sm text-white/90 font-medium max-w-[140px] truncate" title={op.referencia_cliente}>{op.referencia_cliente || '-'}</td>
-                                            <td className="p-3.5 text-[11px] font-mono text-white/30">{op.ref_catastral}</td>
-                                            {viewMode === 'brokergy' && (
-                                                <td className="p-3.5 text-sm text-white/40 font-mono text-right">
-                                                    {op.demanda_calefaccion ? parseFloat(op.demanda_calefaccion).toFixed(2) : '-'}
+                                             {user?.rol === 'DISTRIBUIDOR' && (
+                                                <td className="p-3.5 text-[10px] text-amber-400 font-bold tracking-tight">
+                                                    {op.datos_calculo?.cod_cliente_interno || '-'}
+                                                </td>
+                                             )}
+                                            <td className="p-3.5 text-[10px] text-white/40 uppercase font-bold tracking-tight">
+                                                {getCCAA(op)}
+                                            </td>
+                                            <td className="p-3.5 whitespace-nowrap">
+                                                <span className={`px-2 py-0.5 rounded text-[9px] font-black tracking-wider border ${
+                                                    currentFicha === 'RES080'
+                                                        ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                                                        : currentFicha === 'RES093'
+                                                            ? 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30'
+                                                            : 'bg-brand/10 text-brand border-brand/20'
+                                                }`}>
+                                                    {currentFicha}
+                                                </span>
+                                            </td>
+                                            {user?.rol === 'ADMIN' && (
+                                                <td className="p-3.5 text-sm text-blue-400 font-mono text-right font-bold">
+                                                    {(() => {
+                                                        const savingsKwh = isReforma 
+                                                            ? (op.datos_calculo?.result?.res080?.ahorroEnergiaFinalTotal || 0)
+                                                            : (op.datos_calculo?.result?.savings?.savingsKwh || 0);
+                                                        return (savingsKwh / 1000).toFixed(2);
+                                                    })()}
                                                 </td>
                                             )}
                                             <td className="p-3.5 text-sm font-bold text-emerald-400 text-right">
@@ -625,8 +999,8 @@ export function AdminPanelView({ onLoadOpportunity, onBackToCalculator, activeTa
                                             </td>
                                             <td className="p-3.5 text-sm font-bold text-cyan-400 text-right">
                                                 {viewMode === 'brokergy'
-                                                    ? (op.datos_calculo?.result?.financials?.profitBrokergy ? op.datos_calculo.result.financials.profitBrokergy.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' }) : '-')
-                                                    : (op.datos_calculo?.result?.financials?.presupuesto ? op.datos_calculo.result.financials.presupuesto.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' }) : '-')
+                                                    ? (profitBrokergy > 0 ? profitBrokergy.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' }) : '-')
+                                                    : (presupuesto > 0 ? presupuesto.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' }) : '-')
                                                 }
                                             </td>
                                             <td className="p-3.5 text-[11px] text-white/25 whitespace-nowrap font-mono">
@@ -634,27 +1008,11 @@ export function AdminPanelView({ onLoadOpportunity, onBackToCalculator, activeTa
                                             </td>
                                             
                                             {user?.rol === 'ADMIN' && (
-                                                <td className="p-3.5 text-center" onClick={e => e.stopPropagation()}>
-                                                    <div className="relative group/sel-row">
-                                                        <select
-                                                            value={op.prescriptor_id || ''}
-                                                            onChange={(e) => handleAssignPrescriptor(e, op, e.target.value)}
-                                                            disabled={assigningPrescriptor === op.id_oportunidad}
-                                                            className={`appearance-none bg-black/40 border border-white/[0.08] text-white/70 text-[10px] font-bold rounded-lg px-3 py-1.5 w-full outline-none transition-all pr-8 ${assigningPrescriptor === op.id_oportunidad ? 'opacity-50 cursor-wait' : 'hover:border-white/20 hover:text-white cursor-pointer'}`}
-                                                        >
-                                                            <option value="" className="bg-slate-900 border-none">Sin asignar</option>
-                                                            {prescriptores.map(p => (
-                                                                <option key={p.id_empresa} value={p.id_empresa} className="bg-slate-900 border-none">
-                                                                    {(p.acronimo || p.razon_social || `${p.usuarios?.nombre} ${p.usuarios?.apellidos || ''}`).trim().toUpperCase()}
-                                                                </option>
-                                                            ))}
-                                                        </select>
-                                                        <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-white/10 group-hover/sel-row:text-white/30 transition-colors">
-                                                            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M19 9l-7 7-7-7" />
-                                                            </svg>
-                                                        </div>
-                                                    </div>
+                                                <td className="p-3.5 text-center min-w-[140px]" onClick={e => e.stopPropagation()}>
+                                                    <SearchablePartnerSelect 
+                                                        value={op} 
+                                                        onSelect={val => handleAssignPrescriptor({ stopPropagation: () => {} }, op, val)}
+                                                    />
                                                 </td>
                                             )}
 
@@ -681,7 +1039,7 @@ export function AdminPanelView({ onLoadOpportunity, onBackToCalculator, activeTa
                                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                                                         </svg>
                                                     </button>
-                                                    {op.datos_calculo?.drive_folder_link && (
+                                                    {op.datos_calculo?.drive_folder_link && user?.rol === 'ADMIN' && (
                                                         <a
                                                             href={op.datos_calculo.drive_folder_link}
                                                             target="_blank"
@@ -694,6 +1052,47 @@ export function AdminPanelView({ onLoadOpportunity, onBackToCalculator, activeTa
                                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
                                                             </svg>
                                                         </a>
+                                                    )}
+                                                    {user?.rol !== 'DISTRIBUIDOR' && (
+                                                        <>
+                                                            {op.cliente_id ? (
+                                                                /* Botón Ver Cliente (ya tiene cliente asignado) */
+                                                                <button
+                                                                    onClick={(e) => { e.stopPropagation(); setClienteDetailId(op.cliente_id); }}
+                                                                    className="p-1 text-brand/60 hover:text-brand transition-all rounded-lg hover:bg-brand/10"
+                                                                    title="Ver Cliente vinculado"
+                                                                >
+                                                                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                                                                    </svg>
+                                                                </button>
+                                                            ) : (
+                                                                /* Botón Crear Cliente */
+                                                                <button
+                                                                    onClick={(e) => { e.stopPropagation(); setClienteModalOp(op); }}
+                                                                    className="p-1 text-white/10 hover:text-brand transition-all rounded-lg hover:bg-brand/10 opacity-0 group-hover:opacity-100"
+                                                                    title="Crear Cliente desde esta Oportunidad"
+                                                                >
+                                                                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+                                                                    </svg>
+                                                                </button>
+                                                            )}
+                                                        </>
+                                                    )}
+                                                    {user?.rol?.toUpperCase() === 'ADMIN' && (op.drive_folder_id || op.drive_folder_url) && (
+                                                        <button
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                window.open(op.drive_folder_url || `https://drive.google.com/drive/folders/${op.drive_folder_id}`, '_blank');
+                                                            }}
+                                                            className="p-1.5 text-white/20 hover:text-brand transition-colors rounded-lg hover:bg-brand/10"
+                                                            title="Abrir carpeta en Drive"
+                                                        >
+                                                            <svg className="w-4.5 h-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                                                            </svg>
+                                                        </button>
                                                     )}
                                                     <button
                                                         onClick={(e) => {
@@ -857,18 +1256,54 @@ export function AdminPanelView({ onLoadOpportunity, onBackToCalculator, activeTa
                                 </svg>
                                 Historial de Estados
                             </h3>
-                            {(historyModalOp.datos_calculo?.historial || []).length > 0 && (
-                                <button
-                                    onClick={() => setShowHistoryDeleteConfirm(true)}
-                                    disabled={deletingHistory}
-                                    className="text-[10px] font-black uppercase tracking-tighter px-3 py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 rounded-lg transition-all flex items-center gap-2 group mr-8"
-                                >
-                                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                    </svg>
-                                    BORRAR HISTORIAL
-                                </button>
-                            )}
+                            
+                            <div className="flex items-center gap-2 mr-8">
+                                <div className="flex bg-black/40 p-1 rounded-xl border border-white/[0.06] mr-4">
+                                    <button
+                                        onClick={() => setHistoryFilter('all')}
+                                        className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all ${
+                                            historyFilter === 'all'
+                                                ? 'bg-brand text-black shadow-lg shadow-brand/20'
+                                                : 'text-white/40 hover:text-white/60'
+                                        }`}
+                                    >
+                                        TODO
+                                    </button>
+                                    <button
+                                        onClick={() => setHistoryFilter('notes')}
+                                        className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all ${
+                                            historyFilter === 'notes'
+                                                ? 'bg-brand text-black shadow-lg shadow-brand/20'
+                                                : 'text-white/40 hover:text-white/60'
+                                        }`}
+                                    >
+                                        NOTAS
+                                    </button>
+                                    <button
+                                        onClick={() => setHistoryFilter('status')}
+                                        className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all ${
+                                            historyFilter === 'status'
+                                                ? 'bg-brand text-black shadow-lg shadow-brand/20'
+                                                : 'text-white/40 hover:text-white/60'
+                                        }`}
+                                    >
+                                        ESTADOS
+                                    </button>
+                                </div>
+
+                                {(historyModalOp.datos_calculo?.historial || []).length > 0 && (
+                                    <button
+                                        onClick={() => setShowHistoryDeleteConfirm(true)}
+                                        disabled={deletingHistory}
+                                        className="text-[10px] font-black uppercase tracking-tighter px-3 py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 rounded-lg transition-all flex items-center gap-2 group"
+                                    >
+                                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                        </svg>
+                                        BORRAR
+                                    </button>
+                                )}
+                            </div>
                         </div>
 
                         {showHistoryDeleteConfirm ? (
@@ -988,7 +1423,12 @@ export function AdminPanelView({ onLoadOpportunity, onBackToCalculator, activeTa
                                 )}
 
                                 <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2 custom-scrollbar">
-                                    {(historyModalOp.datos_calculo?.historial || []).length === 0 ? (
+                                    {((historyModalOp.datos_calculo?.historial || []).filter(h => {
+                                        if (historyFilter === 'all') return true;
+                                        if (historyFilter === 'notes') return h.tipo === 'comentario';
+                                        if (historyFilter === 'status') return h.tipo !== 'comentario';
+                                        return true;
+                                    })).length === 0 ? (
                                         <div className="text-center py-10">
                                             <div className="w-16 h-16 bg-white/5 rounded-full flex items-center justify-center mx-auto mb-4 border border-white/10">
                                                 <svg className="w-8 h-8 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -998,7 +1438,15 @@ export function AdminPanelView({ onLoadOpportunity, onBackToCalculator, activeTa
                                             <p className="text-slate-500 text-sm">No hay registros aún.</p>
                                         </div>
                                     ) : (
-                                        [...(historyModalOp.datos_calculo.historial)].reverse().map((registro, idx, arr) => {
+                                        [...(historyModalOp.datos_calculo.historial)]
+                                            .filter(h => {
+                                                if (historyFilter === 'all') return true;
+                                                if (historyFilter === 'notes') return h.tipo === 'comentario';
+                                                if (historyFilter === 'status') return h.tipo !== 'comentario';
+                                                return true;
+                                            })
+                                            .reverse()
+                                            .map((registro, idx, arr) => {
                                             const isComment = registro.tipo === 'comentario';
                                             return (
                                                 <div key={idx} className="relative pl-6 pb-4 last:pb-0">
@@ -1036,7 +1484,35 @@ export function AdminPanelView({ onLoadOpportunity, onBackToCalculator, activeTa
                                                         </div>
 
                                                         <div className={`text-sm ${isComment ? 'text-indigo-100/90 italic' : 'text-slate-300'}`}>
-                                                            {isComment ? registro.texto : `Estado cambiado a ${registro.estado}`}
+                                                            {isComment ? (
+                                                                editingEntryId === registro.id ? (
+                                                                    <div className="flex flex-col gap-2">
+                                                                        <textarea
+                                                                            autoFocus
+                                                                            value={editingText}
+                                                                            onChange={(e) => setEditingText(e.target.value)}
+                                                                            className="w-full bg-black/40 border border-brand/30 rounded-lg p-2 text-xs text-white focus:outline-none min-h-[60px] resize-none"
+                                                                        />
+                                                                        <div className="flex justify-end gap-2">
+                                                                            <button 
+                                                                                onClick={() => setEditingEntryId(null)}
+                                                                                className="px-2 py-1 bg-white/5 hover:bg-white/10 text-white/60 rounded text-[9px] font-black uppercase tracking-widest transition-all"
+                                                                            >
+                                                                                CANCELAR
+                                                                            </button>
+                                                                            <button 
+                                                                                onClick={() => handleEditEntry(registro.id)}
+                                                                                disabled={updatingEntry || !editingText.trim()}
+                                                                                className="px-2 py-1 bg-brand text-black rounded text-[9px] font-black uppercase tracking-widest transition-all hover:scale-105 active:scale-95 disabled:opacity-50"
+                                                                            >
+                                                                                {updatingEntry ? 'GUARDANDO...' : 'GUARDAR'}
+                                                                            </button>
+                                                                        </div>
+                                                                    </div>
+                                                                ) : (
+                                                                    registro.texto
+                                                                )
+                                                            ) : `Estado cambiado a ${registro.estado}`}
                                                         </div>
 
                                                         <div className="flex justify-between items-center mt-3 pt-2 border-t border-white/5">
@@ -1048,15 +1524,31 @@ export function AdminPanelView({ onLoadOpportunity, onBackToCalculator, activeTa
                                                             </div>
 
                                                             {isComment && (
-                                                                <button
-                                                                    onClick={() => handleDeleteEntry(registro.id)}
-                                                                    className="p-1 text-slate-600 hover:text-red-400 transition-colors"
-                                                                    title="Eliminar Nota"
-                                                                >
-                                                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                                                    </svg>
-                                                                </button>
+                                                                <div className="flex items-center gap-1">
+                                                                    {user?.rol === 'ADMIN' && (
+                                                                        <button
+                                                                            onClick={() => {
+                                                                                setEditingEntryId(registro.id);
+                                                                                setEditingText(registro.texto);
+                                                                            }}
+                                                                            className="p-1 text-slate-600 hover:text-brand transition-colors"
+                                                                            title="Editar Nota"
+                                                                        >
+                                                                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                                                                            </svg>
+                                                                        </button>
+                                                                    )}
+                                                                    <button
+                                                                        onClick={() => handleDeleteEntry(registro.id)}
+                                                                        className="p-1 text-slate-600 hover:text-red-400 transition-colors"
+                                                                        title="Eliminar Nota"
+                                                                    >
+                                                                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                                                        </svg>
+                                                                    </button>
+                                                                </div>
                                                             )}
                                                         </div>
                                                     </div>
@@ -1072,6 +1564,49 @@ export function AdminPanelView({ onLoadOpportunity, onBackToCalculator, activeTa
             )}
                 </div>
             )}
+
+            {/* Modal Crear Cliente desde Oportunidad */}
+            <ClienteFormModal
+                isOpen={!!clienteModalOp}
+                onClose={() => {
+                    setClienteModalOp(null);
+                    setPendingStatusUpdate(null);
+                }}
+                oportunidad={clienteModalOp}
+                onSuccess={(cliente) => {
+                    // Actualizar el cliente_id en la oportunidad localmente
+                    if (clienteModalOp && cliente?.id_cliente) {
+                        const updatedOportunidades = oportunidades.map(o =>
+                            o.id_oportunidad === clienteModalOp.id_oportunidad
+                                ? { ...o, cliente_id: cliente.id_cliente }
+                                : o
+                        );
+                        setOportunidades(updatedOportunidades);
+
+                        // Si teníamos una actualización de estado pendiente, ejecutarla ahora
+                        if (pendingStatusUpdate && pendingStatusUpdate.op.id_oportunidad === clienteModalOp.id_oportunidad) {
+                            const { op: savedOp, nuevoEstado } = pendingStatusUpdate;
+                            // Preparamos un objeto que simule el evento de cambio para reutilizar handleStatusChange
+                            const fakeEvent = { 
+                                target: { value: nuevoEstado }, 
+                                stopPropagation: () => {} 
+                            };
+                            const updatedOpWithClient = { ...savedOp, cliente_id: cliente.id_cliente };
+                            handleStatusChange(fakeEvent, updatedOpWithClient);
+                        }
+                    }
+                    setClienteModalOp(null);
+                    setPendingStatusUpdate(null);
+                }}
+            />
+
+            {/* Modal Ver/Editar Cliente */}
+            <ClienteDetailModal
+                isOpen={!!clienteDetailId}
+                onClose={() => setClienteDetailId(null)}
+                clienteId={clienteDetailId}
+                onOpenOportunidad={(op) => { setClienteDetailId(null); onLoadOpportunity(op); }}
+            />
         </>
     );
 }

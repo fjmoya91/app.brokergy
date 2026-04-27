@@ -19,7 +19,7 @@ function getFloorLabel(floor) {
     return `Planta ${num}`;
 }
 
-export function PropertySheet({ data, onCalculateDemand }) {
+export function PropertySheet({ data, onCalculateDemand, initialSelection }) {
     const [copied, setCopied] = useState(false);
     const [imageError, setImageError] = useState(false);
     const [parcelImageError, setParcelImageError] = useState(false);
@@ -29,12 +29,18 @@ export function PropertySheet({ data, onCalculateDemand }) {
     // Actualizar selección cuando cambian los datos
     React.useEffect(() => {
         if (data.constructions) {
-            const initialSelection = data.constructions
-                .map((c, i) => (c.type || '').toUpperCase().includes('VIVIENDA') ? i : null)
-                .filter(i => i !== null);
-            setSelectedElements(initialSelection);
+            // Si ya tenemos una selección inicial (viniendo de la calculadora), la respetamos
+            if (initialSelection && Array.isArray(initialSelection)) {
+                setSelectedElements(initialSelection);
+            } else {
+                // Si no, inicializamos con todas las viviendas por defecto
+                const initial = data.constructions
+                    .map((c, i) => (c.type || '').toUpperCase().includes('VIVIENDA') ? i : null)
+                    .filter(i => i !== null);
+                setSelectedElements(initial);
+            }
         }
-    }, [data.constructions]);
+    }, [data.constructions, initialSelection]);
 
     const toggleSelection = (idx) => {
         setSelectedElements(prev =>
@@ -117,7 +123,12 @@ export function PropertySheet({ data, onCalculateDemand }) {
     const handleCalculateDemand = () => {
         const anio = data.yearBuilt || 2000;
         const plantas = currentSelectedFloors || 1;
-        const superficie = currentSelectedSurface || 100;
+        
+        // Sup. Útil (Total Vivienda) vs Sup. Calefactable (Selección actual)
+        const totalVivienda = data.summaryByType?.['VIVIENDA'] || data.totalSurface || 0;
+        const superficie = totalVivienda;
+        const superficieCalefactable = currentSelectedSurface || totalVivienda;
+
         const rc = data.rc;
         const zona = data.climateInfo?.climateZone || 'D3';
 
@@ -125,18 +136,17 @@ export function PropertySheet({ data, onCalculateDemand }) {
         const participationStr = (data.participation || '100,00').replace('%', '').replace(',', '.');
         const participation = parseFloat(participationStr);
 
-        // Determinar tipo inicial:
-        // - Si participación < 100% -> sugerimos 'piso' (división horizontal)
-        // - Pero el usuario puede cambiarlo a 'hilera' si aplica
         const tipo = (participation < 100) ? 'piso' : 'unifamiliar';
 
-        console.log('PropertySheet -> Calculator:', { anio, plantas, superficie, rc, zona, tipo, participation });
+        console.log('PropertySheet -> Calculator:', { anio, plantas, superficie, superficieCalefactable, rc, zona, tipo, participation });
 
         if (onCalculateDemand) {
             onCalculateDemand({
                 anio,
                 plantas,
                 superficie,
+                superficieCalefactable,
+                selectedConstructions: selectedElements, // Persistimos los índices seleccionados
                 rc,
                 zona,
                 tipo,

@@ -1,12 +1,12 @@
 {
     "version": 2,
-    "buildCommand": "cd implementation && npm install && npm run build",
+    "buildCommand": "cd implementation/frontend && npm install && npm run build",
     "outputDirectory": "implementation/frontend/dist",
     "framework": null,
     "rewrites": [
         {
-            "source": "/api/(.*)",
-            "destination": "/api/index.js"
+            "source": "/api/:path*",
+            "destination": "https://RAILWAY_BACKEND_URL/api/:path*"
         },
         {
             "source": "/(.*)",

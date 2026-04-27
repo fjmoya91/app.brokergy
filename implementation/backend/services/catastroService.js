@@ -129,15 +129,29 @@ async function getByRC(rc) {
 
         if (!consulta || consulta.lerr) {
             let errDesc = 'Error en Catastro';
+            let errCode = 'CATASTRO_APP_ERROR';
+            
             if (consulta?.lerr?.err) {
                 const errs = Array.isArray(consulta.lerr.err) ? consulta.lerr.err : [consulta.lerr.err];
-                // Use getText to be safe with xml2js output
+                const firstErr = errs[0];
+                const code = getText(firstErr.cod);
                 errDesc = errs.map(e => getText(e.des)).filter(Boolean).join('. ') || errDesc;
+                
+                // Categorizar errores comunes de Catastro
+                if (['4', '7', '8'].includes(code)) {
+                    errCode = 'RC_INVALID_FORMAT';
+                } else if (code === '1' || errDesc.toUpperCase().includes('NO ENCONTRADA') || errDesc.toUpperCase().includes('NO SE HA ENCONTRADO')) {
+                    errCode = 'RC_NOT_FOUND';
+                }
             } else if (consulta?.lerr?.des) {
                 errDesc = getText(consulta.lerr.des);
+                if (errDesc.toUpperCase().includes('NO ENCONTRADA')) errCode = 'RC_NOT_FOUND';
             }
-            console.warn(`Catastro API Error [${cleanRC}]:`, errDesc);
-            throw new Error(errDesc);
+
+            const error = new Error(errDesc);
+            error.code = errCode;
+            console.warn(`Catastro API Error [${cleanRC}] [${errCode}]:`, errDesc);
+            throw error;
         }
 
         const bico = consulta.bico;
@@ -229,6 +243,17 @@ async function getByRC(rc) {
         };
 
     } catch (error) {
+        if (error.code && error.code.startsWith('RC_')) throw error;
+        if (error.code && error.code.startsWith('CATASTRO_')) throw error;
+
+        // Categorizar errores de red/servidor
+        if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
+            error.code = 'CATASTRO_TIMEOUT';
+        } else if (error.response) {
+            error.code = 'CATASTRO_DOWN';
+        } else if (error.request) {
+            error.code = 'CATASTRO_UNREACHABLE';
+        }
         throw error;
     }
 }

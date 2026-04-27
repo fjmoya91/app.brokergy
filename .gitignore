@@ -10,3 +10,40 @@ yarn-error.log*
 .idea/
 .vscode/
 *.local
+
+# whatsapp-web.js — sesión local (nunca subir: contiene credenciales de sesión)
+.wwebjs_auth/
+.wwebjs_cache/
+
+# Ficheros temporales y de desarrollo local
+tmp/
+tmp_docx/
+scratch/
+implementation/scratch/
+implementation/frontend/src/features/calculator/scratch/
+implementation/backend/scratch/
+
+# Tokens y credenciales generadas localmente
+implementation/backend/refresh_token.txt
+implementation/backend/tmp_url.txt
+implementation/backend/debug_email.txt
+
+# Resultados de linting y builds locales
+implementation/frontend/lint_result.json
+
+# Datos locales (xlsx, imágenes de instaladores)
+data/Instaladores_Images/
+data/bbdd_aerotermia/
+data/bbdd_instaladores.xlsx
+imagenes/
+plantillas/
+
+# Scripts de depuración/prueba sueltos en raíz del backend
+implementation/backend/check_*.js
+implementation/backend/test_*.js
+implementation/backend/fix_*.js
+implementation/backend/add_*.js
+implementation/backend/schema.ts
+implementation/check_*.js
+implementation/check_*.js
+implementation/test_*.js

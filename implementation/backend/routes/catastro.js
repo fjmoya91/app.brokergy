@@ -27,7 +27,11 @@ router.get('/search', async (req, res) => {
         }
     } catch (error) {
         console.error('Search error:', error.message);
-        res.status(500).json({ error: 'Search failed', details: error.message });
+        res.status(error.code?.startsWith('RC_') ? 404 : 500).json({ 
+            error: 'Search failed', 
+            details: error.message,
+            code: error.code || 'UNKNOWN_ERROR'
+        });
     }
 });
 
@@ -217,7 +221,11 @@ router.get('/property-data', async (req, res) => {
         res.json(data);
     } catch (error) {
         console.error('Property Data error:', error.message);
-        res.status(500).json({ error: 'Failed to fetch property data', details: error.message });
+        res.status(error.code?.startsWith('RC_') ? 404 : 500).json({ 
+            error: 'Failed to fetch property data', 
+            details: error.message,
+            code: error.code || 'UNKNOWN_ERROR'
+        });
     }
 });
 

@@ -10,10 +10,15 @@ import {
     calculateAnnualSavingsTheoretical,
     calculateAnnualSavingsFromSpending,
     calculatePayback,
+    calculateRes080,
+    calculateRes080Estimated,
+    calculateHybridization,
     FUEL_PRICES,
     getUByYear,
-    getVentanaYACHByYear
+    getVentanaYACHByYear,
+    AEROTHERMIA_MODELS
 } from '../logic/calculation';
+import axios from 'axios';
 
 const INITIAL_INPUTS = {
     // Datos Edificio
@@ -56,36 +61,87 @@ const INITIAL_INPUTS = {
     prescriptorMode: 'brokergy',   // 'client', 'brokergy', 'both'
     emitterType: 'radiadores_convencionales',
     includeAnnualSavings: false,
+    hibridacion: false,
+    potenciaBomba: 12,
     discountCertificates: false,
     includeLegalization: false,
     installerNoCard: false,
     legalizationPrice: 200,
     numOwners: 1,
     referenciaCliente: '',
-    itpPercent: 6,
+    itpPercent: 0,
+    includeItp: false,
+    includeIrpf: true,
+    titularType: 'particular',
+    aplicarIrpfCae: false,
+    cod_cliente_interno: '',
+    instalador_asociado_id: '',
+    prescriptor_id: '',
     
     // Modo de demanda y datos (real o estimado)
     demandMode: 'estimated',
     xmlDemandData: null,
-    manualDemand: 0
+    // Datos de Reforma (RES080)
+    isReforma: false,
+    comparativaReforma: true,
+    reformaType: 'none', // 'none' | 'both' | 'onlyReforma'
+    xmlDemandDataFinal: null,
+    combustibleAcsInicial: 'Gas Natural',
+    combustibleAcsFinal: 'Electricidad peninsular',
+    combustibleCalefaccionInicial: 'Gas Natural',
+    combustibleCalefaccionFinal: 'Electricidad peninsular',
+    combustibleRefrigeracionInicial: 'Electricidad peninsular',
+    combustibleRefrigeracionFinal: 'Electricidad peninsular',
+    presupuestoEnvolvente: 0,
+
+    // Nuevos campos Estimación RES080
+    boilerAcsType: '',
+    boilerHeatingType: 'No tiene Calefacción',
+    insulationState: 'sin_aislamiento',
+    reformaParedes: false,
+    
+    // Campos de Emisiones Manuales (para modo Manual + Reforma)
+    manualEmisionesAcsInicial: 0,
+    manualEmisionesAcsFinal: 0,
+    manualEmisionesCalefaccionInicial: 0,
+    manualEmisionesCalefaccionFinal: 0,
+    manualEmisionesRefrigeracionInicial: 0,
+    manualEmisionesRefrigeracionFinal: 0,
+
+    // UI State (Persistente)
+    showBuildingData: false,
+    showEnvolvente: false,
+    showInstalaciones: false,
+    showEconomicData: false,
+    showAdvanced: false
 };
 
-export function CalculatorView({ initialData, onBack }) {
+export function CalculatorView({ initialData, onBack, onNavigate }) {
     const { user } = useAuth();
-    const [showBrokergy, setShowBrokergy] = useState(user?.rol?.toUpperCase() === 'ADMIN');
+    const [showBrokergy, setShowBrokergy] = useState(false);
     
-    // Forzar siempre vista prescriptor si no es admin (seguridad extra)
+    // Sincronizar permisos de Admin/Partner dinámicamente
     useEffect(() => {
-        if (user?.rol?.toUpperCase() !== 'ADMIN' && showBrokergy) {
-            setShowBrokergy(false);
-        }
-    }, [user, showBrokergy]);
+        const isAdmin = user?.rol?.toUpperCase() === 'ADMIN';
+        setShowBrokergy(isAdmin);
+    }, [user]);
 
     // Inicializar estado. Si hay initialData, lo usamos como base absoluta.
     const [inputs, setInputs] = useState(() => {
         // Combinamos los defaults con la data inicial. 
         // Si initialData ya es un objeto de estado completo (viniendo de App.jsx), se respetará íntegramente.
         const base = { ...INITIAL_INPUTS, ...initialData };
+
+        // Forzamos defaults críticos si vienen vacíos de initialData (ej: oportunidades antiguas o mal inicializadas)
+        if (!base.boilerHeatingType || base.boilerHeatingType === '') {
+            base.boilerHeatingType = 'No tiene Calefacción';
+        }
+        if (!base.insulationState || base.insulationState === '') {
+            base.insulationState = 'sin_aislamiento';
+        }
+        if (!base.demandMode || !['estimated', 'real', 'manual'].includes(base.demandMode)) {
+            base.demandMode = 'estimated';
+        }
 
         if (initialData) {
             // Aseguramos conversiones de tipo para campos críticos que puedan venir como strings del catastro
@@ -96,19 +152,14 @@ export function CalculatorView({ initialData, onBack }) {
                 if (!initialData.superficieCalefactable) base.superficieCalefactable = base.superficie;
             }
 
-            // isPersistent = true solo si viene explícitamente marcado desde App.jsx
-            // (datos guardados en BD o inputs persistentes de sesión).
-            // NO usar !!initialData.uMuro porque INITIAL_INPUTS ya pone un uMuro por defecto
-            // y eso hacía que siempre fuese true.
             const isPersistent = !!initialData.isPersistent;
 
             console.log('[CalculatorView] Init:', {
                 isPersistent,
                 anio: base.anio,
+                boilerHeatingType: base.boilerHeatingType,
+                insulationState: base.insulationState,
                 initialDataKeys: Object.keys(initialData),
-                hasUMuro: 'uMuro' in initialData,
-                initialUMuro: initialData.uMuro,
-                baseUMuro: base.uMuro,
             });
 
             if (!isPersistent && initialData.tipo) {
@@ -153,13 +204,65 @@ export function CalculatorView({ initialData, onBack }) {
     });
 
     const [result, setResult] = useState(null);
+    const [dbModels, setDbModels] = useState([]);
+    const [associatedExpediente, setAssociatedExpediente] = useState(null);
+    const [showAcceptModal, setShowAcceptModal] = useState(false);
+    const [acceptLoading, setAcceptLoading] = useState(false);
+    const [manualExpNumber, setManualExpNumber] = useState('');
+    const [isManualMode, setIsManualMode] = useState(false);
+    const [acceptError, setAcceptError] = useState(null);
+    const [lastSnapshot, setLastSnapshot] = useState(null);
 
-    // Cálculos en tiempo real cada vez que cambian los inputs
+    useEffect(() => {
+        const fetchModels = async () => {
+            try {
+                const res = await axios.get('/api/aerotermia');
+                setDbModels(res.data);
+            } catch (err) {
+                console.error('Error fetching models for calculator:', err);
+            }
+        };
+        fetchModels();
+    }, []);
+
+    // Buscar expediente asociado
+    useEffect(() => {
+        if (inputs.id_oportunidad) {
+            axios.get('/api/expedientes')
+                .then(res => {
+                    const found = (res.data || []).find(e => 
+                        e.oportunidades?.id_oportunidad === inputs.id_oportunidad ||
+                        e.id_oportunidad_ref === inputs.id_oportunidad
+                    );
+                    if (found) setAssociatedExpediente(found);
+                    else setAssociatedExpediente(null);
+                })
+                .catch(err => console.error('Error fetching associated expediente:', err));
+        }
+    }, [inputs.id_oportunidad]);
+
+    // Cálculos en tiempo real cada vez que cambian los inputs o se cargan los modelos
     useEffect(() => {
         handleCalculate();
-    }, [inputs]);
+    }, [inputs, dbModels]);
+
+    // Calcular si hay cambios pendientes (Dirty State)
+    const currentSnapshot = JSON.stringify({
+        inputs: { ...inputs, referenciaCliente: inputs.referenciaCliente || '' },
+        result: result ? { ...result, selectedModel: null } : null // Ignoramos el modelo objeto para evitar circularidad o inconsistencias de fetch
+    });
+    const isDirty = lastSnapshot !== null && lastSnapshot !== currentSnapshot;
+
+    // Inicializar snapshot por primera vez cuando los datos base se asientan
+    useEffect(() => {
+        if (result && lastSnapshot === null) {
+            setLastSnapshot(currentSnapshot);
+        }
+    }, [result, lastSnapshot, currentSnapshot]);
 
     const handleCalculate = () => {
+        // Se eliminó la alerta bloqueante para permitir actualización fluida de cálculos en tiempo real
+
         // Sanitización local de inputs numéricos para evitar que los strings con "." o "," rompan el motor de cálculo
         const sanitizedInputs = {
             ...inputs,
@@ -185,12 +288,40 @@ export function CalculatorView({ initialData, onBack }) {
             numOwners: parseInt(inputs.numOwners) || 1,
             legalizationPrice: parseFloat(inputs.legalizationPrice) || 250,
             manualDemand: parseFloat(inputs.manualDemand) || 0,
-            itpPercent: inputs.itpPercent !== undefined ? parseFloat(inputs.itpPercent) : 6
+            itpPercent: inputs.itpPercent !== undefined ? parseFloat(inputs.itpPercent) : 6,
+            
+            // Campos de Reforma
+            presupuestoEnvolvente: parseFloat(inputs.presupuestoEnvolvente) || 0,
+            isReforma: inputs.isReforma || false,
+            reformaType: inputs.reformaType || 'none',
+
+            // Hibridación
+            hibridacion: inputs.hibridacion || false,
+            potenciaBomba: parseFloat(inputs.potenciaBomba) || 12,
+
+            // Campos de Mejora Estimada
+            reformaVentanas: !!inputs.reformaVentanas,
+            reformaCubierta: !!inputs.reformaCubierta,
+            reformaSuelo: !!inputs.reformaSuelo,
+            reformaParedes: !!inputs.reformaParedes,
+            boilerAcsType: inputs.boilerAcsType || '',
+            boilerHeatingType: inputs.boilerHeatingType || '',
+            insulationState: inputs.insulationState || 'sin_aislamiento',
+
+            // Sanitización Emisiones Manuales
+            manualEmisionesAcsInicial: parseFloat(inputs.manualEmisionesAcsInicial) || 0,
+            manualEmisionesAcsFinal: parseFloat(inputs.manualEmisionesAcsFinal) || 0,
+            manualEmisionesCalefaccionInicial: parseFloat(inputs.manualEmisionesCalefaccionInicial) || 0,
+            manualEmisionesCalefaccionFinal: parseFloat(inputs.manualEmisionesCalefaccionFinal) || 0,
+            manualEmisionesRefrigeracionInicial: parseFloat(inputs.manualEmisionesRefrigeracionInicial) || 0,
+            manualEmisionesRefrigeracionFinal: parseFloat(inputs.manualEmisionesRefrigeracionFinal) || 0,
         };
 
         // 1. Calcular Demanda
         let demandRes;
-        if (showBrokergy && inputs.demandMode === 'real' && inputs.xmlDemandData?.demandaCalefaccion) {
+        const currentDemandMode = inputs.demandMode || 'estimated';
+
+        if (currentDemandMode === 'real' && inputs.xmlDemandData?.demandaCalefaccion) {
             // Modo REAL: usar la demanda del XML (kWh/m²·año) × superficie calefactable
             const xmlDemandTotal = inputs.xmlDemandData.demandaCalefaccion * sanitizedInputs.superficieCalefactable;
             demandRes = {
@@ -198,7 +329,7 @@ export function CalculatorView({ initialData, onBack }) {
                 q_net: inputs.xmlDemandData.demandaCalefaccion,
                 fromXml: true
             };
-        } else if (showBrokergy && inputs.demandMode === 'manual') {
+        } else if (currentDemandMode === 'manual') {
             // Modo MANUAL: usar la demanda introducida a mano (kWh/m²·año) × superficie calefactable
             demandRes = {
                 Q_net: sanitizedInputs.manualDemand * sanitizedInputs.superficieCalefactable,
@@ -211,6 +342,14 @@ export function CalculatorView({ initialData, onBack }) {
             demandRes.fromXml = false;
         }
 
+        // 1.5 Cálculo de Hibridación (necesario para corregir ahorros)
+        const hybridizationRes = sanitizedInputs.hibridacion ? calculateHybridization({
+            demandAnnual: demandRes.Q_net,
+            zone: sanitizedInputs.zona,
+            heatPumpPower: sanitizedInputs.potenciaBomba
+        }) : null;
+        const cb = hybridizationRes?.cb ?? 1.0;
+
         // 2. Calcular Ahorro
         const savingsRes = calculateSavings({
             q_net_heating: demandRes.Q_net,
@@ -218,7 +357,8 @@ export function CalculatorView({ initialData, onBack }) {
             boilerEff: sanitizedInputs.boilerEff,
             scopHeating: sanitizedInputs.scopHeating,
             scopAcs: sanitizedInputs.scopAcs,
-            changeAcs: sanitizedInputs.changeAcs
+            changeAcs: sanitizedInputs.changeAcs,
+            cb: cb
         });
 
         // 3. Cálculos Financieros (IRPF + CAE)
@@ -236,7 +376,10 @@ export function CalculatorView({ initialData, onBack }) {
             includeLegalization: sanitizedInputs.includeLegalization,
             installerNoCard: sanitizedInputs.installerNoCard,
             legalizationPrice: sanitizedInputs.legalizationPrice,
-            itpPercent: sanitizedInputs.itpPercent
+            itpPercent: sanitizedInputs.itpPercent,
+            includeIrpf: inputs.includeIrpf,
+            titularType: inputs.titularType || 'particular',
+            aplicarIrpfCae: inputs.aplicarIrpfCae === true || inputs.aplicarIrpfCae === 'true' || inputs.aplicarIrpfCae === undefined
         });
 
         // 4. Cálculos de Ahorro Anual (€)
@@ -256,7 +399,8 @@ export function CalculatorView({ initialData, onBack }) {
                 scopCalefaccion: sanitizedInputs.scopHeating,
                 scopACS: sanitizedInputs.scopAcs,
                 fuelType: sanitizedInputs.fuelType,
-                changeACS: sanitizedInputs.changeAcs
+                changeACS: sanitizedInputs.changeAcs,
+                cb: cb
             });
         }
 
@@ -267,6 +411,83 @@ export function CalculatorView({ initialData, onBack }) {
             ahorroAnual: annualSavingsRes.ahorroAnual
         });
 
+        // ============================================
+        // CÁLCULO RES080 (Opción 2 y 3)
+        // ============================================
+        let res080Data = null;
+        let financialsRes080 = null;
+        
+        // LÓGICA DE CÁLCULO RES080
+        if (inputs.isReforma && inputs.reformaType !== 'none') {
+            if (inputs.demandMode === 'real') {
+                // MODO REAL: Siempre usar lógica XML si el archivo final está cargado
+                if (inputs.xmlDemandDataFinal) {
+                    res080Data = calculateRes080({
+                        xmlInicial: inputs.xmlDemandData,
+                        xmlFinal: inputs.xmlDemandDataFinal,
+                        scopAcs: sanitizedInputs.scopAcs,
+                        scopHeating: sanitizedInputs.scopHeating,
+                        combAcsInicial: inputs.combustibleAcsInicial,
+                        combAcsFinal: inputs.combustibleAcsFinal,
+                        combCalefaccionInicial: inputs.combustibleCalefaccionInicial,
+                        combCalefaccionFinal: inputs.combustibleCalefaccionFinal,
+                        combRefrigeracionInicial: inputs.combustibleRefrigeracionInicial,
+                        combRefrigeracionFinal: inputs.combustibleRefrigeracionFinal,
+                        superficieCustom: sanitizedInputs.superficieCalefactable
+                    });
+                }
+            } else if (inputs.reformaType === 'estimated' || (inputs.demandMode === 'manual' && inputs.isReforma)) {
+                // MODO ESTIMATIVO MANUAL O CEE APORTADO
+                // El CEE aportado usa el mismo motor pero inyectando la demanda manual real en vez de calcularla
+                res080Data = calculateRes080Estimated({
+                    ...sanitizedInputs,
+                    manualDemandOverride: inputs.demandMode === 'manual' ? sanitizedInputs.manualDemand : undefined
+                });
+            } else if (inputs.xmlDemandDataFinal) {
+                // MODO XML TRADICIONAL (para reformaType 'both' o 'onlyReforma')
+                res080Data = calculateRes080({
+                    xmlInicial: inputs.xmlDemandData,
+                    xmlFinal: inputs.xmlDemandDataFinal,
+                    scopAcs: sanitizedInputs.scopAcs,
+                    scopHeating: sanitizedInputs.scopHeating,
+                    combAcsInicial: inputs.combustibleAcsInicial,
+                    combAcsFinal: inputs.combustibleAcsFinal,
+                    combCalefaccionInicial: inputs.combustibleCalefaccionInicial,
+                    combCalefaccionFinal: inputs.combustibleCalefaccionFinal,
+                    combRefrigeracionInicial: inputs.combustibleRefrigeracionInicial,
+                    combRefrigeracionFinal: inputs.combustibleRefrigeracionFinal,
+                    superficieCustom: sanitizedInputs.superficieCalefactable
+                });
+            }
+        }
+
+        if (res080Data) {
+            financialsRes080 = calculateFinancials({
+                presupuesto: sanitizedInputs.presupuesto + (sanitizedInputs.isReforma ? sanitizedInputs.presupuestoEnvolvente : 0),
+                savingsKwh: res080Data.ahorroEnergiaFinalTotal,
+                caePriceClient: sanitizedInputs.caePriceClient,
+                caePriceSO: sanitizedInputs.caePriceSO,
+                caePricePrescriptor: inputs.includeCommission ? sanitizedInputs.caePricePrescriptor : 0,
+                prescriptorMode: sanitizedInputs.prescriptorMode,
+                tipo: sanitizedInputs.tipo,
+                participation: sanitizedInputs.participation,
+                numOwners: sanitizedInputs.numOwners,
+                discountCertificates: sanitizedInputs.discountCertificates,
+                includeLegalization: sanitizedInputs.includeLegalization,
+                installerNoCard: sanitizedInputs.installerNoCard,
+                legalizationPrice: sanitizedInputs.legalizationPrice,
+                itpPercent: sanitizedInputs.itpPercent,
+                includeIrpf: inputs.includeIrpf,
+                titularType: inputs.titularType || 'particular',
+                aplicarIrpfCae: inputs.aplicarIrpfCae === true || inputs.aplicarIrpfCae === 'true' || inputs.aplicarIrpfCae === undefined
+            });
+        }
+
+        // 6. Información del modelo seleccionado
+        const modelId = sanitizedInputs.aerothermiaModel;
+        let selectedModel = dbModels.find(m => String(m.id) === String(modelId));
+        if (!selectedModel) selectedModel = AEROTHERMIA_MODELS.find(m => m.id === modelId);
+
         // Combinar resultados
         setResult({
             ...demandRes,
@@ -274,48 +495,100 @@ export function CalculatorView({ initialData, onBack }) {
             financials: financialRes,
             annualSavings: annualSavingsRes,
             payback: paybackRes,
+            res080: res080Data,
+            financialsRes080: financialsRes080,
             includeAnnualSavings: inputs.includeAnnualSavings,
             discountCertificates: inputs.discountCertificates,
-            discountLegalization: inputs.discountLegalization
+            discountLegalization: inputs.discountLegalization,
+            selectedModel: selectedModel && modelId !== 'custom' ? {
+                marca: selectedModel.marca,
+                modelo: selectedModel.modelo_comercial || selectedModel.label,
+                id: modelId,
+                potencia: selectedModel.potencia_calefaccion || selectedModel.potencia_nominal_35 || 0
+            } : null,
+            hybridization: hybridizationRes
         });
     };
 
     return (
-        <div className="animate-fade-in text-white">
+        <div className={`animate-fade-in text-white ${result?.financials?.caeBonus !== undefined ? 'pt-32 md:pt-28' : ''}`}>
             {/* Sticky Bono Badge */}
-            {result?.financials?.caeBonus !== undefined && (
+            {result?.financials?.caeBonus !== undefined && (() => {
+                const showDual = inputs.isReforma && result.financialsRes080;
+                const showOnlyReforma = showDual && inputs?.comparativaReforma === false;
+                const fmt = (n) => new Intl.NumberFormat('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(n);
+                const currentFinancials = showOnlyReforma ? result.financialsRes080 : result.financials;
+                return (
                 <div className="fixed bottom-0 md:bottom-auto md:top-0 left-0 right-0 z-[100] p-2 md:p-4 flex justify-center pointer-events-none">
-                    <div className={`w-full ${showBrokergy ? 'max-w-xl' : 'max-w-md'} bg-bkg-deep/90 md:bg-bkg-deep/80 backdrop-blur-xl border border-brand/40 rounded-2xl md:rounded-3xl p-3 md:p-4 shadow-[0_-10px_40px_rgba(255,160,0,0.12)] md:shadow-[0_20px_50px_rgba(255,160,0,0.15)] flex items-center justify-between pointer-events-auto transform hover:scale-[1.02] transition-all duration-500 ring-1 ring-white/10 group`}>
-                        <div className="flex items-center gap-3 md:gap-4">
-                            <div className="w-10 h-10 md:w-12 md:h-12 rounded-xl md:rounded-2xl bg-gradient-to-br from-brand-300 to-brand-700 flex items-center justify-center shadow-lg shadow-brand/20 group-hover:rotate-12 transition-transform duration-500">
-                                <svg className="w-5 h-5 md:w-6 md:h-6 text-bkg-deep" fill="currentColor" viewBox="0 0 24 24">
-                                    <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
-                                </svg>
-                            </div>
-                            <div>
-                                <p className="text-[9px] md:text-[10px] font-black text-brand uppercase tracking-[0.2em]">Bono Energético</p>
-                            </div>
-                        </div>
-                        <div className="flex items-center gap-3 md:gap-4">
-                            <div className="flex items-baseline gap-1.5 md:gap-2 bg-bkg-surface py-1.5 px-4 md:py-2 md:px-6 rounded-xl md:rounded-2xl border border-white/[0.06]">
-                                <span className="text-3xl md:text-4xl font-black text-white tracking-tighter animate-pulse-slow">
-                                    {new Intl.NumberFormat('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(result.financials.caeBonus)}
+                    <div className="w-full max-w-4xl bg-[#0a0a0a]/90 backdrop-blur-2xl border border-white/10 rounded-[2rem] p-1.5 shadow-[0_20px_50px_rgba(0,0,0,0.5)] flex items-stretch pointer-events-auto transform transition-all duration-500 ring-1 ring-white/5 mx-auto">
+                        <div className="flex flex-1 items-center justify-between px-2 py-1 gap-2">
+                             {/* Card 1: Bono Aerotermia (RES060) */}
+                             {!showOnlyReforma && (
+                                 <div className={`flex-1 ${showDual ? 'bg-amber-500/10 border-amber-500/20' : 'bg-white/[0.03] border-white/[0.05]'} rounded-2xl p-3 flex flex-col items-center justify-center min-w-[120px] transition-all`}>
+                                <span className={`text-2xl md:text-4xl font-black tracking-tighter ${showDual ? 'text-amber-400' : 'text-white'} drop-shadow-[0_0_15px_rgba(255,255,255,0.3)]`}>
+                                    {fmt(result.financials.caeBonus)}
+                                    <span className={`${showDual ? 'text-amber-400/60' : 'text-brand'} ml-1`}>€</span>
                                 </span>
-                                <span className="text-lg md:text-xl font-black text-brand">€</span>
-                            </div>
-                            {showBrokergy && result.financials.profitBrokergy !== undefined && (
-                                <div className="flex items-baseline gap-1 bg-emerald-500/10 py-1.5 px-3 md:py-2 md:px-4 rounded-xl md:rounded-2xl border border-emerald-500/20">
-                                    <span className="text-[8px] md:text-[9px] font-black text-emerald-400/60 uppercase tracking-wider mr-1">Beneficio</span>
-                                    <span className="text-xl md:text-2xl font-black text-emerald-400 tracking-tighter">
-                                        {new Intl.NumberFormat('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(result.financials.profitBrokergy)}
+                                <span className={`text-[9px] font-black ${showDual ? 'text-amber-400/60' : 'text-brand'} uppercase tracking-[0.2em] mt-1 opacity-80`}>
+                                    {showDual ? 'Bono Aero' : 'Bono Energético CAE'}
+                                </span>
+                             </div>
+                             )}
+
+                             {/* Card 1.5: Bono Integral (RES080) - SOLO SI HAY REFORMA */}
+                             {showDual && (
+                                <div className={`flex-1 bg-cyan-500/10 border border-cyan-500/20 rounded-2xl p-3 flex flex-col items-center justify-center min-w-[120px] transition-all ${showOnlyReforma ? 'scale-105 ring-1 ring-cyan-400/50' : ''}`}>
+                                    <span className="text-2xl md:text-3xl font-black tracking-tighter text-cyan-400 drop-shadow-[0_0_15px_rgba(34,211,238,0.3)]">
+                                        {fmt(result.financialsRes080.caeBonus)}
+                                        <span className="text-cyan-400/60 ml-1">€</span>
                                     </span>
-                                    <span className="text-sm font-black text-emerald-500">€</span>
+                                    <span className="text-[9px] font-black text-cyan-400/60 uppercase tracking-[0.2em] mt-1 opacity-80">
+                                        {showOnlyReforma ? 'Bono Energético Reforma CAE' : 'Bono Reforma'}
+                                    </span>
+                                 </div>
+                             )}
+
+                             {/* Card 2: Beneficio (Solo ADMIN) */}
+                             {showBrokergy && currentFinancials.profitBrokergy !== undefined && (
+                                <div className="flex-1 bg-emerald-500/[0.03] border border-emerald-500/10 rounded-2xl p-3 flex flex-col items-center justify-center min-w-[120px]">
+                                    <span className="text-2xl md:text-3xl font-black tracking-tighter text-emerald-400 drop-shadow-[0_0_15px_rgba(52,211,153,0.3)]">
+                                        {new Intl.NumberFormat('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(currentFinancials.profitBrokergy)}
+                                        <span className="text-emerald-500/60 ml-1">€</span>
+                                    </span>
+                                    <span className="text-[9px] font-black text-emerald-500/60 uppercase tracking-[0.2em] mt-1">Beneficio</span>
                                 </div>
-                            )}
+                             )}
+
+                              {/* Card 3: Demanda (Solo ADMIN) */}
+                              {showBrokergy && (
+                                 <div className="flex-1 bg-indigo-500/[0.03] border border-indigo-500/10 rounded-2xl p-3 flex flex-col items-center justify-center min-w-[120px]">
+                                    <div className="flex items-baseline gap-1.5">
+                                        <span className="text-2xl md:text-3xl font-black tracking-tighter text-indigo-400 drop-shadow-[0_0_15px_rgba(129,140,248,0.3)]">
+                                            {new Intl.NumberFormat('es-ES', { maximumFractionDigits: 2 }).format(result.q_net)}
+                                        </span>
+                                        <span className="text-[10px] font-black text-indigo-400/50 uppercase tracking-tighter">kWh/m²</span>
+                                    </div>
+                                    <span className="text-[9px] font-black text-indigo-500/30 uppercase tracking-[0.2em] mt-1.5">Demanda Calefacción</span>
+                                 </div>
+                              )}
+
+                              {/* Card 4: Ahorro (Solo ADMIN) */}
+                              {showBrokergy && (
+                                 <div className="flex-1 bg-white/[0.03] border border-white/[0.1] rounded-2xl p-3 flex flex-col items-center justify-center min-w-[120px]">
+                                    <div className="flex items-baseline gap-1.5">
+                                        <span className="text-2xl md:text-3xl font-black tracking-tighter text-white drop-shadow-[0_0_15px_rgba(255,255,255,0.2)]">
+                                            {new Intl.NumberFormat('es-ES', { maximumFractionDigits: 2 }).format(result.savings.savingsKwh / 1000)}
+                                        </span>
+                                        <span className="text-[10px] font-black text-white/40 uppercase tracking-tighter">MWh/año</span>
+                                    </div>
+                                    <span className="text-[9px] font-black text-white/20 uppercase tracking-[0.2em] mt-1.5">Ahorro Aerotermia</span>
+                                 </div>
+                              )}
                         </div>
                     </div>
                 </div>
-            )}
+                );
+            })()}
             {/* Header de la Calculadora */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
                 <div className="flex items-center gap-4">
@@ -335,6 +608,26 @@ export function CalculatorView({ initialData, onBack }) {
                         <span className="text-[10px] font-bold text-cyan-400 uppercase tracking-widest bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20">
                             {inputs.referenciaCliente}
                         </span>
+                    )}
+                    {inputs.id_oportunidad && (
+                        <div className="flex items-center gap-2">
+                            <span className="px-3 py-1 bg-brand/10 rounded-full border border-brand/20 text-[10px] font-mono text-brand font-bold uppercase tracking-widest">
+                                ID: {inputs.id_oportunidad}
+                            </span>
+                            {associatedExpediente && (
+                                <button
+                                    onClick={() => onNavigate('expedientes', { expediente_id: associatedExpediente.id })}
+                                    className="flex items-center gap-1.5 px-3 py-1 bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/30 rounded-full text-[9px] font-black text-indigo-400 uppercase tracking-widest transition-all"
+                                    title={`Ir al expediente ${associatedExpediente.numero_expediente}`}
+                                >
+                                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                    </svg>
+                                    {associatedExpediente.numero_expediente}
+                                </button>
+                            )}
+
+                        </div>
                     )}
                     {inputs.rc && (
                         <span className="px-3 py-1 bg-bkg-surface rounded-full border border-white/[0.06] text-[10px] font-mono text-white/40">
@@ -376,14 +669,153 @@ export function CalculatorView({ initialData, onBack }) {
                         onDemandModeChange={(mode) => setInputs(prev => ({...prev, demandMode: mode}))}
                         xmlDemandData={inputs.xmlDemandData}
                         onXmlDemandDataChange={(data) => setInputs(prev => ({...prev, xmlDemandData: data}))}
+                        dbModels={dbModels}
                     />
                 </div>
 
                 {/* Columna Derecha: Resultados */}
                 <div className="lg:col-span-5">
-                    <ResultsPanel result={result} inputs={inputs} onInputChange={setInputs} showBrokergy={showBrokergy} />
+                    <ResultsPanel 
+                        result={result} 
+                        inputs={inputs} 
+                        onInputChange={setInputs} 
+                        showBrokergy={showBrokergy} 
+                        onAcceptOpportunity={['ENVIADA', 'PTE ENVIAR'].includes(inputs.estado?.toUpperCase()) && !associatedExpediente ? () => {
+                            setManualExpNumber('');
+                            setIsManualMode(false);
+                            setAcceptError(null);
+                            setShowAcceptModal(true);
+                        } : null}
+                    />
                 </div>
             </div>
+
+            {/* Accept Opportunity Modal */}
+            {showAcceptModal && (
+                <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-fade-in shadow-2xl">
+                    <div className="bg-bkg-deep border border-emerald-500/30 rounded-[2rem] w-full max-w-sm overflow-hidden shadow-[0_30px_100px_rgba(0,0,0,0.8)] relative" onClick={e => e.stopPropagation()}>
+                        <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-emerald-500 to-emerald-700"></div>
+                        
+                        <div className="p-8">
+                            <div className="flex justify-center mb-6">
+                                <div className="w-16 h-16 bg-emerald-500/20 rounded-2xl flex items-center justify-center border border-emerald-500/30 shadow-[0_0_30px_rgba(16,185,129,0.1)]">
+                                    <svg className="w-8 h-8 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                                    </svg>
+                                </div>
+                            </div>
+
+                            <h3 className="text-xl font-black text-center text-white uppercase tracking-tight mb-2">Aceptar Oportunidad</h3>
+                            <p className="text-white/40 text-center text-[11px] mb-8 leading-relaxed uppercase font-bold tracking-widest">
+                                Confirmar conversión a expediente técnico
+                            </p>
+
+                            <div className="space-y-6">
+                                {/* Selector de Modo */}
+                                <div className="flex p-1 bg-white/5 rounded-xl border border-white/5">
+                                    <button 
+                                        onClick={() => setIsManualMode(false)}
+                                        className={`flex-1 py-2 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all ${!isManualMode ? 'bg-emerald-600 text-white shadow-lg' : 'text-white/40 hover:text-white'}`}
+                                    >
+                                        Auto-Generar
+                                    </button>
+                                    <button 
+                                        onClick={() => setIsManualMode(true)}
+                                        className={`flex-1 py-2 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all ${isManualMode ? 'bg-brand text-bkg-deep shadow-lg' : 'text-white/40 hover:text-white'}`}
+                                    >
+                                        Manual
+                                    </button>
+                                </div>
+
+                                {isManualMode ? (
+                                    <div className="animate-slide-up">
+                                        <label className="block text-[9px] font-black text-white/30 uppercase tracking-[0.2em] mb-2 ml-1">Número de Expediente</label>
+                                        <input 
+                                            autoFocus
+                                            type="text"
+                                            value={manualExpNumber}
+                                            onChange={e => setManualExpNumber(e.target.value.toUpperCase())}
+                                            placeholder="EJ: 24RES060_999"
+                                            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-brand transition-all font-mono text-sm placeholder:text-white/10"
+                                        />
+                                    </div>
+                                ) : (
+                                    <div className="bg-emerald-500/5 border border-emerald-500/10 rounded-2xl p-4 animate-slide-up">
+                                        <p className="text-[9px] text-emerald-400/80 leading-relaxed font-black uppercase tracking-widest text-center">
+                                            Se asignará el siguiente correlativo oficial {new Date().getFullYear().toString().slice(-2)}{inputs.isReforma ? 'RES080' : (inputs.hibridacion ? 'RES093' : 'RES060')}_...
+                                        </p>
+                                    </div>
+                                )}
+
+                                {acceptError && (
+                                    <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-[10px] font-bold text-center animate-shake">
+                                        {acceptError}
+                                    </div>
+                                )}
+
+                                <div className="flex flex-col gap-3 pt-4">
+                                    <button 
+                                        disabled={acceptLoading || (isManualMode && !manualExpNumber.trim())}
+                                        onClick={async () => {
+                                            setAcceptLoading(true);
+                                            setAcceptError(null);
+                                            try {
+                                                // 1. Si es manual, validar duplicados en frontend rápido antes de ir al back
+                                                if (isManualMode) {
+                                                    const { data: allExpedientes } = await axios.get('/api/expedientes');
+                                                    const exists = (allExpedientes || []).some(e => e.numero_expediente === manualExpNumber.trim());
+                                                    if (exists) {
+                                                        throw new Error(`El número ${manualExpNumber} ya está en uso. Por favor, introduce uno diferente.`);
+                                                    }
+                                                }
+
+                                                // 2. Crear expediente (el backend ahora soporta numero_expediente)
+                                                const res = await axios.post('/api/expedientes', {
+                                                    oportunidad_id: inputs.id_uuid,
+                                                    cliente_id: inputs.cliente_id,
+                                                    numero_expediente: isManualMode ? manualExpNumber.trim() : null
+                                                });
+
+                                                // 3. Actualizar estado e ID de la oportunidad localmente
+                                                const acceptedExp = res.data;
+                                                setInputs(prev => ({ 
+                                                    ...prev, 
+                                                    estado: 'ACEPTADA',
+                                                    referenciaCliente: acceptedExp.referencia_cliente || prev.referenciaCliente
+                                                }));
+                                                setAssociatedExpediente(acceptedExp);
+                                                setShowAcceptModal(false);
+                                            } catch (err) {
+                                                setAcceptError(err.response?.data?.error || err.message || 'Error al procesar la aceptación');
+                                            } finally {
+                                                setAcceptLoading(false);
+                                            }
+                                        }}
+                                        className="w-full py-4 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black uppercase tracking-[0.2em] rounded-xl shadow-lg shadow-emerald-600/20 transition-all disabled:opacity-30 flex items-center justify-center gap-2"
+                                    >
+                                        {acceptLoading ? (
+                                            <>
+                                                <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                                </svg>
+                                                Procesando...
+                                            </>
+                                        ) : 'Confirmar Aceptación'}
+                                    </button>
+                                    <button 
+                                        type="button"
+                                        onClick={() => setShowAcceptModal(false)}
+                                        className="w-full py-3 text-white/20 hover:text-white/40 text-[9px] font-black uppercase tracking-[0.3em] transition-all"
+                                    >
+                                        Cancelar
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

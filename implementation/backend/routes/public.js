@@ -1,0 +1,511 @@
+const express = require('express');
+const router = express.Router();
+const supabase = require('../services/supabaseClient');
+const emailService = require('../services/emailService');
+const expedienteService = require('../services/expedienteService');
+const whatsappService = require('../services/whatsappService');
+const driveService = require('../services/driveService');
+const multer = require('multer');
+
+// Configuración de multer (memoria para subida directa a Drive)
+const upload = multer({
+    storage: multer.memoryStorage(),
+    limits: {
+        fileSize: 100 * 1024 * 1024, // 100MB
+    }
+});
+
+
+
+// Helper para que el link público pueda usar tanto id_oportunidad (inicial) como numero_expediente (trazabilidad) o el ID único (UUID)
+const resolveOportunidadId = async (idParam) => {
+    if (!idParam) return null;
+    
+    // 1. Intentar resolver por UUID directamente (más seguro y no predecible)
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idParam);
+    if (isUuid) {
+        const { data: oppByUuid } = await supabase.from('oportunidades').select('id_oportunidad').eq('id', idParam).maybeSingle();
+        if (oppByUuid) return oppByUuid.id_oportunidad;
+    }
+
+    // 2. Intentar resolver como numero_expediente
+    const { data: exp } = await supabase.from('expedientes').select('id_oportunidad_ref').eq('numero_expediente', idParam).maybeSingle();
+    if (exp && exp.id_oportunidad_ref) {
+        return exp.id_oportunidad_ref;
+    }
+    
+    // 3. Por defecto, asumir que es el id_oportunidad legible
+    return idParam;
+};
+
+// GET /api/public/propuesta/:id
+router.get('/propuesta/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { data: opp, error } = await supabase
+            .from('oportunidades')
+            .select('datos_calculo')
+            .eq('id_oportunidad', id)
+            .maybeSingle();
+            
+        if (error || !opp) {
+            return res.status(404).send(`
+                <div style="font-family: sans-serif; text-align: center; padding: 50px;">
+                    <h2>Oportunidad no encontrada</h2>
+                    <p>La propuesta a la que intentas acceder no existe o es inválida.</p>
+                </div>
+            `);
+        }
+        
+        const html = opp.datos_calculo?.html_propuesta;
+        if (!html) {
+             return res.status(404).send(`
+                <div style="font-family: sans-serif; text-align: center; padding: 50px;">
+                    <h2>Vista no disponible</h2>
+                    <p>Esta propuesta aún no tiene una versión web generada. Pide a tu asesor que la vuelva a enviar.</p>
+                </div>
+             `);
+        }
+
+        res.send(html);
+    } catch(e) {
+        console.error('Error serving public html:', e);
+        res.status(500).send('Error interno del servidor');
+    }
+});
+
+// GET /api/public/cliente/:id
+router.get('/cliente/:id', async (req, res) => {
+    try {
+        const paramId = req.params.id;
+        const id = await resolveOportunidadId(paramId);
+
+        const { data: opp, error: oppErr } = await supabase
+            .from('oportunidades')
+            .select(`
+                id,
+                cliente_id, 
+                referencia_cliente, 
+                prescriptor_id,
+                datos_calculo,
+                expedientes (
+                    numero_expediente
+                )
+            `)
+            .eq('id_oportunidad', id)
+            .maybeSingle();
+
+        if (oppErr || !opp) {
+            return res.status(404).json({ error: 'Oportunidad no encontrada' });
+        }
+
+        let clienteStr = opp.referencia_cliente; 
+        let foundCliente = null;
+
+        if (opp.cliente_id) {
+            const { data: c } = await supabase.from('clientes').select('*').eq('id_cliente', opp.cliente_id).maybeSingle();
+            if (c) foundCliente = c;
+        }
+
+        // Búsqueda alternativa por nombre si no hay cliente_id
+        if (!foundCliente && clienteStr) {
+            console.log(`[Public] Intentando fallback search para cliente: "${clienteStr}"`);
+            const { data: cList } = await supabase.from('clientes').select('*');
+            if (cList) {
+                const normalize = (str) => (str || '').normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
+                const target = normalize(clienteStr);
+                
+                foundCliente = cList.find(c => {
+                    const fullName = normalize(`${c.nombre_razon_social || ''} ${c.apellidos || ''}`);
+                    const soloNombre = normalize(c.nombre_razon_social);
+                    return fullName === target || soloNombre === target || fullName.includes(target) || target.includes(soloNombre);
+                });
+                console.log(`[Public] Fallback search result: ${foundCliente ? 'ENCONTRADO' : 'NO ENCONTRADO'}`);
+            }
+        }
+
+        // Fallback variables for name/surname parsing if client not found
+        let nombre = clienteStr || '';
+        let apellidos = '';
+        if (nombre.includes(' ')) {
+            const parts = nombre.split(' ');
+            nombre = parts[0];
+            apellidos = parts.slice(1).join(' ');
+        }
+
+        return res.json({
+            id_oportunidad: id, // El ID legible resuelto (ej: 26RES080_OP2)
+            id_cliente: foundCliente?.id_cliente || null,
+            nombre_razon_social: foundCliente?.nombre_razon_social || nombre,
+            apellidos: foundCliente?.apellidos || apellidos,
+            dni_cif: foundCliente?.dni || '',
+            email: foundCliente?.email || '',
+            telefono: foundCliente?.tlf || '',
+            iban: foundCliente?.numero_cuenta || '',
+            estado: opp.datos_calculo?.estado || 'BORRADOR',
+            numero_expediente: opp.expedientes?.[0]?.numero_expediente || opp.expedientes?.numero_expediente || null,
+            tiene_instalador: !!opp.instalador_asociado_id
+        });
+    } catch (e) {
+        console.error('Error public cliente details:', e);
+        res.status(500).json({ error: 'Error del servidor' });
+    }
+});
+
+// POST /api/public/aceptar/:id_oportunidad
+router.post('/aceptar/:id', async (req, res) => {
+    try {
+        const paramId = req.params.id;
+        const id = await resolveOportunidadId(paramId);
+        
+        const formFields = req.body;
+        
+        // Find opportunity
+        const { data: opp, error: oppErr } = await supabase
+            .from('oportunidades')
+            .select('*')
+            .eq('id_oportunidad', id)
+            .maybeSingle();
+
+        if (oppErr || !opp) {
+            return res.status(404).json({ error: 'Oportunidad no encontrada' });
+        }
+
+        // --- VALIDACIÓN DE INSTALADOR (REQUERIDO PARA ACEPTAR) ---
+        if (!opp.instalador_asociado_id) {
+            console.warn(`[Public] Intento de aceptación sin instalador para OP ${id}`);
+            return res.status(400).json({ 
+                error: 'Esta propuesta requiere la asignación de un instalador por parte de Brokergy antes de ser aceptada. Por favor, contacta con tu asesor.',
+                code: 'INSTALLER_REQUIRED'
+            });
+        }
+
+        let id_cliente = opp.cliente_id;
+
+        const clienteData = {
+            nombre_razon_social: formFields.nombre_razon_social,
+            apellidos: formFields.apellidos,
+            dni: formFields.dni_cif,
+            email: formFields.email,
+            tlf: formFields.telefono,
+            numero_cuenta: formFields.iban || null,
+            prescriptor_id: opp.prescriptor_id // Mantenemos el partner asociado a la oportunidad
+        };
+
+        // 1. Si no hay id_cliente en la oportunidad, buscamos si ya existe alguien con este DNI
+        if (!id_cliente && clienteData.dni) {
+            const { data: existingClient } = await supabase
+                .from('clientes')
+                .select('id_cliente')
+                .eq('dni', clienteData.dni)
+                .maybeSingle();
+            
+            if (existingClient) {
+                id_cliente = existingClient.id_cliente;
+                console.log(`[Public] Identificado cliente previo por DNI ${clienteData.dni}: ${id_cliente}`);
+            }
+        }
+
+        if (id_cliente) {
+            // 2. Actualizar datos del cliente (siempre actualizamos para tener lo más reciente: tlf, email, iban...)
+            console.log(`[Public] Actualizando datos de cliente ${id_cliente}`);
+            const { error: updErr } = await supabase.from('clientes')
+                .update(clienteData)
+                .eq('id_cliente', id_cliente);
+            if (updErr) console.error("[Public] Error al actualizar cliente:", updErr.message);
+            
+            // Garantizar vinculación en la oportunidad
+            const updatePayload = { cliente_id: id_cliente };
+            
+            // Solo sobreescribimos la referencia si está vacía o es nula (siguiendo política de integridad de datos)
+            if (!opp.referencia_cliente || opp.referencia_cliente.trim() === '') {
+                updatePayload.referencia_cliente = formFields.nombre_razon_social + ' ' + (formFields.apellidos || '');
+            }
+
+            await supabase.from('oportunidades').update(updatePayload).eq('id_oportunidad', id);
+        } else {
+            // 3. Crear nuevo cliente solo si no existe por ID ni por DNI
+            console.log(`[Public] Creando nuevo cliente para DNI ${clienteData.dni}`);
+            const refNum = Math.floor(100000 + Math.random() * 900000);
+            const { data: newCli, error: createErr } = await supabase.from('clientes')
+                .insert({
+                    id_cliente: 'CL' + refNum,
+                    ...clienteData
+                }).select().maybeSingle();
+                
+            if (!createErr && newCli) {
+                id_cliente = newCli.id_cliente;
+                
+                const updatePayload = { cliente_id: id_cliente };
+                if (!opp.referencia_cliente || opp.referencia_cliente.trim() === '') {
+                    updatePayload.referencia_cliente = formFields.nombre_razon_social + ' ' + (formFields.apellidos || '');
+                }
+
+                // Vincular oportunidad
+                await supabase.from('oportunidades').update(updatePayload).eq('id_oportunidad', id);
+            } else {
+                console.error("[Public] Error creando nuevo cliente:", createErr?.message || 'Error desconocido');
+            }
+        }
+
+        // 1. Marcar la oportunidad como ACEPTADA (si no lo está ya)
+        const currentHistorial = opp.datos_calculo?.historial || [];
+        const prevEstado = opp.datos_calculo?.estado || 'BORRADOR';
+        
+        console.log(`[Public] Procesando aceptación para ${id}. Estado previo: ${prevEstado}`);
+
+        let numeroExpediente = null;
+
+        if (prevEstado !== 'ACEPTADA') {
+            const newHistorial = [...currentHistorial, {
+                id: Date.now().toString() + '_aceptacion',
+                tipo: 'cambio_estado',
+                estado: 'ACEPTADA',
+                fecha: new Date().toISOString(),
+                usuario: 'Firma Cliente'
+            }];
+            
+            const newData = { ...(opp.datos_calculo || {}), estado: 'ACEPTADA', historial: newHistorial };
+            await supabase.from('oportunidades')
+                .update({ datos_calculo: newData })
+                .eq('id_oportunidad', id);
+            console.log(`[Public] Oportunidad ${id} marcada como ACEPTADA`);
+        } else {
+            console.log(`[Public] La oportunidad ${id} ya estaba en estado ACEPTADA`);
+        }
+
+        // 2. Crear/Recuperar Expediente Automáticamente (Siempre, por si falló antes)
+        try {
+            console.log(`[Public] Solicitando creación de expediente para OP UUID: ${opp.id}`);
+            const newExp = await expedienteService.createExpediente(opp.id, id_cliente);
+            numeroExpediente = newExp?.numero_expediente;
+            console.log(`[Public] Resultado expediente: ${numeroExpediente || 'NO GENERADO/ERROR'}`);
+        } catch (expErr) {
+            console.error("[Public] Error crítico creando expediente automático:", expErr.message);
+        }
+
+        // Base link para subida (Mantenemos el ID original de la petición para ID UNICO)
+        const uploadLink = `${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/firma/${paramId}`;
+
+        // 3. Enviar email de confirmación y próximos pasos al cliente (Siempre)
+        try {
+            console.log(`[Public] Enviando email a ${formFields.email}`);
+            await emailService.sendAcceptanceNotificationEmail({
+                to: formFields.email,
+                userName: formFields.nombre_razon_social,
+                numeroExpediente: numeroExpediente,
+                uploadLink: uploadLink
+            });
+            console.log(`[Public] Email enviado correctamente.`);
+        } catch (emailErr) {
+            console.error("[Public] Error enviando email de aceptación:", emailErr.message);
+        }
+
+        // 4. Enviar WhatsApp de confirmación y pasos a seguir (Automático y no bloqueante)
+        if (formFields.telefono) {
+            try {
+                const whatsappMsg = 
+`¡Hola *${formFields.nombre_razon_social}*! 👋
+
+Hemos recibido correctamente la aceptación de tu propuesta. *¡Muchas gracias por confiar en Brokergy!*
+
+Tu número de expediente asignado es: *${numeroExpediente || 'Pte. confirmar'}*
+
+A partir de este momento, nuestro equipo técnico comenzará a preparar el *Certificado de Eficiencia Energética inicial*. Es fundamental emitirlo antes de la última factura de obra para asegurar tus deducciones fiscales y tramitar el expediente CAE.
+
+📁 *Documentación necesaria (puedes enviarla por aquí mismo poco a poco):*
+
+• Planos de la vivienda o croquis de distribución.
+• Foto de la caldera existente y de su placa de características (importante que se lea bien).
+• Foto de los radiadores (uno por estancia) o del colector si es suelo radiante.
+• Vídeo corto recorriendo la vivienda (estancias, ventanas y paredes exteriores).
+• Si vas a cambiar ventanas o aislamiento, fotos y presupuesto.
+
+No hace falta que lo envíes todo a la vez, puedes ir pasándonoslo conforme lo tengas.
+
+🔗 *Puedes subir tu documentación directamente aquí:*
+${uploadLink}
+
+¡Quedamos a tu disposición para cualquier duda!
+
+*BROKERGY — Ingeniería Energética*`;
+
+                console.log(`[Public] Encolando WhatsApp automático para ${formFields.telefono}`);
+                whatsappService.sendText(formFields.telefono, whatsappMsg)
+                    .catch(err => console.warn(`[Public] Error en cola de WhatsApp:`, err.message));
+            } catch (waErr) {
+                console.warn("[Public] Error al preparar WhatsApp automático:", waErr.message);
+            }
+        }
+
+        // 5. NOTIFICACIÓN A ADMINISTRACIÓN (Brokergy)
+        try {
+            console.log(`[Public] Notificando a administración de aceptación para ${id}...`);
+            
+            // Obtener nombre del instalador para la notificación
+            let installerName = 'No asignado';
+            if (opp.instalador_asociado_id) {
+                const { data: inst } = await supabase.from('usuarios').select('nombre, apellidos').eq('id_usuario', opp.instalador_asociado_id).maybeSingle();
+                if (inst) installerName = `${inst.nombre} ${inst.apellidos || ''}`.trim();
+            }
+
+            // --- EXTRACCIÓN DE NOTAS ---
+            const dc = opp.datos_calculo || {};
+            const notesList = dc.historial?.filter(h => h.tipo === 'comentario') || [];
+            const notesStr = notesList.length > 0 
+                ? notesList.map(n => `- ${n.texto} (${n.usuario})`).join('\n')
+                : 'Aceptado por el cliente desde el portal público.';
+
+            const adminPhones = ['34623926179'];
+            for (const phone of adminPhones) {
+                const msg = `🚀 *ACEPTACIÓN (PORTAL PÚBLICO)*\n\nSe ha recibido una aceptación vía web para la oportunidad *${id}*.\n\n👤 *Cliente:* ${formFields.nombre_razon_social} ${formFields.apellidos || ''}\n📍 *Dirección:* ${opp.datos_calculo?.inputs?.direccion || 'S/N'}\n👷 *Instalador:* ${installerName}\n\nSe ha generado el expediente: *${numeroExpediente || 'Pte.'}*\n\n*NOTAS:* \n${notesStr}\n\nAccede aquí: ${process.env.FRONTEND_URL || 'https://app.brokergy.es'}?exp=${numeroExpediente || ''}`;
+                whatsappService.sendText(phone, msg).catch(e => console.warn('[Public] Error WhatsApp Admin:', e.message));
+            }
+
+            await emailService.sendAdminNotificationEmail({
+                numeroExpediente,
+                clientName: `${formFields.nombre_razon_social} ${formFields.apellidos || ''}`,
+                address: opp.datos_calculo?.inputs?.direccion,
+                distributorName: 'Portal Público (Cliente)',
+                installerName,
+                notes: notesStr,
+                expedienteId: numeroExpediente
+            });
+            console.log(`[Public] Notificación a administración enviada.`);
+        } catch (adminNotifErr) {
+            console.error("[Public] Error notificando a administración:", adminNotifErr.message);
+        }
+
+        
+        return res.json({ 
+            success: true, 
+            message: 'Propuesta procesada correctamente.', 
+            numeroExpediente 
+        });
+
+    } catch(e) {
+        console.error('Error public aceptar propuesta:', e);
+        res.status(500).json({ error: 'Error del servidor' });
+    }
+});
+
+// POST /api/public/upload-docs/:id
+router.post('/upload-docs/:id', upload.array('files', 50), async (req, res) => {
+    try {
+        const paramId = req.params.id;
+        const id = await resolveOportunidadId(paramId); // id_oportunidad
+
+        const files = req.files;
+
+        if (!files || files.length === 0) {
+            return res.status(400).json({ error: 'No se han recibido archivos' });
+        }
+
+        // 1. Buscar la oportunidad para obtener la carpeta de Drive
+        const { data: opp, error: oppErr } = await supabase
+            .from('oportunidades')
+            .select('datos_calculo')
+            .eq('id_oportunidad', id)
+            .maybeSingle();
+
+        if (oppErr || !opp) {
+            return res.status(404).json({ error: 'Oportunidad no encontrada' });
+        }
+
+        const driveFolderId = opp.datos_calculo?.drive_folder_id || opp.datos_calculo?.inputs?.drive_folder_id;
+        
+        if (!driveFolderId) {
+            console.error(`[Upload] Oportunidad ${id} no tiene carpeta de Drive vinculada.`);
+            return res.status(500).json({ error: 'La oportunidad no tiene una carpeta de Drive configurada. Contacta con soporte.' });
+        }
+
+        // 2. Asegurar que existe la subcarpeta "12. DOCUMENTOS PARA CEE"
+        console.log(`[Upload] Preparando subcarpeta en ${driveFolderId}...`);
+        const subfolderId = await driveService.getOrCreateSubfolder(driveFolderId, "12. DOCUMENTOS PARA CEE");
+
+        // 3. Subir archivos en paralelo a Drive
+        const uploadPromises = files.map(file => {
+            return driveService.saveFileToFolder(
+                subfolderId,
+                file.originalname,
+                file.mimetype,
+                file.buffer
+            );
+        });
+
+        const results = await Promise.all(uploadPromises);
+        const successCount = results.filter(r => r && r.id).length;
+
+        console.log(`[Upload] Éxito: ${successCount}/${files.length} archivos subidos a Drive.`);
+
+        if (successCount === 0) {
+            return res.status(500).json({ error: 'Error al subir los archivos a Google Drive' });
+        }
+
+        res.json({ 
+            success: true, 
+            message: `${successCount} archivos subidos correctamente.`,
+            count: successCount
+        });
+
+    } catch (e) {
+        console.error('Error public upload docs:', e);
+        res.status(500).json({ error: 'Error interno al procesar la subida' });
+    }
+});
+
+/**
+ * Escanea la carpeta "12. DOCUMENTOS PARA CEE" buscando las fotos pre-cargadas
+ * y devuelve su contenido en base64 para el Anexo Fotográfico.
+ */
+router.get('/scan-photos/:id', async (req, res) => {
+    const { id } = req.params;
+    try {
+        // 1. Buscar la oportunidad
+        const { data: opp, error: oppErr } = await supabase
+            .from('oportunidades')
+            .select('datos_calculo')
+            .eq('id_oportunidad', id)
+            .maybeSingle();
+
+        if (oppErr || !opp) {
+            return res.status(404).json({ error: 'Oportunidad no encontrada' });
+        }
+
+        const driveFolderId = opp.datos_calculo?.drive_folder_id || opp.datos_calculo?.inputs?.drive_folder_id;
+        if (!driveFolderId) return res.json({ success: true, photos: {} });
+
+        // 2. Buscar la subcarpeta "12. DOCUMENTOS PARA CEE"
+        const subfolderId = await driveService.findSubfolderByName(driveFolderId, "12. DOCUMENTOS PARA CEE");
+        if (!subfolderId) return res.json({ success: true, photos: {} });
+
+        // 3. Listar archivos
+        const files = await driveService.listFiles(subfolderId);
+        
+        const targetNames = ['FOTO_CALDERA_ANTES', 'FOTO_PLACA_CALDERA_ANTES'];
+        const foundPhotos = {};
+
+        for (const file of files) {
+            const nameWithoutExt = file.name.split('.')[0];
+            if (targetNames.includes(nameWithoutExt)) {
+                console.log(`[ScanPhotos] Encontrado ${file.name} (${file.id}). Descargando...`);
+                const buffer = await driveService.getFileContent(file.id);
+                if (buffer) {
+                    const b64 = `data:${file.mimeType};base64,${buffer.toString('base64')}`;
+                    foundPhotos[nameWithoutExt] = {
+                        name: file.name,
+                        data: b64
+                    };
+                }
+            }
+        }
+
+        res.json({ success: true, photos: foundPhotos });
+
+    } catch (e) {
+        console.error('Error scanning photos from Drive:', e);
+        res.status(500).json({ error: 'Error al escanear fotos en Drive' });
+    }
+});
+
+module.exports = router;

@@ -120,6 +120,57 @@ END $$;
 -- RLS en oportunidades estará mitigado por Node, pero la activamos para mayor seguridad
 ALTER TABLE public.oportunidades ENABLE ROW LEVEL SECURITY;
 
+-- 7. TABLA CLIENTES
+CREATE TABLE IF NOT EXISTS public.clientes (
+    id_cliente UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id_usuario UUID REFERENCES public.usuarios(id_usuario),
+    nombre_razon_social VARCHAR(200) NOT NULL,
+    apellidos VARCHAR(150),
+    email VARCHAR(150),
+    tlf VARCHAR(20),
+    dni VARCHAR(20) UNIQUE,
+    ccaa VARCHAR(100),
+    provincia VARCHAR(100),
+    municipio VARCHAR(100),
+    direccion TEXT,
+    codigo_postal VARCHAR(10),
+    numero_cuenta VARCHAR(50),          -- Solo para CLIENTE PARTICULAR
+    prescriptor_id UUID REFERENCES public.prescriptores(id_empresa),
+    id_expediente UUID,                 -- Referencia futura a tabla expedientes
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- RLS en clientes
+ALTER TABLE public.clientes ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Admins gestionan todos los clientes" ON public.clientes
+    FOR ALL USING (
+        EXISTS (
+            SELECT 1 FROM public.usuarios u
+            WHERE u.auth_user_id = auth.uid()
+            AND u.id_rol = (SELECT id_rol FROM public.roles WHERE nombre_rol = 'ADMIN')
+        )
+    );
+
+CREATE POLICY "Prescriptores ven sus clientes" ON public.clientes
+    FOR SELECT USING (
+        prescriptor_id IN (
+            SELECT p.id_empresa FROM public.prescriptores p
+            JOIN public.usuarios u ON p.representante_legal_id = u.id_usuario
+            WHERE u.auth_user_id = auth.uid()
+        )
+    );
+
+-- Añadir cliente_id a oportunidades (referencia oportunidad -> cliente)
+DO $$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM information_schema.columns
+                  WHERE table_name='oportunidades' AND column_name='cliente_id') THEN
+        ALTER TABLE public.oportunidades
+            ADD COLUMN cliente_id UUID REFERENCES public.clientes(id_cliente);
+    END IF;
+END $$;
+
 -- Nadie sin cuenta que acceda por REST publicamente debería poder ver esto (Anon request)
 -- A menos que queramos mantener la inserción pública. En BackendNodeJS usamos la Service Key, que se salta RLS.
 -- Por lo tanto, dejar políticas RLS vacías restringe REST client, pero nuestro backend con service_role key funcionará perfectamente.

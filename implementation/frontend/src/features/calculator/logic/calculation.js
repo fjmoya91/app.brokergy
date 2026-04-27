@@ -20,8 +20,90 @@ export const HDD = {
 };
 
 // ============================================================================
-// PRECIOS DE COMBUSTIBLES (2026) - €/kWh
+// DATOS HIBRIDACIÓN (Anexo III RES093)
 // ============================================================================
+export const EQUIVALENT_HOURS = {
+    A3: 2228, A4: 2228,
+    B3: 2736, B4: 2720,
+    C1: 3208, C2: 3186, C3: 3195, C4: 3192,
+    D1: 3510, D2: 3500, D3: 3503,
+    E1: 5335
+};
+
+export const BIVALENCE_TABLE = [
+    { coverage: 0.20, cb: 0.3946 },
+    { coverage: 0.25, cb: 0.4828 },
+    { coverage: 0.30, cb: 0.5644 },
+    { coverage: 0.35, cb: 0.6380 },
+    { coverage: 0.40, cb: 0.7022 },
+    { coverage: 0.45, cb: 0.7567 },
+    { coverage: 0.50, cb: 0.8045 },
+    { coverage: 0.55, cb: 0.8457 },
+    { coverage: 0.60, cb: 0.8808 },
+    { coverage: 0.65, cb: 0.9081 },
+    { coverage: 0.70, cb: 0.9299 },
+    { coverage: 0.75, cb: 0.9480 },
+    { coverage: 0.80, cb: 0.9608 },
+    { coverage: 0.85, cb: 0.9707 },
+    { coverage: 0.90, cb: 0.9784 },
+    { coverage: 0.95, cb: 0.9838 }
+];
+
+/**
+ * Obtiene el coeficiente de bivalencia Cb mediante interpolación
+ * @param {number} coverage - Porcentaje de cobertura (0 a 1)
+ */
+export function getCb(coverage) {
+    if (coverage <= 0.15) return 0;
+    if (coverage >= 0.95) return 0.984; 
+    
+    // Si la cobertura es exactamente uno de los puntos clave (o muy cercana), evitamos errores de redondeo excesivos
+    for (let i = 0; i < BIVALENCE_TABLE.length; i++) {
+        if (Math.abs(coverage - BIVALENCE_TABLE[i].coverage) < 0.001) {
+            return BIVALENCE_TABLE[i].cb;
+        }
+    }
+
+    for (let i = 0; i < BIVALENCE_TABLE.length - 1; i++) {
+        const curr = BIVALENCE_TABLE[i];
+        const next = BIVALENCE_TABLE[i+1];
+        if (coverage >= curr.coverage && coverage <= next.coverage) {
+            const factor = (coverage - curr.coverage) / (next.coverage - curr.coverage);
+            return parseFloat((curr.cb + factor * (next.cb - curr.cb)).toFixed(4));
+        }
+    }
+    return 0.984;
+}
+
+/**
+ * Calcula los parámetros de hibridación
+ */
+export function calculateHybridization({ demandAnnual, zone, heatPumpPower }) {
+    const th = EQUIVALENT_HOURS[zone] || EQUIVALENT_HOURS['D3'] || 3503;
+    const pDesign = parseFloat(demandAnnual) / th;
+
+    if (!pDesign || pDesign <= 0) {
+        return { th, pDesign: 0, coverage: 0, cb: 1, demandAnnual: 0 };
+    }
+
+    // Redondeamos cobertura a 2 decimales para que coincida mejor con los pasos de la tabla (ej: 0.853 -> 0.85)
+    let coverage = parseFloat((heatPumpPower / pDesign).toFixed(2));
+    if (coverage > 1) coverage = 1;
+    if (coverage < 0) coverage = 0;
+    
+    const cb = getCb(coverage);
+
+    return {
+        th,
+        pDesign,
+        coverage,
+        cb,
+        demandAnnual
+    };
+}
+
+// ============================================================================
+// PRECIOS DE COMBUSTIBLES (2026) - €/kWh
 export const FUEL_PRICES = {
     electricidad: { label: 'Electricidad', price: 0.22 },
     gasoleo: { label: 'Gasóleo Calefacción', price: 0.11 },
@@ -30,6 +112,19 @@ export const FUEL_PRICES = {
     carbon: { label: 'Carbón', price: 0.17 },
     pellets: { label: 'Biomasa (Pellets)', price: 0.08 },
     lena: { label: 'Biomasa (Leña/Hueso)', price: 0.055 }
+};
+
+// ============================================================================
+// FACTORES DE PASO (kgCO2 a kWh) - MODO RES080
+// ============================================================================
+export const FACTORES_PASO = {
+    'Electricidad peninsular': 0.331,
+    'Gasoleo Calefacción': 0.311,
+    'GLP': 0.254,
+    'Gas Natural': 0.252,
+    'Carbón': 0.472,
+    'Biomasa no densificada': 0.018,
+    'Biomasa densificada (pelets)': 0.018
 };
 
 // ============================================================================
@@ -57,6 +152,115 @@ export const BOILER_EFFICIENCIES = [
     { id: 'solid_auto_cal', label: "Combustible sólido, auto, espacio calefactado", value: 0.65 },
     { id: 'electric', label: "Caldera eléctrica", value: 1.00 }
 ];
+
+const REFORMA_EFFICIENCIES = {
+    'sin_aislamiento': 0.549,
+    'antigua_mal_aislamiento': 0.618,
+    'antigua_aislamiento_medio': 0.66,
+    'bien_aislada': 0.66
+};
+
+// ============================================================================
+// CÁLCULO DE AHORROS RES080 ESTIMADO (A PARTIR DE MEJORAS MANUALES)
+// ============================================================================
+export function calculateRes080Estimated(inputs) {
+    const {
+        superficieCalefactable,
+        insulationState,
+        boilerAcsType,
+        boilerHeatingType,
+        reformaVentanas,
+        reformaCubierta,
+        reformaSuelo,
+        reformaParedes,
+        scopHeating,
+        scopAcs,
+    } = inputs;
+
+    const S = parseFloat(superficieCalefactable) || inputs.superficie || 120;
+    const acsDemandM2 = 8.80; // kWh/m2 año según requerimiento
+    const acsDemandTotal = acsDemandM2 * S;
+
+    // 1. Calculemos demanda inicial teórica (Situación Actual)
+    const demandIniTheor = calculateDemand(inputs);
+    let Q_net_ini = demandIniTheor.Q_net;
+
+    if (inputs.manualDemandOverride !== undefined) {
+        Q_net_ini = inputs.manualDemandOverride * S;
+    }
+
+    // 2. Calculemos demanda final teórica (Tras Reforma)
+    // Aplicamos las transmitancias mejoradas según lo seleccionado
+    const demandFinalInputs = {
+        ...inputs,
+        ventanaU: reformaVentanas ? 1.3 : inputs.ventanaU,
+        uCubierta: reformaCubierta ? 0.5 : inputs.uCubierta,
+        uMuro: reformaParedes ? 0.5 : inputs.uMuro,
+        ach: 0.53 // Requerimiento: Siempre 0.53 en reforma estimada
+    };
+    
+    // Forzamos el cambio en el cálculo interno si reformaSuelo es true.
+    if (reformaSuelo) demandFinalInputs.uSueloOverride = 0.5;
+
+    const demandFinTheor = calculateDemand(demandFinalInputs);
+    let Q_net_fin = demandFinTheor.Q_net;
+
+    if (inputs.manualDemandOverride !== undefined) {
+        // Regla de 3: el ratio de mejora teórica se aplica a la demanda manual
+        const ratio = demandIniTheor.Q_net > 0 ? demandFinTheor.Q_net / demandIniTheor.Q_net : 1;
+        Q_net_fin = Q_net_ini * ratio;
+    }
+
+    // 3. Rendimientos Iniciales
+    const getEff = (type) => {
+        if (!type || type === '') return 0.66; // Fallback para evitar errores si no hay selección
+        if (type === 'Termo' || type === 'Electricidad') return 1.0;
+        if (type === 'No tiene Calefacción') return 0.92;
+        return REFORMA_EFFICIENCIES[insulationState] || 0.66;
+    };
+
+    const effAcsIni = getEff(boilerAcsType);
+    let effCalIni = getEff(boilerHeatingType);
+    
+    // Si no tiene calefacción, se toma Gas Natural 92%
+    if (boilerHeatingType === 'No tiene Calefacción') {
+        effCalIni = 0.92;
+    }
+
+    // 4. Energía Final Inicial (kWh/año)
+    const energyAcsIni = acsDemandTotal / effAcsIni;
+    const energyCalIni = Q_net_ini / effCalIni;
+    const energyTotalIni = energyAcsIni + energyCalIni;
+
+    // 5. Energía Final Final (Tras Aerotermia + Reforma)
+    const energyCalFin = Q_net_fin / scopHeating;
+    const energyAcsFin = acsDemandTotal / (scopAcs || 3.0);
+    const energyTotalFin = energyCalFin + energyAcsFin;
+
+    const ahorroTotal = Math.max(0, energyTotalIni - energyTotalFin);
+
+    return {
+        energiaAcsInicial: energyAcsIni / S,
+        energiaAcsFinal: energyAcsFin / S,
+        energiaCalefInicial: energyCalIni / S,
+        energiaCalefFinal: energyCalFin / S,
+        energiaRefInicial: 0,
+        energiaRefFinal: 0,
+        totalEnergiaInicialM2: energyTotalIni / S,
+        totalEnergiaFinalM2: energyTotalFin / S,
+        totalEnergiaInicialAno: energyTotalIni,
+        totalEnergiaFinalAno: energyTotalFin,
+        ahorroEnergiaFinalTotal: ahorroTotal,
+        ahorroM2: ahorroTotal / S,
+        superficieAplicada: S,
+        isEstimated: true,
+        details: {
+            acs: { energyIni: energyAcsIni / S, energyFin: energyAcsFin / S },
+            cal: { energyIni: energyCalIni / S, energyFin: energyCalFin / S },
+            ref: { energyIni: 0, energyFin: 0 }
+        }
+    };
+}
 
 // ============================================================================
 // MODELOS DE AEROTERMIA (BOMBA DE CALOR)
@@ -225,7 +429,7 @@ export function estimateAreas(inputs) {
     const perimetro = 4 * lado;
     const facadeFactorFromWalls = Math.min(4, Math.max(0, fachadas)) / 4;
 
-    let tf = { ...TYPE_DEFAULTS[tipo] };
+    let tf = { ...(TYPE_DEFAULTS[tipo] || TYPE_DEFAULTS.unifamiliar) };
 
     if (tipo === 'piso' && subtipo) {
         const sp = SUBTYPE_FACTORS[subtipo] || SUBTYPE_FACTORS.intermedio;
@@ -259,8 +463,8 @@ export function calculateDemand(inputs) {
         orientacion, uMuro: U_wall, uCubierta: U_roof
     } = inputs;
 
-    // Siempre se coge la mayor de las dos para el cálculo de la demanda
-    const S = Math.max(S_util || 0, S_cal || 0);
+    // Usamos prioritariamente la superficie calefactable para el cálculo físico de la energía
+    const S = (S_cal && S_cal > 0) ? Number(S_cal) : (Number(S_util) || 0);
 
     const Ubase = getUByYear(anio, zona);
     const U_floor = Ubase.floor;
@@ -273,8 +477,8 @@ export function calculateDemand(inputs) {
     const UAtrans =
         (Awall * U_wall) +
         (Awin * Uw) +
-        (areas.A_cubierta * U_roof) +
-        (areas.A_suelo * U_floor);
+        (areas.A_cubierta * (inputs.uCubiertaOverride || U_roof)) +
+        (areas.A_suelo * (inputs.uSueloOverride || U_floor));
 
     const V = S * H;
     const UA_vent = 0.34 * ach * V;
@@ -333,7 +537,8 @@ export function calculateSavings({
     boilerEff = 0.92, // Rendimiento caldera antigua
     scopHeating = 4.5, // SCOP Nueva Bomba de Calor
     scopAcs = 3.0, // SCOP ACS Nueva
-    changeAcs = false // ¿Se cambia también ACS?
+    changeAcs = false, // ¿Se cambia también ACS?
+    cb = 1.0 // Coeficiente de bivalencia (1.0 si no es híbrido)
 }) {
     // 1. Energía Final Situación Actual (Old)
     // Calefacción + ACS (asumimos que la caldera antigua hacía ambas o que el rendimiento aplica a ambas si ACS se incluía, 
@@ -362,8 +567,14 @@ export function calculateSavings({
 
     const totalFinalEnergyNew = finalEnergyHeatingNew + finalEnergyAcsNew;
 
-    // 3. Ahorros
-    const savingsKwh = totalFinalEnergyOld - totalFinalEnergyNew;
+    // 3. Ahorros (Aplicando Cb si es híbrido)
+    // El ahorro solo se produce sobre la fracción de demanda que cubre la bomba de calor
+    const savingsHeatingKwh = (finalEnergyHeatingOld - finalEnergyHeatingNew) * cb;
+    
+    // El ahorro de ACS no se ve afectado por Cb si es independiente o si se asume cobertura total
+    const savingsAcsKwh = finalEnergyAcsOld - finalEnergyAcsNew;
+
+    const savingsKwh = savingsHeatingKwh + savingsAcsKwh;
     const savingsPercent = (savingsKwh / totalFinalEnergyOld) * 100;
 
     return {
@@ -371,6 +582,97 @@ export function calculateSavings({
         finalEnergyNew: totalFinalEnergyNew,
         savingsKwh,
         savingsPercent
+    };
+}
+
+// ============================================================================
+// CÁLCULO DE AHORROS RES080 (ENERGÍA FINAL REAL DESDE CEE)
+// ============================================================================
+export function calculateRes080({
+    xmlInicial,
+    xmlFinal,
+    combAcsInicial,
+    combAcsFinal,
+    combCalefaccionInicial,
+    combCalefaccionFinal,
+    combRefrigeracionInicial,
+    combRefrigeracionFinal,
+    superficieCustom
+}) {
+    if (!xmlInicial || !xmlFinal) return null;
+
+    const getE = (val) => typeof val === 'number' ? val : 0;
+
+    const fAcsIni = FACTORES_PASO[combAcsInicial] || 1;
+    const fAcsFin = FACTORES_PASO[combAcsFinal] || 1;
+    const fCalIni = FACTORES_PASO[combCalefaccionInicial] || 1;
+    const fCalFin = FACTORES_PASO[combCalefaccionFinal] || 1;
+    const fRefIni = FACTORES_PASO[combRefrigeracionInicial] || 1;
+    const fRefFin = FACTORES_PASO[combRefrigeracionFinal] || 1;
+
+    const energiaAcsInicial = getE(xmlInicial.emisionesACS) / fAcsIni;
+    const energiaAcsFinal = getE(xmlFinal.emisionesACS) / fAcsFin;
+
+    const energiaCalefInicial = getE(xmlInicial.emisionesCalefaccion) / fCalIni;
+    const energiaCalefFinal = getE(xmlFinal.emisionesCalefaccion) / fCalFin;
+
+    const energiaRefInicial = getE(xmlInicial.emisionesRefrigeracion) / fRefIni;
+    const energiaRefFinal = getE(xmlFinal.emisionesRefrigeracion) / fRefFin;
+
+    const totalEnergiaInicialM2 = energiaAcsInicial + energiaCalefInicial + energiaRefInicial;
+    const totalEnergiaFinalM2 = energiaAcsFinal + energiaCalefFinal + energiaRefFinal;
+    const ahorroEnergiaFinalM2 = Math.max(0, totalEnergiaInicialM2 - totalEnergiaFinalM2);
+
+    // Usar la superficie custom provista o la del XML inicial
+    const sup = parseFloat(superficieCustom) || xmlInicial.superficieHabitable || 120; 
+
+    return {
+        energiaAcsInicial,
+        energiaAcsFinal,
+        energiaCalefInicial,
+        energiaCalefFinal,
+        energiaRefInicial,
+        energiaRefFinal,
+        totalEnergiaInicialM2,
+        totalEnergiaFinalM2,
+        totalEnergiaInicialAno: totalEnergiaInicialM2 * sup,
+        totalEnergiaFinalAno: totalEnergiaFinalM2 * sup,
+        ahorroEnergiaFinalTotal: ahorroEnergiaFinalM2 * sup,
+        ahorroM2: ahorroEnergiaFinalM2,
+        superficieAplicada: sup,
+        // Detalles para la tabla de eficiencia
+        details: {
+            acs: {
+                fuelIni: combAcsInicial,
+                fuelFin: combAcsFinal,
+                factorIni: fAcsIni,
+                factorFin: fAcsFin,
+                emissionsIni: getE(xmlInicial.emisionesACS),
+                emissionsFin: getE(xmlFinal.emisionesACS),
+                energyIni: energiaAcsInicial,
+                energyFin: energiaAcsFinal
+            },
+            cal: {
+                fuelIni: combCalefaccionInicial,
+                fuelFin: combCalefaccionFinal,
+                factorIni: fCalIni,
+                factorFin: fCalFin,
+                emissionsIni: getE(xmlInicial.emisionesCalefaccion),
+                emissionsFin: getE(xmlFinal.emisionesCalefaccion),
+                energyIni: energiaCalefInicial,
+                energyFin: energiaCalefFinal
+            },
+            ref: {
+                fuelIni: combRefrigeracionInicial,
+                fuelFin: combRefrigeracionFinal,
+                factorIni: fRefIni,
+                factorFin: fRefFin,
+                emissionsIni: getE(xmlInicial.emisionesRefrigeracion),
+                emissionsFin: getE(xmlFinal.emisionesRefrigeracion),
+                energyIni: energiaRefInicial,
+                energyFin: energiaRefFinal
+            }
+        }
     };
 }
 
@@ -384,6 +686,47 @@ export const TOTAL_CERTIFICATE_COST = CERTIFICATE_COST + CERTIFICATE_FEES;
 // ============================================================================
 // CÁLCULO FINANCIERO (IRPF + CAE)
 // ============================================================================
+
+/**
+ * Calcula el IRPF progresivo como ganancia patrimonial en la base del ahorro.
+ * Tramos (2024/vigentes):
+ * - 0 a 6.000 €: 19%
+ * - 6.000 a 50.000 €: 21%
+ * - 50.000 a 200.000 €: 23%
+ * - > 200.000 €: 27%
+ */
+export function calcularIrpfGananciaPatrimonial(importeBruto) {
+    if (!importeBruto || importeBruto <= 0) return 0;
+    let resto = importeBruto;
+    let impuestoTramos = 0;
+
+    // Tramo 1: hasta 6.000 € al 19%
+    const tramo1 = Math.min(resto, 6000);
+    impuestoTramos += tramo1 * 0.19;
+    resto -= tramo1;
+
+    // Tramo 2: desde 6.000 hasta 50.000 € al 21% (hasta 44.000 adicionales)
+    if (resto > 0) {
+        const tramo2 = Math.min(resto, 44000);
+        impuestoTramos += tramo2 * 0.21;
+        resto -= tramo2;
+    }
+
+    // Tramo 3: desde 50.000 hasta 200.000 € al 23% (hasta 150.000 adicionales)
+    if (resto > 0) {
+        const tramo3 = Math.min(resto, 150000);
+        impuestoTramos += tramo3 * 0.23;
+        resto -= tramo3;
+    }
+
+    // Tramo 4: más de 200.000 € al 27%
+    if (resto > 0) {
+        impuestoTramos += resto * 0.27;
+    }
+
+    return impuestoTramos;
+}
+
 export function calculateFinancials({
     presupuesto = 12000,
     savingsKwh,
@@ -396,9 +739,15 @@ export function calculateFinancials({
     numOwners = 1, // Número de propietarios para dividir la deducción
     discountCertificates = false, // Si Brokergy asume el coste de los certificados
     includeLegalization = false, // Si se incluye el trámite de legalización
+    legalizationMode = 'client', // 'client', 'brokergy', 'both'
     installerNoCard = false, // Si el instalador no tiene carnet (+100€)
     legalizationPrice = 200, // Precio base de la legalización
-    itpPercent = 6 // Porcentaje de ITP a deducir del beneficio de Brokergy
+    certificatesCost = 250, // Coste de los certificados
+    itpPercent = 0, // Porcentaje de ITP a deducir del beneficio de Brokergy
+    includeItp = false, // Determina si se resta el ITP del beneficio de Brokergy
+    includeIrpf = true, // Si se aplica la deducción al IRPF
+    titularType = 'particular', // 'particular', 'autonomo', 'empresa'
+    aplicarIrpfCae = true // Si se aplica tributación de ganancia patrimonial al CAE
 }) {
     const savingsMwh = savingsKwh / 1000;
     const priceClientBase = parseFloat(caePriceClient) || 0;
@@ -421,77 +770,109 @@ export function calculateFinancials({
     const priceClientDiscounted = Math.max(0, priceClientBase - discountClient);
     let caeBonus = savingsMwh * priceClientDiscounted;
 
+    // Aplicar IVA si es Empresa o Autónomo
+    const isParticular = titularType === 'particular';
+    if (!isParticular) {
+        caeBonus = caeBonus * 1.21;
+    }
+
     // 2. Beneficio Brokergy (Ajustado)
     const rawSpread = priceSOBase - priceClientBase;
     const caePriceBrokergy = rawSpread - discountBrokergy;
     let profitBrokergy = savingsMwh * caePriceBrokergy;
 
     // Descuento del ITP (Impuesto de Transmisiones Patrimoniales) pagado por Brokergy
-    const itpCost = caeBonus * (itpPercent / 100);
+    const itpCost = includeItp ? (caeBonus * (itpPercent / 100)) : 0;
     profitBrokergy -= itpCost;
 
     // Lógica de Descuento de Certificados
     let caeMaintenanceCost = 0;
+    const certCostBase = parseFloat(certificatesCost) || 250;
     if (discountCertificates) {
         // Brokergy asume el coste -> Restamos del beneficio de Brokergy
-        profitBrokergy = Math.max(-TOTAL_CERTIFICATE_COST, profitBrokergy - TOTAL_CERTIFICATE_COST);
-        // El cliente recibe el bono íntegro (ya descontado el prescriptor si corresponde)
+        profitBrokergy = Math.max(-certCostBase, profitBrokergy - certCostBase);
     } else {
-        // El cliente asume el coste -> Reportamos como coste aparte en lugar de restar del bono
-        caeMaintenanceCost = TOTAL_CERTIFICATE_COST;
+        // El cliente asume el coste
+        caeMaintenanceCost = certCostBase;
     }
     
     // Lógica de Legalización
-    let legalizationCost = 0;
+    let internalLegalizationCost = 0;
     if (includeLegalization) {
-        // El coste es el precio base + recargo si el instalador no tiene carnet
-        legalizationCost = legalizationPrice + (installerNoCard ? 100 : 0);
+        internalLegalizationCost = (parseFloat(legalizationPrice) || 200) + (installerNoCard ? 100 : 0);
+        
+        const legMode = legalizationMode || 'client';
+        if (legMode === 'client') {
+            caeBonus = Math.max(0, caeBonus - internalLegalizationCost);
+        } else if (legMode === 'brokergy') {
+            profitBrokergy = Math.max(-internalLegalizationCost, profitBrokergy - internalLegalizationCost);
+        } else if (legMode === 'both') {
+            const half = internalLegalizationCost / 2;
+            caeBonus = Math.max(0, caeBonus - half);
+            profitBrokergy = Math.max(-half, profitBrokergy - half);
+        }
     }
 
     // 3. Pago a Prescriptor
     const totalPrescriptor = savingsMwh * pricePrescriptor;
 
-    // 4. Deducción IRPF (Multiprobetario)
-    // REGLA: Si participación < 100% o tipo es 'piso', se aplica 40% (máx 3.000€)
-    // De lo contrario, se aplica 60% (máx 9.000€) para unifamiliares/hilera
-    let irpfRate = 0.60;
-    let irpfCap = 9000;
-
-    const participationNum = parseFloat(participation) || 100;
-    if (tipo === 'piso' || participationNum < 100) {
-        irpfRate = 0.40;
-        irpfCap = 3000;
-    }
+    // 4. Deducción IRPF (Multiprobetario) - SOLO PARTICULARES
+    let irpfRate = 0;
+    let irpfCap = 0;
+    let irpfDeductionPerOwner = 0;
+    let irpfDeductionTotal = 0;
 
     const budgetNum = parseFloat(presupuesto) || 0;
     const ownersCount = Math.max(1, parseInt(numOwners) || 1);
 
-    // El presupuesto se divide entre los propietarios (usando el número parseado)
-    const budgetPerOwner = budgetNum / ownersCount;
+    if (isParticular && includeIrpf !== false) { 
+        irpfRate = 0.60;
+        irpfCap = 9000;
 
-    // La deducción se calcula por propietario con su propio límite
-    const irpfDeductionPerOwner = Math.min(irpfCap, budgetPerOwner * irpfRate);
+        const participationNum = parseFloat(participation) || 100;
+        if (tipo === 'piso' || participationNum < 100) {
+            irpfRate = 0.40;
+            irpfCap = 3000;
+        }
 
-    // Deducción total es la suma de todos
-    const irpfDeductionTotal = irpfDeductionPerOwner * ownersCount;
+        const budgetPerOwner = budgetNum / ownersCount;
+        irpfDeductionPerOwner = Math.min(irpfCap, budgetPerOwner * irpfRate);
+        irpfDeductionTotal = irpfDeductionPerOwner * ownersCount;
+    }
 
-    // 5. Totales
-    const totalAyuda = caeBonus + irpfDeductionTotal;
-    const porcentajeCubierto = Math.min(100, (totalAyuda / budgetNum) * 100);
-    // El coste final ahora incluye el coste de tramitación y de legalización si el cliente los paga
-    const costeFinal = Math.max(0, budgetNum + caeMaintenanceCost + legalizationCost - totalAyuda);
+    // 5. Impacto Fiscal del CAE (Calculado sobre el bruto del cliente)
+    let caeBonusBruto = caeBonus;
+    let irpfCaeAmount = 0;
+    
+    // Forzamos conversión a booleano por seguridad si viniera de inputs serializados
+    const shouldApplyIrpf = (aplicarIrpfCae === true || aplicarIrpfCae === 'true');
+    
+    // La tributación de CAE solo aplica a particulares si el toggle está activo
+    if (isParticular && shouldApplyIrpf) {
+        irpfCaeAmount = calcularIrpfGananciaPatrimonial(caeBonusBruto);
+    }
+    const caeNeto = Math.max(0, caeBonusBruto - irpfCaeAmount);
+
+    // 6. Totales
+    const totalBeneficioFiscal = caeNeto + irpfDeductionTotal;
+    const porcentajeCubierto = Math.min(100, (totalBeneficioFiscal / budgetNum) * 100);
+    // El coste neto teórico final no incluye la legalización si ya se le restó de la subvención (lo cual sucede localmente arriba)
+    const costeFinal = Math.max(0, budgetNum + caeMaintenanceCost - totalBeneficioFiscal);
 
     return {
         presupuesto: budgetNum,
-        caeBonus,
-        irpfDeduction: irpfDeductionTotal, // Total para mostrar en resumen simple si fuera necesario
-        irpfDeductionPerOwner,     // Para desglosar en tabla
-        numOwners: ownersCount,    // Para iterar en tabla
-        totalAyuda,
+        caeBonus: caeBonusBruto, // Bruto
+        irpfCaeAmount,         // Tributación en IRPF
+        caeNeto,               // Ingreso neto del CAE tras IRPF
+        irpfDeduction: irpfDeductionTotal, // Deducción por rehabilitación
+        irpfDeductionPerOwner,
+        numOwners: ownersCount,
+        totalBeneficioFiscal,  // Beneficio fiscal total (CAE Neto + Deducción)
+        totalAyuda: totalBeneficioFiscal, // Legacy field for backwards compatibility
         porcentajeCubierto,
         costeFinal,
         caeMaintenanceCost,
-        legalizationCost,
+        legalizationCost: internalLegalizationCost,
         irpfRate: irpfRate * 100,
         irpfCap,
         caePriceBrokergy,
@@ -500,7 +881,10 @@ export function calculateFinancials({
         prescriptorMode,
         finalPriceClient: priceClientDiscounted,
         itpCost,
-        itpPercent
+        itpPercent: includeItp ? itpPercent : 0,
+        includeItp,
+        titularType,
+        isParticular
     };
 }
 
@@ -526,7 +910,8 @@ export function calculateAnnualSavingsTheoretical({
     scopACS = 3.0,          // SCOP aerotermia ACS
     fuelType = 'gas_natural',
     changeACS = false,
-    customPrices = null     // Precios personalizados
+    customPrices = null,    // Precios personalizados
+    cb = 1.0                // Coeficiente de bivalencia
 }) {
     const prices = customPrices || FUEL_PRICES;
     const fuelPrice = prices[fuelType]?.price || 0.09;
@@ -539,7 +924,9 @@ export function calculateAnnualSavingsTheoretical({
     const costeAnualActual = consumoTotalActual * fuelPrice;
 
     // Consumo final nuevo (electricidad + aerotermia)
-    const consumoCalefNuevo = demandaCalefaccion / scopCalefaccion;
+    // En modo híbrido, el consumo es la mezcla de HP (cb) y Boiler (1-cb)
+    const consumoCalefNuevo = (demandaCalefaccion * cb / scopCalefaccion) + (demandaCalefaccion * (1 - cb) / boilerEff);
+    
     const effACSNuevo = changeACS ? scopACS : boilerEff;
     const consumoACSNuevo = demandaACS / effACSNuevo;
     const consumoTotalNuevo = consumoCalefNuevo + consumoACSNuevo;
@@ -566,7 +953,8 @@ export function calculateAnnualSavingsFromSpending({
     fuelType = 'gas_natural',
     boilerEff = 0.65,       // Rendimiento caldera actual
     scopCalefaccion = 4.5,  // SCOP aerotermia
-    customPrices = null     // Precios personalizados
+    customPrices = null,    // Precios personalizados
+    cb = 1.0                // Coeficiente de bivalencia
 }) {
     const prices = customPrices || FUEL_PRICES;
     const fuelPrice = prices[fuelType]?.price || 0.09;
@@ -579,8 +967,11 @@ export function calculateAnnualSavingsFromSpending({
     const demandaUtil = consumoFinalActual * boilerEff;
 
     // 3. Calcular consumo eléctrico equivalente con aerotermia
-    const consumoElectrico = demandaUtil / scopCalefaccion;
-    const costeNuevo = consumoElectrico * electricityPrice;
+    // En modo híbrido, el consumo eléctrico solo cubre la fracción cb. El resto sigue siendo combustible.
+    const consumoElectrico = (demandaUtil * cb) / scopCalefaccion;
+    const consumoCombustibleRestante = (demandaUtil * (1 - cb)) / boilerEff;
+    
+    const costeNuevo = (consumoElectrico * electricityPrice) + (consumoCombustibleRestante * fuelPrice);
 
     // 4. Ahorro
     const ahorroAnual = gastoAnual - costeNuevo;
@@ -594,6 +985,76 @@ export function calculateAnnualSavingsFromSpending({
         ahorroAnual,
         fuelLabel: prices[fuelType]?.label || 'Combustible'
     };
+}
+
+/**
+ * Extrae el SCOP adecuado de un modelo de la base de datos según la zona climática
+ * @param {object} model - El objeto del equipo de aerotermia
+ * @param {string} zone - La zona climática (A-E)
+ * @param {number} temp - La temperatura de impulsión (35, 45, 55)
+ * @param {string} method - Método de obtención: 'ficha' (directo) o 'eprel' (calculado por eta_s)
+ */
+export function getScopFromModel(model, zone, temp, method = 'ficha') {
+    if (!model) return 3.2;
+
+    const normalizedZone = zone?.toUpperCase() || 'D3';
+    // Regla de negocio: Todo es clima CALIDO excepto E1 que es MEDIO
+    const isWarm = normalizedZone !== 'E1';
+
+    // CASO 1: Cálculo mediante EPREL (eficiencia estacional eta_s)
+    if (method === 'eprel') {
+        const eta35 = isWarm ? (model.eta_calida_35 || model.eta_media_35) : model.eta_media_35;
+        const eta55 = isWarm ? (model.eta_calida_55 || model.eta_media_55) : model.eta_media_55;
+
+        if (eta35 && eta55) {
+            // Según EPREL: SCOP = 2.5 * ( (eta_s / 100) + 0.03 )  (Donde 0.03 es el factor F1 para aerotermia)
+            const s35 = ((parseFloat(eta35) + 3) / 100) * 2.5;
+            const s55 = ((parseFloat(eta55) + 3) / 100) * 2.5;
+            if (temp <= 35) return parseFloat(s35.toFixed(2));
+            if (temp >= 55) return parseFloat(s55.toFixed(2));
+            // Interpolación simple para 45ºC
+            return parseFloat(((s35 + s55) / 2).toFixed(2));
+        }
+    }
+    // CASO 2: Dato directo de Ficha Técnica (comportamiento actual)
+    // Intentar buscar calido si corresponde
+    let scop35 = isWarm ? (model.scop_cal_calido_35 || model.scop_cal_medio_35) : model.scop_cal_medio_35;
+    let scop55 = isWarm ? (model.scop_cal_calido_55 || model.scop_cal_medio_55) : model.scop_cal_medio_55;
+
+    // Fallbacks si no hay datos específicos
+    if (!scop35) scop35 = model.scop35 || 4.5;
+    if (!scop55) scop55 = model.scop55 || 3.2;
+
+    if (temp <= 35) return parseFloat(scop35);
+    if (temp >= 55) return parseFloat(scop55);
+    
+    // Interpolación para 45ºC (Baja temperatura / Fancoils)
+    return parseFloat(((parseFloat(scop35) + parseFloat(scop55)) / 2).toFixed(2));
+}
+
+/**
+ * Extrae el SCOP ACS adecuado del modelo
+ */
+export function getScopAcsFromModel(model, zone, method = 'ficha') {
+    if (!model) return 3.0;
+
+    const normalizedZone = zone?.toUpperCase() || 'D3';
+    // Regla de negocio: Todo es clima CALIDO excepto E1 que es MEDIO
+    const isWarm = normalizedZone !== 'E1';
+    
+    // CASO 1: EPREL
+    if (method === 'eprel') {
+        const etaAcs = isWarm ? (model.eta_acs_calida || model.eta_acs_media) : model.eta_acs_media;
+        if (etaAcs) {
+            // SCOP = 2.5 * ( (eta_acs / 100) + 0.03 )
+            return parseFloat((((parseFloat(etaAcs) + 3) / 100) * 2.5).toFixed(2));
+        }
+    }
+
+    // CASO 2: Ficha Técnica
+    let scopAcs = isWarm ? (model.scop_dhw_calido || model.scop_dhw_medio) : model.scop_dhw_medio;
+
+    return parseFloat(scopAcs || 3.0);
 }
 
 // ============================================================================

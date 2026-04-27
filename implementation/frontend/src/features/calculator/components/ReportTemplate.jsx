@@ -57,15 +57,17 @@ export const ReportTemplate = ({ result }) => {
                                 <td className="p-4 text-sm text-slate-600">Ayuda 1: BONO ENERGÉTICO CAE BROKERGY (Nota 1)</td>
                                 <td className="p-4 text-sm font-bold text-right text-green-600">+{formatCurrency(financials.caeBonus)}</td>
                             </tr>
-                            <tr className="border-b border-slate-100">
-                                <td className="p-4 text-sm text-slate-600">
-                                    Ayuda 2: Deducciones en el IRPF (Nota 2)
-                                    <span className="block text-[10px] text-slate-400 mt-1 uppercase font-medium">
-                                        ({financials.irpfRate}% - MÁX {formatCurrency(financials.irpfCap)})
-                                    </span>
-                                </td>
-                                <td className="p-4 text-sm font-bold text-right text-green-600">+{formatCurrency(financials.irpfDeduction)}</td>
-                            </tr>
+                            {financials.irpfCap > 0 && (
+                                <tr className="border-b border-slate-100">
+                                    <td className="p-4 text-sm text-slate-600">
+                                        Ayuda 2: Deducciones en el IRPF (Nota 2)
+                                        <span className="block text-[10px] text-slate-400 mt-1 uppercase font-medium">
+                                            ({financials.irpfRate}% - MÁX {formatCurrency(financials.irpfCap)})
+                                        </span>
+                                    </td>
+                                    <td className="p-4 text-sm font-bold text-right text-green-600">+{formatCurrency(financials.irpfDeduction)}</td>
+                                </tr>
+                            )}
                             <tr className="border-b border-slate-100 bg-yellow-400/20">
                                 <td className="p-4 text-sm font-bold text-slate-800 uppercase tracking-tight">Total ayuda</td>
                                 <td className="p-4 text-sm font-bold text-right text-slate-900 italic">{formatCurrency(financials.totalAyuda)}</td>
@@ -87,9 +89,11 @@ export const ReportTemplate = ({ result }) => {
                     <p className="text-[10px] text-slate-400 leading-tight">
                         Nota 1: La ayuda Bono Energético CAE está garantizada. El importe indicado es orientativo y se ajustará una vez se emitan los certificados de eficiencia energética inicial y final (CEE).
                     </p>
-                    <p className="text-[10px] text-slate-400 leading-tight">
-                        Nota 2: Las deducciones en el IRPF por eficiencia energética no suponen un descuento directo sobre el precio de la actuación, sino que se aplican en la declaración de la renta del contribuyente. El importe finalmente recuperado dependerá de su situación fiscal personal y de que dichas deducciones se encuentren en vigor en el momento de su aplicación, que tendrá lugar al año siguiente de la ejecución de la obra.
-                    </p>
+                    {financials.irpfCap > 0 && (
+                        <p className="text-[10px] text-slate-400 leading-tight">
+                            Nota 2: Las deducciones en el IRPF por eficiencia energética no suponen un descuento directo sobre el precio de la actuación, sino que se aplican en la declaración de la renta del contribuyente. El importe finalmente recuperado dependerá de su situación fiscal personal y de que dichas deducciones se encuentren en vigor en el momento de su aplicación, que tendrá lugar al año siguiente de la ejecución de la obra.
+                        </p>
+                    )}
                 </div>
 
                 {/* Footer Página 1 */}
@@ -191,31 +195,35 @@ export const ReportTemplate = ({ result }) => {
                     ))}
                 </div>
 
-                <div className="bg-yellow-400 text-slate-800 py-3 px-4 text-center font-black text-sm uppercase tracking-wider mb-6">
-                    Ayuda 2: Deducciones en el IRPF
-                </div>
-
-                <div className="text-[11px] text-slate-700 space-y-4 mb-8">
-                    <p className="font-bold border-b border-yellow-200 pb-1">Requisitos para acceder:</p>
-                    <ul className="space-y-2 pl-2">
-                        <li>• Estar al corriente de obligaciones tributarias y ser contribuyente del IRPF.</li>
-                        <li>• Realizar Certificado Energético (CEE) ANTES y DESPUÉS de la actuación.</li>
-                        <li>• <strong>No se permite el pago en metálico</strong>. Todo debe ser vía transferencia bancaria.</li>
-                        <li>• La deducción se aplica al ejercicio fiscal en el que se finaliza la obra.</li>
-                    </ul>
-                </div>
-
-                <div className="bg-slate-50 p-6 rounded-xl border border-dashed border-slate-300">
-                    <h6 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Ejemplo Práctico:</h6>
-                    <div className="text-xs text-slate-600 space-y-2 italic">
-                        <p>Si tu deducción total es de <strong>7.200 €</strong> y tu máximo anual deducible es de 3.000 €:</p>
-                        <div className="pl-4 space-y-1">
-                            <p>- Renta ejercicio 1: Desgravas 3.000 €</p>
-                            <p>- Renta ejercicio 2: Desgravas 3.000 €</p>
-                            <p>- Renta ejercicio 3: Desgravas los 1.200 € restantes.</p>
+                {financials.irpfCap > 0 && (
+                    <>
+                        <div className="bg-yellow-400 text-slate-800 py-3 px-4 text-center font-black text-sm uppercase tracking-wider mb-6">
+                            Ayuda 2: Deducciones en el IRPF
                         </div>
-                    </div>
-                </div>
+
+                        <div className="text-[11px] text-slate-700 space-y-4 mb-8">
+                            <p className="font-bold border-b border-yellow-200 pb-1">Requisitos para acceder:</p>
+                            <ul className="space-y-2 pl-2">
+                                <li>• Estar al corriente de obligaciones tributarias y ser contribuyente del IRPF.</li>
+                                <li>• Realizar Certificado Energético (CEE) ANTES y DESPUÉS de la actuación.</li>
+                                <li>• <strong>No se permite el pago en metálico</strong>. Todo debe ser vía transferencia bancaria.</li>
+                                <li>• La deducción se aplica al ejercicio fiscal en el que se finaliza la obra.</li>
+                            </ul>
+                        </div>
+
+                        <div className="bg-slate-50 p-6 rounded-xl border border-dashed border-slate-300">
+                            <h6 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Ejemplo Práctico:</h6>
+                            <div className="text-xs text-slate-600 space-y-2 italic">
+                                <p>Si tu deducción total es de <strong>7.200 €</strong> y tu máximo anual deducible es de 3.000 €:</p>
+                                <div className="pl-4 space-y-1">
+                                    <p>- Renta ejercicio 1: Desgravas 3.000 €</p>
+                                    <p>- Renta ejercicio 2: Desgravas 3.000 €</p>
+                                    <p>- Renta ejercicio 3: Desgravas los 1.200 € restantes.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </>
+                )}
 
                 <div className="absolute bottom-0 left-0 right-0 bg-yellow-400 py-3 text-center text-[10px] font-bold text-slate-800">
                     email: info@brokergy.es  |  tlf: 623 926 179  |  web: www.brokergy.es

@@ -1,0 +1,650 @@
+const nodemailer = require('nodemailer');
+
+/**
+ * Servicio de email para Brokergy
+ * Usa SMTP de Hostinger con la cuenta brokergy@brokergy.es
+ */
+
+const transporter = nodemailer.createTransport({
+    host: process.env.SMTP_HOST || 'smtp.hostinger.com',
+    port: parseInt(process.env.SMTP_PORT || '465'),
+    secure: true, // SSL
+    auth: {
+        user: process.env.SMTP_USER || 'brokergy@brokergy.es',
+        pass: process.env.SMTP_PASS,
+    },
+    tls: {
+        rejectUnauthorized: false // Para evitar problemas con certificados en desarrollo
+    }
+});
+
+/**
+ * Envía un email genérico
+ */
+const sendMail = async ({ to, subject, html, text, attachments }) => {
+    const from = '"BROKERGY · Ingeniería Energética" <brokergy@brokergy.es>';
+    
+    try {
+        const info = await transporter.sendMail({
+            from,
+            to,
+            subject,
+            html,
+            text: text || subject,
+            attachments
+        });
+        console.log(`[Email] Enviado a ${to}: ${info.messageId}`);
+        return { success: true, messageId: info.messageId };
+    } catch (error) {
+        console.error(`[Email] Error enviando a ${to}:`, error.message);
+        throw error;
+    }
+};
+
+/**
+ * Envía email de recuperación de contraseña con plantilla HTML Brokergy
+ */
+const sendPasswordResetEmail = async (to, resetLink, userName) => {
+    const subject = 'Recupera tu contraseña — Brokergy';
+    
+    const html = `
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="margin:0; padding:0; background-color:#0a0e1a; font-family:'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#0a0e1a; padding:40px 20px;">
+        <tr>
+            <td align="center">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px; background-color:#111827; border-radius:24px; border:1px solid rgba(255,255,255,0.06); overflow:hidden;">
+                    
+                    <!-- Header gradient bar -->
+                    <tr>
+                        <td style="height:4px; background:linear-gradient(90deg, #f59e0b, #ea580c);"></td>
+                    </tr>
+                    
+                    <!-- Logo / Brand -->
+                    <tr>
+                        <td style="padding:40px 40px 20px; text-align:center;">
+                            <div style="font-size:28px; font-weight:900; letter-spacing:-0.5px;">
+                                <span style="color:#ffffff;">Portal </span>
+                                <span style="color:#f59e0b;">BROKERGY</span>
+                            </div>
+                        </td>
+                    </tr>
+                    
+                    <!-- Icon -->
+                    <tr>
+                        <td style="text-align:center; padding:10px 40px;">
+                            <div style="display:inline-block; width:64px; height:64px; line-height:64px; background-color:rgba(245,158,11,0.1); border-radius:16px; border:1px solid rgba(245,158,11,0.2); font-size:28px; text-align:center;">
+                                🔐
+                            </div>
+                        </td>
+                    </tr>
+                    
+                    <!-- Title -->
+                    <tr>
+                        <td style="padding:20px 40px 8px; text-align:center;">
+                            <h1 style="margin:0; font-size:22px; font-weight:800; color:#ffffff; letter-spacing:-0.3px;">
+                                Recuperar Contraseña
+                            </h1>
+                        </td>
+                    </tr>
+                    
+                    <!-- Message -->
+                    <tr>
+                        <td style="padding:0 40px 30px; text-align:center;">
+                            <p style="margin:0; font-size:14px; line-height:1.6; color:rgba(255,255,255,0.5);">
+                                ${userName ? `Hola <strong style="color:rgba(255,255,255,0.8);">${userName}</strong>,<br><br>` : ''}
+                                Hemos recibido una solicitud para restablecer la contraseña de tu cuenta en Brokergy. 
+                                Si no realizaste esta solicitud, simplemente ignora este correo.
+                            </p>
+                        </td>
+                    </tr>
+                    
+                    <!-- Button -->
+                    <tr>
+                        <td style="padding:0 40px 30px; text-align:center;">
+                            <a href="${resetLink}" target="_blank" style="display:inline-block; padding:14px 40px; background:linear-gradient(135deg, #f59e0b, #ea580c); color:#0a0e1a; font-size:14px; font-weight:800; text-decoration:none; border-radius:12px; letter-spacing:0.3px;">
+                                Restablecer Contraseña
+                            </a>
+                        </td>
+                    </tr>
+                    
+                    <!-- Expiry notice -->
+                    <tr>
+                        <td style="padding:0 40px 10px; text-align:center;">
+                            <p style="margin:0; font-size:12px; color:rgba(255,255,255,0.3);">
+                                ⏳ Este enlace expira en <strong style="color:rgba(245,158,11,0.7);">1 hora</strong>.
+                            </p>
+                        </td>
+                    </tr>
+                    
+                    <!-- Link fallback -->
+                    <tr>
+                        <td style="padding:0 40px 30px; text-align:center;">
+                            <p style="margin:0; font-size:11px; color:rgba(255,255,255,0.2); word-break:break-all;">
+                                Si el botón no funciona, copia y pega este enlace en tu navegador:<br>
+                                <a href="${resetLink}" style="color:rgba(245,158,11,0.5); text-decoration:none;">${resetLink}</a>
+                            </p>
+                        </td>
+                    </tr>
+                    
+                    <!-- Divider -->
+                    <tr>
+                        <td style="padding:0 40px;">
+                            <div style="height:1px; background:rgba(255,255,255,0.06);"></div>
+                        </td>
+                    </tr>
+                    
+                    <!-- Footer -->
+                    <tr>
+                        <td style="padding:24px 40px 32px; text-align:center;">
+                            <p style="margin:0; font-size:10px; text-transform:uppercase; letter-spacing:2px; font-weight:700; color:rgba(255,255,255,0.15);">
+                                Brokergy Analytics &copy; ${new Date().getFullYear()}
+                            </p>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>`;
+
+    const text = `Recuperar Contraseña — Brokergy\n\n${userName ? `Hola ${userName},\n\n` : ''}Hemos recibido una solicitud para restablecer tu contraseña. Haz clic en el siguiente enlace:\n\n${resetLink}\n\nEste enlace expira en 1 hora.\n\nSi no solicitaste este cambio, ignora este correo.\n\nBrokergy Analytics`;
+
+    return sendMail({ to, subject, html, text });
+};
+
+/**
+ * Envía la propuesta en PDF al cliente por correo
+ */
+const sendProposalEmail = async ({ to, userName, pdfBuffer, tableImageBase64, summaryData }) => {
+    const subject = `Propuesta Bono Energético CAE — Brokergy (${summaryData.id})`;
+    
+    // Si tenemos imagen de la tabla, la adjuntamos como CID
+    const attachments = [
+        {
+            filename: `Propuesta_Brokergy_${summaryData.id}.pdf`,
+            content: pdfBuffer
+        }
+    ];
+
+    let tableHtml = summaryData.htmlTable || '';
+    
+    // Si tenemos imagen de la tabla (captura real), la adjuntamos y la mostramos DESPUÉS o EN VEZ DE
+    if (tableImageBase64 && tableImageBase64.includes('base64')) {
+        attachments.push({
+            filename: 'resumen-ahorro.png',
+            content: tableImageBase64.split('base64,')[1],
+            encoding: 'base64',
+            cid: 'summary-table'
+        });
+        // Si hay captura real, la preferimos sobre el HTML generado (es más fiel)
+        tableHtml = `
+            <div style="margin: 25px 0; border-radius: 16px; overflow: hidden; border: 1px solid rgba(255,255,255,0.08); box-shadow: 0 10px 30px rgba(0,0,0,0.3); background-color: #111827;">
+                <img src="cid:summary-table" alt="Resumen Ahorro" style="width: 100%; display: block; border-radius: 15px;">
+            </div>
+        `;
+    }
+
+    const html = `
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="margin:0; padding:0; background-color:#0a0e1a; font-family:'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif; color:#ffffff;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#0a0e1a; padding:40px 20px;">
+        <tr>
+            <td align="center">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px; background-color:#111827; border-radius:24px; border:1px solid rgba(255,255,255,0.06); overflow:hidden;">
+                    
+                    <!-- Header gradient bar -->
+                    <tr>
+                        <td style="height:4px; background:linear-gradient(90deg, #f59e0b, #ea580c);"></td>
+                    </tr>
+                    
+                    <!-- Logo / Brand -->
+                    <tr>
+                        <td style="padding:40px 40px 20px;">
+                            <div style="font-size:24px; font-weight:900; letter-spacing:-0.5px; text-align:center;">
+                                <span style="color:#f59e0b;">BROKERGY </span>
+                                <span style="color:#ffffff; font-weight: 500;">· Ingeniería Energética</span>
+                            </div>
+                        </td>
+                    </tr>
+                    
+                    <!-- Content Body -->
+                    <tr>
+                        <td style="padding:10px 40px 30px;">
+                            <h2 style="margin:0 0 20px; font-size:20px; font-weight:800; color:#ffffff; letter-spacing:-0.3px;">
+                                ¡Hola, ${userName || 'cliente'}!
+                            </h2>
+                            
+                            ${summaryData.isBoth ? `
+                                <!-- CASO COMPARATIVA -->
+                                <p style="margin:0 0 20px; font-size:15px; line-height:1.6; color:rgba(255,255,255,0.7);">
+                                    Tal y como acordamos, te adjunto la simulación de las ayudas para tu proyecto, presentando las siguientes opciones para tu vivienda:
+                                </p>
+
+                                <!-- OPCION 1 -->
+                                <div style="background-color:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:16px; padding:20px; margin-bottom:15px;">
+                                    <p style="margin:0 0 10px; font-size:13px; font-weight:700; color:#f59e0b; text-transform:uppercase; letter-spacing:1px;">Opción 1: Solo aerotermia</p>
+                                    <p style="margin:0 0 12px; font-size:14px; line-height:1.5; color:rgba(255,255,255,0.6);">
+                                        Ayuda directa Bono CAE de <strong style="color:#ffffff;">${summaryData.fAero.caeBonus}</strong>. Sumando deducciones IRPF (${summaryData.fAero.irpfDeduction}), alcanzarías un total de:
+                                    </p>
+                                    <p style="margin:0; font-size:20px; font-weight:800; color:#ffffff;">${summaryData.fAero.totalAyuda}</p>
+                                </div>
+
+                                <!-- OPCION 2 -->
+                                <div style="background-color:rgba(245,158,11,0.05); border:1px solid rgba(245,158,11,0.2); border-radius:16px; padding:20px; margin-bottom:25px;">
+                                    <p style="margin:0 0 10px; font-size:13px; font-weight:700; color:#f59e0b; text-transform:uppercase; letter-spacing:1px;">Opción 2: Mejora de envolvente</p>
+                                    <p style="margin:0 0 12px; font-size:14px; line-height:1.5; color:rgba(255,255,255,0.6);">
+                                        En este caso, la ayuda del Bono CAE asciende a <strong style="color:#ffffff;">${summaryData.f80.caeBonus}</strong>. Sumando las deducciones del IRPF (${summaryData.f80.irpfDeduction}), el total llegaría a:
+                                    </p>
+                                    <p style="margin:0; font-size:24px; font-weight:900; color:#f59e0b;">${summaryData.f80.totalAyuda}</p>
+                                </div>
+                            ` : summaryData.isOnlyReforma ? `
+                                <!-- CASO SOLO REFORMA -->
+                                <p style="margin:0 0 15px; font-size:15px; line-height:1.6; color:rgba(255,255,255,0.7);">
+                                    Tal y como acordamos, te adjunto la simulación de las ayudas para tu expediente de Reforma Energética, donde detallamos los ahorros que puedes obtener.
+                                </p>
+                                <p style="margin:0 0 15px; font-size:15px; line-height:1.6; color:rgba(255,255,255,0.7);">
+                                    🔹 <strong>Bono Energético:</strong> Podrías obtener una ayuda de <strong style="color:#f59e0b; font-size: 19px;">${summaryData.f80.caeBonus}</strong> gestionada a través de BROKERGY.
+                                </p>
+                                <p style="margin:0 0 15px; font-size:15px; line-height:1.6; color:rgba(255,255,255,0.7);">
+                                    Además, el importe estimado de deducciones en el IRPF sería de <strong style="color:#10b981;">${summaryData.f80.irpfDeduction}</strong>.
+                                </p>
+                                <div style="background-color:rgba(245,158,11,0.05); border:1px dashed rgba(245,158,11,0.3); border-radius:16px; padding:20px; margin:25px 0; text-align:center;">
+                                    <p style="margin:0; font-size:14px; font-weight:600; color:#f59e0b; text-transform:uppercase; letter-spacing:1px;">Resumen total de ayudas</p>
+                                    <p style="margin:5px 0 0; font-size:32px; font-weight:900; color:#ffffff;">Hasta ${summaryData.f80.totalAyuda}</p>
+                                </div>
+                            ` : `
+                                <!-- CASO SOLO AEROTERMIA (ORIGINAL) -->
+                                <p style="margin:0 0 15px; font-size:15px; line-height:1.6; color:rgba(255,255,255,0.7);">
+                                    Ya hemos podido realizar los cálculos de las ayudas a las que puedes optar para tu instalación de aerotermia.
+                                </p>
+                                <p style="margin:0 0 15px; font-size:15px; line-height:1.6; color:rgba(255,255,255,0.7);">
+                                    🔹 <strong>Bono Energético:</strong> Podrías obtener una ayuda de <strong style="color:#f59e0b; font-size: 19px;">${summaryData.caeBonus}</strong> gracias al Bono Energético BROKERGY.
+                                </p>
+                                <p style="margin:0 0 15px; font-size:15px; line-height:1.6; color:rgba(255,255,255,0.7);">
+                                    Además, si en tu caso puedes acogerte a las deducciones en el IRPF, el importe estimado sería de <strong style="color:#10b981;">${summaryData.irpfDeduction}</strong>.
+                                </p>
+                                <div style="background-color:rgba(245,158,11,0.05); border:1px dashed rgba(245,158,11,0.3); border-radius:16px; padding:20px; margin:25px 0; text-align:center;">
+                                    <p style="margin:0; font-size:14px; font-weight:600; color:#f59e0b; text-transform:uppercase; letter-spacing:1px;">Resumen total de ayudas</p>
+                                    <p style="margin:5px 0 0; font-size:32px; font-weight:900; color:#ffffff;">Hasta ${summaryData.totalAyuda}</p>
+                                </div>
+                            `}
+
+                            <p style="margin:0 0 30px; font-size:13px; line-height:1.6; color:rgba(255,255,255,0.4);">
+                                💡 Recordatorio: Para las deducciones del IRPF debes contar con retenciones aplicables. Nosotros dejaremos toda la parte técnica preparada para tu solicitud.
+                            </p>
+
+                            ${tableHtml}
+
+                            <h3 style="margin:25px 0 15px; font-size:16px; font-weight:700; color:#ffffff;">Pasos a seguir:</h3>
+                            <ul style="margin:0 0 30px; padding:0 0 0 20px; font-size:14px; line-height:1.8; color:rgba(255,255,255,0.6);">
+                                <li><strong>Aceptar el presupuesto</strong> al instalador.</li>
+                                <li><strong>Aceptar la propuesta</strong> adjunta en PDF. Es vital presentar el Certificado Inicial antes de cualquier factura para asegurar las deducciones fiscales.</li>
+                            </ul>
+
+                            <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                                <tr>
+                                    <td align="center" style="padding-bottom: 15px;">
+                                        <a href="${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/api/public/propuesta/${summaryData.urlId || summaryData.id}" target="_blank" style="display:inline-block; padding:14px 40px; background-color:#2563eb; color:#ffffff; font-size:15px; font-weight:700; text-decoration:none; border-radius:12px; letter-spacing:0.3px; width: 80%; max-width: 300px;">
+                                            📄 VER PROPUESTA ONLINE
+                                        </a>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td align="center">
+                                        <a href="${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/firma/${summaryData.urlId || summaryData.id}" target="_blank" style="display:inline-block; padding:14px 40px; background:linear-gradient(135deg, #f59e0b, #ea580c); color:#0a0e1a; font-size:15px; font-weight:900; text-decoration:none; border-radius:12px; letter-spacing:0.3px; width: 80%; max-width: 300px; box-shadow: 0 4px 15px rgba(245,158,11,0.3);">
+                                            ✍️ ACEPTAR Y FIRMAR
+                                        </a>
+                                    </td>
+                                </tr>
+                            </table>
+
+                            <p style="margin:30px 0 0; font-size:14px; line-height:1.6; color:rgba(255,255,255,0.5); text-align:center;">
+                                Quedo a tu disposición para cualquier duda o aclaración.
+                            </p>
+                        </td>
+                    </tr>
+                    
+                    <!-- Footer -->
+                    <tr>
+                        <td style="padding:10px 40px 40px; text-align:center; background-color:rgba(255,255,255,0.02);">
+                            <p style="margin:0; font-size:13px; font-weight:700; color:rgba(255,255,255,0.9);">
+                                BROKERGY · Ingeniería Energética
+                            </p>
+                            <p style="margin:5px 0 0; font-size:12px; color:rgba(255,255,255,0.4);">
+                                <a href="https://brokergy.es" style="color:#f59e0b; text-decoration:none;">brokergy.es</a>
+                            </p>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>`;
+
+    const text = `¡Hola, ${userName}!\n\nYa hemos calculado las ayudas para tu instalación de aerotermia.\n\n🔹 Bono Energético CAE: ${summaryData.caeBonus}\n🔹 Deducciones IRPF: ${summaryData.irpfDeduction}\n\nResumen total ayudas: Hasta ${summaryData.totalAyuda}\n\nPasos a seguir:\n1. Aceptar presupuesto al instalador.\n2. Aceptar propuesta adjunta.\n\n📄 Ver propuesta online:\n${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/api/public/propuesta/${summaryData.urlId || summaryData.id}\n\nPuedes firmar directamente aquí: ${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/firma/${summaryData.urlId || summaryData.id}\n\nQuedo a tu disposición.\n\nBROKERGY · Ingeniería Energética`;
+
+    return sendMail({ to, subject, html, text, attachments });
+};
+
+/**
+ * Envía el email de confirmación tras recibir la aceptación de la propuesta
+ */
+const sendAcceptanceNotificationEmail = async ({ to, userName, numeroExpediente, uploadLink }) => {
+    const subject = `Aceptación recibida [Exp ${numeroExpediente || ''}] — Brokergy`;
+
+    const whatsAppLink = `https://wa.me/34623926179?text=${encodeURIComponent(`Hola, soy ${userName}. Mi número de expediente es ${numeroExpediente || 'A consultar'}. Aquí envío la documentación solicitada.`)}`;
+
+    const html = `
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="margin:0; padding:0; background-color:#0a0e1a; font-family:'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif; color:#ffffff;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#0a0e1a; padding:40px 20px;">
+        <tr>
+            <td align="center">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px; background-color:#111827; border-radius:24px; border:1px solid rgba(255,255,255,0.06); overflow:hidden;">
+                    
+                    <!-- Header gradient bar -->
+                    <tr>
+                        <td style="height:4px; background:linear-gradient(90deg, #f59e0b, #ea580c);"></td>
+                    </tr>
+                    
+                    <!-- Logo / Brand -->
+                    <tr>
+                        <td style="padding:40px 40px 20px;">
+                            <div style="font-size:24px; font-weight:900; letter-spacing:-0.5px; text-align:center;">
+                                <span style="color:#f59e0b;">BROKERGY </span>
+                                <span style="color:#ffffff; font-weight: 500;">· Ingeniería Energética</span>
+                            </div>
+                        </td>
+                    </tr>
+                    
+                    <!-- Content Body -->
+                    <tr>
+                        <td style="padding:10px 40px 30px;">
+                            <h2 style="margin:0 0 20px; font-size:20px; font-weight:800; color:#ffffff; letter-spacing:-0.3px;">
+                                ¡Hola, ${userName || 'cliente'}!
+                            </h2>
+                            <p style="margin:0 0 15px; font-size:15px; line-height:1.6; color:rgba(255,255,255,0.7);">
+                                Hemos recibido correctamente la aceptación de tu propuesta. <strong>Muchas gracias por confiar en Brokergy.</strong>
+                            </p>
+                            
+                            ${numeroExpediente ? `
+                            <div style="margin: 20px 0; padding: 15px; background-color: rgba(245,158,11,0.1); border-left: 4px solid #f59e0b; border-radius: 4px;">
+                                <p style="margin: 0; font-size: 15px; color: #ffffff;">
+                                    Tu número de expediente asignado es: <strong style="color: #f59e0b;">${numeroExpediente}</strong>
+                                </p>
+                            </div>
+                            ` : ''}
+
+                            <p style="margin:0 0 25px; font-size:15px; line-height:1.6; color:rgba(255,255,255,0.7);">
+                                A partir de este momento, uno de nuestros certificadores comenzará a preparar el <strong style="color:#f59e0b;">Certificado de Eficiencia Energética inicial</strong>. 
+                                Es muy importante que este certificado quede emitido y registrado <strong>antes de la última factura de la obra</strong>, ya que, de lo contrario, podrían surgir problemas para aplicar las deducciones fiscales. Además, este documento es necesario para tramitar correctamente tu expediente CAE.
+                            </p>
+                            
+                            <div style="background-color:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.08); border-radius:16px; padding:25px; margin:25px 0;">
+                                <h3 style="margin:0 0 15px; font-size:14px; font-weight:800; color:#f59e0b; text-transform:uppercase; letter-spacing:1px;">📁 Documentación previa necesaria</h3>
+                                <ul style="margin:0; padding:0 0 0 18px; font-size:14px; line-height:1.8; color:rgba(255,255,255,0.6);">
+                                    <li>Planos de la vivienda o croquis de distribución.</li>
+                                    <li>Foto general de la caldera existente.</li>
+                                    <li>Foto de la placa de características de la caldera, bien legible.</li>
+                                    <li>Si la caldera ya no está instalada, fotos del hueco donde estaba.</li>
+                                    <li>Fotos de los radiadores (al menos uno por estancia) o del colector, si hay suelo radiante.</li>
+                                    <li>Vídeo corto recorriendo la vivienda, mostrando estancias, ventanas, puertas y accesos al exterior.</li>
+                                    <li>Fotos de las fachadas o paredes exteriores, incluyendo ventanas y puertas.</li>
+                                    <li>Si vas a cambiar ventanas o mejorar aislamiento, fotos y presupuesto.</li>
+                                </ul>
+                            </div>
+
+                            <p style="margin:0 0 15px; font-size:14px; line-height:1.6; color:rgba(255,255,255,0.5);">
+                                No hace falta que nos lo envíes todo de una sola vez; puedes mandarlo poco a poco conforme lo vayas recopilando.
+                            </p>
+                            
+                            <p style="margin:0 0 20px; font-size:14px; line-height:1.6; color:#f59e0b;">
+                                <strong>Importante:</strong> procura que las fotos tengan buena luz y que las placas de características se vean perfectamente, para evitar retrasos en la tramitación.
+                            </p>
+
+                            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top: 30px;">
+                                <tr>
+                                    <td>
+                                        <h3 style="margin:0 0 15px; font-size:16px; font-weight:700; color:#ffffff;">Puedes enviarlo por:</h3>
+                                        
+                                        ${uploadLink ? `
+                                        <div style="margin-bottom: 20px; text-align: center;">
+                                            <a href="${uploadLink}" target="_blank" style="display:inline-block; padding:14px 40px; background:linear-gradient(135deg, #0f8f66, #047857); color:#ffffff; font-size:15px; font-weight:900; text-decoration:none; border-radius:12px; letter-spacing:0.3px; width: 80%; max-width: 300px; box-shadow: 0 4px 15px rgba(16,185,129,0.3);">
+                                                📂 SUBIR DOCUMENTACIÓN AQUÍ
+                                            </a>
+                                        </div>
+                                        ` : ''}
+
+                                        <div style="display: flex; gap: 15px; align-items: center; margin-bottom: 20px;">
+                                            <div style="flex: 1; background-color:rgba(37,99,235,0.1); border:1px solid rgba(37,99,235,0.2); border-radius:12px; padding:15px; text-align:center;">
+                                                <div style="font-size: 11px; text-transform: uppercase; color: #60a5fa; font-weight: 800; margin-bottom: 5px;">Email</div>
+                                                <a href="mailto:info@brokergy.es?subject=${encodeURIComponent(`Documentación Expediente ${numeroExpediente || ''}`)}" style="color:#ffffff; text-decoration:none; font-weight:700; font-size: 14px;">info@brokergy.es</a>
+                                            </div>
+                                            <div style="flex: 1; background-color:rgba(16,185,129,0.1); border:1px solid rgba(16,185,129,0.2); border-radius:12px; padding:15px; text-align:center;">
+                                                <div style="font-size: 11px; text-transform: uppercase; color: #34d399; font-weight: 800; margin-bottom: 5px;">WhatsApp</div>
+                                                <a href="${whatsAppLink}" style="color:#ffffff; text-decoration:none; font-weight:700; font-size: 14px;">623 926 179</a>
+                                            </div>
+                                        </div>
+                                    </td>
+                                </tr>
+                            </table>
+
+                            <p style="margin:30px 0 0; font-size:14px; line-height:1.6; color:rgba(255,255,255,0.5); text-align:center;">
+                                En cuanto recibamos la documentación, continuaremos con la tramitación de tu expediente.
+                            </p>
+                        </td>
+                    </tr>
+                    
+                    <!-- Footer -->
+                    <tr>
+                        <td style="padding:10px 40px 40px; text-align:center; background-color:rgba(255,255,255,0.02);">
+                            <p style="margin:0; font-size:13px; font-weight:700; color:rgba(255,255,255,0.9);">
+                                Un saludo,<br>Equipo BROKERGY
+                            </p>
+                            <p style="margin:10px 0 0; font-size:12px; color:rgba(255,255,255,0.4);">
+                                <a href="https://brokergy.es" style="color:#f59e0b; text-decoration:none;">brokergy.es</a>
+                            </p>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>`;
+
+    const text = `¡Hola, ${userName}!\n\nHemos recibido correctamente la aceptación de tu propuesta. Muchas gracias.\n\n${numeroExpediente ? `Tu número de expediente es: ${numeroExpediente}\n\n` : ''}A partir de ahora, comenzaremos a preparar el Certificado de Eficiencia Energética inicial.\n\nNecesitamos que nos envíes la siguiente documentación:\n- Planos o croquis.\n- Fotos de la caldera y su placa.\n- Fotos de radiadores/colector.\n- Vídeo corto de la vivienda.\n- Fotos de fachadas y ventanas.\n\n${uploadLink ? `Puedes subir tu documentación directamente aquí:\n${uploadLink}\n\nO también p` : `P`}uedes enviarlo por:\nEmail: info@brokergy.es\nWhatsApp: 623 926 179\n\nUn saludo,\nEquipo BROKERGY`;
+
+    return sendMail({ to, subject, html, text });
+};
+
+/**
+ * Envía anexos (Anexo I, Anexo Cesión, etc.) por correo
+ */
+const sendAnnexEmail = async ({ to, userName, attachments, customMessage, summaryData }) => {
+    const docType = summaryData?.docType || 'Documentación';
+    const subject = `${docType} — Brokergy (${summaryData.id})`;
+    
+    // Convertir formato WhatsApp (*bold*) a HTML (<b>bold</b>)
+    const formattedMessage = customMessage ? customMessage.replace(/\*(.*?)\*/g, '<b style="color:#ffffff;">$1</b>') : null;
+    
+    const html = `
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="margin:0; padding:0; background-color:#0a0e1a; font-family:'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif; color:#ffffff;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#0a0e1a; padding:40px 20px;">
+        <tr>
+            <td align="center">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px; background-color:#111827; border-radius:24px; border:1px solid rgba(255,255,255,0.06); overflow:hidden;">
+                    
+                    <!-- Header gradient bar -->
+                    <tr>
+                        <td style="height:4px; background:linear-gradient(90deg, #f59e0b, #ea580c);"></td>
+                    </tr>
+                    
+                    <!-- Logo / Brand -->
+                    <tr>
+                        <td style="padding:40px 40px 20px; text-align:center;">
+                            <div style="font-size:24px; font-weight:900; letter-spacing:-0.5px;">
+                                <span style="color:#f59e0b;">BROKERGY </span>
+                                <span style="color:#ffffff; font-weight: 500;">· Ingeniería Energética</span>
+                            </div>
+                        </td>
+                    </tr>
+                    
+                    <!-- Content Body -->
+                    <tr>
+                        <td style="padding:10px 40px 40px;">
+                            <div style="font-size:15px; line-height:1.7; color:rgba(255,255,255,0.8); white-space: pre-wrap;">${formattedMessage || `Hola, ${userName || 'cliente'}. Adjuntamos la documentación solicitada relativa a tu expediente ${summaryData.id}.`}</div>
+                            
+                            <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid rgba(255,255,255,0.06); text-align:center;">
+                                <p style="margin:0; font-size:13px; color:rgba(255,255,255,0.4);">
+                                    Quedamos a tu disposición para cualquier duda o aclaración.
+                                </p>
+                            </div>
+                        </td>
+                    </tr>
+                    
+                    <!-- Footer -->
+                    <tr>
+                        <td style="padding:20px 40px 40px; text-align:center; background-color:rgba(255,255,255,0.02);">
+                            <p style="margin:0; font-size:13px; font-weight:700; color:rgba(255,255,255,0.9);">
+                                BROKERGY · Ingeniería Energética
+                            </p>
+                            <p style="margin:5px 0 0; font-size:12px; color:rgba(255,255,255,0.4);">
+                                <a href="https://brokergy.es" style="color:#f59e0b; text-decoration:none;">brokergy.es</a>
+                            </p>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>`;
+
+    const text = customMessage || `Hola ${userName},\n\nAdjuntamos la documentación solicitada (${docType}) para tu expediente ${summaryData.id}.\n\nQuedamos a tu disposición.\n\nBROKERGY · Ingeniería Energética`;
+
+    return sendMail({ to, subject, html, text, attachments });
+};
+
+/**
+ * Notifica a la administración (ADMIN) de que un distribuidor ha aceptado una oportunidad.
+ */
+const sendAdminNotificationEmail = async ({ numeroExpediente, clientName, address, distributorName, installerName, notes, expedienteId }) => {
+    const to = 'franciscojavier.moya.s2e2@gmail.com';
+    const subject = `${numeroExpediente || 'S/N'} – ACEPTACION DE EXPEDIENTE`;
+    const deepLink = `${process.env.FRONTEND_URL || 'https://app.brokergy.es'}?exp=${numeroExpediente || ''}`;
+
+    const html = `
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="margin:0; padding:0; background-color:#0a0e1a; font-family:'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif; color:#ffffff;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#0a0e1a; padding:40px 20px;">
+        <tr>
+            <td align="center">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px; background-color:#111827; border-radius:24px; border:1px solid rgba(255,255,255,0.06); overflow:hidden;">
+                    <tr>
+                        <td style="height:4px; background:linear-gradient(90deg, #f59e0b, #ea580c);"></td>
+                    </tr>
+                    <tr>
+                        <td style="padding:30px 40px; text-align:center;">
+                            <div style="font-size:22px; font-weight:900; letter-spacing:-0.5px; color:#f59e0b;">
+                                ACEPTACIÓN DE EXPEDIENTE
+                            </div>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="padding:0 40px 30px;">
+                            <p style="margin:0 0 20px; font-size:16px; line-height:1.6; color:#ffffff;">
+                                ¡Hola BROKERGY! 👋
+                            </p>
+                            <p style="margin:0 0 20px; font-size:15px; line-height:1.6; color:rgba(255,255,255,0.7);">
+                                Te informamos que el Distribuidor <strong>${distributorName || 'S/N'}</strong> ha marcado como aceptada una oportunidad. Se ha generado un nuevo expediente.
+                            </p>
+                            
+                            <div style="background-color:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:16px; padding:20px; margin-bottom:25px;">
+                                <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                                    <tr><td style="padding:5px 0; font-size:13px; color:rgba(255,255,255,0.4); text-transform:uppercase;">Expediente</td></tr>
+                                    <tr><td style="padding:0 0 15px; font-size:18px; font-weight:800; color:#f59e0b;">${numeroExpediente || 'PENDIENTE'}</td></tr>
+                                    
+                                    <tr><td style="padding:5px 0; font-size:13px; color:rgba(255,255,255,0.4); text-transform:uppercase;">Cliente</td></tr>
+                                    <tr><td style="padding:0 0 15px; font-size:15px; font-weight:700; color:#ffffff;">${clientName || 'S/N'}</td></tr>
+                                    
+                                    <tr><td style="padding:5px 0; font-size:13px; color:rgba(255,255,255,0.4); text-transform:uppercase;">Dirección</td></tr>
+                                    <tr><td style="padding:0 0 15px; font-size:14px; color:rgba(255,255,255,0.7);">${address || 'S/N'}</td></tr>
+                                    
+                                    <tr><td style="padding:5px 0; font-size:13px; color:rgba(255,255,255,0.4); text-transform:uppercase;">Instalador</td></tr>
+                                    <tr><td style="padding:0 0 15px; font-size:14px; color:rgba(255,255,255,0.7);">${installerName || 'No asignado'}</td></tr>
+
+                                    ${notes ? `
+                                    <tr><td style="padding:5px 0; font-size:13px; color:rgba(255,255,255,0.4); text-transform:uppercase;">Notas</td></tr>
+                                    <tr><td style="padding:0 0 15px; font-size:14px; color:rgba(255,255,255,0.7); font-style:italic;">"${notes}"</td></tr>
+                                    ` : ''}
+                                </table>
+                            </div>
+
+                            <p style="margin:0 0 30px; font-size:14px; line-height:1.6; color:rgba(255,255,255,0.6);">
+                                Debes ponerte en contacto con el cliente para iniciar el expediente para realizar el Certificado de Eficiencia Energética.
+                            </p>
+
+                            <div style="text-align:center;">
+                                <a href="${deepLink}" target="_blank" style="display:inline-block; padding:14px 40px; background:linear-gradient(135deg, #f59e0b, #ea580c); color:#0a0e1a; font-size:15px; font-weight:900; text-decoration:none; border-radius:12px; letter-spacing:0.3px; box-shadow: 0 4px 15px rgba(245,158,11,0.3);">
+                                    🚀 GESTIONAR EXPEDIENTE
+                                </a>
+                            </div>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="padding:20px 40px 40px; text-align:center; background-color:rgba(255,255,255,0.02);">
+                            <p style="margin:0; font-size:12px; color:rgba(255,255,255,0.2); text-transform:uppercase; letter-spacing:1px;">
+                                Sistema Automático Brokergy
+                            </p>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>`;
+
+    const text = `ACEPTACIÓN DE EXPEDIENTE: ${numeroExpediente}\n\nDistribuidor: ${distributorName}\nCliente: ${clientName}\nDirección: ${address}\nInstalador: ${installerName}\n\nAcceso directo: ${deepLink}`;
+
+    return sendMail({ to, subject, html, text });
+};
+
+module.exports = {
+    sendMail,
+    sendPasswordResetEmail,
+    sendProposalEmail,
+    sendAcceptanceNotificationEmail,
+    sendAnnexEmail,
+    sendAdminNotificationEmail
+};

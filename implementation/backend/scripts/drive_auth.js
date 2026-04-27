@@ -47,20 +47,35 @@ const server = http.createServer(async (req, res) => {
         try {
             const { tokens } = await oauth2Client.getToken(code);
             
-            console.log('\n✅ ¡Autorización completada con éxito!\n');
-            console.log('='.repeat(60));
-            console.log('REFRESH TOKEN (copia esto en tu .env):');
-            console.log('='.repeat(60));
-            console.log(`\nGOOGLE_OAUTH_REFRESH_TOKEN=${tokens.refresh_token}\n`);
-            console.log('='.repeat(60));
+            const fs = require('fs');
+            const path = require('path');
+            const envPath = path.join(__dirname, '..', '.env');
             
+            let envContent = '';
+            if (fs.existsSync(envPath)) {
+                envContent = fs.readFileSync(envPath, 'utf8');
+                if (envContent.includes('GOOGLE_OAUTH_REFRESH_TOKEN=')) {
+                    envContent = envContent.replace(/GOOGLE_OAUTH_REFRESH_TOKEN=.*/, `GOOGLE_OAUTH_REFRESH_TOKEN=${tokens.refresh_token}`);
+                } else {
+                    envContent += `\nGOOGLE_OAUTH_REFRESH_TOKEN=${tokens.refresh_token}\n`;
+                }
+            } else {
+                envContent = `GOOGLE_OAUTH_REFRESH_TOKEN=${tokens.refresh_token}\n`;
+            }
+            
+            fs.writeFileSync(envPath, envContent);
+            fs.writeFileSync(path.join(__dirname, '..', 'refresh_token.txt'), tokens.refresh_token);
+
+            console.log('\n✅ ¡Autorización completada con éxito!');
+            console.log('El token se ha guardado automáticamente en el archivo .env\n');
+
             res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
             res.end(`
                 <html>
                 <body style="font-family: sans-serif; text-align: center; padding: 50px; background: #0f172a; color: white;">
                     <h1 style="color: #22d3ee;">✅ ¡Autorización completada!</h1>
-                    <p>Ya puedes cerrar esta ventana y volver a la terminal.</p>
-                    <p style="color: #94a3b8; font-size: 14px;">El refresh token se ha mostrado en la consola.</p>
+                    <p>El token de Google Drive se ha guardado directamente en la configuración del servidor.</p>
+                    <p>Ya puedes cerrar esta ventana y volver a la terminal o decirle al asistente que continúe.</p>
                 </body>
                 </html>
             `);

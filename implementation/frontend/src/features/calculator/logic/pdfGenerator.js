@@ -16,26 +16,11 @@ export const generateBrokergyReport = async (data) => {
     try {
         console.log('PDF Generator received data:', data);
 
-        // Extracción robusta de datos financieros
-        let financials = data?.financials;
-
-        // Si no hay propiedad financials, verificamos si 'data' es el objeto financials directamente
-        if (!financials && data?.presupuesto !== undefined) {
-            console.log('Data seems to be the financials object directly');
-            financials = data;
-        }
-
-        // Fallback a ceros si todo falla
-        financials = financials || {
-            presupuesto: 0,
-            caeBonus: 0,
-            irpfDeduction: 0,
-            totalAyuda: 0,
-            porcentajeCubierto: 0,
-            costeFinal: 0,
-            irpfRate: 0,
-            irpfCap: 0
-        };
+        const financials = data?.financials;
+        const financialsRes080 = data?.financialsRes080;
+        const inputs = data?.inputs || {};
+        const isBoth = inputs.reformaType === 'both';
+        const isOnlyReforma = inputs.reformaType === 'onlyReforma';
 
         console.log('Financials used for PDF:', financials);
 
@@ -109,47 +94,74 @@ export const generateBrokergyReport = async (data) => {
             });
         }
 
-        // Configuración de Tabla de Ayudas
-        const tableStartY = (doc).lastAutoTable?.finalY + 10 || 100;
-        autoTable(doc, {
-            startY: tableStartY,
-            head: [[
-                {
-                    content: 'SIMULACIÓN DE INVERSIÓN Y AYUDAS',
-                    colSpan: 2,
-                    styles: { halign: 'center', fillColor: COLORS.orange, textColor: COLORS.white, fontStyle: 'bold', fontSize: 12 }
-                }
-            ]],
-            body: [
-                [
-                    { content: 'Coste de inversión Total (IVA INCLUIDO)', styles: { fontStyle: 'bold' } },
-                    { content: formatCurrency(financials.presupuesto), styles: { halign: 'right', fontStyle: 'bold' } }
+        // Definir qué tablas dibujar
+        const tablesToDraw = [];
+        if (!isOnlyReforma) {
+            tablesToDraw.push({
+                title: isBoth ? 'OPCIÓN 1: CAMBIO DE CALDERA POR AEROTERMIA' : 'SIMULACIÓN DE INVERSIÓN Y AYUDAS',
+                fin: financials,
+                color: isBoth ? COLORS.dark : COLORS.orange,
+                type: 'standard'
+            });
+        }
+        if ((isBoth || isOnlyReforma) && financialsRes080) {
+            tablesToDraw.push({
+                title: isBoth ? 'OPCIÓN 2: CAMBIO DE CALDERA POR AEROTERMIA Y SUSTITUCIÓN DE VENTANAS O AISLAMIENTO' : (isOnlyReforma ? 'SIMULACIÓN REFORMA ENERGÉTICA' : 'REFORMA INTEGRAL'),
+                fin: financialsRes080,
+                color: COLORS.orange,
+                type: 'reforma'
+            });
+        }
+
+        let currentY = (doc).lastAutoTable?.finalY + 10 || 100;
+
+        tablesToDraw.forEach((table, idx) => {
+            autoTable(doc, {
+                startY: currentY,
+                head: [[
+                    {
+                        content: table.title,
+                        colSpan: 2,
+                        styles: { halign: 'center', fillColor: table.color, textColor: COLORS.white, fontStyle: 'bold', fontSize: idx === 0 && isBoth ? 10 : 12 }
+                    }
+                ]],
+                body: [
+                    [
+                        { 
+                            content: table.type === 'reforma' 
+                                ? 'Inversión Reforma de Vivienda + Aerotermia (IVA INC.)' 
+                                : 'Inversión sustitución de caldera por aerotermia (IVA INC.)', 
+                            styles: { fontStyle: 'bold' } 
+                        },
+                        { content: formatCurrency(table.fin.presupuesto), styles: { halign: 'right', fontStyle: 'bold' } }
+                    ],
+                    [
+                        { content: 'Bono Energético CAE BROKERGY (Nota 1)', styles: { textColor: COLORS.dark } },
+                        { content: '+' + formatCurrency(table.fin.caeBonus), styles: { halign: 'right', textColor: COLORS.green } }
+                    ],
+                    ...(table.fin.irpfCap > 0 ? [[
+                        { content: `Deducción en el IRPF (Nota 2) (${table.fin.irpfRate}%, Límite ${formatCurrency(table.fin.irpfCap)})`, styles: { textColor: COLORS.dark } },
+                        { content: '+' + formatCurrency(table.fin.irpfDeduction), styles: { halign: 'right', textColor: COLORS.green } }
+                    ]] : []),
+                    [
+                        { content: 'Total ayuda', styles: { fillColor: COLORS.yellow, fontStyle: 'bold' } },
+                        { content: formatCurrency(table.fin.totalAyuda), styles: { fillColor: COLORS.yellow, halign: 'right', fontStyle: 'bold' } }
+                    ],
+                    [
+                        { content: 'Ahorro conseguido por BROKERGY', styles: { fillColor: [144, 238, 144] } },
+                        { content: `${Math.round(table.fin.porcentajeCubierto || 0).toLocaleString('es-ES')}%`, styles: { fillColor: [144, 238, 144], halign: 'right', fontStyle: 'bold' } }
+                    ],
+                    [
+                        { content: 'COSTE FINAL', styles: { fillColor: COLORS.dark, textColor: COLORS.white, fontStyle: 'bold', fontSize: 12 } },
+                        { content: formatCurrency(table.fin.costeFinal), styles: { fillColor: COLORS.dark, textColor: COLORS.white, halign: 'right', fontStyle: 'bold', fontSize: isBoth ? 12 : 14 } }
+                    ]
                 ],
-                [
-                    { content: 'Ayuda 1: BONO ENERGÉTICO CAE BROKERGY (Nota 1)', styles: { textColor: COLORS.dark } },
-                    { content: '+' + formatCurrency(financials.caeBonus), styles: { halign: 'right', textColor: COLORS.green } }
-                ],
-                [
-                    { content: `Ayuda 2: Deducciones en el IRPF (Nota 2) (${financials.irpfRate}%, Max ${formatCurrency(financials.irpfCap)})`, styles: { textColor: COLORS.dark } },
-                    { content: '+' + formatCurrency(financials.irpfDeduction), styles: { halign: 'right', textColor: COLORS.green } }
-                ],
-                [
-                    { content: 'Total ayuda', styles: { fillColor: COLORS.yellow, fontStyle: 'bold' } },
-                    { content: formatCurrency(financials.totalAyuda), styles: { fillColor: COLORS.yellow, halign: 'right', fontStyle: 'bold' } }
-                ],
-                [
-                    { content: 'Ahorro conseguido por BROKERGY', styles: { fillColor: [144, 238, 144] } },
-                    { content: `${Math.round(financials.porcentajeCubierto || 0).toLocaleString('es-ES')}%`, styles: { fillColor: [144, 238, 144], halign: 'right', fontStyle: 'bold' } }
-                ],
-                [
-                    { content: 'COSTE FINAL', styles: { fillColor: COLORS.dark, textColor: COLORS.white, fontStyle: 'bold', fontSize: 12 } },
-                    { content: formatCurrency(financials.costeFinal), styles: { fillColor: COLORS.dark, textColor: COLORS.white, halign: 'right', fontStyle: 'bold', fontSize: 14 } }
-                ]
-            ],
-            theme: 'grid',
-            styles: { fontSize: 10, cellPadding: 5, valign: 'middle' },
-            columnStyles: { 0: { cellWidth: 120 }, 1: { cellWidth: 50 } },
-            margin: { left: margin, right: margin }
+                theme: 'grid',
+                styles: { fontSize: isBoth ? 9 : 10, cellPadding: isBoth ? 3 : 5, valign: 'middle' },
+                columnStyles: { 0: { cellWidth: 120 }, 1: { cellWidth: 50 } },
+                margin: { left: margin, right: margin }
+            });
+            currentY = doc.lastAutoTable.finalY + (isBoth ? 5 : 10);
         });
 
         // Notas al pie de la tabla
@@ -158,9 +170,11 @@ export const generateBrokergyReport = async (data) => {
         doc.setFontSize(8);
         doc.setTextColor(...COLORS.gray);
         doc.text('Nota 1: La ayuda Bono Energético CAE está garantizada. El importe indicado es orientativo y se ajustará una vez se emitan los certificados de eficiencia energética inicial y final.', margin, notesY + 10);
-        doc.text('Nota 2: Las deducciones en el IRPF por eficiencia energética no suponen un descuento directo sobre el precio de la actuación, sino que se aplican en la', margin, notesY + 15);
-        doc.text('   declaración de la renta del contribuyente. El importe finalmente recuperado dependerá de su situación fiscal personal y de que dichas deducciones', margin, notesY + 19);
-        doc.text('   se encuentren en vigor en el momento de su aplicación, que tendrá lugar al año siguiente de la ejecución de la obra.', margin, notesY + 23);
+        if (financials.irpfCap > 0) {
+            doc.text('Nota 2: Las deducciones en el IRPF por eficiencia energética no suponen un descuento directo sobre el precio de la actuación, sino que se aplican en la', margin, notesY + 15);
+            doc.text('   declaración de la renta del contribuyente. El importe finalmente recuperado dependerá de su situación fiscal personal y de que dichas deducciones', margin, notesY + 19);
+            doc.text('   se encuentren en vigor en el momento de su aplicación, que tendrá lugar al año siguiente de la ejecución de la obra.', margin, notesY + 23);
+        }
 
         console.log('Drawing Footer P1...');
         drawFooter(doc, pageWidth, pageHeight);
@@ -312,49 +326,51 @@ export const generateBrokergyReport = async (data) => {
             y += 12;
         });
 
-        y += 10;
-        // Banner Amarillo IRPF
-        doc.setFillColor(...COLORS.yellow);
-        doc.rect(0, y, pageWidth, 12, 'F');
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(11);
-        doc.setTextColor(...COLORS.dark);
-        doc.text('AYUDA 2: DEDUCCIONES EN EL IRPF', pageWidth / 2, y + 8, { align: 'center' });
-        y += 20;
+        if (financials.irpfCap > 0) {
+            y += 10;
+            // Banner Amarillo IRPF
+            doc.setFillColor(...COLORS.yellow);
+            doc.rect(0, y, pageWidth, 12, 'F');
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(11);
+            doc.setTextColor(...COLORS.dark);
+            doc.text('AYUDA 2: DEDUCCIONES EN EL IRPF', pageWidth / 2, y + 8, { align: 'center' });
+            y += 20;
 
-        // Requisitos IRPF
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(9);
-        doc.setTextColor(...COLORS.dark);
-        doc.text('Requisitos fundamentales:', margin, y);
-        y += 6;
+            // Requisitos IRPF
+            doc.setFont('helvetica', 'normal');
+            doc.setFontSize(9);
+            doc.setTextColor(...COLORS.dark);
+            doc.text('Requisitos fundamentales:', margin, y);
+            y += 6;
 
-        const irpfReqs = [
-            '• Ser contribuyente del IRPF (declaración de la renta en España).',
-            '• Disponer de Certificado Energético ANTES y DESPUÉS de la actuación.',
-            '• Importante: NO realizar pagos en efectivo (solo transferencias/tarjeta).',
-            `• Deducción del ${financials.irpfRate} % (hasta máximo anual de ${formatCurrency(financials.irpfCap)
-            }).`,
-            '• La deducción se aplica en la declaración de la renta del año siguiente.'
-        ];
+            const irpfReqs = [
+                '• Ser contribuyente del IRPF (declaración de la renta en España).',
+                '• Disponer de Certificado Energético ANTES y DESPUÉS de la actuación.',
+                '• Importante: NO realizar pagos en efectivo (solo transferencias/tarjeta).',
+                `• Deducción del ${financials.irpfRate} % (hasta máximo anual de ${formatCurrency(financials.irpfCap)
+                }).`,
+                '• La deducción se aplica en la declaración de la renta del año siguiente.'
+            ];
 
-        irpfReqs.forEach(req => {
-            doc.text(req, margin, y);
-            y += 5;
-        });
+            irpfReqs.forEach(req => {
+                doc.text(req, margin, y);
+                y += 5;
+            });
 
-        y += 10;
-        // Ejemplo Práctico Box
-        doc.setFillColor(245, 245, 245);
-        doc.roundedRect(margin, y, pageWidth - 2 * margin, 25, 2, 2, 'F');
+            y += 10;
+            // Ejemplo Práctico Box
+            doc.setFillColor(245, 245, 245);
+            doc.roundedRect(margin, y, pageWidth - 2 * margin, 25, 2, 2, 'F');
 
-        doc.setFontSize(8);
-        doc.setTextColor(...COLORS.gray);
-        doc.text('EJEMPLO PRÁCTICO DE DEDUCCIÓN:', margin + 4, y + 5);
-        doc.text('Si te corresponde una deducción total de 7.200€ y el límite anual es 3.000€:', margin + 4, y + 10);
-        doc.text('   - Año 1 (Renta 2025): Te deduces 3.000€', margin + 4, y + 14);
-        doc.text('   - Año 2 (Renta 2026): Te deduces otros 3.000€', margin + 4, y + 18);
-        doc.text('   - Año 3 (Renta 2027): Te deduces el resto (1.200€)', margin + 4, y + 22);
+            doc.setFontSize(8);
+            doc.setTextColor(...COLORS.gray);
+            doc.text('EJEMPLO PRÁCTICO DE DEDUCCIÓN:', margin + 4, y + 5);
+            doc.text('Si te corresponde una deducción total de 7.200€ y el límite anual es 3.000€:', margin + 4, y + 10);
+            doc.text('   - Año 1 (Renta 2025): Te deduces 3.000€', margin + 4, y + 14);
+            doc.text('   - Año 2 (Renta 2026): Te deduces otros 3.000€', margin + 4, y + 18);
+            doc.text('   - Año 3 (Renta 2027): Te deduces el resto (1.200€)', margin + 4, y + 22);
+        }
 
         console.log('Drawing Footer P3...');
         drawFooter(doc, pageWidth, pageHeight);

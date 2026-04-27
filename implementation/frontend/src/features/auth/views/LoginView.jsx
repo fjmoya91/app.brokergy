@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth } from '../../../context/AuthContext';
+import axios from 'axios';
 
 export function LoginView({ onBack, onSuccess }) {
     const { signIn, resetPassword, loading } = useAuth();
@@ -21,9 +22,9 @@ export function LoginView({ onBack, onSuccess }) {
             const cleanPassword = password.trim();
 
             if (isResetMode) {
-                const { error: resetErr } = await resetPassword(cleanEmail);
-                if (resetErr) throw resetErr;
-                setMsg('Te hemos enviado un enlace para recuperar tu contraseña.');
+                // Usar nuestro backend propio para enviar email con SMTP Hostinger
+                await axios.post('/api/auth/forgot-password', { email: cleanEmail });
+                setMsg('Si el email está registrado, recibirás un enlace para recuperar tu contraseña.');
             } else {
                 const { error: signErr } = await signIn(cleanEmail, cleanPassword);
                 if (signErr) throw signErr;
@@ -31,7 +32,12 @@ export function LoginView({ onBack, onSuccess }) {
             }
         } catch (err) {
             console.error('Error Auth:', err);
-            setError(err.message || 'Error en la autenticación. Revisa las credenciales.');
+            if (isResetMode) {
+                // Aún si hay error del servidor, mostrar msg genérico (seguridad)
+                setMsg('Si el email está registrado, recibirás un enlace para recuperar tu contraseña.');
+            } else {
+                setError(err.message || 'Error en la autenticación. Revisa las credenciales.');
+            }
         } finally {
             setLocalLoading(false);
         }
@@ -44,16 +50,12 @@ export function LoginView({ onBack, onSuccess }) {
                     {/* Decorative background elements inside the title area too? No, mainly around card */}
                     <div className="absolute -top-24 -left-24 w-64 h-64 bg-amber-500/10 rounded-full blur-[100px] pointer-events-none animate-pulse"></div>
                     
-                    <h1 className="flex items-baseline justify-center gap-x-2 md:gap-x-4 mb-2 relative z-10">
-                         <span className="text-white text-3xl md:text-4xl font-medium tracking-tight">Portal</span>
-                         <span className="text-4xl md:text-6xl font-black tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-brand via-brand to-brand-700">
-                              BROKERGY
-                         </span>
-                         <span className="text-[10px] font-bold text-white/20 self-center mt-1">v2.0</span>
-                    </h1>
-                    <p className="text-white/60 text-sm md:text-base relative z-10">
-                         Acceso exclusivo para prescriptores y administradores.
-                    </p>
+                     <h1 className="flex items-baseline justify-center gap-x-2 md:gap-x-4 mb-2 relative z-10">
+                          <span className="text-white text-3xl md:text-4xl font-medium tracking-tight">Portal</span>
+                          <span className="text-4xl md:text-6xl font-black tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-brand via-brand to-brand-700">
+                               BROKERGY
+                          </span>
+                     </h1>
                 </div>
 
                 <div className="relative group">

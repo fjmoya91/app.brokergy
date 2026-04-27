@@ -19,10 +19,12 @@ const getCachedProfile = () => {
 const setCachedProfile = (profile) => {
   try {
     if (profile) {
+      const normalizedRol = (profile.rol || '').toUpperCase();
       const toCache = {
         nombre: profile.nombre,
         apellidos: profile.apellidos,
-        rol: profile.rol,
+        rol: normalizedRol,
+        id_rol: profile.id_rol ? Number(profile.id_rol) : null, // Guardar ID como número
         id_usuario: profile.id_usuario,
         prescriptor_id: profile.prescriptor_id,
         razon_social: profile.razon_social,
@@ -125,12 +127,14 @@ export const AuthProvider = ({ children }) => {
                 }
             }
 
+            const roleName = (res.data.rol_nombre || '').toUpperCase();
             const enrichedUser = {
                 ...sessionData.user,
                 nombre: res.data.perfilCompleto?.nombre || sessionData.user?.user_metadata?.nombre,
                 apellidos: res.data.perfilCompleto?.apellidos || sessionData.user?.user_metadata?.apellidos,
                 businessProfile: res.data.perfilCompleto,
-                rol: res.data.rol_nombre,
+                rol: roleName,
+                id_rol: res.data.id_rol ? Number(res.data.id_rol) : null, // Asegurar ID numérico
                 id_usuario: res.data.id_usuario,
                 prescriptor_id: res.data.prescriptor_id,
                 razon_social: res.data.razon_social,

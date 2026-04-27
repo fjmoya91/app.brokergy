@@ -137,13 +137,26 @@ body {
   }
 }
 
-@keyframes float {
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
 
+.animate-scale-in {
+  animation: scaleIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes float {
   0%,
   100% {
     transform: translateY(0);
   }
-
   50% {
     transform: translateY(-10px);
   }
@@ -389,4 +402,33 @@ body {
 
 .data-table tr:hover td {
   background: rgba(255, 255, 255, 0.03);
+}
+
+/* ─── Normalización de Mayúsculas ─── */
+input:not([type="email"]):not([type="password"]), 
+textarea,
+select,
+.data-table td,
+.data-table th,
+.card h3,
+.label-data,
+.badge-client {
+    text-transform: uppercase;
+}
+
+/* Excepciones para emails y zonas específicas */
+input[type="email"],
+.no-uppercase,
+.email-text,
+.case-sensitive {
+    text-transform: none !important;
+}
+
+/* Los correos dentro de las tablas a minúsculas por legibilidad */
+.data-table td.email-cell {
+    text-transform: lowercase;
+}
+
+::placeholder {
+    text-transform: none;
 }

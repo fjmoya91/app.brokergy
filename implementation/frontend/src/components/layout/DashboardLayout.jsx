@@ -4,12 +4,22 @@ import { useAuth } from '../../context/AuthContext';
 
 export function DashboardLayout({ children, activeTab, onTabChange }) {
     const { user, signOut } = useAuth();
+    
+    // Cache de roles para lógica más limpia e infalible
+    const userRole = (user?.rol || '').toUpperCase();
+    const userRoleId = user?.id_rol ? Number(user.id_rol) : null;
+    const isAdmin = userRole === 'ADMIN' || userRoleId === 1;
+    const isCertificador = userRole === 'CERTIFICADOR' || userRoleId === 4;
+    const isPartner = ['DISTRIBUIDOR', 'INSTALADOR', 'PARTNER'].includes(userRole) || [2, 3].includes(userRoleId);
+
     const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
     const [wwaState, setWwaState] = useState('DISCONNECTED'); // DISCONNECTED | READY | QR | INITIALIZING | AUTH_FAILED
 
     // Polling del estado de WhatsApp cada 5s (solo ADMIN)
     useEffect(() => {
-        if (user?.rol !== 'ADMIN') return;
+        const userRole = (user?.rol || '').toUpperCase();
+        const userRoleId = user?.id_rol ? Number(user.id_rol) : null;
+        if (userRole !== 'ADMIN' && userRoleId !== 1) return;
 
         const pollWwa = async () => {
             try {
@@ -23,7 +33,7 @@ export function DashboardLayout({ children, activeTab, onTabChange }) {
         pollWwa();
         const interval = setInterval(pollWwa, 5000);
         return () => clearInterval(interval);
-    }, [user?.rol]);
+    }, [user?.rol, user?.id_rol]);
 
     return (
         <div className="flex h-screen w-full relative bg-bkg-base overflow-hidden">
@@ -80,21 +90,23 @@ export function DashboardLayout({ children, activeTab, onTabChange }) {
 
                 {/* Tabs */}
                 <nav className="flex-1 px-4 space-y-3">
-                    <button
-                        onClick={() => onTabChange('oportunidades')}
-                        className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all ${
-                            activeTab === 'oportunidades'
-                                ? 'bg-gradient-to-r from-brand to-brand-700 text-bkg-deep shadow-lg shadow-brand/20'
-                                : 'text-white/50 hover:bg-bkg-hover hover:text-white'
-                        } ${isSidebarCollapsed ? 'justify-center px-0' : ''}`}
-                    >
-                        <svg className="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
-                        </svg>
-                        {!isSidebarCollapsed && <span>Oportunidades</span>}
-                    </button>
+                    {!isCertificador && (
+                        <button
+                            onClick={() => onTabChange('oportunidades')}
+                            className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all ${
+                                activeTab === 'oportunidades'
+                                    ? 'bg-gradient-to-r from-brand to-brand-700 text-bkg-deep shadow-lg shadow-brand/20'
+                                    : 'text-white/50 hover:bg-bkg-hover hover:text-white'
+                            } ${isSidebarCollapsed ? 'justify-center px-0' : ''}`}
+                        >
+                            <svg className="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
+                            </svg>
+                            {!isSidebarCollapsed && <span>Oportunidades</span>}
+                        </button>
+                    )}
 
-                    {user?.rol === 'ADMIN' && (
+                    {!isCertificador && user?.rol !== 'DISTRIBUIDOR' && (
                         <button
                             onClick={() => onTabChange('clientes')}
                             className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all ${
@@ -110,7 +122,7 @@ export function DashboardLayout({ children, activeTab, onTabChange }) {
                         </button>
                     )}
 
-                    {user?.rol === 'ADMIN' && (
+                    {(user?.rol?.toUpperCase() === 'ADMIN' || user?.rol?.toUpperCase() === 'DISTRIBUIDOR') && (
                         <button
                             onClick={() => onTabChange('prescriptores')}
                             className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all ${
@@ -126,7 +138,7 @@ export function DashboardLayout({ children, activeTab, onTabChange }) {
                         </button>
                     )}
 
-                    {user?.rol === 'ADMIN' && (
+                    {user?.rol?.toUpperCase() === 'ADMIN' && (
                         <button
                             onClick={() => onTabChange('aerotermia')}
                             className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all ${
@@ -142,7 +154,7 @@ export function DashboardLayout({ children, activeTab, onTabChange }) {
                         </button>
                     )}
 
-                    {user?.rol === 'ADMIN' && (
+                    {(isAdmin || isCertificador) && (
                         <button
                             onClick={() => onTabChange('expedientes')}
                             className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all ${
@@ -205,13 +217,21 @@ export function DashboardLayout({ children, activeTab, onTabChange }) {
                                         {(user?.acronimo || user?.razon_social || `${user?.nombre || ''} ${user?.apellidos || ''}`).trim().toUpperCase() || 'USUARIO'}
                                     </span>
                                     {user?.razon_social && (
-                                        <span className="text-[9px] font-black text-white/30 lowercase tracking-widest bg-bkg-elevated px-1.5 py-0.5 rounded border border-white/[0.06] self-start truncate max-w-full">
-                                            {user?.email}
-                                        </span>
+                                        <div className="flex flex-col gap-1">
+                                            <span className="text-[9px] font-black text-white/30 lowercase tracking-widest bg-bkg-elevated px-1.5 py-0.5 rounded border border-white/[0.06] self-start truncate max-w-full">
+                                                {user?.email}
+                                            </span>
+                                            {/* Tag de rol auxiliar para depuración, solo si no es ADMIN puro */}
+                                            {userRole !== 'ADMIN' && (
+                                                <span className="text-[7px] font-black text-brand/40 uppercase tracking-[0.2em] self-start">
+                                                    {userRole || 'S/R'}
+                                                </span>
+                                            )}
+                                        </div>
                                     )}
                                     {!user?.razon_social && (
                                         <span className="text-[9px] font-black text-brand uppercase tracking-widest bg-brand/10 px-1.5 py-0.5 rounded border border-brand/20 self-start truncate">
-                                            {user?.rol || 'ADMIN'}
+                                            {userRole || 'USUARIO'}
                                         </span>
                                     )}
                                 </div>

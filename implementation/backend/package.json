@@ -4,6 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
+    "start": "node server.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -18,8 +19,12 @@
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
     "googleapis": "^171.4.0",
+    "multer": "^2.1.1",
+    "nodemailer": "^8.0.4",
     "proj4": "^2.20.2",
     "puppeteer-core": "^24.38.0",
+    "qrcode": "^1.5.4",
+    "whatsapp-web.js": "^1.27.0",
     "winston": "^3.19.0",
     "xml2js": "^0.6.2"
   }

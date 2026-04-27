@@ -43,6 +43,12 @@ const requireAuth = async (req, res, next) => {
             console.error('[Auth Middleware] Error al buscar perfil:', profileError.message);
         }
 
+        // Bloquear usuarios desactivados (activo = false)
+        if (userProfile && userProfile.activo === false) {
+            console.warn('[Auth] Acceso denegado: usuario desactivado:', user.id);
+            return res.status(403).json({ error: 'Tu cuenta ha sido desactivada. Contacta con el administrador.' });
+        }
+
         req.user = {
             authId: user.id,
             email: user.email,
@@ -56,9 +62,9 @@ const requireAuth = async (req, res, next) => {
         // Extraemos prescriptores si aplica (para inyectar prescriptor_id)
         if (userProfile && userProfile.id_usuario) {
              console.log(`[Auth] Buscando partner para usuario: ${userProfile.id_usuario}`);
-             const { data: isPrescriptor, error: presErr } = await supabase
+              const { data: isPrescriptor, error: presErr } = await supabase
                 .from('prescriptores')
-                .select('id_empresa, razon_social, logo_empresa, acronimo')
+                .select('id_empresa, razon_social, logo_empresa, acronimo, marca_referencia')
                 .eq('representante_legal_id', userProfile.id_usuario)
                 .maybeSingle();
              
@@ -68,6 +74,7 @@ const requireAuth = async (req, res, next) => {
              req.user.razon_social = isPrescriptor?.razon_social || null;
              req.user.acronimo = isPrescriptor?.acronimo || null;
              req.user.logo_empresa = isPrescriptor?.logo_empresa || null;
+             req.user.marcas_autorizadas = isPrescriptor?.marca_referencia || null;
              
              console.log(`[Auth] Partner encontrado: ${!!isPrescriptor}, Logo: ${!!req.user.logo_empresa} (${req.user.logo_empresa?.length || 0} chars)`);
         }
@@ -82,6 +89,9 @@ const requireAuth = async (req, res, next) => {
 /**
  * Middleware estricto para rutas que solo admin/prescriptores deberían tocar
  */
+/**
+ * Middleware estricto para rutas que solo admin/prescriptores deberían tocar
+ */
 const enforceAuth = (req, res, next) => {
     requireAuth(req, res, () => {
         if (!req.user) {
@@ -91,7 +101,20 @@ const enforceAuth = (req, res, next) => {
     });
 };
 
+/**
+ * Middleware estricto para rutas solo accesibles por ADMINISTRADORES
+ */
+const adminOnly = (req, res, next) => {
+    enforceAuth(req, res, () => {
+        if (req.user.rol_nombre !== 'ADMIN') {
+            return res.status(403).json({ error: 'Acceso denegado. Solo administradores pueden realizar esta acción.' });
+        }
+        next();
+    });
+};
+
 module.exports = {
     requireAuth,
-    enforceAuth
+    enforceAuth,
+    adminOnly
 };
