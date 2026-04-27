@@ -4,7 +4,7 @@
  * Generadores compartidos para Anexo I y Anexo de Cesión.
  */
 
-const APP_URL = import.meta.env.VITE_APP_URL || APP_URL;
+const APP_URL = import.meta.env.VITE_APP_URL || window.location.origin;
 
 export const ANEXO_I_TEXTS = {
     TITULO_PRINCIPAL: "ANEXO I DECLARACIÓN RESPONSABLE FORMALIZADA POR EL PROPIETARIO INICIAL DEL AHORRO REFERIDA A LA SOLICITUD Y/U OBTENCIÓN DE AYUDAS O SUBVENCIONES PÚBLICAS PARA LA MISMA ACTUACIÓN DE AHORRO DE ENERGÍA",

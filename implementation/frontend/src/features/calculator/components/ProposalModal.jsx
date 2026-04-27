@@ -4,7 +4,7 @@ import { useModal } from '../../../context/ModalContext';
 import { useAuth } from '../../../context/AuthContext';
 import AppConfirm from '../../../components/AppConfirm';
 
-const APP_URL = import.meta.env.VITE_APP_URL || APP_URL;
+const APP_URL = import.meta.env.VITE_APP_URL || window.location.origin;
 
 const baseCss = `
         .prop-wrapper {
