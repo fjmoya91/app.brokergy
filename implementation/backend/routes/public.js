@@ -245,8 +245,6 @@ router.post('/aceptar/:id', async (req, res) => {
         
         console.log(`[Public] Procesando aceptación para ${id}. Estado previo: ${prevEstado}`);
 
-        let numeroExpediente = null;
-
         if (prevEstado !== 'ACEPTADA') {
             const newHistorial = [...currentHistorial, {
                 id: Date.now().toString() + '_aceptacion',
