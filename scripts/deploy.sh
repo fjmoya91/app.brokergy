@@ -21,7 +21,7 @@ SUPA_URL=$(grep '^SUPABASE_URL=' implementation/backend/.env | cut -d'=' -f2-)
 SUPA_ANON=$(grep '^SUPABASE_ANON_KEY=' implementation/backend/.env | head -1 | cut -d'=' -f2-)
 
 cd implementation/frontend
-npm ci --silent
+npm install --silent
 VITE_APP_URL=https://app.brokergy.es \
 VITE_SUPABASE_URL=$SUPA_URL \
 VITE_SUPABASE_ANON_KEY=$SUPA_ANON \
