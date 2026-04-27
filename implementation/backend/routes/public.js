@@ -171,15 +171,6 @@ router.post('/aceptar/:id', async (req, res) => {
             return res.status(404).json({ error: 'Oportunidad no encontrada' });
         }
 
-        // --- VALIDACIÓN DE INSTALADOR (REQUERIDO PARA ACEPTAR) ---
-        if (!opp.instalador_asociado_id) {
-            console.warn(`[Public] Intento de aceptación sin instalador para OP ${id}`);
-            return res.status(400).json({ 
-                error: 'Esta propuesta requiere la asignación de un instalador por parte de Brokergy antes de ser aceptada. Por favor, contacta con tu asesor.',
-                code: 'INSTALLER_REQUIRED'
-            });
-        }
-
         let id_cliente = opp.cliente_id;
 
         const clienteData = {
