@@ -265,37 +265,40 @@ router.post('/aceptar/:id', async (req, res) => {
             console.log(`[Public] La oportunidad ${id} ya estaba en estado ACEPTADA`);
         }
 
-        // 2. Crear/Recuperar Expediente Automáticamente (Siempre, por si falló antes)
-        try {
-            console.log(`[Public] Solicitando creación de expediente para OP UUID: ${opp.id}`);
-            const newExp = await expedienteService.createExpediente(opp.id, id_cliente);
-            numeroExpediente = newExp?.numero_expediente;
-            console.log(`[Public] Resultado expediente: ${numeroExpediente || 'NO GENERADO/ERROR'}`);
-        } catch (expErr) {
-            console.error("[Public] Error crítico creando expediente automático:", expErr.message);
-        }
+        // Responder inmediatamente al cliente — las operaciones lentas van en background
+        res.json({ success: true, message: 'Propuesta procesada correctamente.', numeroExpediente: null });
 
-        // Base link para subida (Mantenemos el ID original de la petición para ID UNICO)
-        const uploadLink = `${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/firma/${paramId}`;
+        // Background: expediente + emails + WhatsApp (no bloquea la respuesta HTTP)
+        setImmediate(async () => {
+            let numeroExpediente = null;
+            const uploadLink = `${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/firma/${paramId}`;
 
-        // 3. Enviar email de confirmación y próximos pasos al cliente (Siempre)
-        try {
-            console.log(`[Public] Enviando email a ${formFields.email}`);
-            await emailService.sendAcceptanceNotificationEmail({
-                to: formFields.email,
-                userName: formFields.nombre_razon_social,
-                numeroExpediente: numeroExpediente,
-                uploadLink: uploadLink
-            });
-            console.log(`[Public] Email enviado correctamente.`);
-        } catch (emailErr) {
-            console.error("[Public] Error enviando email de aceptación:", emailErr.message);
-        }
-
-        // 4. Enviar WhatsApp de confirmación y pasos a seguir (Automático y no bloqueante)
-        if (formFields.telefono) {
+            // 2. Crear/Recuperar Expediente
             try {
-                const whatsappMsg = 
+                console.log(`[Public] Solicitando creación de expediente para OP UUID: ${opp.id}`);
+                const newExp = await expedienteService.createExpediente(opp.id, id_cliente);
+                numeroExpediente = newExp?.numero_expediente;
+                console.log(`[Public] Resultado expediente: ${numeroExpediente || 'NO GENERADO/ERROR'}`);
+            } catch (expErr) {
+                console.error("[Public] Error crítico creando expediente automático:", expErr.message);
+            }
+
+            // 3. Email cliente
+            try {
+                await emailService.sendAcceptanceNotificationEmail({
+                    to: formFields.email,
+                    userName: formFields.nombre_razon_social,
+                    numeroExpediente,
+                    uploadLink
+                });
+                console.log(`[Public] Email cliente enviado.`);
+            } catch (emailErr) {
+                console.error("[Public] Error email cliente:", emailErr.message);
+            }
+
+            // 4. WhatsApp cliente
+            if (formFields.telefono) {
+                const whatsappMsg =
 `¡Hola *${formFields.nombre_razon_social}*! 👋
 
 Hemos recibido correctamente la aceptación de tu propuesta. *¡Muchas gracias por confiar en Brokergy!*
@@ -304,74 +307,50 @@ Tu número de expediente asignado es: *${numeroExpediente || 'Pte. confirmar'}*
 
 A partir de este momento, nuestro equipo técnico comenzará a preparar el *Certificado de Eficiencia Energética inicial*. Es fundamental emitirlo antes de la última factura de obra para asegurar tus deducciones fiscales y tramitar el expediente CAE.
 
-📁 *Documentación necesaria (puedes enviarla por aquí mismo poco a poco):*
-
+📁 *Documentación necesaria (puedes enviarla poco a poco):*
 • Planos de la vivienda o croquis de distribución.
-• Foto de la caldera existente y de su placa de características (importante que se lea bien).
-• Foto de los radiadores (uno por estancia) o del colector si es suelo radiante.
-• Vídeo corto recorriendo la vivienda (estancias, ventanas y paredes exteriores).
-• Si vas a cambiar ventanas o aislamiento, fotos y presupuesto.
+• Foto de la caldera existente y de su placa de características.
+• Foto de los radiadores o del colector si es suelo radiante.
+• Vídeo corto recorriendo la vivienda.
+• Si cambias ventanas o aislamiento, fotos y presupuesto.
 
-No hace falta que lo envíes todo a la vez, puedes ir pasándonoslo conforme lo tengas.
-
-🔗 *Puedes subir tu documentación directamente aquí:*
+🔗 *Puedes subir tu documentación aquí:*
 ${uploadLink}
 
 ¡Quedamos a tu disposición para cualquier duda!
-
 *BROKERGY — Ingeniería Energética*`;
-
-                console.log(`[Public] Encolando WhatsApp automático para ${formFields.telefono}`);
                 whatsappService.sendText(formFields.telefono, whatsappMsg)
-                    .catch(err => console.warn(`[Public] Error en cola de WhatsApp:`, err.message));
-            } catch (waErr) {
-                console.warn("[Public] Error al preparar WhatsApp automático:", waErr.message);
-            }
-        }
-
-        // 5. NOTIFICACIÓN A ADMINISTRACIÓN (Brokergy)
-        try {
-            console.log(`[Public] Notificando a administración de aceptación para ${id}...`);
-            
-            // Obtener nombre del instalador para la notificación
-            let installerName = 'No asignado';
-            if (opp.instalador_asociado_id) {
-                const { data: inst } = await supabase.from('usuarios').select('nombre, apellidos').eq('id_usuario', opp.instalador_asociado_id).maybeSingle();
-                if (inst) installerName = `${inst.nombre} ${inst.apellidos || ''}`.trim();
+                    .catch(err => console.warn(`[Public] Error WhatsApp cliente:`, err.message));
             }
 
-            // --- EXTRACCIÓN DE NOTAS ---
-            const dc = opp.datos_calculo || {};
-            const notesList = dc.historial?.filter(h => h.tipo === 'comentario') || [];
-            const notesStr = notesList.length > 0 
-                ? notesList.map(n => `- ${n.texto} (${n.usuario})`).join('\n')
-                : 'Aceptado por el cliente desde el portal público.';
+            // 5. Notificación administración
+            try {
+                let installerName = 'No asignado';
+                if (opp.instalador_asociado_id) {
+                    const { data: inst } = await supabase.from('usuarios').select('nombre, apellidos').eq('id_usuario', opp.instalador_asociado_id).maybeSingle();
+                    if (inst) installerName = `${inst.nombre} ${inst.apellidos || ''}`.trim();
+                }
+                const dc = opp.datos_calculo || {};
+                const notesList = dc.historial?.filter(h => h.tipo === 'comentario') || [];
+                const notesStr = notesList.length > 0
+                    ? notesList.map(n => `- ${n.texto} (${n.usuario})`).join('\n')
+                    : 'Aceptado por el cliente desde el portal público.';
 
-            const adminPhones = ['34623926179'];
-            for (const phone of adminPhones) {
-                const msg = `🚀 *ACEPTACIÓN (PORTAL PÚBLICO)*\n\nSe ha recibido una aceptación vía web para la oportunidad *${id}*.\n\n👤 *Cliente:* ${formFields.nombre_razon_social} ${formFields.apellidos || ''}\n📍 *Dirección:* ${opp.datos_calculo?.inputs?.direccion || 'S/N'}\n👷 *Instalador:* ${installerName}\n\nSe ha generado el expediente: *${numeroExpediente || 'Pte.'}*\n\n*NOTAS:* \n${notesStr}\n\nAccede aquí: ${process.env.FRONTEND_URL || 'https://app.brokergy.es'}?exp=${numeroExpediente || ''}`;
-                whatsappService.sendText(phone, msg).catch(e => console.warn('[Public] Error WhatsApp Admin:', e.message));
+                const adminMsg = `🚀 *ACEPTACIÓN (PORTAL PÚBLICO)*\n\nOportunidad *${id}*\n👤 *Cliente:* ${formFields.nombre_razon_social} ${formFields.apellidos || ''}\n📍 ${opp.datos_calculo?.inputs?.direccion || 'S/N'}\n👷 *Instalador:* ${installerName}\n📋 Expediente: *${numeroExpediente || 'Pte.'}*\n\n${notesStr}\n\n${process.env.FRONTEND_URL || 'https://app.brokergy.es'}?exp=${numeroExpediente || ''}`;
+                whatsappService.sendText('34623926179', adminMsg).catch(e => console.warn('[Public] Error WhatsApp Admin:', e.message));
+
+                await emailService.sendAdminNotificationEmail({
+                    numeroExpediente,
+                    clientName: `${formFields.nombre_razon_social} ${formFields.apellidos || ''}`,
+                    address: opp.datos_calculo?.inputs?.direccion,
+                    distributorName: 'Portal Público (Cliente)',
+                    installerName,
+                    notes: notesStr,
+                    expedienteId: numeroExpediente
+                });
+            } catch (adminErr) {
+                console.error("[Public] Error notificando administración:", adminErr.message);
             }
-
-            await emailService.sendAdminNotificationEmail({
-                numeroExpediente,
-                clientName: `${formFields.nombre_razon_social} ${formFields.apellidos || ''}`,
-                address: opp.datos_calculo?.inputs?.direccion,
-                distributorName: 'Portal Público (Cliente)',
-                installerName,
-                notes: notesStr,
-                expedienteId: numeroExpediente
-            });
-            console.log(`[Public] Notificación a administración enviada.`);
-        } catch (adminNotifErr) {
-            console.error("[Public] Error notificando a administración:", adminNotifErr.message);
-        }
-
-        
-        return res.json({ 
-            success: true, 
-            message: 'Propuesta procesada correctamente.', 
-            numeroExpediente 
         });
 
     } catch(e) {
