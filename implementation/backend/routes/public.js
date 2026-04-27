@@ -144,7 +144,7 @@ router.get('/cliente/:id', async (req, res) => {
             iban: foundCliente?.numero_cuenta || '',
             estado: opp.datos_calculo?.estado || 'BORRADOR',
             numero_expediente: opp.expedientes?.[0]?.numero_expediente || opp.expedientes?.numero_expediente || null,
-            tiene_instalador: !!opp.instalador_asociado_id
+            tiene_instalador: true
         });
     } catch (e) {
         console.error('Error public cliente details:', e);

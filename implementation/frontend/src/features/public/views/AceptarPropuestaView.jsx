@@ -198,13 +198,6 @@ export function AceptarPropuestaView({ idOportunidad }) {
                 // fill the form if dat exist
                 const { estado, numero_expediente, id_oportunidad: readableId, tiene_instalador, ...rest } = res.data;
                 
-                if (tiene_instalador === false) {
-                    setNoInstaller(true);
-                    setLoading(false);
-                    if (readableId) setDisplayId(readableId);
-                    return;
-                }
-
                 setFormData(prev => ({
                     ...prev,
                     ...rest
