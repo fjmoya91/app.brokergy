@@ -20,6 +20,11 @@ export function SubirFotosModal({ isOpen, onClose, inputs, result, onInputChange
     });
 
     const [scanningDrive, setScanningDrive] = useState(false);
+    const [showExtraUpload, setShowExtraUpload] = useState(false);
+    const [extraFiles, setExtraFiles] = useState([]);
+    const [uploadingExtra, setUploadingExtra] = useState(false);
+    const [extraUploaded, setExtraUploaded] = useState(false);
+    const [extraProgress, setExtraProgress] = useState(0);
 
     // Sync local state with inputs and Drive when opening
     React.useEffect(() => {
@@ -302,6 +307,108 @@ export function SubirFotosModal({ isOpen, onClose, inputs, result, onInputChange
                                 <input type="file" accept="image/*" className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" onChange={(e) => handleFileChange(e, 'placa_caldera_anterior')} />
                             </div>
                         </div>
+                    </div>
+
+                    {/* Sección de fotos adicionales */}
+                    <div className="mt-6">
+                        {!showExtraUpload ? (
+                            <button
+                                onClick={() => { setShowExtraUpload(true); setExtraUploaded(false); setExtraFiles([]); }}
+                                className="w-full py-3 border-2 border-dashed border-slate-300 hover:border-brand/50 rounded-xl text-slate-400 hover:text-brand text-sm font-bold uppercase tracking-wider transition-all flex items-center justify-center gap-2"
+                            >
+                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+                                Añadir más fotos
+                            </button>
+                        ) : extraUploaded ? (
+                            <div className="flex items-center justify-between p-4 bg-emerald-50 border border-emerald-200 rounded-xl">
+                                <div className="flex items-center gap-2 text-emerald-700 text-sm font-bold">
+                                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
+                                    Fotos adicionales subidas correctamente
+                                </div>
+                                <button onClick={() => { setExtraUploaded(false); setExtraFiles([]); }} className="text-xs font-bold text-emerald-600 hover:underline uppercase">Subir más</button>
+                            </div>
+                        ) : (
+                            <div className="border-2 border-dashed border-brand/30 rounded-xl p-5 bg-brand/5">
+                                <div className="flex items-center justify-between mb-3">
+                                    <p className="text-xs font-bold text-slate-600 uppercase tracking-wider">Fotos adicionales</p>
+                                    <button onClick={() => { setShowExtraUpload(false); setExtraFiles([]); }} className="text-slate-400 hover:text-slate-600">
+                                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                    </button>
+                                </div>
+
+                                {!uploadingExtra && (
+                                    <div className="relative mb-3">
+                                        <input
+                                            type="file"
+                                            multiple
+                                            accept="image/*,video/*"
+                                            onChange={e => setExtraFiles(prev => [...prev, ...Array.from(e.target.files)].slice(0, 20))}
+                                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                                        />
+                                        <div className="border border-dashed border-slate-300 rounded-lg p-5 text-center bg-white hover:border-brand/50 transition-all">
+                                            <svg className="w-6 h-6 text-slate-300 mx-auto mb-1" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+                                            <p className="text-xs text-slate-400 font-medium">Pulsa o arrastra tus fotos aquí</p>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {extraFiles.length > 0 && !uploadingExtra && (
+                                    <div className="space-y-1.5 mb-3 max-h-32 overflow-y-auto">
+                                        {extraFiles.map((f, i) => (
+                                            <div key={i} className="flex items-center justify-between bg-white px-3 py-1.5 rounded-lg border border-slate-100 text-xs">
+                                                <span className="text-slate-600 truncate font-medium">{f.name}</span>
+                                                <button onClick={() => setExtraFiles(prev => prev.filter((_, j) => j !== i))} className="text-slate-300 hover:text-red-400 ml-2 shrink-0">
+                                                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                                </button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+
+                                {uploadingExtra && (
+                                    <div className="py-3 text-center">
+                                        <div className="text-brand font-black text-lg mb-1">{extraProgress}%</div>
+                                        <div className="w-full bg-slate-200 h-1.5 rounded-full overflow-hidden">
+                                            <div className="bg-brand h-full transition-all duration-300" style={{ width: `${extraProgress}%` }} />
+                                        </div>
+                                    </div>
+                                )}
+
+                                {extraFiles.length > 0 && !uploadingExtra && (
+                                    <button
+                                        onClick={async () => {
+                                            if (!inputs.id_oportunidad) {
+                                                showAlert('Guarda la oportunidad antes de subir fotos.', 'Atención', 'warning');
+                                                return;
+                                            }
+                                            setUploadingExtra(true);
+                                            setExtraProgress(0);
+                                            let done = 0;
+                                            try {
+                                                for (const file of extraFiles) {
+                                                    const fd = new FormData();
+                                                    fd.append('files', file);
+                                                    await axios.post(`/api/public/upload-docs/${inputs.id_oportunidad}`, fd, {
+                                                        headers: { 'Content-Type': 'multipart/form-data' }
+                                                    });
+                                                    done++;
+                                                    setExtraProgress(Math.round((done / extraFiles.length) * 100));
+                                                }
+                                                setExtraUploaded(true);
+                                                setExtraFiles([]);
+                                            } catch (err) {
+                                                showAlert('Error al subir algunas fotos. Inténtalo de nuevo.', 'Error', 'error');
+                                            } finally {
+                                                setUploadingExtra(false);
+                                            }
+                                        }}
+                                        className="w-full py-2 bg-brand text-bkg-deep font-black uppercase tracking-widest rounded-lg text-xs hover:shadow-md transition-all"
+                                    >
+                                        Subir {extraFiles.length} foto{extraFiles.length !== 1 ? 's' : ''}
+                                    </button>
+                                )}
+                            </div>
+                        )}
                     </div>
                 </div>
 
