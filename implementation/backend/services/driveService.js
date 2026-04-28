@@ -305,6 +305,46 @@ async function setFolderPublic(fileId, role = 'reader') {
 }
 
 /**
+ * Comparte un fichero/carpeta con un email concreto. Idempotente: si el email ya
+ * tiene permiso, lo trata como éxito.
+ */
+async function grantPermissionToEmail(fileId, emailAddress, role = 'writer') {
+    if (!fileId || !emailAddress) {
+        throw new Error('fileId y emailAddress son obligatorios');
+    }
+    try {
+        const { data } = await drive.permissions.create({
+            fileId,
+            sendNotificationEmail: false,
+            requestBody: { type: 'user', role, emailAddress },
+        });
+        console.log(`[DriveService] Permiso ${role} otorgado a ${emailAddress} sobre ${fileId}`);
+        return { ok: true, permissionId: data.id };
+    } catch (err) {
+        const detail = err?.errors?.[0]?.message || err?.response?.data?.error?.message || err.message || '';
+        if (/already|duplicate|exists/i.test(detail)) {
+            console.log(`[DriveService] ${emailAddress} ya tenía permiso sobre ${fileId}`);
+            return { ok: true, alreadyGranted: true };
+        }
+        console.error(`[DriveService] Error otorgando permiso a ${emailAddress} sobre ${fileId}:`, detail);
+        throw err;
+    }
+}
+
+/**
+ * Devuelve el webViewLink de un fichero/carpeta de Drive.
+ */
+async function getWebViewLink(fileId) {
+    try {
+        const { data } = await drive.files.get({ fileId, fields: 'webViewLink' });
+        return data?.webViewLink || `https://drive.google.com/drive/folders/${fileId}`;
+    } catch (err) {
+        console.error(`[DriveService] Error obteniendo webViewLink de ${fileId}:`, err.message);
+        return `https://drive.google.com/drive/folders/${fileId}`;
+    }
+}
+
+/**
  * Obtiene el contenido de un archivo en Drive como Buffer
  */
 async function getFileContent(fileId) {
@@ -366,6 +406,8 @@ module.exports = {
     createSubfolder,
     getOrCreateSubfolder,
     setFolderPublic,
+    grantPermissionToEmail,
+    getWebViewLink,
     getFileContent,
     listFiles,
     deleteFile

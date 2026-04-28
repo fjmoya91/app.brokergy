@@ -668,7 +668,7 @@ const sendAdminNotificationEmail = async ({ numeroExpediente, clientName, addres
 
 const sendCertificadorNotificationEmail = async ({
     to, certName, expedienteNum, clienteName, ficha,
-    driveLink, portalLink,
+    ceeFolderLink, portalLink,
     // RES060/RES093
     demandaObjetivo,    // kWh/año (Q_net)
     superficieRef,      // m²
@@ -686,7 +686,7 @@ const sendCertificadorNotificationEmail = async ({
             </p>
             <div style="text-align:center; padding:14px; background:rgba(0,0,0,0.3); border-radius:10px;">
                 <p style="margin:0; font-size:12px; color:rgba(255,255,255,0.4); text-transform:uppercase; letter-spacing:1px;">Ahorro mínimo esperado</p>
-                <p style="margin:4px 0 0; font-size:28px; font-weight:900; color:#f59e0b;">${ahorroObjetivo ? Math.round(ahorroObjetivo).toLocaleString('es-ES') + ' kWh/año' : 'Ver propuesta'}</p>
+                <p style="margin:4px 0 0; font-size:28px; font-weight:900; color:#f59e0b;">${ahorroObjetivo ? Math.round(ahorroObjetivo).toLocaleString('es-ES') + ' kWh/año' : 'Consultar propuesta'}</p>
             </div>
         </div>
     ` : `
@@ -698,7 +698,7 @@ const sendCertificadorNotificationEmail = async ({
             <div style="display:flex; gap:12px; margin-top:10px;">
                 <div style="flex:1; text-align:center; padding:14px; background:rgba(0,0,0,0.3); border-radius:10px;">
                     <p style="margin:0; font-size:11px; color:rgba(255,255,255,0.4); text-transform:uppercase; letter-spacing:1px;">Demanda mínima esperada</p>
-                    <p style="margin:4px 0 0; font-size:22px; font-weight:900; color:#f59e0b;">${demandaObjetivo ? Math.round(demandaObjetivo).toLocaleString('es-ES') + ' kWh/año' : 'Ver propuesta'}</p>
+                    <p style="margin:4px 0 0; font-size:22px; font-weight:900; color:#f59e0b;">${demandaObjetivo ? Math.round(demandaObjetivo).toLocaleString('es-ES') + ' kWh/año' : 'Consultar propuesta'}</p>
                 </div>
                 ${superficieRef ? `
                 <div style="flex:1; text-align:center; padding:14px; background:rgba(0,0,0,0.3); border-radius:10px;">
@@ -734,7 +734,7 @@ const sendCertificadorNotificationEmail = async ({
                         <h2 style="margin:0 0 6px; font-size:19px; font-weight:800; color:#ffffff;">Hola ${certName || 'técnico'}!</h2>
                         <p style="margin:0 0 16px; font-size:14px; line-height:1.6; color:rgba(255,255,255,0.6);">
                             Te asignamos el expediente <strong style="color:#f59e0b;">${expedienteNum}</strong>
-                            del cliente <strong style="color:#ffffff;">${clienteName || '—'}</strong> para la emisión del Certificado de Eficiencia Energética.
+                            ${clienteName ? `del cliente <strong style="color:#ffffff;">${clienteName}</strong>` : ''} para la emisión del Certificado de Eficiencia Energética.
                         </p>
                         <p style="margin:0 0 6px; font-size:14px; line-height:1.6; color:rgba(255,255,255,0.6);">
                             A continuación encontrarás las <strong style="color:#ffffff;">directrices técnicas</strong> que debes tener en cuenta para que los valores del certificado sean compatibles con la propuesta comercial presentada al cliente:
@@ -744,19 +744,23 @@ const sendCertificadorNotificationEmail = async ({
 
                         <h3 style="margin:24px 0 12px; font-size:14px; font-weight:700; color:#ffffff;">Accesos directos:</h3>
                         <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
-                            ${driveLink ? `
-                            <tr><td align="center" style="padding-bottom:10px;">
-                                <a href="${driveLink}" target="_blank" style="display:inline-block; padding:12px 32px; background-color:rgba(255,255,255,0.07); border:1px solid rgba(255,255,255,0.12); color:#ffffff; font-size:14px; font-weight:700; text-decoration:none; border-radius:10px; width:80%; max-width:280px; box-sizing:border-box; text-align:center;">
-                                    📁 Carpeta en Google Drive
-                                </a>
-                            </td></tr>` : ''}
                             ${portalLink ? `
-                            <tr><td align="center">
+                            <tr><td align="center" style="padding-bottom:10px;">
                                 <a href="${portalLink}" target="_blank" style="display:inline-block; padding:12px 32px; background:linear-gradient(135deg, #f59e0b, #ea580c); color:#0a0e1a; font-size:14px; font-weight:800; text-decoration:none; border-radius:10px; width:80%; max-width:280px; box-sizing:border-box; text-align:center;">
                                     🔗 Acceder al Portal
                                 </a>
                             </td></tr>` : ''}
+                            ${ceeFolderLink ? `
+                            <tr><td align="center">
+                                <a href="${ceeFolderLink}" target="_blank" style="display:inline-block; padding:12px 32px; background-color:rgba(245,158,11,0.12); border:1px solid rgba(245,158,11,0.4); color:#f59e0b; font-size:14px; font-weight:800; text-decoration:none; border-radius:10px; width:80%; max-width:280px; box-sizing:border-box; text-align:center;">
+                                    📁 Acceder a Carpeta CEE
+                                </a>
+                            </td></tr>` : ''}
                         </table>
+                        ${ceeFolderLink ? `
+                        <p style="margin:14px 0 0; font-size:12px; color:rgba(255,255,255,0.35); text-align:center;">
+                            Tienes acceso de <strong style="color:rgba(255,255,255,0.55);">edición</strong> a la carpeta de documentos del expediente. Sube ahí el certificado emitido.
+                        </p>` : ''}
 
                         <p style="margin:28px 0 0; font-size:13px; line-height:1.6; color:rgba(255,255,255,0.35); text-align:center;">
                             Ante cualquier duda técnica, contacta con Brokergy antes de emitir el certificado.
@@ -775,7 +779,7 @@ const sendCertificadorNotificationEmail = async ({
 </body>
 </html>`;
 
-    const text = `Hola ${certName}!\n\nTe asignamos el expediente ${expedienteNum} (${clienteName}).\n\n${isReforma ? `Ahorro mínimo esperado: ${ahorroObjetivo ? Math.round(ahorroObjetivo) + ' kWh/año' : 'Ver propuesta'}` : `Demanda máxima calefacción: ${demandaObjetivo ? Math.round(demandaObjetivo) + ' kWh/año' : 'Ver propuesta'}`}\n\n${driveLink ? 'Drive: ' + driveLink + '\n' : ''}${portalLink ? 'Portal: ' + portalLink : ''}\n\nBROKERGY · Ingeniería Energética`;
+    const text = `Hola ${certName}!\n\nTe asignamos el expediente ${expedienteNum}${clienteName ? ` (${clienteName})` : ''}.\n\n${isReforma ? `Ahorro mínimo esperado: ${ahorroObjetivo ? Math.round(ahorroObjetivo) + ' kWh/año' : 'Consultar propuesta'}` : `Demanda mínima esperada: ${demandaObjetivo ? Math.round(demandaObjetivo) + ' kWh/año' : 'Consultar propuesta'}`}\n\n${portalLink ? 'Portal: ' + portalLink + '\n' : ''}${ceeFolderLink ? 'Carpeta CEE: ' + ceeFolderLink : ''}\n\nBROKERGY · Ingeniería Energética`;
 
     return sendMail({ to, subject, html, text });
 };

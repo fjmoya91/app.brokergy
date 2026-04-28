@@ -159,7 +159,7 @@ function TableHeader({ label, ceeType, required, onOpenModal, editMode, filename
 }
 
 // ─── Componente Principal ─────────────────────────────────────────────────────
-export function CeeModule({ expediente, onSave, onLiveUpdate, saving, certificadores = [], onAutoStatus }) {
+export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving, certificadores = [], onAutoStatus }) {
     const isReforma = expediente?.oportunidades?.ficha === 'RES080' || expediente?.cee?.is_reforma;
 
     const [local, setLocal] = useState(() => ({
@@ -321,31 +321,25 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, saving, certificad
     };
 
     const handleCertConfirm = async (notify) => {
-        // Persistir CEE primero (await asegura que el cert queda guardado antes de notificar)
+        // Persistir el resto del CEE (XML, fechas, ACS, etc) — el backend del endpoint
+        // se encargará de persistir cert_id, dar acceso Drive y enviar el email si aplica.
         try {
             const maybePromise = onSave({ cee: local });
             if (maybePromise && typeof maybePromise.then === 'function') {
                 await maybePromise;
             }
         } catch (_) {
-            // Si el save falla, abortamos sin notificar
             setCertNotifResult({ type: 'error', text: 'No se pudo guardar el módulo. Inténtalo de nuevo.' });
             return;
         }
-        setEditMode(false);
         savedCertId.current = local.certificador_id;
-
-        if (!notify) {
-            setShowCertPopup(false);
-            return;
-        }
 
         if (!expediente?.id) {
             setCertNotifResult({ type: 'error', text: 'Expediente no disponible.' });
             return;
         }
 
-        // Email conocido del certificador seleccionado (fallback si la respuesta no lo trae)
+        // Pre-validación del email del cert (evita roundtrip si el cert no tiene email registrado)
         const localCert = certificadores.find(c => String(c.id_empresa) === String(local.certificador_id));
         const knownEmail = localCert?.email;
 
@@ -360,12 +354,26 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, saving, certificad
         setCertNotifLoading(true);
         try {
             const { data } = await axios.post(`/api/expedientes/${expediente.id}/notify-certificador`, {
-                certificador_id: local.certificador_id
+                certificador_id: local.certificador_id,
+                sendEmail: !!notify,
             });
-            const target = data?.sentTo || knownEmail;
-            setCertNotifResult({ type: 'ok', text: `Email enviado a ${target}` });
+
+            const driveOk = data?.driveAccessGranted;
+            if (notify) {
+                const target = data?.sentTo || knownEmail;
+                const driveMsg = driveOk ? ' Tiene acceso de edición a la carpeta CEE.' : '';
+                setCertNotifResult({ type: 'ok', text: `Email enviado a ${target}.${driveMsg}` });
+            } else {
+                const driveMsg = driveOk
+                    ? `Certificador asignado. ${localCert?.razon_social || 'El cert'} tiene acceso de edición a la carpeta CEE.`
+                    : 'Certificador asignado correctamente.';
+                setCertNotifResult({ type: 'ok', text: driveMsg });
+            }
+            setEditMode(false);
+            // Refrescar para que cee_folder_link aparezca en la UI (botón "Carpeta CEE")
+            if (onRefresh) onRefresh();
         } catch (err) {
-            const msg = err.response?.data?.error || 'Error al enviar la notificación';
+            const msg = err.response?.data?.error || (notify ? 'Error al enviar la notificación' : 'Error al asignar el certificador');
             setCertNotifResult({ type: 'error', text: msg });
         } finally {
             setCertNotifLoading(false);

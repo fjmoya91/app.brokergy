@@ -918,10 +918,17 @@ router.get('/proxy/pdf', enforceAuth, async (req, res) => {
 });
 
 // POST /api/expedientes/:id/notify-certificador
-// Asigna certificador (si viene en body) y envía email de directrices técnicas.
-// Acepta { certificador_id } opcional en el body — si se proporciona y difiere del
-// guardado, se persiste antes de enviar para evitar condiciones de carrera con el save del módulo.
+// Asigna un certificador al expediente, le da acceso Editor a la subcarpeta
+// "12. DOCUMENTOS PARA CEE" del Drive del expediente, persiste el folder ID en
+// expediente.cee y opcionalmente envía el email de directrices técnicas.
+//
+// Body: { certificador_id?: string, sendEmail?: boolean }
+//   - certificador_id: si viene, se persiste antes de procesar (evita race con save del módulo)
+//   - sendEmail (default true): si false, ejecuta toda la asignación pero no envía mail
 router.post('/:id/notify-certificador', enforceAuth, async (req, res) => {
+    const driveService = require('../services/driveService');
+    const CEE_FOLDER_NAME = '12. DOCUMENTOS PARA CEE';
+
     try {
         const { data: exp, error: expErr } = await supabase
             .from('expedientes')
@@ -930,22 +937,16 @@ router.post('/:id/notify-certificador', enforceAuth, async (req, res) => {
             .single();
         if (expErr || !exp) return res.status(404).json({ error: 'Expediente no encontrado' });
 
-        // Resolver certId: prioridad al body (lo que el usuario acaba de seleccionar)
         const bodyCertId = req.body?.certificador_id || null;
+        const sendEmail = req.body?.sendEmail !== false; // default true
         const dbCertId = exp.cee?.certificador_id || null;
         const certId = bodyCertId || dbCertId;
         if (!certId) return res.status(400).json({ error: 'El expediente no tiene certificador asignado' });
 
-        // Persistir el cert si vino en body y es diferente del guardado
+        // Persistir el cert si vino en body y difiere del guardado
+        let workingCee = { ...(exp.cee || {}) };
         if (bodyCertId && bodyCertId !== dbCertId) {
-            const nextCee = { ...(exp.cee || {}), certificador_id: bodyCertId };
-            const { error: updErr } = await supabase
-                .from('expedientes')
-                .update({ cee: nextCee })
-                .eq('id', req.params.id);
-            if (updErr) {
-                console.error('[notify-certificador] error persistiendo cert:', updErr.message);
-            }
+            workingCee.certificador_id = bodyCertId;
         }
 
         const [
@@ -954,48 +955,101 @@ router.post('/:id/notify-certificador', enforceAuth, async (req, res) => {
             { data: op }
         ] = await Promise.all([
             supabase.from('prescriptores').select('razon_social, acronimo, email').eq('id_empresa', certId).maybeSingle(),
-            supabase.from('clientes').select('nombre, apellidos').eq('id_cliente', exp.cliente_id).maybeSingle(),
-            supabase.from('oportunidades').select('id_oportunidad, ficha, datos_calculo, drive_folder_id').eq('id', exp.oportunidad_id).maybeSingle()
+            supabase.from('clientes').select('nombre_razon_social, apellidos').eq('id_cliente', exp.cliente_id).maybeSingle(),
+            supabase.from('oportunidades').select('id_oportunidad, ficha, datos_calculo').eq('id', exp.oportunidad_id).maybeSingle()
         ]);
 
         if (!cert) return res.status(404).json({ error: 'Certificador no encontrado en la base de datos' });
-        if (!cert.email) return res.status(400).json({ error: `El certificador "${cert.razon_social || cert.acronimo}" no tiene email registrado en su ficha.` });
+        if (!cert.email) {
+            return res.status(400).json({
+                error: `El certificador "${cert.razon_social || cert.acronimo || ''}" no tiene email registrado en su ficha. Edítalo desde Prescriptores.`
+            });
+        }
 
         const ficha = op?.ficha || 'RES060';
         const dc = op?.datos_calculo || {};
         const result = dc.result || {};
-        const inputs = dc.inputs || dc;
+        const inputs = dc.inputs || {};
 
-        const superficieRef = parseFloat(inputs.superficieCalefactable) || null;
-        const demandaObjetivo = parseFloat(result.Q_net) || (superficieRef && parseFloat(inputs.demandaCalefaccion) ? parseFloat(inputs.demandaCalefaccion) * superficieRef : null);
+        // Demanda objetivo en cascada de fallbacks (algunos expedientes antiguos no tienen Q_net en result)
+        const superficieRef = parseFloat(inputs.superficieCalefactable) || parseFloat(inputs.surface) || null;
+        const demandaPerM2 = parseFloat(inputs.demand_per_m2) || parseFloat(inputs.demandaCalefaccion) || null;
+        const demandaObjetivo =
+            parseFloat(result.Q_net) ||
+            parseFloat(dc.Q_net) ||
+            (superficieRef && demandaPerM2 ? superficieRef * demandaPerM2 : null);
         const ahorroObjetivo = parseFloat(result.res080?.ahorroEnergiaFinalTotal) || null;
 
         const expedienteNum = exp.numero_expediente || op?.id_oportunidad || req.params.id;
-        const clienteName = cli ? `${cli.nombre || ''} ${cli.apellidos || ''}`.trim() : '—';
-        const certName = cert.razon_social || cert.acronimo || 'Técnico';
-
-        const driveLink = op?.drive_folder_id
-            ? `https://drive.google.com/drive/folders/${op.drive_folder_id}`
+        const clienteName = cli
+            ? `${cli.nombre_razon_social || ''} ${cli.apellidos || ''}`.trim() || null
             : null;
+        const certName = cert.razon_social || cert.acronimo || 'Técnico';
         const portalLink = `${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/expedientes/${req.params.id}`;
 
-        await emailService.sendCertificadorNotificationEmail({
-            to: cert.email,
-            certName,
-            expedienteNum,
-            clienteName,
-            ficha,
-            driveLink,
-            portalLink,
-            demandaObjetivo,
-            superficieRef,
-            ahorroObjetivo,
-        });
+        // ── Drive: localizar subcarpeta CEE y dar permiso Editor al cert ────────
+        let ceeFolderId = workingCee.cee_folder_id || null;
+        let ceeFolderLink = workingCee.cee_folder_link || null;
+        let driveAccessGranted = false;
 
-        res.json({ ok: true, sentTo: cert.email, certName });
+        const rootFolderId = dc.drive_folder_id || dc.inputs?.drive_folder_id || null;
+        if (rootFolderId) {
+            try {
+                if (!ceeFolderId) {
+                    ceeFolderId = await driveService.getOrCreateSubfolder(rootFolderId, CEE_FOLDER_NAME);
+                }
+                if (ceeFolderId && !ceeFolderLink) {
+                    ceeFolderLink = await driveService.getWebViewLink(ceeFolderId);
+                }
+                if (ceeFolderId) {
+                    await driveService.grantPermissionToEmail(ceeFolderId, cert.email, 'writer');
+                    driveAccessGranted = true;
+                    workingCee.cee_folder_id = ceeFolderId;
+                    workingCee.cee_folder_link = ceeFolderLink;
+                }
+            } catch (driveErr) {
+                console.error('[notify-certificador] error Drive:', driveErr.message);
+                // No bloqueamos: seguimos con el email aunque falle el permiso Drive
+            }
+        } else {
+            console.warn('[notify-certificador] Oportunidad sin drive_folder_id — sin acceso Drive para el cert');
+        }
+
+        // Persistir cee actualizado (cert_id + folder ids)
+        const { error: updErr } = await supabase
+            .from('expedientes')
+            .update({ cee: workingCee })
+            .eq('id', req.params.id);
+        if (updErr) console.error('[notify-certificador] error persistiendo cee:', updErr.message);
+
+        // Email opcional
+        if (sendEmail) {
+            await emailService.sendCertificadorNotificationEmail({
+                to: cert.email,
+                certName,
+                expedienteNum,
+                clienteName,
+                ficha,
+                ceeFolderLink,
+                portalLink,
+                demandaObjetivo,
+                superficieRef,
+                ahorroObjetivo,
+            });
+        }
+
+        res.json({
+            ok: true,
+            sentTo: sendEmail ? cert.email : null,
+            certName,
+            ceeFolderId,
+            ceeFolderLink,
+            driveAccessGranted,
+            emailSent: sendEmail,
+        });
     } catch (err) {
         console.error('[notify-certificador]', err.message);
-        res.status(500).json({ error: 'Error al enviar notificación', details: err.message });
+        res.status(500).json({ error: 'Error procesando la asignación', details: err.message });
     }
 });
 

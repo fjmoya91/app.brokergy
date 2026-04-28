@@ -620,7 +620,7 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
                         )}
                     </div>
 
-                    {/* Acceso Drive */}
+                    {/* Acceso Drive raíz (solo ADMIN) */}
                     {driveLink && isAdmin && (
                         <a
                             href={driveLink}
@@ -632,6 +632,22 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
                             </svg>
                             Drive
+                        </a>
+                    )}
+
+                    {/* Acceso a la subcarpeta CEE (ADMIN + CERTIFICADOR) */}
+                    {(isAdmin || isCertificador) && (liveCee?.cee_folder_link || expediente.cee?.cee_folder_link) && (
+                        <a
+                            href={liveCee?.cee_folder_link || expediente.cee?.cee_folder_link}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-2 px-4 py-2 rounded-xl border border-amber-500/30 text-amber-400 text-xs font-bold hover:bg-amber-500/10 transition-all"
+                            title="Carpeta '12. DOCUMENTOS PARA CEE' en Google Drive"
+                        >
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                            </svg>
+                            Carpeta CEE
                         </a>
                     )}
                 </div>
@@ -721,6 +737,7 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
                         expediente={expediente}
                         onSave={handleCeeSave}
                         onLiveUpdate={handleCeeLiveUpdate}
+                        onRefresh={() => fetchExpediente(true)}
                         saving={saving}
                         certificadores={certificadores}
                         onAutoStatus={handleCeeAutoStatus}
