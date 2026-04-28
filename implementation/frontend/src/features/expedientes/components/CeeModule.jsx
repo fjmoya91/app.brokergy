@@ -254,24 +254,23 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, saving, certificad
                 const opResult = dc.result || {};
 
                 if (!isFinal && !isReforma) {
-                    // RES060/RES093 — Demanda inicial vs Q_net de la propuesta
+                    // RES060/RES093: La demanda certificada debe igualar o superar la propuesta
                     const xmlDemandaM2 = parseFloat(parsed.demandaCalefaccion) || 0;
                     const xmlSuperficie = parseFloat(parsed.superficieHabitable) || 0;
                     const xmlDemandaTotal = xmlDemandaM2 * xmlSuperficie;
                     const proposalQNet = parseFloat(opResult.Q_net) || 0;
 
-                    if (xmlDemandaTotal > 0 && proposalQNet > 0 && xmlDemandaTotal > proposalQNet * 1.15) {
+                    if (xmlDemandaTotal > 0 && proposalQNet > 0 && xmlDemandaTotal <= proposalQNet) {
                         setXmlWarning({
                             type: 'demand',
                             xmlValue: Math.round(xmlDemandaTotal),
                             proposalValue: Math.round(proposalQNet),
-                            pct: Math.round((xmlDemandaTotal / proposalQNet - 1) * 100),
                         });
                     } else {
                         setXmlWarning(null);
                     }
                 } else if (isFinal && isReforma && (nextLocal.cee_inicial || local.cee_inicial)) {
-                    // RES080 — Ahorro real vs ahorro simulado en propuesta
+                    // RES080: El ahorro certificado debe igualar o superar el simulado
                     try {
                         const res080 = calculateRes080({
                             xmlInicial: nextLocal.cee_inicial || local.cee_inicial,
@@ -286,7 +285,7 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, saving, certificad
                         const xmlAhorro = parseFloat(res080?.ahorroEnergiaFinalTotal) || 0;
                         const proposalAhorro = parseFloat(opResult.res080?.ahorroEnergiaFinalTotal) || 0;
 
-                        if (xmlAhorro > 0 && proposalAhorro > 0 && xmlAhorro < proposalAhorro * 0.90) {
+                        if (xmlAhorro > 0 && proposalAhorro > 0 && xmlAhorro <= proposalAhorro) {
                             setXmlWarning({
                                 type: 'ahorro',
                                 xmlValue: Math.round(xmlAhorro),
@@ -524,41 +523,63 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, saving, certificad
                 </div>
             </div>
 
-            {/* ─── Banner de advertencia XML ──────────────────────────────── */}
-            {xmlWarning && (
-                <div className="flex items-start gap-3 bg-amber-500/10 border border-amber-500/30 rounded-2xl px-5 py-4">
-                    <svg className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
-                    </svg>
-                    <div className="flex-1 min-w-0">
-                        <p className="text-[11px] font-black text-amber-400 uppercase tracking-widest mb-1">
-                            {xmlWarning.type === 'demand' ? 'Demanda superior a la propuesta' : 'Ahorro inferior al simulado'}
-                        </p>
-                        {xmlWarning.type === 'demand' ? (
-                            <p className="text-xs text-white/60 leading-relaxed">
-                                El CEE inicial indica <strong className="text-white">{xmlWarning.xmlValue.toLocaleString('es-ES')} kWh/año</strong> de demanda calefacción,
-                                un <strong className="text-amber-400">+{xmlWarning.pct}%</strong> por encima de los{' '}
-                                <strong className="text-white">{xmlWarning.proposalValue.toLocaleString('es-ES')} kWh/año</strong> simulados en la propuesta.
-                                El Bono CAE podría quedar comprometido si la diferencia es significativa.
-                            </p>
-                        ) : (
-                            <p className="text-xs text-white/60 leading-relaxed">
-                                El ahorro calculado con el CEE final es <strong className="text-white">{xmlWarning.xmlValue.toLocaleString('es-ES')} kWh/año</strong>,
-                                frente a los <strong className="text-white">{xmlWarning.proposalValue.toLocaleString('es-ES')} kWh/año</strong> simulados en la propuesta
-                                (<strong className="text-amber-400">−{xmlWarning.diff.toLocaleString('es-ES')} kWh/año</strong>).
-                                Verifica los datos del certificado antes de continuar.
-                            </p>
-                        )}
-                    </div>
-                    <button onClick={() => setXmlWarning(null)} className="text-white/20 hover:text-white/60 transition-colors shrink-0">
-                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                    </button>
-                </div>
-            )}
-
             {isReforma ? renderRes080() : renderRes060()}
 
             {/* showXmlModal is now handled inside CeeDocumentsGrid via sub-components or direct upload logic */}
+
+            {/* ─── Modal de validación XML ─────────────────────────────────── */}
+            {xmlWarning && (
+                <div className="fixed inset-0 z-[600] flex items-center justify-center bg-black/70 backdrop-blur-sm animate-fade-in" onClick={() => setXmlWarning(null)}>
+                    <div className="bg-[#0d1117] border border-amber-500/20 rounded-2xl p-6 max-w-sm w-full mx-4 shadow-2xl" onClick={e => e.stopPropagation()}>
+                        <div className="flex flex-col items-center gap-3 mb-5">
+                            <div className="w-14 h-14 rounded-full bg-amber-500/10 border border-amber-500/30 flex items-center justify-center">
+                                <svg className="w-7 h-7 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+                                </svg>
+                            </div>
+                            <div className="text-center">
+                                <h4 className="text-sm font-black text-white uppercase tracking-widest">
+                                    {xmlWarning.type === 'demand' ? 'Demanda Inferior a la Propuesta' : 'Ahorro Inferior al Simulado'}
+                                </h4>
+                                <p className="text-[10px] text-white/35 mt-1">El certificado no respalda los valores comerciales</p>
+                            </div>
+                        </div>
+
+                        <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl overflow-hidden mb-4">
+                            <div className="grid grid-cols-2 divide-x divide-white/[0.06]">
+                                <div className="p-4 text-center">
+                                    <p className="text-[9px] font-black text-white/30 uppercase tracking-widest mb-1">Valor Propuesta</p>
+                                    <p className="text-xl font-black text-white">{xmlWarning.proposalValue.toLocaleString('es-ES')}</p>
+                                    <p className="text-[9px] text-white/25 mt-0.5">kWh/año</p>
+                                </div>
+                                <div className="p-4 text-center">
+                                    <p className="text-[9px] font-black text-amber-400/60 uppercase tracking-widest mb-1">Valor Certificado</p>
+                                    <p className="text-xl font-black text-amber-400">{xmlWarning.xmlValue.toLocaleString('es-ES')}</p>
+                                    <p className="text-[9px] text-amber-400/40 mt-0.5">kWh/año</p>
+                                </div>
+                            </div>
+                            <div className="px-4 py-2 border-t border-white/[0.04] bg-amber-500/5 text-center">
+                                <span className="text-[10px] font-bold text-amber-400">
+                                    Déficit: −{Math.abs(xmlWarning.proposalValue - xmlWarning.xmlValue).toLocaleString('es-ES')} kWh/año
+                                </span>
+                            </div>
+                        </div>
+
+                        <p className="text-[11px] text-white/45 text-center mb-5 leading-relaxed">
+                            {xmlWarning.type === 'demand'
+                                ? 'La demanda certificada debe igualar o superar la de la propuesta para garantizar el Bono CAE. Confirma los datos con el técnico certificador.'
+                                : 'El ahorro real certificado debe igualar o superar el simulado en la propuesta. Confirma los datos con el técnico certificador.'}
+                        </p>
+
+                        <button
+                            onClick={() => setXmlWarning(null)}
+                            className="w-full py-3 bg-amber-500/10 border border-amber-500/30 text-amber-400 text-[11px] font-black uppercase tracking-widest rounded-xl hover:bg-amber-500/20 transition-all"
+                        >
+                            Entendido · Continuar bajo mi responsabilidad
+                        </button>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

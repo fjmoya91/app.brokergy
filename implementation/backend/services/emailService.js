@@ -682,7 +682,7 @@ const sendCertificadorNotificationEmail = async ({
         <div style="background:rgba(245,158,11,0.08); border:1px solid rgba(245,158,11,0.3); border-radius:14px; padding:20px 24px; margin:20px 0;">
             <p style="margin:0 0 6px; font-size:11px; font-weight:800; color:#f59e0b; text-transform:uppercase; letter-spacing:1.5px;">⚡ Directriz Técnica — RES080</p>
             <p style="margin:0 0 10px; font-size:14px; color:rgba(255,255,255,0.65); line-height:1.6;">
-                Para que la propuesta comercial sea válida, el certificado final debe acreditar un ahorro energético <strong style="color:#ffffff;">igual o superior</strong> al simulado en la propuesta:
+                Para garantizar el éxito del expediente, el ahorro energético certificado debe situarse, como <strong style="color:#ffffff;">objetivo de seguridad</strong>, <strong style="color:#ffffff;">por encima</strong> de los <strong style="color:#f59e0b;">${ahorroObjetivo ? Math.round(ahorroObjetivo).toLocaleString('es-ES') + ' kWh/año' : '—'}</strong> estimados en la propuesta comercial.
             </p>
             <div style="text-align:center; padding:14px; background:rgba(0,0,0,0.3); border-radius:10px;">
                 <p style="margin:0; font-size:12px; color:rgba(255,255,255,0.4); text-transform:uppercase; letter-spacing:1px;">Ahorro mínimo esperado</p>
@@ -693,11 +693,11 @@ const sendCertificadorNotificationEmail = async ({
         <div style="background:rgba(245,158,11,0.08); border:1px solid rgba(245,158,11,0.3); border-radius:14px; padding:20px 24px; margin:20px 0;">
             <p style="margin:0 0 6px; font-size:11px; font-weight:800; color:#f59e0b; text-transform:uppercase; letter-spacing:1.5px;">⚡ Directriz Técnica — ${ficha || 'RES060/RES093'}</p>
             <p style="margin:0 0 10px; font-size:14px; color:rgba(255,255,255,0.65); line-height:1.6;">
-                Para que los Bonos CAE sean válidos, la demanda de calefacción del certificado inicial <strong style="color:#ffffff;">no debe superar</strong> el valor de referencia simulado en la propuesta:
+                Para garantizar el éxito del expediente, el valor de demanda certificado debe situarse, como <strong style="color:#ffffff;">objetivo de seguridad</strong>, <strong style="color:#ffffff;">por encima</strong> de los <strong style="color:#f59e0b;">${demandaObjetivo ? Math.round(demandaObjetivo).toLocaleString('es-ES') + ' kWh/año' : '—'}</strong> estimados en la propuesta comercial.
             </p>
             <div style="display:flex; gap:12px; margin-top:10px;">
                 <div style="flex:1; text-align:center; padding:14px; background:rgba(0,0,0,0.3); border-radius:10px;">
-                    <p style="margin:0; font-size:11px; color:rgba(255,255,255,0.4); text-transform:uppercase; letter-spacing:1px;">Demanda máxima total</p>
+                    <p style="margin:0; font-size:11px; color:rgba(255,255,255,0.4); text-transform:uppercase; letter-spacing:1px;">Demanda mínima esperada</p>
                     <p style="margin:4px 0 0; font-size:22px; font-weight:900; color:#f59e0b;">${demandaObjetivo ? Math.round(demandaObjetivo).toLocaleString('es-ES') + ' kWh/año' : 'Ver propuesta'}</p>
                 </div>
                 ${superficieRef ? `
