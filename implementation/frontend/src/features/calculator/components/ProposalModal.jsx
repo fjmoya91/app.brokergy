@@ -312,6 +312,7 @@ export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }
     // Estado para cachear datos del partner al abrir el modal
     const [partnerInfo, setPartnerInfo] = useState(null);
     const [instaladorInfo, setInstaladorInfo] = useState(null);
+    const [clienteInfo, setClienteInfo] = useState(null);
     const [recipientSelections, setRecipientSelections] = useState(new Set());
 
     // Cargar datos del partner cuando el modal se abre y hay prescriptor_id
@@ -369,6 +370,23 @@ export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }
             })
             .catch(() => setInstaladorInfo({ name: 'Instalador', phone: null }));
     }, [isOpen, inputs?.instalador_asociado_id]);
+
+    useEffect(() => {
+        if (!isOpen) { setClienteInfo(null); return; }
+        const phoneFromInputs = inputs?.tlf_contacto || inputs?.tlf || inputs?.telefono || null;
+        const name = inputs?.referenciaCliente || 'Cliente';
+        if (phoneFromInputs) { setClienteInfo({ name, phone: phoneFromInputs }); return; }
+        if (!inputs?.cliente_id) { setClienteInfo({ name, phone: null }); return; }
+        axios.get(`/api/clientes/${inputs.cliente_id}`)
+            .then(res => {
+                const c = res.data;
+                setClienteInfo({
+                    name: c.nombre_razon_social || name,
+                    phone: c.tlf || c.telefono || null,
+                });
+            })
+            .catch(() => setClienteInfo({ name, phone: null }));
+    }, [isOpen, inputs?.cliente_id, inputs?.tlf_contacto, inputs?.tlf, inputs?.telefono, inputs?.referenciaCliente]);
 
     // Ajustar la escala de la vista previa para que quepa en el ancho disponible
     useEffect(() => {
@@ -1109,14 +1127,18 @@ info@brokergy.es · 623 926 179`;
         for (const mode of selectedModes) {
             let phone = null, name = '';
             if (mode === 'CLIENTE') {
-                phone = inputs?.tlf_contacto || inputs?.tlf || inputs?.telefono || null;
-                name = inputs?.referenciaCliente || 'Cliente';
-                if (!phone && inputs?.cliente_id) {
-                    try {
-                        const r = await axios.get(`/api/clientes/${inputs.cliente_id}`);
-                        phone = r.data?.tlf || r.data?.telefono || null;
-                        if (r.data?.nombre_razon_social) name = r.data.nombre_razon_social;
-                    } catch (e) { console.warn('[WA] No se pudo obtener teléfono del cliente'); }
+                if (clienteInfo) {
+                    phone = clienteInfo.phone; name = clienteInfo.name;
+                } else {
+                    phone = inputs?.tlf_contacto || inputs?.tlf || inputs?.telefono || null;
+                    name = inputs?.referenciaCliente || 'Cliente';
+                    if (!phone && inputs?.cliente_id) {
+                        try {
+                            const r = await axios.get(`/api/clientes/${inputs.cliente_id}`);
+                            phone = r.data?.tlf || r.data?.telefono || null;
+                            if (r.data?.nombre_razon_social) name = r.data.nombre_razon_social;
+                        } catch (e) { console.warn('[WA] No se pudo obtener teléfono del cliente'); }
+                    }
                 }
             } else if (mode === 'PARTNER') {
                 if (partnerInfo) {
@@ -1218,7 +1240,7 @@ info@brokergy.es · 623 926 179`;
         const summary = results.map(r => `${r.ok ? '✅' : '❌'} ${r.name}${!r.ok && r.error ? ': ' + r.error : ''}`).join('\n');
         setConfirmConfig({ title: allOk ? '¡Propuesta enviada!' : 'Resultado del envío', message: summary, confirmText: 'Aceptar', onConfirm: () => setConfirmConfig(null) });
         setSendingWhatsapp(false);
-    }, [buildCaption, inputs, proposalRef, partnerInfo, instaladorInfo]);
+    }, [buildCaption, inputs, proposalRef, partnerInfo, instaladorInfo, clienteInfo]);
 
     const handleSendByWhatsapp = () => {
         setSendingWhatsapp(false);
@@ -2091,9 +2113,8 @@ info@brokergy.es · 623 926 179`;
                         return next;
                     });
                 };
-                const clientePhone = inputs?.tlf_contacto || inputs?.tlf || inputs?.telefono || null;
                 const options = [
-                    { mode: 'CLIENTE', label: 'CLIENTE', sublabel: inputs?.referenciaCliente || null, phone: clientePhone, color: 'bg-primary-600/20 border-primary-500/40 hover:border-primary-500', checkColor: 'bg-primary-500' },
+                    { mode: 'CLIENTE', label: 'CLIENTE', sublabel: clienteInfo?.name || inputs?.referenciaCliente || null, phone: clienteInfo?.phone || null, color: 'bg-primary-600/20 border-primary-500/40 hover:border-primary-500', checkColor: 'bg-primary-500' },
                     ...(partnerInfo ? [{ mode: 'PARTNER', label: 'DISTRIBUIDOR', sublabel: partnerInfo.name, phone: partnerInfo.phone, color: 'bg-[#25D366]/10 border-[#25D366]/30 hover:border-[#25D366]', checkColor: 'bg-[#25D366]' }] : []),
                     ...(instaladorInfo ? [{ mode: 'INSTALADOR', label: 'INSTALADOR', sublabel: instaladorInfo.name, phone: instaladorInfo.phone, color: 'bg-amber-500/10 border-amber-500/30 hover:border-amber-500', checkColor: 'bg-amber-500' }] : []),
                 ];
