@@ -600,3 +600,17 @@ module.exports = {
     normalizePhone,
     _config: CONFIG,
 };
+
+// Auto-inicializar si hay sesión previa guardada en el volumen.
+// Permite que WhatsApp se reconecte solo tras cada deploy sin intervención manual.
+if (CONFIG.enabled) {
+    const sessionDir = path.join(SESSION_ROOT, `session-${CONFIG.clientId}`);
+    if (fs.existsSync(sessionDir)) {
+        console.log('[wwa] Sesión previa detectada — auto-reconectando en 5s...');
+        setTimeout(() => {
+            init().catch(e => console.error('[wwa] Error en auto-init:', e.message));
+        }, 5000);
+    } else {
+        console.log('[wwa] Sin sesión previa. Conéctate desde el panel admin para iniciar.');
+    }
+}
