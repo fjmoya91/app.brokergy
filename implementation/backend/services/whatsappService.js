@@ -331,14 +331,17 @@ async function init() {
 
     ensureSessionDir();
 
-    // Eliminar locks de Chrome que quedan al reiniciar el contenedor
-    try {
-        const sessionDir = path.join(SESSION_ROOT, `session-${CONFIG.clientId}`);
-        ['SingletonLock', 'SingletonCookie', 'SingletonSocket'].forEach(f => {
-            const p = path.join(sessionDir, f);
-            if (fs.existsSync(p)) { fs.unlinkSync(p); console.log(`[wwa] Lock eliminado: ${f}`); }
-        });
-    } catch (e) { console.warn('[wwa] No se pudieron eliminar locks de Chrome:', e.message); }
+    // Eliminar locks de Chrome — usar unlinkSync directo porque existsSync devuelve
+    // false en symlinks rotos (SingletonLock es un symlink al contenedor anterior)
+    const sessionDir = path.join(SESSION_ROOT, `session-${CONFIG.clientId}`);
+    ['SingletonLock', 'SingletonCookie', 'SingletonSocket'].forEach(f => {
+        try {
+            fs.unlinkSync(path.join(sessionDir, f));
+            console.log(`[wwa] Lock eliminado: ${f}`);
+        } catch (e) {
+            if (e.code !== 'ENOENT') console.warn(`[wwa] No se pudo eliminar ${f}:`, e.message);
+        }
+    });
 
     const { Client, LocalAuth } = wweb;
 
