@@ -666,6 +666,120 @@ const sendAdminNotificationEmail = async ({ numeroExpediente, clientName, addres
     return sendMail({ to, subject, html, text });
 };
 
+const sendCertificadorNotificationEmail = async ({
+    to, certName, expedienteNum, clienteName, ficha,
+    driveLink, portalLink,
+    // RES060/RES093
+    demandaObjetivo,    // kWh/año (Q_net)
+    superficieRef,      // m²
+    // RES080
+    ahorroObjetivo,     // kWh/año
+}) => {
+    const isReforma = ficha === 'RES080';
+    const subject = `Directrices técnicas — Exp. ${expedienteNum} (${ficha || 'CEE'}) — Brokergy`;
+
+    const directrizHtml = isReforma ? `
+        <div style="background:rgba(245,158,11,0.08); border:1px solid rgba(245,158,11,0.3); border-radius:14px; padding:20px 24px; margin:20px 0;">
+            <p style="margin:0 0 6px; font-size:11px; font-weight:800; color:#f59e0b; text-transform:uppercase; letter-spacing:1.5px;">⚡ Directriz Técnica — RES080</p>
+            <p style="margin:0 0 10px; font-size:14px; color:rgba(255,255,255,0.65); line-height:1.6;">
+                Para que la propuesta comercial sea válida, el certificado final debe acreditar un ahorro energético <strong style="color:#ffffff;">igual o superior</strong> al simulado en la propuesta:
+            </p>
+            <div style="text-align:center; padding:14px; background:rgba(0,0,0,0.3); border-radius:10px;">
+                <p style="margin:0; font-size:12px; color:rgba(255,255,255,0.4); text-transform:uppercase; letter-spacing:1px;">Ahorro mínimo esperado</p>
+                <p style="margin:4px 0 0; font-size:28px; font-weight:900; color:#f59e0b;">${ahorroObjetivo ? Math.round(ahorroObjetivo).toLocaleString('es-ES') + ' kWh/año' : 'Ver propuesta'}</p>
+            </div>
+        </div>
+    ` : `
+        <div style="background:rgba(245,158,11,0.08); border:1px solid rgba(245,158,11,0.3); border-radius:14px; padding:20px 24px; margin:20px 0;">
+            <p style="margin:0 0 6px; font-size:11px; font-weight:800; color:#f59e0b; text-transform:uppercase; letter-spacing:1.5px;">⚡ Directriz Técnica — ${ficha || 'RES060/RES093'}</p>
+            <p style="margin:0 0 10px; font-size:14px; color:rgba(255,255,255,0.65); line-height:1.6;">
+                Para que los Bonos CAE sean válidos, la demanda de calefacción del certificado inicial <strong style="color:#ffffff;">no debe superar</strong> el valor de referencia simulado en la propuesta:
+            </p>
+            <div style="display:flex; gap:12px; margin-top:10px;">
+                <div style="flex:1; text-align:center; padding:14px; background:rgba(0,0,0,0.3); border-radius:10px;">
+                    <p style="margin:0; font-size:11px; color:rgba(255,255,255,0.4); text-transform:uppercase; letter-spacing:1px;">Demanda máxima total</p>
+                    <p style="margin:4px 0 0; font-size:22px; font-weight:900; color:#f59e0b;">${demandaObjetivo ? Math.round(demandaObjetivo).toLocaleString('es-ES') + ' kWh/año' : 'Ver propuesta'}</p>
+                </div>
+                ${superficieRef ? `
+                <div style="flex:1; text-align:center; padding:14px; background:rgba(0,0,0,0.3); border-radius:10px;">
+                    <p style="margin:0; font-size:11px; color:rgba(255,255,255,0.4); text-transform:uppercase; letter-spacing:1px;">Superficie referencia</p>
+                    <p style="margin:4px 0 0; font-size:22px; font-weight:900; color:#ffffff;">${Math.round(superficieRef)} m²</p>
+                </div>` : ''}
+            </div>
+            ${demandaObjetivo && superficieRef ? `
+            <p style="margin:12px 0 0; font-size:12px; color:rgba(255,255,255,0.4); text-align:center;">
+                Equivale a <strong style="color:rgba(255,255,255,0.65);">${(demandaObjetivo / superficieRef).toFixed(1)} kWh/m²·año</strong> de demanda específica
+            </p>` : ''}
+        </div>
+    `;
+
+    const html = `
+<!DOCTYPE html>
+<html lang="es">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+<body style="margin:0; padding:0; background-color:#0a0e1a; font-family:'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif; color:#ffffff;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#0a0e1a; padding:40px 20px;">
+        <tr><td align="center">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px; background-color:#111827; border-radius:24px; border:1px solid rgba(255,255,255,0.06); overflow:hidden;">
+                <tr><td style="height:4px; background:linear-gradient(90deg, #f59e0b, #ea580c);"></td></tr>
+                <tr>
+                    <td style="padding:40px 40px 10px;">
+                        <div style="font-size:22px; font-weight:900; letter-spacing:-0.5px; text-align:center;">
+                            <span style="color:#f59e0b;">BROKERGY </span><span style="color:#ffffff; font-weight:500;">· Ingeniería Energética</span>
+                        </div>
+                    </td>
+                </tr>
+                <tr>
+                    <td style="padding:10px 40px 30px;">
+                        <h2 style="margin:0 0 6px; font-size:19px; font-weight:800; color:#ffffff;">Hola ${certName || 'técnico'}!</h2>
+                        <p style="margin:0 0 16px; font-size:14px; line-height:1.6; color:rgba(255,255,255,0.6);">
+                            Te asignamos el expediente <strong style="color:#f59e0b;">${expedienteNum}</strong>
+                            del cliente <strong style="color:#ffffff;">${clienteName || '—'}</strong> para la emisión del Certificado de Eficiencia Energética.
+                        </p>
+                        <p style="margin:0 0 6px; font-size:14px; line-height:1.6; color:rgba(255,255,255,0.6);">
+                            A continuación encontrarás las <strong style="color:#ffffff;">directrices técnicas</strong> que debes tener en cuenta para que los valores del certificado sean compatibles con la propuesta comercial presentada al cliente:
+                        </p>
+
+                        ${directrizHtml}
+
+                        <h3 style="margin:24px 0 12px; font-size:14px; font-weight:700; color:#ffffff;">Accesos directos:</h3>
+                        <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                            ${driveLink ? `
+                            <tr><td align="center" style="padding-bottom:10px;">
+                                <a href="${driveLink}" target="_blank" style="display:inline-block; padding:12px 32px; background-color:rgba(255,255,255,0.07); border:1px solid rgba(255,255,255,0.12); color:#ffffff; font-size:14px; font-weight:700; text-decoration:none; border-radius:10px; width:80%; max-width:280px; box-sizing:border-box; text-align:center;">
+                                    📁 Carpeta en Google Drive
+                                </a>
+                            </td></tr>` : ''}
+                            ${portalLink ? `
+                            <tr><td align="center">
+                                <a href="${portalLink}" target="_blank" style="display:inline-block; padding:12px 32px; background:linear-gradient(135deg, #f59e0b, #ea580c); color:#0a0e1a; font-size:14px; font-weight:800; text-decoration:none; border-radius:10px; width:80%; max-width:280px; box-sizing:border-box; text-align:center;">
+                                    🔗 Acceder al Portal
+                                </a>
+                            </td></tr>` : ''}
+                        </table>
+
+                        <p style="margin:28px 0 0; font-size:13px; line-height:1.6; color:rgba(255,255,255,0.35); text-align:center;">
+                            Ante cualquier duda técnica, contacta con Brokergy antes de emitir el certificado.
+                        </p>
+                    </td>
+                </tr>
+                <tr>
+                    <td style="padding:10px 40px 32px; text-align:center; background-color:rgba(255,255,255,0.02); border-top:1px solid rgba(255,255,255,0.04);">
+                        <p style="margin:0; font-size:12px; font-weight:700; color:rgba(255,255,255,0.5);">BROKERGY · Ingeniería Energética</p>
+                        <p style="margin:4px 0 0; font-size:11px; color:rgba(255,255,255,0.25);"><a href="https://brokergy.es" style="color:#f59e0b; text-decoration:none;">brokergy.es</a></p>
+                    </td>
+                </tr>
+            </table>
+        </td></tr>
+    </table>
+</body>
+</html>`;
+
+    const text = `Hola ${certName}!\n\nTe asignamos el expediente ${expedienteNum} (${clienteName}).\n\n${isReforma ? `Ahorro mínimo esperado: ${ahorroObjetivo ? Math.round(ahorroObjetivo) + ' kWh/año' : 'Ver propuesta'}` : `Demanda máxima calefacción: ${demandaObjetivo ? Math.round(demandaObjetivo) + ' kWh/año' : 'Ver propuesta'}`}\n\n${driveLink ? 'Drive: ' + driveLink + '\n' : ''}${portalLink ? 'Portal: ' + portalLink : ''}\n\nBROKERGY · Ingeniería Energética`;
+
+    return sendMail({ to, subject, html, text });
+};
+
 module.exports = {
     sendMail,
     verifySmtp,
@@ -673,5 +787,6 @@ module.exports = {
     sendProposalEmail,
     sendAcceptanceNotificationEmail,
     sendAnnexEmail,
-    sendAdminNotificationEmail
+    sendAdminNotificationEmail,
+    sendCertificadorNotificationEmail
 };

@@ -190,6 +190,7 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, saving, certificad
     const [isDragging, setIsDragging] = useState(false);
     const [isDraggingFinal, setIsDraggingFinal] = useState(false);
     const [editMode, setEditMode] = useState(false);
+    const [xmlWarning, setXmlWarning] = useState(null);
 
     // ─── Estado para popup de notificación al certificador ─────────────────
     const [showCertPopup, setShowCertPopup] = useState(false);
@@ -228,7 +229,7 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, saving, certificad
             isFinal ? setXmlFinalError('Archivo .xml no válido') : setXmlError('Archivo .xml no válido');
             return;
         }
-        
+
         isFinal ? setXmlFinalError(null) : setXmlError(null);
         const reader = new FileReader();
         reader.onload = (e) => {
@@ -247,6 +248,60 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, saving, certificad
                 };
                 setLocal(nextLocal);
                 onSave({ cee: nextLocal });
+
+                // ─── Validación contra propuesta comercial ──────────────────
+                const dc = expediente?.oportunidades?.datos_calculo || {};
+                const opResult = dc.result || {};
+
+                if (!isFinal && !isReforma) {
+                    // RES060/RES093 — Demanda inicial vs Q_net de la propuesta
+                    const xmlDemandaM2 = parseFloat(parsed.demandaCalefaccion) || 0;
+                    const xmlSuperficie = parseFloat(parsed.superficieHabitable) || 0;
+                    const xmlDemandaTotal = xmlDemandaM2 * xmlSuperficie;
+                    const proposalQNet = parseFloat(opResult.Q_net) || 0;
+
+                    if (xmlDemandaTotal > 0 && proposalQNet > 0 && xmlDemandaTotal > proposalQNet * 1.15) {
+                        setXmlWarning({
+                            type: 'demand',
+                            xmlValue: Math.round(xmlDemandaTotal),
+                            proposalValue: Math.round(proposalQNet),
+                            pct: Math.round((xmlDemandaTotal / proposalQNet - 1) * 100),
+                        });
+                    } else {
+                        setXmlWarning(null);
+                    }
+                } else if (isFinal && isReforma && (nextLocal.cee_inicial || local.cee_inicial)) {
+                    // RES080 — Ahorro real vs ahorro simulado en propuesta
+                    try {
+                        const res080 = calculateRes080({
+                            xmlInicial: nextLocal.cee_inicial || local.cee_inicial,
+                            xmlFinal: parsed,
+                            combAcsInicial: nextLocal.comb_acs_inicial,
+                            combAcsFinal: nextLocal.comb_acs_final,
+                            combCalefaccionInicial: nextLocal.comb_cal_inicial,
+                            combCalefaccionFinal: nextLocal.comb_cal_final,
+                            combRefrigeracionInicial: nextLocal.comb_ref_inicial,
+                            combRefrigeracionFinal: nextLocal.comb_ref_final,
+                        });
+                        const xmlAhorro = parseFloat(res080?.ahorroEnergiaFinalTotal) || 0;
+                        const proposalAhorro = parseFloat(opResult.res080?.ahorroEnergiaFinalTotal) || 0;
+
+                        if (xmlAhorro > 0 && proposalAhorro > 0 && xmlAhorro < proposalAhorro * 0.90) {
+                            setXmlWarning({
+                                type: 'ahorro',
+                                xmlValue: Math.round(xmlAhorro),
+                                proposalValue: Math.round(proposalAhorro),
+                                diff: Math.round(proposalAhorro - xmlAhorro),
+                            });
+                        } else {
+                            setXmlWarning(null);
+                        }
+                    } catch (_) {
+                        setXmlWarning(null);
+                    }
+                } else {
+                    setXmlWarning(null);
+                }
             } catch (err) {
                 isFinal ? setXmlFinalError(err.message) : setXmlError(err.message);
             }
@@ -278,7 +333,7 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, saving, certificad
                 const { data } = await axios.post(`/api/expedientes/${expediente.id}/notify-certificador`, {
                     certificador_id: local.certificador_id
                 });
-                setCertNotifResult({ type: 'ok', text: `Email enviado a ${data.email}` });
+                setCertNotifResult({ type: 'ok', text: `Email enviado a ${data.sentTo}` });
             } catch (err) {
                 const msg = err.response?.data?.error || 'Error al enviar la notificación';
                 setCertNotifResult({ type: 'error', text: msg });
@@ -468,6 +523,38 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, saving, certificad
                     )}
                 </div>
             </div>
+
+            {/* ─── Banner de advertencia XML ──────────────────────────────── */}
+            {xmlWarning && (
+                <div className="flex items-start gap-3 bg-amber-500/10 border border-amber-500/30 rounded-2xl px-5 py-4">
+                    <svg className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+                    </svg>
+                    <div className="flex-1 min-w-0">
+                        <p className="text-[11px] font-black text-amber-400 uppercase tracking-widest mb-1">
+                            {xmlWarning.type === 'demand' ? 'Demanda superior a la propuesta' : 'Ahorro inferior al simulado'}
+                        </p>
+                        {xmlWarning.type === 'demand' ? (
+                            <p className="text-xs text-white/60 leading-relaxed">
+                                El CEE inicial indica <strong className="text-white">{xmlWarning.xmlValue.toLocaleString('es-ES')} kWh/año</strong> de demanda calefacción,
+                                un <strong className="text-amber-400">+{xmlWarning.pct}%</strong> por encima de los{' '}
+                                <strong className="text-white">{xmlWarning.proposalValue.toLocaleString('es-ES')} kWh/año</strong> simulados en la propuesta.
+                                El Bono CAE podría quedar comprometido si la diferencia es significativa.
+                            </p>
+                        ) : (
+                            <p className="text-xs text-white/60 leading-relaxed">
+                                El ahorro calculado con el CEE final es <strong className="text-white">{xmlWarning.xmlValue.toLocaleString('es-ES')} kWh/año</strong>,
+                                frente a los <strong className="text-white">{xmlWarning.proposalValue.toLocaleString('es-ES')} kWh/año</strong> simulados en la propuesta
+                                (<strong className="text-amber-400">−{xmlWarning.diff.toLocaleString('es-ES')} kWh/año</strong>).
+                                Verifica los datos del certificado antes de continuar.
+                            </p>
+                        )}
+                    </div>
+                    <button onClick={() => setXmlWarning(null)} className="text-white/20 hover:text-white/60 transition-colors shrink-0">
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                    </button>
+                </div>
+            )}
 
             {isReforma ? renderRes080() : renderRes060()}
 

@@ -917,6 +917,69 @@ router.get('/proxy/pdf', enforceAuth, async (req, res) => {
     }
 });
 
+// POST /api/expedientes/:id/notify-certificador
+// Envía email de directrices técnicas al técnico certificador asignado al expediente
+router.post('/:id/notify-certificador', enforceAuth, async (req, res) => {
+    try {
+        const { data: exp, error: expErr } = await supabase
+            .from('expedientes')
+            .select('*')
+            .eq('id', req.params.id)
+            .single();
+        if (expErr || !exp) return res.status(404).json({ error: 'Expediente no encontrado' });
+
+        const certId = exp.cee?.certificador_id;
+        if (!certId) return res.status(400).json({ error: 'El expediente no tiene certificador asignado' });
+
+        const [
+            { data: cert },
+            { data: cli },
+            { data: op }
+        ] = await Promise.all([
+            supabase.from('prescriptores').select('razon_social, email').eq('id_empresa', certId).maybeSingle(),
+            supabase.from('clientes').select('nombre, apellidos').eq('id_cliente', exp.cliente_id).maybeSingle(),
+            supabase.from('oportunidades').select('id_oportunidad, ficha, datos_calculo, drive_folder_id').eq('id', exp.oportunidad_id).maybeSingle()
+        ]);
+
+        if (!cert?.email) return res.status(400).json({ error: 'El certificador no tiene email registrado' });
+
+        const ficha = op?.ficha || 'RES060';
+        const dc = op?.datos_calculo || {};
+        const result = dc.result || {};
+        const inputs = dc.inputs || dc;
+
+        const superficieRef = parseFloat(inputs.superficieCalefactable) || null;
+        const demandaObjetivo = parseFloat(result.Q_net) || (superficieRef && parseFloat(inputs.demandaCalefaccion) ? parseFloat(inputs.demandaCalefaccion) * superficieRef : null);
+        const ahorroObjetivo = parseFloat(result.res080?.ahorroEnergiaFinalTotal) || null;
+
+        const expedienteNum = exp.numero_expediente || op?.id_oportunidad || req.params.id;
+        const clienteName = cli ? `${cli.nombre || ''} ${cli.apellidos || ''}`.trim() : '—';
+
+        const driveLink = op?.drive_folder_id
+            ? `https://drive.google.com/drive/folders/${op.drive_folder_id}`
+            : null;
+        const portalLink = `${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/expedientes/${req.params.id}`;
+
+        await emailService.sendCertificadorNotificationEmail({
+            to: cert.email,
+            certName: cert.razon_social || 'Técnico',
+            expedienteNum,
+            clienteName,
+            ficha,
+            driveLink,
+            portalLink,
+            demandaObjetivo,
+            superficieRef,
+            ahorroObjetivo,
+        });
+
+        res.json({ ok: true, sentTo: cert.email });
+    } catch (err) {
+        console.error('[notify-certificador]', err.message);
+        res.status(500).json({ error: 'Error al enviar notificación', details: err.message });
+    }
+});
+
 // Regenerar número de expediente (PATCH /api/expedientes/:id/regenerar-numero)
 // Se usa cuando se cambia de programa (Aerotermia <-> Reforma) después de creado
 router.patch('/:id/regenerar-numero', adminOnly, async (req, res) => {
