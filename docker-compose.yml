@@ -5,6 +5,7 @@ services:
     build: ./implementation/backend
     container_name: brokergy-backend
     restart: unless-stopped
+    stop_grace_period: 30s
     env_file: ./implementation/backend/.env
     environment:
       - NODE_ENV=production

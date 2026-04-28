@@ -62,10 +62,20 @@ router.get('/qr', adminOnly, requireService, async (req, res) => {
     }
 });
 
-// POST /api/whatsapp/disconnect
+// POST /api/whatsapp/disconnect — pausa el servicio, sesión conservada
 router.post('/disconnect', adminOnly, requireService, async (req, res) => {
     try {
         const result = await wwa.disconnect();
+        res.json(result);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// POST /api/whatsapp/logout — cierra sesión completamente, requiere QR de nuevo
+router.post('/logout', adminOnly, requireService, async (req, res) => {
+    try {
+        const result = await wwa.logout();
         res.json(result);
     } catch (err) {
         res.status(500).json({ error: err.message });

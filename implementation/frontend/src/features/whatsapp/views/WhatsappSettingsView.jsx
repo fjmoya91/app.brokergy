@@ -56,14 +56,33 @@ export function WhatsappSettingsView() {
 
     const disconnect = async () => {
         const confirmed = await showConfirm(
-            '¿Estás seguro de que deseas desconectar el canal de WhatsApp? Para volver a usarlo, tendrás que escanear el código QR de nuevo.',
-            'Desconectar WhatsApp',
+            'Se detendrá el servicio de WhatsApp pero la sesión se conservará. Puedes reconectar en cualquier momento sin escanear el QR de nuevo.',
+            'Pausar WhatsApp',
             'warning'
         );
         if (!confirmed) return;
         setLoading(true);
         try {
             await axios.post('/api/whatsapp/disconnect');
+            setQrDataUrl(null);
+            await fetchStatus();
+        } catch (err) {
+            setError(err.response?.data?.error || err.message);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const logoutSession = async () => {
+        const confirmed = await showConfirm(
+            'Se cerrará la sesión completamente y se borrarán los datos locales. La próxima vez que conectes tendrás que escanear el código QR de nuevo. ¿Estás seguro?',
+            'Cerrar sesión de WhatsApp',
+            'danger'
+        );
+        if (!confirmed) return;
+        setLoading(true);
+        try {
+            await axios.post('/api/whatsapp/logout');
             setQrDataUrl(null);
             await fetchStatus();
         } catch (err) {
@@ -154,7 +173,7 @@ export function WhatsappSettingsView() {
                     </div>
                 )}
 
-                <div className="flex gap-3 mt-6 justify-end">
+                <div className="flex items-center gap-3 mt-6 justify-end flex-wrap">
                     {(state === 'DISCONNECTED' || state === 'AUTH_FAILED') && status?.enabled && (
                         <button
                             onClick={connect}
@@ -168,9 +187,19 @@ export function WhatsappSettingsView() {
                         <button
                             onClick={disconnect}
                             disabled={loading}
-                            className="px-5 py-2.5 rounded-xl bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 text-red-300 font-bold text-xs uppercase tracking-wider disabled:opacity-50"
+                            className="px-5 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-white/50 hover:text-white font-bold text-xs uppercase tracking-wider disabled:opacity-50 transition-all"
                         >
-                            Desconectar
+                            Pausar
+                        </button>
+                    )}
+                    {status?.enabled && (
+                        <button
+                            onClick={logoutSession}
+                            disabled={loading}
+                            title="Cierra la sesión y borra los datos locales. Requerirá escanear QR."
+                            className="px-4 py-2 rounded-xl bg-red-500/5 hover:bg-red-500/15 border border-red-500/20 hover:border-red-500/40 text-red-400/60 hover:text-red-300 font-bold text-[10px] uppercase tracking-wider disabled:opacity-40 transition-all"
+                        >
+                            Cerrar sesión
                         </button>
                     )}
                 </div>

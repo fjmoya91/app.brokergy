@@ -427,6 +427,11 @@ async function init() {
     }
 }
 
+/**
+ * Detiene Chrome SIN cerrar sesión. La sesión persiste en el volumen Docker
+ * y se restaura automáticamente en el próximo arranque (sin escanear QR).
+ * Usar para paradas temporales o cuando el servicio debe reiniciarse.
+ */
 async function disconnect() {
     if (!client) return { ok: true, already: true };
 
@@ -436,14 +441,45 @@ async function disconnect() {
     }
 
     try {
-        await client.logout();
-    } catch (e) {
-        console.warn('[wwa] logout warning:', e.message);
-    }
-    try {
         await client.destroy();
     } catch (_) { /* noop */ }
     client = null;
+    state = 'DISCONNECTED';
+    meInfo = null;
+    lastQr = null;
+    return { ok: true };
+}
+
+/**
+ * Cierra la sesión completamente y borra los datos locales.
+ * La próxima vez que se conecte habrá que escanear el QR de nuevo.
+ * Usar solo cuando se quiere cambiar de número o desvincular el dispositivo.
+ */
+async function logout() {
+    if (pollTimer) {
+        clearInterval(pollTimer);
+        pollTimer = null;
+    }
+
+    if (client) {
+        try {
+            await client.logout();
+        } catch (e) {
+            console.warn('[wwa] logout warning:', e.message);
+        }
+        try {
+            await client.destroy();
+        } catch (_) { /* noop */ }
+        client = null;
+    } else {
+        // Cliente ya destruido pero sesión todavía en disco → borrar manualmente
+        const sessionDir = path.join(SESSION_ROOT, `session-${CONFIG.clientId}`);
+        try {
+            fs.rmSync(sessionDir, { recursive: true, force: true });
+            console.log('[wwa] Sesión borrada manualmente del volumen.');
+        } catch (_) { /* noop */ }
+    }
+
     state = 'DISCONNECTED';
     meInfo = null;
     lastQr = null;
@@ -595,6 +631,7 @@ async function getGroups() {
 module.exports = {
     init,
     disconnect,
+    logout,
     getStatus,
     getQr,
     sendText,
@@ -603,6 +640,27 @@ module.exports = {
     normalizePhone,
     _config: CONFIG,
 };
+
+// ─── Graceful shutdown ─────────────────────────────────────────────────────────
+// Al recibir SIGTERM (docker stop, deploy), destruimos Chrome SIN hacer logout.
+// Esto da tiempo a Chrome para flushear su IndexedDB y la sesión sobrevive al
+// siguiente arranque. stop_grace_period: 30s en docker-compose da el margen necesario.
+['SIGTERM', 'SIGINT'].forEach(sig => {
+    process.once(sig, async () => {
+        console.log(`[wwa] ${sig} — cerrando Chrome sin logout (sesión preservada)...`);
+        if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+        if (client) {
+            try {
+                await Promise.race([
+                    client.destroy(),
+                    new Promise(r => setTimeout(r, 8000)), // timeout de seguridad 8s
+                ]);
+            } catch (_) { /* noop */ }
+            client = null;
+        }
+        process.exit(0);
+    });
+});
 
 // Auto-inicializar si hay sesión previa guardada en el volumen.
 // Permite que WhatsApp se reconecte solo tras cada deploy sin intervención manual.
