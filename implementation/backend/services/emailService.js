@@ -166,8 +166,11 @@ const sendPasswordResetEmail = async (to, resetLink, userName) => {
  * Envía la propuesta en PDF al cliente por correo
  */
 const sendProposalEmail = async ({ to, userName, pdfBuffer, tableImageBase64, summaryData }) => {
-    const subject = `Propuesta Bono Energético CAE — Brokergy (${summaryData.id})`;
-    
+    const isB2B = summaryData.mode === 'PARTNER' || summaryData.mode === 'INSTALADOR';
+    const subject = isB2B
+        ? `Propuesta cliente ${summaryData.clienteName || ''} [Exp. ${summaryData.id}] — Brokergy`
+        : `Propuesta Bono Energético CAE — Brokergy (${summaryData.id})`;
+
     // Si tenemos imagen de la tabla, la adjuntamos como CID
     const attachments = [
         {
@@ -226,9 +229,15 @@ const sendProposalEmail = async ({ to, userName, pdfBuffer, tableImageBase64, su
                     <tr>
                         <td style="padding:10px 40px 30px;">
                             <h2 style="margin:0 0 20px; font-size:20px; font-weight:800; color:#ffffff; letter-spacing:-0.3px;">
-                                ¡Hola, ${userName || 'cliente'}!
+                                ¡Hola, ${userName || (isB2B ? 'equipo' : 'cliente')}!
                             </h2>
-                            
+
+                            ${isB2B ? `
+                            <p style="margin:0 0 20px; font-size:15px; line-height:1.6; color:rgba(255,255,255,0.7);">
+                                Te adjuntamos la propuesta de ayudas para el expediente de vuestro cliente <strong style="color:#ffffff;">${summaryData.clienteName || ''}</strong> (Exp. ${summaryData.id}).
+                            </p>
+                            ` : ''}
+
                             ${summaryData.isBoth ? `
                                 <!-- CASO COMPARATIVA -->
                                 <p style="margin:0 0 20px; font-size:15px; line-height:1.6; color:rgba(255,255,255,0.7);">
@@ -284,17 +293,29 @@ const sendProposalEmail = async ({ to, userName, pdfBuffer, tableImageBase64, su
                                 </div>
                             `}
 
+                            ${!isB2B ? `
                             <p style="margin:0 0 30px; font-size:13px; line-height:1.6; color:rgba(255,255,255,0.4);">
                                 💡 Recordatorio: Para las deducciones del IRPF debes contar con retenciones aplicables. Nosotros dejaremos toda la parte técnica preparada para tu solicitud.
                             </p>
+                            ` : ''}
 
                             ${tableHtml}
 
                             <h3 style="margin:25px 0 15px; font-size:16px; font-weight:700; color:#ffffff;">Pasos a seguir:</h3>
+                            ${isB2B ? `
+                            <ul style="margin:0 0 30px; padding:0 0 0 20px; font-size:14px; line-height:1.8; color:rgba(255,255,255,0.6);">
+                                <li>El cliente debe <strong>aceptar el presupuesto de instalación</strong>.</li>
+                                <li>El cliente debe <strong>aceptar la propuesta</strong> adjunta en PDF. Es vital presentar el CEE Inicial antes de cualquier factura para no perder las ayudas.</li>
+                            </ul>
+                            <p style="margin:0 0 20px; font-size:14px; line-height:1.6; color:rgba(255,255,255,0.6);">
+                                Podéis compartir este enlace de firma directamente con el cliente:
+                            </p>
+                            ` : `
                             <ul style="margin:0 0 30px; padding:0 0 0 20px; font-size:14px; line-height:1.8; color:rgba(255,255,255,0.6);">
                                 <li><strong>Aceptar el presupuesto</strong> al instalador.</li>
                                 <li><strong>Aceptar la propuesta</strong> adjunta en PDF. Es vital presentar el Certificado Inicial antes de cualquier factura para asegurar las deducciones fiscales.</li>
                             </ul>
+                            `}
 
                             <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
                                 <tr>
@@ -307,14 +328,14 @@ const sendProposalEmail = async ({ to, userName, pdfBuffer, tableImageBase64, su
                                 <tr>
                                     <td align="center">
                                         <a href="${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/firma/${summaryData.urlId || summaryData.id}" target="_blank" style="display:inline-block; padding:14px 40px; background:linear-gradient(135deg, #f59e0b, #ea580c); color:#0a0e1a; font-size:15px; font-weight:900; text-decoration:none; border-radius:12px; letter-spacing:0.3px; width: 80%; max-width: 300px; box-shadow: 0 4px 15px rgba(245,158,11,0.3);">
-                                            ✍️ ACEPTAR Y FIRMAR
+                                            ✍️ ${isB2B ? 'ENLACE DE FIRMA PARA EL CLIENTE' : 'ACEPTAR Y FIRMAR'}
                                         </a>
                                     </td>
                                 </tr>
                             </table>
 
                             <p style="margin:30px 0 0; font-size:14px; line-height:1.6; color:rgba(255,255,255,0.5); text-align:center;">
-                                Quedo a tu disposición para cualquier duda o aclaración.
+                                Quedo a ${isB2B ? 'vuestra' : 'tu'} disposición para cualquier duda o aclaración.
                             </p>
                         </td>
                     </tr>
@@ -337,7 +358,9 @@ const sendProposalEmail = async ({ to, userName, pdfBuffer, tableImageBase64, su
 </body>
 </html>`;
 
-    const text = `¡Hola, ${userName}!\n\nYa hemos calculado las ayudas para tu instalación de aerotermia.\n\n🔹 Bono Energético CAE: ${summaryData.caeBonus}\n🔹 Deducciones IRPF: ${summaryData.irpfDeduction}\n\nResumen total ayudas: Hasta ${summaryData.totalAyuda}\n\nPasos a seguir:\n1. Aceptar presupuesto al instalador.\n2. Aceptar propuesta adjunta.\n\n📄 Ver propuesta online:\n${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/api/public/propuesta/${summaryData.urlId || summaryData.id}\n\nPuedes firmar directamente aquí: ${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/firma/${summaryData.urlId || summaryData.id}\n\nQuedo a tu disposición.\n\nBROKERGY · Ingeniería Energética`;
+    const text = isB2B
+        ? `¡Hola, ${userName}!\n\nAdjuntamos la propuesta para vuestro cliente ${summaryData.clienteName || ''} (Exp. ${summaryData.id}).\n\nEnlace de firma para el cliente: ${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/firma/${summaryData.urlId || summaryData.id}\n\nBROKERGY · Ingeniería Energética`
+        : `¡Hola, ${userName}!\n\nYa hemos calculado las ayudas para tu instalación de aerotermia.\n\n🔹 Bono Energético CAE: ${summaryData.caeBonus}\n🔹 Deducciones IRPF: ${summaryData.irpfDeduction}\n\nResumen total ayudas: Hasta ${summaryData.totalAyuda}\n\nPasos a seguir:\n1. Aceptar presupuesto al instalador.\n2. Aceptar propuesta adjunta.\n\n📄 Ver propuesta online:\n${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/api/public/propuesta/${summaryData.urlId || summaryData.id}\n\nPuedes firmar directamente aquí: ${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/firma/${summaryData.urlId || summaryData.id}\n\nQuedo a tu disposición.\n\nBROKERGY · Ingeniería Energética`;
 
     return sendMail({ to, subject, html, text, attachments });
 };

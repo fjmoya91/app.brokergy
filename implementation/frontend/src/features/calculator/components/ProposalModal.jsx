@@ -314,6 +314,8 @@ export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }
     const [instaladorInfo, setInstaladorInfo] = useState(null);
     const [clienteInfo, setClienteInfo] = useState(null);
     const [recipientSelections, setRecipientSelections] = useState(new Set());
+    const [emailChoice, setEmailChoice] = useState(false);
+    const [emailSelections, setEmailSelections] = useState(new Set());
 
     // Cargar datos del partner cuando el modal se abre y hay prescriptor_id
     useEffect(() => {
@@ -366,9 +368,9 @@ export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }
         axios.get(`/api/prescriptores/${instId}`)
             .then(res => {
                 const p = res.data;
-                setInstaladorInfo({ name: p.acronimo || p.razon_social || 'Instalador', phone: p.tlf || p.telefono || null });
+                setInstaladorInfo({ name: p.acronimo || p.razon_social || 'Instalador', phone: p.tlf || p.telefono || null, email: p.email || null });
             })
-            .catch(() => setInstaladorInfo({ name: 'Instalador', phone: null }));
+            .catch(() => setInstaladorInfo({ name: 'Instalador', phone: null, email: null }));
     }, [isOpen, inputs?.instalador_asociado_id]);
 
     useEffect(() => {
@@ -1350,142 +1352,113 @@ info@brokergy.es · 623 926 179`;
     const payback = result.payback;
     const showAnnualSavings = result.includeAnnualSavings && annualSavings;
 
-    const handleSendByEmail = async () => {
-        setSendingEmail(true);
-        try {
-            // Determinar el email y nombre destino
-            let toEmail = inputs.email_contacto || inputs.email || null;
-            let targetName = inputs.referenciaCliente || '';
-
-            if (inputs.cliente_id) {
-                try {
-                    const clienteRes = await axios.get(`/api/clientes/${inputs.cliente_id}`);
-                    if (!toEmail) toEmail = clienteRes.data?.email || null;
-                    // El nombre del cliente de la ficha (nombre completo sin apellidos)
-                    if (clienteRes.data?.nombre_razon_social) {
-                        targetName = clienteRes.data.nombre_razon_social;
-                    }
-                } catch (e) {
-                    console.warn('No se pudo obtener datos extra del cliente:', e.message);
-                }
-            }
-
-            if (!toEmail) {
-                setConfirmConfig({ title: 'Error', message: "❌ No hay un correo electrónico de contacto definido para este cliente. Por favor, edita los datos del cliente primero.", confirmText: 'Aceptar', onConfirm: () => setConfirmConfig(null) });
-                return;
-            }
-
-            const element = proposalRef.current;
-            if (!element) {
-                console.error("No se encontró el elemento de la propuesta.");
-                return;
-            }
-
-            const fullHtml = `
-                <!DOCTYPE html>
-                <html>
-                <head>
-                    <meta charset="UTF-8">
-                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
-                    <style>
-                        ${baseCss}
-                        body { margin: 0; padding: 0; background: #e5e7eb; display: flex; justify-content: center; align-items: flex-start; min-height: 100vh; font-family: 'Inter', sans-serif; }
-                        * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-                        .web-document-container {
-                            width: 100%;
-                            min-height: 1123px;
-                            background: white;
-                            margin: 0;
-                            box-shadow: none;
-                        }
-                        
-                        @media screen {
-                            .web-document-container {
-                                max-width: 794px; /* A4 width */
-                                margin: 40px auto;
-                                box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
-                                border-radius: 8px;
-                                overflow: hidden;
-                            }
-                            @media (max-width: 820px) {
-                                .web-document-container {
-                                    margin: 0;
-                                    border-radius: 0;
-                                    max-width: 100%;
-                                }
-                            }
-                        }
-                        
-                        @media print {
-                            body { background: white; display: block; }
-                            .web-document-container { margin: 0; box-shadow: none; max-width: 100%; width: 100%; border-radius: 0; }
-                        }
-                    </style>
-                </head>
-                <body>
-                    <div class="web-document-container">
-                        <div class="prop-wrapper-inner">
-                            ${proposalRef.current.innerHTML}
-                        </div>
-                    </div>
-                </body>
-                </html>
-            `;
-
-            // Resumen de datos para el cuerpo del mail (Redondeados a entero)
-            const summaryData = {
-                id: displayId,
-                urlId: urlId, // Usamos el ID seguro para los links
-                caeBonus: `${formatNumber(Math.round(f.caeBonus))} €`,
-                irpfDeduction: `${formatNumber(Math.round(f.irpfDeduction))} €`,
-                totalAyuda: `${formatNumber(Math.round(f.totalAyuda))} €`,
-                
-                // Nuevos campos para email dinámico
-                isReforma,
-                isOnlyReforma,
-                isBoth,
-                fAero: {
-                    caeBonus: `${formatNumber(Math.round(f.caeBonus))} €`,
-                    irpfDeduction: `${formatNumber(Math.round(f.irpfDeduction))} €`,
-                    totalAyuda: `${formatNumber(Math.round(f.totalAyuda))} €`,
-                },
-                f80: isReforma ? {
-                    caeBonus: `${formatNumber(Math.round(f80?.caeBonus || 0))} €`,
-                    irpfDeduction: `${formatNumber(Math.round(f80?.irpfDeduction || 0))} €`,
-                    totalAyuda: `${formatNumber(Math.round(f80?.totalAyuda || 0))} €`,
-                } : null,
-                htmlTable: '' // Omitir la tabla por ahora como pidió el usuario
-            };
-
-            // Enviar al backend para generar PDF con Puppeteer
-            const response = await axios.post('/api/pdf/send-proposal', {
-                html: fullHtml,
-                to: toEmail,
-                userName: targetName,
-                summaryData: summaryData
-            }, { timeout: 90000 });
-
-            if (response.data.success) {
-                // AUTOMATIZACIÓN: Cambiar estado a ENVIADA al enviar por Email
-                try {
-                    await axios.patch(`/api/oportunidades/${inputs.id_oportunidad}/estado`, { nuevo_estado: 'ENVIADA' });
-                } catch (stErr) {
-                    console.error('Error actualizando estado automático (Email):', stErr);
-                }
-
-                setConfirmConfig({ title: 'Enviado', message: `✅ Propuesta enviada correctamente a ${toEmail}`, confirmText: 'Genial', onConfirm: () => setConfirmConfig(null) });
-            } else {
-                throw new Error(response.data.message || 'Error desconocido al enviar');
-            }
-        } catch (error) {
-            console.error('Error sending email:', error);
-            const msg = error.response?.data?.message || error.message || 'Error desconocido';
-            setConfirmConfig({ title: 'Error', message: "❌ Error al enviar el correo: " + msg, confirmText: 'Aceptar', onConfirm: () => setConfirmConfig(null) });
-        } finally {
-            setSendingEmail(false);
-        }
+    const handleSendByEmail = () => {
+        setSendingEmail(false);
+        setEmailSelections(new Set());
+        setEmailChoice(true);
     };
+
+    const sendEmailToMultiple = useCallback(async (selectedModes) => {
+        setEmailChoice(false);
+        setSendingEmail(true);
+
+        // 1. Resolver destinatarios
+        setConfirmConfig({ title: 'Preparando...', message: 'Resolviendo datos de contacto...', confirmText: null, cancelText: null });
+        const recipients = [];
+        for (const mode of selectedModes) {
+            let email = null, name = '';
+            if (mode === 'CLIENTE') {
+                email = clienteInfo?.email || inputs?.email_contacto || inputs?.email || null;
+                name = clienteInfo?.name || inputs?.referenciaCliente || 'Cliente';
+                if (!email && inputs?.cliente_id) {
+                    try {
+                        const r = await axios.get(`/api/clientes/${inputs.cliente_id}`);
+                        email = r.data?.email || null;
+                        if (r.data?.nombre_razon_social) name = r.data.nombre_razon_social;
+                    } catch (e) { console.warn('[Email] No se pudo obtener email del cliente'); }
+                }
+            } else if (mode === 'PARTNER') {
+                email = partnerInfo?.email || null;
+                name = partnerInfo?.name || 'Partner';
+                if (!email && inputs?.prescriptor_id) {
+                    try {
+                        const r = await axios.get(`/api/prescriptores/${inputs.prescriptor_id}`);
+                        const uc = r.data.contacto_notificaciones_activas === true;
+                        name = uc ? (r.data.nombre_contacto || r.data.acronimo || r.data.razon_social) : (r.data.acronimo || r.data.razon_social || 'Partner');
+                        email = uc ? (r.data.email_contacto || r.data.email) : (r.data.email || null);
+                    } catch (e) { console.warn('[Email] No se pudo obtener email del partner'); }
+                }
+            } else if (mode === 'INSTALADOR') {
+                email = instaladorInfo?.email || null;
+                name = instaladorInfo?.name || 'Instalador';
+                if (!email && inputs?.instalador_asociado_id) {
+                    try {
+                        const r = await axios.get(`/api/prescriptores/${inputs.instalador_asociado_id}`);
+                        name = r.data.acronimo || r.data.razon_social || 'Instalador';
+                        email = r.data.email || null;
+                    } catch (e) { console.warn('[Email] No se pudo obtener email del instalador'); }
+                }
+            }
+            recipients.push({ email, mode, name });
+        }
+
+        // 2. Validar emails
+        const missing = recipients.filter(r => !r.email || !r.email.includes('@'));
+        if (missing.length > 0) {
+            const msgList = missing.map(r => `• ${r.name || r.mode}: sin email registrado`).join('\n');
+            setConfirmConfig({ title: 'Faltan emails', message: `❌ No se puede enviar a:\n${msgList}`, confirmText: 'Aceptar', onConfirm: () => { setConfirmConfig(null); setSendingEmail(false); } });
+            return;
+        }
+
+        // 3. Generar HTML de la propuesta (una vez)
+        const element = proposalRef.current;
+        if (!element) { setConfirmConfig({ title: 'Error', message: '❌ No se puede acceder al contenido de la propuesta.', confirmText: 'Aceptar', onConfirm: () => { setConfirmConfig(null); setSendingEmail(false); } }); return; }
+        const fullHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet"><style>${baseCss} body{margin:0;padding:0;background:#e5e7eb;display:flex;justify-content:center;align-items:flex-start;min-height:100vh;font-family:'Inter',sans-serif;}*{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}.web-document-container{width:100%;min-height:1123px;background:white;margin:0;}@media screen{.web-document-container{max-width:794px;margin:40px auto;box-shadow:0 20px 25px -5px rgba(0,0,0,.1);border-radius:8px;overflow:hidden;}}@media print{body{background:white;display:block;}.web-document-container{margin:0;max-width:100%;width:100%;border-radius:0;}}</style></head><body><div class="web-document-container"><div class="prop-wrapper-inner">${element.innerHTML}</div></div></body></html>`;
+
+        const f = result || {};
+        const fAero = f.financials || {};
+        const f80 = f.financialsRes080 || {};
+        const isReforma = !!inputs?.isReforma;
+        const isOnlyReforma = isReforma && inputs?.comparativaReforma === false;
+        const isBoth = isReforma && inputs?.comparativaReforma !== false;
+        const clienteName = clienteInfo?.name || inputs?.referenciaCliente || '';
+
+        // 4. Enviar a cada destinatario
+        const results = [];
+        for (let i = 0; i < recipients.length; i++) {
+            const { email, mode, name } = recipients[i];
+            const isB2B = mode === 'PARTNER' || mode === 'INSTALADOR';
+            setConfirmConfig({ title: `Enviando ${i + 1}/${recipients.length}...`, message: `Enviando a ${name} (${email})...`, confirmText: null, cancelText: null });
+            try {
+                const summaryData = {
+                    id: displayId, urlId,
+                    mode,
+                    clienteName: isB2B ? clienteName : undefined,
+                    isReforma, isOnlyReforma, isBoth,
+                    caeBonus: `${formatNumber(Math.round(fAero.caeBonus || 0))} €`,
+                    irpfDeduction: `${formatNumber(Math.round(fAero.irpfDeduction || 0))} €`,
+                    totalAyuda: `${formatNumber(Math.round(fAero.totalAyuda || 0))} €`,
+                    fAero: { caeBonus: `${formatNumber(Math.round(fAero.caeBonus || 0))} €`, irpfDeduction: `${formatNumber(Math.round(fAero.irpfDeduction || 0))} €`, totalAyuda: `${formatNumber(Math.round(fAero.totalAyuda || 0))} €` },
+                    f80: isReforma ? { caeBonus: `${formatNumber(Math.round(f80.caeBonus || 0))} €`, irpfDeduction: `${formatNumber(Math.round(f80.irpfDeduction || 0))} €`, totalAyuda: `${formatNumber(Math.round(f80.totalAyuda || 0))} €` } : null,
+                    htmlTable: ''
+                };
+                const r = await axios.post('/api/pdf/send-proposal', { html: fullHtml, to: email, userName: name, summaryData }, { timeout: 90000 });
+                results.push({ name, ok: r.data?.success === true });
+            } catch (e) {
+                results.push({ name, ok: false, error: e.response?.data?.message || e.message });
+            }
+        }
+
+        // 5. Marcar como ENVIADA si cliente recibió con éxito
+        if (selectedModes.includes('CLIENTE') && results.some(r => r.ok)) {
+            try { await axios.patch(`/api/oportunidades/${inputs.id_oportunidad}/estado`, { nuevo_estado: 'ENVIADA' }); } catch (e) { console.warn('[Email] No se pudo actualizar estado'); }
+        }
+
+        const allOk = results.every(r => r.ok);
+        const summary = results.map(r => `${r.ok ? '✅' : '❌'} ${r.name}${!r.ok && r.error ? ': ' + r.error : ''}`).join('\n');
+        setConfirmConfig({ title: allOk ? '¡Correos enviados!' : 'Resultado del envío', message: summary, confirmText: 'Aceptar', onConfirm: () => setConfirmConfig(null) });
+        setSendingEmail(false);
+    }, [inputs, result, displayId, urlId, proposalRef, clienteInfo, partnerInfo, instaladorInfo]);
 
 
 
@@ -2171,6 +2144,73 @@ info@brokergy.es · 623 926 179`;
                 );
             })()}
             
+            {/* POPUP DE SELECCIÓN DE DESTINATARIOS EMAIL (multi-select) */}
+            {emailChoice && (() => {
+                const toggleMode = (mode) => {
+                    setEmailSelections(prev => {
+                        const next = new Set(prev);
+                        next.has(mode) ? next.delete(mode) : next.add(mode);
+                        return next;
+                    });
+                };
+                const options = [
+                    { mode: 'CLIENTE', label: 'CLIENTE', sublabel: clienteInfo?.name || inputs?.referenciaCliente || null, contact: clienteInfo?.email || null, color: 'bg-primary-600/20 border-primary-500/40 hover:border-primary-500', checkColor: 'bg-primary-500' },
+                    ...(partnerInfo ? [{ mode: 'PARTNER', label: 'DISTRIBUIDOR', sublabel: partnerInfo.name, contact: partnerInfo.email, color: 'bg-blue-500/10 border-blue-500/30 hover:border-blue-500', checkColor: 'bg-blue-500' }] : []),
+                    ...(instaladorInfo ? [{ mode: 'INSTALADOR', label: 'INSTALADOR', sublabel: instaladorInfo.name, contact: instaladorInfo.email, color: 'bg-amber-500/10 border-amber-500/30 hover:border-amber-500', checkColor: 'bg-amber-500' }] : []),
+                ];
+                const nSelected = emailSelections.size;
+                return (
+                    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in" onClick={(e) => e.stopPropagation()}>
+                        <div className="glass-card max-w-sm w-full p-7 border border-white/20 shadow-2xl bg-[#1c1e26] animate-scale-in rounded-[20px]">
+                            <div className="flex items-center gap-3 mb-5">
+                                <div className="w-10 h-10 rounded-full bg-blue-500/20 flex items-center justify-center text-blue-400 border border-blue-500/30 shrink-0">
+                                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
+                                </div>
+                                <div>
+                                    <h3 className="text-lg font-bold text-white leading-tight">Enviar Propuesta por Email</h3>
+                                    <p className="text-white/50 text-xs">Selecciona uno o varios destinatarios</p>
+                                </div>
+                            </div>
+
+                            <div className="flex flex-col gap-2.5 mb-5">
+                                {options.map(opt => {
+                                    const checked = emailSelections.has(opt.mode);
+                                    return (
+                                        <button
+                                            key={opt.mode}
+                                            onClick={() => toggleMode(opt.mode)}
+                                            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl border transition-all text-left ${opt.color} ${checked ? 'ring-1 ring-white/20' : ''}`}
+                                        >
+                                            <div className={`w-5 h-5 rounded flex items-center justify-center border-2 shrink-0 transition-all ${checked ? `${opt.checkColor} border-transparent` : 'border-white/30 bg-transparent'}`}>
+                                                {checked && <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
+                                            </div>
+                                            <div className="flex-1 min-w-0">
+                                                <div className="text-xs font-black uppercase tracking-widest text-white/50">{opt.label}</div>
+                                                {opt.sublabel && <div className="text-sm font-bold text-white truncate">{opt.sublabel}</div>}
+                                                {opt.contact
+                                                    ? <div className="text-[11px] text-white/40 truncate">{opt.contact}</div>
+                                                    : <div className="text-[11px] text-red-400/80">Sin email</div>}
+                                            </div>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+
+                            <button
+                                onClick={() => sendEmailToMultiple(Array.from(emailSelections))}
+                                disabled={nSelected === 0}
+                                className="w-full py-3 rounded-xl font-black text-sm uppercase tracking-wider transition-all mb-2 bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-30 disabled:cursor-not-allowed shadow-lg shadow-blue-500/20"
+                            >
+                                {nSelected === 0 ? 'Selecciona al menos uno' : `Enviar a ${nSelected} destinatario${nSelected > 1 ? 's' : ''}`}
+                            </button>
+                            <button onClick={() => setEmailChoice(false)} className="w-full py-2 text-white/40 hover:text-white text-xs font-semibold tracking-wide transition-colors">
+                                CANCELAR
+                            </button>
+                        </div>
+                    </div>
+                );
+            })()}
+
             {/* Modal de Gestión de Anexos */}
             {isAnexosOpen && <AnexosModal />}
         </div>
