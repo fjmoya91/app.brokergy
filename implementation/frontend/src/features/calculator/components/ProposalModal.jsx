@@ -311,6 +311,8 @@ export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }
 
     // Estado para cachear datos del partner al abrir el modal
     const [partnerInfo, setPartnerInfo] = useState(null);
+    const [instaladorInfo, setInstaladorInfo] = useState(null);
+    const [recipientSelections, setRecipientSelections] = useState(new Set());
 
     // Cargar datos del partner cuando el modal se abre y hay prescriptor_id
     useEffect(() => {
@@ -355,6 +357,18 @@ export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }
                     .catch(() => setPartnerInfo({ name: 'Partner', phone: null }));
             });
     }, [isOpen, inputs?.prescriptor_id]);
+
+    useEffect(() => {
+        if (!isOpen) { setInstaladorInfo(null); return; }
+        const instId = inputs?.instalador_asociado_id;
+        if (!instId) { setInstaladorInfo(null); return; }
+        axios.get(`/api/prescriptores/${instId}`)
+            .then(res => {
+                const p = res.data;
+                setInstaladorInfo({ name: p.acronimo || p.razon_social || 'Instalador', phone: p.tlf || p.telefono || null });
+            })
+            .catch(() => setInstaladorInfo({ name: 'Instalador', phone: null }));
+    }, [isOpen, inputs?.instalador_asociado_id]);
 
     // Ajustar la escala de la vista previa para que quepa en el ancho disponible
     useEffect(() => {
@@ -1047,93 +1061,172 @@ info@brokergy.es · 623 926 179`;
         }
     }, [inputs, result, displayId, urlId, proposalRef]);
 
-    const handleSendByWhatsapp = () => {
-        // Siempre reseteamos el estado de sending por si quedó atascado
+    const buildCaption = useCallback((mode, targetName) => {
+        const f = result || {};
+        const fAero = f.financials || {};
+        const fReforma = f.financialsRes080 || {};
+        const isReforma = !!inputs?.isReforma;
+        const isOnlyReforma = isReforma && inputs?.comparativaReforma === false;
+        const isBoth = isReforma && inputs?.comparativaReforma !== false;
+
+        if (mode === 'PARTNER' || mode === 'INSTALADOR') {
+            const clientNameForPartner = inputs?.referenciaCliente || 'cliente';
+            const fName = (targetName || (mode === 'INSTALADOR' ? 'Instalador' : 'Partner')).split(/\s+/)[0];
+            if (isOnlyReforma) {
+                return `¡Hola ${fName}! 👋\n\nTe adjunto la propuesta de ayudas diseñada para vuestro cliente ${clientNameForPartner} (Exp. ${displayId}), donde detallamos los ahorros y subvenciones que puede obtener por Reforma Energética:\n\n🔹 *A modo resumen:*\n\n*Bono Energético:* Gracias al ahorro energético que se produciría en la vivienda tras la reforma, el cliente podría obtener una ayuda de *${formatNumber(Math.round(fReforma.caeBonus || 0))} €* gestionada a través de BROKERGY.\n\nAdemás, si el cliente cumple los requisitos para acogerse a las deducciones en el IRPF por rehabilitación, el importe estimado de estas sería de *${formatNumber(Math.round(fReforma.irpfDeduction || 0))} €*. (Nosotros nos encargamos de toda la justificación técnica necesaria para que pueda solicitarlas con seguridad).\n\n💡 *Resumen total de las ayudas:* El cliente podría recuperar hasta *${formatNumber(Math.round(fReforma.totalAyuda || 0))} €* de su inversión en la reforma energética.\n\nPara avanzar con el proceso, los pasos serían:\n\n• Aceptar el presupuesto de instalación.\n• Aceptar la propuesta técnica adjunta en PDF. Es vital emitir y registrar el Certificado Energético Inicial antes de que pague ninguna factura de la obra para no perder el derecho a las deducciones fiscales.\n\nEl cliente puede firmar la aceptación pulsando en el botón *"✍️ FIRMAR Y ACEPTAR PROPUESTA"* del PDF o directamente aquí:\n🔗 ${APP_URL}/firma/${urlId}\n\nQuedo a vuestra disposición para cualquier duda.\n\nUn saludo,\nFran Moya · BROKERGY`;
+            } else if (isBoth) {
+                return `¡Hola ${fName}! 👋\n\nTe adjunto la simulación de las ayudas para el proyecto de ${clientNameForPartner} (Exp. ${displayId}), presentando las siguientes opciones para su caso:\n\n🔹 *Opción 1: Instalando solo aerotermia*\nEl cliente podría obtener una ayuda directa de *${formatNumber(Math.round(fAero.caeBonus || 0))} €* gracias al Bono Energético BROKERGY. Si sumamos las deducciones del IRPF (*${formatNumber(Math.round(fAero.irpfDeduction || 0))} €*), podría alcanzar un total de hasta *${formatNumber(Math.round(fAero.totalAyuda || 0))} €*.\n\n🔹 *Opción 2: Aerotermia junto con mejora de la envolvente*\nEn este caso, la ayuda del Bono Energético BROKERGY asciende a *${formatNumber(Math.round(fReforma.caeBonus || 0))} €*. Sumando las deducciones del IRPF (*${formatNumber(Math.round(fReforma.irpfDeduction || 0))} €*), el total para el cliente podría llegar hasta los *${formatNumber(Math.round(fReforma.totalAyuda || 0))} €*.\n\nTe recordamos que para que el cliente pueda acogerse a las deducciones del IRPF debe contar con retenciones aplicables. Por nuestra parte, dejaremos toda la parte técnica preparada para que las pueda solicitar fácilmente.\n\nPara avanzar con el proceso, los pasos serían:\n\n• Aceptar vuestro presupuesto de instalación.\n• Aceptar la propuesta técnica que adjuntamos en PDF. Así podremos presentar el CEE Inicial antes de que se emita ninguna factura, evitando problemas en el trámite.\n\nEl cliente puede firmar la aceptación pulsando en el botón *"✍️ FIRMAR Y ACEPTAR PROPUESTA"* del PDF o bien a través de este enlace:\n🔗 ${APP_URL}/firma/${urlId}\n\nQuedo a vuestra disposición para cualquier duda o aclaración.\n\nUn saludo,\nFran Moya · BROKERGY`;
+            } else {
+                return `¡Hola ${fName}! 👋\n\nTe adjunto la simulación de las ayudas para el expediente de ${clientNameForPartner} (Exp. ${displayId}), presentando las siguientes opciones para su caso:\n\n🔹 *A modo resumen:*\n\n*Opción 1:* Instalando el sistema de aerotermia, el cliente podría obtener una ayuda de *${formatNumber(Math.round(fAero.caeBonus || 0))} €* gracias al Bono Energético BROKERGY.\n\nAdemás, si el cliente puede acogerse a las deducciones en el IRPF por contar con retenciones aplicables y siempre que estén vigentes, el importe estimado de estas sería de *${formatNumber(Math.round(fAero.irpfDeduction || 0))} €*. (Nosotros dejaremos toda la parte técnica preparada para que las pueda solicitar).\n\n💡 *Resumen total de las ayudas:* El cliente podría obtener hasta *${formatNumber(Math.round(fAero.totalAyuda || 0))} €* combinando ambas opciones.\n\nPara avanzar, los siguientes pasos serían:\n\n• Aceptar el presupuesto del instalador.\n• Aceptar la propuesta que adjuntamos en PDF para que podamos planificar el trabajo y presentar cuanto antes el Certificado de Eficiencia Energética Inicial antes de que le emitan alguna factura, garantizando que el trámite siga su curso sin retrasos.\n\nEl cliente puede aceptar la propuesta pulsando sobre el botón *"✍️ FIRMAR Y ACEPTAR PROPUESTA"* en el PDF o bien accediendo a:\n🔗 ${APP_URL}/firma/${urlId}\n\nQuedo a vuestra disposición para cualquier duda o aclaración.\n\nUn saludo,\nFran Moya · BROKERGY`;
+            }
+        } else {
+            // CLIENTE
+            const firstName = (targetName || '').split(/\s+/)[0] || '';
+            const saludo = `¡Hola ${firstName || 'cliente'}!`;
+            if (isOnlyReforma) {
+                return `${saludo}\n\nTal y como acordamos, te adjunto la simulación de las ayudas para tu expediente de Reforma Energética (Nº ${displayId}), donde detallamos los ahorros y subvenciones que puedes obtener:\n\n🔹 *A modo resumen:*\n\n*Bono Energético:* Gracias al ahorro energético que se produciría en tu vivienda tras la reforma, podrías obtener una ayuda de *${formatNumber(Math.round(fReforma.caeBonus || 0))} €* gestionada a través de BROKERGY.\n\nAdemás, si cumples los requisitos para acogerte a las deducciones en el IRPF por rehabilitación, el importe estimado de estas sería de *${formatNumber(Math.round(fReforma.irpfDeduction || 0))} €*. (Nosotros nos encargamos de toda la justificación técnica necesaria para que puedas solicitarlas con seguridad).\n\n💡 *Resumen total de las ayudas:* Podrías recuperar hasta *${formatNumber(Math.round(fReforma.totalAyuda || 0))} €* de tu inversión en la reforma energética.\n\nSiguientes pasos:\n\n• Revisar y aceptar la propuesta técnica adjunta en PDF.\n• Es vital emitir y registrar el Certificado Energético Inicial antes de que pagues ninguna factura de la obra para no perder el derecho a las deducciones fiscales.\n\nPuedes firmar la aceptación pulsando en el botón del PDF *"✍️ FIRMAR Y ACEPTAR PROPUESTA"* o directamente aquí: ${APP_URL}/firma/${urlId}\n\nQuedo a tu disposición para cualquier duda.\n\nUn saludo, Fran Moya\n\nBROKERGY — Ingeniería Energética`;
+            } else if (isBoth) {
+                const bonoAero = Math.round(fAero.caeBonus || 0);
+                const irpfAero = Math.round(fAero.irpfDeduction || 0);
+                const totalAero = Math.round(fAero.totalAyuda || 0);
+                const bonoReforma = Math.round(fReforma.caeBonus || 0);
+                const irpfReforma = Math.round(fReforma.irpfDeduction || 0);
+                const totalReforma = Math.round(fReforma.totalAyuda || 0);
+                return `${saludo}\n\nTal y como acordamos, te adjunto la simulación de las ayudas para tu proyecto, presentando las siguientes opciones:\n\n🔹 *Opción 1: Instalando solo aerotermia*\nPodrías obtener una ayuda directa de *${formatNumber(bonoAero)} €* gracias al Bono Energético BROKERGY. Si sumamos las deducciones del IRPF (*${formatNumber(irpfAero)} €*), podrías alcanzar un total de hasta *${formatNumber(totalAero)} €*.\n\n🔹 *Opción 2: Aerotermia junto con mejora de la envolvente (cambio de ventanas y/o aislamiento en muros o cubierta)*\nEn este caso, la ayuda del Bono Energético BROKERGY asciende a *${formatNumber(bonoReforma)} €*. Sumando las deducciones del IRPF (*${formatNumber(irpfReforma)} €*), el total podría llegar hasta los *${formatNumber(totalReforma)} €*.\n\nTe recordamos que para acogerte a las deducciones del IRPF debes contar con retenciones aplicables y la normativa debe seguir vigente. Por nuestra parte, dejaremos toda la parte técnica preparada para que las puedas solicitar fácilmente.\n\nPara avanzar con el proceso, los pasos serían:\n\n• Aceptar el presupuesto del instalador.\n• Aceptar la propuesta que te adjuntamos en PDF. Así podremos planificar el trabajo y presentar el Certificado de Eficiencia Energética Inicial antes de que os emitan alguna factura, evitando retrasos en el trámite.\n\nPuedes aceptar el presupuesto pulsando sobre el botón *"✍️ FIRMAR Y ACEPTAR PROPUESTA"* en el PDF adjunto, o bien accediendo directamente desde aquí:\n🔗 ${APP_URL}/firma/${urlId}\n\nQuedo a tu disposición para cualquier duda o aclaración.\n\nUn saludo,\n\nFran Moya\nBROKERGY | Ingeniería Energética\nhttps://brokergy.es/`;
+            } else {
+                return `${saludo}\n\nTal y como acordamos, te adjunto la simulación de las ayudas para tu expediente (Nº ${displayId}), presentando las siguientes opciones para tu caso:\n\n🔹 *A modo resumen:*\n\n*Opción 1:* Instalando el sistema de aerotermia, podrías obtener una ayuda de *${formatNumber(Math.round(fAero.caeBonus || 0))} €* gracias al Bono Energético BROKERGY.\n\nAdemás, si en tu caso puedes acogerte a las deducciones en el IRPF por contar con retenciones aplicables y siempre y cuando estén vigentes, el importe estimado de estas sería de *${formatNumber(Math.round(fAero.irpfDeduction || 0))} €*. (Nosotros dejaremos toda la parte técnica preparada para que las puedas solicitar).\n\n💡 *Resumen total de las ayudas:* Podrías obtener hasta *${formatNumber(Math.round(fAero.totalAyuda || 0))} €* combinando ambas opciones.\n\nEn caso de conformidad, los siguientes pasos serían:\n\n• Aceptar el presupuesto al instalador (si no lo has aceptado ya)\n• Aceptar la propuesta que te adjuntamos en PDF para que podamos planificar el trabajo y presentar cuanto antes el Certificado de Eficiencia Energética Inicial antes de que os emitan alguna factura, para que el trámite pueda seguir su curso de manera ágil y sin retrasos.\n\nEl presupuesto lo puedes aceptar pulsando sobre el botón del PDF *"✍️ FIRMAR Y ACEPTAR PROPUESTA"* o bien directamente accediendo a ${APP_URL}/firma/${urlId}\n\nQuedo a tu disposición para cualquier duda o aclaración.\n\nUn saludo, Fran Moya\n\nBROKERGY — Especialistas en Eficiencia Energética\n\n\ninfo@brokergy.es · 623 926 179`;
+            }
+        }
+    }, [inputs, result, displayId, urlId]);
+
+    const sendToMultiple = useCallback(async (selectedModes) => {
+        setRecipientChoice(false);
+        setSendingWhatsapp(true);
+
+        // 1. Resolver datos de cada destinatario
+        setConfirmConfig({ title: 'Preparando...', message: 'Resolviendo datos de contacto...', confirmText: null, cancelText: null });
+        const recipients = [];
+        for (const mode of selectedModes) {
+            let phone = null, name = '';
+            if (mode === 'CLIENTE') {
+                phone = inputs?.tlf_contacto || inputs?.tlf || inputs?.telefono || null;
+                name = inputs?.referenciaCliente || 'Cliente';
+                if (!phone && inputs?.cliente_id) {
+                    try {
+                        const r = await axios.get(`/api/clientes/${inputs.cliente_id}`);
+                        phone = r.data?.tlf || r.data?.telefono || null;
+                        if (r.data?.nombre_razon_social) name = r.data.nombre_razon_social;
+                    } catch (e) { console.warn('[WA] No se pudo obtener teléfono del cliente'); }
+                }
+            } else if (mode === 'PARTNER') {
+                if (partnerInfo) {
+                    name = partnerInfo.name; phone = partnerInfo.phone;
+                } else {
+                    const pid = inputs?.prescriptor_id;
+                    if (pid) {
+                        try {
+                            const r = await axios.get(`/api/prescriptores/${pid}`);
+                            const p = r.data;
+                            const uc = p.contacto_notificaciones_activas === true;
+                            name = uc ? (p.nombre_contacto || p.acronimo || p.razon_social) : (p.acronimo || p.razon_social || 'Partner');
+                            phone = uc ? (p.tlf_contacto || p.tlf) : (p.tlf || p.telefono || null);
+                        } catch (e) { console.warn('[WA] No se pudo obtener teléfono del partner'); }
+                    }
+                }
+            } else if (mode === 'INSTALADOR') {
+                if (instaladorInfo) {
+                    name = instaladorInfo.name; phone = instaladorInfo.phone;
+                } else {
+                    const iid = inputs?.instalador_asociado_id;
+                    if (iid) {
+                        try {
+                            const r = await axios.get(`/api/prescriptores/${iid}`);
+                            const p = r.data;
+                            name = p.acronimo || p.razon_social || 'Instalador';
+                            phone = p.tlf || p.telefono || null;
+                        } catch (e) { console.warn('[WA] No se pudo obtener teléfono del instalador'); }
+                    }
+                }
+            }
+            recipients.push({ phone, mode, name });
+        }
+
+        // 2. Validar teléfonos
+        const missing = recipients.filter(r => !r.phone || String(r.phone).replace(/\D/g, '').length < 9);
+        if (missing.length > 0) {
+            const msgList = missing.map(r => `• ${r.name || r.mode}: sin teléfono registrado`).join('\n');
+            setConfirmConfig({ title: 'Faltan teléfonos', message: `❌ No se puede enviar a:\n${msgList}`, confirmText: 'Aceptar', onConfirm: () => { setConfirmConfig(null); setSendingWhatsapp(false); } });
+            return;
+        }
+
+        // 3. Verificar estado de WhatsApp
+        try {
+            const st = await axios.get('/api/whatsapp/status');
+            if (!st.data?.ready) {
+                setConfirmConfig({ title: 'WhatsApp desconectado', message: `❌ WhatsApp no está conectado (estado: ${st.data?.state || 'desconocido'}).`, confirmText: 'Cerrar', onConfirm: () => { setConfirmConfig(null); setSendingWhatsapp(false); } });
+                return;
+            }
+        } catch (e) {
+            setConfirmConfig({ title: 'Servicio no disponible', message: '❌ No se puede contactar con el servicio de WhatsApp.', confirmText: 'Cerrar', onConfirm: () => { setConfirmConfig(null); setSendingWhatsapp(false); } });
+            return;
+        }
+
+        // 4. Generar PDF una sola vez
+        setConfirmConfig({ title: 'Generando PDF...', message: 'Preparando la propuesta para enviar...', confirmText: null, cancelText: null });
+        let pdfBase64;
+        try {
+            let retries = 0;
+            while (!proposalRef.current && retries < 10) { await new Promise(r => setTimeout(r, 200)); retries++; }
+            const el = proposalRef.current;
+            if (!el) throw new Error('No se puede acceder al contenido de la propuesta.');
+            const fullHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet"><style>${baseCss} body{margin:0;padding:0;background:white}*{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}</style></head><body><div class="prop-wrapper-inner">${el.innerHTML}</div></body></html>`;
+            const r = await axios.post('/api/pdf/generate', { html: fullHtml }, { timeout: 90000 });
+            pdfBase64 = r.data?.pdf;
+            if (!pdfBase64) throw new Error(r.data?.message || 'No se pudo generar el PDF');
+        } catch (e) {
+            setConfirmConfig({ title: 'Error al generar PDF', message: '❌ ' + e.message, confirmText: 'Aceptar', onConfirm: () => { setConfirmConfig(null); setSendingWhatsapp(false); } });
+            return;
+        }
+
+        const baseFileName = inputs?.id_oportunidad || inputs?.rc || 'Propuesta';
+        const filename = `Propuesta_Brokergy_${baseFileName.toString().replace(/[^a-zA-Z0-9_\-]/g, '_')}.pdf`;
+
+        // 5. Enviar a cada destinatario con su mensaje personalizado
+        const results = [];
+        for (let i = 0; i < recipients.length; i++) {
+            const { phone, mode, name } = recipients[i];
+            const toPhone = String(phone).replace(/[^0-9]/g, '');
+            const caption = buildCaption(mode, name);
+            setConfirmConfig({ title: `Enviando ${i + 1}/${recipients.length}...`, message: `Entregando a ${name} (${toPhone})...`, confirmText: null, cancelText: null });
+            try {
+                const r = await axios.post('/api/whatsapp/send-media', { phone: toPhone, caption, media: { base64: pdfBase64, filename, mimetype: 'application/pdf' }, asDocument: true });
+                results.push({ name, ok: r.data?.ok === true });
+            } catch (e) {
+                results.push({ name, ok: false, error: e.response?.data?.error || e.message });
+            }
+        }
+
+        // 6. Marcar como ENVIADA si se envió al cliente con éxito
+        if (selectedModes.includes('CLIENTE') && results.some(r => r.ok)) {
+            try {
+                await axios.patch(`/api/oportunidades/${inputs.id_oportunidad}/estado`, { nuevo_estado: 'ENVIADA' });
+            } catch (e) { console.warn('[WA] No se pudo actualizar estado:', e.message); }
+        }
+
+        // 7. Mostrar resultado final
+        const allOk = results.every(r => r.ok);
+        const summary = results.map(r => `${r.ok ? '✅' : '❌'} ${r.name}${!r.ok && r.error ? ': ' + r.error : ''}`).join('\n');
+        setConfirmConfig({ title: allOk ? '¡Propuesta enviada!' : 'Resultado del envío', message: summary, confirmText: 'Aceptar', onConfirm: () => setConfirmConfig(null) });
         setSendingWhatsapp(false);
+    }, [buildCaption, inputs, proposalRef, partnerInfo, instaladorInfo]);
+
+    const handleSendByWhatsapp = () => {
+        setSendingWhatsapp(false);
+        setRecipientSelections(new Set());
         setRecipientChoice(true);
     };
 
-    const confirmRecipientChoice = useCallback(async (mode) => {
-        setRecipientChoice(false);
-        setSendingWhatsapp(true);
-        try {
-            let toPhone = null;
-            let targetName = '';
-
-            if (mode === 'CLIENTE') {
-                toPhone = inputs?.tlf_contacto || inputs?.tlf || inputs?.telefono || null;
-                targetName = inputs?.referenciaCliente || '';
-                if (inputs?.cliente_id) {
-                    try {
-                        const clienteRes = await axios.get(`/api/clientes/${inputs.cliente_id}`);
-                        if (!toPhone) toPhone = clienteRes.data?.tlf || clienteRes.data?.telefono || null;
-                        if (clienteRes.data?.nombre_razon_social) targetName = clienteRes.data.nombre_razon_social;
-                    } catch (e) {
-                        console.warn('No se pudo obtener datos extra del cliente:', e.message);
-                    }
-                }
-            } else if (mode === 'PARTNER') {
-                // Usamos los datos ya cargados en el estado local (partnerInfo)
-                if (partnerInfo) {
-                    targetName = partnerInfo.name;
-                    toPhone = partnerInfo.phone;
-                    console.log('[PARTNER-DEBUG] Usando partnerInfo cacheado:', targetName, toPhone);
-                } else {
-                    // partnerInfo todavía no cargó, intentar en tiempo real
-                    const partnerId = inputs?.prescriptor_id;
-                    if (partnerId) {
-                        try {
-                            const prescRes = await axios.get(`/api/prescriptores/${partnerId}`);
-                            const p = prescRes.data;
-                            const useContact = p.contacto_notificaciones_activas === true;
-                            targetName = useContact ? (p.nombre_contacto || p.acronimo || p.razon_social) : (p.acronimo || p.razon_social || 'Partner');
-                            toPhone = useContact ? (p.tlf_contacto || p.tlf) : (p.tlf || p.telefono || (Array.isArray(p.usuarios) ? p.usuarios[0]?.tlf : p.usuarios?.tlf) || null);
-                            console.log('[PARTNER-DEBUG] Cargado en tiempo real:', targetName, toPhone);
-                        } catch (e) {
-                            console.warn('[PARTNER-DEBUG] Fallo en tiempo real:', e.message);
-                        }
-                    }
-                }
-            }
-
-            if (!toPhone) {
-                const capturedMode = mode;
-                const capturedName = targetName;
-                setSendingWhatsapp(false);
-                setConfirmConfig({
-                    title: `${capturedMode === 'CLIENTE' ? 'Cliente' : 'Partner'} sin teléfono`,
-                    message: `❌ Este ${capturedMode === 'CLIENTE' ? 'cliente' : 'partner'} no tiene un teléfono registrado.\n\n¿Quieres que te envíe la propuesta a tu propio WhatsApp (695615330) para revisarla?`,
-                    confirmText: 'Sí, enviármela a mí',
-                    cancelText: 'Cancelar',
-                    onConfirm: () => {
-                        setConfirmConfig(null);
-                        proceedWithSend('695615330', capturedMode, capturedName);
-                    },
-                    onCancel: () => {
-                        setConfirmConfig(null);
-                        setSendingWhatsapp(false);
-                    }
-                });
-                return;
-            }
-
-            proceedWithSend(toPhone, mode, targetName);
-
-        } catch (error) {
-            console.error('[WA] Error in confirmRecipientChoice:', error);
-            setConfirmConfig({
-                title: 'Error de proceso',
-                message: 'No se ha podido iniciar el envío: ' + (error.message || 'Error desconocido'),
-                confirmText: 'Aceptar',
-                onConfirm: () => setConfirmConfig(null)
-            });
-            setSendingWhatsapp(false);
-        }
-    }, [inputs, proceedWithSend, partnerInfo]);
-
     if (!isOpen || !result || !result.financials) return null;
-
-    const partnerNameString = partnerInfo?.name || 'Partner asignado';
 
     const handleDownloadPdf = async () => {
         setGenerating(true);
@@ -1989,43 +2082,73 @@ info@brokergy.es · 623 926 179`;
                 onCancel={confirmConfig?.onCancel || (() => setConfirmConfig(null))}
             />
 
-            {/* POPUP DE SELECCIÓN DE DESTINATARIO */}
-            {recipientChoice && (
-                <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in" onClick={(e) => e.stopPropagation()}>
-                    <div className="glass-card max-w-sm w-full p-8 border border-white/20 shadow-2xl bg-[#1c1e26] animate-scale-in text-center rounded-[20px]">
-                        <div className="w-14 h-14 rounded-full bg-[#25D366]/20 flex items-center justify-center text-[#25D366] mx-auto mb-4 border border-[#25D366]/30">
-                            <svg className="w-8 h-8" fill="currentColor" viewBox="0 0 24 24">
-                                <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51a12.8 12.8 0 0 0-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 0 1-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 0 1-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 0 1 2.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0 0 12.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 0 0 5.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 0 0-3.48-8.413z" />
-                            </svg>
-                        </div>
-                        <h3 className="text-2xl font-bold text-white mb-2">Enviar Propuesta</h3>
-                        <p className="text-white/70 text-[15px] mb-8 leading-relaxed px-4">Selecciona a quién quieres enviarle el documento y la simulación por WhatsApp:</p>
-                        
-                        <div className="flex flex-col gap-4">
-                            <button 
-                                onClick={() => confirmRecipientChoice('CLIENTE')} 
-                                className="w-full flex items-center justify-center gap-2 px-4 py-3.5 rounded-xl text-lg font-bold text-white bg-primary-600 hover:bg-primary-500 transition-all shadow-lg shadow-primary-500/20"
+            {/* POPUP DE SELECCIÓN DE DESTINATARIOS (multi-select) */}
+            {recipientChoice && (() => {
+                const toggleMode = (mode) => {
+                    setRecipientSelections(prev => {
+                        const next = new Set(prev);
+                        next.has(mode) ? next.delete(mode) : next.add(mode);
+                        return next;
+                    });
+                };
+                const clientePhone = inputs?.tlf_contacto || inputs?.tlf || inputs?.telefono || null;
+                const options = [
+                    { mode: 'CLIENTE', label: 'CLIENTE', sublabel: inputs?.referenciaCliente || null, phone: clientePhone, color: 'bg-primary-600/20 border-primary-500/40 hover:border-primary-500', checkColor: 'bg-primary-500' },
+                    ...(partnerInfo ? [{ mode: 'PARTNER', label: 'DISTRIBUIDOR', sublabel: partnerInfo.name, phone: partnerInfo.phone, color: 'bg-[#25D366]/10 border-[#25D366]/30 hover:border-[#25D366]', checkColor: 'bg-[#25D366]' }] : []),
+                    ...(instaladorInfo ? [{ mode: 'INSTALADOR', label: 'INSTALADOR', sublabel: instaladorInfo.name, phone: instaladorInfo.phone, color: 'bg-amber-500/10 border-amber-500/30 hover:border-amber-500', checkColor: 'bg-amber-500' }] : []),
+                ];
+                const nSelected = recipientSelections.size;
+                return (
+                    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in" onClick={(e) => e.stopPropagation()}>
+                        <div className="glass-card max-w-sm w-full p-7 border border-white/20 shadow-2xl bg-[#1c1e26] animate-scale-in rounded-[20px]">
+                            <div className="flex items-center gap-3 mb-5">
+                                <div className="w-10 h-10 rounded-full bg-[#25D366]/20 flex items-center justify-center text-[#25D366] border border-[#25D366]/30 shrink-0">
+                                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51a12.8 12.8 0 0 0-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 0 1-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 0 1-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 0 1 2.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0 0 12.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 0 0 5.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 0 0-3.48-8.413z" /></svg>
+                                </div>
+                                <div>
+                                    <h3 className="text-lg font-bold text-white leading-tight">Enviar Propuesta por WhatsApp</h3>
+                                    <p className="text-white/50 text-xs">Selecciona uno o varios destinatarios</p>
+                                </div>
+                            </div>
+
+                            <div className="flex flex-col gap-2.5 mb-5">
+                                {options.map(opt => {
+                                    const checked = recipientSelections.has(opt.mode);
+                                    return (
+                                        <button
+                                            key={opt.mode}
+                                            onClick={() => toggleMode(opt.mode)}
+                                            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl border transition-all text-left ${opt.color} ${checked ? 'ring-1 ring-white/20' : ''}`}
+                                        >
+                                            <div className={`w-5 h-5 rounded flex items-center justify-center border-2 shrink-0 transition-all ${checked ? `${opt.checkColor} border-transparent` : 'border-white/30 bg-transparent'}`}>
+                                                {checked && <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
+                                            </div>
+                                            <div className="flex-1 min-w-0">
+                                                <div className="text-xs font-black uppercase tracking-widest text-white/50">{opt.label}</div>
+                                                {opt.sublabel && <div className="text-sm font-bold text-white truncate">{opt.sublabel}</div>}
+                                                {opt.phone
+                                                    ? <div className="text-[11px] text-white/40 font-mono">{opt.phone}</div>
+                                                    : <div className="text-[11px] text-red-400/80">Sin teléfono</div>}
+                                            </div>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+
+                            <button
+                                onClick={() => sendToMultiple(Array.from(recipientSelections))}
+                                disabled={nSelected === 0}
+                                className="w-full py-3 rounded-xl font-black text-sm uppercase tracking-wider transition-all mb-2 bg-[#25D366] hover:bg-[#20bd5a] text-slate-900 disabled:opacity-30 disabled:cursor-not-allowed shadow-lg shadow-[#25D366]/20"
                             >
-                                Enviar al CLIENTE
+                                {nSelected === 0 ? 'Selecciona al menos uno' : `Enviar a ${nSelected} destinatario${nSelected > 1 ? 's' : ''}`}
                             </button>
-                            <button 
-                                onClick={() => confirmRecipientChoice('PARTNER')} 
-                                className="w-full flex justify-center gap-1 px-4 py-3.5 rounded-xl font-bold text-white bg-[#25D366] hover:bg-[#20bd5a] transition-all shadow-lg shadow-[#25D366]/20 flex-col items-center leading-none"
-                            >
-                                <span className="text-lg">Enviar al PARTNER</span>
-                                <span className="text-[11px] uppercase tracking-wider opacity-90 font-semibold mt-1">({partnerNameString})</span>
-                            </button>
-                            
-                            <button 
-                                onClick={() => setRecipientChoice(false)} 
-                                className="mt-3 text-white/50 hover:text-white transition-colors text-sm font-semibold tracking-wide py-2"
-                            >
+                            <button onClick={() => setRecipientChoice(false)} className="w-full py-2 text-white/40 hover:text-white text-xs font-semibold tracking-wide transition-colors">
                                 CANCELAR
                             </button>
                         </div>
                     </div>
-                </div>
-            )}
+                );
+            })()}
             
             {/* Modal de Gestión de Anexos */}
             {isAnexosOpen && <AnexosModal />}
