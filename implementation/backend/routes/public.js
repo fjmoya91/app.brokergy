@@ -6,14 +6,24 @@ const expedienteService = require('../services/expedienteService');
 const whatsappService = require('../services/whatsappService');
 const driveService = require('../services/driveService');
 const multer = require('multer');
+const { PDFDocument } = require('pdf-lib');
 
 // Configuración de multer (memoria para subida directa a Drive)
 const upload = multer({
     storage: multer.memoryStorage(),
-    limits: {
-        fileSize: 100 * 1024 * 1024, // 100MB
-    }
+    limits: { fileSize: 20 * 1024 * 1024 }, // 20MB para justificante
 });
+
+async function imageToPdf(imageBuffer, mimeType) {
+    const pdfDoc = await PDFDocument.create();
+    const img = mimeType === 'image/png'
+        ? await pdfDoc.embedPng(imageBuffer)
+        : await pdfDoc.embedJpg(imageBuffer);
+    const { width, height } = img.scale(1);
+    const page = pdfDoc.addPage([width, height]);
+    page.drawImage(img, { x: 0, y: 0, width, height });
+    return Buffer.from(await pdfDoc.save());
+}
 
 
 
@@ -133,8 +143,11 @@ router.get('/cliente/:id', async (req, res) => {
             apellidos = parts.slice(1).join(' ');
         }
 
+        const historial = opp.datos_calculo?.historial || [];
+        const acceptanceEntry = historial.find(h => h.tipo === 'cambio_estado' && h.estado === 'ACEPTADA');
+
         return res.json({
-            id_oportunidad: id, // El ID legible resuelto (ej: 26RES080_OP2)
+            id_oportunidad: id,
             id_cliente: foundCliente?.id_cliente || null,
             nombre_razon_social: foundCliente?.nombre_razon_social || nombre,
             apellidos: foundCliente?.apellidos || apellidos,
@@ -144,7 +157,9 @@ router.get('/cliente/:id', async (req, res) => {
             iban: foundCliente?.numero_cuenta || '',
             estado: opp.datos_calculo?.estado || 'BORRADOR',
             numero_expediente: opp.expedientes?.[0]?.numero_expediente || opp.expedientes?.numero_expediente || null,
-            tiene_instalador: true
+            tiene_instalador: true,
+            fecha_aceptacion: acceptanceEntry?.fecha || null,
+            aceptado_por: acceptanceEntry?.usuario || null,
         });
     } catch (e) {
         console.error('Error public cliente details:', e);
@@ -153,7 +168,7 @@ router.get('/cliente/:id', async (req, res) => {
 });
 
 // POST /api/public/aceptar/:id_oportunidad
-router.post('/aceptar/:id', async (req, res) => {
+router.post('/aceptar/:id', upload.single('justificante'), async (req, res) => {
     try {
         const paramId = req.params.id;
         const id = await resolveOportunidadId(paramId);
@@ -246,12 +261,13 @@ router.post('/aceptar/:id', async (req, res) => {
         console.log(`[Public] Procesando aceptación para ${id}. Estado previo: ${prevEstado}`);
 
         if (prevEstado !== 'ACEPTADA') {
+            const clienteNombre = [formFields.nombre_razon_social, formFields.apellidos].filter(Boolean).join(' ');
             const newHistorial = [...currentHistorial, {
                 id: Date.now().toString() + '_aceptacion',
                 tipo: 'cambio_estado',
                 estado: 'ACEPTADA',
                 fecha: new Date().toISOString(),
-                usuario: 'Firma Cliente'
+                usuario: `Firma Cliente (${clienteNombre})`
             }];
             
             const newData = { ...(opp.datos_calculo || {}), estado: 'ACEPTADA', historial: newHistorial };
@@ -275,11 +291,37 @@ router.post('/aceptar/:id', async (req, res) => {
             console.error("[Public] Error crítico creando expediente automático:", expErr.message);
         }
 
-        // Responder con el número de expediente real
-        res.json({ success: true, message: 'Propuesta procesada correctamente.', numeroExpediente });
+        // Subir justificante a Drive (antes de responder para incluirlo en notif)
+        const justificanteAdjunto = !!req.file;
+        const justificanteBuffer = req.file ? { buffer: req.file.buffer, mimeType: req.file.mimetype } : null;
 
-        // Background: emails + WhatsApp (no bloquea la respuesta HTTP)
+        // Responder con el número de expediente real
+        res.json({ success: true, message: 'Propuesta procesada correctamente.', numeroExpediente, justificanteAdjunto });
+
+        // Background: emails + WhatsApp + Drive justificante (no bloquea la respuesta HTTP)
         setImmediate(async () => {
+
+            // 0. Subir justificante bancario a Drive
+            if (justificanteBuffer) {
+                try {
+                    const driveFolderId = opp.datos_calculo?.drive_folder_id || opp.datos_calculo?.inputs?.drive_folder_id;
+                    if (driveFolderId) {
+                        let fileBuffer = justificanteBuffer.buffer;
+                        if (justificanteBuffer.mimeType !== 'application/pdf') {
+                            fileBuffer = await imageToPdf(fileBuffer, justificanteBuffer.mimeType);
+                        }
+                        await driveService.saveFileToFolder(
+                            driveFolderId,
+                            'justificante de titularidad bancaria.pdf',
+                            'application/pdf',
+                            fileBuffer
+                        );
+                        console.log(`[Public] Justificante bancario subido a Drive para ${id}`);
+                    }
+                } catch (jErr) {
+                    console.error('[Public] Error subiendo justificante a Drive:', jErr.message);
+                }
+            }
 
             // 3. Email cliente
             try {
@@ -335,7 +377,8 @@ ${uploadLink}
                     ? notesList.map(n => `- ${n.texto} (${n.usuario})`).join('\n')
                     : 'Aceptado por el cliente desde el portal público.';
 
-                const adminMsg = `🚀 *ACEPTACIÓN (PORTAL PÚBLICO)*\n\nOportunidad *${id}*\n👤 *Cliente:* ${formFields.nombre_razon_social} ${formFields.apellidos || ''}\n📍 ${opp.datos_calculo?.inputs?.direccion || 'S/N'}\n👷 *Instalador:* ${installerName}\n📋 Expediente: *${numeroExpediente || 'Pte.'}*\n\n${notesStr}\n\n${process.env.FRONTEND_URL || 'https://app.brokergy.es'}?exp=${numeroExpediente || ''}`;
+                const justificanteStr = justificanteAdjunto ? '✅ Justificante bancario adjunto' : '⚠️ Sin justificante bancario';
+                const adminMsg = `🚀 *ACEPTACIÓN (PORTAL PÚBLICO)*\n\nOportunidad *${id}*\n👤 *Cliente:* ${formFields.nombre_razon_social} ${formFields.apellidos || ''}\n📍 ${opp.datos_calculo?.inputs?.direccion || 'S/N'}\n👷 *Instalador:* ${installerName}\n📋 Expediente: *${numeroExpediente || 'Pte.'}*\n🏦 ${justificanteStr}\n\n${notesStr}\n\n${process.env.FRONTEND_URL || 'https://app.brokergy.es'}?exp=${numeroExpediente || ''}`;
                 whatsappService.sendText(process.env.WHATSAPP_ADMIN_CHAT || '34623926179', adminMsg).catch(e => console.warn('[Public] Error WhatsApp Admin:', e.message));
 
                 await emailService.sendAdminNotificationEmail({

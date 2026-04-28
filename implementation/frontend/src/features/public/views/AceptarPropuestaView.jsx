@@ -178,6 +178,8 @@ export function AceptarPropuestaView({ idOportunidad }) {
     const [error, setError] = useState(null);
     const [showIbanInfo, setShowIbanInfo] = useState(false);
     const [noInstaller, setNoInstaller] = useState(false);
+    const [justificanteFile, setJustificanteFile] = useState(null);
+    const [acceptanceInfo, setAcceptanceInfo] = useState(null); // { fecha, aceptado_por }
 
     const [formData, setFormData] = useState({
         nombre_razon_social: '',
@@ -195,21 +197,14 @@ export function AceptarPropuestaView({ idOportunidad }) {
         const fetchCliente = async () => {
             try {
                 const res = await axios.get(`${API_URL}/cliente/${idOportunidad}`);
-                // fill the form if dat exist
-                const { estado, numero_expediente, id_oportunidad: readableId, tiene_instalador, ...rest } = res.data;
-                
-                setFormData(prev => ({
-                    ...prev,
-                    ...rest
-                }));
+                const { estado, numero_expediente, id_oportunidad: readableId, tiene_instalador, fecha_aceptacion, aceptado_por, ...rest } = res.data;
+
+                setFormData(prev => ({ ...prev, ...rest }));
                 if (readableId) setDisplayId(readableId);
 
-                // Si ya está aceptada, saltamos directamente a la pantalla de éxito/subida de docs
                 if (estado === 'ACEPTADA') {
-                        if (numero_expediente) {
-                            setGeneratedExpediente(numero_expediente);
-                        }
-                    setSuccess(true);
+                    if (numero_expediente) setGeneratedExpediente(numero_expediente);
+                    setAcceptanceInfo({ fecha: fecha_aceptacion, aceptado_por });
                 }
             } catch (err) {
                 console.error("No se pudo cargar info del cliente:", err);
@@ -221,9 +216,7 @@ export function AceptarPropuestaView({ idOportunidad }) {
             }
         };
 
-        if (idOportunidad) {
-            fetchCliente();
-        }
+        if (idOportunidad) fetchCliente();
     }, [idOportunidad]);
 
     const handleChange = (e) => {
@@ -235,18 +228,19 @@ export function AceptarPropuestaView({ idOportunidad }) {
         setSubmitting(true);
         setError(null);
         try {
-             const res = await axios.post(`${API_URL}/aceptar/${idOportunidad}`, formData);
-             if (res.data.numeroExpediente) {
-                 setGeneratedExpediente(res.data.numeroExpediente);
-             }
-             setSuccess(true);
+            const fd = new FormData();
+            Object.entries(formData).forEach(([k, v]) => fd.append(k, v || ''));
+            if (justificanteFile) fd.append('justificante', justificanteFile);
+            const res = await axios.post(`${API_URL}/aceptar/${idOportunidad}`, fd, {
+                headers: { 'Content-Type': 'multipart/form-data' }
+            });
+            if (res.data.numeroExpediente) setGeneratedExpediente(res.data.numeroExpediente);
+            setSuccess(true);
         } catch (err) {
-             const msg = err.response?.data?.error || "Ocurrió un error al procesar tu aceptación. Por favor, inténtalo de nuevo.";
-             setError(msg);
-             if (err.response?.data?.code === 'INSTALLER_REQUIRED') {
-                 setNoInstaller(true);
-             }
-             setSubmitting(false);
+            const msg = err.response?.data?.error || "Ocurrió un error al procesar tu aceptación. Por favor, inténtalo de nuevo.";
+            setError(msg);
+            if (err.response?.data?.code === 'INSTALLER_REQUIRED') setNoInstaller(true);
+            setSubmitting(false);
         }
     };
 
@@ -287,6 +281,74 @@ export function AceptarPropuestaView({ idOportunidad }) {
                         <p className="text-[10px] font-bold text-white/20 uppercase tracking-[0.2em] mb-1">Referencia Oportunidad</p>
                         <p className="text-lg font-mono text-white/40 font-bold">{displayId}</p>
                     </div>
+                </div>
+            </div>
+        );
+    }
+
+    if (acceptanceInfo && !success) {
+        const fechaFmt = acceptanceInfo.fecha
+            ? new Date(acceptanceInfo.fecha).toLocaleDateString('es-ES', { day: '2-digit', month: 'long', year: 'numeric' })
+            : null;
+        return (
+            <div className="min-h-screen bg-slate-950 flex flex-col items-center py-10 px-4 relative overflow-x-hidden selection:bg-brand selection:text-black">
+                <DynamicNetworkBackground />
+                <div className="w-full max-w-2xl relative z-10 px-4">
+                    <div className="text-center mb-8 relative">
+                        <h1 className="flex items-baseline justify-center gap-x-2 md:gap-x-4 mb-2 relative z-10">
+                            <span className="text-white text-2xl md:text-3xl font-medium tracking-tight">Propuesta</span>
+                            <span className="text-3xl md:text-5xl font-black tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-brand via-brand to-brand-700 uppercase">BROKERGY</span>
+                        </h1>
+                    </div>
+
+                    {/* Banner de aceptación previa */}
+                    <div className="mb-6 p-5 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex gap-3 items-start">
+                        <svg className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                        <div>
+                            <p className="text-amber-300 text-sm font-bold mb-0.5">Propuesta ya aceptada</p>
+                            <p className="text-amber-300/70 text-xs leading-relaxed">
+                                {fechaFmt ? `Aceptada el ${fechaFmt}` : 'Aceptada anteriormente'}
+                                {acceptanceInfo.aceptado_por ? ` · ${acceptanceInfo.aceptado_por}` : ''}
+                            </p>
+                        </div>
+                    </div>
+
+                    {/* Expediente badge */}
+                    {generatedExpediente && (
+                        <div className="mb-6 bg-white/5 border border-brand/20 rounded-2xl p-5 text-center ring-1 ring-brand/10">
+                            <div className="text-white/30 text-[10px] font-black uppercase tracking-[0.2em] mb-1">Número de expediente</div>
+                            <div className="text-2xl font-black text-brand tracking-widest">{generatedExpediente}</div>
+                        </div>
+                    )}
+
+                    {/* Datos cliente en lectura */}
+                    <div className="bg-bkg-surface border border-white/[0.06] rounded-[2rem] p-8 mb-6">
+                        <h3 className="text-xs font-black uppercase tracking-widest text-white/40 mb-5">Datos del cliente</h3>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+                            {[
+                                ['Nombre / Razón Social', formData.nombre_razon_social],
+                                ['Apellidos', formData.apellidos],
+                                ['DNI / CIF', formData.dni_cif],
+                                ['Email', formData.email],
+                                ['Teléfono', formData.telefono],
+                                ['IBAN', formData.iban],
+                            ].map(([label, value]) => value ? (
+                                <div key={label}>
+                                    <div className="text-[10px] font-black uppercase tracking-wider text-white/30 mb-1">{label}</div>
+                                    <div className="text-white font-medium font-mono text-sm">{value}</div>
+                                </div>
+                            ) : null)}
+                        </div>
+                    </div>
+
+                    {/* Subida de documentación */}
+                    <div className="bg-bkg-surface border border-white/5 rounded-2xl p-6">
+                        <FileUploadSection idOportunidad={idOportunidad} API_URL={API_URL} />
+                    </div>
+
+                    <p className="text-center mt-10 text-[10px] uppercase font-black tracking-[0.2em] text-white/20">
+                        Sistema de Gestión Brokergy &copy; {new Date().getFullYear()}
+                    </p>
                 </div>
             </div>
         );
@@ -545,15 +607,47 @@ export function AceptarPropuestaView({ idOportunidad }) {
                                                 </div>
                                             )}
 
-                                            <input 
+                                            <input
                                                 id="iban"
                                                 name="iban"
-                                                type="text" 
+                                                type="text"
                                                 value={formData.iban || ''}
                                                 onChange={handleChange}
                                                 className="w-full bg-bkg-elevated border border-white/[0.1] rounded-xl px-4 py-3 text-white placeholder-white/20 focus:outline-none focus:border-brand focus:ring-1 focus:ring-brand transition-all font-medium uppercase"
                                                 placeholder="ESXX XXXX ..."
                                             />
+                                        </div>
+                                    </div>
+
+                                    {/* Justificante de titularidad bancaria */}
+                                    <div className="space-y-2">
+                                        <label className="block text-xs font-black uppercase tracking-widest text-white/40 ml-1">
+                                            Justificante de titularidad bancaria
+                                            <span className="ml-2 text-white/20 font-normal normal-case tracking-normal">(opcional)</span>
+                                        </label>
+                                        <p className="text-[11px] text-white/30 leading-relaxed ml-1">
+                                            Puedes descargarlo desde la app de tu banco (Certificado de Titularidad) o hacer una foto a la primera página de tu cartilla bancaria.
+                                        </p>
+                                        <div className="relative">
+                                            <input
+                                                type="file"
+                                                accept="image/jpeg,image/png,application/pdf"
+                                                onChange={e => setJustificanteFile(e.target.files[0] || null)}
+                                                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                                            />
+                                            <div className={`border-2 border-dashed rounded-xl px-4 py-4 flex items-center gap-3 transition-all ${justificanteFile ? 'border-brand/40 bg-brand/5' : 'border-white/10 hover:border-brand/30'}`}>
+                                                <div className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center shrink-0">
+                                                    <svg className="w-4 h-4 text-white/30" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
+                                                </div>
+                                                {justificanteFile ? (
+                                                    <div className="min-w-0">
+                                                        <div className="text-xs font-bold text-brand truncate">{justificanteFile.name}</div>
+                                                        <div className="text-[10px] text-white/30">{(justificanteFile.size / 1024).toFixed(0)} KB</div>
+                                                    </div>
+                                                ) : (
+                                                    <span className="text-xs text-white/30">Seleccionar archivo (JPG, PNG o PDF)</span>
+                                                )}
+                                            </div>
                                         </div>
                                     </div>
 

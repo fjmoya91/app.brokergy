@@ -290,7 +290,27 @@ router.post('/', enforceAuth, async (req, res) => {
 
         // 3. Llamar al servicio centralizado para crear el expediente
         const newExp = await expedienteService.createExpediente(oportunidad_id, cliente_id, numero_expediente);
-        
+
+        // 3b. Registrar aceptación en historial de la oportunidad
+        if (op.datos_calculo?.estado !== 'ACEPTADA') {
+            const usuarioLabel = req.user.rol_nombre === 'ADMIN'
+                ? `Firma Administrador (${req.user.email})`
+                : `Firma Partner (${req.user.razon_social || req.user.acronimo || req.user.email})`;
+            const historialEntry = {
+                id: Date.now().toString() + '_aceptacion',
+                tipo: 'cambio_estado',
+                estado: 'ACEPTADA',
+                fecha: new Date().toISOString(),
+                usuario: usuarioLabel,
+            };
+            const newHistorial = [...(op.datos_calculo?.historial || []), historialEntry];
+            supabase.from('oportunidades').update({
+                datos_calculo: { ...(op.datos_calculo || {}), estado: 'ACEPTADA', historial: newHistorial }
+            }).eq('id', oportunidad_id).then(({ error: hErr }) => {
+                if (hErr) console.error('[Expedientes] Error actualizando historial:', hErr.message);
+            });
+        }
+
         // 4. Si es una aceptación por parte de un Distribuidor/Instalador, notificar a administración
         if (req.user.rol_nombre !== 'ADMIN') {
             console.log(`[POST /api/expedientes] Notificando aceptación por parte de ${req.user.acronimo || req.user.email}`);
