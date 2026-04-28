@@ -180,6 +180,10 @@ export function AceptarPropuestaView({ idOportunidad }) {
     const [noInstaller, setNoInstaller] = useState(false);
     const [justificanteFile, setJustificanteFile] = useState(null);
     const [acceptanceInfo, setAcceptanceInfo] = useState(null); // { fecha, aceptado_por }
+    const [editing, setEditing] = useState(false);
+    const [editData, setEditData] = useState({});
+    const [savingEdit, setSavingEdit] = useState(false);
+    const [editSuccess, setEditSuccess] = useState(false);
 
     const [formData, setFormData] = useState({
         nombre_razon_social: '',
@@ -321,24 +325,96 @@ export function AceptarPropuestaView({ idOportunidad }) {
                         </div>
                     )}
 
-                    {/* Datos cliente en lectura */}
+                    {/* Datos cliente — lectura o edición */}
                     <div className="bg-bkg-surface border border-white/[0.06] rounded-[2rem] p-8 mb-6">
-                        <h3 className="text-xs font-black uppercase tracking-widest text-white/40 mb-5">Datos del cliente</h3>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
-                            {[
-                                ['Nombre / Razón Social', formData.nombre_razon_social],
-                                ['Apellidos', formData.apellidos],
-                                ['DNI / CIF', formData.dni_cif],
-                                ['Email', formData.email],
-                                ['Teléfono', formData.telefono],
-                                ['IBAN', formData.iban],
-                            ].map(([label, value]) => value ? (
-                                <div key={label}>
-                                    <div className="text-[10px] font-black uppercase tracking-wider text-white/30 mb-1">{label}</div>
-                                    <div className="text-white font-medium font-mono text-sm">{value}</div>
-                                </div>
-                            ) : null)}
+                        <div className="flex items-center justify-between mb-5">
+                            <h3 className="text-xs font-black uppercase tracking-widest text-white/40">Datos del cliente</h3>
+                            {!editing && (
+                                <button
+                                    onClick={() => { setEditData({ ...formData }); setEditing(true); setEditSuccess(false); }}
+                                    className="px-4 py-1.5 rounded-lg bg-brand/10 hover:bg-brand/20 border border-brand/20 text-brand text-[10px] font-black uppercase tracking-wider transition-all"
+                                >
+                                    Editar datos
+                                </button>
+                            )}
                         </div>
+
+                        {editSuccess && (
+                            <div className="mb-4 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-bold">
+                                Datos actualizados correctamente.
+                            </div>
+                        )}
+
+                        {editing ? (
+                            <div className="space-y-4">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                    {[
+                                        { name: 'nombre_razon_social', label: 'Nombre / Razón Social' },
+                                        { name: 'apellidos', label: 'Apellidos' },
+                                        { name: 'dni_cif', label: 'DNI / CIF' },
+                                        { name: 'email', label: 'Email', type: 'email' },
+                                        { name: 'telefono', label: 'Teléfono', type: 'tel' },
+                                        { name: 'iban', label: 'IBAN', placeholder: 'ESXX XXXX ...' },
+                                    ].map(({ name, label, type = 'text', placeholder }) => (
+                                        <div key={name} className="space-y-1">
+                                            <label className="text-[10px] font-black uppercase tracking-wider text-white/30">{label}</label>
+                                            <input
+                                                type={type}
+                                                value={editData[name] || ''}
+                                                onChange={e => setEditData(prev => ({ ...prev, [name]: e.target.value }))}
+                                                placeholder={placeholder || ''}
+                                                className="w-full bg-bkg-elevated border border-white/10 rounded-xl px-4 py-2.5 text-white text-sm placeholder-white/20 focus:outline-none focus:border-brand focus:ring-1 focus:ring-brand transition-all"
+                                            />
+                                        </div>
+                                    ))}
+                                </div>
+                                <div className="flex gap-3 justify-end pt-2">
+                                    <button
+                                        onClick={() => { setEditing(false); setEditSuccess(false); }}
+                                        className="px-5 py-2 rounded-xl bg-white/5 border border-white/10 text-white/50 text-xs font-black uppercase tracking-wider"
+                                    >
+                                        Cancelar
+                                    </button>
+                                    <button
+                                        disabled={savingEdit}
+                                        onClick={async () => {
+                                            setSavingEdit(true);
+                                            try {
+                                                await axios.patch(`${API_URL}/datos/${idOportunidad}`, editData);
+                                                setFormData(prev => ({ ...prev, ...editData }));
+                                                setEditing(false);
+                                                setEditSuccess(true);
+                                            } catch (e) {
+                                                alert(e.response?.data?.error || 'Error al guardar');
+                                            } finally {
+                                                setSavingEdit(false);
+                                            }
+                                        }}
+                                        className="px-5 py-2 rounded-xl bg-gradient-to-r from-brand to-brand-700 text-bkg-deep text-xs font-black uppercase tracking-wider disabled:opacity-50"
+                                    >
+                                        {savingEdit ? 'Guardando...' : 'Guardar cambios'}
+                                    </button>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+                                {[
+                                    ['Nombre / Razón Social', formData.nombre_razon_social],
+                                    ['Apellidos', formData.apellidos],
+                                    ['DNI / CIF', formData.dni_cif],
+                                    ['Email', formData.email],
+                                    ['Teléfono', formData.telefono],
+                                    ['IBAN', formData.iban],
+                                ].map(([label, value]) => (
+                                    <div key={label}>
+                                        <div className="text-[10px] font-black uppercase tracking-wider text-white/30 mb-1">{label}</div>
+                                        <div className={`font-medium font-mono text-sm ${value ? 'text-white' : 'text-white/20 italic'}`}>
+                                            {value || 'Sin datos'}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
                     </div>
 
                     {/* Subida de documentación */}

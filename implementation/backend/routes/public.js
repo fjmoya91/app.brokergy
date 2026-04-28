@@ -281,7 +281,7 @@ router.post('/aceptar/:id', upload.single('justificante'), async (req, res) => {
 
         // Crear expediente de forma síncrona para devolver el número al cliente
         let numeroExpediente = null;
-        const uploadLink = `${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/firma/${paramId}`;
+        const uploadLink = `${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/firma/${opp.id}`;
         try {
             console.log(`[Public] Solicitando creación de expediente para OP UUID: ${opp.id}`);
             const newExp = await expedienteService.createExpediente(opp.id, id_cliente);
@@ -397,6 +397,39 @@ ${uploadLink}
 
     } catch(e) {
         console.error('Error public aceptar propuesta:', e);
+        res.status(500).json({ error: 'Error del servidor' });
+    }
+});
+
+// PATCH /api/public/datos/:id — Actualiza datos del cliente sin reenviar notificaciones
+router.patch('/datos/:id', async (req, res) => {
+    try {
+        const id = await resolveOportunidadId(req.params.id);
+        const { nombre_razon_social, apellidos, dni_cif, email, telefono, iban } = req.body;
+
+        const { data: opp, error: oppErr } = await supabase
+            .from('oportunidades')
+            .select('cliente_id, prescriptor_id')
+            .eq('id_oportunidad', id)
+            .maybeSingle();
+
+        if (oppErr || !opp) return res.status(404).json({ error: 'Oportunidad no encontrada' });
+        if (!opp.cliente_id) return res.status(400).json({ error: 'Esta oportunidad no tiene cliente vinculado aún' });
+
+        const updates = {};
+        if (nombre_razon_social !== undefined) updates.nombre_razon_social = nombre_razon_social;
+        if (apellidos !== undefined) updates.apellidos = apellidos;
+        if (dni_cif !== undefined) updates.dni = dni_cif;
+        if (email !== undefined) updates.email = email;
+        if (telefono !== undefined) updates.tlf = telefono;
+        if (iban !== undefined) updates.numero_cuenta = iban || null;
+
+        const { error: updErr } = await supabase.from('clientes').update(updates).eq('id_cliente', opp.cliente_id);
+        if (updErr) return res.status(500).json({ error: 'Error al actualizar datos del cliente' });
+
+        res.json({ success: true });
+    } catch (e) {
+        console.error('Error PATCH /public/datos:', e);
         res.status(500).json({ error: 'Error del servidor' });
     }
 });
