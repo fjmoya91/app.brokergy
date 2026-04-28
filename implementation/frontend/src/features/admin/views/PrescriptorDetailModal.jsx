@@ -255,38 +255,43 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
     useEffect(() => {
         if (!p) return;
         const cod = getProvCodByNombre(p.provincia || '');
-        setForm({
-            razon_social:         p.razon_social || '',
-            acronimo:             p.acronimo || '',
-            cif:                  p.cif || '',
-            email:                p.email || p.usuarios?.email || '',
-            tlf:                  p.tlf || p.usuarios?.tlf || '',
-            tipo_empresa:         p.tipo_empresa || 'INSTALADOR',
-            marca_referencia:     p.marca_referencia || '',
-            marca_secundaria:     p.marca_secundaria || '',
-            tiene_carnet_rite:    p.tiene_carnet_rite || false,
-            numero_carnet_rite:   p.numero_carnet_rite || '',
-            cargo:                p.cargo || '',
-            nombre_responsable:   p.nombre_responsable || p.usuarios?.nombre || '',
-            apellidos_responsable:p.apellidos_responsable || p.usuarios?.apellidos || '',
-            ccaa:                 p.ccaa || '',
-            provincia:            p.provincia || '',
-            provincia_cod:        cod,
-            municipio:            p.municipio || '',
-            codigo_postal:        p.codigo_postal || '',
-            direccion:            p.direccion || '',
-            es_autonomo:          p.es_autonomo || false,
-            logo_empresa:         p.logo_empresa || '',
-            // Convertimos la cadena de marcas en un array para el multi-select
-            marcas_aerotermia:    p.marca_referencia ? p.marca_referencia.split(',').map(m => m.trim().toUpperCase()) : [],
-            instaladores_asociados: [], // Se cargará por el useEffect específico
-            usuario_password:     '',
-            usuario_confirm_password: '',
-            contacto_alternativo_activo: p.contacto_alternativo_activo || false,
-            nombre_contacto:      p.nombre_contacto || '',
-            tlf_contacto:         p.tlf_contacto || '',
-            email_contacto:       p.email_contacto || '',
-            contacto_notificaciones_activas: p.contacto_notificaciones_activas || false,
+        setForm(prev => {
+            // Si es el mismo prescriptor (ej: tras un guardado), conservar los instaladores ya cargados.
+            // Si cambia de prescriptor, resetear a [] para que el otro useEffect los cargue.
+            const sameId = prev._prescriptorId === p.id_empresa;
+            return {
+                _prescriptorId:       p.id_empresa,
+                razon_social:         p.razon_social || '',
+                acronimo:             p.acronimo || '',
+                cif:                  p.cif || '',
+                email:                p.email || p.usuarios?.email || '',
+                tlf:                  p.tlf || p.usuarios?.tlf || '',
+                tipo_empresa:         p.tipo_empresa || 'INSTALADOR',
+                marca_referencia:     p.marca_referencia || '',
+                marca_secundaria:     p.marca_secundaria || '',
+                tiene_carnet_rite:    p.tiene_carnet_rite || false,
+                numero_carnet_rite:   p.numero_carnet_rite || '',
+                cargo:                p.cargo || '',
+                nombre_responsable:   p.nombre_responsable || p.usuarios?.nombre || '',
+                apellidos_responsable:p.apellidos_responsable || p.usuarios?.apellidos || '',
+                ccaa:                 p.ccaa || '',
+                provincia:            p.provincia || '',
+                provincia_cod:        cod,
+                municipio:            p.municipio || '',
+                codigo_postal:        p.codigo_postal || '',
+                direccion:            p.direccion || '',
+                es_autonomo:          p.es_autonomo || false,
+                logo_empresa:         p.logo_empresa || '',
+                marcas_aerotermia:    p.marca_referencia ? p.marca_referencia.split(',').map(m => m.trim().toUpperCase()) : [],
+                instaladores_asociados: sameId ? prev.instaladores_asociados : [],
+                usuario_password:     '',
+                usuario_confirm_password: '',
+                contacto_alternativo_activo: p.contacto_alternativo_activo || false,
+                nombre_contacto:      p.nombre_contacto || '',
+                tlf_contacto:         p.tlf_contacto || '',
+                email_contacto:       p.email_contacto || '',
+                contacto_notificaciones_activas: p.contacto_notificaciones_activas || false,
+            };
         });
     }, [p]);
 
