@@ -321,26 +321,54 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, saving, certificad
     };
 
     const handleCertConfirm = async (notify) => {
-        // Siempre guardar los datos del CEE
-        onSave({ cee: local });
+        // Persistir CEE primero (await asegura que el cert queda guardado antes de notificar)
+        try {
+            const maybePromise = onSave({ cee: local });
+            if (maybePromise && typeof maybePromise.then === 'function') {
+                await maybePromise;
+            }
+        } catch (_) {
+            // Si el save falla, abortamos sin notificar
+            setCertNotifResult({ type: 'error', text: 'No se pudo guardar el módulo. Inténtalo de nuevo.' });
+            return;
+        }
         setEditMode(false);
         savedCertId.current = local.certificador_id;
 
-        if (notify && expediente?.id) {
-            setCertNotifLoading(true);
-            try {
-                const { data } = await axios.post(`/api/expedientes/${expediente.id}/notify-certificador`, {
-                    certificador_id: local.certificador_id
-                });
-                setCertNotifResult({ type: 'ok', text: `Email enviado a ${data.sentTo}` });
-            } catch (err) {
-                const msg = err.response?.data?.error || 'Error al enviar la notificación';
-                setCertNotifResult({ type: 'error', text: msg });
-            } finally {
-                setCertNotifLoading(false);
-            }
-        } else {
+        if (!notify) {
             setShowCertPopup(false);
+            return;
+        }
+
+        if (!expediente?.id) {
+            setCertNotifResult({ type: 'error', text: 'Expediente no disponible.' });
+            return;
+        }
+
+        // Email conocido del certificador seleccionado (fallback si la respuesta no lo trae)
+        const localCert = certificadores.find(c => String(c.id_empresa) === String(local.certificador_id));
+        const knownEmail = localCert?.email;
+
+        if (!knownEmail) {
+            setCertNotifResult({
+                type: 'error',
+                text: `${localCert?.razon_social || 'El certificador'} no tiene email registrado en su ficha. Edítalo desde Prescriptores.`
+            });
+            return;
+        }
+
+        setCertNotifLoading(true);
+        try {
+            const { data } = await axios.post(`/api/expedientes/${expediente.id}/notify-certificador`, {
+                certificador_id: local.certificador_id
+            });
+            const target = data?.sentTo || knownEmail;
+            setCertNotifResult({ type: 'ok', text: `Email enviado a ${target}` });
+        } catch (err) {
+            const msg = err.response?.data?.error || 'Error al enviar la notificación';
+            setCertNotifResult({ type: 'error', text: msg });
+        } finally {
+            setCertNotifLoading(false);
         }
     };
 
@@ -496,15 +524,31 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, saving, certificad
                 <div className="flex items-center gap-5">
                     <h3 className="text-xs font-black text-white uppercase tracking-widest border-l-2 border-brand pl-4">Certs. Energéticos</h3>
                     {!isReforma && (
-                        <div className="flex items-center gap-1 bg-white/[0.03] p-1 rounded-xl border border-white/[0.06]">
+                        <div className={`flex items-center gap-1 bg-white/[0.03] p-1 rounded-xl border border-white/[0.06] ${!editMode ? 'opacity-50' : ''}`}>
                             {['xml', 'aportado'].map(t => (
-                                <button key={t} onClick={() => setLocal(p => ({ ...p, tipo: t }))} className={`px-4 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest ${local.tipo === t ? 'bg-brand text-black' : 'text-white/30'}`}>
+                                <button
+                                    key={t}
+                                    disabled={!editMode}
+                                    onClick={() => setLocal(p => ({ ...p, tipo: t }))}
+                                    className={`px-4 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${
+                                        local.tipo === t ? 'bg-brand text-black' : 'text-white/30'
+                                    } ${!editMode ? 'cursor-not-allowed' : 'cursor-pointer'}`}
+                                >
                                     {t === 'xml' ? 'Auto XML' : 'Manual'}
                                 </button>
                             ))}
                         </div>
                     )}
-                    <select value={local.certificador_id || ''} onChange={e => setLocal(p => ({ ...p, certificador_id: e.target.value || null }))} className="bg-white/[0.03] border border-white/10 rounded-xl px-4 py-2 text-[10px] font-black uppercase text-brand outline-none">
+                    <select
+                        value={local.certificador_id || ''}
+                        onChange={e => setLocal(p => ({ ...p, certificador_id: e.target.value || null }))}
+                        disabled={!editMode}
+                        className={`bg-white/[0.03] border rounded-xl px-4 py-2 text-[10px] font-black uppercase outline-none transition-all ${
+                            editMode
+                                ? 'border-brand/30 text-brand cursor-pointer hover:border-brand/50'
+                                : 'border-white/10 text-white/40 cursor-not-allowed'
+                        }`}
+                    >
                         <option value="">Certificador no asignado</option>
                         {certificadores.map(c => <option key={c.id_empresa} value={c.id_empresa}>{c.razon_social || c.acronimo}</option>)}
                     </select>
@@ -512,13 +556,43 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, saving, certificad
                 <div className="flex gap-2">
                     {editMode ? (
                         <>
-                            <button onClick={() => setEditMode(false)} className="px-5 py-2 text-[10px] font-black uppercase text-white/30 transition-all">Cancelar</button>
+                            <button
+                                onClick={() => {
+                                    // Revertir cambios locales y volver a estado guardado
+                                    setLocal({
+                                        tipo: 'xml',
+                                        is_reforma: isReforma,
+                                        cee_inicial: null,
+                                        cee_final: null,
+                                        acs_method: 'xml',
+                                        num_rooms: 4,
+                                        certificador_id: null,
+                                        comb_acs_inicial: 'Gasoleo Calefacción',
+                                        comb_acs_final: 'Electricidad peninsular',
+                                        comb_cal_inicial: 'Gasoleo Calefacción',
+                                        comb_cal_final: 'Electricidad peninsular',
+                                        comb_ref_inicial: 'Electricidad peninsular',
+                                        comb_ref_final: 'Electricidad peninsular',
+                                        cee_files: {
+                                            inicial: { pdf: null, xml: null, cex: null, registro: null, etiqueta: null, otros: [] },
+                                            final: { pdf: null, xml: null, cex: null, registro: null, etiqueta: null, otros: [] }
+                                        },
+                                        ...(expediente?.cee || {})
+                                    });
+                                    setXmlError(null);
+                                    setXmlFinalError(null);
+                                    setEditMode(false);
+                                }}
+                                className="px-5 py-2 text-[10px] font-black uppercase text-white/40 hover:text-white transition-all"
+                            >
+                                Cancelar
+                            </button>
                             <button onClick={handleSave} disabled={saving} className="px-7 py-3 bg-brand text-black text-[11px] font-black uppercase rounded-xl shadow-lg transition-all active:scale-95 disabled:opacity-50">
-                                {saving ? 'Cargando...' : 'Confirmar Datos'}
+                                {saving ? 'Guardando...' : 'Guardar Cambios'}
                             </button>
                         </>
                     ) : (
-                        <button onClick={() => setEditMode(true)} className="px-6 py-3 bg-white/[0.02] border border-white/10 text-white/40 hover:text-white rounded-xl text-[11px] font-black uppercase transition-all">Editar Módulo</button>
+                        <button onClick={() => setEditMode(true)} className="px-6 py-3 bg-white/[0.02] border border-white/10 text-white/40 hover:text-white hover:border-white/20 rounded-xl text-[11px] font-black uppercase transition-all">Editar Módulo</button>
                     )}
                 </div>
             </div>

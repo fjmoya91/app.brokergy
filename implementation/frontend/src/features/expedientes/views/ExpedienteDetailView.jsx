@@ -156,7 +156,8 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
     }, [expedienteId, fetchExpediente]);
  
     const handleCeeSave = useCallback((ceePatch) => {
-        // Al guardar CEE, también persistimos las fechas en Documentación
+        // Al guardar CEE, también persistimos las fechas en Documentación.
+        // Devolvemos la promise para que CeeModule pueda esperar antes de notificar al certificador.
         const patch = {
             ...ceePatch,
             documentacion: {
@@ -167,7 +168,7 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
                 fecha_firma_cee_final: ceePatch.cee.fecha_firma_cee_final || liveDoc?.fecha_firma_cee_final,
             }
         };
-        handleSave(patch);
+        return handleSave(patch);
     }, [handleSave, liveDoc]);
 
     const handleCeeLiveUpdate = useCallback((newCee) => {

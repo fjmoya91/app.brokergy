@@ -918,7 +918,9 @@ router.get('/proxy/pdf', enforceAuth, async (req, res) => {
 });
 
 // POST /api/expedientes/:id/notify-certificador
-// Envía email de directrices técnicas al técnico certificador asignado al expediente
+// Asigna certificador (si viene en body) y envía email de directrices técnicas.
+// Acepta { certificador_id } opcional en el body — si se proporciona y difiere del
+// guardado, se persiste antes de enviar para evitar condiciones de carrera con el save del módulo.
 router.post('/:id/notify-certificador', enforceAuth, async (req, res) => {
     try {
         const { data: exp, error: expErr } = await supabase
@@ -928,20 +930,36 @@ router.post('/:id/notify-certificador', enforceAuth, async (req, res) => {
             .single();
         if (expErr || !exp) return res.status(404).json({ error: 'Expediente no encontrado' });
 
-        const certId = exp.cee?.certificador_id;
+        // Resolver certId: prioridad al body (lo que el usuario acaba de seleccionar)
+        const bodyCertId = req.body?.certificador_id || null;
+        const dbCertId = exp.cee?.certificador_id || null;
+        const certId = bodyCertId || dbCertId;
         if (!certId) return res.status(400).json({ error: 'El expediente no tiene certificador asignado' });
+
+        // Persistir el cert si vino en body y es diferente del guardado
+        if (bodyCertId && bodyCertId !== dbCertId) {
+            const nextCee = { ...(exp.cee || {}), certificador_id: bodyCertId };
+            const { error: updErr } = await supabase
+                .from('expedientes')
+                .update({ cee: nextCee })
+                .eq('id', req.params.id);
+            if (updErr) {
+                console.error('[notify-certificador] error persistiendo cert:', updErr.message);
+            }
+        }
 
         const [
             { data: cert },
             { data: cli },
             { data: op }
         ] = await Promise.all([
-            supabase.from('prescriptores').select('razon_social, email').eq('id_empresa', certId).maybeSingle(),
+            supabase.from('prescriptores').select('razon_social, acronimo, email').eq('id_empresa', certId).maybeSingle(),
             supabase.from('clientes').select('nombre, apellidos').eq('id_cliente', exp.cliente_id).maybeSingle(),
             supabase.from('oportunidades').select('id_oportunidad, ficha, datos_calculo, drive_folder_id').eq('id', exp.oportunidad_id).maybeSingle()
         ]);
 
-        if (!cert?.email) return res.status(400).json({ error: 'El certificador no tiene email registrado' });
+        if (!cert) return res.status(404).json({ error: 'Certificador no encontrado en la base de datos' });
+        if (!cert.email) return res.status(400).json({ error: `El certificador "${cert.razon_social || cert.acronimo}" no tiene email registrado en su ficha.` });
 
         const ficha = op?.ficha || 'RES060';
         const dc = op?.datos_calculo || {};
@@ -954,6 +972,7 @@ router.post('/:id/notify-certificador', enforceAuth, async (req, res) => {
 
         const expedienteNum = exp.numero_expediente || op?.id_oportunidad || req.params.id;
         const clienteName = cli ? `${cli.nombre || ''} ${cli.apellidos || ''}`.trim() : '—';
+        const certName = cert.razon_social || cert.acronimo || 'Técnico';
 
         const driveLink = op?.drive_folder_id
             ? `https://drive.google.com/drive/folders/${op.drive_folder_id}`
@@ -962,7 +981,7 @@ router.post('/:id/notify-certificador', enforceAuth, async (req, res) => {
 
         await emailService.sendCertificadorNotificationEmail({
             to: cert.email,
-            certName: cert.razon_social || 'Técnico',
+            certName,
             expedienteNum,
             clienteName,
             ficha,
@@ -973,7 +992,7 @@ router.post('/:id/notify-certificador', enforceAuth, async (req, res) => {
             ahorroObjetivo,
         });
 
-        res.json({ ok: true, sentTo: cert.email });
+        res.json({ ok: true, sentTo: cert.email, certName });
     } catch (err) {
         console.error('[notify-certificador]', err.message);
         res.status(500).json({ error: 'Error al enviar notificación', details: err.message });
