@@ -216,7 +216,12 @@ export function calculateRes080Estimated(inputs) {
         if (!type || type === '') return 0.66; // Fallback para evitar errores si no hay selección
         if (type === 'Termo' || type === 'Electricidad') return 1.0;
         if (type === 'No tiene Calefacción') return 0.92;
-        return REFORMA_EFFICIENCIES[insulationState] || 0.66;
+        // Si insulationState viene vacío/undefined (bug: estado no sincronizado al activar reforma),
+        // usamos 'sin_aislamiento' como default — coincide con el option por defecto del Select.
+        const effectiveInsulation = insulationState && REFORMA_EFFICIENCIES[insulationState] !== undefined
+            ? insulationState
+            : 'sin_aislamiento';
+        return REFORMA_EFFICIENCIES[effectiveInsulation];
     };
 
     const effAcsIni = getEff(boilerAcsType);

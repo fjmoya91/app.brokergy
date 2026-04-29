@@ -667,16 +667,19 @@ const sendAdminNotificationEmail = async ({ numeroExpediente, clientName, addres
 };
 
 const sendCertificadorNotificationEmail = async ({
-    to, certName, expedienteNum, clienteName, ficha,
+    to, certName, expedienteNum, clienteName, clienteData,
+    ficha, tipoActuacion,
     ceeFolderLink, portalLink,
     // RES060/RES093
-    demandaObjetivo,    // kWh/año (Q_net)
+    demandaPerM2,       // kWh/m²·año (q_net)
     superficieRef,      // m²
     // RES080
     ahorroObjetivo,     // kWh/año
 }) => {
     const isReforma = ficha === 'RES080';
-    const subject = `Directrices técnicas — Exp. ${expedienteNum} (${ficha || 'CEE'}) — Brokergy`;
+    const tipoLabel = tipoActuacion || (isReforma ? 'REFORMA' : ficha === 'RES093' ? 'HIBRIDACIÓN' : 'AEROTERMIA');
+    const clienteUpper = (clienteName || '').toUpperCase().trim();
+    const subject = `${expedienteNum} ENCARGO CEE (${tipoLabel})${clienteUpper ? ` – ${clienteUpper}` : ''}`;
 
     const directrizHtml = isReforma ? `
         <div style="background:rgba(245,158,11,0.08); border:1px solid rgba(245,158,11,0.3); border-radius:14px; padding:20px 24px; margin:20px 0;">
@@ -693,25 +696,29 @@ const sendCertificadorNotificationEmail = async ({
         <div style="background:rgba(245,158,11,0.08); border:1px solid rgba(245,158,11,0.3); border-radius:14px; padding:20px 24px; margin:20px 0;">
             <p style="margin:0 0 6px; font-size:11px; font-weight:800; color:#f59e0b; text-transform:uppercase; letter-spacing:1.5px;">⚡ Directriz Técnica — ${ficha || 'RES060/RES093'}</p>
             <p style="margin:0 0 10px; font-size:14px; color:rgba(255,255,255,0.65); line-height:1.6;">
-                Para garantizar el éxito del expediente, el valor de demanda certificado debe situarse, como <strong style="color:#ffffff;">objetivo de seguridad</strong>, <strong style="color:#ffffff;">por encima</strong> de los <strong style="color:#f59e0b;">${demandaObjetivo ? Math.round(demandaObjetivo).toLocaleString('es-ES') + ' kWh/año' : '—'}</strong> estimados en la propuesta comercial.
+                Para garantizar el éxito del expediente, la demanda específica de calefacción certificada debe situarse, como <strong style="color:#ffffff;">objetivo de seguridad</strong>, <strong style="color:#ffffff;">por encima</strong> del valor estimado en la propuesta comercial.
             </p>
-            <div style="display:flex; gap:12px; margin-top:10px;">
-                <div style="flex:1; text-align:center; padding:14px; background:rgba(0,0,0,0.3); border-radius:10px;">
-                    <p style="margin:0; font-size:11px; color:rgba(255,255,255,0.4); text-transform:uppercase; letter-spacing:1px;">Demanda mínima esperada</p>
-                    <p style="margin:4px 0 0; font-size:22px; font-weight:900; color:#f59e0b;">${demandaObjetivo ? Math.round(demandaObjetivo).toLocaleString('es-ES') + ' kWh/año' : 'Consultar propuesta'}</p>
-                </div>
-                ${superficieRef ? `
-                <div style="flex:1; text-align:center; padding:14px; background:rgba(0,0,0,0.3); border-radius:10px;">
-                    <p style="margin:0; font-size:11px; color:rgba(255,255,255,0.4); text-transform:uppercase; letter-spacing:1px;">Superficie referencia</p>
-                    <p style="margin:4px 0 0; font-size:22px; font-weight:900; color:#ffffff;">${Math.round(superficieRef)} m²</p>
-                </div>` : ''}
+            <div style="text-align:center; padding:18px; background:rgba(0,0,0,0.3); border-radius:10px;">
+                <p style="margin:0; font-size:12px; color:rgba(255,255,255,0.4); text-transform:uppercase; letter-spacing:1px;">Demanda mínima esperada</p>
+                <p style="margin:4px 0 0; font-size:28px; font-weight:900; color:#f59e0b;">${demandaPerM2 ? demandaPerM2.toFixed(1).replace('.', ',') + ' kWh/m²·año' : 'Consultar propuesta'}</p>
             </div>
-            ${demandaObjetivo && superficieRef ? `
-            <p style="margin:12px 0 0; font-size:12px; color:rgba(255,255,255,0.4); text-align:center;">
-                Equivale a <strong style="color:rgba(255,255,255,0.65);">${(demandaObjetivo / superficieRef).toFixed(1)} kWh/m²·año</strong> de demanda específica
-            </p>` : ''}
         </div>
     `;
+
+    // Bloque de datos del cliente (solo si hay info)
+    const clienteInfoHtml = clienteData ? `
+        <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:14px; padding:18px 22px; margin:24px 0;">
+            <p style="margin:0 0 12px; font-size:11px; font-weight:800; color:rgba(255,255,255,0.55); text-transform:uppercase; letter-spacing:1.5px;">📋 Datos del cliente</p>
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:13px; line-height:1.7; color:rgba(255,255,255,0.7);">
+                ${clienteData.nombre ? `<tr><td style="width:140px; padding:3px 0; color:rgba(255,255,255,0.4); font-size:11px; text-transform:uppercase; letter-spacing:0.5px;">Nombre</td><td style="padding:3px 0; color:#ffffff; font-weight:600;">${clienteData.nombre}</td></tr>` : ''}
+                ${clienteData.dni ? `<tr><td style="padding:3px 0; color:rgba(255,255,255,0.4); font-size:11px; text-transform:uppercase; letter-spacing:0.5px;">DNI</td><td style="padding:3px 0; color:#ffffff; font-family:monospace;">${clienteData.dni}</td></tr>` : ''}
+                ${clienteData.tlf ? `<tr><td style="padding:3px 0; color:rgba(255,255,255,0.4); font-size:11px; text-transform:uppercase; letter-spacing:0.5px;">Teléfono</td><td style="padding:3px 0;"><a href="tel:${clienteData.tlf}" style="color:#f59e0b; text-decoration:none;">${clienteData.tlf}</a></td></tr>` : ''}
+                ${clienteData.email ? `<tr><td style="padding:3px 0; color:rgba(255,255,255,0.4); font-size:11px; text-transform:uppercase; letter-spacing:0.5px;">Email</td><td style="padding:3px 0;"><a href="mailto:${clienteData.email}" style="color:#f59e0b; text-decoration:none;">${clienteData.email}</a></td></tr>` : ''}
+                ${clienteData.refCatastral ? `<tr><td style="padding:3px 0; color:rgba(255,255,255,0.4); font-size:11px; text-transform:uppercase; letter-spacing:0.5px;">Ref. Catastral</td><td style="padding:3px 0; color:#ffffff; font-family:monospace; font-size:12px;">${clienteData.refCatastral}</td></tr>` : ''}
+                ${clienteData.direccion ? `<tr><td style="padding:3px 0; color:rgba(255,255,255,0.4); font-size:11px; text-transform:uppercase; letter-spacing:0.5px; vertical-align:top;">Dirección</td><td style="padding:3px 0; color:#ffffff;">${clienteData.direccion}</td></tr>` : ''}
+            </table>
+        </div>
+    ` : '';
 
     const html = `
 <!DOCTYPE html>
@@ -736,7 +743,9 @@ const sendCertificadorNotificationEmail = async ({
                             Te asignamos el expediente <strong style="color:#f59e0b;">${expedienteNum}</strong>
                             ${clienteName ? `del cliente <strong style="color:#ffffff;">${clienteName}</strong>` : ''} para la emisión del Certificado de Eficiencia Energética.
                         </p>
-                        <p style="margin:0 0 6px; font-size:14px; line-height:1.6; color:rgba(255,255,255,0.6);">
+                        ${clienteInfoHtml}
+
+                        <p style="margin:8px 0 6px; font-size:14px; line-height:1.6; color:rgba(255,255,255,0.6);">
                             A continuación encontrarás las <strong style="color:#ffffff;">directrices técnicas</strong> que debes tener en cuenta para que los valores del certificado sean compatibles con la propuesta comercial presentada al cliente:
                         </p>
 
@@ -779,7 +788,16 @@ const sendCertificadorNotificationEmail = async ({
 </body>
 </html>`;
 
-    const text = `Hola ${certName}!\n\nTe asignamos el expediente ${expedienteNum}${clienteName ? ` (${clienteName})` : ''}.\n\n${isReforma ? `Ahorro mínimo esperado: ${ahorroObjetivo ? Math.round(ahorroObjetivo) + ' kWh/año' : 'Consultar propuesta'}` : `Demanda mínima esperada: ${demandaObjetivo ? Math.round(demandaObjetivo) + ' kWh/año' : 'Consultar propuesta'}`}\n\n${portalLink ? 'Portal: ' + portalLink + '\n' : ''}${ceeFolderLink ? 'Carpeta CEE: ' + ceeFolderLink : ''}\n\nBROKERGY · Ingeniería Energética`;
+    const clienteText = clienteData ? [
+        clienteData.nombre ? `Cliente: ${clienteData.nombre}` : null,
+        clienteData.dni ? `DNI: ${clienteData.dni}` : null,
+        clienteData.tlf ? `Tlf: ${clienteData.tlf}` : null,
+        clienteData.email ? `Email: ${clienteData.email}` : null,
+        clienteData.refCatastral ? `Ref. Catastral: ${clienteData.refCatastral}` : null,
+        clienteData.direccion ? `Dirección: ${clienteData.direccion}` : null,
+    ].filter(Boolean).join('\n') + '\n\n' : '';
+
+    const text = `Hola ${certName}!\n\nTe asignamos el expediente ${expedienteNum}.\n\n${clienteText}${isReforma ? `Ahorro mínimo esperado: ${ahorroObjetivo ? Math.round(ahorroObjetivo) + ' kWh/año' : 'Consultar propuesta'}` : `Demanda mínima esperada: ${demandaPerM2 ? demandaPerM2.toFixed(1).replace('.', ',') + ' kWh/m²·año' : 'Consultar propuesta'}`}\n\n${portalLink ? 'Portal: ' + portalLink + '\n' : ''}${ceeFolderLink ? 'Carpeta CEE: ' + ceeFolderLink : ''}\n\nBROKERGY · Ingeniería Energética`;
 
     return sendMail({ to, subject, html, text });
 };

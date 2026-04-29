@@ -231,7 +231,6 @@ const formatNumber = (val) => {
 };
 
 export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }) {
-    console.log('[ProposalModal] Render cycle. isOpen:', isOpen, 'result:', !!result, 'inputs:', !!inputs);
     const { showAlert, showConfirm } = useModal();
     const { user } = useAuth();
     const proposalRef = useRef(null);

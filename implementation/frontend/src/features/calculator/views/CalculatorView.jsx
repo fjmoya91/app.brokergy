@@ -246,6 +246,17 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
         handleCalculate();
     }, [inputs, dbModels]);
 
+    // Defensive: al activar Reforma, garantizar que insulationState tiene un valor válido.
+    // Algunas oportunidades antiguas guardaban el campo vacío/null, lo que provocaba que
+    // el cálculo usara un fallback incorrecto hasta que el usuario re-seleccionaba la opción.
+    useEffect(() => {
+        if (!inputs.isReforma) return;
+        const valid = ['sin_aislamiento', 'antigua_mal_aislamiento', 'antigua_aislamiento_medio', 'bien_aislada'];
+        if (!inputs.insulationState || !valid.includes(inputs.insulationState)) {
+            setInputs(prev => ({ ...prev, insulationState: 'sin_aislamiento' }));
+        }
+    }, [inputs.isReforma, inputs.insulationState]);
+
     // Calcular si hay cambios pendientes (Dirty State)
     const currentSnapshot = JSON.stringify({
         inputs: { ...inputs, referenciaCliente: inputs.referenciaCliente || '' },

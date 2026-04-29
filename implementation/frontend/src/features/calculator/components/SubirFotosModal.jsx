@@ -19,12 +19,30 @@ export function SubirFotosModal({ isOpen, onClose, inputs, result, onInputChange
         placa_caldera_anterior: null
     });
 
+    // Marcas de imágenes con error de carga (URL rota / formato no soportado)
+    const [previewErrors, setPreviewErrors] = useState({
+        caldera_anterior: false,
+        placa_caldera_anterior: false
+    });
+
     const [scanningDrive, setScanningDrive] = useState(false);
     const [showExtraUpload, setShowExtraUpload] = useState(false);
     const [extraFiles, setExtraFiles] = useState([]);
     const [uploadingExtra, setUploadingExtra] = useState(false);
     const [extraUploaded, setExtraUploaded] = useState(false);
     const [extraProgress, setExtraProgress] = useState(0);
+
+    // Valida que el data URL sea una imagen renderizable por el navegador
+    const isValidImageData = (data) => {
+        if (!data || typeof data !== 'string') return false;
+        if (!data.startsWith('data:image/')) return false;
+        // HEIC/HEIF no se renderiza en navegadores estándar
+        if (/^data:image\/(heic|heif)/i.test(data)) return false;
+        // Comprueba que tenga base64 con contenido mínimo
+        const idx = data.indexOf(',');
+        if (idx < 0 || data.length - idx < 100) return false;
+        return true;
+    };
 
     // Sync local state with inputs and Drive when opening
     React.useEffect(() => {
@@ -36,11 +54,12 @@ export function SubirFotosModal({ isOpen, onClose, inputs, result, onInputChange
         if (Array.isArray(inputs.photo_attachments)) {
             const caldera = inputs.photo_attachments.find(p => p.id === 'caldera_anterior')?.file;
             const placa = inputs.photo_attachments.find(p => p.id === 'placa_caldera_anterior')?.file;
-            
+
             setPreviews({
                 caldera_anterior: caldera || null,
                 placa_caldera_anterior: placa || null
             });
+            setPreviewErrors({ caldera_anterior: false, placa_caldera_anterior: false });
         }
 
         // 2. Then, scan Drive for any photos uploaded via public link (not yet in inputs)
@@ -123,8 +142,8 @@ export function SubirFotosModal({ isOpen, onClose, inputs, result, onInputChange
         const file = e.target.files[0];
         if (!file) return;
 
-        // Si ya hay una foto cargada (preview), preguntamos confirmación
-        if (previews[key]) {
+        // Si ya hay una foto cargada (preview válido), preguntamos confirmación
+        if (previews[key] && isValidImageData(previews[key]?.data) && !previewErrors[key]) {
             const confirmed = await showConfirm(
                 `Ya existe una foto cargada en este apartado. ¿Estás seguro de que deseas sobrescribirla con el nuevo archivo: ${file.name}?`,
                 'Confirmar Sobrescritura',
@@ -136,9 +155,18 @@ export function SubirFotosModal({ isOpen, onClose, inputs, result, onInputChange
             }
         }
 
+        // Rechazar HEIC/HEIF en cliente (los iPhones lo guardan así y no se renderiza)
+        const isHeic = /\.(heic|heif)$/i.test(file.name) || /image\/(heic|heif)/i.test(file.type || '');
+        if (isHeic) {
+            showAlert('Las imágenes HEIC/HEIF no son compatibles. Convierte la foto a JPG o PNG antes de subirla.', 'Formato no compatible', 'warning');
+            e.target.value = '';
+            return;
+        }
+
         setFotos(prev => ({ ...prev, [key]: file }));
         const base64 = await compressImage(file);
         setPreviews(prev => ({ ...prev, [key]: { name: file.name, data: base64 } }));
+        setPreviewErrors(prev => ({ ...prev, [key]: false }));
     };
 
     const handleUpload = async () => {
@@ -267,11 +295,31 @@ export function SubirFotosModal({ isOpen, onClose, inputs, result, onInputChange
                             <label className="text-xs font-bold uppercase text-slate-700 tracking-wider">
                                 FOTO_CALDERA_ANTES
                             </label>
-                            <div className={`relative border-2 border-dashed rounded-xl p-4 flex flex-col items-center justify-center transition-all min-h-[200px] ${previews.caldera_anterior ? 'border-brand bg-brand/5' : 'border-slate-300 hover:border-brand/50 bg-white'}`}>
-                                {previews.caldera_anterior ? (
+                            <div className={`relative border-2 border-dashed rounded-xl p-4 flex flex-col items-center justify-center transition-all min-h-[200px] ${
+                                previews.caldera_anterior && isValidImageData(previews.caldera_anterior.data) && !previewErrors.caldera_anterior
+                                    ? 'border-brand bg-brand/5'
+                                    : previews.caldera_anterior
+                                    ? 'border-amber-400 bg-amber-50'
+                                    : 'border-slate-300 hover:border-brand/50 bg-white'
+                            }`}>
+                                {previews.caldera_anterior && isValidImageData(previews.caldera_anterior.data) && !previewErrors.caldera_anterior ? (
                                     <div className="w-full h-full flex flex-col items-center gap-3">
-                                        <img src={previews.caldera_anterior.data} alt="Preview" className="h-32 object-contain rounded-lg shadow-sm" />
+                                        <img
+                                            src={previews.caldera_anterior.data}
+                                            alt="Preview"
+                                            className="h-32 object-contain rounded-lg shadow-sm"
+                                            onError={() => setPreviewErrors(prev => ({ ...prev, caldera_anterior: true }))}
+                                        />
                                         <p className="text-xs font-medium text-slate-500 truncate max-w-[150px]">{previews.caldera_anterior.name}</p>
+                                    </div>
+                                ) : previews.caldera_anterior ? (
+                                    <div className="text-center px-2">
+                                        <svg className="w-8 h-8 text-amber-500 mx-auto mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+                                        </svg>
+                                        <p className="text-[10px] font-bold text-amber-600 uppercase tracking-widest">Vista previa no disponible</p>
+                                        <p className="text-[10px] text-slate-500 truncate max-w-[180px] mt-1">{previews.caldera_anterior.name}</p>
+                                        <p className="text-[9px] text-slate-400 mt-1">Re-súbela en JPG/PNG</p>
                                     </div>
                                 ) : (
                                     <div className="text-center">
@@ -281,7 +329,7 @@ export function SubirFotosModal({ isOpen, onClose, inputs, result, onInputChange
                                         <span className="text-sm text-slate-400 font-medium">Seleccionar Foto</span>
                                     </div>
                                 )}
-                                <input type="file" accept="image/*" className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" onChange={(e) => handleFileChange(e, 'caldera_anterior')} />
+                                <input type="file" accept="image/jpeg,image/png,image/webp" className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" onChange={(e) => handleFileChange(e, 'caldera_anterior')} />
                             </div>
                         </div>
 
@@ -290,11 +338,31 @@ export function SubirFotosModal({ isOpen, onClose, inputs, result, onInputChange
                             <label className="text-xs font-bold uppercase text-slate-700 tracking-wider">
                                 FOTO_PLACA_CALDERA_ANTES
                             </label>
-                            <div className={`relative border-2 border-dashed rounded-xl p-4 flex flex-col items-center justify-center transition-all min-h-[200px] ${previews.placa_caldera_anterior ? 'border-brand bg-brand/5' : 'border-slate-300 hover:border-brand/50 bg-white'}`}>
-                                {previews.placa_caldera_anterior ? (
+                            <div className={`relative border-2 border-dashed rounded-xl p-4 flex flex-col items-center justify-center transition-all min-h-[200px] ${
+                                previews.placa_caldera_anterior && isValidImageData(previews.placa_caldera_anterior.data) && !previewErrors.placa_caldera_anterior
+                                    ? 'border-brand bg-brand/5'
+                                    : previews.placa_caldera_anterior
+                                    ? 'border-amber-400 bg-amber-50'
+                                    : 'border-slate-300 hover:border-brand/50 bg-white'
+                            }`}>
+                                {previews.placa_caldera_anterior && isValidImageData(previews.placa_caldera_anterior.data) && !previewErrors.placa_caldera_anterior ? (
                                     <div className="w-full h-full flex flex-col items-center gap-3">
-                                        <img src={previews.placa_caldera_anterior.data} alt="Preview" className="h-32 object-contain rounded-lg shadow-sm" />
+                                        <img
+                                            src={previews.placa_caldera_anterior.data}
+                                            alt="Preview"
+                                            className="h-32 object-contain rounded-lg shadow-sm"
+                                            onError={() => setPreviewErrors(prev => ({ ...prev, placa_caldera_anterior: true }))}
+                                        />
                                         <p className="text-xs font-medium text-slate-500 truncate max-w-[150px]">{previews.placa_caldera_anterior.name}</p>
+                                    </div>
+                                ) : previews.placa_caldera_anterior ? (
+                                    <div className="text-center px-2">
+                                        <svg className="w-8 h-8 text-amber-500 mx-auto mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+                                        </svg>
+                                        <p className="text-[10px] font-bold text-amber-600 uppercase tracking-widest">Vista previa no disponible</p>
+                                        <p className="text-[10px] text-slate-500 truncate max-w-[180px] mt-1">{previews.placa_caldera_anterior.name}</p>
+                                        <p className="text-[9px] text-slate-400 mt-1">Re-súbela en JPG/PNG</p>
                                     </div>
                                 ) : (
                                     <div className="text-center">
@@ -304,7 +372,7 @@ export function SubirFotosModal({ isOpen, onClose, inputs, result, onInputChange
                                         <span className="text-sm text-slate-400 font-medium">Seleccionar Foto</span>
                                     </div>
                                 )}
-                                <input type="file" accept="image/*" className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" onChange={(e) => handleFileChange(e, 'placa_caldera_anterior')} />
+                                <input type="file" accept="image/jpeg,image/png,image/webp" className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" onChange={(e) => handleFileChange(e, 'placa_caldera_anterior')} />
                             </div>
                         </div>
                     </div>

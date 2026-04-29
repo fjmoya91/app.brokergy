@@ -955,8 +955,8 @@ router.post('/:id/notify-certificador', enforceAuth, async (req, res) => {
             { data: op }
         ] = await Promise.all([
             supabase.from('prescriptores').select('razon_social, acronimo, email').eq('id_empresa', certId).maybeSingle(),
-            supabase.from('clientes').select('nombre_razon_social, apellidos').eq('id_cliente', exp.cliente_id).maybeSingle(),
-            supabase.from('oportunidades').select('id_oportunidad, ficha, datos_calculo').eq('id', exp.oportunidad_id).maybeSingle()
+            supabase.from('clientes').select('nombre_razon_social, apellidos, dni, tlf, telefono, email, codigo_postal, municipio, provincia, direccion').eq('id_cliente', exp.cliente_id).maybeSingle(),
+            supabase.from('oportunidades').select('id_oportunidad, ficha, datos_calculo, ref_catastral').eq('id', exp.oportunidad_id).maybeSingle()
         ]);
 
         if (!cert) return res.status(404).json({ error: 'Certificador no encontrado en la base de datos' });
@@ -971,10 +971,14 @@ router.post('/:id/notify-certificador', enforceAuth, async (req, res) => {
         const result = dc.result || {};
         const inputs = dc.inputs || {};
 
-        // Demanda objetivo en cascada de fallbacks (algunos expedientes antiguos no tienen Q_net en result)
+        // Demanda objetivo: priorizamos kWh/m²·año (q_net) sobre el total (Q_net)
         const superficieRef = parseFloat(inputs.superficieCalefactable) || parseFloat(inputs.surface) || null;
-        const demandaPerM2 = parseFloat(inputs.demand_per_m2) || parseFloat(inputs.demandaCalefaccion) || null;
-        const demandaObjetivo =
+        const demandaPerM2 =
+            parseFloat(result.q_net) ||
+            parseFloat(inputs.demand_per_m2) ||
+            parseFloat(inputs.demandaCalefaccion) ||
+            (superficieRef && parseFloat(result.Q_net) ? parseFloat(result.Q_net) / superficieRef : null);
+        const demandaObjetivoTotal =
             parseFloat(result.Q_net) ||
             parseFloat(dc.Q_net) ||
             (superficieRef && demandaPerM2 ? superficieRef * demandaPerM2 : null);
@@ -984,8 +988,32 @@ router.post('/:id/notify-certificador', enforceAuth, async (req, res) => {
         const clienteName = cli
             ? `${cli.nombre_razon_social || ''} ${cli.apellidos || ''}`.trim() || null
             : null;
+
+        // Datos completos del cliente para el bloque informativo
+        const direccionCompleta = cli ? [
+            inputs.direccion || cli.direccion,
+            cli.codigo_postal,
+            cli.municipio,
+            cli.provincia ? `(${cli.provincia})` : null,
+        ].filter(Boolean).join(', ') : null;
+
+        const clienteData = cli ? {
+            nombre: clienteName,
+            dni: cli.dni || null,
+            tlf: cli.tlf || cli.telefono || null,
+            email: cli.email || null,
+            refCatastral: op?.ref_catastral || inputs.rc || null,
+            direccion: direccionCompleta || null,
+        } : null;
+
         const certName = cert.razon_social || cert.acronimo || 'Técnico';
         const portalLink = `${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/expedientes/${req.params.id}`;
+
+        // Tipo de actuación para el asunto del email
+        const tipoActuacion =
+            ficha === 'RES080' ? 'REFORMA' :
+            ficha === 'RES093' ? 'HIBRIDACIÓN' :
+            'AEROTERMIA';
 
         // ── Drive: localizar subcarpeta CEE y dar permiso Editor al cert ────────
         let ceeFolderId = workingCee.cee_folder_id || null;
@@ -1029,10 +1057,12 @@ router.post('/:id/notify-certificador', enforceAuth, async (req, res) => {
                 certName,
                 expedienteNum,
                 clienteName,
+                clienteData,
                 ficha,
+                tipoActuacion,
                 ceeFolderLink,
                 portalLink,
-                demandaObjetivo,
+                demandaPerM2,
                 superficieRef,
                 ahorroObjetivo,
             });

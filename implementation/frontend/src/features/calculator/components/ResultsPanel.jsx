@@ -14,6 +14,7 @@ import { calculateSavings, calculateFinancials } from '../logic/calculation';
 import { EfficiencyTable } from './EfficiencyTable';
 import realCasesData from '../data/real_cases_db.json';
 import { SubirFotosModal } from './SubirFotosModal';
+import { ErrorBoundary } from '../../../components/ErrorBoundary';
 
 const formatNumber = (val, decimals = null) => {
     const num = typeof val === 'number' ? val : parseFloat(val);
@@ -921,13 +922,17 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
                 zone={inputs?.zona}
             />
 
-            <ProposalModal
-                isOpen={showProposal}
-                onClose={() => setShowProposal(false)}
-                result={result}
-                inputs={inputs}
-                onSaveRequest={() => setShowSaveOpportunity(true)}
-            />
+            {showProposal && (
+                <ErrorBoundary onClose={() => setShowProposal(false)}>
+                    <ProposalModal
+                        isOpen={showProposal}
+                        onClose={() => setShowProposal(false)}
+                        result={result}
+                        inputs={inputs}
+                        onSaveRequest={() => setShowSaveOpportunity(true)}
+                    />
+                </ErrorBoundary>
+            )}
 
             <SaveOpportunityModal
                 isOpen={showSaveOpportunity}
