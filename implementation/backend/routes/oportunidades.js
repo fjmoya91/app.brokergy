@@ -154,6 +154,8 @@ router.post('/', requireAuth, async (req, res) => {
             // Prioridad al valor que viene en el body, incluso si es null (para permitir desvincular)
             instalador_asociado_id: body.hasOwnProperty('instalador_asociado_id') ? instalador_asociado_id : (existingData ? existingData.instalador_asociado_id : null),
             demanda_calefaccion: demanda_calefaccion || null,
+            anio: body.anio || datos_calculo?.inputs?.anio || datos_calculo?.anio || null,
+            zona: body.zona || datos_calculo?.inputs?.zona || datos_calculo?.zona || null,
             datos_calculo: datosCalculoFinal
         };
 

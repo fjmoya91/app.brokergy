@@ -367,26 +367,34 @@ export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }
         axios.get(`/api/prescriptores/${instId}`)
             .then(res => {
                 const p = res.data;
-                setInstaladorInfo({ name: p.acronimo || p.razon_social || 'Instalador', phone: p.tlf || p.telefono || null, email: p.email || null });
+                const uc = p.contacto_notificaciones_activas === true || p.contacto_notificaciones_activas === 'true';
+                setInstaladorInfo({
+                    name: uc ? (p.nombre_contacto || p.acronimo || p.razon_social || 'Instalador') : (p.acronimo || p.razon_social || 'Instalador'),
+                    phone: uc ? (p.tlf_contacto || p.tlf || p.telefono || null) : (p.tlf || p.telefono || null),
+                    email: uc ? (p.email_contacto || p.email || null) : (p.email || null),
+                });
             })
             .catch(() => setInstaladorInfo({ name: 'Instalador', phone: null, email: null }));
     }, [isOpen, inputs?.instalador_asociado_id]);
 
     useEffect(() => {
         if (!isOpen) { setClienteInfo(null); return; }
-        const phoneFromInputs = inputs?.tlf_contacto || inputs?.tlf || inputs?.telefono || null;
         const name = inputs?.referenciaCliente || 'Cliente';
-        if (phoneFromInputs) { setClienteInfo({ name, phone: phoneFromInputs }); return; }
-        if (!inputs?.cliente_id) { setClienteInfo({ name, phone: null }); return; }
+        if (!inputs?.cliente_id) {
+            const phoneFromInputs = inputs?.tlf_contacto || inputs?.tlf || inputs?.telefono || null;
+            setClienteInfo({ name, phone: phoneFromInputs });
+            return;
+        }
         axios.get(`/api/clientes/${inputs.cliente_id}`)
             .then(res => {
                 const c = res.data;
+                const uc = c.notificaciones_contacto_activas === true;
                 setClienteInfo({
-                    name: c.nombre_razon_social || name,
-                    phone: c.tlf || c.telefono || null,
+                    name: (uc && c.persona_contacto_nombre) ? c.persona_contacto_nombre : (c.nombre_razon_social || name),
+                    phone: (uc && c.persona_contacto_tlf) ? c.persona_contacto_tlf : (c.tlf || c.telefono || null),
                 });
             })
-            .catch(() => setClienteInfo({ name, phone: null }));
+            .catch(() => setClienteInfo({ name, phone: inputs?.tlf_contacto || inputs?.tlf || inputs?.telefono || null }));
     }, [isOpen, inputs?.cliente_id, inputs?.tlf_contacto, inputs?.tlf, inputs?.telefono, inputs?.referenciaCliente]);
 
     // Ajustar la escala de la vista previa para que quepa en el ancho disponible
@@ -1131,15 +1139,17 @@ info@brokergy.es · 623 926 179`;
                 if (clienteInfo) {
                     phone = clienteInfo.phone; name = clienteInfo.name;
                 } else {
-                    phone = inputs?.tlf_contacto || inputs?.tlf || inputs?.telefono || null;
                     name = inputs?.referenciaCliente || 'Cliente';
-                    if (!phone && inputs?.cliente_id) {
+                    if (inputs?.cliente_id) {
                         try {
                             const r = await axios.get(`/api/clientes/${inputs.cliente_id}`);
-                            phone = r.data?.tlf || r.data?.telefono || null;
-                            if (r.data?.nombre_razon_social) name = r.data.nombre_razon_social;
+                            const c = r.data;
+                            const uc = c.notificaciones_contacto_activas === true;
+                            name = (uc && c.persona_contacto_nombre) ? c.persona_contacto_nombre : (c.nombre_razon_social || name);
+                            phone = (uc && c.persona_contacto_tlf) ? c.persona_contacto_tlf : (c.tlf || c.telefono || null);
                         } catch (e) { console.warn('[WA] No se pudo obtener teléfono del cliente'); }
                     }
+                    if (!phone) phone = inputs?.tlf_contacto || inputs?.tlf || inputs?.telefono || null;
                 }
             } else if (mode === 'PARTNER') {
                 if (partnerInfo) {
@@ -1165,8 +1175,9 @@ info@brokergy.es · 623 926 179`;
                         try {
                             const r = await axios.get(`/api/prescriptores/${iid}`);
                             const p = r.data;
-                            name = p.acronimo || p.razon_social || 'Instalador';
-                            phone = p.tlf || p.telefono || null;
+                            const uc = p.contacto_notificaciones_activas === true || p.contacto_notificaciones_activas === 'true';
+                            name = uc ? (p.nombre_contacto || p.acronimo || p.razon_social || 'Instalador') : (p.acronimo || p.razon_social || 'Instalador');
+                            phone = uc ? (p.tlf_contacto || p.tlf || p.telefono || null) : (p.tlf || p.telefono || null);
                         } catch (e) { console.warn('[WA] No se pudo obtener teléfono del instalador'); }
                     }
                 }

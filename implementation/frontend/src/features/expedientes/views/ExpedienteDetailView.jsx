@@ -17,12 +17,14 @@ import {
     BOILER_EFFICIENCIES 
 } from '../../calculator/logic/calculation';
 import { SeguimientoModule } from '../components/SeguimientoModule';
-import { QuickNoteModal } from '../components/QuickNoteModal';
+import { HistorialModal } from '../../../components/HistorialModal';
 
 export const EXPEDIENTE_ESTADOS = [
     'PTE. CEE INICIAL',
+    'EN CERTIFICADOR CEE INICIAL',
     'PTE. FIN OBRA',
     'PTE. CEE FINAL',
+    'EN CERTIFICADOR CEE FINAL',
     'PTE FIRMA ANEXOS',
     'PTE. CIFO BROKERGY',
     'PTE FIRMA CIFO',
@@ -184,6 +186,10 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
     }, []);
 
     const handleCeeAutoStatus = useCallback((key, value) => {
+        if (key === 'estado') {
+            handleSave({ estado: value });
+            return;
+        }
         handleSave({ 
             seguimiento: { 
                 ...expediente?.seguimiento, 
@@ -909,11 +915,11 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
                 )}
             </div>
 
-            <QuickNoteModal
+            <HistorialModal
                 isOpen={showQuickNote}
                 onClose={() => setShowQuickNote(false)}
-                onSave={handleQuickNoteSave}
-                saving={saving}
+                idOportunidad={expediente?.oportunidades?.id_oportunidad}
+                referenciaCliente={expediente?.oportunidades?.referencia_cliente}
             />
         </div>
     );

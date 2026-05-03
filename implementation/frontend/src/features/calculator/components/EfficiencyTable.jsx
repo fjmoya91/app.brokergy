@@ -16,11 +16,11 @@ export function EfficiencyTable({ res080, editable = false, onFuelChange = null 
         'Biomasa densificada (pelets)'
     ];
 
-    const formatDec = (val) => {
+    const formatDec = (val, decimals = 2) => {
         const num = typeof val === 'number' ? val : parseFloat(val) || 0;
         return new Intl.NumberFormat('es-ES', {
-            minimumFractionDigits: 2,
-            maximumFractionDigits: 2,
+            minimumFractionDigits: decimals,
+            maximumFractionDigits: decimals,
             useGrouping: true
         }).format(num);
     };
@@ -69,10 +69,10 @@ export function EfficiencyTable({ res080, editable = false, onFuelChange = null 
                 isTitle={true} 
                 type={type}
             />
-            <Row 
-                label="Factor de paso de la fuente de energía seleccionada" 
-                inicial={formatDec(data.factorIni)} 
-                final={formatDec(data.factorFin)} 
+            <Row
+                label="Factor de paso de la fuente de energía seleccionada"
+                inicial={formatDec(data.factorIni, 3)}
+                final={formatDec(data.factorFin, 3)}
             />
             <Row 
                 label={`Emisiones de CO2 ${title.split(' para ')[1].toUpperCase()} (kgCO2/ m² año)`} 

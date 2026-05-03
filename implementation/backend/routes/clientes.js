@@ -148,7 +148,7 @@ router.post('/', enforceAuth, async (req, res) => {
             nombre_razon_social, apellidos, email, tlf, dni,
             ccaa, provincia, municipio, direccion, codigo_postal,
             numero_cuenta, prescriptor_id, oportunidad_id,
-            persona_contacto_nombre, persona_contacto_tlf, notas
+            persona_contacto_nombre, persona_contacto_tlf, notificaciones_contacto_activas, notas
         } = body;
 
         if (!nombre_razon_social) {
@@ -184,6 +184,7 @@ router.post('/', enforceAuth, async (req, res) => {
             prescriptor_id: finalPrescriptorId,
             persona_contacto_nombre: persona_contacto_nombre || null,
             persona_contacto_tlf: persona_contacto_tlf || null,
+            notificaciones_contacto_activas: notificaciones_contacto_activas === true || notificaciones_contacto_activas === 'true' || false,
             notas: notas || null,
         };
 
@@ -271,7 +272,7 @@ router.put('/:id', enforceAuth, async (req, res) => {
             nombre_razon_social, apellidos, email, tlf, dni,
             ccaa, provincia, municipio, direccion, codigo_postal,
             numero_cuenta, prescriptor_id,
-            persona_contacto_nombre, persona_contacto_tlf, notas
+            persona_contacto_nombre, persona_contacto_tlf, notificaciones_contacto_activas, notas
         } = body;
 
         const updates = {};
@@ -288,6 +289,7 @@ router.put('/:id', enforceAuth, async (req, res) => {
         if (numero_cuenta !== undefined && req.user.rol_nombre === 'ADMIN') updates.numero_cuenta = numero_cuenta;
         if (persona_contacto_nombre !== undefined) updates.persona_contacto_nombre = persona_contacto_nombre;
         if (persona_contacto_tlf !== undefined) updates.persona_contacto_tlf = persona_contacto_tlf;
+        if (notificaciones_contacto_activas !== undefined) updates.notificaciones_contacto_activas = notificaciones_contacto_activas === true || notificaciones_contacto_activas === 'true' || false;
         if (notas !== undefined) updates.notas = notas;
         // Solo ADMIN puede reasignar prescriptor
         if (req.user.rol_nombre === 'ADMIN' && prescriptor_id !== undefined) {

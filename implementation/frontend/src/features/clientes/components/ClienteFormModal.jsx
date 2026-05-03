@@ -345,8 +345,7 @@ export function ClienteFormModal({ isOpen, onClose, onSuccess, oportunidad, init
     const [savedCliente, setSavedCliente] = useState(null);
 
     const filteredPrescriptores = prescriptores.filter(p => {
-        const name = (p.acronimo || p.razon_social || '').toLowerCase();
-        return name.includes(searchTerm.toLowerCase());
+        return normalize(p.acronimo || p.razon_social).includes(normalize(searchTerm));
     });
     const selectedPrescriptor = prescriptores.find(p => p.id_empresa === form.prescriptor_id);
 
@@ -479,6 +478,7 @@ export function ClienteFormModal({ isOpen, onClose, onSuccess, oportunidad, init
                 oportunidad_id: oportunidad?.id_oportunidad || null,
                 persona_contacto_nombre: form.persona_contacto_nombre?.trim() || null,
                 persona_contacto_tlf: form.persona_contacto_tlf?.trim() || null,
+                notificaciones_contacto_activas: form.notificaciones_contacto_activas || false,
                 notas: form.notas?.trim() || null,
             };
 
@@ -592,22 +592,41 @@ export function ClienteFormModal({ isOpen, onClose, onSuccess, oportunidad, init
                                     </label>
 
                                     {(form.showContact || form.persona_contacto_nombre || form.persona_contacto_tlf) && (
-                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 animate-fade-in p-4 bg-white/[0.02] border border-white/[0.05] rounded-xl">
-                                            <Field label="Nombre de Contacto">
-                                                <Input 
-                                                    placeholder="P. EJ. MARÍA (HIJA)" 
-                                                    uppercase
-                                                    value={form.persona_contacto_nombre || ''}
-                                                    onChange={e => updateForm({ persona_contacto_nombre: e.target.value })}
-                                                />
-                                            </Field>
-                                            <Field label="Teléfono de Contacto">
-                                                <Input 
-                                                    placeholder="600 000 000"
-                                                    value={form.persona_contacto_tlf || ''}
-                                                    onChange={e => updateForm({ persona_contacto_tlf: e.target.value })}
-                                                />
-                                            </Field>
+                                        <div className="space-y-3 animate-fade-in p-4 bg-white/[0.02] border border-white/[0.05] rounded-xl">
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                                <Field label="Nombre de Contacto">
+                                                    <Input
+                                                        placeholder="P. EJ. MARÍA (HIJA)"
+                                                        uppercase
+                                                        value={form.persona_contacto_nombre || ''}
+                                                        onChange={e => updateForm({ persona_contacto_nombre: e.target.value })}
+                                                    />
+                                                </Field>
+                                                <Field label="Teléfono de Contacto">
+                                                    <Input
+                                                        placeholder="600 000 000"
+                                                        value={form.persona_contacto_tlf || ''}
+                                                        onChange={e => updateForm({ persona_contacto_tlf: e.target.value })}
+                                                    />
+                                                </Field>
+                                            </div>
+                                            <label className="flex items-center gap-3 cursor-pointer group w-fit">
+                                                <div className="relative flex items-center">
+                                                    <input
+                                                        type="checkbox"
+                                                        className="peer sr-only"
+                                                        checked={!!form.notificaciones_contacto_activas}
+                                                        onChange={e => updateForm({ notificaciones_contacto_activas: e.target.checked })}
+                                                    />
+                                                    <div className="w-8 h-4 bg-white/10 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500"></div>
+                                                </div>
+                                                <span className="text-[10px] font-black uppercase tracking-widest text-white/30 group-hover:text-white/60 transition-colors">
+                                                    Enviar notificaciones WhatsApp a este contacto
+                                                </span>
+                                            </label>
+                                            <p className="text-[10px] text-white/20 italic">
+                                                Si se activa, las notificaciones de WhatsApp se enviarán a este número en lugar del teléfono principal.
+                                            </p>
                                         </div>
                                     )}
                                 </div>

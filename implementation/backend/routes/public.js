@@ -533,10 +533,19 @@ router.get('/scan-photos/:id', async (req, res) => {
         for (const file of files) {
             const nameWithoutExt = file.name.split('.')[0];
             if (targetNames.includes(nameWithoutExt)) {
-                console.log(`[ScanPhotos] Encontrado ${file.name} (${file.id}). Descargando...`);
+                console.log(`[ScanPhotos] Encontrado ${file.name} (${file.id}). MimeType: ${file.mimeType}. Descargando...`);
                 const buffer = await driveService.getFileContent(file.id);
                 if (buffer) {
-                    const b64 = `data:${file.mimeType};base64,${buffer.toString('base64')}`;
+                    // Drive puede reportar mimeType como application/octet-stream para imágenes de WhatsApp.
+                    // Inferir por extensión si no es un mimeType de imagen válido.
+                    let mimeType = file.mimeType;
+                    if (!mimeType || !mimeType.startsWith('image/')) {
+                        const ext = file.name.split('.').pop()?.toLowerCase();
+                        const extMap = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', heic: 'image/heic', heif: 'image/heif' };
+                        mimeType = extMap[ext] || 'image/jpeg';
+                        console.log(`[ScanPhotos] MimeType corregido a ${mimeType} por extensión .${ext}`);
+                    }
+                    const b64 = `data:${mimeType};base64,${buffer.toString('base64')}`;
                     foundPhotos[nameWithoutExt] = {
                         name: file.name,
                         data: b64

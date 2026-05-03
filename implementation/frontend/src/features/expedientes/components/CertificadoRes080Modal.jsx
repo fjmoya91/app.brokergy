@@ -246,9 +246,9 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, a
                 aislamiento_cubierta_esp: env.aislamiento_cubierta_espesor ? `${env.aislamiento_cubierta_espesor} cm` : (editableRef.current.aislamiento_cubierta_esp || '—'),
                 aislamiento_cubierta_cond: env.aislamiento_cubierta_conductividad ? env.aislamiento_cubierta_conductividad.toString().replace('.', ',') : (editableRef.current.aislamiento_cubierta_cond || '—'),
                 envolvente_observaciones: env.envolvente_observaciones || editableRef.current.envolvente_observaciones || '- La duración indicativa de la actuación (Di) es de 25 años...',
-                empresa_responsable: empName,
-                empresa_cif: empCif,
-                empresa_domicilio: empAddr
+                empresa_responsable: empName.toUpperCase(),
+                empresa_cif: empCif.toUpperCase(),
+                empresa_domicilio: empAddr.toUpperCase()
             };
 
             // Volcar a ref para persistencia (usado en PDF y edicion)
@@ -536,7 +536,7 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, a
                     <tr><td class="lbl">Modelo</td><td>${calExMod}</td><td>${calNuMod}</td></tr>
                     <tr><td class="lbl">Combustible</td><td>${calExFuel}</td><td>Electricidad</td></tr>
                     <tr><td class="lbl">Nº serie unidad exterior</td><td>—</td><td>${calNuSerieOut}</td></tr>
-                    <tr><td class="lbl">SCOP / Rendimiento</td><td class="text-center">${calExEff.toFixed(2)}</td><td class="text-center">${calNuScop}</td></tr>
+                    <tr><td class="lbl">SCOP / Rendimiento</td><td class="text-center">${calExEff.toFixed(2)} <sup>(1)</sup></td><td class="text-center">${calNuScop} <sup>(2)</sup></td></tr>
                 </table>
                 <table class="doc-table">
                     <tr><td colspan="3" class="heading">Datos de la instalación Agua Caliente Sanitaria (ACS)</td></tr>
@@ -546,7 +546,7 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, a
                     <tr><td class="lbl">Modelo</td><td>${acsExMod}</td><td>${acsNuMod}</td></tr>
                     <tr><td class="lbl">Combustible</td><td>${acsExFuel}</td><td>Electricidad</td></tr>
                     <tr><td class="lbl">Nº serie Equipo de ACS</td><td>—</td><td>${acsNuSerie}</td></tr>
-                    <tr><td class="lbl">SCOP / Rendimiento</td><td class="text-center">${calExEff.toFixed(2)}</td><td class="text-center">${acsNuScop}</td></tr>
+                    <tr><td class="lbl">SCOP / Rendimiento</td><td class="text-center">${calExEff.toFixed(2)} <sup>(1)</sup></td><td class="text-center">${acsNuScop} <sup>(3)</sup></td></tr>
                 </table>
                 <table class="doc-table">
                     <tr><td colspan="2" class="heading">Datos de la empresa instaladora</td></tr>
@@ -555,6 +555,16 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, a
                     <tr><td class="lbl">Domicilio</td><td>${eb('empresa_domicilio')}</td></tr>
                     <tr><td class="lbl" style="height: 50px;">Firma y sello responsable</td><td></td></tr>
                 </table>
+                <div style="margin-top: 12px; font-size: 8.5pt; line-height: 1.5;">
+                    <strong>Observaciones:</strong>
+                    <ul style="margin: 4px 0 0 0; padding-left: 16px; list-style: none;">
+                        <li><sup>(1)</sup> El valor del rendimiento es calculado directamente por el programa de Certificación CE3X para esta caldera [sin aislamiento/antigua con aislamiento medio/antigua con mal aislamiento/ bien aislada y mantenida] de Combustible sólido, alimentación manual, instalado en un espacio sin calefactar, siguiendo las indicaciones del Ministerio para la Transición Ecológica y el Reto Demográfico recogidas en los criterios de verificación <em>"24/11.03: Rendimientos estacionales vs. nominales en fichas IND040, RES060, RES090-099, TER100 y TER170-179"</em>.</li>
+                        <li style="margin-top: 4px;"><sup>(2)</sup> Según ficha técnica aportada por el fabricante y/o para unos cálculos realizados según indican los anexos III y IV de la ficha RES060 de la Orden TED/845/2023, de 18 de julio.</li>
+                        <li style="margin-top: 4px;"><sup>(3)</sup> Según ficha técnica aportada por el fabricante y/o para unos cálculos realizados según indican los anexos III, V y VI de la ficha RES060 de la Orden TED/845/2023, de 18 de julio.</li>
+                        <li style="margin-top: 4px;">- La duración indicativa de la actuación (Di) es de 15 años según Recomendación (UE) 2019/1658, de la Comisión, de 25 de septiembre, relativa a la transposición de la obligación de ahorro de energía en virtud de la Directiva de eficiencia energética.</li>
+                        <li style="margin-top: 4px;">- Se adjunta anexo al presente certificado las fichas técnicas de los nuevos equipos instalados.</li>
+                    </ul>
+                </div>
                 <div class="footer">PAGE_X_OF_Y</div>
             </div>
         `);
@@ -631,6 +641,91 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, a
                             <tr><td class="lbl">Modelo del marco</td><td class="text-center">Desconocida</td><td class="text-center">${eb('marco_nuevo_modelo')}</td></tr>
                         </table>
                     ` : `<div style="margin-top: 40px; text-align: center; color: #999;">No hay sustitución de ventanas.</div>`}
+                    <div style="margin-top: 15px;"><strong>Observaciones:</strong><div style="margin-top: 5px; font-size: 9pt;">
+                        <div>- La duración indicativa de la actuación (Di) es de 25 años según Recomendación (UE) 2019/1658, de la Comisión, de 25 de septiembre, relativa a la transposición de la obligación de ahorro de energía en virtud de la Directiva de eficiencia energética.</div>
+                        <div style="margin-top: 4px;">- Se adjunta ficha técnica completa del marco y del cristal en anexos.</div>
+                    </div></div>
+                    <div class="footer">PAGE_X_OF_Y</div>
+                </div>
+            `);
+        }
+
+        // PÁGINA: JUSTIFICACIÓN DEL CÁLCULO DE AHORRO (solo si hay datos de results)
+        if (results && results.details) {
+            const d = results.details;
+            const fN = (v, dec = 2) => v !== null && v !== undefined
+                ? Number(v).toLocaleString('es-ES', { minimumFractionDigits: dec, maximumFractionDigits: dec })
+                : '—';
+            const fI = (v) => v !== null && v !== undefined
+                ? Math.round(Number(v)).toLocaleString('es-ES')
+                : '—';
+            const aeTotal = results.ahorroEnergiaFinalTotal || 0;
+            const aeMwh = (aeTotal / 1000).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+            const renderCategory = (label, data) => `
+                <tr style="background: #c8e6c9; font-weight: bold;">
+                    <td style="padding: 5px 6px; border: 1px solid #000;">${label}</td>
+                    <td style="padding: 5px 6px; border: 1px solid #000; text-align: center; font-size: 8pt;">${data.fuelIni || '—'}</td>
+                    <td style="padding: 5px 6px; border: 1px solid #000; text-align: center; font-size: 8pt;">${data.fuelFin || '—'}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 4px 6px; border: 1px solid #000; font-size: 8.5pt;">Factor de paso de la fuente de energía seleccionada</td>
+                    <td style="padding: 4px 6px; border: 1px solid #000; text-align: center; font-size: 8.5pt;">${fN(data.factorIni, 3)}</td>
+                    <td style="padding: 4px 6px; border: 1px solid #000; text-align: center; font-size: 8.5pt;">${fN(data.factorFin, 3)}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 4px 6px; border: 1px solid #000; font-size: 8.5pt;">Emisiones de CO2 ${label.split(' para ')[1]?.toUpperCase() || ''} (kgCO2/m² año)</td>
+                    <td style="padding: 4px 6px; border: 1px solid #000; text-align: center; font-size: 8.5pt;">${fN(data.emissionsIni)}</td>
+                    <td style="padding: 4px 6px; border: 1px solid #000; text-align: center; font-size: 8.5pt;">${fN(data.emissionsFin)}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 4px 6px; border: 1px solid #000; font-size: 8.5pt;">Consumo de energía final para ${label.split(' para ')[1]?.toUpperCase() || ''} (kWh/m² año)</td>
+                    <td style="padding: 4px 6px; border: 1px solid #000; text-align: center; font-size: 8.5pt;">${fN(data.energyIni)}</td>
+                    <td style="padding: 4px 6px; border: 1px solid #000; text-align: center; font-size: 8.5pt;">${fN(data.energyFin)}</td>
+                </tr>`;
+
+            pages.push(`
+                <div class="doc-page">
+                    <div class="doc-header" style="border-bottom: 2px solid #f2a640; padding-bottom: 5px; display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 20px;">
+                        <div style="display: flex; flex-direction: column;">
+                            <div style="font-size: 7pt; font-weight: 900; color: #999; letter-spacing: 1px; text-transform: uppercase; margin-bottom: -2px;">Certificado CAE · RES080</div>
+                            <div style="font-size: 13pt; font-weight: bold; color: #000;">Expte: ${numExpte}</div>
+                        </div>
+                        <img src="/logo_brokergy_doc.png" class="doc-logo">
+                    </div>
+                    <div class="section-title" style="font-size: 11pt; margin-bottom: 12px;">Justificación del cálculo de ahorro de energía inicial y final</div>
+                    <table style="width: 100%; border-collapse: collapse; font-size: 8.5pt; margin-bottom: 16px; table-layout: fixed;">
+                        <colgroup><col style="width: 58%;"><col style="width: 21%;"><col style="width: 21%;"></colgroup>
+                        <thead>
+                            <tr style="background: #000; color: #fff; font-weight: bold; text-transform: uppercase; font-size: 8.5pt;">
+                                <th style="padding: 6px 8px; border: 1px solid #000; text-align: left;">Parámetro Energético</th>
+                                <th style="padding: 6px 8px; border: 1px solid #000; text-align: center;">INICIAL</th>
+                                <th style="padding: 6px 8px; border: 1px solid #000; text-align: center;">FINAL</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${d.acs ? renderCategory('Tipo de combustible para ACS', d.acs) : ''}
+                            ${d.cal ? renderCategory('Tipo de combustible para calefacción', d.cal) : ''}
+                            ${d.ref ? renderCategory('Tipo de combustible para Refrigeración', d.ref) : ''}
+                            <tr style="border-top: 2px solid #000; font-style: italic; font-weight: bold;">
+                                <td style="padding: 5px 6px; border: 1px solid #000; font-size: 8.5pt;">Consumo Total de Energía final (kWh/m² año)</td>
+                                <td style="padding: 5px 6px; border: 1px solid #000; text-align: center;">${fN(results.totalEnergiaInicialM2)}</td>
+                                <td style="padding: 5px 6px; border: 1px solid #000; text-align: center;">${fN(results.totalEnergiaFinalM2)}</td>
+                            </tr>
+                            <tr style="font-style: italic; font-weight: bold;">
+                                <td style="padding: 5px 6px; border: 1px solid #000; font-size: 8.5pt;">Consumo Total de Energía final (kWh/año)</td>
+                                <td style="padding: 5px 6px; border: 1px solid #000; text-align: center;">${fI(results.totalEnergiaInicialAno)}</td>
+                                <td style="padding: 5px 6px; border: 1px solid #000; text-align: center;">${fI(results.totalEnergiaFinalAno)}</td>
+                            </tr>
+                            <tr style="background: #f2a640; color: #000; font-weight: 900;">
+                                <td style="padding: 7px 8px; border: 1px solid #000; font-size: 10pt; text-transform: uppercase; letter-spacing: 0.5px;">Ahorro de Energía Final (MWh/año)</td>
+                                <td colspan="2" style="padding: 7px 8px; border: 1px solid #000; text-align: center; font-size: 14pt;">${aeMwh}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                    <p style="font-size: 8pt; color: #555; font-style: italic; text-align: center; margin-top: 8px;">
+                        Este desglose corresponde a la comparativa técnica entre los certificados energéticos (XML) aportados para la situación inicial y propuesta de reforma.
+                    </p>
                     <div class="footer">PAGE_X_OF_Y</div>
                 </div>
             `);

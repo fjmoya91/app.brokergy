@@ -1,6 +1,7 @@
 import React, { useRef, useState } from 'react';
 import axios from 'axios';
 import { useAuth } from '../../../context/AuthContext';
+import { useModal } from '../../../context/ModalContext';
 import html2canvas from 'html2canvas';
 import { SectionCard, Divider, Input, Label } from './UIComponents';
 import { SummaryTable } from './SummaryTable';
@@ -15,6 +16,7 @@ import { EfficiencyTable } from './EfficiencyTable';
 import realCasesData from '../data/real_cases_db.json';
 import { SubirFotosModal } from './SubirFotosModal';
 import { ErrorBoundary } from '../../../components/ErrorBoundary';
+import { HistorialModal } from '../../../components/HistorialModal';
 
 const formatNumber = (val, decimals = null) => {
     const num = typeof val === 'number' ? val : parseFloat(val);
@@ -233,6 +235,7 @@ function ResultCard({ title, value, unit, subtext, color = 'cyan' }) {
 
 export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAcceptOpportunity }) {
     const { user } = useAuth();
+    const { showAlert } = useModal();
     const [showComparative, setShowComparative] = React.useState(false);
     const [generatingImage, setGeneratingImage] = React.useState(false);
     const [generatedImage, setGeneratedImage] = React.useState(null);
@@ -247,9 +250,7 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
     const [showPdfGuard, setShowPdfGuard] = React.useState(false);
     const [showSubirFotos, setShowSubirFotos] = React.useState(false);
     const [lastSavedSnapshot, setLastSavedSnapshot] = React.useState(null);
-    const [showAddNote, setShowAddNote] = useState(false);
-    const [noteText, setNoteText] = useState('');
-    const [savingNote, setSavingNote] = useState(false);
+    const [showHistorial, setShowHistorial] = useState(false);
     const tableRef = useRef(null);
 
     /** Detección de cambios (Dirty State) para guardar antes de PDF **/
@@ -379,39 +380,6 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
         link.click();
     };
 
-    const handleAddNote = async () => {
-        const id = inputs?.id_oportunidad;
-        console.log('[ResultsPanel] Attempting to save note. ID:', id, 'Text:', noteText);
-
-        if (!noteText.trim()) {
-            alert('Por favor, escribe una nota.');
-            return;
-        }
-
-        if (!id) {
-            console.error('[ResultsPanel] Error: id_oportunidad is missing in inputs:', inputs);
-            alert('Error: No se ha identificado la oportunidad. Asegúrate de que está guardada.');
-            return;
-        }
-
-        setSavingNote(true);
-        try {
-            const res = await axios.post(`/api/oportunidades/${id}/comentarios`, { 
-                comentario: noteText.trim() 
-            });
-            if (res.data.success) {
-                setShowAddNote(false);
-                setNoteText('');
-                alert('Nota añadida correctamente al historial.');
-            }
-        } catch (err) {
-            console.error('[ResultsPanel] Error al añadir nota:', err);
-            const errMsg = err.response?.data?.error || err.message || 'Error desconocido';
-            alert(`Error al guardar la nota: ${errMsg}`);
-        } finally {
-            setSavingNote(false);
-        }
-    };
 
     return (
         <div className="relative h-full">
@@ -456,15 +424,12 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
                                 </button>
                             )}
 
-                            {/* Botón Añadir Nota Directa */}
+                            {/* Botón Historial */}
                             {inputs.id_oportunidad && (
                                 <button
-                                    onClick={() => {
-                                        setNoteText('');
-                                        setShowAddNote(true);
-                                    }}
+                                    onClick={() => setShowHistorial(true)}
                                     className="p-2 ml-1 rounded-full bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 border border-indigo-500/20 transition-all hover:scale-110 active:scale-90 shadow-lg shadow-indigo-500/10 flex items-center justify-center"
-                                    title="Añadir Nota al Historial"
+                                    title="Historial de Estados"
                                 >
                                     <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
@@ -1080,49 +1045,12 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
                     </div>
                 </div>
             )}
-            {/* Modal para Añadir Nota Directa */}
-            {showAddNote && (
-                <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-fade-in">
-                    <div className="bg-bkg-deep border border-indigo-500/30 rounded-3xl w-full max-w-md overflow-hidden shadow-2xl relative" onClick={e => e.stopPropagation()}>
-                        <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-indigo-500 to-purple-600"></div>
-                        <div className="p-6">
-                            <h3 className="text-lg font-black text-white uppercase tracking-tight mb-4 flex items-center gap-2">
-                                <svg className="w-5 h-5 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
-                                </svg>
-                                Añadir Nota Directa
-                            </h3>
-                            <textarea
-                                autoFocus
-                                value={noteText}
-                                onChange={e => setNoteText(e.target.value)}
-                                placeholder="Escribe aquí cualquier observación sobre el cliente o la oportunidad..."
-                                className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 text-white text-sm focus:outline-none focus:border-indigo-500 min-h-[120px] transition-all placeholder:text-white/20"
-                            />
-                            <div className="flex gap-3 mt-6">
-                                <button
-                                    onClick={() => setShowAddNote(false)}
-                                    className="flex-1 py-3 text-white/40 hover:text-white text-xs font-black uppercase tracking-widest transition-all"
-                                >
-                                    Cancelar
-                                </button>
-                                <button
-                                    disabled={savingNote || !noteText.trim()}
-                                    onClick={handleAddNote}
-                                    className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-black uppercase tracking-widest rounded-xl transition-all disabled:opacity-30 shadow-lg shadow-indigo-600/20 flex items-center justify-center gap-2"
-                                >
-                                    {savingNote ? (
-                                        <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
-                                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                        </svg>
-                                    ) : 'Guardar Nota'}
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            )}
+            <HistorialModal
+                isOpen={showHistorial}
+                onClose={() => setShowHistorial(false)}
+                idOportunidad={inputs.id_oportunidad}
+                referenciaCliente={inputs.referenciaCliente}
+            />
         </div>
 
     );

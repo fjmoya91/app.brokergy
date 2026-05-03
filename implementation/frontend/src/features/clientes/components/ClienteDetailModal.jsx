@@ -235,8 +235,7 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
     const [showNotas, setShowNotas] = useState(false);
 
     const filteredPrescriptores = prescriptores.filter(p => {
-        const name = (p.acronimo || p.razon_social || '').toLowerCase();
-        return name.includes(searchTerm.toLowerCase());
+        return normalize(p.acronimo || p.razon_social).includes(normalize(searchTerm));
     });
     const selectedPrescriptor = prescriptores.find(p => p.id_empresa === form.prescriptor_id);
 
@@ -298,6 +297,7 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
             prescriptor_id: cliente.prescriptor_id || '',
             persona_contacto_nombre: cliente.persona_contacto_nombre || '',
             persona_contacto_tlf: cliente.persona_contacto_tlf || '',
+            notificaciones_contacto_activas: !!cliente.notificaciones_contacto_activas,
             notas: cliente.notas || '',
         });
         setShowNotas(!!cliente.notas);
@@ -324,6 +324,7 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
                 ...(isAdmin ? { prescriptor_id: form.prescriptor_id || null } : {}),
                 persona_contacto_nombre: form.persona_contacto_nombre?.trim() || null,
                 persona_contacto_tlf: form.persona_contacto_tlf?.trim() || null,
+                notificaciones_contacto_activas: form.notificaciones_contacto_activas || false,
                 notas: form.notas?.trim() || null,
             };
             const res = await axios.put(`/api/clientes/${cliente.id_cliente}`, payload);
@@ -425,7 +426,17 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
                                     {cliente.numero_cuenta && isAdmin && <FieldView label="Cuenta (IBAN)" value={cliente.numero_cuenta} />}
                                     {cliente.prescriptores?.acronimo && <FieldView label="Prescriptor" value={cliente.prescriptores.acronimo || cliente.prescriptores.razon_social} />}
                                     {cliente.persona_contacto_nombre && <FieldView label="Contacto" value={cliente.persona_contacto_nombre} />}
-                                    {cliente.persona_contacto_tlf && <FieldView label="Tlf. Contacto" value={cliente.persona_contacto_tlf} />}
+                                    {cliente.persona_contacto_tlf && (
+                                        <div>
+                                            <p className="text-[10px] uppercase tracking-widest font-black text-white/30 mb-0.5">Tlf. Contacto</p>
+                                            <div className="flex items-center gap-2">
+                                                <p className="text-sm text-white font-medium">{cliente.persona_contacto_tlf}</p>
+                                                {cliente.notificaciones_contacto_activas && (
+                                                    <span className="text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-md bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">Notif. aquí</span>
+                                                )}
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
 
@@ -598,22 +609,41 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
                                     </label>
 
                                     {(form.showContact || form.persona_contacto_nombre || form.persona_contacto_tlf) && (
-                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 animate-fade-in p-4 bg-white/[0.02] border border-white/[0.05] rounded-xl">
-                                            <FieldInput label="Nombre de Contacto">
-                                                <Input 
-                                                    placeholder="P. EJ. MARÍA (HIJA)" 
-                                                    uppercase
-                                                    value={form.persona_contacto_nombre || ''}
-                                                    onChange={e => updateForm({ persona_contacto_nombre: e.target.value })}
-                                                />
-                                            </FieldInput>
-                                            <FieldInput label="Teléfono de Contacto">
-                                                <Input 
-                                                    placeholder="600 000 000"
-                                                    value={form.persona_contacto_tlf || ''}
-                                                    onChange={e => updateForm({ persona_contacto_tlf: e.target.value })}
-                                                />
-                                            </FieldInput>
+                                        <div className="space-y-3 animate-fade-in p-4 bg-white/[0.02] border border-white/[0.05] rounded-xl">
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                                <FieldInput label="Nombre de Contacto">
+                                                    <Input
+                                                        placeholder="P. EJ. MARÍA (HIJA)"
+                                                        uppercase
+                                                        value={form.persona_contacto_nombre || ''}
+                                                        onChange={e => updateForm({ persona_contacto_nombre: e.target.value })}
+                                                    />
+                                                </FieldInput>
+                                                <FieldInput label="Teléfono de Contacto">
+                                                    <Input
+                                                        placeholder="600 000 000"
+                                                        value={form.persona_contacto_tlf || ''}
+                                                        onChange={e => updateForm({ persona_contacto_tlf: e.target.value })}
+                                                    />
+                                                </FieldInput>
+                                            </div>
+                                            <label className="flex items-center gap-3 cursor-pointer group w-fit">
+                                                <div className="relative flex items-center">
+                                                    <input
+                                                        type="checkbox"
+                                                        className="peer sr-only"
+                                                        checked={!!form.notificaciones_contacto_activas}
+                                                        onChange={e => updateForm({ notificaciones_contacto_activas: e.target.checked })}
+                                                    />
+                                                    <div className="w-8 h-4 bg-white/10 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500"></div>
+                                                </div>
+                                                <span className="text-[10px] font-black uppercase tracking-widest text-white/30 group-hover:text-white/60 transition-colors">
+                                                    Enviar notificaciones WhatsApp a este contacto
+                                                </span>
+                                            </label>
+                                            <p className="text-[10px] text-white/20 italic">
+                                                Si se activa, las notificaciones de WhatsApp se enviarán a este número en lugar del teléfono principal.
+                                            </p>
                                         </div>
                                     )}
                                 </div>

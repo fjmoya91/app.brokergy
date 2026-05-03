@@ -161,6 +161,8 @@ export function SaveOpportunityModal({ isOpen, onClose, onSaveSuccess, onClientL
                 instalador_asociado_id: instaladorId || null,
                 referencia_cliente: referenciaCliente,
                 demanda_calefaccion: result?.q_net || 0,
+                anio: inputs.anio,
+                zona: inputs.zona,
                 cliente_id: inputs.cliente_id || null,
                 datos_calculo: {
                     ...inputs,

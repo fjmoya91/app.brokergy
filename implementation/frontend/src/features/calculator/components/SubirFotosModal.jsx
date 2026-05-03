@@ -79,11 +79,12 @@ export function SubirFotosModal({ isOpen, onClose, inputs, result, onInputChange
                     
                     setPreviews(prev => {
                         const next = { ...prev };
-                        if (!next.caldera_anterior && drivePhotos.FOTO_CALDERA_ANTES) {
+                        const hasValidPreview = (p) => p && isValidImageData(p?.data);
+                        if (!hasValidPreview(next.caldera_anterior) && drivePhotos.FOTO_CALDERA_ANTES) {
                             console.log("[SubirFotosModal] Precargando Caldera desde Drive");
                             next.caldera_anterior = drivePhotos.FOTO_CALDERA_ANTES;
                         }
-                        if (!next.placa_caldera_anterior && drivePhotos.FOTO_PLACA_CALDERA_ANTES) {
+                        if (!hasValidPreview(next.placa_caldera_anterior) && drivePhotos.FOTO_PLACA_CALDERA_ANTES) {
                             console.log("[SubirFotosModal] Precargando Placa desde Drive");
                             next.placa_caldera_anterior = drivePhotos.FOTO_PLACA_CALDERA_ANTES;
                         }

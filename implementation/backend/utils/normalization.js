@@ -5,7 +5,7 @@
  * 2. Si la clave es 'email', pasa a minúsculas.
  * 3. Se eliminan espacios en blanco extra (trim).
  */
-const BLACKLIST = ['id', 'id_oportunidad', 'id_cliente', 'password', 'token', 'reformaType', 'method', 'type', 'icon', 'link', 'url', 'ficha'];
+const BLACKLIST = ['id', 'id_oportunidad', 'id_cliente', 'password', 'token', 'reformaType', 'method', 'type', 'icon', 'link', 'url', 'ficha', 'tipo_emisor', 'metodo_scop', 'rendimiento_id', 'comb_'];
 
 function normalizeData(obj) {
     if (!obj || typeof obj !== 'object') return obj;

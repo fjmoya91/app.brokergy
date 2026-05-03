@@ -340,7 +340,6 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
         provincia_cod: '',
         ccaa: '',
 
-        tipo_emisor: 'suelo_radiante',
         caldera_antigua_cal: { marca: '', modelo: '', numero_serie: '', rendimiento_id: 'default' },
         misma_caldera_acs: true,
         caldera_antigua_acs: { marca: '', modelo: '', numero_serie: '', rendimiento_id: 'default' },
@@ -351,6 +350,8 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
         aerotermia_acs: { aerotermia_db_id: null, marca: '', modelo: '', numero_serie: '', scop: null, metodo_scop: 'ficha' },
         instalador_id: null,
         ...(expediente?.instalacion || {}),
+        // Normalizar a minúsculas por retrocompatibilidad con datos guardados en mayúsculas por normalizeData
+        tipo_emisor: ((expediente?.instalacion?.tipo_emisor) || 'suelo_radiante').toLowerCase(),
         // Si el número de expediente es RES093, forzamos hibridación a true si no viene ya definida
         hibridacion: (expediente?.numero_expediente?.includes('RES093') ? true : (expediente?.instalacion?.hibridacion ?? false))
     }));
@@ -363,13 +364,16 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
     // Sincronizar local cuando cambie el expediente (para resetear al entrar en otro diferente)
     useEffect(() => {
         if (expediente?.id) {
+            const inst = expediente?.instalacion || {};
             setLocal({
                 misma_direccion: true,
                 cambio_acs: true,
                 misma_aerotermia_acs: true,
                 hibridacion: false,
                 potencia_bomba: 0,
-                ...(expediente?.instalacion || {})
+                ...inst,
+                // Normalizar a minúsculas por retrocompatibilidad con datos guardados en mayúsculas
+                tipo_emisor: (inst.tipo_emisor || 'suelo_radiante').toLowerCase(),
             });
         }
     }, [expediente?.id]);

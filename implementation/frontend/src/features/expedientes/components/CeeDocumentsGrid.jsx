@@ -76,7 +76,10 @@ export function CeeDocumentsGrid({
     acsMethod,
     numRooms,
     onManualUpdate,
-    onAutoStatus
+    onAutoStatus,
+    onForceNotify,
+    onNotifyReview,
+    onApproveCee
 }) {
     const { showAlert, showConfirm } = useModal();
     const { user } = useAuth();
@@ -90,8 +93,47 @@ export function CeeDocumentsGrid({
     const [sendingNotify, setSendingNotify] = useState(false);
     const [selectedChannels, setSelectedChannels] = useState(['email', 'whatsapp']);
     const [selectedTargets, setSelectedTargets] = useState(['CLIENTE']);
+    // ── Estado del modal de notificación al certificador ──
+    const [certNotifyModal, setCertNotifyModal] = useState(null); // { section: 'inicial'|'final' }
+    const [certTemplate, setCertTemplate] = useState('standard');
+    const [certChannels, setCertChannels] = useState(['email']);
+    const [sendingCertNotify, setSendingCertNotify] = useState(false);
     
     const numExp = expediente?.numero_expediente || 'S-EXP';
+    const [resendingNotif, setResendingNotif] = useState(null); // 'inicial' | 'final' | null
+
+    const handleResendCeeNotifications = async (section) => {
+        const phase = section === 'final' ? 'final' : 'inicial';
+        const phaseLabel = phase === 'final' ? 'CEE Final' : 'CEE Inicial';
+        const confirmed = await showConfirm(
+            `¿Reenviar las notificaciones de registro del ${phaseLabel} a cliente, admin y partner?`,
+            'Reenviar notificación',
+            'info'
+        );
+        if (!confirmed) return;
+
+        setResendingNotif(section);
+        try {
+            const res = await axios.post(`/api/expedientes/${expediente.id}/resend-cee-notifications`, { phase });
+            const r = res.data || {};
+            if (r.ok) {
+                const wa = r.channels?.whatsapp?.join(', ') || '—';
+                const em = r.channels?.email?.join(', ') || '—';
+                showAlert(
+                    `Notificaciones reenviadas.\nWhatsApp [${wa}] (estado: ${r.whatsappState || '?'})\nEmail [${em}]`,
+                    'Reenvío OK',
+                    'success'
+                );
+            } else {
+                showAlert(`No se pudo completar el reenvío: ${r.reason || 'error desconocido'}`, 'Error', 'error');
+            }
+        } catch (err) {
+            console.error('[resend-cee-notifications]', err);
+            showAlert(err.response?.data?.error || err.message || 'Error de red', 'Error reenviando', 'error');
+        } finally {
+            setResendingNotif(null);
+        }
+    };
 
     const parseXmlForPreview = (file) => {
         return new Promise((resolve) => {
@@ -223,16 +265,21 @@ export function CeeDocumentsGrid({
                 if (slot.id === 'registro') {
                     if (onAutoStatus) {
                         if (section === 'inicial') {
-                            console.log('[AutoStatus] Detectada subida de Registro Inicial. Marcando como REGISTRADO.');
+                            console.log('[AutoStatus] Detectada subida de Registro Inicial. Marcando como REGISTRADO y pasando estado a PTE. FIN OBRA.');
                             onAutoStatus('cee_inicial', 'REGISTRADO');
+                            onAutoStatus('estado', 'PTE. FIN OBRA');
                         } else if (section === 'final') {
                             console.log('[AutoStatus] Detectada subida de Registro Final. Marcando como REGISTRADO.');
                             onAutoStatus('cee_final', 'REGISTRADO');
+                            // Para el final, podríamos pasar a PTE FIRMA ANEXOS si quisiéramos, 
+                            // pero el usuario solo ha pedido explícitamente el cambio de PTE FIN DE OBRA.
                         }
                     }
-                    // Activar el popup de notificación manual (Cliente/Partner)
-                    setNotifyModal({ section, type: section });
-                }
+                    // Activar el popup de notificación manual (Cliente/Partner) solo para ADMIN
+                                    if (user?.rol === 'ADMIN') {
+                                        setNotifyModal({ section, type: section });
+                                    }
+                                }
 
 
 
@@ -344,9 +391,99 @@ export function CeeDocumentsGrid({
                             {/* 1. Título y XML */}
                             <div className="flex items-center gap-6 min-w-[320px]">
                                 <div className="flex flex-col">
-                                    <h4 className="text-[14px] font-black uppercase text-white tracking-[0.2em] leading-tight mb-2">
-                                        CEE {section === 'inicial' ? 'Inicial' : 'Final'}
-                                    </h4>
+                                    <div className="flex items-center gap-3 mb-2">
+                                        <h4 className="text-[14px] font-black uppercase text-white tracking-[0.2em] leading-tight">
+                                            CEE {section === 'inicial' ? 'Inicial' : 'Final'}
+                                        </h4>
+                                        {(() => {
+                                            const estado = expediente?.cee?.estado || '';
+                                            const phaseLabel = section === 'inicial' ? 'INICIAL' : 'FINAL';
+                                            const isPendingReview = estado.includes(`PENDIENTE REVISIÓN (${phaseLabel})`);
+
+                                            const isAdmin = (user?.rol || '').toUpperCase() === 'ADMIN' || (user?.rol_nombre || '').toUpperCase() === 'ADMIN' || Number(user?.id_rol) === 1;
+                                            const isCertificador = (user?.rol || '').toUpperCase() === 'CERTIFICADOR' || (user?.rol_nombre || '').toUpperCase() === 'CERTIFICADOR' || Number(user?.id_rol) === 4;
+                                            const seguimientoKey = section === 'final' ? 'cee_final' : 'cee_inicial';
+                                            const isRegistrado = expediente?.seguimiento?.[seguimientoKey] === 'REGISTRADO';
+                                            const isResending = resendingNotif === section;
+
+                                            const resendBtn = isRegistrado ? (
+                                                <button
+                                                    key="resend"
+                                                    title={`Reenviar notificación de ${section === 'inicial' ? 'CEE Inicial' : 'CEE Final'} registrado a cliente/partner/admin`}
+                                                    disabled={isResending}
+                                                    onClick={() => handleResendCeeNotifications(section)}
+                                                    className="w-7 h-7 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 hover:bg-emerald-500/20 hover:border-emerald-500/40 transition-all active:scale-95 disabled:opacity-50"
+                                                >
+                                                    {isResending ? (
+                                                        <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                                                    ) : (
+                                                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                                                    )}
+                                                </button>
+                                            ) : null;
+
+                                            if (isAdmin) {
+                                                if (isPendingReview && onApproveCee) {
+                                                    return (
+                                                        <>
+                                                            <button
+                                                                title="Validar y Autorizar Presentación"
+                                                                onClick={() => onApproveCee(section)}
+                                                                className="w-7 h-7 rounded-lg bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 hover:bg-emerald-500 hover:text-white transition-all shadow-[0_0_10px_rgba(16,185,129,0.3)] active:scale-95"
+                                                            >
+                                                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>
+                                                            </button>
+                                                            {resendBtn}
+                                                        </>
+                                                    );
+                                                }
+                                                return (
+                                                    <>
+                                                        <button
+                                                            title={`Notificar certificador (${section === 'inicial' ? 'CEE Inicial' : 'CEE Final'})`}
+                                                            onClick={() => {
+                                                                setCertTemplate('standard');
+                                                                setCertChannels(['email']);
+                                                                setCertNotifyModal({ section });
+                                                            }}
+                                                            className="w-7 h-7 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center text-white/40 hover:bg-brand/20 hover:text-brand hover:border-brand/40 transition-all active:scale-95"
+                                                        >
+                                                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                                                            </svg>
+                                                        </button>
+                                                        {resendBtn}
+                                                    </>
+                                                );
+                                            } else if (isCertificador) {
+                                                if (isPendingReview) {
+                                                    return (
+                                                        <div title="Pendiente de revisión por Brokergy" className="w-7 h-7 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center text-brand/60 cursor-help">
+                                                            <svg className="w-4 h-4 animate-[spin_3s_linear_infinite]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                                        </div>
+                                                    );
+                                                }
+                                                return (
+                                                    <button 
+                                                        title="Notificar CEE Realizado (Solicitar Revisión)"
+                                                        onClick={() => {
+                                                            if (!ceeFiles?.[section]?.cex && !ceeFiles?.[section]?.xml) {
+                                                                showAlert('Debes subir el archivo .CEX (o .XML) antes de solicitar la revisión.', 'Archivo Faltante', 'warning');
+                                                                return;
+                                                            }
+                                                            if (onNotifyReview) onNotifyReview(section);
+                                                        }}
+                                                        className="w-7 h-7 rounded-lg bg-brand/10 border border-brand/20 flex items-center justify-center text-brand/80 hover:bg-brand hover:text-black transition-all shadow-[0_0_10px_rgba(238,143,31,0.2)] active:scale-95"
+                                                    >
+                                                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                                                        </svg>
+                                                    </button>
+                                                );
+                                            }
+                                            return null;
+                                        })()}
+                                    </div>
                                     <p className="text-[9px] text-white/20 font-bold uppercase tracking-widest leading-none">
                                         Gestión técnica del activo
                                     </p>
@@ -699,6 +836,161 @@ export function CeeDocumentsGrid({
                                 </button>
                             </div>
                         </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ── Modal de Notificación al Certificador ───────────────────────── */}
+            {certNotifyModal && (
+                <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/70 backdrop-blur-sm animate-fade-in" onClick={() => { if (!sendingCertNotify) setCertNotifyModal(null); }}>
+                    <div className="bg-bkg-deep border border-white/10 rounded-2xl p-6 max-w-md w-full mx-4 shadow-2xl" onClick={e => e.stopPropagation()}>
+                        <div className="flex items-center gap-3 mb-5">
+                            <div className="w-10 h-10 rounded-full bg-brand/20 flex items-center justify-center">
+                                <svg className="w-5 h-5 text-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                                </svg>
+                            </div>
+                            <div>
+                                <h4 className="text-sm font-black text-white uppercase tracking-widest">Notificar Certificador</h4>
+                                <p className="text-[10px] text-white/40">
+                                    CEE {certNotifyModal.section === 'inicial' ? 'Inicial' : 'Final'} · Expediente <span className="text-brand font-bold">{numExp}</span>
+                                </p>
+                            </div>
+                        </div>
+
+                        {/* Selector de Plantilla */}
+                        <p className="text-[9px] font-black text-white/30 uppercase tracking-widest mb-2">Tipo de mensaje</p>
+                        <div className="flex gap-2 mb-5">
+                            {[
+                                { id: 'standard', icon: '📋', label: 'Encargo', color: 'brand' },
+                                { id: 'reminder', icon: '⏰', label: 'Recordatorio', color: 'blue-400' },
+                                { id: 'urgent', icon: '⚠️', label: 'Urgente', color: 'red-400' },
+                            ].map(t => (
+                                <button
+                                    key={t.id}
+                                    onClick={() => setCertTemplate(t.id)}
+                                    className={`flex-1 flex flex-col items-center gap-1.5 py-3 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all border ${
+                                        certTemplate === t.id
+                                            ? t.id === 'urgent' 
+                                                ? 'bg-red-500/10 border-red-500/30 text-red-400'
+                                                : t.id === 'reminder'
+                                                    ? 'bg-blue-500/10 border-blue-500/30 text-blue-400'
+                                                    : 'bg-brand/10 border-brand/30 text-brand'
+                                            : 'border-white/5 text-white/20 hover:text-white/40'
+                                    }`}
+                                >
+                                    <span className="text-base">{t.icon}</span>
+                                    {t.label}
+                                </button>
+                            ))}
+                        </div>
+
+                        {/* Selector de Canal */}
+                        <p className="text-[9px] font-black text-white/30 uppercase tracking-widest mb-2">Canales</p>
+                        <div className="flex gap-2 mb-5">
+                            {[
+                                { id: 'email', label: 'Email', icon: '✉️' },
+                                { id: 'whatsapp', label: 'WhatsApp', icon: '💬' }
+                            ].map(ch => (
+                                <button
+                                    key={ch.id}
+                                    onClick={() => {
+                                        setCertChannels(prev => 
+                                            prev.includes(ch.id)
+                                                ? prev.filter(c => c !== ch.id)
+                                                : [...prev, ch.id]
+                                        );
+                                    }}
+                                    className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all border ${
+                                        certChannels.includes(ch.id)
+                                            ? ch.id === 'whatsapp'
+                                                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                                                : 'bg-brand/10 border-brand/30 text-brand'
+                                            : 'border-white/5 text-white/20 hover:text-white/40'
+                                    }`}
+                                >
+                                    <span>{ch.icon}</span> {ch.label}
+                                </button>
+                            ))}
+                        </div>
+
+                        {/* Vista previa del tono */}
+                        <div className={`p-3 rounded-xl border mb-5 text-[11px] leading-relaxed ${
+                            certTemplate === 'urgent' ? 'bg-red-500/5 border-red-500/20 text-red-300/70' :
+                            certTemplate === 'reminder' ? 'bg-blue-500/5 border-blue-500/20 text-blue-300/70' :
+                            'bg-white/[0.02] border-white/5 text-white/40'
+                        }`}>
+                            {certTemplate === 'urgent' && (
+                                <p>⚠️ <strong>Aviso urgente</strong>: Se enviará un mensaje indicando que el CEE se necesita con carácter prioritario para cumplir plazos.</p>
+                            )}
+                            {certTemplate === 'reminder' && (
+                                <p>⏰ <strong>Recordatorio amable</strong>: Se enviará un mensaje preguntando por el estado y pidiendo estimación de fecha de entrega.</p>
+                            )}
+                            {certTemplate === 'standard' && certNotifyModal.section === 'final' && (
+                                <p>📋 <strong>Encargo Final</strong>: Se notificará al técnico que ya puede presentar el CEE Final con la documentación disponible en la carpeta compartida.</p>
+                            )}
+                            {certTemplate === 'standard' && certNotifyModal.section === 'inicial' && (
+                                <p>📋 <strong>Encargo Inicial</strong>: Se notificará al técnico la asignación del expediente con los datos del cliente y las directrices técnicas.</p>
+                            )}
+                        </div>
+
+                        {/* Botón Enviar */}
+                        <button
+                            disabled={sendingCertNotify || certChannels.length === 0}
+                            onClick={async () => {
+                                // Validación pre-vuelo para CEE Final
+                                if (certNotifyModal.section === 'final' && certTemplate === 'standard') {
+                                    const missingDocs = [];
+                                    if (!ceeFiles?.inicial?.registro) missingDocs.push('Registro CEE Inicial');
+                                    if (!ceeFiles?.inicial?.pdf) missingDocs.push('PDF Firmado CEE Inicial');
+                                    
+                                    if (missingDocs.length > 0) {
+                                        const proceed = await showConfirm(
+                                            `No se han detectado los siguientes documentos:\n\n• ${missingDocs.join('\n• ')}\n\n¿Deseas notificar al certificador de todas formas?`,
+                                            'Documentación Incompleta',
+                                            'warning'
+                                        );
+                                        if (!proceed) return;
+                                    }
+                                }
+
+                                setSendingCertNotify(true);
+                                try {
+                                    const phase = certNotifyModal.section === 'final' ? 'final' : 'initial';
+                                    await onForceNotify(phase, certChannels, certTemplate);
+                                    setCertNotifyModal(null);
+                                } catch (err) {
+                                    console.error('Error notifying cert:', err);
+                                } finally {
+                                    setSendingCertNotify(false);
+                                }
+                            }}
+                            className={`w-full py-4 rounded-2xl text-[11px] font-black uppercase tracking-[0.2em] transition-all shadow-xl flex items-center justify-center gap-3 ${
+                                certChannels.length === 0
+                                    ? 'bg-white/5 text-white/20 cursor-not-allowed'
+                                    : certTemplate === 'urgent'
+                                        ? 'bg-red-500 text-white hover:scale-[1.02] shadow-red-500/20'
+                                        : 'bg-brand text-bkg-deep hover:scale-[1.02] shadow-brand/20'
+                            }`}
+                        >
+                            {sendingCertNotify ? (
+                                <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+                            ) : (
+                                <>
+                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                                    </svg>
+                                    {certChannels.length === 0 ? 'Selecciona un canal' : `Enviar ${certChannels.map(c => c === 'email' ? 'Email' : 'WhatsApp').join(' + ')}`}
+                                </>
+                            )}
+                        </button>
+                        <button
+                            onClick={() => setCertNotifyModal(null)}
+                            disabled={sendingCertNotify}
+                            className="w-full py-3 text-white/30 text-[10px] font-black uppercase tracking-[0.2em] hover:text-white transition-all mt-2"
+                        >
+                            Cancelar
+                        </button>
                     </div>
                 </div>
             )}

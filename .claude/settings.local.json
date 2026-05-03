@@ -1,7 +1,31 @@
 {
   "permissions": {
     "allow": [
-      "mcp__Claude_Preview__preview_start"
+      "mcp__Claude_Preview__preview_start",
+      "Bash(node --check src/features/calculator/components/ProposalModal.jsx)",
+      "Bash(git add:*)",
+      "Bash(git commit -m 'docs: update CLAUDE.md with WhatsApp implementation details and reposition sidebar button:*)",
+      "Bash(grep -n \"exp=\\\\${expedienteId}\\\\|\\\\/\\\\?exp=\" \"C:/Proyectos/app.brokergy/implementation/backend/services/emailService.js\")",
+      "Bash(npx vite *)",
+      "mcp__4d48e865-7489-4de9-9364-24a2dc88fab9__list_projects",
+      "mcp__4d48e865-7489-4de9-9364-24a2dc88fab9__list_tables",
+      "Bash(npm view *)",
+      "Bash(npm install *)",
+      "Bash(npm list *)",
+      "Bash(node -e \"const { Client, LocalAuth, MessageMedia } = require\\('whatsapp-web.js'\\); console.log\\('Client:', typeof Client\\); console.log\\('LocalAuth:', typeof LocalAuth\\); console.log\\('MessageMedia:', typeof MessageMedia\\); console.log\\('MessageMedia.fromUrl:', typeof MessageMedia.fromUrl\\);\")",
+      "Bash(tasklist)",
+      "Bash(node -c services/whatsappService.js)",
+      "Bash(node -c implementation/backend/services/whatsappService.js)",
+      "Bash(node -c implementation/backend/utils/normalization.js)",
+      "Bash(node -c implementation/backend/routes/whatsapp.js)",
+      "Bash(node -c implementation/backend/routes/expedientes.js)",
+      "Bash(curl -s -o /dev/null -w \"Backend HTTP status: %{http_code}\\\\n\" http://localhost:3000/api/whatsapp/status)",
+      "Bash(curl -s http://localhost:3000/api/whatsapp/status)",
+      "Bash(netstat -ano)",
+      "Bash(wmic process *)",
+      "PowerShell(Get-CimInstance Win32_Process -Filter \"ProcessId=40244\")",
+      "Bash(curl -s -m 3 http://localhost:3000/api/whatsapp/status)",
+      "Bash(echo \"Exit code: $?\")"
     ]
   }
 }

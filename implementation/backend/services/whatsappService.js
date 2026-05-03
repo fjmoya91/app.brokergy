@@ -19,6 +19,15 @@ const supabase = require('./supabaseClient');
 
 const SESSION_ROOT = path.join(__dirname, '..', '.wwebjs_auth');
 
+// Versión de whatsapp-web.js usada para crear la sesión actual.
+// Si cambia entre arranques, la sesión vieja se borra automáticamente
+// porque versiones nuevas suelen incluir un "WhatsApp Web Version" pinned
+// distinto e incompatible con la sesión guardada en Chrome.
+const WWEB_VERSION = (() => {
+    try { return require('whatsapp-web.js/package.json').version; }
+    catch (_) { return 'unknown'; }
+})();
+
 // Configuración por ENV (con defaults conservadores)
 const CONFIG = {
     enabled: process.env.WHATSAPP_ENABLED === 'true',
@@ -38,6 +47,11 @@ let lastQr = null;
 let lastQrAt = null;
 let meInfo = null;
 let lastError = null;
+let initTimeoutHandle = null; // timeout para evitar INITIALIZING infinito
+
+// Timestamp del arranque del módulo: sirve para detectar fácilmente si el
+// backend está ejecutando código stale (no reiniciado tras un edit).
+const SERVICE_START_TIME = new Date().toISOString();
 
 // Rate limit (en memoria, se resetea con el servidor pero es aceptable)
 const sentTimestamps = [];
@@ -281,17 +295,23 @@ const LINUX_ARGS = [
 ];
 
 async function resolveChromium() {
+    // 1. Override explícito por env (recomendado en VPS)
     if (process.env.PUPPETEER_EXECUTABLE_PATH) {
-        console.log('[wwa] Chrome desde env:', process.env.PUPPETEER_EXECUTABLE_PATH);
-        return { executablePath: process.env.PUPPETEER_EXECUTABLE_PATH, args: LINUX_ARGS };
+        const p = process.env.PUPPETEER_EXECUTABLE_PATH;
+        if (!fs.existsSync(p)) {
+            throw new Error(`PUPPETEER_EXECUTABLE_PATH apunta a ${p} pero no existe.`);
+        }
+        console.log('[wwa] Chrome desde env:', p);
+        return { executablePath: p, args: process.platform === 'win32' ? [] : LINUX_ARGS };
     }
 
-    // Windows: buscar Chrome instalado
+    // 2. Windows: buscar Chrome instalado
     if (process.platform === 'win32') {
         const winPaths = [
             'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
             'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
-            process.env.LOCALAPPDATA + '\\Google\\Chrome\\Application\\chrome.exe',
+            process.env.LOCALAPPDATA && (process.env.LOCALAPPDATA + '\\Google\\Chrome\\Application\\chrome.exe'),
+            'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
         ].filter(Boolean);
         for (const p of winPaths) {
             if (fs.existsSync(p)) {
@@ -299,19 +319,37 @@ async function resolveChromium() {
                 return { executablePath: p, args: [] };
             }
         }
-        console.warn('[wwa] Chrome no encontrado en Windows. Instala Google Chrome.');
-        return { executablePath: '', args: [] };
+        throw new Error('Chrome no encontrado en Windows. Instala Google Chrome o define PUPPETEER_EXECUTABLE_PATH.');
     }
 
-    // Linux: intentar @sparticuz/chromium (entornos containerizados)
+    // 3. Linux: probar paths comunes de VPS antes de @sparticuz/chromium
+    //    @sparticuz/chromium está pensado para AWS Lambda — pesa cada init
+    //    porque descomprime el binario; un Chromium nativo del VPS es más rápido.
+    const linuxPaths = [
+        '/usr/bin/chromium-browser',     // Debian/Ubuntu
+        '/usr/bin/chromium',             // Arch, algunas distros
+        '/usr/bin/google-chrome-stable', // Google Chrome
+        '/usr/bin/google-chrome',
+        '/snap/bin/chromium',            // snap
+    ];
+    for (const p of linuxPaths) {
+        if (fs.existsSync(p)) {
+            console.log('[wwa] Chromium detectado en Linux:', p);
+            return { executablePath: p, args: LINUX_ARGS };
+        }
+    }
+
+    // 4. Fallback: @sparticuz/chromium (binary bundleado, p. ej. para Lambda)
     try {
         const sparticuz = require('@sparticuz/chromium');
         const executablePath = await sparticuz.executablePath();
+        if (!fs.existsSync(executablePath)) {
+            throw new Error(`@sparticuz/chromium no extrajo binario en ${executablePath}`);
+        }
         console.log('[wwa] Chrome via @sparticuz/chromium:', executablePath);
         return { executablePath, args: [...sparticuz.args, ...LINUX_ARGS] };
     } catch (e) {
-        console.warn('[wwa] @sparticuz/chromium no disponible:', e.message);
-        return { executablePath: '/usr/bin/chromium-browser', args: LINUX_ARGS };
+        throw new Error(`No se encontró Chromium. Instala con: apt-get install -y chromium-browser. Detalle: ${e.message}`);
     }
 }
 
@@ -331,9 +369,30 @@ async function init() {
 
     ensureSessionDir();
 
+    const sessionDir = path.join(SESSION_ROOT, `session-${CONFIG.clientId}`);
+    const versionStampPath = path.join(SESSION_ROOT, `.wweb-version-${CONFIG.clientId}`);
+
+    // Auto-recuperación: si la versión de whatsapp-web.js que creó la sesión
+    // es distinta a la actual, borramos sesión y caché para forzar QR fresco.
+    // Esto evita el "stuck en INITIALIZING" tras actualizar la librería.
+    let storedVersion = null;
+    try { storedVersion = fs.readFileSync(versionStampPath, 'utf8').trim(); } catch (_) {}
+
+    if (fs.existsSync(sessionDir) && storedVersion && storedVersion !== WWEB_VERSION) {
+        console.warn(`[wwa] Versión de lib cambió (${storedVersion} → ${WWEB_VERSION}). Borrando sesión incompatible.`);
+        try { fs.rmSync(sessionDir, { recursive: true, force: true }); } catch (e) { console.error('[wwa] No se pudo borrar sesión vieja:', e.message); }
+        const cacheDir = path.join(__dirname, '..', '.wwebjs_cache');
+        try { fs.rmSync(cacheDir, { recursive: true, force: true }); } catch (_) {}
+    }
+
+    // Guardar la versión actual para el próximo arranque (también si es la primera vez)
+    try {
+        if (!fs.existsSync(SESSION_ROOT)) fs.mkdirSync(SESSION_ROOT, { recursive: true });
+        fs.writeFileSync(versionStampPath, WWEB_VERSION, 'utf8');
+    } catch (e) { console.warn('[wwa] No se pudo escribir version stamp:', e.message); }
+
     // Eliminar locks de Chrome — usar unlinkSync directo porque existsSync devuelve
     // false en symlinks rotos (SingletonLock es un symlink al contenedor anterior)
-    const sessionDir = path.join(SESSION_ROOT, `session-${CONFIG.clientId}`);
     ['SingletonLock', 'SingletonCookie', 'SingletonSocket'].forEach(f => {
         try {
             fs.unlinkSync(path.join(sessionDir, f));
@@ -348,7 +407,40 @@ async function init() {
     state = 'INITIALIZING';
     lastError = null;
 
-    const { executablePath, args: chromiumArgs } = await resolveChromium();
+    // Timeout de seguridad: si tras 90s no hay ningún evento (qr/ready/auth_failure),
+    // probablemente Chrome cargó una sesión corrupta o se bloqueó sin disparar eventos.
+    // Reseteamos a DISCONNECTED para que el panel muestre el botón "Conectar" de nuevo.
+    if (initTimeoutHandle) clearTimeout(initTimeoutHandle);
+    initTimeoutHandle = setTimeout(() => {
+        if (state === 'INITIALIZING') {
+            console.error('[wwa] Timeout de inicialización (90s). Sesión posiblemente corrupta. Usa "Cerrar sesión" y reconecta.');
+            lastError = 'Timeout (90s): sesión expirada o Chrome bloqueado. Haz "Cerrar sesión" y reconecta.';
+            try { if (client) client.destroy().catch(() => {}); } catch (_) {}
+            client = null;
+            state = 'DISCONNECTED';
+            initTimeoutHandle = null;
+        }
+    }, 90_000);
+
+    const clearInitTimeout = () => {
+        if (initTimeoutHandle) {
+            clearTimeout(initTimeoutHandle);
+            initTimeoutHandle = null;
+        }
+    };
+
+    let executablePath, chromiumArgs;
+    try {
+        const resolved = await resolveChromium();
+        executablePath = resolved.executablePath;
+        chromiumArgs = resolved.args;
+    } catch (err) {
+        clearInitTimeout();
+        console.error('[wwa] Error resolviendo Chrome:', err.message);
+        lastError = err.message;
+        state = 'DISCONNECTED';
+        return { ok: false, error: err.message };
+    }
     console.log('[wwa] Lanzando Chrome desde:', executablePath);
 
     client = new Client({
@@ -371,6 +463,7 @@ async function init() {
     });
 
     client.on('qr', (qr) => {
+        clearInitTimeout();
         lastQr = qr;
         lastQrAt = Date.now();
         state = 'QR';
@@ -378,18 +471,21 @@ async function init() {
     });
 
     client.on('authenticated', () => {
+        clearInitTimeout();
         state = 'AUTHENTICATED';
         lastQr = null;
         console.log('[wwa] Autenticado.');
     });
 
     client.on('auth_failure', (msg) => {
+        clearInitTimeout();
         state = 'AUTH_FAILED';
         lastError = `auth_failure: ${msg}`;
         console.error('[wwa] Fallo de autenticación:', msg);
     });
 
     client.on('ready', async () => {
+        clearInitTimeout();
         state = 'READY';
         try {
             const info = client.info || {};
@@ -410,6 +506,7 @@ async function init() {
     });
 
     client.on('disconnected', (reason) => {
+        clearInitTimeout();
         console.warn('[wwa] Desconectado:', reason);
         state = 'DISCONNECTED';
         lastError = `disconnected: ${reason}`;
@@ -417,9 +514,18 @@ async function init() {
     });
 
     try {
-        client.initialize();
+        // initialize() es async fire-and-forget; capturamos su rechazo
+        // para que el estado no quede pillado en INITIALIZING si Chrome falla.
+        client.initialize().catch(err => {
+            clearInitTimeout();
+            console.error('[wwa] Error lanzando Chrome:', err.message);
+            lastError = err.message;
+            state = 'DISCONNECTED';
+            client = null;
+        });
         return { ok: true, state };
     } catch (err) {
+        clearInitTimeout();
         lastError = err.message;
         state = 'DISCONNECTED';
         client = null;
@@ -433,15 +539,25 @@ async function init() {
  * Usar para paradas temporales o cuando el servicio debe reiniciarse.
  */
 async function disconnect() {
-    if (!client) return { ok: true, already: true };
+    if (!client) {
+        // Cliente ya destruido pero puede haber timeout pendiente
+        if (initTimeoutHandle) { clearTimeout(initTimeoutHandle); initTimeoutHandle = null; }
+        state = 'DISCONNECTED';
+        return { ok: true, already: true };
+    }
 
     if (pollTimer) {
         clearInterval(pollTimer);
         pollTimer = null;
     }
+    if (initTimeoutHandle) { clearTimeout(initTimeoutHandle); initTimeoutHandle = null; }
 
+    // Timeout: si destroy() se cuelga (Chrome bloqueado), abortamos en 8s
     try {
-        await client.destroy();
+        await Promise.race([
+            client.destroy(),
+            new Promise(r => setTimeout(r, 8000)),
+        ]);
     } catch (_) { /* noop */ }
     client = null;
     state = 'DISCONNECTED';
@@ -460,24 +576,35 @@ async function logout() {
         clearInterval(pollTimer);
         pollTimer = null;
     }
+    if (initTimeoutHandle) { clearTimeout(initTimeoutHandle); initTimeoutHandle = null; }
 
     if (client) {
+        // Timeout en logout/destroy para evitar colgarse si Chrome está bloqueado
         try {
-            await client.logout();
+            await Promise.race([
+                client.logout(),
+                new Promise(r => setTimeout(r, 8000)),
+            ]);
         } catch (e) {
             console.warn('[wwa] logout warning:', e.message);
         }
         try {
-            await client.destroy();
+            await Promise.race([
+                client.destroy(),
+                new Promise(r => setTimeout(r, 8000)),
+            ]);
         } catch (_) { /* noop */ }
         client = null;
-    } else {
-        // Cliente ya destruido pero sesión todavía en disco → borrar manualmente
-        const sessionDir = path.join(SESSION_ROOT, `session-${CONFIG.clientId}`);
-        try {
-            fs.rmSync(sessionDir, { recursive: true, force: true });
-            console.log('[wwa] Sesión borrada manualmente del volumen.');
-        } catch (_) { /* noop */ }
+    }
+
+    // Borrar sesión del disco SIEMPRE en logout (independientemente de si el
+    // cliente respondió). Garantiza que próxima conexión empiece limpia.
+    const sessionDir = path.join(SESSION_ROOT, `session-${CONFIG.clientId}`);
+    try {
+        fs.rmSync(sessionDir, { recursive: true, force: true });
+        console.log('[wwa] Sesión borrada del volumen.');
+    } catch (e) {
+        console.warn('[wwa] No se pudo borrar sesión del volumen:', e.message);
     }
 
     state = 'DISCONNECTED';
@@ -489,6 +616,7 @@ async function logout() {
 // ─── API pública ──────────────────────────────────────────────────────────────
 
 function getStatus() {
+    pruneRateWindow();
     return {
         enabled: CONFIG.enabled,
         state,
@@ -497,6 +625,9 @@ function getStatus() {
         hasQr: !!lastQr,
         qrAgeMs: lastQrAt ? Date.now() - lastQrAt : null,
         lastError,
+        sentInWindow: sentTimestamps.length,
+        serviceStartTime: SERVICE_START_TIME,
+        wwebVersion: WWEB_VERSION,
         config: {
             clientId: CONFIG.clientId,
             minDelayMs: CONFIG.minDelayMs,

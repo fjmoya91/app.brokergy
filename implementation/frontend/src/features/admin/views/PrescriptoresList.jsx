@@ -92,13 +92,13 @@ export function PrescriptoresList() {
     const [searchCIF, setSearchCIF] = useState('');
     const [filterTipo, setFilterTipo] = useState('TODO'); // 'TODO', 'DISTRIBUIDOR', 'INSTALADOR', 'CERTIFICADOR'
 
+    const norm = s => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
     const filteredPrescriptores = prescriptores.filter(p => {
         // No mostrar al propio distribuidor en la lista si es el rol actual
         if (user?.rol?.toUpperCase() === 'DISTRIBUIDOR' && p.id_empresa === user?.prescriptor_id) return false;
 
-        const displayName = (p.acronimo || p.razon_social || '').toLowerCase();
-        const matchesName = displayName.includes(searchTerm.toLowerCase());
-        const matchesCIF = (p.cif || '').toLowerCase().includes(searchCIF.toLowerCase());
+        const matchesName = norm(p.acronimo || p.razon_social).includes(norm(searchTerm));
+        const matchesCIF = norm(p.cif).includes(norm(searchCIF));
         const matchesTipo = filterTipo === 'TODO' || p.tipo_empresa === filterTipo;
         return matchesName && matchesCIF && matchesTipo;
     });

@@ -84,16 +84,17 @@ export function ClientesView({
     };
 
     // Filtrado
+    const norm = s => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
     const filtered = clientes.filter(c => {
         if (!searchTerm.trim()) return true;
-        const term = searchTerm.toLowerCase();
+        const term = norm(searchTerm);
         return (
-            c.nombre_razon_social?.toLowerCase().includes(term) ||
-            c.apellidos?.toLowerCase().includes(term) ||
-            c.email?.toLowerCase().includes(term) ||
-            c.dni?.toLowerCase().includes(term) ||
-            c.tlf?.includes(term) ||
-            c.municipio?.toLowerCase().includes(term)
+            norm(c.nombre_razon_social).includes(term) ||
+            norm(c.apellidos).includes(term) ||
+            norm(c.email).includes(term) ||
+            norm(c.dni).includes(term) ||
+            (c.tlf || '').includes(term) ||
+            norm(c.municipio).includes(term)
         );
     });
 

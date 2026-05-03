@@ -26,6 +26,11 @@ CREATE TABLE IF NOT EXISTS whatsapp_queue (
 
 -- Índice para consultas de mensajes pendientes ordenados por creación
 CREATE INDEX IF NOT EXISTS idx_whatsapp_queue_status ON whatsapp_queue(status, created_at ASC);
+
+-- Habilitar RLS: sin políticas = acceso denegado para anon/authenticated.
+-- El backend usa service_role_key, que bypasea RLS automáticamente.
+ALTER TABLE whatsapp_queue ENABLE ROW LEVEL SECURITY;
+ALTER TABLE whatsapp_queue FORCE ROW LEVEL SECURITY;
 `;
 
 async function main() {

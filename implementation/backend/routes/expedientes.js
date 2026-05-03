@@ -6,6 +6,167 @@ const { enforceAuth, adminOnly } = require('../middleware/auth');
 const { getCoordinatesByRC } = require('../services/catastroService');
 const { normalizeData } = require('../utils/normalization');
 const emailService = require('../services/emailService');
+const whatsappService = require('../services/whatsappService');
+
+
+// ─── Helpers de notificación CEE registrado ───────────────────────────────────
+// Extraídos de los IIFE async dentro de PUT /:id para que también se puedan
+// re-disparar manualmente desde POST /:id/resend-cee-notifications.
+
+async function loadNotificationContext(expediente) {
+    const [{ data: cli }, { data: op }] = await Promise.all([
+        supabase.from('clientes').select('*').eq('id_cliente', expediente.cliente_id).single(),
+        supabase.from('oportunidades').select('*').eq('id', expediente.oportunidad_id).single()
+    ]);
+
+    let techName = 'Técnico no asignado';
+    const certId = expediente.cee?.certificador_id;
+    if (certId) {
+        const { data: certData } = await supabase.from('prescriptores').select('razon_social').eq('id_empresa', certId).maybeSingle();
+        if (certData?.razon_social) techName = certData.razon_social;
+    }
+
+    let partnerPhone = null;
+    let partnerEmail = null;
+    if (op?.prescriptor_id && String(op.prescriptor_id) !== '1') {
+        const { data: pData } = await supabase.from('prescriptores').select('telefono, email').eq('id_empresa', op.prescriptor_id).maybeSingle();
+        if (pData) {
+            partnerPhone = pData.telefono;
+            partnerEmail = pData.email;
+        }
+    }
+
+    return { cli, op, techName, partnerPhone, partnerEmail };
+}
+
+async function notifyCeeInicialRegistrado(expediente) {
+    const tag = `[CEE-INICIAL ${expediente.id}]`;
+    try {
+        const { cli, op, techName, partnerPhone, partnerEmail } = await loadNotificationContext(expediente);
+        if (!cli) {
+            console.warn(`${tag} cliente_id=${expediente.cliente_id} no encontrado, abortando notificaciones`);
+            return { ok: false, reason: 'cliente-not-found' };
+        }
+
+        const numExp = expediente.numero_expediente || op?.id_oportunidad || expediente.id;
+        const clienteName = (cli.nombre_razon_social || 'Cliente').trim();
+        const clienteFull = `${cli.nombre_razon_social || ''} ${cli.apellidos || ''}`.trim();
+        const ubicacion = `${cli.direccion || ''} - ${cli.codigo_postal || ''} ${cli.municipio || ''} (${cli.provincia || ''})`;
+        const portalLink = `https://app.brokergy.es/firma/${op?.id || expediente.id}`;
+        const expedienteLink = `https://app.brokergy.es/expedientes/${expediente.id}`;
+
+        const waState = whatsappService.getStatus?.()?.state || 'unknown';
+        const cliPhone = (cli.notificaciones_contacto_activas && cli.persona_contacto_tlf) ? cli.persona_contacto_tlf : cli.tlf;
+        console.log(`${tag} Disparando notificaciones (whatsappState=${waState}, cliente=${cliPhone || 'sin tlf'}, partner=${partnerPhone || 'sin partner'})`);
+
+        const channels = { whatsapp: [], email: [] };
+
+        // --- WHATSAPP ---
+        const clientMsg = `¡Hola *${clienteName}*! 👋\n\nTe escribimos para comunicarte que ya ha sido presentado el *Certificado de Eficiencia Energética INICIAL* de tu expediente *${numExp}*.\n\n*Desde este momento ya se pueden emitir facturas y pagos*\n\n📸 Recuerda hacerle fotografías a todo:\n• *Caldera existente y placa de fabricación.*\n• *Desmontaje de la caldera.*\n• *Montaje de la aerotermia.*\n• *Fotos de las nuevas placas de fabricación* (tanto de la unidad exterior como de la interior).\n\nLas fotos son la parte más importante del proceso para que podamos argumentar ante el ministerio que se ha realizado la reforma.\n\nPuedes subirlas directamente al expediente a través de este enlace:\n🔗 ${portalLink}\n\nUna vez finalizada la obra, debes comunicárnoslo por aquí para proceder con el CEE Final y el resto de la documentación.\n\n¡Muchas gracias!\n*BROKERGY — Ingeniería Energética*`;
+        const staffMsg = `✅ *REGISTRO CEE INICIAL PRESENTADO*\nExpediente: ${numExp}\nCliente: ${clienteFull}\n\nSe ha subido el justificante de registro del CEE Inicial al sistema. Desde este momento ya se pueden emitir facturas y pagos.\n\nVer expediente:\n🔗 ${expedienteLink}`;
+
+        if (cliPhone) {
+            channels.whatsapp.push('cliente');
+            whatsappService.sendText(cliPhone, clientMsg)
+                .catch(e => console.error(`${tag} WhatsApp Cliente (state=${waState}, phone=${cliPhone}):`, e.message));
+        } else {
+            console.warn(`${tag} Cliente sin teléfono, no se envía WhatsApp`);
+        }
+
+        const adminPhone = process.env.WHATSAPP_ADMIN_CHAT || '34623926179';
+        channels.whatsapp.push('admin');
+        whatsappService.sendText(adminPhone, staffMsg)
+            .catch(e => console.error(`${tag} WhatsApp Admin (state=${waState}):`, e.message));
+
+        if (partnerPhone) {
+            channels.whatsapp.push('partner');
+            whatsappService.sendText(partnerPhone, staffMsg)
+                .catch(e => console.error(`${tag} WhatsApp Partner (state=${waState}, phone=${partnerPhone}):`, e.message));
+        }
+
+        // --- EMAIL ---
+        if (cli.email) {
+            channels.email.push('cliente');
+            await emailService.sendCeeInicialRegistradoClientEmail(cli.email, clienteName, numExp, portalLink)
+                .catch(e => console.error(`${tag} Email Cliente:`, e.message));
+        }
+        channels.email.push('admin');
+        await emailService.sendCeeRegistradoStaffEmail('franciscojavier.moya.s2e2@gmail.com', false, numExp, clienteFull, ubicacion, techName, 'CEE INICIAL', expedienteLink)
+            .catch(e => console.error(`${tag} Email Admin:`, e.message));
+        if (partnerEmail) {
+            channels.email.push('partner');
+            await emailService.sendCeeRegistradoStaffEmail(partnerEmail, true, numExp, clienteFull, ubicacion, techName, 'CEE INICIAL', expedienteLink)
+                .catch(e => console.error(`${tag} Email Partner:`, e.message));
+        }
+
+        console.log(`${tag} Disparado: whatsapp=[${channels.whatsapp.join(',')}] email=[${channels.email.join(',')}]`);
+        return { ok: true, whatsappState: waState, channels };
+    } catch (err) {
+        console.error(`${tag} Error en notificaciones:`, err);
+        return { ok: false, reason: err.message };
+    }
+}
+
+async function notifyCeeFinalRegistrado(expediente) {
+    const tag = `[CEE-FINAL ${expediente.id}]`;
+    try {
+        const { cli, op, techName, partnerPhone, partnerEmail } = await loadNotificationContext(expediente);
+        if (!cli) {
+            console.warn(`${tag} cliente_id=${expediente.cliente_id} no encontrado, abortando notificaciones`);
+            return { ok: false, reason: 'cliente-not-found' };
+        }
+
+        const numExp = expediente.numero_expediente || op?.id_oportunidad || expediente.id;
+        const clienteName = (cli.nombre_razon_social || 'Cliente').trim();
+        const clienteFull = `${cli.nombre_razon_social || ''} ${cli.apellidos || ''}`.trim();
+        const ubicacion = `${cli.direccion || ''} - ${cli.codigo_postal || ''} ${cli.municipio || ''} (${cli.provincia || ''})`;
+        const expedienteLink = `https://app.brokergy.es/expedientes/${expediente.id}`;
+
+        const waState = whatsappService.getStatus?.()?.state || 'unknown';
+        const cliPhone = (cli.notificaciones_contacto_activas && cli.persona_contacto_tlf) ? cli.persona_contacto_tlf : cli.tlf;
+        console.log(`${tag} Disparando notificaciones (whatsappState=${waState}, cliente=${cliPhone || 'sin tlf'}, partner=${partnerPhone || 'sin partner'})`);
+
+        const channels = { whatsapp: [], email: [] };
+
+        const clientMsg = `¡Hola *${clienteName}*! 👋\n\nTe comunicamos que ya ha sido presentado el *Certificado de Eficiencia Energética FINAL* de tu expediente *${numExp}*.\n\n¡Muchas gracias!\n*BROKERGY — Ingeniería Energética*`;
+        const staffMsg = `✅ *REGISTRO CEE FINAL PRESENTADO*\nExpediente: ${numExp}\nCliente: ${clienteFull}\n\nSe ha subido el justificante de registro del CEE Final al sistema.\n\nVer expediente:\n🔗 ${expedienteLink}`;
+
+        if (cliPhone) {
+            channels.whatsapp.push('cliente');
+            whatsappService.sendText(cliPhone, clientMsg)
+                .catch(e => console.error(`${tag} WhatsApp Cliente (state=${waState}, phone=${cliPhone}):`, e.message));
+        } else {
+            console.warn(`${tag} Cliente sin teléfono, no se envía WhatsApp`);
+        }
+
+        const adminPhone = process.env.WHATSAPP_ADMIN_CHAT || '34623926179';
+        channels.whatsapp.push('admin');
+        whatsappService.sendText(adminPhone, staffMsg)
+            .catch(e => console.error(`${tag} WhatsApp Admin (state=${waState}):`, e.message));
+
+        if (partnerPhone) {
+            channels.whatsapp.push('partner');
+            whatsappService.sendText(partnerPhone, staffMsg)
+                .catch(e => console.error(`${tag} WhatsApp Partner (state=${waState}, phone=${partnerPhone}):`, e.message));
+        }
+
+        // --- EMAIL ---
+        channels.email.push('admin');
+        await emailService.sendCeeRegistradoStaffEmail('franciscojavier.moya.s2e2@gmail.com', false, numExp, clienteFull, ubicacion, techName, 'CEE FINAL', expedienteLink)
+            .catch(e => console.error(`${tag} Email Admin:`, e.message));
+        if (partnerEmail) {
+            channels.email.push('partner');
+            await emailService.sendCeeRegistradoStaffEmail(partnerEmail, true, numExp, clienteFull, ubicacion, techName, 'CEE FINAL', expedienteLink)
+                .catch(e => console.error(`${tag} Email Partner:`, e.message));
+        }
+
+        console.log(`${tag} Disparado: whatsapp=[${channels.whatsapp.join(',')}] email=[${channels.email.join(',')}]`);
+        return { ok: true, whatsappState: waState, channels };
+    } catch (err) {
+        console.error(`${tag} Error en notificaciones:`, err);
+        return { ok: false, reason: err.message };
+    }
+}
 
 
 // ─── GET /api/expedientes ─────────────────────────────────────────────────────
@@ -116,7 +277,6 @@ router.get('/:id', enforceAuth, async (req, res) => {
 });
 
 const expedienteService = require('../services/expedienteService');
-const whatsappService = require('../services/whatsappService');
 
 // ─── POST /api/expedientes/:id/comunicar-cee-inicial ──────────────────────────
 // Envía un mensaje automático al cliente informando de la presentación del CEE Inicial
@@ -193,12 +353,13 @@ Puedes subirlas directamente al expediente a través de este enlace:
             }
 
             // WhatsApp (Negritas)
-            if (sendWA && cli.tlf && whatsappService) {
+            const cliWaPhone = (cli.notificaciones_contacto_activas && cli.persona_contacto_tlf) ? cli.persona_contacto_tlf : cli.tlf;
+            if (sendWA && cliWaPhone && whatsappService) {
                 const waIntro = `¡Hola *${clienteName}*! 👋\n\nTe escribimos para comunicarte que ya ha sido presentado el *Certificado de Eficiencia Energética ${labelType.toUpperCase()}* de tu expediente *${numExp}*.`;
                 const waBody = type === 'inicial'
                     ? `${waIntro}\n\n${photoTextWA}\n\n${closingTextWA}`
                     : `${waIntro}\n\nYa puedes proceder con los siguientes pasos de tu expediente.\n\n¡Muchas gracias!\n*BROKERGY — Ingeniería Energética*`;
-                await whatsappService.sendText(cli.tlf, waBody).catch(e => console.error('Error WA Cliente:', e.message));
+                await whatsappService.sendText(cliWaPhone, waBody).catch(e => console.error('Error WA Cliente:', e.message));
             }
         }
 
@@ -408,70 +569,21 @@ router.put('/:id', enforceAuth, async (req, res) => {
                 updates.estado = 'PTE. FIN OBRA';
                 console.log(`[Automation] Exp ${req.params.id}: Triggereando cambio a PTE. FIN OBRA por Registro CEE.`);
             }
+            console.log(`[Automation] Exp ${req.params.id}: Detectado paso a CEE INICIAL REGISTRADO (cliente_id=${existing.cliente_id}, oportunidad_id=${existing.oportunidad_id})`);
 
-            // Notificación automática SOLO al Administrador
-            (async () => {
-                try {
-                    const [{ data: cli }, { data: op }] = await Promise.all([
-                        supabase.from('clientes').select('*').eq('id_cliente', existing.cliente_id).single(),
-                        supabase.from('oportunidades').select('*').eq('id', existing.oportunidad_id).single()
-                    ]);
-                    
-                    if (!cli) return;
-
-                    let techName = 'Técnico no asignado';
-                    const certId = cee?.certificador_id || existing.cee?.certificador_id;
-                    if (certId) {
-                        const { data: certData } = await supabase.from('prescriptores').select('razon_social').eq('id_empresa', certId).maybeSingle();
-                        if (certData?.razon_social) techName = certData.razon_social;
-                    }
-
-                    const numExp = existing.numero_expediente || op?.id_oportunidad || req.params.id;
-                    const clienteFull = `${cli.nombre_razon_social || ''} ${cli.apellidos || ''}`.trim();
-                    const ubicacion = `${cli.direccion || ''} - ${cli.codigo_postal || ''} ${cli.municipio || ''} (${cli.provincia || ''})`;
-
-                    await emailService.sendMail({
-                        to: 'franciscojavier.moya.s2e2@gmail.com',
-                        subject: `${numExp} - ${clienteFull} · CEE INICIAL Presentado.`,
-                        text: `Hola, te comunicamos que el certificado de eficiencia energética inicial de la vivienda situada en ${ubicacion} propiedad de ${clienteFull} ya ha sido presentado por el técnico ${techName}.\n\nUn saludo\n\nBROKERGY · Ingeniería Energética.`
-                    });
-                } catch (err) {
-                    console.error('[Automation Error CEE Inicial Admin]', err);
-                }
-            })();
+            // Notificaciones automáticas a Cliente, Admin y Partner (no bloqueante)
+            const expedienteForNotif = { ...existing, ...updates, id: req.params.id, cee: { ...existing.cee, ...(cee || {}) } };
+            notifyCeeInicialRegistrado(expedienteForNotif)
+                .catch(err => console.error('[Automation Error CEE Inicial]', err));
         }
 
         // ─── AUTOMATIZACIÓN REGISTRO CEE FINAL ──────────────────────────────────
         if (seguimiento?.cee_final === 'REGISTRADO' && existing.seguimiento?.cee_final !== 'REGISTRADO') {
-            (async () => {
-                try {
-                    const [{ data: cli }, { data: op }] = await Promise.all([
-                        supabase.from('clientes').select('*').eq('id_cliente', existing.cliente_id).single(),
-                        supabase.from('oportunidades').select('*').eq('id', existing.oportunidad_id).single()
-                    ]);
-                    
-                    if (!cli) return;
+            console.log(`[Automation] Exp ${req.params.id}: Detectado paso a CEE FINAL REGISTRADO (cliente_id=${existing.cliente_id}, oportunidad_id=${existing.oportunidad_id})`);
 
-                    const numExp = existing.numero_expediente || op?.id_oportunidad || req.params.id;
-                    const clienteFull = `${cli.nombre_razon_social || ''} ${cli.apellidos || ''}`.trim();
-                    const ubicacion = `${cli.direccion || ''} - ${cli.codigo_postal || ''} ${cli.municipio || ''} (${cli.provincia || ''})`;
-
-                    let techName = 'Técnico no asignado';
-                    const certId = cee?.certificador_id || existing.cee?.certificador_id;
-                    if (certId) {
-                        const { data: certData } = await supabase.from('prescriptores').select('razon_social').eq('id_empresa', certId).maybeSingle();
-                        if (certData?.razon_social) techName = certData.razon_social;
-                    }
-
-                    await emailService.sendMail({
-                        to: 'franciscojavier.moya.s2e2@gmail.com',
-                        subject: `${numExp} - ${clienteFull} · CEE FINAL Presentado.`,
-                        text: `Hola, te comunicamos que el certificado de eficiencia energética final de la vivienda situada en ${ubicacion} propiedad de ${clienteFull} ya ha sido presentado por el técnico ${techName}.\n\nUn saludo\n\nBROKERGY · Ingeniería Energética.`
-                    });
-                } catch (err) {
-                    console.error('[Automation Error CEE Final Admin]', err);
-                }
-            })();
+            const expedienteForNotif = { ...existing, ...updates, id: req.params.id, cee: { ...existing.cee, ...(cee || {}) } };
+            notifyCeeFinalRegistrado(expedienteForNotif)
+                .catch(err => console.error('[Automation Error CEE Final]', err));
         }
 
         let docObj = existing.documentacion || {};
@@ -920,13 +1032,11 @@ router.get('/proxy/pdf', enforceAuth, async (req, res) => {
 // POST /api/expedientes/:id/notify-certificador
 // Asigna un certificador al expediente, le da acceso Editor a la subcarpeta
 // "12. DOCUMENTOS PARA CEE" del Drive del expediente, persiste el folder ID en
-// expediente.cee y opcionalmente envía el email de directrices técnicas.
-//
-// Body: { certificador_id?: string, sendEmail?: boolean }
-//   - certificador_id: si viene, se persiste antes de procesar (evita race con save del módulo)
-//   - sendEmail (default true): si false, ejecuta toda la asignación pero no envía mail
+// Notificar al certificador asignado (multi-canal, multi-plantilla, trazabilidad)
+// Body: { certificador_id?, sendEmail?, sendWhatsApp?, phase?, template? }
 router.post('/:id/notify-certificador', enforceAuth, async (req, res) => {
     const driveService = require('../services/driveService');
+    const crypto = require('crypto');
     const CEE_FOLDER_NAME = '12. DOCUMENTOS PARA CEE';
 
     try {
@@ -938,10 +1048,17 @@ router.post('/:id/notify-certificador', enforceAuth, async (req, res) => {
         if (expErr || !exp) return res.status(404).json({ error: 'Expediente no encontrado' });
 
         const bodyCertId = req.body?.certificador_id || null;
-        const sendEmail = req.body?.sendEmail !== false; // default true
+        const sendEmail = req.body?.sendEmail === true;
+        const sendWhatsApp = req.body?.sendWhatsApp === true;
+        const phase = req.body?.phase || 'initial';
+        const template = req.body?.template || 'standard';
         const dbCertId = exp.cee?.certificador_id || null;
         const certId = bodyCertId || dbCertId;
         if (!certId) return res.status(400).json({ error: 'El expediente no tiene certificador asignado' });
+
+        // Automatización de estado
+        const newEstado = phase === 'final' ? 'EN CERTIFICADOR CEE FINAL' : 'EN CERTIFICADOR CEE INICIAL';
+        await supabase.from('expedientes').update({ estado: newEstado }).eq('id', req.params.id);
 
         // Persistir el cert si vino en body y difiere del guardado
         let workingCee = { ...(exp.cee || {}) };
@@ -954,13 +1071,13 @@ router.post('/:id/notify-certificador', enforceAuth, async (req, res) => {
             { data: cli },
             { data: op }
         ] = await Promise.all([
-            supabase.from('prescriptores').select('razon_social, acronimo, email').eq('id_empresa', certId).maybeSingle(),
-            supabase.from('clientes').select('nombre_razon_social, apellidos, dni, tlf, telefono, email, codigo_postal, municipio, provincia, direccion').eq('id_cliente', exp.cliente_id).maybeSingle(),
-            supabase.from('oportunidades').select('id_oportunidad, ficha, datos_calculo, ref_catastral').eq('id', exp.oportunidad_id).maybeSingle()
+            supabase.from('prescriptores').select('*').eq('id_empresa', certId).maybeSingle(),
+            supabase.from('clientes').select('*').eq('id_cliente', exp.cliente_id).maybeSingle(),
+            supabase.from('oportunidades').select('*').eq('id', exp.oportunidad_id).maybeSingle()
         ]);
 
         if (!cert) return res.status(404).json({ error: 'Certificador no encontrado en la base de datos' });
-        if (!cert.email) {
+        if (!cert.email && sendEmail) {
             return res.status(400).json({
                 error: `El certificador "${cert.razon_social || cert.acronimo || ''}" no tiene email registrado en su ficha. Edítalo desde Prescriptores.`
             });
@@ -985,26 +1102,34 @@ router.post('/:id/notify-certificador', enforceAuth, async (req, res) => {
         const ahorroObjetivo = parseFloat(result.res080?.ahorroEnergiaFinalTotal) || null;
 
         const expedienteNum = exp.numero_expediente || op?.id_oportunidad || req.params.id;
-        const clienteName = cli
-            ? `${cli.nombre_razon_social || ''} ${cli.apellidos || ''}`.trim() || null
-            : null;
+        
+        // Prioridad de nombre: 1. Tabla clientes, 2. Referencia cliente en Oportunidad
+        const clienteName = (cli
+            ? `${cli.nombre_razon_social || ''} ${cli.apellidos || ''}`.trim()
+            : null) || op?.referencia_cliente || null;
 
-        // Datos completos del cliente para el bloque informativo
-        const direccionCompleta = cli ? [
-            inputs.direccion || cli.direccion,
-            cli.codigo_postal,
-            cli.municipio,
-            cli.provincia ? `(${cli.provincia})` : null,
-        ].filter(Boolean).join(', ') : null;
+        // Datos completos del cliente con fallbacks. Evitamos duplicados si la dirección base ya es completa.
+        const baseDir = (inputs.direccion || inputs.address || cli?.direccion || '').trim();
+        const cp = (cli?.codigo_postal || inputs.cp || '').trim();
+        const municipio = (cli?.municipio || inputs.municipio || '').trim();
+        const provincia = (cli?.provincia || inputs.provincia || '').trim();
 
-        const clienteData = cli ? {
+        let direccionCompleta = baseDir;
+        
+        // Si la dirección base es corta (solo la calle), añadimos el resto. 
+        // Si ya contiene el código postal o el municipio, la dejamos como está.
+        if (baseDir.length < 30 && cp && !baseDir.includes(cp)) {
+            direccionCompleta = [baseDir, cp, municipio, provincia ? `(${provincia})` : null].filter(Boolean).join(', ');
+        }
+
+        const clienteData = {
             nombre: clienteName,
-            dni: cli.dni || null,
-            tlf: cli.tlf || cli.telefono || null,
-            email: cli.email || null,
-            refCatastral: op?.ref_catastral || inputs.rc || null,
+            dni: cli?.dni || inputs.dni || null,
+            tlf: cli?.tlf || cli?.telefono || inputs.tlf || inputs.phone || null,
+            email: cli?.email || inputs.email || null,
+            refCatastral: op?.ref_catastral || inputs.rc || inputs.referencia_catastral || null,
             direccion: direccionCompleta || null,
-        } : null;
+        };
 
         const certName = cert.razon_social || cert.acronimo || 'Técnico';
         const portalLink = `${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/expedientes/${req.params.id}`;
@@ -1043,16 +1168,41 @@ router.post('/:id/notify-certificador', enforceAuth, async (req, res) => {
             console.warn('[notify-certificador] Oportunidad sin drive_folder_id — sin acceso Drive para el cert');
         }
 
-        // Persistir cee actualizado (cert_id + folder ids)
+        // ── Token de confirmación (cert-ack) ─────────────────────────────────────
+        const ackToken = crypto.createHash('sha256')
+            .update(`${req.params.id}-${certId}-${Date.now()}`)
+            .digest('hex').slice(0, 32);
+        workingCee.ack_token = ackToken;
+        workingCee.ack_phase = phase;
+        const ackLink = `${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/cert-ack/${req.params.id}?token=${ackToken}&phase=${phase}`;
+
+        // Persistir cee actualizado (cert_id + folder ids + ack_token)
+        const seguimiento = exp.seguimiento || { cee_inicial: 'PTE_EMITIR', cee_final: 'PTE_EMITIR', anexos: 'PTE_EMITIR' };
+        
+        // Solo actualizamos el Roadmap a ASIGNADO si es un nuevo encargo (standard). 
+        // Si es un recordatorio (reminder) o aviso urgente (urgent), no tocamos el Roadmap para no perder la trazabilidad.
+        if (template === 'standard') {
+            if (phase === 'final') {
+                seguimiento.cee_final = 'ASIGNADO';
+            } else {
+                seguimiento.cee_inicial = 'ASIGNADO';
+            }
+        }
+
         const { error: updErr } = await supabase
             .from('expedientes')
-            .update({ cee: workingCee })
+            .update({ cee: workingCee, seguimiento })
             .eq('id', req.params.id);
         if (updErr) console.error('[notify-certificador] error persistiendo cee:', updErr.message);
 
-        // Email opcional
+        // ── Envío de comunicaciones ──────────────────────────────────────────────
+        const channels = [];
+        const phaseLabel = phase === 'final' ? 'CEE Final' : 'CEE Inicial';
+        const templateLabels = { standard: 'Encargo', reminder: 'Recordatorio', urgent: 'Urgente' };
+
+        // === EMAIL ===
         if (sendEmail) {
-            await emailService.sendCertificadorNotificationEmail({
+            const emailParams = {
                 to: cert.email,
                 certName,
                 expedienteNum,
@@ -1062,10 +1212,76 @@ router.post('/:id/notify-certificador', enforceAuth, async (req, res) => {
                 tipoActuacion,
                 ceeFolderLink,
                 portalLink,
-                demandaPerM2,
-                superficieRef,
-                ahorroObjetivo,
-            });
+                ackLink
+            };
+
+            if (template === 'reminder') {
+                await emailService.sendCertificadorReminderEmail(emailParams);
+            } else if (template === 'urgent') {
+                await emailService.sendCertificadorUrgentEmail(emailParams);
+            } else if (phase === 'final') {
+                await emailService.sendCertificadorFinalNotificationEmail(emailParams);
+            } else {
+                await emailService.sendCertificadorNotificationEmail({
+                    ...emailParams,
+                    demandaPerM2,
+                    superficieRef,
+                    ahorroObjetivo
+                });
+            }
+            channels.push('Email');
+        }
+
+        // === WHATSAPP VÍA COLA ===
+        if (sendWhatsApp) {
+            const certPhone = cert.telefono || cert.movil || cert.tlf || null;
+            if (!certPhone) {
+                console.warn('[notify-certificador] Certificador sin teléfono para WhatsApp');
+            } else {
+                let waMsg = '';
+                if (template === 'reminder') {
+                    waMsg = `¡Hola *${certName}*! 👋\n\nTe recordamos que tienes pendiente el *${phaseLabel}* del expediente *${expedienteNum}*${clienteName ? ` (${clienteName})` : ''}.\n\n¿Podrías darnos una estimación de fecha de entrega?\n\n${ceeFolderLink ? '📁 Carpeta: ' + ceeFolderLink + '\n' : ''}${portalLink ? '🔗 Portal: ' + portalLink + '\n' : ''}\n¡Gracias!\n*BROKERGY · Ingeniería Energética*`;
+                } else if (template === 'urgent') {
+                    waMsg = `*⚠️ AVISO URGENTE*\n\nHola *${certName}*, necesitamos con urgencia el *${phaseLabel}* del expediente *${expedienteNum}*${clienteName ? ` (${clienteName})` : ''}.\n\nEs importante que lo priorices para cumplir con los plazos del programa.\n\n${ceeFolderLink ? '📁 Carpeta: ' + ceeFolderLink + '\n' : ''}${portalLink ? '🔗 Portal: ' + portalLink + '\n' : ''}\nQuedamos a la espera.\n*BROKERGY · Ingeniería Energética*`;
+                } else if (phase === 'final') {
+                    waMsg = `¡Hola *${certName}*! 👋\n\nYa puedes presentar el *CEE FINAL* del expediente *${expedienteNum}*${clienteName ? ` (${clienteName})` : ''}.\n\nToda la documentación de obra ya está en la carpeta compartida.\n\n${ceeFolderLink ? '📁 Carpeta: ' + ceeFolderLink + '\n' : ''}${portalLink ? '🔗 Portal: ' + portalLink + '\n' : ''}\n¡Gracias!\n*BROKERGY · Ingeniería Energética*`;
+                } else {
+                    waMsg = `¡Hola *${certName}*! 👋\n\nTe hemos asignado el expediente *${expedienteNum}*${clienteName ? ` (${clienteName})` : ''} para el *CEE Inicial*.\n\nTienes toda la documentación en la carpeta y el portal.\n\n${ceeFolderLink ? '📁 Carpeta: ' + ceeFolderLink + '\n' : ''}${portalLink ? '🔗 Portal: ' + portalLink + '\n' : ''}\n¡Gracias!\n*BROKERGY · Ingeniería Energética*`;
+                }
+
+                try {
+                    await whatsappService.sendText(certPhone, waMsg);
+                    channels.push('WhatsApp');
+                } catch (waErr) {
+                    console.error('[notify-certificador] Error WhatsApp:', waErr.message);
+                    channels.push('WhatsApp (encolado)');
+                }
+            }
+        }
+
+        // ── Registro en historial (Trazabilidad) ────────────────────────────────
+        if (channels.length > 0) {
+            try {
+                const docObj = exp.documentacion || {};
+                const historial = docObj.historial || [];
+                const userName = req.user?.rol_nombre === 'ADMIN'
+                    ? 'ADMINISTRADOR'
+                    : (req.user?.acronimo || req.user?.razon_social || 'SISTEMA');
+
+                historial.push({
+                    id: Date.now().toString() + '_certnotif',
+                    tipo: 'notificacion_certificador',
+                    texto: `Notificación ${phaseLabel} (${templateLabels[template] || 'Estándar'}) enviada a ${certName} vía ${channels.join(' + ')}`,
+                    fecha: new Date().toISOString(),
+                    usuario: userName
+                });
+
+                await supabase.from('expedientes')
+                    .update({ documentacion: { ...docObj, historial } })
+                    .eq('id', req.params.id);
+            } catch (histErr) {
+                console.error('[notify-certificador] Error guardando historial:', histErr.message);
+            }
         }
 
         res.json({
@@ -1076,10 +1292,271 @@ router.post('/:id/notify-certificador', enforceAuth, async (req, res) => {
             ceeFolderLink,
             driveAccessGranted,
             emailSent: sendEmail,
+            whatsAppSent: sendWhatsApp && channels.includes('WhatsApp'),
+            channels,
+            newEstado,
+            template
         });
     } catch (err) {
         console.error('[notify-certificador]', err.message);
         res.status(500).json({ error: 'Error procesando la asignación', details: err.message });
+    }
+});
+
+// ─── POST /api/expedientes/:id/cert-ack ───────────────────────────────────────
+// Endpoint PÚBLICO (sin auth) para que el certificador confirme recepción del encargo.
+// Protegido por token temporal generado en notify-certificador.
+router.post('/:id/cert-ack', async (req, res) => {
+    try {
+        const { token, phase } = req.body;
+        if (!token) return res.status(400).json({ error: 'Token requerido' });
+
+        const { data: exp, error: expErr } = await supabase
+            .from('expedientes')
+            .select('*')
+            .eq('id', req.params.id)
+            .single();
+        if (expErr || !exp) return res.status(404).json({ error: 'Expediente no encontrado' });
+
+        const cee = exp.cee || {};
+        if (cee.ack_token !== token) {
+            return res.status(403).json({ error: 'Token inválido o expirado. Es posible que se haya enviado una notificación más reciente.' });
+        }
+
+        // Token válido — marcar como confirmado
+        const certId = cee.certificador_id;
+        const { data: cert } = await supabase.from('prescriptores').select('razon_social, acronimo').eq('id_empresa', certId).maybeSingle();
+        const certName = cert?.razon_social || cert?.acronimo || 'Técnico';
+
+        const phaseLabel = phase === 'final' ? 'CEE Final' : 'CEE Inicial';
+
+        // Invalidar token (uso único)
+        cee.ack_token = null;
+        cee.ack_confirmed_at = new Date().toISOString();
+        cee.ack_confirmed_phase = phase;
+        cee.estado = phase === 'final' ? 'EN TRABAJO (CEE FINAL)' : 'EN TRABAJO (CEE INICIAL)';
+        
+        const seguimiento = exp.seguimiento || { cee_inicial: 'ASIGNADO', cee_final: 'ASIGNADO', anexos: 'PTE_EMITIR' };
+        if (phase === 'final') {
+            seguimiento.cee_final = 'EN_TRABAJO';
+        } else {
+            seguimiento.cee_inicial = 'EN_TRABAJO';
+        }
+
+        await supabase.from('expedientes').update({ cee, seguimiento }).eq('id', req.params.id);
+
+        // Registrar en historial
+        try {
+            const docObj = exp.documentacion || {};
+            const historial = docObj.historial || [];
+            historial.push({
+                id: Date.now().toString() + '_certack',
+                tipo: 'confirmacion_certificador',
+                texto: `El certificador ${certName} ha confirmado la recepción del encargo ${phaseLabel}`,
+                fecha: new Date().toISOString(),
+                usuario: certName
+            });
+            await supabase.from('expedientes')
+                .update({ documentacion: { ...docObj, historial } })
+                .eq('id', req.params.id);
+        } catch (histErr) {
+            console.error('[cert-ack] Error guardando historial:', histErr.message);
+        }
+
+        // Notificar a BROKERGY por email (de fondo, sin bloquear respuesta)
+        setImmediate(async () => {
+            try {
+                await emailService.sendCertifierAcceptedAdminNotification(exp.id, exp.numero_expediente, certName, phaseLabel);
+            } catch (mailErr) {
+                console.error('[cert-ack] Error enviando notificación a admin:', mailErr.message);
+            }
+        });
+
+        res.json({ ok: true, certName, phase: phaseLabel, newEstado: cee.estado });
+    } catch (err) {
+        console.error('[cert-ack]', err.message);
+        res.status(500).json({ error: 'Error procesando la confirmación' });
+    }
+});
+
+// ─── POST /api/expedientes/:id/notify-review ──────────────────────────────
+// El certificador notifica que ha subido el CEX y está pendiente de revisión
+router.post('/:id/notify-review', enforceAuth, async (req, res) => {
+    try {
+        const { phase } = req.body;
+        const { data: exp, error: expErr } = await supabase
+            .from('expedientes')
+            .select('*')
+            .eq('id', req.params.id)
+            .single();
+            
+        if (expErr || !exp) return res.status(404).json({ error: 'Expediente no encontrado' });
+
+        const phaseLabel = phase === 'final' ? 'CEE Final' : 'CEE Inicial';
+        const newEstado = phase === 'final' ? 'PENDIENTE REVISIÓN (FINAL)' : 'PENDIENTE REVISIÓN (INICIAL)';
+
+        const userName = req.user?.rol_nombre === 'CERTIFICADOR' ? req.user?.acronimo || req.user?.razon_social : 'Técnico';
+
+        // Preparar actualizaciones
+        const cee = exp.cee || {};
+        cee.estado = newEstado;
+        const globalEstado = newEstado; // PENDIENTE REVISIÓN (INICIAL) o FINAL
+
+        const docObj = exp.documentacion || {};
+        const historial = docObj.historial || [];
+        
+        // 1. Añadir notificación técnica
+        historial.push({
+            id: Date.now().toString() + '_revreq',
+            tipo: 'notificacion_tecnica',
+            texto: `El técnico ha subido el archivo .CEX del ${phaseLabel}. PENDIENTE DE REVISIÓN por BROKERGY.`,
+            fecha: new Date().toISOString(),
+            usuario: userName || 'Sistema'
+        });
+
+        // 2. Añadir registro de cambio de estado (para que se vea en el historial unificado)
+        historial.push({
+            id: Date.now().toString() + '_status',
+            estado: globalEstado,
+            fecha: new Date().toISOString(),
+            usuario: userName || 'Sistema'
+        });
+
+        const seguimiento = exp.seguimiento || { cee_inicial: 'ASIGNADO', cee_final: 'ASIGNADO', anexos: 'PTE_EMITIR' };
+        if (phase === 'final') {
+            seguimiento.cee_final = 'PTE_REVISION';
+        } else {
+            seguimiento.cee_inicial = 'PTE_REVISION';
+        }
+
+        // Actualizar en Supabase (Todo en una sola llamada)
+        const { error: updErr } = await supabase.from('expedientes')
+            .update({ 
+                cee, 
+                estado: globalEstado,
+                seguimiento,
+                documentacion: { ...docObj, historial },
+                updated_at: new Date().toISOString()
+            })
+            .eq('id', req.params.id);
+            
+        if (updErr) {
+            console.error('Error actualizando Supabase en notify-review:', updErr);
+            throw updErr;
+        }
+
+        // Enviar aviso por email
+        try {
+            const certName = userName || 'Un técnico';
+            await emailService.sendReviewRequestEmailToAdmin(exp.id, exp.numero_expediente, certName, phase);
+        } catch (mailErr) {
+            console.error('Error enviando email a admin notify-review:', mailErr.message);
+        }
+
+        res.json({ ok: true, newEstado });
+    } catch (err) {
+        console.error('[notify-review]', err.message);
+        res.status(500).json({ error: 'Error procesando la solicitud de revisión' });
+    }
+});
+
+// ─── POST /api/expedientes/:id/approve-cee ────────────────────────────────
+// Admin aprueba el CEX y autoriza presentación
+router.post('/:id/approve-cee', adminOnly, async (req, res) => {
+    try {
+        const { phase } = req.body;
+        const { data: exp, error: expErr } = await supabase
+            .from('expedientes')
+            .select('*')
+            .eq('id', req.params.id)
+            .single();
+            
+        if (expErr || !exp) return res.status(404).json({ error: 'Expediente no encontrado' });
+
+        const phaseLabel = phase === 'final' ? 'CEE Final' : 'CEE Inicial';
+        const newEstado = phase === 'final' ? 'REVISADO Y LISTO (FINAL)' : 'REVISADO Y LISTO (INICIAL)';
+
+        // Obtener datos del certificador asignado
+        const cee = exp.cee || {};
+        let certEmail = null;
+        let certName = 'Técnico';
+        if (cee.certificador_id) {
+            const { data: cert } = await supabase.from('prescriptores').select('email, razon_social, acronimo').eq('id_empresa', cee.certificador_id).maybeSingle();
+            if (cert) {
+                certEmail = cert.email;
+                certName = cert.razon_social || cert.acronimo || 'Técnico';
+            }
+        }
+
+        // Preparar actualizaciones (Estado interno, global y seguimiento)
+        cee.estado = newEstado;
+        const globalEstado = newEstado;
+
+        const seguimiento = exp.seguimiento || { cee_inicial: 'ASIGNADO', cee_final: 'ASIGNADO', anexos: 'PTE_EMITIR' };
+        if (phase === 'final') {
+            seguimiento.cee_final = 'REVISADO';
+        } else {
+            seguimiento.cee_inicial = 'REVISADO';
+        }
+
+        const docObj = exp.documentacion || {};
+        const historial = docObj.historial || [];
+
+        // Registro de la aprobación
+        historial.push({
+            id: Date.now().toString() + '_revok',
+            tipo: 'aprobacion_tecnica',
+            texto: `BROKERGY ha revisado y dado el VISTO BUENO al ${phaseLabel}. Se autoriza su registro en Industria.`,
+            fecha: new Date().toISOString(),
+            usuario: 'ADMINISTRADOR'
+        });
+
+        // Registro de cambio de estado (para el historial unificado)
+        historial.push({
+            id: Date.now().toString() + '_status_revok',
+            estado: globalEstado,
+            fecha: new Date().toISOString(),
+            usuario: 'ADMINISTRADOR'
+        });
+
+        // Actualizar en Supabase (Todo en una sola llamada)
+        const { error: updErr } = await supabase.from('expedientes')
+            .update({ 
+                cee, 
+                estado: globalEstado,
+                seguimiento,
+                documentacion: { ...docObj, historial },
+                updated_at: new Date().toISOString()
+            })
+            .eq('id', req.params.id);
+
+        if (updErr) throw updErr;
+
+        // Enviar email automático al técnico indicando que ya tiene luz verde
+        if (certEmail) {
+            const portalLink = `${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/expedientes/${req.params.id}`;
+            const ceeFolderLink = cee.cee_folder_link || null;
+            
+            setImmediate(async () => {
+                try {
+                    await emailService.sendCertificadorApproveNotification(
+                        certEmail, 
+                        certName, 
+                        exp.numero_expediente, 
+                        phaseLabel, 
+                        portalLink, 
+                        ceeFolderLink
+                    );
+                } catch (mailErr) {
+                    console.error('[approve-cee] Error enviando email de visto bueno al certificador:', mailErr.message);
+                }
+            });
+        }
+
+        res.json({ ok: true, newEstado, seguimiento });
+    } catch (err) {
+        console.error('[approve-cee]', err.message);
+        res.status(500).json({ error: 'Error aprobando el CEE' });
     }
 });
 
@@ -1097,6 +1574,39 @@ router.patch('/:id/regenerar-numero', adminOnly, async (req, res) => {
     } catch (error) {
         console.error('Error al regenerar número:', error.message);
         res.status(500).json({ error: 'Error al regenerar el número de expediente', details: error.message });
+    }
+});
+
+// ─── POST /api/expedientes/:id/resend-cee-notifications ───────────────────────
+// Re-disparo manual (admin) de las notificaciones de CEE registrado.
+// Útil cuando la primera ejecución no envió los WhatsApp porque el cliente
+// estaba DISCONNECTED, o cuando el usuario quiere insistir al cliente.
+router.post('/:id/resend-cee-notifications', enforceAuth, async (req, res) => {
+    try {
+        if (req.user.rol_nombre !== 'ADMIN') {
+            return res.status(403).json({ error: 'Solo ADMIN puede reenviar notificaciones' });
+        }
+        const phase = (req.body?.phase || '').toLowerCase();
+        if (phase !== 'inicial' && phase !== 'final') {
+            return res.status(400).json({ error: 'phase debe ser "inicial" o "final"' });
+        }
+
+        const { data: exp, error } = await supabase.from('expedientes').select('*').eq('id', req.params.id).single();
+        if (error || !exp) return res.status(404).json({ error: 'Expediente no encontrado' });
+
+        const seguimientoKey = phase === 'final' ? 'cee_final' : 'cee_inicial';
+        if (exp.seguimiento?.[seguimientoKey] !== 'REGISTRADO') {
+            return res.status(400).json({ error: `El ${seguimientoKey} no está en estado REGISTRADO` });
+        }
+
+        const result = phase === 'final'
+            ? await notifyCeeFinalRegistrado(exp)
+            : await notifyCeeInicialRegistrado(exp);
+
+        return res.json(result);
+    } catch (err) {
+        console.error('[resend-cee-notifications]', err);
+        res.status(500).json({ error: 'Error reenviando notificaciones', details: err.message });
     }
 });
 

@@ -15,6 +15,7 @@ import { AerotermiaView } from './features/aerotermia/views/AerotermiaView';
 import { ExpedientesView } from './features/expedientes/views/ExpedientesView';
 import { ResetPasswordView } from './features/auth/views/ResetPasswordView';
 import { AceptarPropuestaView } from './features/public/views/AceptarPropuestaView';
+import { CertAckView } from './features/public/views/CertAckView';
 import { WhatsappSettingsView } from './features/whatsapp/views/WhatsappSettingsView';
 
 const API_URL = '/api/catastro'; // Vercel force redeploy v3
@@ -39,6 +40,18 @@ function App() {
   const [firmaOportunidadId] = useState(() => {
     const path = window.location.pathname;
     if (path.startsWith('/firma/')) return path.split('/firma/')[1] || null;
+    return null;
+  });
+
+  const [certAckData] = useState(() => {
+    const path = window.location.pathname;
+    if (path.startsWith('/cert-ack/')) {
+       const id = path.split('/cert-ack/')[1];
+       const params = new URLSearchParams(window.location.search);
+       const token = params.get('token');
+       const phase = params.get('phase');
+       if (id && token) return { id, token, phase };
+    }
     return null;
   });
 
@@ -249,7 +262,13 @@ function App() {
     // De lo contrario, usamos la data inicial de PropertySheet.
     let baseData = data;
     if (persistentCalculatorInputs && persistentCalculatorInputs.rc === data.rc) {
-      baseData = { ...persistentCalculatorInputs, ...data, isPersistent: true };
+      // Priorizar inputs persistentes para el año, pero permitir que la ficha técnica actualice la selección de construcciones
+      baseData = { 
+        ...persistentCalculatorInputs, 
+        ...data, 
+        anio: persistentCalculatorInputs.anio || data.anio || persistentCalculatorInputs.yearBuilt || data.yearBuilt,
+        isPersistent: true 
+      };
     }
 
     // SIEMPRE asegurar que si conocemos una referencia de cliente previa para esta RC, la inyectamos
@@ -275,6 +294,11 @@ function App() {
     // Al volver, guardamos el estado actual de los inputs
     if (currentInputs) {
       setPersistentCalculatorInputs(currentInputs);
+      // Sincronizar el año de vuelta a la ficha técnica para mantener coherencia visual
+      if ((currentInputs.anio || currentInputs.yearBuilt) && propertyData) {
+        const syncAnio = currentInputs.anio || currentInputs.yearBuilt;
+        setPropertyData(prev => prev ? { ...prev, yearBuilt: syncAnio } : null);
+      }
     }
 
     if (!propertyData) {
@@ -363,6 +387,14 @@ function App() {
         demandMode: (inputsData.inputs?.demandMode || inputsData.demandMode) || 'estimated'
       };
       setPersistentCalculatorInputs(inputs);
+      // Asegurar que la ficha técnica refleje el año guardado (posiblemente editado)
+      // Buscamos tanto 'anio' como 'yearBuilt' por compatibilidad con diferentes versiones de guardado
+      const savedAnio = inputs.anio || inputs.yearBuilt || op.anio;
+      if (savedAnio) {
+        catastroData.yearBuilt = Number(savedAnio);
+        inputs.anio = Number(savedAnio);
+        inputs.yearBuilt = Number(savedAnio);
+      }
       setPropertyData(catastroData);
     } catch (err) {
       console.error('Fatal error loading opportunity:', err);
@@ -417,8 +449,10 @@ function App() {
     <div className="min-h-screen bg-slate-950 overflow-x-hidden relative">
       <DynamicNetworkBackground />
       
-      <div className={`relative z-10 ${(user && !firmaOportunidadId && !resetToken) ? 'p-0 h-screen overflow-hidden' : 'px-4 py-8'}`}>
-        {firmaOportunidadId ? (
+      <div className={`relative z-10 ${(user && !firmaOportunidadId && !resetToken && !certAckData) ? 'p-0 h-screen overflow-hidden' : 'px-4 py-8'}`}>
+        {certAckData ? (
+          <CertAckView expedienteId={certAckData.id} token={certAckData.token} phase={certAckData.phase} />
+        ) : firmaOportunidadId ? (
           <AceptarPropuestaView idOportunidad={firmaOportunidadId} />
         ) : resetToken ? (
           <div className="flex items-center justify-center min-h-[70vh]">

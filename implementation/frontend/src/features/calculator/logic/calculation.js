@@ -1022,13 +1022,21 @@ export function getScopFromModel(model, zone, temp, method = 'ficha') {
         }
     }
     // CASO 2: Dato directo de Ficha Técnica (comportamiento actual)
-    // Intentar buscar calido si corresponde
-    let scop35 = isWarm ? (model.scop_cal_calido_35 || model.scop_cal_medio_35) : model.scop_cal_medio_35;
-    let scop55 = isWarm ? (model.scop_cal_calido_55 || model.scop_cal_medio_55) : model.scop_cal_medio_55;
+    // En clima cálido se usa scop_cal_calido_*; si está vacío o por debajo del
+    // umbral mínimo (catálogo con dato basura), se hace fallback a scop_cal_medio_*.
+    const SCOP_MIN = 2;
+    const pickScop = (calido, medio) => {
+        const c = parseFloat(calido);
+        if (Number.isFinite(c) && c >= SCOP_MIN) return c;
+        return parseFloat(medio);
+    };
 
-    // Fallbacks si no hay datos específicos
-    if (!scop35) scop35 = model.scop35 || 4.5;
-    if (!scop55) scop55 = model.scop55 || 3.2;
+    let scop35 = isWarm ? pickScop(model.scop_cal_calido_35, model.scop_cal_medio_35) : parseFloat(model.scop_cal_medio_35);
+    let scop55 = isWarm ? pickScop(model.scop_cal_calido_55, model.scop_cal_medio_55) : parseFloat(model.scop_cal_medio_55);
+
+    // Fallbacks finales si ni cálido ni medio están disponibles
+    if (!Number.isFinite(scop35)) scop35 = parseFloat(model.scop35) || 4.5;
+    if (!Number.isFinite(scop55)) scop55 = parseFloat(model.scop55) || 3.2;
 
     if (temp <= 35) return parseFloat(scop35);
     if (temp >= 55) return parseFloat(scop55);

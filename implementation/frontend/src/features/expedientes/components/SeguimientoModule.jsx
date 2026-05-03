@@ -5,8 +5,10 @@ const STATUS_CONFIG = {
         title: 'Certificado Energético Inicial',
         color: 'amber',
         options: [
-            { id: 'PTE_ENVIO_CERT', label: 'Pendiente de enviar a certificador' },
-            { id: 'ENVIADO_CERT', label: 'Enviado a certificador' },
+            { id: 'ASIGNADO', label: 'Asignado a Técnico' },
+            { id: 'EN_TRABAJO', label: 'Técnico Trabajando' },
+            { id: 'PTE_REVISION', label: 'Pendiente Revisión' },
+            { id: 'REVISADO', label: 'Revisado y Listo' },
             { id: 'PTE_PRESENTACION', label: 'Pendiente presentación' },
             { id: 'REGISTRADO', label: 'Registrado' }
         ]
@@ -15,8 +17,10 @@ const STATUS_CONFIG = {
         title: 'Certificado Energético Final',
         color: 'emerald',
         options: [
-            { id: 'PTE_ENVIO_CERT', label: 'Pendiente de enviar a certificador' },
-            { id: 'ENVIADO_CERT', label: 'Enviado a certificador' },
+            { id: 'ASIGNADO', label: 'Asignado a Técnico' },
+            { id: 'EN_TRABAJO', label: 'Técnico Trabajando' },
+            { id: 'PTE_REVISION', label: 'Pendiente Revisión' },
+            { id: 'REVISADO', label: 'Revisado y Listo' },
             { id: 'PTE_PRESENTACION', label: 'Pendiente presentación' },
             { id: 'REGISTRADO', label: 'Registrado' }
         ]
@@ -35,8 +39,8 @@ const STATUS_CONFIG = {
 
 export function SeguimientoModule({ expediente, onSave, saving }) {
     const [local, setLocal] = useState({
-        cee_inicial: 'PTE_ENVIO_CERT',
-        cee_final: 'PTE_ENVIO_CERT',
+        cee_inicial: 'ASIGNADO',
+        cee_final: 'ASIGNADO',
         anexos: 'PTE_EMITIR',
         ...(expediente?.seguimiento || {})
     });
@@ -46,8 +50,8 @@ export function SeguimientoModule({ expediente, onSave, saving }) {
     useEffect(() => {
         if (expediente?.seguimiento) {
             setLocal({
-                cee_inicial: 'PTE_ENVIO_CERT',
-                cee_final: 'PTE_ENVIO_CERT',
+                cee_inicial: 'ASIGNADO',
+                cee_final: 'ASIGNADO',
                 anexos: 'PTE_EMITIR',
                 ...expediente.seguimiento
             });

@@ -92,14 +92,18 @@ export function WhatsappSettingsView() {
         }
     };
 
-    // Polling
+    // Polling del estado y QR.
+    // Intervalo reducido de 2.5s → 8s el 2026-04-29 para recortar el egress de Supabase.
+    // 8s es suficiente: el QR de WhatsApp dura ~60s antes de expirar, y la transición
+    // de estados (INITIALIZING → QR → READY) se percibe con retardo tolerable para el admin
+    // que está activamente mirando esta vista.
     useEffect(() => {
         fetchStatus();
         pollRef.current = setInterval(async () => {
             const s = await fetchStatus();
             if (s?.state === 'QR') fetchQr();
             else if (s?.state === 'READY') setQrDataUrl(null);
-        }, 2500);
+        }, 8000);
         return () => clearInterval(pollRef.current);
     }, [fetchStatus, fetchQr]);
 
@@ -125,6 +129,12 @@ export function WhatsappSettingsView() {
             {error && (
                 <div className="mb-6 p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-300 text-sm">
                     {error}
+                </div>
+            )}
+
+            {status?.lastError && state !== 'READY' && (
+                <div className="mb-6 p-4 rounded-xl bg-orange-500/10 border border-orange-500/20 text-orange-300 text-sm font-mono">
+                    <span className="font-black not-italic text-orange-400 mr-2">Error interno:</span>{status.lastError}
                 </div>
             )}
 
@@ -275,9 +285,23 @@ export function WhatsappSettingsView() {
                             <dd className="text-white font-mono">{status.config.typingMs} ms</dd>
                         </div>
                         <div>
-                            <dt className="text-white/40 text-xs uppercase tracking-wider mb-1">Cola / ventana</dt>
-                            <dd className="text-white font-mono">{status.queueSize} en cola · {status.rateWindow} últimos 60s</dd>
+                            <dt className="text-white/40 text-xs uppercase tracking-wider mb-1">Enviados (últimos 60s)</dt>
+                            <dd className="text-white font-mono">{status.sentInWindow ?? 0} / {status.config.ratePerMin} máx</dd>
                         </div>
+                        {status.serviceStartTime && (
+                            <div>
+                                <dt className="text-white/40 text-xs uppercase tracking-wider mb-1">Backend arrancado</dt>
+                                <dd className="text-white/70 font-mono text-xs" title="Si editas el código del backend pero esta hora no cambia, mata el proceso y reinícialo (no se aplican cambios sin reiniciar Node).">
+                                    {new Date(status.serviceStartTime).toLocaleString('es-ES')}
+                                </dd>
+                            </div>
+                        )}
+                        {status.wwebVersion && (
+                            <div>
+                                <dt className="text-white/40 text-xs uppercase tracking-wider mb-1">whatsapp-web.js</dt>
+                                <dd className="text-white/70 font-mono text-xs">v{status.wwebVersion}</dd>
+                            </div>
+                        )}
                     </dl>
                     <p className="mt-6 text-xs text-white/40 leading-relaxed">
                         Aviso: usar whatsapp-web.js viola los Términos de Servicio de WhatsApp.

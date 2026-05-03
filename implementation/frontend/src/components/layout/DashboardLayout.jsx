@@ -15,7 +15,12 @@ export function DashboardLayout({ children, activeTab, onTabChange }) {
     const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
     const [wwaState, setWwaState] = useState('DISCONNECTED'); // DISCONNECTED | READY | QR | INITIALIZING | AUTH_FAILED
 
-    // Polling del estado de WhatsApp cada 5s (solo ADMIN)
+    // Polling del estado de WhatsApp (solo ADMIN).
+    // Intervalo reducido de 5s → 30s el 2026-04-29 para recortar el egress de Supabase:
+    // cada request pasa por el middleware de auth (DB hit), y 720 req/hora por usuario
+    // estaban contribuyendo a superar el límite de 5.5 GB del plan Free.
+    // El indicador verde/rojo puede tardar hasta 30s en actualizarse; es aceptable
+    // porque el admin solo necesita saber el estado aproximado desde el sidebar.
     useEffect(() => {
         const userRole = (user?.rol || '').toUpperCase();
         const userRoleId = user?.id_rol ? Number(user.id_rol) : null;
@@ -31,7 +36,7 @@ export function DashboardLayout({ children, activeTab, onTabChange }) {
         };
 
         pollWwa();
-        const interval = setInterval(pollWwa, 5000);
+        const interval = setInterval(pollWwa, 30000);
         return () => clearInterval(interval);
     }, [user?.rol, user?.id_rol]);
 

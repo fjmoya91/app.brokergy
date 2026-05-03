@@ -158,31 +158,51 @@ function TableHeader({ label, ceeType, required, onOpenModal, editMode, filename
     );
 }
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+// El backend normalizeData guarda todos los strings en MAYÚSCULAS.
+// Esta función devuelve la clave correcta de FACTORES_PASO (case-insensitive).
+function normalizeCombKey(val) {
+    if (!val) return null;
+    if (FACTORES_PASO[val] !== undefined) return val;
+    const lower = val.toLowerCase();
+    return Object.keys(FACTORES_PASO).find(k => k.toLowerCase() === lower) || null;
+}
+
 // ─── Componente Principal ─────────────────────────────────────────────────────
 export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving, certificadores = [], onAutoStatus }) {
     const isReforma = expediente?.oportunidades?.ficha === 'RES080' || expediente?.cee?.is_reforma;
 
-    const [local, setLocal] = useState(() => ({
-        tipo: 'xml',
-        is_reforma: isReforma,
-        cee_inicial: null,
-        cee_final: null,
-        acs_method: 'xml',
-        num_rooms: 4,
-        certificador_id: null,
-        // Combustibles RES080
-        comb_acs_inicial: 'Gasoleo Calefacción',
-        comb_acs_final: 'Electricidad peninsular',
-        comb_cal_inicial: 'Gasoleo Calefacción',
-        comb_cal_final: 'Electricidad peninsular',
-        comb_ref_inicial: 'Electricidad peninsular',
-        comb_ref_final: 'Electricidad peninsular',
-        cee_files: {
-            inicial: { pdf: null, xml: null, cex: null, registro: null, etiqueta: null, otros: [] },
-            final: { pdf: null, xml: null, cex: null, registro: null, etiqueta: null, otros: [] }
-        },
-        ...(expediente?.cee || {})
-    }));
+    const [local, setLocal] = useState(() => {
+        const saved = expediente?.cee || {};
+        return {
+            tipo: 'xml',
+            is_reforma: isReforma,
+            cee_inicial: null,
+            cee_final: null,
+            acs_method: 'xml',
+            num_rooms: 4,
+            certificador_id: null,
+            comb_acs_inicial: 'Gasoleo Calefacción',
+            comb_acs_final: 'Electricidad peninsular',
+            comb_cal_inicial: 'Gasoleo Calefacción',
+            comb_cal_final: 'Electricidad peninsular',
+            comb_ref_inicial: 'Electricidad peninsular',
+            comb_ref_final: 'Electricidad peninsular',
+            cee_files: {
+                inicial: { pdf: null, xml: null, cex: null, registro: null, etiqueta: null, otros: [] },
+                final: { pdf: null, xml: null, cex: null, registro: null, etiqueta: null, otros: [] }
+            },
+            ...saved,
+            // Normalizar combustibles que el backend pudo haber guardado en MAYÚSCULAS
+            comb_acs_inicial: normalizeCombKey(saved.comb_acs_inicial) || 'Gasoleo Calefacción',
+            comb_acs_final:   normalizeCombKey(saved.comb_acs_final)   || 'Electricidad peninsular',
+            comb_cal_inicial: normalizeCombKey(saved.comb_cal_inicial) || 'Gasoleo Calefacción',
+            comb_cal_final:   normalizeCombKey(saved.comb_cal_final)   || 'Electricidad peninsular',
+            comb_ref_inicial: normalizeCombKey(saved.comb_ref_inicial) || 'Electricidad peninsular',
+            comb_ref_final:   normalizeCombKey(saved.comb_ref_final)   || 'Electricidad peninsular',
+        };
+    });
 
     const [showXmlModal, setShowXmlModal] = useState(false);
     const [xmlError, setXmlError] = useState(null);
@@ -356,6 +376,7 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
             const { data } = await axios.post(`/api/expedientes/${expediente.id}/notify-certificador`, {
                 certificador_id: local.certificador_id,
                 sendEmail: !!notify,
+                phase: 'initial'
             });
 
             const driveOk = data?.driveAccessGranted;
@@ -417,6 +438,48 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                 onSave({ cee: nextLocal });
             }}
             onAutoStatus={onAutoStatus}
+            onForceNotify={async (phase, channels, template) => {
+                if (!local.certificador_id) {
+                    alert('Asigna primero un certificador');
+                    return;
+                }
+                try {
+                    const { data } = await axios.post(`/api/expedientes/${expediente.id}/notify-certificador`, {
+                        certificador_id: local.certificador_id,
+                        sendEmail: channels.includes('email'),
+                        sendWhatsApp: channels.includes('whatsapp'),
+                        phase,
+                        template
+                    });
+                    const msgs = [];
+                    if (data.emailSent) msgs.push(`Email enviado a ${data.sentTo}`);
+                    if (data.whatsAppSent) msgs.push('WhatsApp enviado');
+                    else if (data.channels?.some(c => c.includes('encolado'))) msgs.push('WhatsApp encolado (se enviará al conectar)');
+                    if (data.newEstado) msgs.push(`Estado: ${data.newEstado}`);
+                    alert(msgs.join('\n') || 'Notificación procesada');
+                    if (onRefresh) onRefresh();
+                } catch (err) {
+                    alert(err.response?.data?.error || 'Error al notificar al certificador');
+                }
+            }}
+            onNotifyReview={async (phase) => {
+                try {
+                    await axios.post(`/api/expedientes/${expediente.id}/notify-review`, { phase });
+                    alert('Revisión solicitada correctamente. Estado actualizado.');
+                    if (onRefresh) onRefresh();
+                } catch (err) {
+                    alert(err.response?.data?.error || 'Error al solicitar revisión');
+                }
+            }}
+            onApproveCee={async (phase) => {
+                try {
+                    await axios.post(`/api/expedientes/${expediente.id}/approve-cee`, { phase });
+                    alert('CEE validado. Estado actualizado a REVISADO Y LISTO.');
+                    if (onRefresh) onRefresh();
+                } catch (err) {
+                    alert(err.response?.data?.error || 'Error al aprobar el CEE');
+                }
+            }}
         />
     );
 
@@ -447,6 +510,48 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                     onSave({ cee: nextLocal });
                 }}
                 onAutoStatus={onAutoStatus}
+                onForceNotify={async (phase, channels, template) => {
+                    if (!local.certificador_id) {
+                        alert('Asigna primero un certificador');
+                        return;
+                    }
+                    try {
+                        const { data } = await axios.post(`/api/expedientes/${expediente.id}/notify-certificador`, {
+                            certificador_id: local.certificador_id,
+                            sendEmail: channels.includes('email'),
+                            sendWhatsApp: channels.includes('whatsapp'),
+                            phase,
+                            template
+                        });
+                        const msgs = [];
+                        if (data.emailSent) msgs.push(`Email enviado a ${data.sentTo}`);
+                        if (data.whatsAppSent) msgs.push('WhatsApp enviado');
+                        else if (data.channels?.some(c => c.includes('encolado'))) msgs.push('WhatsApp encolado (se enviará al conectar)');
+                        if (data.newEstado) msgs.push(`Estado: ${data.newEstado}`);
+                        alert(msgs.join('\n') || 'Notificación procesada');
+                        if (onRefresh) onRefresh();
+                    } catch (err) {
+                        alert(err.response?.data?.error || 'Error al notificar al certificador');
+                    }
+                }}
+                onNotifyReview={async (phase) => {
+                    try {
+                        await axios.post(`/api/expedientes/${expediente.id}/notify-review`, { phase });
+                        alert('Revisión solicitada correctamente. Estado actualizado.');
+                        if (onRefresh) onRefresh();
+                    } catch (err) {
+                        alert(err.response?.data?.error || 'Error al solicitar revisión');
+                    }
+                }}
+                onApproveCee={async (phase) => {
+                    try {
+                        await axios.post(`/api/expedientes/${expediente.id}/approve-cee`, { phase });
+                        alert('CEE validado. Estado actualizado a REVISADO Y LISTO.');
+                        if (onRefresh) onRefresh();
+                    } catch (err) {
+                        alert(err.response?.data?.error || 'Error al aprobar el CEE');
+                    }
+                }}
             />
 
             {res080Data ? (
@@ -459,7 +564,9 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                         editable={editMode} 
                         onFuelChange={(type, isFinal, value) => {
                             const key = `comb_${type}_${isFinal ? 'final' : 'inicial'}`;
-                            setLocal(p => ({ ...p, [key]: value }));
+                            const nextLocal = { ...local, [key]: value };
+                            setLocal(nextLocal);
+                            onSave({ cee: nextLocal });
                         }}
                     />
                 </div>

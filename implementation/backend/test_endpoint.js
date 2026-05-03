@@ -1,17 +1,20 @@
-const express = require('express');
-const app = express();
-const supabase = require('./services/supabaseClient');
+const axios = require('axios');
 
-app.get('/test', async (req, res) => {
-    // mock user
-    const id_usuario = '71ec2c50-c735-4b95-8064-3ee96be4235f';
-    const { data: isPrescriptor, error: presErr } = await supabase
-        .from('prescriptores')
-        .select('id_empresa, razon_social, logo_empresa')
-        .eq('representante_legal_id', id_usuario)
-        .maybeSingle();
-        
-    res.json({ presErr, isPrescriptor: isPrescriptor ? { ...isPrescriptor, logo_empresa_length: isPrescriptor.logo_empresa?.length } : null });
-});
+async function test() {
+    try {
+        const res = await axios.post('http://localhost:3000/api/pdf/save-to-drive', {
+            html: '<h1>test</h1>',
+            folderId: 'test-folder'
+        });
+        console.log('Success:', res.status);
+    } catch (err) {
+        if (err.response) {
+            console.log('Error status:', err.response.status);
+            console.log('Error data:', err.response.data);
+        } else {
+            console.log('Error:', err.message);
+        }
+    }
+}
 
-app.listen(3333, () => console.log('Test server on 3333'));
+test();
