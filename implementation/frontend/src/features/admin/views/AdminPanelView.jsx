@@ -51,6 +51,10 @@ export function AdminPanelView({
     const [partnerSearch, setPartnerSearch] = useState('');
     const [globalSearch, setGlobalSearch] = useState('');
 
+    // Inline edit for cod_cliente_interno (DISTRIBUIDOR view)
+    const [editingCodClienteId, setEditingCodClienteId] = useState(null);
+    const [editingCodClienteValue, setEditingCodClienteValue] = useState('');
+
     // Cerrar dropdown al hacer click fuera
     useEffect(() => {
         const handleClickOutside = () => {
@@ -239,6 +243,19 @@ export function AdminPanelView({
         } finally {
             setLoading(false);
         }
+    };
+
+    const saveCodClienteInterno = async (opIdOportunidad, value) => {
+        try {
+            await axios.patch(`/api/oportunidades/${opIdOportunidad}/cod-cliente`, { cod_cliente_interno: value });
+            setOportunidades(prev => prev.map(o => o.id_oportunidad === opIdOportunidad
+                ? { ...o, datos_calculo: { ...o.datos_calculo, cod_cliente_interno: value } }
+                : o
+            ));
+        } catch (err) {
+            console.error('Error guardando cod_cliente_interno:', err);
+        }
+        setEditingCodClienteId(null);
     };
 
     // Auto-dismiss error after 5 seconds
@@ -966,8 +983,35 @@ export function AdminPanelView({
                                             <td className="p-3.5 text-xs font-mono text-cyan-400/80 whitespace-nowrap">{op.id_oportunidad}</td>
                                             <td className="p-3.5 text-sm text-white/90 font-medium max-w-[140px] truncate" title={op.referencia_cliente}>{op.referencia_cliente || '-'}</td>
                                              {user?.rol === 'DISTRIBUIDOR' && (
-                                                <td className="p-3.5 text-[10px] text-amber-400 font-bold tracking-tight">
-                                                    {op.datos_calculo?.cod_cliente_interno || '-'}
+                                                <td
+                                                    className="p-3.5 text-[10px] text-amber-400 font-bold tracking-tight"
+                                                    onClick={e => e.stopPropagation()}
+                                                    onDoubleClick={e => {
+                                                        e.stopPropagation();
+                                                        setEditingCodClienteId(op.id_oportunidad);
+                                                        setEditingCodClienteValue(op.datos_calculo?.cod_cliente_interno || '');
+                                                    }}
+                                                    title="Doble clic para editar"
+                                                >
+                                                    {editingCodClienteId === op.id_oportunidad ? (
+                                                        <input
+                                                            autoFocus
+                                                            type="text"
+                                                            className="w-24 bg-slate-800 border border-amber-400/50 rounded px-1.5 py-0.5 text-[10px] text-amber-400 font-bold focus:outline-none focus:border-amber-400 no-uppercase"
+                                                            value={editingCodClienteValue}
+                                                            onChange={e => setEditingCodClienteValue(e.target.value)}
+                                                            onBlur={() => saveCodClienteInterno(op.id_oportunidad, editingCodClienteValue)}
+                                                            onKeyDown={e => {
+                                                                if (e.key === 'Enter') saveCodClienteInterno(op.id_oportunidad, editingCodClienteValue);
+                                                                if (e.key === 'Escape') setEditingCodClienteId(null);
+                                                            }}
+                                                            onClick={e => e.stopPropagation()}
+                                                        />
+                                                    ) : (
+                                                        <span className="cursor-pointer hover:text-amber-300 transition-colors">
+                                                            {op.datos_calculo?.cod_cliente_interno || <span className="text-white/20 italic font-normal">doble clic</span>}
+                                                        </span>
+                                                    )}
                                                 </td>
                                              )}
                                             <td className="p-3.5 text-[10px] text-white/40 uppercase font-bold tracking-tight">

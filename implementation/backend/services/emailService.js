@@ -100,7 +100,7 @@ const sendPasswordResetEmail = async (to, resetLink, userName) => {
                     <tr>
                         <td style="padding:0 40px 30px; text-align:center;">
                             <p style="margin:0; font-size:14px; line-height:1.6; color:rgba(255,255,255,0.5);">
-                                ${userName ? `Hola <strong style="color:rgba(255,255,255,0.8);">${userName}</strong>,<br><br>` : ''}
+                                ${userName ? `Hola <strong style="color:rgba(255,255,255,0.8);">${userName.toUpperCase()}</strong>,<br><br>` : ''}
                                 Hemos recibido una solicitud para restablecer la contraseña de tu cuenta en Brokergy. 
                                 Si no realizaste esta solicitud, simplemente ignora este correo.
                             </p>

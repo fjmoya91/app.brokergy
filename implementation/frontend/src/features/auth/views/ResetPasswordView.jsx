@@ -206,7 +206,7 @@ export function ResetPasswordView({ token, onBackToLogin }) {
                                             type={showPassword ? 'text' : 'password'}
                                             required
                                             minLength={6}
-                                            className="w-full bg-bkg-elevated border border-white/[0.1] rounded-xl px-4 py-3 pr-12 text-white placeholder-white/30 focus:outline-none focus:border-brand focus:ring-1 focus:ring-brand transition-colors"
+                                            className="no-uppercase w-full bg-bkg-elevated border border-white/[0.1] rounded-xl px-4 py-3 pr-12 text-white placeholder-white/30 focus:outline-none focus:border-brand focus:ring-1 focus:ring-brand transition-colors"
                                             placeholder="Mínimo 6 caracteres"
                                             value={password}
                                             onChange={(e) => setPassword(e.target.value)}
@@ -242,7 +242,7 @@ export function ResetPasswordView({ token, onBackToLogin }) {
                                         type={showPassword ? 'text' : 'password'}
                                         required
                                         minLength={6}
-                                        className="w-full bg-bkg-elevated border border-white/[0.1] rounded-xl px-4 py-3 text-white placeholder-white/30 focus:outline-none focus:border-brand focus:ring-1 focus:ring-brand transition-colors"
+                                        className="no-uppercase w-full bg-bkg-elevated border border-white/[0.1] rounded-xl px-4 py-3 text-white placeholder-white/30 focus:outline-none focus:border-brand focus:ring-1 focus:ring-brand transition-colors"
                                         placeholder="Repite la nueva contraseña"
                                         value={confirmPassword}
                                         onChange={(e) => setConfirmPassword(e.target.value)}

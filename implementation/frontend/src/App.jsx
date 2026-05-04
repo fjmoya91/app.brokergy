@@ -25,7 +25,7 @@ function App() {
   const [step, setStep] = useState('ADMIN');
 
   // 1. Detectar parámetros de URL (necesarios para inicializar otros estados)
-  const [resetToken] = useState(() => {
+  const [resetToken, setResetToken] = useState(() => {
     const path = window.location.pathname;
     const params = new URLSearchParams(window.location.search);
     if (path === '/reset-password') return params.get('token') || null;

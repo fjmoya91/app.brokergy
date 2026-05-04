@@ -188,17 +188,27 @@ router.get('/', enforceAuth, async (req, res) => {
 
         let data = simpleData || [];
 
-        // Filtro adicional por cliente si no es ADMIN ni CERTIFICADOR
+        // Filtro adicional por cliente/oportunidad si no es ADMIN ni CERTIFICADOR
         if (!canViewAll && req.user.rol_nombre !== 'CERTIFICADOR') {
             if (!req.user.prescriptor_id) return res.json([]);
+
+            // Clientes con prescriptor_id del distribuidor
             const { data: clienteIds } = await supabase
                 .from('clientes')
                 .select('id_cliente')
                 .eq('prescriptor_id', req.user.prescriptor_id);
-            
-            if (!clienteIds || clienteIds.length === 0) return res.json([]);
-            const validIds = clienteIds.map(c => c.id_cliente);
-            data = data.filter(r => validIds.includes(r.cliente_id));
+
+            // Oportunidades asignadas directamente al distribuidor (prescriptor_id en oportunidades)
+            const { data: opIds } = await supabase
+                .from('oportunidades')
+                .select('id')
+                .eq('prescriptor_id', req.user.prescriptor_id);
+
+            const validClientIds = new Set((clienteIds || []).map(c => c.id_cliente));
+            const validOpIds    = new Set((opIds || []).map(o => o.id));
+
+            if (validClientIds.size === 0 && validOpIds.size === 0) return res.json([]);
+            data = data.filter(r => validClientIds.has(r.cliente_id) || validOpIds.has(r.oportunidad_id));
         }
 
         // Filtro específico para CERTIFICADOR
@@ -1132,7 +1142,7 @@ router.post('/:id/notify-certificador', enforceAuth, async (req, res) => {
         };
 
         const certName = cert.razon_social || cert.acronimo || 'Técnico';
-        const portalLink = `${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/expedientes/${req.params.id}`;
+        const portalLink = `${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/?exp=${req.params.id}`;
 
         // Tipo de actuación para el asunto del email
         const tipoActuacion =
@@ -1534,7 +1544,7 @@ router.post('/:id/approve-cee', adminOnly, async (req, res) => {
 
         // Enviar email automático al técnico indicando que ya tiene luz verde
         if (certEmail) {
-            const portalLink = `${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/expedientes/${req.params.id}`;
+            const portalLink = `${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/?exp=${req.params.id}`;
             const ceeFolderLink = cee.cee_folder_link || null;
             
             setImmediate(async () => {

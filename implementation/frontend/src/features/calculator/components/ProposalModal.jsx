@@ -1557,7 +1557,8 @@ info@brokergy.es · 623 926 179`;
                             )}
                         </button>
 
-                        {/* Botón ENVIAR POR EMAIL (Avioncito) */}
+                        {/* Botón ENVIAR POR EMAIL (Avioncito) — solo ADMIN */}
+                        {user?.rol === 'ADMIN' && (
                         <button
                             onClick={handleSendByEmail}
                             disabled={sendingEmail}
@@ -1575,8 +1576,10 @@ info@brokergy.es · 623 926 179`;
                                 </div>
                             )}
                         </button>
+                        )}
 
-                        {/* Botón ENVIAR POR WHATSAPP */}
+                        {/* Botón ENVIAR POR WHATSAPP — solo ADMIN */}
+                        {user?.rol === 'ADMIN' && (
                         <button
                             onClick={handleSendByWhatsapp}
                             disabled={sendingWhatsapp}
@@ -1593,8 +1596,8 @@ info@brokergy.es · 623 926 179`;
                                 </div>
                             )}
                         </button>
+                        )}
 
-                        {/* Botón DRIVE (Minimalista) */}
                         {/* Botón ARCHIVAR EN DRIVE (Carpeta + Flecha) - Solo ADMIN */}
                         {user?.rol === 'ADMIN' && (
                             <button

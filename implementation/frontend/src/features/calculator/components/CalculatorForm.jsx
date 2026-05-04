@@ -184,6 +184,11 @@ export function CalculatorForm({
     const [brandAcsSearchTerm, setBrandAcsSearchTerm] = useState('');
     const brandAcsRef = React.useRef(null);
 
+    // Popup SCOP para marca personalizada
+    const [showScopPopup, setShowScopPopup] = useState(false);
+    const [showScopAcsPopup, setShowScopAcsPopup] = useState(false);
+    const CUSTOM_MARCA = '__OTRA__';
+
     // Cerrar dropdowns al hacer click fuera
     useEffect(() => {
         function handleClickOutside(event) {
@@ -1348,7 +1353,7 @@ export function CalculatorForm({
                                                         <img src={activeBrandLogo} alt="" className="w-5 h-5 object-contain brightness-110" />
                                                     )}
                                                     <span className={`text-sm font-medium ${selectedMarca ? 'text-white' : 'text-slate-500'}`}>
-                                                        {selectedMarca || 'Seleccionar marca...'}
+                                                        {selectedMarca === CUSTOM_MARCA ? '✏️ Otra marca' : (selectedMarca || 'Seleccionar marca...')}
                                                     </span>
                                                 </div>
                                                 <svg className={`w-4 h-4 text-slate-500 transition-transform ${isBrandDropdownOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1372,14 +1377,14 @@ export function CalculatorForm({
 
                                                     <div className="max-h-[240px] overflow-y-auto custom-scrollbar p-1">
                                                         {filteredMarcas.map(m => (
-                                                            <div 
+                                                            <div
                                                                 key={m.nombre}
                                                                 className={`flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-colors hover:bg-white/5 ${selectedMarca === m.nombre ? 'bg-brand/10 text-brand' : 'text-slate-400'}`}
-                                                                onClick={() => { 
-                                                                    setSelectedMarca(m.nombre); 
+                                                                onClick={() => {
+                                                                    setSelectedMarca(m.nombre);
                                                                     onInputChange(prev => ({ ...prev, aerothermiaModel: 'custom' }));
-                                                                    setIsBrandDropdownOpen(false); 
-                                                                    setBrandSearchTerm(''); 
+                                                                    setIsBrandDropdownOpen(false);
+                                                                    setBrandSearchTerm('');
                                                                 }}
                                                             >
                                                                 {m.logo && (
@@ -1388,6 +1393,18 @@ export function CalculatorForm({
                                                                 <span className="text-sm font-bold uppercase tracking-tight">{m.nombre}</span>
                                                             </div>
                                                         ))}
+                                                        <div
+                                                            className={`flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-colors hover:bg-white/5 border-t border-slate-700/50 mt-1 pt-2 ${selectedMarca === CUSTOM_MARCA ? 'bg-brand/10 text-brand' : 'text-slate-400'}`}
+                                                            onClick={() => {
+                                                                setSelectedMarca(CUSTOM_MARCA);
+                                                                onInputChange(prev => ({ ...prev, aerothermiaModel: 'custom', customBrandName: '', customModelName: '' }));
+                                                                setIsBrandDropdownOpen(false);
+                                                                setBrandSearchTerm('');
+                                                                setShowScopPopup(true);
+                                                            }}
+                                                        >
+                                                            <span className="text-sm font-bold uppercase tracking-tight">✏️ Otra marca (introducir manualmente)</span>
+                                                        </div>
                                                     </div>
                                                 </div>
                                             )}
@@ -1395,46 +1412,77 @@ export function CalculatorForm({
 
                                         <div className="space-y-1.5">
                                             <Label htmlFor="aerothermiaModel" className="text-xs font-semibold text-slate-400 uppercase tracking-wider ml-1">
-                                                Modelo seleccionado
+                                                {selectedMarca === CUSTOM_MARCA ? 'Marca / Modelo' : 'Modelo seleccionado'}
                                             </Label>
-                                            <Select
-                                                id="aerothermiaModel"
-                                                value={inputs.aerothermiaModel || 'custom'}
-                                                onChange={e => {
-                                                    const modelId = e.target.value;
-                                                    let selectedModel = dbModels.find(m => String(m.id) === String(modelId));
-                                                    if (!selectedModel) selectedModel = AEROTHERMIA_MODELS.find(m => m.id === modelId);
+                                            {selectedMarca === CUSTOM_MARCA ? (
+                                                <div className="flex gap-2">
+                                                    <Input
+                                                        type="text"
+                                                        placeholder="Marca..."
+                                                        value={inputs.customBrandName || ''}
+                                                        onChange={e => onInputChange(prev => ({ ...prev, customBrandName: e.target.value }))}
+                                                        className="h-12 bg-slate-900/50 border-slate-700/50 rounded-xl flex-1 no-uppercase"
+                                                    />
+                                                    <Input
+                                                        type="text"
+                                                        placeholder="Modelo..."
+                                                        value={inputs.customModelName || ''}
+                                                        onChange={e => onInputChange(prev => ({ ...prev, customModelName: e.target.value }))}
+                                                        className="h-12 bg-slate-900/50 border-slate-700/50 rounded-xl flex-1 no-uppercase"
+                                                    />
+                                                </div>
+                                            ) : (
+                                                <div className="space-y-2">
+                                                    <Select
+                                                        id="aerothermiaModel"
+                                                        value={inputs.aerothermiaModel || 'custom'}
+                                                        onChange={e => {
+                                                            const modelId = e.target.value;
+                                                            let selectedModel = dbModels.find(m => String(m.id) === String(modelId));
+                                                            if (!selectedModel) selectedModel = AEROTHERMIA_MODELS.find(m => m.id === modelId);
 
-                                                    const currentEmitter = inputs.emitterType || 'radiadores_convencionales';
-                                                    let updates = { aerothermiaModel: modelId };
+                                                            const currentEmitter = inputs.emitterType || 'radiadores_convencionales';
+                                                            let updates = { aerothermiaModel: modelId, customModelName: '' };
 
-                                                    if (selectedModel && modelId !== 'custom') {
-                                                        const temp = currentEmitter === 'radiadores_convencionales' ? 55 : (currentEmitter === 'radiadores_baja_temp' ? 45 : 35);
-                                                        updates.scopHeating = getScopFromModel(selectedModel, inputs.zona, temp);
-                                                        updates.scopAcs = getScopAcsFromModel(selectedModel, inputs.zona);
-                                                        updates.potenciaBomba = selectedModel.potencia_calefaccion || selectedModel.potencia_nominal_35 || 0;
-                                                        
-                                                        // Resetear dirty flags al seleccionar un modelo nuevo
-                                                        setDirtyScopHeating(false);
-                                                        setDirtyScopAcs(false);
-                                                    }
-                                                    onInputChange(prev => ({ ...prev, ...updates }));
-                                                }}
-                                                className="h-12 bg-slate-900/50 border-slate-700/50 rounded-xl"
-                                            >
-                                                <option value="custom">-- Seleccionar modelo --</option>
-                                                <optgroup label={selectedMarca || 'Modelos disponibles'}>
-                                                    {dbModels
-                                                        .filter(m => m.marca === selectedMarca)
-                                                        .map(m => (
-                                                            <option key={m.id} value={m.id}>
-                                                                {m.modelo_comercial} ({m.potencia_calefaccion} kW)
-                                                            </option>
-                                                        ))
-                                                    }
-                                                </optgroup>
-                                                <option value="custom">Manual (Configurar a medida)</option>
-                                            </Select>
+                                                            if (selectedModel && modelId !== 'custom') {
+                                                                const temp = currentEmitter === 'radiadores_convencionales' ? 55 : (currentEmitter === 'radiadores_baja_temp' ? 45 : 35);
+                                                                updates.scopHeating = getScopFromModel(selectedModel, inputs.zona, temp);
+                                                                updates.scopAcs = getScopAcsFromModel(selectedModel, inputs.zona);
+                                                                updates.potenciaBomba = selectedModel.potencia_calefaccion || selectedModel.potencia_nominal_35 || 0;
+                                                                setDirtyScopHeating(false);
+                                                                setDirtyScopAcs(false);
+                                                                setShowScopPopup(false);
+                                                            } else if (modelId === 'custom') {
+                                                                setShowScopPopup(true);
+                                                            }
+                                                            onInputChange(prev => ({ ...prev, ...updates }));
+                                                        }}
+                                                        className="h-12 bg-slate-900/50 border-slate-700/50 rounded-xl"
+                                                    >
+                                                        <option value="custom">-- Seleccionar modelo --</option>
+                                                        <optgroup label={selectedMarca || 'Modelos disponibles'}>
+                                                            {dbModels
+                                                                .filter(m => m.marca === selectedMarca)
+                                                                .map(m => (
+                                                                    <option key={m.id} value={m.id}>
+                                                                        {m.modelo_comercial} ({m.potencia_calefaccion} kW)
+                                                                    </option>
+                                                                ))
+                                                            }
+                                                        </optgroup>
+                                                        <option value="custom">✏️ Introducir manualmente</option>
+                                                    </Select>
+                                                    {inputs.aerothermiaModel === 'custom' && (
+                                                        <Input
+                                                            type="text"
+                                                            placeholder="Nombre del modelo..."
+                                                            value={inputs.customModelName || ''}
+                                                            onChange={e => onInputChange(prev => ({ ...prev, customModelName: e.target.value }))}
+                                                            className="h-10 bg-slate-900/50 border-slate-700/50 rounded-xl no-uppercase text-sm"
+                                                        />
+                                                    )}
+                                                </div>
+                                            )}
                                         </div>
                                     </div>
 
@@ -1456,6 +1504,38 @@ export function CalculatorForm({
                                                 className="h-12 bg-slate-900/50 border-slate-700/50 rounded-xl text-center font-mono text-lg font-bold text-brand"
                                             />
                                         </div>
+
+                                        {/* SCOP Popup — marca personalizada */}
+                                        {showScopPopup && (
+                                            <div className="md:col-span-3 animate-in fade-in duration-200">
+                                                <div className="p-4 bg-brand/5 border border-brand/30 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                                                    <div>
+                                                        <p className="text-sm font-semibold text-white">¿Conoces el valor del SCOP?</p>
+                                                        <p className="text-xs text-slate-400 mt-0.5">Si no lo conoces aplicaremos SCOP = 4 (valor conservador)</p>
+                                                    </div>
+                                                    <div className="flex gap-2 shrink-0">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setShowScopPopup(false)}
+                                                            className="px-4 py-2 rounded-lg border border-brand/50 text-brand text-xs font-bold uppercase tracking-wider hover:bg-brand/10 transition-colors"
+                                                        >
+                                                            Sí, lo introduzco
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                                onInputChange(prev => ({ ...prev, scopHeating: 4 }));
+                                                                setDirtyScopHeating(true);
+                                                                setShowScopPopup(false);
+                                                            }}
+                                                            className="px-4 py-2 rounded-lg bg-brand text-slate-900 text-xs font-bold uppercase tracking-wider hover:bg-brand/90 transition-colors"
+                                                        >
+                                                            No, usar SCOP 4
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        )}
 
                                         <div className="md:col-span-2 flex gap-3 h-12">
                                             <button 
@@ -1567,7 +1647,7 @@ export function CalculatorForm({
                                                                 <img src={activeBrandAcsLogo} alt="" className="w-5 h-5 object-contain brightness-110" />
                                                             )}
                                                             <span className={`text-sm font-medium ${selectedMarcaAcs ? 'text-white' : 'text-slate-500'}`}>
-                                                                {selectedMarcaAcs || 'Seleccionar marca...'}
+                                                                {selectedMarcaAcs === CUSTOM_MARCA ? '✏️ Otra marca' : (selectedMarcaAcs || 'Seleccionar marca...')}
                                                             </span>
                                                         </div>
                                                         <svg className={`w-4 h-4 text-slate-500 transition-transform ${isBrandAcsDropdownOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1590,20 +1670,32 @@ export function CalculatorForm({
                                                             </div>
                                                             <div className="max-h-[200px] overflow-y-auto custom-scrollbar p-1">
                                                                 {filteredMarcasAcs.map(m => (
-                                                                    <div 
+                                                                    <div
                                                                         key={m.nombre}
                                                                         className={`flex items-center gap-3 p-3 rounded-lg cursor-pointer hover:bg-white/5 ${selectedMarcaAcs === m.nombre ? 'text-brand' : 'text-slate-400'}`}
-                                                                        onClick={() => { 
-                                                                            setSelectedMarcaAcs(m.nombre); 
+                                                                        onClick={() => {
+                                                                            setSelectedMarcaAcs(m.nombre);
                                                                             onInputChange(prev => ({ ...prev, aerothermiaModelAcs: 'custom' }));
-                                                                            setIsBrandAcsDropdownOpen(false); 
-                                                                            setBrandAcsSearchTerm(''); 
+                                                                            setIsBrandAcsDropdownOpen(false);
+                                                                            setBrandAcsSearchTerm('');
                                                                         }}
                                                                     >
                                                                         {m.logo && <img src={m.logo} alt="" className="w-6 h-6 object-contain rounded bg-white/5 p-1" />}
                                                                         <span className="text-sm font-bold uppercase tracking-tight">{m.nombre}</span>
                                                                     </div>
                                                                 ))}
+                                                                <div
+                                                                    className={`flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-colors hover:bg-white/5 border-t border-slate-700/50 mt-1 pt-2 ${selectedMarcaAcs === CUSTOM_MARCA ? 'bg-brand/10 text-brand' : 'text-slate-400'}`}
+                                                                    onClick={() => {
+                                                                        setSelectedMarcaAcs(CUSTOM_MARCA);
+                                                                        onInputChange(prev => ({ ...prev, aerothermiaModelAcs: 'custom', customBrandAcsName: '', customModelAcsName: '' }));
+                                                                        setIsBrandAcsDropdownOpen(false);
+                                                                        setBrandAcsSearchTerm('');
+                                                                        setShowScopAcsPopup(true);
+                                                                    }}
+                                                                >
+                                                                    <span className="text-sm font-bold uppercase tracking-tight">✏️ Otra marca (introducir manualmente)</span>
+                                                                </div>
                                                             </div>
                                                         </div>
                                                     )}
@@ -1611,38 +1703,103 @@ export function CalculatorForm({
 
                                                 <div className="space-y-1.5">
                                                     <Label htmlFor="aerothermiaModelAcs" className="text-xs font-semibold text-slate-400 uppercase tracking-wider ml-1">
-                                                        Modelo ACS
+                                                        {selectedMarcaAcs === CUSTOM_MARCA ? 'Marca / Modelo ACS' : 'Modelo ACS'}
                                                     </Label>
-                                                    <Select
-                                                        id="aerothermiaModelAcs"
-                                                        value={inputs.aerothermiaModelAcs || 'custom'}
-                                                        onChange={e => {
-                                                            const modelId = e.target.value;
-                                                            let selectedModel = dbModels.find(m => String(m.id) === String(modelId));
-                                                            let updates = { aerothermiaModelAcs: modelId };
-                                                            if (selectedModel && modelId !== 'custom') {
-                                                                updates.scopAcs = getScopAcsFromModel(selectedModel, inputs.zona);
-                                                                setDirtyScopAcs(false);
-                                                            }
-                                                            onInputChange(prev => ({ ...prev, ...updates }));
-                                                        }}
-                                                        className="h-12 bg-slate-900/50 border-slate-700/50 rounded-xl"
-                                                    >
-                                                        <option value="custom">-- Seleccionar modelo ACS --</option>
-                                                        <optgroup label={selectedMarcaAcs || 'Modelos ACS'}>
-                                                            {dbModels
-                                                                .filter(m => m.marca === selectedMarcaAcs && (m.scop_dhw_medio || m.scop_dhw_calido || m.deposito_acs_incluido || String(m.tipo || '').includes('ACS')))
-                                                                .map(m => (
-                                                                    <option key={m.id} value={m.id}>
-                                                                        {m.modelo_comercial} {m.modelo_conjunto ? `(${m.modelo_conjunto})` : (typeof m.deposito_acs_incluido === 'number' && m.deposito_acs_incluido > 0 ? `(${m.deposito_acs_incluido}L)` : '')}
-                                                                    </option>
-                                                                ))
-                                                            }
-                                                        </optgroup>
-                                                        <option value="custom">Manual</option>
-                                                    </Select>
+                                                    {selectedMarcaAcs === CUSTOM_MARCA ? (
+                                                        <div className="flex gap-2">
+                                                            <Input
+                                                                type="text"
+                                                                placeholder="Marca..."
+                                                                value={inputs.customBrandAcsName || ''}
+                                                                onChange={e => onInputChange(prev => ({ ...prev, customBrandAcsName: e.target.value }))}
+                                                                className="h-12 bg-slate-900/50 border-slate-700/50 rounded-xl flex-1 no-uppercase"
+                                                            />
+                                                            <Input
+                                                                type="text"
+                                                                placeholder="Modelo..."
+                                                                value={inputs.customModelAcsName || ''}
+                                                                onChange={e => onInputChange(prev => ({ ...prev, customModelAcsName: e.target.value }))}
+                                                                className="h-12 bg-slate-900/50 border-slate-700/50 rounded-xl flex-1 no-uppercase"
+                                                            />
+                                                        </div>
+                                                    ) : (
+                                                        <div className="space-y-2">
+                                                            <Select
+                                                                id="aerothermiaModelAcs"
+                                                                value={inputs.aerothermiaModelAcs || 'custom'}
+                                                                onChange={e => {
+                                                                    const modelId = e.target.value;
+                                                                    let selectedModel = dbModels.find(m => String(m.id) === String(modelId));
+                                                                    let updates = { aerothermiaModelAcs: modelId, customModelAcsName: '' };
+                                                                    if (selectedModel && modelId !== 'custom') {
+                                                                        updates.scopAcs = getScopAcsFromModel(selectedModel, inputs.zona);
+                                                                        setDirtyScopAcs(false);
+                                                                        setShowScopAcsPopup(false);
+                                                                    } else if (modelId === 'custom') {
+                                                                        setShowScopAcsPopup(true);
+                                                                    }
+                                                                    onInputChange(prev => ({ ...prev, ...updates }));
+                                                                }}
+                                                                className="h-12 bg-slate-900/50 border-slate-700/50 rounded-xl"
+                                                            >
+                                                                <option value="custom">-- Seleccionar modelo ACS --</option>
+                                                                <optgroup label={selectedMarcaAcs || 'Modelos ACS'}>
+                                                                    {dbModels
+                                                                        .filter(m => m.marca === selectedMarcaAcs && (m.scop_dhw_medio || m.scop_dhw_calido || m.deposito_acs_incluido || String(m.tipo || '').includes('ACS')))
+                                                                        .map(m => (
+                                                                            <option key={m.id} value={m.id}>
+                                                                                {m.modelo_comercial} {m.modelo_conjunto ? `(${m.modelo_conjunto})` : (typeof m.deposito_acs_incluido === 'number' && m.deposito_acs_incluido > 0 ? `(${m.deposito_acs_incluido}L)` : '')}
+                                                                            </option>
+                                                                        ))
+                                                                    }
+                                                                </optgroup>
+                                                                <option value="custom">✏️ Introducir manualmente</option>
+                                                            </Select>
+                                                            {inputs.aerothermiaModelAcs === 'custom' && (
+                                                                <Input
+                                                                    type="text"
+                                                                    placeholder="Nombre del modelo ACS..."
+                                                                    value={inputs.customModelAcsName || ''}
+                                                                    onChange={e => onInputChange(prev => ({ ...prev, customModelAcsName: e.target.value }))}
+                                                                    className="h-10 bg-slate-900/50 border-slate-700/50 rounded-xl no-uppercase text-sm"
+                                                                />
+                                                            )}
+                                                        </div>
+                                                    )}
                                                 </div>
                                             </div>
+
+                                            {/* SCOP ACS Popup — marca personalizada */}
+                                            {showScopAcsPopup && (
+                                                <div className="animate-in fade-in duration-200">
+                                                    <div className="p-4 bg-cyan-500/5 border border-cyan-500/30 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                                                        <div>
+                                                            <p className="text-sm font-semibold text-white">¿Conoces el SCOP para ACS?</p>
+                                                            <p className="text-xs text-slate-400 mt-0.5">Si no lo conoces aplicaremos SCOP ACS = 4 (valor conservador)</p>
+                                                        </div>
+                                                        <div className="flex gap-2 shrink-0">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setShowScopAcsPopup(false)}
+                                                                className="px-4 py-2 rounded-lg border border-cyan-500/50 text-cyan-400 text-xs font-bold uppercase tracking-wider hover:bg-cyan-500/10 transition-colors"
+                                                            >
+                                                                Sí, lo introduzco
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    onInputChange(prev => ({ ...prev, scopAcs: 4 }));
+                                                                    setDirtyScopAcs(true);
+                                                                    setShowScopAcsPopup(false);
+                                                                }}
+                                                                className="px-4 py-2 rounded-lg bg-cyan-500 text-slate-900 text-xs font-bold uppercase tracking-wider hover:bg-cyan-400 transition-colors"
+                                                            >
+                                                                No, usar SCOP 4
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            )}
 
                                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
                                                 <div className="space-y-1.5">
@@ -1660,10 +1817,6 @@ export function CalculatorForm({
                                                         }}
                                                         className="h-12 bg-slate-900/50 border-slate-700/50 rounded-xl text-center font-mono text-lg font-bold text-cyan-400"
                                                     />
-                                                </div>
-                                                <div className="p-4 bg-cyan-500/5 border border-cyan-500/20 rounded-xl">
-                                                    <div className="text-[10px] text-cyan-500 font-black uppercase tracking-widest mb-1">Cálculo de Demanda</div>
-                                                    <div className="text-xs text-slate-400">Demanda energética fija aplicada según normativa: <span className="text-white font-mono font-bold">2.731,4 kWh/año</span></div>
                                                 </div>
                                             </div>
                                         </div>

@@ -154,8 +154,6 @@ router.post('/', requireAuth, async (req, res) => {
             // Prioridad al valor que viene en el body, incluso si es null (para permitir desvincular)
             instalador_asociado_id: body.hasOwnProperty('instalador_asociado_id') ? instalador_asociado_id : (existingData ? existingData.instalador_asociado_id : null),
             demanda_calefaccion: demanda_calefaccion || null,
-            anio: body.anio || datos_calculo?.inputs?.anio || datos_calculo?.anio || null,
-            zona: body.zona || datos_calculo?.inputs?.zona || datos_calculo?.zona || null,
             datos_calculo: datosCalculoFinal
         };
 
@@ -519,6 +517,31 @@ router.patch('/:id/asignar', async (req, res) => {
         if (upErr) return res.status(500).json({ error: 'Error al asignar prescriptor.', details: upErr.message });
         res.status(200).json({ success: true, data: upData[0] });
     } catch (error) {
+        res.status(500).json({ error: 'Error del servidor.' });
+    }
+});
+
+// Actualizar cod_cliente_interno (PATCH /api/oportunidades/:id/cod-cliente)
+router.patch('/:id/cod-cliente', requireAuth, async (req, res) => {
+    const { id } = req.params;
+    const { cod_cliente_interno } = req.body;
+    try {
+        const { data: op, error: getErr } = await supabase
+            .from('oportunidades')
+            .select('datos_calculo')
+            .eq('id_oportunidad', id)
+            .single();
+        if (getErr || !op) return res.status(404).json({ error: 'No encontrada.' });
+
+        const newDatos = { ...(op.datos_calculo || {}), cod_cliente_interno: cod_cliente_interno || '' };
+        const { error: updErr } = await supabase
+            .from('oportunidades')
+            .update({ datos_calculo: newDatos })
+            .eq('id_oportunidad', id);
+        if (updErr) return res.status(500).json({ error: updErr.message });
+
+        res.json({ success: true });
+    } catch (err) {
         res.status(500).json({ error: 'Error del servidor.' });
     }
 });
