@@ -716,6 +716,15 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                 attachments={local.cifo_attachments}
                 onAttachmentsChange={(newAnexos) => setLocal(p => ({ ...p, cifo_attachments: newAnexos }))}
                 onSaveDrive={(link) => handleModalSaveDrive('cert_cifo_drive_link', link)}
+                onSaveFichaLink={(type, link, driveId) => {
+                    const linkField = type === 'cal' ? 'ft_aerotermia_cal_link' : 'ft_aerotermia_acs_link';
+                    const idField   = type === 'cal' ? 'ft_aerotermia_cal_id'   : 'ft_aerotermia_acs_id';
+                    setLocal(prev => {
+                        const next = { ...prev, [linkField]: link, [idField]: driveId };
+                        onSave({ documentacion: next });
+                        return next;
+                    });
+                }}
             />
             <CertificadoRes080Modal
                 isOpen={showCertificadoRes080}

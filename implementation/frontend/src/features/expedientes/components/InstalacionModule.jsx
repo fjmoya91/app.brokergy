@@ -471,6 +471,21 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
         }
     };
 
+    const handleCambioAcsChange = (val) => {
+        if (val) {
+            setLocal(p => ({
+                ...p,
+                cambio_acs: true,
+                misma_caldera_acs: true,
+                caldera_antigua_acs: { ...p.caldera_antigua_cal },
+                misma_aerotermia_acs: true,
+                aerotermia_acs: { ...p.aerotermia_cal },
+            }));
+        } else {
+            setLocal(p => ({ ...p, cambio_acs: false }));
+        }
+    };
+
     const prescriptorOptions = prescriptores
         .filter(i => i.tipo_empresa === 'INSTALADOR')
         .map(i => ({
@@ -492,6 +507,7 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
     return (
         <div className="space-y-6">
             <div className={`space-y-5 transition-all duration-500`}>
+                {/* ── DIRECCIÓN ── */}
                 <div className="bg-bkg-surface/60 rounded-xl p-4 border border-white/[0.06] space-y-4">
                     <Toggle
                         label="¿Misma dirección que el cliente?"
@@ -499,7 +515,7 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
                         onChange={handleMismaDireccionChange}
                         readOnly={readOnly}
                     />
-                    
+
                     {!local.misma_direccion && (
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 pt-2 border-t border-white/5 animate-fade-in">
                             <SelectField label="CCAA" value={local.ccaa} onChange={v => setLocal(prev => ({ ...prev, ccaa: v, provincia: '', provincia_cod: '', municipio: '' }))} options={CCAA_LIST.map(c => ({ value: c, label: c }))} readOnly={readOnly} />
@@ -517,80 +533,63 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
                     </div>
                 </div>
 
-                <CalderaSection
-                    title="Caldera Antigua — Calefacción"
-                    data={local.caldera_antigua_cal}
-                    readOnly={readOnly}
-                    onChange={v => {
-                        setLocal(p => {
-                            const next = { ...p, caldera_antigua_cal: v };
-                            if (p.misma_caldera_acs) next.caldera_antigua_acs = { ...v };
-                            return next;
-                        });
-                    }}
-                />
-
-                {/* --- SECCIÓN ACS (MOVIMIENTO ARRIBA) --- */}
-                <div className={`bg-slate-900 border p-4 rounded-xl space-y-4 ${readOnly ? 'border-white/5 opacity-80' : 'border-brand/20'}`}>
+                {/* ── PREGUNTA ACS ── */}
+                <div className={`bg-slate-900 border p-4 rounded-xl ${readOnly ? 'border-white/5 opacity-80' : 'border-brand/20'}`}>
                     <div className="flex items-center justify-between">
                         <span className="text-xs font-black text-white uppercase tracking-widest">¿Se va a actuar también sobre el ACS?</span>
                         <div className="flex items-center gap-2 p-1 bg-slate-950/50 rounded-xl border border-slate-700/50">
                             <button
-                                onClick={() => !readOnly && setLocal(p => ({ ...p, cambio_acs: !p.cambio_acs }))}
+                                onClick={() => !readOnly && handleCambioAcsChange(true)}
                                 disabled={readOnly}
-                                className={`flex items-center gap-2 px-4 py-1.5 rounded-lg transition-all duration-300 border ${
-                                    local.cambio_acs 
-                                        ? (readOnly ? 'bg-cyan-900 text-cyan-300 border-cyan-800' : 'bg-cyan-500 text-bkg-deep border-cyan-400 font-bold shadow-[0_0_15px_rgba(6,182,212,0.3)]') 
-                                        : 'text-slate-500 border-transparent'
+                                className={`px-4 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all border ${
+                                    local.cambio_acs
+                                        ? (readOnly ? 'bg-cyan-900 text-cyan-300 border-cyan-800' : 'bg-cyan-500 text-bkg-deep border-cyan-400 shadow-[0_0_15px_rgba(6,182,212,0.3)]')
+                                        : 'text-white/20 border-transparent hover:text-white'
                                 }`}
-                            >
-                                <span className="text-[10px] uppercase tracking-tight">{local.cambio_acs ? 'SÍ' : 'NO'}</span>
-                            </button>
+                            >SÍ</button>
+                            <button
+                                onClick={() => !readOnly && handleCambioAcsChange(false)}
+                                disabled={readOnly}
+                                className={`px-4 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all border ${
+                                    !local.cambio_acs
+                                        ? (readOnly ? 'bg-brand/40 text-bkg-deep border-brand/40' : 'bg-brand text-bkg-deep border-brand')
+                                        : 'text-white/20 border-transparent hover:text-white'
+                                }`}
+                            >NO</button>
                         </div>
                     </div>
-
                     {local.cambio_acs && (
-                        <div className="pt-4 border-t border-white/5 animate-in slide-in-from-top duration-300">
-                             <div className="flex items-center justify-between">
-                                <span className="text-xs font-black text-white/60 uppercase tracking-widest">¿Se usa la misma aerotermia para ACS?</span>
-                                <div className="flex items-center gap-2 p-1 bg-slate-950/50 rounded-xl border border-slate-700/50">
-                                    <button
-                                        onClick={() => !readOnly && handleMismaAerotermiaAcsChange(true)}
-                                        disabled={readOnly}
-                                        className={`px-4 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all ${
-                                            local.misma_aerotermia_acs 
-                                                ? (readOnly ? 'bg-brand/40 text-bkg-deep' : 'bg-brand text-bkg-deep') 
-                                                : 'text-white/20'
-                                        }`}
-                                    >
-                                        SÍ
-                                    </button>
-                                    <button
-                                        onClick={() => !readOnly && handleMismaAerotermiaAcsChange(false)}
-                                        disabled={readOnly}
-                                        className={`px-4 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all ${
-                                            !local.misma_aerotermia_acs 
-                                                ? (readOnly ? 'bg-brand/40 text-bkg-deep' : 'bg-brand text-bkg-deep') 
-                                                : 'text-white/20'
-                                        }`}
-                                    >
-                                        NO
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
+                        <p className="text-[10px] text-white/30 mt-2">
+                            Los datos de ACS se copian de calefacción por defecto. Edita la columna derecha para usar equipos distintos.
+                        </p>
                     )}
                 </div>
 
-                {!local.misma_caldera_acs && local.cambio_acs && (
+                {/* ── CALDERAS (2 cols si ACS activo) ── */}
+                <div className={`grid gap-4 ${local.cambio_acs ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1'}`}>
                     <CalderaSection
-                        title="Caldera Antigua — ACS"
-                        data={local.caldera_antigua_acs}
+                        title="Caldera Antigua — Calefacción"
+                        data={local.caldera_antigua_cal}
                         readOnly={readOnly}
-                        onChange={v => setLocal(p => ({ ...p, caldera_antigua_acs: v }))}
+                        onChange={v => {
+                            setLocal(p => {
+                                const next = { ...p, caldera_antigua_cal: v };
+                                if (p.misma_caldera_acs) next.caldera_antigua_acs = { ...v };
+                                return next;
+                            });
+                        }}
                     />
-                )}
+                    {local.cambio_acs && (
+                        <CalderaSection
+                            title="Caldera Antigua — ACS"
+                            data={local.caldera_antigua_acs}
+                            readOnly={readOnly}
+                            onChange={v => setLocal(p => ({ ...p, caldera_antigua_acs: v, misma_caldera_acs: false }))}
+                        />
+                    )}
+                </div>
 
+                {/* ── TIPO EMISOR ── */}
                 <div className="bg-bkg-surface/60 rounded-xl p-4 border border-white/[0.06]">
                     <SelectField
                         label="Tipo de emisor (calefacción)"
@@ -601,43 +600,45 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
                     />
                 </div>
 
-                <AerotermiaSection
-                    title="Aerotermia Nueva — Calefacción"
-                    data={local.aerotermia_cal}
-                    readOnly={readOnly}
-                    onChange={v => {
-                        setLocal(p => {
-                            const next = { 
-                                ...p, 
-                                aerotermia_cal: v,
-                                potencia_bomba: v.potencia || p.potencia_bomba
-                            };
-                            if (p.misma_aerotermia_acs) next.aerotermia_acs = { ...v };
-                            return next;
-                        });
-                    }}
-                    marcas={marcas}
-                    modelosPorMarca={modelosPorMarca}
-                    tipoEmisor={local.tipo_emisor}
-                />
-
-                {local.cambio_acs && !local.misma_aerotermia_acs && (
+                {/* ── AEROTERMIAS (2 cols si ACS activo) ── */}
+                <div className={`grid gap-4 ${local.cambio_acs ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1'}`}>
                     <AerotermiaSection
-                        title="Aerotermia Nueva — ACS"
-                        data={local.aerotermia_acs}
+                        title="Aerotermia Nueva — Calefacción"
+                        data={local.aerotermia_cal}
                         readOnly={readOnly}
-                        onChange={v => setLocal(p => ({ ...p, aerotermia_acs: v }))}
+                        onChange={v => {
+                            setLocal(p => {
+                                const next = {
+                                    ...p,
+                                    aerotermia_cal: v,
+                                    potencia_bomba: v.potencia || p.potencia_bomba
+                                };
+                                if (p.misma_aerotermia_acs) next.aerotermia_acs = { ...v };
+                                return next;
+                            });
+                        }}
                         marcas={marcas}
                         modelosPorMarca={modelosPorMarca}
                         tipoEmisor={local.tipo_emisor}
-                        isAcs={true}
                     />
-                )}
+                    {local.cambio_acs && (
+                        <AerotermiaSection
+                            title="Aerotermia Nueva — ACS"
+                            data={local.aerotermia_acs}
+                            readOnly={readOnly}
+                            onChange={v => setLocal(p => ({ ...p, aerotermia_acs: v, misma_aerotermia_acs: false }))}
+                            marcas={marcas}
+                            modelosPorMarca={modelosPorMarca}
+                            tipoEmisor={local.tipo_emisor}
+                            isAcs={true}
+                        />
+                    )}
+                </div>
 
-                {/* --- BLOQUE HIBRIDACIÓN (MOVIMIENTO ABAJO) --- */}
+                {/* ── HIBRIDACIÓN ── */}
                 <div className="bg-slate-950/80 border border-brand/20 p-5 rounded-2xl space-y-4 shadow-2xl relative overflow-hidden group">
                     <div className="absolute top-0 right-0 p-8 bg-brand/5 rounded-full blur-3xl -mr-10 -mt-10" />
-                    
+
                     <div className="flex flex-wrap items-center justify-between gap-4 relative z-10">
                         <div className="flex items-center gap-6">
                             <div className="flex flex-col gap-2">
@@ -659,7 +660,7 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
                                 <div className="flex flex-col gap-2 animate-in slide-in-from-left duration-500">
                                     <span className="text-[10px] font-black text-amber-500/60 uppercase tracking-widest pl-1">Potencia Hid. (kW)</span>
                                     <div className="p-0.5 bg-amber-500/10 rounded-xl border border-amber-500/20">
-                                        <input 
+                                        <input
                                             type="number"
                                             placeholder="0.00"
                                             className="w-24 bg-transparent border-none text-amber-400 font-black text-sm px-3 py-2 focus:outline-none placeholder:text-amber-500/30 tabular-nums font-mono"
@@ -689,7 +690,7 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
                                     <div>
                                         <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-1.5">Horas Eq.</p>
                                         <p className="text-sm font-black text-white leading-none tabular-nums font-mono">
-                                            {hybridizationRes.pDesign > 0 ? (demandAnnual / hybridizationRes.pDesign).toFixed(0) : '0'} 
+                                            {hybridizationRes.pDesign > 0 ? (demandAnnual / hybridizationRes.pDesign).toFixed(0) : '0'}
                                             <span className="text-[10px] text-white/30 ml-1 font-sans">h</span>
                                         </p>
                                     </div>
@@ -707,6 +708,7 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
                     </div>
                 </div>
 
+                {/* ── INSTALADOR ── */}
                 <div className="bg-bkg-surface/60 rounded-xl p-6 border border-white/[0.06] space-y-4">
                     <div className="flex items-center gap-2 mb-2">
                         <div className="w-6 h-6 rounded bg-brand/10 flex items-center justify-center">

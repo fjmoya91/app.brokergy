@@ -285,4 +285,88 @@ router.post('/send-annex', async (req, res) => {
     }
 });
 
+/**
+ * POST /api/pdf/send-cifo
+ * Genera el CIFO como PDF y lo envía al instalador por email.
+ * Body: { html, to, instaladorNombre, numExpediente }
+ */
+router.post('/send-cifo', async (req, res) => {
+    const { html, to, instaladorNombre, numExpediente, clienteNombre, direccionInstalacion, uploadLink } = req.body;
+    const emailService = require('../services/emailService');
+
+    if (!html || !to) {
+        return res.status(400).json({ error: 'Se requiere el contenido HTML y el correo del instalador.' });
+    }
+
+    let browser = null;
+    let page = null;
+    try {
+        browser = await getBrowser();
+        page = await browser.newPage();
+        await page.setViewport({ width: 794, height: 1123, deviceScaleFactor: 2 });
+        await page.setContent(html, { waitUntil: 'domcontentloaded', timeout: 60000 });
+        await new Promise(r => setTimeout(r, 1000));
+        try { await page.evaluate(() => document.fonts.ready); } catch (_) { }
+
+        const pdfBuffer = await page.pdf({
+            format: 'A4',
+            printBackground: true,
+            margin: { top: 0, right: 0, bottom: 0, left: 0 }
+        });
+
+        const nombre  = instaladorNombre   || 'instalador';
+        const expte   = numExpediente      || '';
+        const cliente = clienteNombre      || '';
+        const dir     = direccionInstalacion || '';
+        const link    = uploadLink          || '';
+
+        await emailService.sendMail({
+            to,
+            subject: `Certificado CIFO — Expediente ${expte} | BROKERGY`,
+            html: `
+                <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#fff;border-radius:8px;overflow:hidden;">
+                    <div style="background:linear-gradient(135deg,#f59e0b,#ea580c);padding:24px 32px;">
+                        <h1 style="margin:0;color:#fff;font-size:20px;letter-spacing:1px;">BROKERGY</h1>
+                        <p style="margin:4px 0 0;color:rgba(255,255,255,0.8);font-size:12px;">Ingeniería Energética</p>
+                    </div>
+                    <div style="padding:32px;">
+                        <p style="font-size:16px;color:#111;">Hola, <strong>${nombre}</strong>:</p>
+                        <p style="color:#444;line-height:1.6;">
+                            Te adjuntamos el <strong>Certificado CIFO</strong> que nos debes devolver <strong>firmado digitalmente</strong>,
+                            correspondiente al expediente <strong>${expte}</strong>${cliente ? ` de <strong>${cliente}</strong>` : ''}${dir ? ` de la instalación realizada en <strong>${dir}</strong>` : ''}.
+                        </p>
+                        <p style="color:#444;line-height:1.6;">
+                            Quedamos a la espera de recibirlo para continuar con el trámite${link ? ' o puedes subirlo directamente haciendo clic en el botón:' : '.'}
+                        </p>
+                        ${link ? `
+                        <div style="text-align:center;margin:28px 0;">
+                            <a href="${link}" style="display:inline-block;background:#f59e0b;color:#000;font-weight:900;font-size:13px;text-transform:uppercase;letter-spacing:1px;text-decoration:none;padding:14px 32px;border-radius:10px;">
+                                📤 Subir CIFO firmado
+                            </a>
+                        </div>
+                        ` : ''}
+                        <hr style="border:none;border-top:1px solid #eee;margin:24px 0;">
+                        <p style="color:#888;font-size:12px;margin:0;">
+                            BROKERGY · Ingeniería Energética<br>
+                            <a href="mailto:brokergy@brokergy.es" style="color:#f59e0b;">brokergy@brokergy.es</a>
+                        </p>
+                    </div>
+                </div>
+            `,
+            attachments: [{
+                filename: `${expte ? expte + ' - ' : ''}Certificado_CIFO.pdf`,
+                content: pdfBuffer
+            }]
+        });
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Error enviando CIFO por email:', error);
+        res.status(500).json({ error: 'Error al enviar el CIFO por email.', message: error.message });
+    } finally {
+        if (browser) { try { await browser.close(); } catch (_) { } }
+        if (page)    { try { await page.close();    } catch (_) { } }
+    }
+});
+
 module.exports = router;

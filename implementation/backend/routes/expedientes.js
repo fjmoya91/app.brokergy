@@ -1620,4 +1620,106 @@ router.post('/:id/resend-cee-notifications', enforceAuth, async (req, res) => {
     }
 });
 
+// ─── POST /api/expedientes/:id/fichas-tecnicas/upload ────────────────────────
+// Sube una ficha técnica PDF a "3. FICHAS TÉCNICAS Y CERTIFICACIONES" en Drive
+// Body: { base64: string, type: 'cal'|'acs', numexpte?: string }
+router.post('/:id/fichas-tecnicas/upload', enforceAuth, async (req, res) => {
+    const { base64, type, numexpte } = req.body;
+    if (!base64 || !type) return res.status(400).json({ error: 'Faltan campos requeridos.' });
+    console.log(`[FT] Subiendo ficha técnica tipo=${type} para expediente ${req.params.id} (base64 len=${base64.length})`);
+
+    try {
+        const { data: exp, error: expErr } = await supabase
+            .from('expedientes')
+            .select('id, oportunidad_id, numero_expediente, documentacion')
+            .eq('id', req.params.id)
+            .single();
+        if (expErr || !exp) return res.status(404).json({ error: 'Expediente no encontrado' });
+        console.log(`[FT] Expediente encontrado: ${exp.numero_expediente}, oportunidad_id=${exp.oportunidad_id}`);
+
+        const { data: op } = await supabase
+            .from('oportunidades')
+            .select('datos_calculo')
+            .eq('id', exp.oportunidad_id)
+            .single();
+
+        const driveFolderId = op?.datos_calculo?.drive_folder_id || op?.datos_calculo?.inputs?.drive_folder_id;
+        console.log(`[FT] driveFolderId=${driveFolderId}`);
+        if (!driveFolderId) return res.status(400).json({ error: 'La oportunidad no tiene carpeta de Drive configurada.' });
+
+        const { findSubfolderByName, createSubfolder, saveFileToFolder } = require('../services/driveService');
+
+        const FOLDER_NAME = '3. FICHAS TÉCNICAS Y CERTIFICACIONES';
+        let ftFolderId = await findSubfolderByName(driveFolderId, FOLDER_NAME);
+        if (!ftFolderId) ftFolderId = await createSubfolder(driveFolderId, FOLDER_NAME);
+
+        const expteNum = numexpte || exp.numero_expediente || req.params.id;
+        const suffix = type === 'acs' ? 'ACS' : 'CALEFACCION';
+        const fileName = `${expteNum} - FT AEROTERMIA ${suffix}.pdf`;
+
+        const fileBuffer = Buffer.from(base64.split(',')[1] || base64, 'base64');
+        // Debug: verificar que el buffer empieza con %PDF-
+        const headerBytes = fileBuffer.slice(0, 8).toString('utf8');
+        console.log(`[FT] Buffer subida: ${fileBuffer.length} bytes, header="${headerBytes}" (debe empezar por %PDF-)`);
+        const result = await saveFileToFolder(ftFolderId, fileName, 'application/pdf', fileBuffer);
+        if (!result) return res.status(500).json({ error: 'Error al subir a Drive.' });
+
+        const linkField = type === 'acs' ? 'ft_aerotermia_acs_link' : 'ft_aerotermia_cal_link';
+        const idField   = type === 'acs' ? 'ft_aerotermia_acs_id'   : 'ft_aerotermia_cal_id';
+        const docObj = { ...(exp.documentacion || {}), [linkField]: result.link, [idField]: result.id };
+        await supabase.from('expedientes').update({ documentacion: docObj }).eq('id', req.params.id);
+        console.log(`[FT] Guardado en Drive: ${fileName} (id=${result.id})`);
+
+        res.json({ link: result.link, driveId: result.id });
+    } catch (err) {
+        console.error('Error POST expedientes/:id/fichas-tecnicas/upload:', err);
+        res.status(500).json({ error: 'Error al subir la ficha técnica.', details: err.message });
+    }
+});
+
+// ─── GET /api/expedientes/:id/fichas-tecnicas/:type ──────────────────────────
+// Busca la ficha técnica directamente en Drive por nombre dentro de
+// "3. FICHAS TÉCNICAS Y CERTIFICACIONES" y la sirve si existe.
+// No depende de IDs guardados en documentacion — fuente de verdad: Drive.
+router.get('/:id/fichas-tecnicas/:type', async (req, res) => {
+    const { type } = req.params; // 'cal' | 'acs'
+    try {
+        const { data: exp } = await supabase
+            .from('expedientes')
+            .select('oportunidad_id, numero_expediente')
+            .eq('id', req.params.id)
+            .single();
+        if (!exp) return res.status(404).send('Expediente no encontrado');
+
+        const { data: op } = await supabase
+            .from('oportunidades')
+            .select('datos_calculo')
+            .eq('id', exp.oportunidad_id)
+            .single();
+
+        const driveFolderId = op?.datos_calculo?.drive_folder_id || op?.datos_calculo?.inputs?.drive_folder_id;
+        if (!driveFolderId) return res.status(404).send('Sin carpeta Drive');
+
+        const { findSubfolderByName, findFileByName, getFileContent } = require('../services/driveService');
+        const ftFolderId = await findSubfolderByName(driveFolderId, '3. FICHAS TÉCNICAS Y CERTIFICACIONES');
+        if (!ftFolderId) return res.status(404).send('Subcarpeta no encontrada');
+
+        const suffix = type === 'acs' ? 'ACS' : 'CALEFACCION';
+        const fileName = `${exp.numero_expediente} - FT AEROTERMIA ${suffix}.pdf`;
+        const fileId = await findFileByName(ftFolderId, fileName);
+        if (!fileId) return res.status(404).send('Archivo no encontrado en Drive');
+
+        const content = await getFileContent(fileId);
+        if (!content) return res.status(404).send('No se pudo leer el archivo');
+
+        console.log(`[FT] Servido "${fileName}" (${content.length} bytes, header="${content.slice(0, 8).toString('utf8')}")`);
+
+        res.setHeader('Content-Type', 'application/octet-stream');
+        res.send(content);
+    } catch (err) {
+        console.error('Error GET expedientes/:id/fichas-tecnicas/:type:', err);
+        res.status(500).send('Error');
+    }
+});
+
 module.exports = router;

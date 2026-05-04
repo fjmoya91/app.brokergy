@@ -16,6 +16,7 @@ import { ExpedientesView } from './features/expedientes/views/ExpedientesView';
 import { ResetPasswordView } from './features/auth/views/ResetPasswordView';
 import { AceptarPropuestaView } from './features/public/views/AceptarPropuestaView';
 import { CertAckView } from './features/public/views/CertAckView';
+import { SubirCifoView } from './features/public/views/SubirCifoView';
 import { WhatsappSettingsView } from './features/whatsapp/views/WhatsappSettingsView';
 
 const API_URL = '/api/catastro'; // Vercel force redeploy v3
@@ -52,6 +53,12 @@ function App() {
        const phase = params.get('phase');
        if (id && token) return { id, token, phase };
     }
+    return null;
+  });
+
+  const [cifoUploadId] = useState(() => {
+    const path = window.location.pathname;
+    if (path.startsWith('/subir-cifo/')) return path.split('/subir-cifo/')[1] || null;
     return null;
   });
 
@@ -449,8 +456,10 @@ function App() {
     <div className="min-h-screen bg-slate-950 overflow-x-hidden relative">
       <DynamicNetworkBackground />
       
-      <div className={`relative z-10 ${(user && !firmaOportunidadId && !resetToken && !certAckData) ? 'p-0 h-screen overflow-hidden' : 'px-4 py-8'}`}>
-        {certAckData ? (
+      <div className={`relative z-10 ${(user && !firmaOportunidadId && !resetToken && !certAckData && !cifoUploadId) ? 'p-0 h-screen overflow-hidden' : 'px-4 py-8'}`}>
+        {cifoUploadId ? (
+          <SubirCifoView expedienteId={cifoUploadId} />
+        ) : certAckData ? (
           <CertAckView expedienteId={certAckData.id} token={certAckData.token} phase={certAckData.phase} />
         ) : firmaOportunidadId ? (
           <AceptarPropuestaView idOportunidad={firmaOportunidadId} />

@@ -3,6 +3,8 @@ import axios from 'axios';
 import { useAuth } from '../../../context/AuthContext';
 import { BOILER_EFFICIENCIES, calculateHybridization } from '../../calculator/logic/calculation';
 
+const APP_BASE_URL = 'https://app.brokergy.es';
+
 const EMITTER_OPTIONS = [
     { value: 'suelo_radiante',          label: 'Suelo Radiante (35°C)',           temp: 35 },
     { value: 'radiadores_baja_temp',    label: 'Radiadores Baja Temperatura (45°C)', temp: 45 },
@@ -180,13 +182,14 @@ function getEmitterTemp(val) {
     return 35;
 }
 
-export function CertificadoCifoModal({ isOpen, onClose, expediente, results, attachments: externalAttachments, onAttachmentsChange, onSaveDrive }) {
+export function CertificadoCifoModal({ isOpen, onClose, expediente, results, attachments: externalAttachments, onAttachmentsChange, onSaveDrive, onSaveFichaLink }) {
     const { user } = useAuth();
     const containerRef = useRef(null);
     const [generating, setGenerating] = useState(false);
     const [savingDrive, setSavingDrive] = useState(false);
     const [sendingEmail, setSendingEmail] = useState(false);
     const [sendingWhatsapp, setSendingWhatsapp] = useState(false);
+    const [confirmSend, setConfirmSend] = useState(null); // null | 'email' | 'whatsapp'
     const [scale, setScale] = useState(1);
     
     // Si no vienen de fuera, usamos el inicial local (pero idealmente vienen del padre)
@@ -205,6 +208,8 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
     };
 
     const [isAnexosOpen, setIsAnexosOpen] = useState(false);
+    const [savingAnexos, setSavingAnexos] = useState(false);
+    const [anexosError, setAnexosError] = useState(null);
     const [draggedIndex, setDraggedIndex] = useState(null);
     const [isGlobalDragging, setIsGlobalDragging] = useState(false);
 
@@ -224,7 +229,13 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
     const convertPdfToImages = async (dataUrl) => {
         try {
             const pdfjs = await loadPdfJs();
-            const loadingTask = pdfjs.getDocument(dataUrl);
+            // Convertir dataURL a Uint8Array — pasar bytes a PDF.js es más fiable
+            // que pasar la dataURL directamente (que fallaba con 'Invalid PDF structure')
+            const base64 = dataUrl.split(',')[1];
+            const binaryStr = atob(base64);
+            const bytes = new Uint8Array(binaryStr.length);
+            for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
+            const loadingTask = pdfjs.getDocument({ data: bytes });
             const pdf = await loadingTask.promise;
             const images = [];
             for (let i = 1; i <= pdf.numPages; i++) {
@@ -244,25 +255,30 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
         }
     };
 
-    const handleFileChange = async (targetIdOrIndex, file, isOther = false) => {
+    const handleFileChange = async (targetIdOrIndex, file, isOther = false, driveLink = null) => {
         if (!file) return;
-        
+
         return new Promise((resolve) => {
             const reader = new FileReader();
             reader.onload = async (rev) => {
                 const dataUrl = rev.target.result;
                 const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
-                
+
                 let finalData = [dataUrl];
                 if (isPdf) {
                     console.log(`[CIFO] Procesando PDF: ${file.name}...`);
-                    setGenerating(true); 
+                    setGenerating(true);
                     finalData = await convertPdfToImages(dataUrl);
                     setGenerating(false);
                     console.log(`[CIFO] PDF procesado: ${finalData.length} páginas.`);
+                    if (!finalData || finalData.length === 0) {
+                        console.warn(`[CIFO] PDF inválido (0 páginas). No se establece el archivo en el slot.`);
+                        resolve();
+                        return;
+                    }
                 }
 
-                const newFile = { name: file.name, data: finalData, isPdf };
+                const newFile = { name: file.name, data: finalData, isPdf, originalDataUrl: dataUrl, driveLink };
 
                 setAttachments(prev => {
                     const copy = [...prev];
@@ -310,6 +326,40 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
         });
     };
 
+    const handleSaveAnexos = async () => {
+        setSavingAnexos(true);
+        setAnexosError(null);
+        try {
+            const _inst = expediente?.instalacion || {};
+            const _tieneAcs = _inst.cambio_acs !== false;
+            const fixedSlots = attachments.filter(
+                a => ['aerotermia_cal', 'aerotermia_acs'].includes(a.id) && a.file && !a.file.driveLink
+                    && (a.id !== 'aerotermia_acs' || _tieneAcs)
+            );
+            for (const slot of fixedSlots) {
+                const dataUrl = slot.file.originalDataUrl;
+                if (!dataUrl || !dataUrl.startsWith('data:')) continue;
+                const base64 = dataUrl.split(',')[1];
+                const type = slot.id === 'aerotermia_cal' ? 'cal' : 'acs';
+                const { data } = await axios.post(`/api/expedientes/${expediente.id}/fichas-tecnicas/upload`, {
+                    base64,
+                    type,
+                    numexpte: expediente.numero_expediente
+                });
+                setAttachments(prev => prev.map(a =>
+                    a.id === slot.id ? { ...a, file: { ...a.file, driveLink: data.link } } : a
+                ));
+                if (onSaveFichaLink) onSaveFichaLink(type, data.link, data.driveId);
+            }
+            setIsAnexosOpen(false);
+        } catch (e) {
+            console.error('[CIFO] Error subiendo ficha a Drive:', e);
+            setAnexosError(e.response?.data?.error || e.message || 'Error al guardar en Drive.');
+        } finally {
+            setSavingAnexos(false);
+        }
+    };
+
     const updateScale = useCallback(() => {
         if (!containerRef.current) return;
         const avail = containerRef.current.clientWidth - 48;
@@ -330,52 +380,37 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
 
         const autoLoadFichas = async () => {
             const inst = expediente.instalacion || {};
-            const targets = [
-                { 
-                    id: 'aerotermia_cal', 
-                    url: inst.aerotermia_cal?.url_ficha, 
-                    dbId: inst.aerotermia_cal?.aerotermia_db_id 
-                },
-                { 
-                    id: 'aerotermia_acs', 
-                    url: (inst.misma_aerotermia_acs ? inst.aerotermia_cal?.url_ficha : inst.aerotermia_acs?.url_ficha),
-                    dbId: (inst.misma_aerotermia_acs ? inst.aerotermia_cal?.aerotermia_db_id : inst.aerotermia_acs?.aerotermia_db_id)
+            const tieneAcs = inst.cambio_acs !== false;
+            const targets = ['cal', ...(tieneAcs ? ['acs'] : [])];
+            console.log('[CIFO autoload] Iniciando para expediente', expediente.id, '- targets:', targets);
+
+            for (const type of targets) {
+                const slotId = type === 'cal' ? 'aerotermia_cal' : 'aerotermia_acs';
+                const currentSlot = attachments.find(a => a.id === slotId);
+                // Skip si ya está cargado desde Drive (file con driveLink=true).
+                // Esto evita re-descargar 1.5MB cada vez que se abre el modal.
+                if (currentSlot?.file?.driveLink === true) {
+                    console.log(`[CIFO autoload] ${type} ya cargado en cache local, skip`);
+                    continue;
                 }
-            ];
-
-            for (const t of targets) {
-                // Verificamos si ya está cargado este slot
-                const currentSlot = attachments.find(a => a.id === t.id);
-                if (!currentSlot || currentSlot.file) continue;
-
-                let finalUrl = t.url;
-
-                // Si no hay URL pero hay ID de base de datos (para expedientes antiguos), lo recuperamos al vuelo
-                if (!finalUrl && t.dbId) {
-                    try {
-                        const modelRes = await fetch(`/api/aerotermia/${t.dbId}`);
-                        if (modelRes.ok) {
-                            const modelData = await modelRes.json();
-                            finalUrl = modelData.ficha_tecnica;
-                        }
-                    } catch (e) {
-                        console.error(`Error recuperando ficha desde DB para ${t.id}:`, e);
-                    }
-                }
-
-                if (!finalUrl) continue;
-
                 try {
-                    const res = await fetch(`/api/expedientes/proxy/pdf?url=${encodeURIComponent(finalUrl)}`);
-                    if (!res.ok) throw new Error('Proxy fetch failed');
-                    const blob = await res.blob();
-                    const fileName = finalUrl.split('/').pop() || 'ficha_tecnica.pdf';
-                    const file = new File([blob], fileName, { type: 'application/pdf' });
-                    
-                    // Llamamos a la función de procesamiento existente
-                    await handleFileChange(t.id, file);
+                    const fetchUrl = `/api/expedientes/${expediente.id}/fichas-tecnicas/${type}`;
+                    console.log(`[CIFO autoload] Llamando ${fetchUrl}...`);
+                    const res = await axios.get(fetchUrl, { responseType: 'arraybuffer', validateStatus: s => s === 200 });
+                    console.log(`[CIFO autoload] Recibido ${res.data.byteLength} bytes para ${type}`);
+                    const blob = new Blob([res.data], { type: 'application/pdf' });
+                    const file = new File([blob], `FT_AEROTERMIA_${type.toUpperCase()}.pdf`, { type: 'application/pdf' });
+                    await handleFileChange(slotId, file, false, true);
                 } catch (err) {
-                    console.error(`Error cargando ficha automática (${t.id}):`, err);
+                    if (err.response?.status === 404) {
+                        // El archivo no existe en Drive: vaciar el slot por si tenía datos viejos
+                        console.log(`[CIFO autoload] 404 para ${type} - slot vaciado`);
+                        setAttachments(prev => prev.map(a =>
+                            a.id === slotId ? { ...a, file: null } : a
+                        ));
+                    } else {
+                        console.error(`[CIFO autoload] Error cargando ${type}:`, err);
+                    }
                 }
             }
         };
@@ -492,7 +527,7 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
     const scopCalStr = scopCalRaw ? scopCalRaw.toFixed(2).replace('.', ',') : '—';
 
     // ACS
-    const tieneAcs = (inst.cambio_acs !== false) && (!!inst.aerotermia_acs?.aerotermia_db_id || !!inst.misma_aerotermia_acs);
+    const tieneAcs = inst.cambio_acs !== false;
     const acsExMarca = inst.caldera_antigua_acs?.marca || calExMarca;
     const acsExMod = inst.caldera_antigua_acs?.modelo || calExMod;
     const acsExSerie = inst.caldera_antigua_acs?.numero_serie || inst.caldera_antigua_acs?.n_serie || '—';
@@ -520,6 +555,9 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
     const empMun    = pres.municipio || '—';
     const empProv   = pres.provincia || '—';
     const empCargo  = pres.es_autonomo ? 'Trabajador autónomo' : 'Representante legal';
+    const empEmail  = pres.email || '';
+    const empTlf    = pres.tlf || '';
+    const empResponsable = [pres.nombre_responsable, pres.apellidos_responsable].filter(Boolean).join(' ') || empNombre;
     const emiLabel  = EMITTER_OPTIONS.find(o => o.value === inst.tipo_emisor)?.label || '—';
     const metodoCal = inst.aerotermia_cal?.metodo_scop || 'ficha';
     const metodoAcs = inst.aerotermia_acs?.metodo_scop || 'ficha';
@@ -561,8 +599,8 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
                 <div className="p-8 grid gap-4 max-h-[65vh] overflow-y-auto custom-scrollbar bg-gradient-to-b from-transparent to-black/20">
                     <p className="text-white/30 text-[10px] uppercase font-bold tracking-widest mb-2">Haz clic para mover y ordenar · Arrastra para reordenar archivos</p>
                     
-                    {attachments.map((item, idx) => (
-                        <div key={item.id} 
+                    {attachments.filter(item => item.id !== 'aerotermia_acs' || tieneAcs).map((item, idx) => (
+                        <div key={item.id}
                              draggable
                              onDragStart={() => setDraggedIndex(idx)}
                              onDragOver={(e) => { 
@@ -592,10 +630,16 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
                                 <div className="flex flex-col gap-1">
                                     <span className={`text-[11px] font-black uppercase tracking-wider ${item.file ? 'text-white/80' : 'text-white/20'}`}>{item.label}</span>
                                     {item.file ? (
-                                        <span className="text-[10px] text-brand font-bold flex items-center gap-1.5">
-                                            <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd"/></svg>
-                                            {item.file.name} ({item.file.data.length} pág)
-                                        </span>
+                                        <div className="flex flex-col gap-0.5">
+                                            <span className="text-[10px] text-brand font-bold flex items-center gap-1.5">
+                                                <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd"/></svg>
+                                                {item.file.name} ({item.file.data.length} pág)
+                                            </span>
+                                            {item.file.driveLink
+                                                ? <span className="text-[9px] text-emerald-400/70 font-bold uppercase tracking-wider">✓ Guardado en Drive</span>
+                                                : <span className="text-[9px] text-amber-400/60 font-bold uppercase tracking-wider">Pendiente guardar</span>
+                                            }
+                                        </div>
                                     ) : (
                                         <span className="text-[10px] text-white/10 italic">Subir archivo...</span>
                                     )}
@@ -648,8 +692,22 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
                     </div>
                 </div>
                 
-                <div className="p-6 bg-black/40 flex justify-end gap-3">
-                    <button onClick={() => setIsAnexosOpen(false)} className="px-10 py-3 bg-brand text-black text-[11px] font-black rounded-2xl uppercase tracking-[0.2em] shadow-[0_10px_20px_-5px_rgba(242,166,64,0.3)] hover:scale-105 active:scale-95 transition-all">Guardar Anexos</button>
+                <div className="p-6 bg-black/40 flex flex-col gap-3">
+                    {anexosError && (
+                        <div className="px-4 py-2 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-[10px] font-bold text-center">
+                            ⚠ {anexosError}
+                        </div>
+                    )}
+                    <div className="flex justify-end">
+                        <button
+                            onClick={handleSaveAnexos}
+                            disabled={savingAnexos}
+                            className="px-10 py-3 bg-brand text-black text-[11px] font-black rounded-2xl uppercase tracking-[0.2em] shadow-[0_10px_20px_-5px_rgba(242,166,64,0.3)] hover:scale-105 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                        >
+                            {savingAnexos && <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>}
+                            {savingAnexos ? 'Guardando en Drive...' : 'Guardar Anexos'}
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -966,29 +1024,35 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
         finally { setSavingDrive(false); }
     };
 
-    const handleSendByEmail = async () => {
-        const toEmail = cli.email;
-        if (!toEmail) {
-            alert("❌ El cliente no tiene un email registrado.");
+    const handleSendByEmail = () => {
+        if (!empEmail) {
+            alert("❌ El instalador no tiene email registrado.");
             return;
         }
+        setConfirmSend('email');
+    };
+
+    const doSendByEmail = async () => {
+        setConfirmSend(null);
         setSendingEmail(true);
         try {
-            const summaryData = {
-                id: numexpte,
-                docType: 'Certificado CIFO',
-                userName: cliNombre
-            };
+            const uploadLink = `${APP_BASE_URL}/subir-cifo/${expediente.id}`;
+            const instDireccion = inst.direccion || loc.direccion || cli.direccion || '';
+            const instCp        = inst.codigo_postal || loc.cp || cli.codigo_postal || '';
+            const instMun       = inst.municipio || loc.municipio || cli.municipio || '';
+            const instAddr      = [instDireccion, instCp, instMun].filter(Boolean).join(', ');
 
-            const response = await axios.post('/api/pdf/send-proposal', {
+            const response = await axios.post('/api/pdf/send-cifo', {
                 html: buildHtml(),
-                to: toEmail,
-                userName: summaryData.userName,
-                summaryData: { ...summaryData, id: numexpte }
+                to: empEmail,
+                instaladorNombre: empResponsable,
+                numExpediente: numexpte,
+                clienteNombre: cliNombre,
+                direccionInstalacion: instAddr,
+                uploadLink,
             });
-
             if (response.data.success) {
-                alert(`✅ Certificado CIFO enviado correctamente a ${toEmail}`);
+                alert(`✅ Certificado CIFO enviado correctamente a ${empEmail}`);
             }
         } catch (error) {
             console.error('Error sending email:', error);
@@ -998,12 +1062,16 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
         }
     };
 
-    const handleSendByWhatsapp = async () => {
-        const toPhone = cliTlf;
-        if (!toPhone || toPhone === '—') {
-            alert("❌ El cliente no tiene un teléfono registrado.");
+    const handleSendByWhatsapp = () => {
+        if (!empTlf) {
+            alert("❌ El instalador no tiene teléfono registrado.");
             return;
         }
+        setConfirmSend('whatsapp');
+    };
+
+    const doSendByWhatsapp = async () => {
+        setConfirmSend(null);
         setSendingWhatsapp(true);
         try {
             const st = await axios.get('/api/whatsapp/status');
@@ -1015,11 +1083,21 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
             const pdfResp = await axios.post('/api/pdf/generate', { html: buildHtml() });
             const pdfBase64 = pdfResp.data?.pdf;
 
-            const firstName = (cliNombre || '').split(/\s+/)[0];
-            const caption = `Hola ${firstName},\n\nTe adjunto el *Certificado CIFO* de tu expediente *${numexpte}*.\n\nUn saludo,\n*BROKERGY*`;
+            const firstName = (empResponsable || empNombre || '').split(/\s+/)[0];
+
+            // Dirección de la instalación
+            const instDireccion = inst.direccion || loc.direccion || cli.direccion || '';
+            const instCp        = inst.codigo_postal || loc.cp || cli.codigo_postal || '';
+            const instMun       = inst.municipio || loc.municipio || cli.municipio || '';
+            const instAddr      = [instDireccion, instCp, instMun].filter(Boolean).join(', ');
+
+            // Link único de subida del CIFO firmado
+            const uploadLink = `${APP_BASE_URL}/subir-cifo/${expediente.id}`;
+
+            const caption = `Hola ${firstName},\n\nTe adjunto el *Certificado CIFO* que me debes devolver *firmado digitalmente* que corresponde al expediente *${numexpte}* de ${cliNombre} de la instalación realizada en ${instAddr}\n\nQuedamos a la espera de recibirlo para continuar con el trámite o puedes subirlo directamente aquí:\n\n${uploadLink}\n\nUn saludo,\n*BROKERGY · Ingeniería Energética*`;
 
             await axios.post('/api/whatsapp/send-media', {
-                phone: toPhone,
+                phone: empTlf,
                 caption,
                 media: { base64: pdfBase64, filename: `${numexpte}_Certificado_CIFO.pdf`, mimetype: 'application/pdf' },
                 asDocument: true,
@@ -1140,6 +1218,69 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
                 </div>
 
                 {isAnexosOpen && <AnexosModal />}
+
+                {/* ── MODAL CONFIRMACIÓN ENVÍO AL INSTALADOR ── */}
+                {confirmSend && (
+                    <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/80 backdrop-blur-sm" onClick={() => setConfirmSend(null)}>
+                        <div className="bg-[#16181D] border border-white/10 rounded-2xl shadow-2xl w-full max-w-sm mx-4 overflow-hidden" onClick={e => e.stopPropagation()}>
+                            <div className="px-6 py-4 border-b border-white/[0.07] flex items-center gap-3">
+                                <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-amber-500/10">
+                                    {confirmSend === 'email'
+                                        ? <svg className="w-4 h-4 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" /></svg>
+                                        : <svg className="w-4 h-4 text-emerald-400" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51l-.57-.01c-.198 0-.52.074-.792.372s-1.04 1.016-1.04 2.479 1.065 2.876 1.213 3.074c.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.999-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+                                    }
+                                </div>
+                                <div>
+                                    <h3 className="text-sm font-black text-white uppercase tracking-wider">
+                                        {confirmSend === 'email' ? 'Enviar por Email' : 'Enviar por WhatsApp'}
+                                    </h3>
+                                    <p className="text-white/30 text-[10px] mt-0.5">Certificado CIFO · {numexpte}</p>
+                                </div>
+                            </div>
+
+                            <div className="px-6 py-5 space-y-4">
+                                <p className="text-white/60 text-sm">
+                                    ¿Enviar el CIFO al instalador <span className="text-white font-bold">{empNombre}</span>?
+                                </p>
+                                <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4 space-y-2">
+                                    {empResponsable && empResponsable !== empNombre && (
+                                        <div className="flex items-center gap-2 text-xs text-white/50">
+                                            <svg className="w-3.5 h-3.5 shrink-0 text-white/20" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
+                                            <span className="text-white/70">{empResponsable}</span>
+                                        </div>
+                                    )}
+                                    {confirmSend === 'email' && (
+                                        <div className="flex items-center gap-2 text-xs">
+                                            <svg className="w-3.5 h-3.5 shrink-0 text-brand/50" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" /></svg>
+                                            <span className="text-brand font-mono">{empEmail}</span>
+                                        </div>
+                                    )}
+                                    {confirmSend === 'whatsapp' && (
+                                        <div className="flex items-center gap-2 text-xs">
+                                            <svg className="w-3.5 h-3.5 shrink-0 text-emerald-500/50" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg>
+                                            <span className="text-emerald-400 font-mono">{empTlf}</span>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+
+                            <div className="px-6 pb-6 flex gap-3">
+                                <button
+                                    onClick={() => setConfirmSend(null)}
+                                    className="flex-1 py-2.5 rounded-xl border border-white/10 text-white/40 text-xs font-bold hover:text-white hover:border-white/20 transition-all"
+                                >
+                                    Cancelar
+                                </button>
+                                <button
+                                    onClick={confirmSend === 'email' ? doSendByEmail : doSendByWhatsapp}
+                                    className="flex-1 py-2.5 rounded-xl bg-brand text-black text-xs font-black uppercase tracking-wider hover:brightness-110 active:scale-95 transition-all"
+                                >
+                                    Confirmar envío
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
             </div>
         </div>
     );

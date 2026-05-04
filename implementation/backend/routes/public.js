@@ -562,4 +562,108 @@ router.get('/scan-photos/:id', async (req, res) => {
     }
 });
 
+/**
+ * GET /api/public/cifo-upload/:expedienteId
+ * Devuelve info básica del expediente para la página pública de subida del CIFO firmado.
+ */
+router.get('/cifo-upload/:expedienteId', async (req, res) => {
+    try {
+        const { expedienteId } = req.params;
+        const { data: exp, error } = await supabase
+            .from('expedientes')
+            .select('id, numero_expediente, clientes(nombre_razon_social, apellidos), prescriptores(razon_social), oportunidades(datos_calculo)')
+            .eq('id', expedienteId)
+            .maybeSingle();
+
+        if (error || !exp) return res.status(404).json({ error: 'Expediente no encontrado' });
+
+        res.json({
+            numero_expediente: exp.numero_expediente,
+            cliente: [exp.clientes?.nombre_razon_social, exp.clientes?.apellidos].filter(Boolean).join(' ') || '—',
+            instalador: exp.prescriptores?.razon_social || '—',
+        });
+    } catch (e) {
+        console.error('[CIFO upload info] Error:', e);
+        res.status(500).json({ error: 'Error interno' });
+    }
+});
+
+/**
+ * POST /api/public/cifo-upload/:expedienteId
+ * Recibe el PDF firmado del instalador, lo sube a Drive "6. ANEXOS CAE"
+ * y guarda el link en expediente.documentacion.cifo_fdo_link.
+ * Envía notificación al admin.
+ */
+router.post('/cifo-upload/:expedienteId', upload.single('cifo'), async (req, res) => {
+    try {
+        const { expedienteId } = req.params;
+
+        if (!req.file) return res.status(400).json({ error: 'No se ha recibido ningún archivo' });
+
+        const { data: exp, error } = await supabase
+            .from('expedientes')
+            .select('id, numero_expediente, documentacion, clientes(nombre_razon_social, apellidos), prescriptores(razon_social, email, tlf), oportunidades(datos_calculo, drive_folder_id)')
+            .eq('id', expedienteId)
+            .maybeSingle();
+
+        if (error || !exp) return res.status(404).json({ error: 'Expediente no encontrado' });
+
+        const driveFolderId = exp.oportunidades?.drive_folder_id || exp.oportunidades?.datos_calculo?.drive_folder_id || exp.oportunidades?.datos_calculo?.inputs?.drive_folder_id;
+        if (!driveFolderId) return res.status(400).json({ error: 'El expediente no tiene carpeta Drive configurada' });
+
+        const numexpte = exp.numero_expediente || expedienteId;
+        const fileName = `${numexpte} - Certificado CIFO_fdo.pdf`;
+
+        // Subir a "6. ANEXOS CAE"
+        const subfolderId = await driveService.getOrCreateSubfolder(driveFolderId, '6. ANEXOS CAE');
+        const driveFile = await driveService.saveFileToFolder(subfolderId, fileName, req.file.mimetype, req.file.buffer);
+        const fileLink = driveFile?.link || null;
+
+        // Guardar link en cert_cifo_signed_link (mismo campo que usa DocumentacionModule)
+        const currentDoc = exp.documentacion || {};
+        await supabase.from('expedientes').update({
+            documentacion: { ...currentDoc, cert_cifo_signed_link: fileLink }
+        }).eq('id', expedienteId);
+
+        res.json({ success: true, fileLink });
+
+        // Notificaciones en background
+        setImmediate(async () => {
+            const instalador = exp.prescriptores?.razon_social || '—';
+            const clienteNombre = [exp.clientes?.nombre_razon_social, exp.clientes?.apellidos].filter(Boolean).join(' ') || '—';
+            const adminPhone = process.env.WHATSAPP_ADMIN_CHAT;
+            const adminEmail = 'franciscojavier.moya.s2e2@gmail.com';
+
+            const adminMsg = `✅ *CIFO firmado recibido*\nExpediente: *${numexpte}*\nInstalador: ${instalador}\nCliente: ${clienteNombre}${fileLink ? `\n\n🔗 ${fileLink}` : ''}`;
+
+            try {
+                if (adminPhone) await whatsappService.sendText(adminPhone, adminMsg);
+            } catch (e) { console.error('[CIFO upload] WhatsApp notify error:', e.message); }
+
+            try {
+                await emailService.sendMail({
+                    to: adminEmail,
+                    subject: `✅ CIFO firmado recibido — ${numexpte}`,
+                    html: `
+                        <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
+                            <div style="background:linear-gradient(135deg,#f59e0b,#ea580c);padding:20px 28px;">
+                                <h2 style="margin:0;color:#fff;font-size:16px;">BROKERGY · Nuevo CIFO firmado</h2>
+                            </div>
+                            <div style="padding:24px;background:#fff;">
+                                <p>El instalador <strong>${instalador}</strong> ha subido el <strong>Certificado CIFO firmado</strong> del expediente <strong>${numexpte}</strong>.</p>
+                                <p>Cliente: <strong>${clienteNombre}</strong></p>
+                                ${fileLink ? `<p><a href="${fileLink}" style="color:#f59e0b;font-weight:bold;">Ver documento en Drive</a></p>` : ''}
+                            </div>
+                        </div>
+                    `
+                });
+            } catch (e) { console.error('[CIFO upload] Email notify error:', e.message); }
+        });
+
+    } catch (e) {
+        console.error('[CIFO upload] Error:', e);
+        res.status(500).json({ error: 'Error al procesar la subida', message: e.message });
+    }
+});
+
 module.exports = router;
