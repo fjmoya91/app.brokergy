@@ -146,14 +146,16 @@ router.get('/cliente/:id', async (req, res) => {
         const historial = opp.datos_calculo?.historial || [];
         const acceptanceEntry = historial.find(h => h.tipo === 'cambio_estado' && h.estado === 'ACEPTADA');
 
+        const useContact = foundCliente?.notificaciones_contacto_activas;
+        
         return res.json({
             id_oportunidad: id,
             id_cliente: foundCliente?.id_cliente || null,
             nombre_razon_social: foundCliente?.nombre_razon_social || nombre,
             apellidos: foundCliente?.apellidos || apellidos,
             dni_cif: foundCliente?.dni || '',
-            email: foundCliente?.email || '',
-            telefono: foundCliente?.tlf || '',
+            email: (useContact && foundCliente?.persona_contacto_email) ? foundCliente.persona_contacto_email : (foundCliente?.email || ''),
+            telefono: (useContact && foundCliente?.persona_contacto_tlf) ? foundCliente.persona_contacto_tlf : (foundCliente?.tlf || ''),
             iban: foundCliente?.numero_cuenta || '',
             estado: opp.datos_calculo?.estado || 'BORRADOR',
             numero_expediente: opp.expedientes?.[0]?.numero_expediente || opp.expedientes?.numero_expediente || null,
@@ -161,6 +163,7 @@ router.get('/cliente/:id', async (req, res) => {
             fecha_aceptacion: acceptanceEntry?.fecha || null,
             aceptado_por: acceptanceEntry?.usuario || null,
         });
+
     } catch (e) {
         console.error('Error public cliente details:', e);
         res.status(500).json({ error: 'Error del servidor' });
@@ -192,11 +195,28 @@ router.post('/aceptar/:id', upload.single('justificante'), async (req, res) => {
             nombre_razon_social: formFields.nombre_razon_social,
             apellidos: formFields.apellidos,
             dni: formFields.dni_cif,
-            email: formFields.email,
-            tlf: formFields.telefono,
             numero_cuenta: formFields.iban || null,
             prescriptor_id: opp.prescriptor_id // Mantenemos el partner asociado a la oportunidad
         };
+
+        // 1. Resolver si debemos actualizar datos principales o de contacto
+        if (id_cliente) {
+            const { data: currentCli } = await supabase.from('clientes').select('notificaciones_contacto_activas').eq('id_cliente', id_cliente).single();
+            if (currentCli?.notificaciones_contacto_activas) {
+                // Si el modo contacto está activo, guardamos email/tlf en los campos de contacto
+                clienteData.persona_contacto_email = formFields.email;
+                clienteData.persona_contacto_tlf = formFields.telefono;
+            } else {
+                // Si no, actualizamos los datos principales del titular
+                clienteData.email = formFields.email;
+                clienteData.tlf = formFields.telefono;
+            }
+        } else {
+            // Si es un cliente nuevo, por defecto usamos los campos principales
+            clienteData.email = formFields.email;
+            clienteData.tlf = formFields.telefono;
+        }
+
 
         // 1. Si no hay id_cliente en la oportunidad, buscamos si ya existe alguien con este DNI
         if (!id_cliente && clienteData.dni) {
@@ -418,13 +438,24 @@ router.patch('/datos/:id', async (req, res) => {
 
         const updates = {};
         if (nombre_razon_social !== undefined) updates.nombre_razon_social = nombre_razon_social;
+
         if (apellidos !== undefined) updates.apellidos = apellidos;
         if (dni_cif !== undefined) updates.dni = dni_cif;
-        if (email !== undefined) updates.email = email;
-        if (telefono !== undefined) updates.tlf = telefono;
         if (iban !== undefined) updates.numero_cuenta = iban || null;
 
+        // Distinguir entre actualizar titular o contacto alternativo
+        const { data: currentCli } = await supabase.from('clientes').select('notificaciones_contacto_activas').eq('id_cliente', opp.cliente_id).single();
+        
+        if (currentCli?.notificaciones_contacto_activas) {
+            if (email !== undefined) updates.persona_contacto_email = email;
+            if (telefono !== undefined) updates.persona_contacto_tlf = telefono;
+        } else {
+            if (email !== undefined) updates.email = email;
+            if (telefono !== undefined) updates.tlf = telefono;
+        }
+
         const { error: updErr } = await supabase.from('clientes').update(updates).eq('id_cliente', opp.cliente_id);
+
         if (updErr) return res.status(500).json({ error: 'Error al actualizar datos del cliente' });
 
         res.json({ success: true });

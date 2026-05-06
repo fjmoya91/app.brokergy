@@ -594,12 +594,26 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
 
     const filtered = expedientes.filter(e => {
         const q = search.toLowerCase();
-        const matchesSearch = (
-            (e.numero_expediente || '').toLowerCase().includes(q) ||
-            (e.id_oportunidad_ref || '').toLowerCase().includes(q) ||
-            (e.oportunidades?.referencia_cliente || '').toLowerCase().includes(q) ||
-            (e.clientes?.ccaa || '').toLowerCase().includes(q)
-        );
+        const searchableText = [
+            e.numero_expediente,
+            e.id_oportunidad_ref,
+            e.id, // UUID por si acaso
+            e.oportunidades?.id_oportunidad,
+            e.oportunidades?.referencia_cliente,
+            e.oportunidades?.ref_catastral,
+            e.clientes?.nombre_razon_social,
+            e.clientes?.apellidos,
+            e.clientes?.dni,
+            e.clientes?.tlf,
+            e.clientes?.municipio,
+            e.clientes?.provincia,
+            e.clientes?.direccion,
+            e.clientes?.ccaa,
+            getCCAA(e) // CCAA calculada
+        ].filter(Boolean).join(' ').toLowerCase();
+
+        const matchesSearch = searchableText.includes(q);
+
         const matchesStatus = statusFilter === 'ALL' || (e.estado || 'PTE. CEE INICIAL') === statusFilter;
         const matchesCert = certificadorFilter === 'ALL' || String(e.cee?.certificador_id) === String(certificadorFilter);
         const matchesCCAA = ccaaFilter === 'ALL' || getCCAA(e) === ccaaFilter;
@@ -651,8 +665,9 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
                         type="text"
                         value={search}
                         onChange={e => setSearch(e.target.value)}
-                        placeholder="Buscar por expediente..."
+                        placeholder="Buscar por expediente, cliente, dni..."
                         className="w-full bg-black/40 border border-white/[0.06] rounded-xl pl-11 pr-4 py-2 text-[10px] uppercase tracking-wider font-extrabold text-white placeholder-white/20 focus:outline-none focus:border-brand/40 focus:bg-black/60 transition-all shadow-xl"
+
                     />
                 </div>
 

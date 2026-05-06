@@ -223,8 +223,9 @@ router.get('/', enforceAuth, async (req, res) => {
 
             const [{ data: clientesData }, { data: opsData }] = await Promise.all([
                 supabase.from('clientes').select('*').in('id_cliente', clienteIds),
-                supabase.from('oportunidades').select('id, id_oportunidad, referencia_cliente, ficha, datos_calculo').in('id', opIds)
+                supabase.from('oportunidades').select('id, id_oportunidad, referencia_cliente, ficha, ref_catastral, datos_calculo').in('id', opIds)
             ]);
+
 
             const cliMap = Object.fromEntries((clientesData || []).map(c => [c.id_cliente, c]));
             const opMap  = Object.fromEntries((opsData || []).map(o => [o.id, o]));

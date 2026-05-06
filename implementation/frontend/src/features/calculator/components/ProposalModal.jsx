@@ -315,6 +315,8 @@ export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }
     const [recipientSelections, setRecipientSelections] = useState(new Set());
     const [emailChoice, setEmailChoice] = useState(false);
     const [emailSelections, setEmailSelections] = useState(new Set());
+    const [manualContact, setManualContact] = useState({ name: '', phone: '', email: '' });
+
 
     // Cargar datos del partner cuando el modal se abre y hay prescriptor_id
     useEffect(() => {
@@ -392,7 +394,9 @@ export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }
                 setClienteInfo({
                     name: (uc && c.persona_contacto_nombre) ? c.persona_contacto_nombre : (c.nombre_razon_social || name),
                     phone: (uc && c.persona_contacto_tlf) ? c.persona_contacto_tlf : (c.tlf || c.telefono || null),
+                    email: (uc && c.persona_contacto_email) ? c.persona_contacto_email : (c.email || null),
                 });
+
             })
             .catch(() => setClienteInfo({ name, phone: inputs?.tlf_contacto || inputs?.tlf || inputs?.telefono || null }));
     }, [isOpen, inputs?.cliente_id, inputs?.tlf_contacto, inputs?.tlf, inputs?.telefono, inputs?.referenciaCliente]);
@@ -1181,8 +1185,12 @@ info@brokergy.es · 623 926 179`;
                         } catch (e) { console.warn('[WA] No se pudo obtener teléfono del instalador'); }
                     }
                 }
+            } else if (mode === 'OTRO') {
+                name = manualContact.name || 'Otro contacto';
+                phone = manualContact.phone || null;
             }
             recipients.push({ phone, mode, name });
+
         }
 
         // 2. Validar teléfonos
@@ -1246,6 +1254,19 @@ info@brokergy.es · 623 926 179`;
                 await axios.patch(`/api/oportunidades/${inputs.id_oportunidad}/estado`, { nuevo_estado: 'ENVIADA' });
             } catch (e) { console.warn('[WA] No se pudo actualizar estado:', e.message); }
         }
+
+        // 6. Log manual recipient in history
+        if (selectedModes.includes('OTRO')) {
+            const manualResult = results.find(r => r.mode === 'OTRO');
+            if (manualResult?.ok) {
+                try {
+                    await axios.post(`/api/oportunidades/${inputs.id_oportunidad}/comentarios`, {
+                        comentario: `[SISTEMA] Propuesta enviada por WhatsApp a contacto manual: ${manualContact.name || 'Sin nombre'} (${manualContact.phone})`
+                    });
+                } catch (e) { console.warn('[WA] No se pudo registrar en historial'); }
+            }
+        }
+
 
         // 7. Mostrar resultado final
         const allOk = results.every(r => r.ok);
@@ -1383,10 +1404,13 @@ info@brokergy.es · 623 926 179`;
                 if (!email && inputs?.cliente_id) {
                     try {
                         const r = await axios.get(`/api/clientes/${inputs.cliente_id}`);
-                        email = r.data?.email || null;
-                        if (r.data?.nombre_razon_social) name = r.data.nombre_razon_social;
+                        const c = r.data;
+                        const uc = c.notificaciones_contacto_activas === true;
+                        name = (uc && c.persona_contacto_nombre) ? c.persona_contacto_nombre : (c.nombre_razon_social || name);
+                        email = (uc && c.persona_contacto_email) ? c.persona_contacto_email : (c.email || null);
                     } catch (e) { console.warn('[Email] No se pudo obtener email del cliente'); }
                 }
+
             } else if (mode === 'PARTNER') {
                 email = partnerInfo?.email || null;
                 name = partnerInfo?.name || 'Partner';
@@ -1408,8 +1432,12 @@ info@brokergy.es · 623 926 179`;
                         email = r.data.email || null;
                     } catch (e) { console.warn('[Email] No se pudo obtener email del instalador'); }
                 }
+            } else if (mode === 'OTRO') {
+                name = manualContact.name || 'Otro contacto';
+                email = manualContact.email || null;
             }
             recipients.push({ email, mode, name });
+
         }
 
         // 2. Validar emails
@@ -1463,6 +1491,19 @@ info@brokergy.es · 623 926 179`;
         if (selectedModes.includes('CLIENTE') && results.some(r => r.ok)) {
             try { await axios.patch(`/api/oportunidades/${inputs.id_oportunidad}/estado`, { nuevo_estado: 'ENVIADA' }); } catch (e) { console.warn('[Email] No se pudo actualizar estado'); }
         }
+
+        // 6. Log manual recipient in history
+        if (selectedModes.includes('OTRO')) {
+            const manualResult = results.find(r => r.name === (manualContact.name || 'Otro contacto'));
+            if (manualResult?.ok) {
+                try {
+                    await axios.post(`/api/oportunidades/${inputs.id_oportunidad}/comentarios`, {
+                        comentario: `[SISTEMA] Propuesta enviada por Email a contacto manual: ${manualContact.name || 'Sin nombre'} (${manualContact.email})`
+                    });
+                } catch (e) { console.warn('[Email] No se pudo registrar en historial'); }
+            }
+        }
+
 
         const allOk = results.every(r => r.ok);
         const summary = results.map(r => `${r.ok ? '✅' : '❌'} ${r.name}${!r.ok && r.error ? ': ' + r.error : ''}`).join('\n');
@@ -2103,7 +2144,10 @@ info@brokergy.es · 623 926 179`;
                     { mode: 'CLIENTE', label: 'CLIENTE', sublabel: clienteInfo?.name || inputs?.referenciaCliente || null, phone: clienteInfo?.phone || null, color: 'bg-primary-600/20 border-primary-500/40 hover:border-primary-500', checkColor: 'bg-primary-500' },
                     ...(partnerInfo ? [{ mode: 'PARTNER', label: 'DISTRIBUIDOR', sublabel: partnerInfo.name, phone: partnerInfo.phone, color: 'bg-[#25D366]/10 border-[#25D366]/30 hover:border-[#25D366]', checkColor: 'bg-[#25D366]' }] : []),
                     ...(instaladorInfo ? [{ mode: 'INSTALADOR', label: 'INSTALADOR', sublabel: instaladorInfo.name, phone: instaladorInfo.phone, color: 'bg-amber-500/10 border-amber-500/30 hover:border-amber-500', checkColor: 'bg-amber-500' }] : []),
+                    { mode: 'OTRO', label: 'OTRO CONTACTO', sublabel: manualContact.name || 'Introducir manualmente', phone: manualContact.phone || null, color: 'bg-slate-700/30 border-white/10 hover:border-white/30', checkColor: 'bg-slate-400' }
                 ];
+
+
                 const nSelected = recipientSelections.size;
                 return (
                     <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in" onClick={(e) => e.stopPropagation()}>
@@ -2133,14 +2177,40 @@ info@brokergy.es · 623 926 179`;
                                             <div className="flex-1 min-w-0">
                                                 <div className="text-xs font-black uppercase tracking-widest text-white/50">{opt.label}</div>
                                                 {opt.sublabel && <div className="text-sm font-bold text-white truncate">{opt.sublabel}</div>}
-                                                {opt.phone
+                                                {opt.mode !== 'OTRO' && (opt.phone
                                                     ? <div className="text-[11px] text-white/40 font-mono">{opt.phone}</div>
-                                                    : <div className="text-[11px] text-red-400/80">Sin teléfono</div>}
+                                                    : <div className="text-[11px] text-red-400/80">Sin teléfono</div>)}
                                             </div>
                                         </button>
                                     );
                                 })}
+
+                                {recipientSelections.has('OTRO') && (
+                                    <div className="animate-fade-in p-4 bg-white/5 border border-white/10 rounded-xl space-y-3 mt-1">
+                                        <div>
+                                            <label className="block text-[10px] font-black uppercase tracking-widest text-white/40 mb-1">Nombre</label>
+                                            <input 
+                                                type="text" 
+                                                placeholder="Nombre del contacto..."
+                                                className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-brand/50 outline-none"
+                                                value={manualContact.name}
+                                                onChange={e => setManualContact(prev => ({ ...prev, name: e.target.value.toUpperCase() }))}
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-[10px] font-black uppercase tracking-widest text-white/40 mb-1">Teléfono WhatsApp</label>
+                                            <input 
+                                                type="text" 
+                                                placeholder="600000000"
+                                                className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-sm text-white font-mono focus:border-brand/50 outline-none"
+                                                value={manualContact.phone}
+                                                onChange={e => setManualContact(prev => ({ ...prev, phone: e.target.value }))}
+                                            />
+                                        </div>
+                                    </div>
+                                )}
                             </div>
+
 
                             <button
                                 onClick={() => sendToMultiple(Array.from(recipientSelections))}
@@ -2170,7 +2240,9 @@ info@brokergy.es · 623 926 179`;
                     { mode: 'CLIENTE', label: 'CLIENTE', sublabel: clienteInfo?.name || inputs?.referenciaCliente || null, contact: clienteInfo?.email || null, color: 'bg-primary-600/20 border-primary-500/40 hover:border-primary-500', checkColor: 'bg-primary-500' },
                     ...(partnerInfo ? [{ mode: 'PARTNER', label: 'DISTRIBUIDOR', sublabel: partnerInfo.name, contact: partnerInfo.email, color: 'bg-blue-500/10 border-blue-500/30 hover:border-blue-500', checkColor: 'bg-blue-500' }] : []),
                     ...(instaladorInfo ? [{ mode: 'INSTALADOR', label: 'INSTALADOR', sublabel: instaladorInfo.name, contact: instaladorInfo.email, color: 'bg-amber-500/10 border-amber-500/30 hover:border-amber-500', checkColor: 'bg-amber-500' }] : []),
+                    { mode: 'OTRO', label: 'OTRO CONTACTO', sublabel: manualContact.name || 'Introducir manualmente', contact: manualContact.email || null, color: 'bg-slate-700/30 border-white/10 hover:border-white/30', checkColor: 'bg-slate-400' }
                 ];
+
                 const nSelected = emailSelections.size;
                 return (
                     <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in" onClick={(e) => e.stopPropagation()}>
@@ -2200,14 +2272,40 @@ info@brokergy.es · 623 926 179`;
                                             <div className="flex-1 min-w-0">
                                                 <div className="text-xs font-black uppercase tracking-widest text-white/50">{opt.label}</div>
                                                 {opt.sublabel && <div className="text-sm font-bold text-white truncate">{opt.sublabel}</div>}
-                                                {opt.contact
+                                                {opt.mode !== 'OTRO' && (opt.contact
                                                     ? <div className="text-[11px] text-white/40 truncate">{opt.contact}</div>
-                                                    : <div className="text-[11px] text-red-400/80">Sin email</div>}
+                                                    : <div className="text-[11px] text-red-400/80">Sin email</div>)}
                                             </div>
                                         </button>
                                     );
                                 })}
+
+                                {emailSelections.has('OTRO') && (
+                                    <div className="animate-fade-in p-4 bg-white/5 border border-white/10 rounded-xl space-y-3 mt-1">
+                                        <div>
+                                            <label className="block text-[10px] font-black uppercase tracking-widest text-white/40 mb-1">Nombre</label>
+                                            <input 
+                                                type="text" 
+                                                placeholder="Nombre del contacto..."
+                                                className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-brand/50 outline-none"
+                                                value={manualContact.name}
+                                                onChange={e => setManualContact(prev => ({ ...prev, name: e.target.value.toUpperCase() }))}
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-[10px] font-black uppercase tracking-widest text-white/40 mb-1">Email</label>
+                                            <input 
+                                                type="email" 
+                                                placeholder="email@ejemplo.com"
+                                                className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-brand/50 outline-none"
+                                                value={manualContact.email}
+                                                onChange={e => setManualContact(prev => ({ ...prev, email: e.target.value.toLowerCase() }))}
+                                            />
+                                        </div>
+                                    </div>
+                                )}
                             </div>
+
 
                             <button
                                 onClick={() => sendEmailToMultiple(Array.from(emailSelections))}
