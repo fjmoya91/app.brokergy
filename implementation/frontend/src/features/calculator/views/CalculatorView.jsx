@@ -1,5 +1,5 @@
 // CalculatorView v2.1 - Updated 2026-03-10
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { CalculatorForm } from '../components/CalculatorForm';
 import { ResultsPanel } from '../components/ResultsPanel';
 import { useAuth } from '../../../context/AuthContext';
@@ -119,7 +119,11 @@ const INITIAL_INPUTS = {
 export function CalculatorView({ initialData, onBack, onNavigate }) {
     const { user } = useAuth();
     const [showBrokergy, setShowBrokergy] = useState(false);
-    
+
+    // Flag que indica si el usuario ha modificado algún input desde la carga inicial.
+    // Mientras sea false y haya un resultado guardado, no recalculamos para preservar el estado guardado.
+    const userInteractedRef = useRef(false);
+
     // Sincronizar permisos de Admin/Partner dinámicamente
     useEffect(() => {
         const isAdmin = user?.rol?.toUpperCase() === 'ADMIN';
@@ -127,8 +131,8 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
     }, [user]);
 
     // Inicializar estado. Si hay initialData, lo usamos como base absoluta.
-    const [inputs, setInputs] = useState(() => {
-        // Combinamos los defaults con la data inicial. 
+    const [inputs, _setInputs] = useState(() => {
+        // Combinamos los defaults con la data inicial.
         // Si initialData ya es un objeto de estado completo (viniendo de App.jsx), se respetará íntegramente.
         const base = { ...INITIAL_INPUTS, ...initialData };
 
@@ -159,7 +163,16 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
                 anio: base.anio,
                 boilerHeatingType: base.boilerHeatingType,
                 insulationState: base.insulationState,
-                initialDataKeys: Object.keys(initialData),
+                superficie_initialData: initialData.superficie,
+                superficie_base: base.superficie,
+                superficieCalefactable_base: base.superficieCalefactable,
+                hasResult: !!initialData.result,
+                resultCaeBonus: initialData.result?.financials?.caeBonus,
+                demandMode_initialData: initialData.demandMode,
+                demandMode_base: base.demandMode,
+                caePriceClient: base.caePriceClient,
+                scopHeating: base.scopHeating,
+                potenciaBomba: base.potenciaBomba,
             });
 
             if (!isPersistent && initialData.tipo) {
@@ -203,7 +216,17 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
         return base;
     });
 
-    const [result, setResult] = useState(null);
+    // Wrapper de setInputs que marca el flag de interacción del usuario.
+    // Cualquier cambio de inputs desde la UI pasa por aquí, permitiendo distinguir
+    // un cambio real del usuario de la carga inicial / re-render por dbModels.
+    const setInputs = useCallback((updater) => {
+        userInteractedRef.current = true;
+        _setInputs(updater);
+    }, []);
+
+    // Si hay resultado guardado (oportunidad cargada desde BD), mostrarlo de inmediato
+    // sin esperar a que el motor recalcule. Solo se recalcula cuando el usuario cambia algo.
+    const [result, setResult] = useState(() => initialData?.result || null);
     const [dbModels, setDbModels] = useState([]);
     const [associatedExpediente, setAssociatedExpediente] = useState(null);
     const [showAcceptModal, setShowAcceptModal] = useState(false);
@@ -241,8 +264,13 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
         }
     }, [inputs.id_oportunidad]);
 
-    // Cálculos en tiempo real cada vez que cambian los inputs o se cargan los modelos
+    // Cálculos en tiempo real cada vez que cambian los inputs o se cargan los modelos.
+    // Excepción: si el usuario aún no ha tocado nada Y hay resultado guardado en BD,
+    // no recalculamos para evitar sobreescribir el resultado guardado.
     useEffect(() => {
+        if (!userInteractedRef.current && initialData?.result) {
+            return; // Mostrar resultado guardado hasta que el usuario modifique algo
+        }
         handleCalculate();
     }, [inputs, dbModels]);
 

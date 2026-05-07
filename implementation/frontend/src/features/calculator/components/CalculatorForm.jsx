@@ -107,6 +107,11 @@ export function CalculatorForm({
     const [dirtyScopAcs, setDirtyScopAcs] = useState(() => {
         return !!inputs.isPersistent;
     });
+    // dirty para potenciaBomba: si la oportunidad viene de BD, respetar el valor guardado
+    // y no auto-sobrescribirlo cuando dbModels se cargue async.
+    const [dirtyPotenciaBomba, setDirtyPotenciaBomba] = useState(() => {
+        return !!inputs.isPersistent;
+    });
 
     // Actualizar Eficiencia si cambia la zona o el emisor
     useEffect(() => {
@@ -123,7 +128,7 @@ export function CalculatorForm({
 
             const updates = {};
             if (!dirtyScopHeating && newScop !== inputs.scopHeating) updates.scopHeating = newScop;
-            if (power > 0 && power !== inputs.potenciaBomba) updates.potenciaBomba = power;
+            if (!dirtyPotenciaBomba && power > 0 && power !== inputs.potenciaBomba) updates.potenciaBomba = power;
 
             // Gestionar SCOP ACS
             if (!dirtyScopAcs) {
@@ -148,7 +153,7 @@ export function CalculatorForm({
                 onInputChange(prev => ({ ...prev, ...updates }));
             }
         }
-    }, [inputs.zona, inputs.emitterType, inputs.aerothermiaModel, inputs.aerothermiaModelAcs, inputs.changeAcs, dbModels, inputs.hibridacion, dirtyScopHeating, dirtyScopAcs]);
+    }, [inputs.zona, inputs.emitterType, inputs.aerothermiaModel, inputs.aerothermiaModelAcs, inputs.changeAcs, dbModels, inputs.hibridacion, dirtyScopHeating, dirtyScopAcs, dirtyPotenciaBomba]);
     const [isPriceLocked, setIsPriceLocked] = useState(true);
 
     // Estado local para el filtro de marcas
@@ -1451,6 +1456,7 @@ export function CalculatorForm({
                                                                 updates.potenciaBomba = selectedModel.potencia_calefaccion || selectedModel.potencia_nominal_35 || 0;
                                                                 setDirtyScopHeating(false);
                                                                 setDirtyScopAcs(false);
+                                                                setDirtyPotenciaBomba(false);
                                                                 setShowScopPopup(false);
                                                             } else if (modelId === 'custom') {
                                                                 setShowScopPopup(true);
@@ -1576,12 +1582,15 @@ export function CalculatorForm({
                                                     <h4 className="text-[10px] font-black text-brand uppercase tracking-widest">Cálculo RES093</h4>
                                                 </div>
                                                 <Label htmlFor="potenciaBomba" className="text-[9px] text-slate-500 mb-1 font-bold">POTENCIA BdC (kW)</Label>
-                                                <Input 
+                                                <Input
                                                     id="potenciaBomba"
                                                     type="text"
                                                     inputMode="decimal"
                                                     value={formatDisplay(inputs.potenciaBomba)}
-                                                    onChange={e => handleSmartNumberChange('potenciaBomba', e.target.value)}
+                                                    onChange={e => {
+                                                        handleSmartNumberChange('potenciaBomba', e.target.value);
+                                                        setDirtyPotenciaBomba(true);
+                                                    }}
                                                     className="h-9 text-sm bg-slate-950/50 border-brand/30 focus:border-brand font-mono font-bold"
                                                 />
                                             </div>

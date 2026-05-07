@@ -154,21 +154,28 @@ export function SaveOpportunityModal({ isOpen, onClose, onSaveSuccess, onClientL
         setLoading(true);
         setError(null);
         try {
+            // Limpiar 'result' e 'inputs' (anidado) del estado de inputs antes de guardar.
+            // Si no se limpia:
+            //  - inputs.result quedó residual de una carga previa y crearía inconsistencia
+            //    con datos_calculo.result (que es el resultado actual / canónico).
+            //  - inputs.inputs causaría recursión tras múltiples saves/loads.
+            const { result: _staleResult, inputs: _staleNested, ...cleanInputs } = inputs;
+
             const payload = {
-                id_oportunidad: inputs.id_oportunidad, // Pasar el ID para no generar errores 500 o inserciones dobles al editar
-                ref_catastral: inputs.rc || 'MANUAL',
+                id_oportunidad: cleanInputs.id_oportunidad, // Pasar el ID para no generar errores 500 o inserciones dobles al editar
+                ref_catastral: cleanInputs.rc || 'MANUAL',
                 prescriptor_id: isAdmin ? (prescriptorId || null) : (user?.prescriptor_id || null),
                 instalador_asociado_id: instaladorId || null,
                 referencia_cliente: referenciaCliente,
                 demanda_calefaccion: result?.q_net || 0,
-                anio: inputs.anio,
-                zona: inputs.zona,
-                cliente_id: inputs.cliente_id || null,
+                anio: cleanInputs.anio,
+                zona: cleanInputs.zona,
+                cliente_id: cleanInputs.cliente_id || null,
                 datos_calculo: {
-                    ...inputs,
+                    ...cleanInputs,
                     cod_cliente_interno: codClienteInterno,
                     inputs: {
-                        ...inputs,
+                        ...cleanInputs,
                         cod_cliente_interno: codClienteInterno
                     },
                     result

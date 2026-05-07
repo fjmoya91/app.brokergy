@@ -148,7 +148,7 @@ router.post('/', enforceAuth, async (req, res) => {
             nombre_razon_social, apellidos, email, tlf, dni,
             ccaa, provincia, municipio, direccion, codigo_postal,
             numero_cuenta, prescriptor_id, oportunidad_id,
-            persona_contacto_nombre, persona_contacto_tlf, persona_contacto_email, notificaciones_contacto_activas, notas
+            persona_contacto_nombre, persona_contacto_tlf, notificaciones_contacto_activas, notas
         } = body;
 
 
@@ -185,7 +185,6 @@ router.post('/', enforceAuth, async (req, res) => {
             prescriptor_id: finalPrescriptorId,
             persona_contacto_nombre: persona_contacto_nombre || null,
             persona_contacto_tlf: persona_contacto_tlf || null,
-            persona_contacto_email: persona_contacto_email || null,
             notificaciones_contacto_activas: notificaciones_contacto_activas === true || notificaciones_contacto_activas === 'true' || false,
 
             notas: notas || null,
@@ -275,7 +274,7 @@ router.put('/:id', enforceAuth, async (req, res) => {
             nombre_razon_social, apellidos, email, tlf, dni,
             ccaa, provincia, municipio, direccion, codigo_postal,
             numero_cuenta, prescriptor_id,
-            persona_contacto_nombre, persona_contacto_tlf, persona_contacto_email, notificaciones_contacto_activas, notas
+            persona_contacto_nombre, persona_contacto_tlf, notificaciones_contacto_activas, notas
         } = body;
 
 
@@ -293,7 +292,6 @@ router.put('/:id', enforceAuth, async (req, res) => {
         if (numero_cuenta !== undefined && req.user.rol_nombre === 'ADMIN') updates.numero_cuenta = numero_cuenta;
         if (persona_contacto_nombre !== undefined) updates.persona_contacto_nombre = persona_contacto_nombre;
         if (persona_contacto_tlf !== undefined) updates.persona_contacto_tlf = persona_contacto_tlf;
-        if (persona_contacto_email !== undefined) updates.persona_contacto_email = persona_contacto_email;
         if (notificaciones_contacto_activas !== undefined) updates.notificaciones_contacto_activas = notificaciones_contacto_activas === true || notificaciones_contacto_activas === 'true' || false;
 
         if (notas !== undefined) updates.notas = notas;

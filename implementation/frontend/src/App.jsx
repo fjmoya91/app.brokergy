@@ -265,17 +265,27 @@ function App() {
   };
 
   const handleOpenCalculator = (data) => {
-    // Si ya tenemos inputs guardados para esta misma RC, los usamos. 
+    // Si ya tenemos inputs guardados para esta misma RC, los usamos.
     // De lo contrario, usamos la data inicial de PropertySheet.
     let baseData = data;
-    if (persistentCalculatorInputs && persistentCalculatorInputs.rc === data.rc) {
-      // Priorizar inputs persistentes para el año, pero permitir que la ficha técnica actualice la selección de construcciones
-      baseData = { 
-        ...persistentCalculatorInputs, 
-        ...data, 
-        anio: persistentCalculatorInputs.anio || data.anio || persistentCalculatorInputs.yearBuilt || data.yearBuilt,
-        isPersistent: true 
-      };
+    if (persistentCalculatorInputs && data && persistentCalculatorInputs.rc === data.rc) {
+      if (persistentCalculatorInputs.isPersistent) {
+        // Oportunidad guardada: los valores del usuario tienen prioridad absoluta sobre el Catastro.
+        // Catastro solo aporta campos que no existan ya en los inputs guardados.
+        baseData = {
+          ...data,
+          ...persistentCalculatorInputs,
+          isPersistent: true
+        };
+      } else {
+        // Sesión nueva (RC recién buscada): el Catastro puede actualizar construcciones, año, etc.
+        baseData = {
+          ...persistentCalculatorInputs,
+          ...data,
+          anio: persistentCalculatorInputs.anio || data.anio || persistentCalculatorInputs.yearBuilt || data.yearBuilt,
+          isPersistent: true
+        };
+      }
     }
 
     // SIEMPRE asegurar que si conocemos una referencia de cliente previa para esta RC, la inyectamos
@@ -381,28 +391,53 @@ function App() {
 
       setExistingOpportunityData(op);
       const inputsData = typeof op.datos_calculo === 'string' ? JSON.parse(op.datos_calculo) : (op.datos_calculo || {});
+
+      // Extraer y EXCLUIR las claves 'inputs' y 'result' del spread root.
+      // Si no se excluyen:
+      //  - 'inputs' anidado puede contener un 'result' obsoleto de una carga previa,
+      //    que sobreescribiría datos_calculo.result (la versión canónica más reciente).
+      //  - 'inputs.inputs' puede recursivar tras múltiples saves/loads.
+      const { inputs: nestedInputs = {}, result: savedResult, ...rootInputs } = inputsData;
+      // Limpiar también 'result' del nested por si quedó stale de un load anterior
+      const { result: _staleNestedResult, inputs: _staleNestedInputs, ...cleanNested } = nestedInputs;
+
       const inputs = {
-        ...inputsData, // Propiedades en la raíz (compatibilidad y fallback)
-        ...(inputsData.inputs || {}), // Propiedades anidadas (estructura estándar actual)
-        cliente_id: op.cliente_id || null, 
+        ...rootInputs, // Propiedades en la raíz (sin 'inputs' ni 'result')
+        ...cleanNested, // Propiedades anidadas (también sin 'inputs' ni 'result')
+        cliente_id: op.cliente_id || null,
         instalador_asociado_id: op.instalador_asociado_id || '',
-        estado: inputsData.estado || 'BORRADOR',
-        cod_cliente_interno: inputsData.cod_cliente_interno || '',
+        estado: rootInputs.estado || 'BORRADOR',
+        cod_cliente_interno: rootInputs.cod_cliente_interno || '',
         id_uuid: op.id,
         id_oportunidad: op.id_oportunidad,
         isPersistent: true,
-        demandMode: (inputsData.inputs?.demandMode || inputsData.demandMode) || 'estimated'
+        demandMode: (cleanNested.demandMode || rootInputs.demandMode) || 'estimated',
+        // Resultado guardado canónico (siempre desde la raíz, no desde nested)
+        result: savedResult || null
       };
-      setPersistentCalculatorInputs(inputs);
-      // Asegurar que la ficha técnica refleje el año guardado (posiblemente editado)
-      // Buscamos tanto 'anio' como 'yearBuilt' por compatibilidad con diferentes versiones de guardado
+
+      console.log('[loadOpportunity] Loaded:', {
+        opId: op.id_oportunidad,
+        hasSavedResult: !!savedResult,
+        savedCaeBonus: savedResult?.financials?.caeBonus,
+        demandMode: inputs.demandMode,
+        superficie: inputs.superficie,
+        scopHeating: inputs.scopHeating,
+        caePriceClient: inputs.caePriceClient,
+      });
       const savedAnio = inputs.anio || inputs.yearBuilt || op.anio;
       if (savedAnio) {
         catastroData.yearBuilt = Number(savedAnio);
         inputs.anio = Number(savedAnio);
         inputs.yearBuilt = Number(savedAnio);
       }
+      setPersistentCalculatorInputs(inputs);
       setPropertyData(catastroData);
+      // Ir directamente al calculador con los inputs guardados, sin pasar por PropertySheet.
+      // Pasar por PropertySheet causaba que los datos frescos del Catastro sobreescribieran
+      // los valores guardados por el usuario (superficie, demandMode, SCOP, etc.).
+      setCalculatorData(inputs);
+      setStep('CALCULATOR');
     } catch (err) {
       console.error('Fatal error loading opportunity:', err);
       setError('Error al procesar los datos de la oportunidad.');
