@@ -197,7 +197,8 @@ export function SaveOpportunityModal({ isOpen, onClose, onSaveSuccess, onClientL
                 savedData.datos_calculo?.drive_folder_id,
                 payload.prescriptor_id,
                 payload.instalador_asociado_id,
-                codClienteInterno
+                codClienteInterno,
+                savedData.datos_calculo?.drive_folder_link
             );
 
             // ACTUALIZAR MAPEADO DE INSTALADOR (Si somos distribuidores y hay instalador)

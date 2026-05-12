@@ -324,6 +324,7 @@ export function ClienteFormModal({ isOpen, onClose, onSuccess, oportunidad, init
         ccaa: '', provincia: '', provincia_cod: '', municipio: '',
         persona_contacto_nombre: '',
         persona_contacto_tlf: '',
+        persona_contacto_email: '',
         notas: '',
         cod_cliente_interno: '',
         ...(initialData || {}),
@@ -373,6 +374,7 @@ export function ClienteFormModal({ isOpen, onClose, onSuccess, oportunidad, init
             ccaa: '', provincia: '', provincia_cod: '', municipio: '',
             persona_contacto_nombre: '',
             persona_contacto_tlf: '',
+            persona_contacto_email: '',
             notas: '',
             cod_cliente_interno: initialData?.cod_cliente_interno || 
                                 oportunidad?.datos_calculo?.cod_cliente_interno || 
@@ -581,7 +583,7 @@ export function ClienteFormModal({ isOpen, onClose, onSuccess, oportunidad, init
                                             <input
                                                 type="checkbox"
                                                 className="peer sr-only"
-                                                checked={!!(form.persona_contacto_nombre || form.persona_contacto_tlf || form.showContact)}
+                                                checked={!!(form.persona_contacto_nombre || form.persona_contacto_tlf || form.persona_contacto_email || form.showContact)}
                                                 onChange={e => updateForm({ showContact: e.target.checked })}
                                             />
                                             <div className="w-8 h-4 bg-white/10 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-brand"></div>
@@ -591,7 +593,7 @@ export function ClienteFormModal({ isOpen, onClose, onSuccess, oportunidad, init
                                         </span>
                                     </label>
 
-                                    {(form.showContact || form.persona_contacto_nombre || form.persona_contacto_tlf) && (
+                                    {(form.showContact || form.persona_contacto_nombre || form.persona_contacto_tlf || form.persona_contacto_email) && (
                                         <div className="space-y-3 animate-fade-in p-4 bg-white/[0.02] border border-white/[0.05] rounded-xl">
                                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                                 <Field label="Nombre de Contacto">
@@ -609,6 +611,16 @@ export function ClienteFormModal({ isOpen, onClose, onSuccess, oportunidad, init
                                                         onChange={e => updateForm({ persona_contacto_tlf: e.target.value })}
                                                     />
                                                 </Field>
+                                                <div className="sm:col-span-2">
+                                                    <Field label="Email de Contacto">
+                                                        <Input
+                                                            type="email"
+                                                            placeholder="contacto@email.com"
+                                                            value={form.persona_contacto_email || ''}
+                                                            onChange={e => updateForm({ persona_contacto_email: e.target.value.toLowerCase() })}
+                                                        />
+                                                    </Field>
+                                                </div>
                                             </div>
                                             <label className="flex items-center gap-3 cursor-pointer group w-fit">
                                                 <div className="relative flex items-center">

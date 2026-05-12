@@ -143,9 +143,37 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
         if (!base.insulationState || base.insulationState === '') {
             base.insulationState = 'sin_aislamiento';
         }
+        // Normalizar a minúsculas para tolerar datos antiguos guardados con normalización uppercase
+        if (typeof base.demandMode === 'string') base.demandMode = base.demandMode.toLowerCase();
         if (!base.demandMode || !['estimated', 'real', 'manual'].includes(base.demandMode)) {
             base.demandMode = 'estimated';
         }
+        // Lo mismo para insulationState y boilerHeatingType si vienen en mayúsculas
+        if (typeof base.insulationState === 'string') {
+            const lc = base.insulationState.toLowerCase();
+            if (['sin_aislamiento', 'antigua_mal_aislamiento', 'antigua_aislamiento_medio', 'bien_aislada'].includes(lc)) {
+                base.insulationState = lc;
+            }
+        }
+        // reformaType ya está en BLACKLIST pero por seguridad ante datos antiguos:
+        if (typeof base.reformaType === 'string') {
+            const lc = base.reformaType.toLowerCase();
+            if (['none', 'estimated', 'both', 'onlyreforma'].includes(lc)) {
+                base.reformaType = lc === 'onlyreforma' ? 'onlyReforma' : lc;
+            }
+        }
+        // Combustibles RES080: las claves originales están en title case ("Electricidad peninsular"),
+        // pero datos antiguos vienen uppercased ("ELECTRICIDAD PENINSULAR"). Renormalizar a la key canónica.
+        const COMBUSTIBLE_KEYS = ['Electricidad peninsular', 'Gasoleo Calefacción', 'GLP', 'Gas Natural', 'Carbón', 'Biomasa no densificada', 'Biomasa densificada (pelets)'];
+        const renormCombustible = (val) => {
+            if (!val || typeof val !== 'string') return val;
+            if (COMBUSTIBLE_KEYS.includes(val)) return val;
+            const target = val.toLowerCase().trim();
+            return COMBUSTIBLE_KEYS.find(k => k.toLowerCase().trim() === target) || val;
+        };
+        ['combustibleAcsInicial', 'combustibleAcsFinal', 'combustibleCalefaccionInicial', 'combustibleCalefaccionFinal', 'combustibleRefrigeracionInicial', 'combustibleRefrigeracionFinal'].forEach(key => {
+            if (base[key]) base[key] = renormCombustible(base[key]);
+        });
 
         if (initialData) {
             // Aseguramos conversiones de tipo para campos críticos que puedan venir como strings del catastro
@@ -556,73 +584,115 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
                 const showDual = inputs.isReforma && result.financialsRes080;
                 const showOnlyReforma = showDual && inputs?.comparativaReforma === false;
                 const fmt = (n) => new Intl.NumberFormat('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(n);
+                const fmtMwh = (n) => new Intl.NumberFormat('es-ES', { maximumFractionDigits: 0 }).format(n / 1000);
                 const currentFinancials = showOnlyReforma ? result.financialsRes080 : result.financials;
                 return (
-                <div className="fixed bottom-0 md:bottom-auto md:top-0 left-0 right-0 z-[100] p-2 md:p-4 flex justify-center pointer-events-none">
-                    <div className="w-full max-w-4xl bg-[#0a0a0a]/90 backdrop-blur-2xl border border-white/10 rounded-[2rem] p-1.5 shadow-[0_20px_50px_rgba(0,0,0,0.5)] flex items-stretch pointer-events-auto transform transition-all duration-500 ring-1 ring-white/5 mx-auto">
-                        <div className="flex flex-1 items-center justify-between px-2 py-1 gap-2">
-                             {/* Card 1: Bono Aerotermia (RES060) */}
-                             {!showOnlyReforma && (
-                                 <div className={`flex-1 ${showDual ? 'bg-amber-500/10 border-amber-500/20' : 'bg-white/[0.03] border-white/[0.05]'} rounded-2xl p-3 flex flex-col items-center justify-center min-w-[120px] transition-all`}>
-                                <span className={`text-2xl md:text-4xl font-black tracking-tighter ${showDual ? 'text-amber-400' : 'text-white'} drop-shadow-[0_0_15px_rgba(255,255,255,0.3)]`}>
-                                    {fmt(result.financials.caeBonus)}
-                                    <span className={`${showDual ? 'text-amber-400/60' : 'text-brand'} ml-1`}>€</span>
-                                </span>
-                                <span className={`text-[9px] font-black ${showDual ? 'text-amber-400/60' : 'text-brand'} uppercase tracking-[0.2em] mt-1 opacity-80`}>
-                                    {showDual ? 'Bono Aero' : 'Bono Energético CAE'}
-                                </span>
-                             </div>
-                             )}
+                <div className="fixed bottom-0 md:bottom-auto md:top-0 left-0 right-0 z-[100] py-2 px-3 md:py-2 md:px-4 flex justify-center pointer-events-none">
+                    {/* Gradient border frame */}
+                    <div className={`w-full max-w-[940px] pointer-events-auto p-px rounded-2xl shadow-[0_12px_48px_rgba(0,0,0,0.75)] transition-all duration-500 ${showDual ? 'bg-gradient-to-r from-amber-500/20 via-white/[0.06] to-cyan-500/20' : 'bg-gradient-to-r from-white/[0.06] via-white/[0.09] to-white/[0.06]'}`}>
+                        <div className="bg-[#06060a]/96 backdrop-blur-3xl rounded-[calc(1rem-1px)] overflow-hidden">
+                            <div className="flex divide-x divide-white/[0.06]">
 
-                             {/* Card 1.5: Bono Integral (RES080) - SOLO SI HAY REFORMA */}
-                             {showDual && (
-                                <div className={`flex-1 bg-cyan-500/10 border border-cyan-500/20 rounded-2xl p-3 flex flex-col items-center justify-center min-w-[120px] transition-all ${showOnlyReforma ? 'scale-105 ring-1 ring-cyan-400/50' : ''}`}>
-                                    <span className="text-2xl md:text-3xl font-black tracking-tighter text-cyan-400 drop-shadow-[0_0_15px_rgba(34,211,238,0.3)]">
-                                        {fmt(result.financialsRes080.caeBonus)}
-                                        <span className="text-cyan-400/60 ml-1">€</span>
-                                    </span>
-                                    <span className="text-[9px] font-black text-cyan-400/60 uppercase tracking-[0.2em] mt-1 opacity-80">
-                                        {showOnlyReforma ? 'Bono Energético Reforma CAE' : 'Bono Reforma'}
-                                    </span>
-                                 </div>
-                             )}
-
-                             {/* Card 2: Beneficio (Solo ADMIN) */}
-                             {showBrokergy && currentFinancials.profitBrokergy !== undefined && (
-                                <div className="flex-1 bg-emerald-500/[0.03] border border-emerald-500/10 rounded-2xl p-3 flex flex-col items-center justify-center min-w-[120px]">
-                                    <span className="text-2xl md:text-3xl font-black tracking-tighter text-emerald-400 drop-shadow-[0_0_15px_rgba(52,211,153,0.3)]">
-                                        {new Intl.NumberFormat('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(currentFinancials.profitBrokergy)}
-                                        <span className="text-emerald-500/60 ml-1">€</span>
-                                    </span>
-                                    <span className="text-[9px] font-black text-emerald-500/60 uppercase tracking-[0.2em] mt-1">Beneficio</span>
-                                </div>
-                             )}
-
-                              {/* Card 3: Demanda (Solo ADMIN) */}
-                              {showBrokergy && (
-                                 <div className="flex-1 bg-indigo-500/[0.03] border border-indigo-500/10 rounded-2xl p-3 flex flex-col items-center justify-center min-w-[120px]">
-                                    <div className="flex items-baseline gap-1.5">
-                                        <span className="text-2xl md:text-3xl font-black tracking-tighter text-indigo-400 drop-shadow-[0_0_15px_rgba(129,140,248,0.3)]">
-                                            {new Intl.NumberFormat('es-ES', { maximumFractionDigits: 2 }).format(result.q_net)}
+                                {/* Bono Aerotermia (RES060) */}
+                                {!showOnlyReforma && (
+                                    <div className="flex-1 relative flex flex-col items-center justify-center px-3 py-3 min-w-[110px] group">
+                                        <div className="absolute top-0 left-6 right-6 h-px bg-gradient-to-r from-transparent via-amber-400/70 to-transparent" />
+                                        <div className="absolute inset-0 bg-gradient-to-b from-amber-500/[0.06] to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+                                        <div className="flex items-baseline gap-0.5 relative">
+                                            <span className={`text-[22px] md:text-[28px] font-black tracking-tight tabular-nums leading-none ${showDual ? 'text-amber-300' : 'text-white'}`}>
+                                                {fmt(result.financials.caeBonus)}
+                                            </span>
+                                            <span className={`text-xs font-bold ml-1 ${showDual ? 'text-amber-400/50' : 'text-brand/70'}`}>€</span>
+                                        </div>
+                                        <span className={`text-[8px] font-bold uppercase tracking-[0.18em] mt-1 relative ${showDual ? 'text-amber-400/45' : 'text-brand/60'}`}>
+                                            {showDual ? 'Bono Aero' : 'Bono Energético CAE'}
                                         </span>
-                                        <span className="text-[10px] font-black text-indigo-400/50 uppercase tracking-tighter">kWh/m²</span>
                                     </div>
-                                    <span className="text-[9px] font-black text-indigo-500/30 uppercase tracking-[0.2em] mt-1.5">Demanda Calefacción</span>
-                                 </div>
-                              )}
+                                )}
 
-                              {/* Card 4: Ahorro (Solo ADMIN) */}
-                              {showBrokergy && (
-                                 <div className="flex-1 bg-white/[0.03] border border-white/[0.1] rounded-2xl p-3 flex flex-col items-center justify-center min-w-[120px]">
-                                    <div className="flex items-baseline gap-1.5">
-                                        <span className="text-2xl md:text-3xl font-black tracking-tighter text-white drop-shadow-[0_0_15px_rgba(255,255,255,0.2)]">
-                                            {new Intl.NumberFormat('es-ES', { maximumFractionDigits: 2 }).format(result.savings.savingsKwh / 1000)}
+                                {/* Bono Reforma (RES080) */}
+                                {showDual && (
+                                    <div className={`flex-1 relative flex flex-col items-center justify-center px-3 py-3 min-w-[110px] group ${showOnlyReforma ? 'bg-cyan-400/[0.04]' : ''}`}>
+                                        <div className="absolute top-0 left-6 right-6 h-px bg-gradient-to-r from-transparent via-cyan-400/70 to-transparent" />
+                                        <div className="absolute inset-0 bg-gradient-to-b from-cyan-500/[0.06] to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+                                        {showOnlyReforma && <div className="absolute inset-0 bg-gradient-to-b from-cyan-500/[0.05] to-transparent" />}
+                                        <div className="flex items-baseline gap-0.5 relative">
+                                            <span className="text-[22px] md:text-[28px] font-black tracking-tight tabular-nums leading-none text-cyan-300">
+                                                {fmt(result.financialsRes080.caeBonus)}
+                                            </span>
+                                            <span className="text-xs font-bold text-cyan-400/50 ml-1">€</span>
+                                        </div>
+                                        <span className="text-[8px] font-bold text-cyan-400/45 uppercase tracking-[0.18em] mt-1 relative">
+                                            {showOnlyReforma ? 'Bono Reforma CAE' : 'Bono Reforma'}
                                         </span>
-                                        <span className="text-[10px] font-black text-white/40 uppercase tracking-tighter">MWh/año</span>
                                     </div>
-                                    <span className="text-[9px] font-black text-white/20 uppercase tracking-[0.2em] mt-1.5">Ahorro Aerotermia</span>
-                                 </div>
-                              )}
+                                )}
+
+                                {/* Beneficio Brokergy (solo ADMIN) */}
+                                {showBrokergy && currentFinancials.profitBrokergy !== undefined && (
+                                    <div className="flex-1 relative flex flex-col items-center justify-center px-3 py-3 min-w-[110px] group">
+                                        <div className="absolute top-0 left-6 right-6 h-px bg-gradient-to-r from-transparent via-emerald-400/60 to-transparent" />
+                                        <div className="absolute inset-0 bg-gradient-to-b from-emerald-500/[0.05] to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+                                        <div className="flex items-baseline gap-0.5 relative">
+                                            <span className="text-[22px] md:text-[28px] font-black tracking-tight tabular-nums leading-none text-emerald-300">
+                                                {fmt(currentFinancials.profitBrokergy)}
+                                            </span>
+                                            <span className="text-xs font-bold text-emerald-400/50 ml-1">€</span>
+                                        </div>
+                                        <span className="text-[8px] font-bold text-emerald-400/40 uppercase tracking-[0.18em] mt-1 relative">Beneficio</span>
+                                    </div>
+                                )}
+
+                                {/* Demanda Calefacción (solo ADMIN) */}
+                                {showBrokergy && (
+                                    <div className="flex-1 relative flex flex-col items-center justify-center px-3 py-3 min-w-[110px] group">
+                                        <div className="absolute top-0 left-6 right-6 h-px bg-gradient-to-r from-transparent via-indigo-400/50 to-transparent" />
+                                        <div className="absolute inset-0 bg-gradient-to-b from-indigo-500/[0.04] to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+                                        <div className="flex items-baseline gap-1 relative">
+                                            <span className="text-[22px] md:text-[28px] font-black tracking-tight tabular-nums leading-none text-indigo-300">
+                                                {new Intl.NumberFormat('es-ES', { maximumFractionDigits: 0 }).format(result.q_net)}
+                                            </span>
+                                            <span className="text-[9px] font-bold text-indigo-400/45 uppercase tracking-tighter self-end mb-1">kWh/m²</span>
+                                        </div>
+                                        <span className="text-[8px] font-bold text-indigo-400/35 uppercase tracking-[0.18em] mt-1 relative">Demanda Cal.</span>
+                                    </div>
+                                )}
+
+                                {/* Ahorro Aerotermia (solo ADMIN, oculto si solo reforma) */}
+                                {showBrokergy && !showOnlyReforma && (
+                                    <div className="flex-1 relative flex flex-col items-center justify-center px-3 py-3 min-w-[110px] group">
+                                        <div className={`absolute top-0 left-6 right-6 h-px bg-gradient-to-r from-transparent ${showDual ? 'via-amber-400/40' : 'via-white/25'} to-transparent`} />
+                                        <div className="absolute inset-0 bg-gradient-to-b from-amber-500/[0.03] to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+                                        <div className="flex items-baseline gap-1 relative">
+                                            <span className={`text-[22px] md:text-[28px] font-black tracking-tight tabular-nums leading-none ${showDual ? 'text-amber-200/80' : 'text-white/70'}`}>
+                                                {fmtMwh(result.savings.savingsKwh)}
+                                            </span>
+                                            <span className={`text-[9px] font-bold uppercase tracking-tighter self-end mb-1 ${showDual ? 'text-amber-300/40' : 'text-white/30'}`}>MWh/a</span>
+                                        </div>
+                                        <span className={`text-[8px] font-bold uppercase tracking-[0.18em] mt-1 relative ${showDual ? 'text-amber-300/35' : 'text-white/25'}`}>
+                                            {showDual ? 'Ahorro Aero' : 'Ahorro Aerotermia'}
+                                        </span>
+                                    </div>
+                                )}
+
+                                {/* Ahorro Energía Final RES080 (solo ADMIN, solo en reforma) */}
+                                {showBrokergy && showDual && result.res080?.ahorroEnergiaFinalTotal !== undefined && (
+                                    <div className={`flex-1 relative flex flex-col items-center justify-center px-3 py-3 min-w-[110px] group ${showOnlyReforma ? 'bg-cyan-400/[0.03]' : ''}`}>
+                                        <div className="absolute top-0 left-6 right-6 h-px bg-gradient-to-r from-transparent via-cyan-400/40 to-transparent" />
+                                        <div className="absolute inset-0 bg-gradient-to-b from-cyan-500/[0.04] to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+                                        <div className="flex items-baseline gap-1 relative">
+                                            <span className="text-[22px] md:text-[28px] font-black tracking-tight tabular-nums leading-none text-cyan-200/80">
+                                                {fmtMwh(result.res080.ahorroEnergiaFinalTotal)}
+                                            </span>
+                                            <span className="text-[9px] font-bold text-cyan-300/40 uppercase tracking-tighter self-end mb-1">MWh/a</span>
+                                        </div>
+                                        <span className="text-[8px] font-bold text-cyan-300/35 uppercase tracking-[0.18em] mt-1 relative">
+                                            {showOnlyReforma ? 'Ahorro E. Final' : 'Ahorro Reforma'}
+                                        </span>
+                                    </div>
+                                )}
+
+                            </div>
                         </div>
                     </div>
                 </div>

@@ -615,12 +615,6 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
                                                     <span className="text-red-400 font-mono font-bold whitespace-nowrap flex-shrink-0">+{formatNumber(result.financials.caeMaintenanceCost)} €</span>
                                                 </div>
                                             )}
-                                            {result.financials.legalizationCost > 0 && (
-                                                <div className="flex justify-between items-start text-sm py-3 border-b border-white/5 gap-4">
-                                                    <span className="text-slate-400">Legalización Instalación</span>
-                                                    <span className="text-red-400 font-mono font-bold whitespace-nowrap flex-shrink-0">+{formatNumber(result.financials.legalizationCost)} €</span>
-                                                </div>
-                                            )}
                                             {result.financials.irpfCap > 0 && (
                                                 <div className="flex justify-between items-start text-sm py-3 border-b border-white/5 gap-4">
                                                     <div className="flex flex-col">
@@ -722,12 +716,6 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
                                                 <div className="flex justify-between items-start text-sm py-3 border-b border-white/5 gap-4">
                                                     <span className="text-slate-400">Gestión tramitación Expediente CAE</span>
                                                     <span className="text-red-400 font-mono font-bold whitespace-nowrap flex-shrink-0">+{formatNumber(result.financialsRes080.caeMaintenanceCost)} €</span>
-                                                </div>
-                                            )}
-                                            {result.financialsRes080.legalizationCost > 0 && (
-                                                <div className="flex justify-between items-start text-sm py-3 border-b border-white/5 gap-4">
-                                                    <span className="text-slate-400">Legalización Instalación</span>
-                                                    <span className="text-red-400 font-mono font-bold whitespace-nowrap flex-shrink-0">+{formatNumber(result.financialsRes080.legalizationCost)} €</span>
                                                 </div>
                                             )}
                                             {result.financialsRes080.irpfCap > 0 && (
@@ -902,12 +890,13 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
             <SaveOpportunityModal
                 isOpen={showSaveOpportunity}
                 onClose={() => setShowSaveOpportunity(false)}
-                onSaveSuccess={(ref, id, driveId, prescriptorId, instaladorId, codInterno) => {
+                onSaveSuccess={(ref, id, driveId, prescriptorId, instaladorId, codInterno, driveFolderLink) => {
                     const newInputs = {
                         ...inputs,
                         referenciaCliente: ref,
                         id_oportunidad: id,
                         drive_folder_id: driveId,
+                        drive_folder_link: driveFolderLink || inputs.drive_folder_link,
                         prescriptor_id: prescriptorId,
                         instalador_asociado_id: instaladorId,
                         cod_cliente_interno: codInterno

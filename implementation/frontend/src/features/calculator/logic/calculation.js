@@ -127,6 +127,17 @@ export const FACTORES_PASO = {
     'Biomasa densificada (pelets)': 0.018
 };
 
+// Lookup tolerante a mayúsculas/minúsculas (datos antiguos pueden venir uppercased)
+export function getFactorPaso(combustible) {
+    if (!combustible) return 1;
+    if (FACTORES_PASO[combustible] !== undefined) return FACTORES_PASO[combustible];
+    const target = String(combustible).toLowerCase().trim();
+    for (const key in FACTORES_PASO) {
+        if (key.toLowerCase().trim() === target) return FACTORES_PASO[key];
+    }
+    return 1;
+}
+
 // ============================================================================
 // RENDIMIENTOS DE CALDERAS (Base IDAE/CTE)
 // ============================================================================
@@ -608,12 +619,12 @@ export function calculateRes080({
 
     const getE = (val) => typeof val === 'number' ? val : 0;
 
-    const fAcsIni = FACTORES_PASO[combAcsInicial] || 1;
-    const fAcsFin = FACTORES_PASO[combAcsFinal] || 1;
-    const fCalIni = FACTORES_PASO[combCalefaccionInicial] || 1;
-    const fCalFin = FACTORES_PASO[combCalefaccionFinal] || 1;
-    const fRefIni = FACTORES_PASO[combRefrigeracionInicial] || 1;
-    const fRefFin = FACTORES_PASO[combRefrigeracionFinal] || 1;
+    const fAcsIni = getFactorPaso(combAcsInicial);
+    const fAcsFin = getFactorPaso(combAcsFinal);
+    const fCalIni = getFactorPaso(combCalefaccionInicial);
+    const fCalFin = getFactorPaso(combCalefaccionFinal);
+    const fRefIni = getFactorPaso(combRefrigeracionInicial);
+    const fRefFin = getFactorPaso(combRefrigeracionFinal);
 
     const energiaAcsInicial = getE(xmlInicial.emisionesACS) / fAcsIni;
     const energiaAcsFinal = getE(xmlFinal.emisionesACS) / fAcsFin;
@@ -801,21 +812,11 @@ export function calculateFinancials({
         caeMaintenanceCost = certCostBase;
     }
     
-    // Lógica de Legalización
+    // Lógica de Legalización — se descuenta del bono CAE del cliente, sin mostrarse como línea
     let internalLegalizationCost = 0;
     if (includeLegalization) {
         internalLegalizationCost = (parseFloat(legalizationPrice) || 200) + (installerNoCard ? 100 : 0);
-        
-        const legMode = legalizationMode || 'client';
-        if (legMode === 'client') {
-            caeBonus = Math.max(0, caeBonus - internalLegalizationCost);
-        } else if (legMode === 'brokergy') {
-            profitBrokergy = Math.max(-internalLegalizationCost, profitBrokergy - internalLegalizationCost);
-        } else if (legMode === 'both') {
-            const half = internalLegalizationCost / 2;
-            caeBonus = Math.max(0, caeBonus - half);
-            profitBrokergy = Math.max(-half, profitBrokergy - half);
-        }
+        caeBonus = Math.max(0, caeBonus - internalLegalizationCost);
     }
 
     // 3. Pago a Prescriptor

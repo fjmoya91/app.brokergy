@@ -80,6 +80,36 @@ export function CalculatorForm({
         }
         return formattedInt;
     };
+    const [presupuestoDraft, setPresupuestoDraft] = useState(null);
+    const [presupuestoEnvDraft, setPresupuestoEnvDraft] = useState(null);
+
+    const parseAmount = (str) => {
+        if (str === '' || str === null || str === undefined) return 0;
+        let s = String(str).trim().replace(/[^0-9.,]/g, '');
+        if (!s) return 0;
+        if (s.includes(',')) {
+            const afterComma = s.slice(s.lastIndexOf(',') + 1);
+            if (/^\d{3}$/.test(afterComma)) {
+                // "150,000" → coma + exactamente 3 dígitos → separador de miles
+                s = s.replace(/[.,]/g, '');
+            } else {
+                // Coma = decimal, puntos = miles
+                s = s.replace(/\./g, '').replace(',', '.');
+            }
+        } else {
+            const parts = s.split('.');
+            if (parts.length > 2) {
+                s = s.replace(/\./g, '');
+            } else if (parts.length === 2 && parts[1].length === 3) {
+                // "150.000" → punto + 3 dígitos → miles
+                s = s.replace('.', '');
+            }
+            // Punto con 1 o 2 dígitos → decimal (ej: "15.5", "15.50")
+        }
+        const num = parseFloat(s);
+        return isNaN(num) ? 0 : num;
+    };
+
     const [dirtyUWall, setDirtyUWall] = useState(() => {
         if (!inputs.anio || !inputs.uMuro) return false;
         const defaults = getUByYear(inputs.anio, inputs.zona);
@@ -568,6 +598,36 @@ export function CalculatorForm({
                                 </svg>
                                 Cambiar Certificado XML
                             </button>
+                        </div>
+                    )}
+
+                    {/* CEE APORTADO en RES060: input de demanda manual visible siempre que no sea reforma */}
+                    {demandMode === 'manual' && !inputs.isReforma && (
+                        <div className="mt-4 p-4 bg-amber-500/5 border border-amber-500/20 rounded-xl animate-fade-in flex flex-col sm:flex-row sm:items-center gap-4">
+                            <div className="flex items-center gap-2 text-amber-400 text-[10px] font-black uppercase tracking-widest shrink-0">
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                                </svg>
+                                Demanda de Calefacción (CEE aportado)
+                            </div>
+                            <div className="relative group w-48">
+                                <Input
+                                    id="manualDemand"
+                                    type="text"
+                                    inputMode="decimal"
+                                    className="bg-slate-900 border-amber-500/30 h-10 text-[15px] font-mono font-bold text-amber-300 pr-14 focus:border-amber-500/60 transition-all text-center"
+                                    placeholder="209,4"
+                                    value={formatDisplay(inputs.manualDemand)}
+                                    onChange={e => handleSmartNumberChange('manualDemand', e.target.value)}
+                                />
+                                <div className="absolute right-3 top-1/2 -translate-y-1/2 text-[8px] font-black text-amber-500/50 uppercase pointer-events-none text-right flex flex-col items-end leading-tight">
+                                    <span>kWh/m²</span>
+                                    <span>año</span>
+                                </div>
+                            </div>
+                            <p className="text-[9px] text-slate-500 leading-relaxed">
+                                Introduce la demanda de calefacción que figura en el CEE. El cálculo de ahorros y CAE se actualizará automáticamente.
+                            </p>
                         </div>
                     )}
 
@@ -1258,9 +1318,10 @@ export function CalculatorForm({
                                 {/* LAYOUT MEJORADO - MINIMALISTA Y LIMPIO */}
                                 <div className="space-y-6">
                                     {/* Fila 1: Caldera y Emisor */}
-                                    {/* Ocultar sistema anterior y de calefacción si es reforma estimada (ya se definen arriba) */}
-                                    {!(inputs.isReforma && inputs.reformaType === 'estimated') && (
-                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    {/* En reforma estimada, ocultamos solo el "Sistema anterior" (ya se define arriba) pero NO el emisor,
+                                        porque el emisor (suelo radiante/radiadores) afecta al SCOP y debe poderse elegir en todos los modos. */}
+                                    <div className={`grid grid-cols-1 ${(inputs.isReforma && inputs.reformaType === 'estimated') ? '' : 'md:grid-cols-2'} gap-6`}>
+                                        {!(inputs.isReforma && inputs.reformaType === 'estimated') && (
                                             <div className="space-y-1.5">
                                                 <Label htmlFor="boilerId" className="text-xs font-semibold text-slate-400 uppercase tracking-wider ml-1">
                                                     Sistema anterior
@@ -1304,44 +1365,44 @@ export function CalculatorForm({
                                                     ))}
                                                 </Select>
                                             </div>
+                                        )}
 
-                                            <div className="space-y-1.5">
-                                                <Label htmlFor="emitterType" className="text-xs font-semibold text-slate-400 uppercase tracking-wider ml-1">
-                                                    Sistema de calefacción
-                                                </Label>
-                                                <Select
-                                                    id="emitterType"
-                                                    value={inputs.emitterType || 'radiadores_convencionales'}
-                                                    onChange={e => {
-                                                        const type = e.target.value;
-                                                        const currentModelId = inputs.aerothermiaModel || 'custom';
-                                                        let selectedModel = dbModels.find(m => String(m.id) === String(currentModelId));
-                                                        if (!selectedModel) selectedModel = AEROTHERMIA_MODELS.find(m => m.id === currentModelId);
+                                        <div className="space-y-1.5">
+                                            <Label htmlFor="emitterType" className="text-xs font-semibold text-slate-400 uppercase tracking-wider ml-1">
+                                                Sistema de calefacción
+                                            </Label>
+                                            <Select
+                                                id="emitterType"
+                                                value={inputs.emitterType || 'radiadores_convencionales'}
+                                                onChange={e => {
+                                                    const type = e.target.value;
+                                                    const currentModelId = inputs.aerothermiaModel || 'custom';
+                                                    let selectedModel = dbModels.find(m => String(m.id) === String(currentModelId));
+                                                    if (!selectedModel) selectedModel = AEROTHERMIA_MODELS.find(m => m.id === currentModelId);
 
-                                                        let newScop = 3.2;
-                                                        if (type === 'radiadores_baja_temp') newScop = 3.6;
-                                                        if (type === 'suelo_radiante') newScop = 4.5;
+                                                    let newScop = 3.2;
+                                                    if (type === 'radiadores_baja_temp') newScop = 3.6;
+                                                    if (type === 'suelo_radiante') newScop = 4.5;
 
-                                                        if (selectedModel && currentModelId !== 'custom') {
-                                                            const temp = type === 'radiadores_convencionales' ? 55 : (type === 'radiadores_baja_temp' ? 45 : 35);
-                                                            newScop = getScopFromModel(selectedModel, inputs.zona, temp);
-                                                        }
+                                                    if (selectedModel && currentModelId !== 'custom') {
+                                                        const temp = type === 'radiadores_convencionales' ? 55 : (type === 'radiadores_baja_temp' ? 45 : 35);
+                                                        newScop = getScopFromModel(selectedModel, inputs.zona, temp);
+                                                    }
 
-                                                        onInputChange(prev => ({
-                                                            ...prev,
-                                                            emitterType: type,
-                                                            scopHeating: newScop
-                                                        }));
-                                                    }}
-                                                    className="h-12 bg-slate-900/50 border-slate-700/50 rounded-xl"
-                                                >
-                                                    <option value="suelo_radiante">Suelo radiante (35ºC)</option>
-                                                    <option value="radiadores_baja_temp">Fancoils o Baja Temperatura (45ºC)</option>
-                                                    <option value="radiadores_convencionales">Radiadores convencionales (55ºC)</option>
-                                                </Select>
-                                            </div>
+                                                    onInputChange(prev => ({
+                                                        ...prev,
+                                                        emitterType: type,
+                                                        scopHeating: newScop
+                                                    }));
+                                                }}
+                                                className="h-12 bg-slate-900/50 border-slate-700/50 rounded-xl"
+                                            >
+                                                <option value="suelo_radiante">Suelo radiante (35ºC)</option>
+                                                <option value="radiadores_baja_temp">Fancoils o Baja Temperatura (45ºC)</option>
+                                                <option value="radiadores_convencionales">Radiadores convencionales (55ºC)</option>
+                                            </Select>
                                         </div>
-                                    )}
+                                    </div>
 
                                     {/* Fila 2: Marca y Modelo seleccionada */}
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -1921,8 +1982,19 @@ export function CalculatorForm({
                                                 type="text"
                                                 inputMode="decimal"
                                                 min={0}
-                                                value={formatDisplay(inputs.presupuesto)}
-                                                onChange={e => handleSmartNumberChange('presupuesto', e.target.value)}
+                                                value={presupuestoDraft !== null ? presupuestoDraft : formatDisplay(inputs.presupuesto)}
+                                                onFocus={() => setPresupuestoDraft(inputs.presupuesto ? String(inputs.presupuesto) : '')}
+                                                onChange={e => {
+                                                    const raw = e.target.value;
+                                                    setPresupuestoDraft(raw);
+                                                    const num = parseAmount(raw);
+                                                    onInputChange(prev => ({ ...prev, presupuesto: num }));
+                                                }}
+                                                onBlur={() => {
+                                                    const num = parseAmount(presupuestoDraft ?? '');
+                                                    onInputChange(prev => ({ ...prev, presupuesto: num }));
+                                                    setPresupuestoDraft(null);
+                                                }}
                                                 className="bg-slate-900/60 border-slate-700/50 focus:border-lime-500/50"
                                             />
                                         </div>
@@ -1939,8 +2011,19 @@ export function CalculatorForm({
                                                     type="text"
                                                     inputMode="decimal"
                                                     min={0}
-                                                    value={formatDisplay(inputs.presupuestoEnvolvente)}
-                                                    onChange={e => handleSmartNumberChange('presupuestoEnvolvente', e.target.value)}
+                                                    value={presupuestoEnvDraft !== null ? presupuestoEnvDraft : formatDisplay(inputs.presupuestoEnvolvente)}
+                                                    onFocus={() => setPresupuestoEnvDraft(inputs.presupuestoEnvolvente ? String(inputs.presupuestoEnvolvente) : '')}
+                                                    onChange={e => {
+                                                        const raw = e.target.value;
+                                                        setPresupuestoEnvDraft(raw);
+                                                        const num = parseAmount(raw);
+                                                        onInputChange(prev => ({ ...prev, presupuestoEnvolvente: num }));
+                                                    }}
+                                                    onBlur={() => {
+                                                        const num = parseAmount(presupuestoEnvDraft ?? '');
+                                                        onInputChange(prev => ({ ...prev, presupuestoEnvolvente: num }));
+                                                        setPresupuestoEnvDraft(null);
+                                                    }}
                                                     className="bg-slate-900/60 border-slate-700/50 focus:border-cyan-500/50"
                                                 />
                                             </div>

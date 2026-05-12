@@ -96,16 +96,6 @@ export function SummaryTable({ result, isReforma = false }) {
                                 </td>
                             </tr>
                         )}
-                        {financials.legalizationCost > 0 && (
-                            <tr>
-                                <td className="py-3 sm:py-4 px-3 sm:px-6 border-b border-slate-200 text-slate-700" style={cellStyle}>
-                                    Legalización Instalación
-                                </td>
-                                <td className="py-3 sm:py-4 px-3 sm:px-6 border-b border-slate-200 text-right text-red-600 font-bold text-lg sm:text-xl" style={cellStyle}>
-                                    + {formatCurrency(financials.legalizationCost)}
-                                </td>
-                            </tr>
-                        )}
                         {financials.irpfCap > 0 && Array.from({ length: Math.max(1, financials.numOwners || 1) }).map((_, index) => (
                             <tr key={`owner-${index}`}>
                                 <td className="py-3 sm:py-4 px-3 sm:px-6 border-b border-slate-200 text-slate-700" style={cellStyle}>

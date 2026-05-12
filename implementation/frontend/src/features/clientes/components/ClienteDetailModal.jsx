@@ -297,6 +297,7 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
             prescriptor_id: cliente.prescriptor_id || '',
             persona_contacto_nombre: cliente.persona_contacto_nombre || '',
             persona_contacto_tlf: cliente.persona_contacto_tlf || '',
+            persona_contacto_email: cliente.persona_contacto_email || '',
             notificaciones_contacto_activas: !!cliente.notificaciones_contacto_activas,
             notas: cliente.notas || '',
         });
@@ -324,6 +325,7 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
                 ...(isAdmin ? { prescriptor_id: form.prescriptor_id || null } : {}),
                 persona_contacto_nombre: form.persona_contacto_nombre?.trim() || null,
                 persona_contacto_tlf: form.persona_contacto_tlf?.trim() || null,
+                persona_contacto_email: form.persona_contacto_email?.trim() || null,
                 notificaciones_contacto_activas: form.notificaciones_contacto_activas || false,
                 notas: form.notas?.trim() || null,
             };
@@ -426,6 +428,7 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
                                     {cliente.numero_cuenta && isAdmin && <FieldView label="Cuenta (IBAN)" value={cliente.numero_cuenta} />}
                                     {cliente.prescriptores?.acronimo && <FieldView label="Prescriptor" value={cliente.prescriptores.acronimo || cliente.prescriptores.razon_social} />}
                                     {cliente.persona_contacto_nombre && <FieldView label="Contacto" value={cliente.persona_contacto_nombre} />}
+                                    {cliente.persona_contacto_email && <FieldView label="Email Contacto" value={cliente.persona_contacto_email?.toLowerCase()} valueClassName="!lowercase" />}
                                     {cliente.persona_contacto_tlf && (
                                         <div>
                                             <p className="text-[10px] uppercase tracking-widest font-black text-white/30 mb-0.5">Tlf. Contacto</p>
@@ -598,7 +601,7 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
                                             <input
                                                 type="checkbox"
                                                 className="peer sr-only"
-                                                checked={!!(form.persona_contacto_nombre || form.persona_contacto_tlf || form.showContact)}
+                                                checked={!!(form.persona_contacto_nombre || form.persona_contacto_tlf || form.persona_contacto_email || form.showContact)}
                                                 onChange={e => updateForm({ showContact: e.target.checked })}
                                             />
                                             <div className="w-8 h-4 bg-white/10 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-brand"></div>
@@ -608,7 +611,7 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
                                         </span>
                                     </label>
 
-                                    {(form.showContact || form.persona_contacto_nombre || form.persona_contacto_tlf) && (
+                                    {(form.showContact || form.persona_contacto_nombre || form.persona_contacto_tlf || form.persona_contacto_email) && (
                                         <div className="space-y-3 animate-fade-in p-4 bg-white/[0.02] border border-white/[0.05] rounded-xl">
                                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                                 <FieldInput label="Nombre de Contacto">
@@ -626,6 +629,16 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
                                                         onChange={e => updateForm({ persona_contacto_tlf: e.target.value })}
                                                     />
                                                 </FieldInput>
+                                                <div className="sm:col-span-2">
+                                                    <FieldInput label="Email de Contacto">
+                                                        <Input
+                                                            type="email"
+                                                            placeholder="contacto@email.com"
+                                                            value={form.persona_contacto_email || ''}
+                                                            onChange={e => updateForm({ persona_contacto_email: e.target.value.toLowerCase() })}
+                                                        />
+                                                    </FieldInput>
+                                                </div>
                                             </div>
                                             <label className="flex items-center gap-3 cursor-pointer group w-fit">
                                                 <div className="relative flex items-center">

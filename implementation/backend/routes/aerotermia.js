@@ -29,7 +29,7 @@ router.get('/', enforceAuth, async (req, res) => {
             query = query.ilike('marca', marca);
         }
         if (q) {
-            query = query.or(`modelo_comercial.ilike.%${q}%,modelo_conjunto.ilike.%${q}%`);
+            query = query.or(`marca.ilike.%${q}%,modelo_comercial.ilike.%${q}%,modelo_conjunto.ilike.%${q}%`);
         }
 
         // Filtro por marcas autorizadas si no es ADMIN

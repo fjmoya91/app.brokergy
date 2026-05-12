@@ -39,12 +39,11 @@ export function AerotermiaView() {
     const [showMarcas, setShowMarcas] = useState(false);
     const itemsPerPage = 20;
 
-    const fetchEquipos = async () => {
+    const fetchEquipos = async (marca = '') => {
         setLoading(true);
         try {
             const params = {};
-            if (filtroMarca) params.marca = filtroMarca;
-            if (filtroQ) params.q = filtroQ;
+            if (marca) params.marca = marca;
             const res = await axios.get('/api/aerotermia', { params });
             setEquipos(res.data);
             setError(null);
@@ -66,12 +65,11 @@ export function AerotermiaView() {
     };
 
     useEffect(() => { fetchMarcas(); }, []);
-    useEffect(() => { 
-        fetchEquipos(); 
-        setCurrentPage(1); 
-        // If searching with text, force model view
-        if (filtroQ && viewMode === 'brands') setViewMode('models');
-    }, [filtroMarca, filtroQ]);
+    useEffect(() => {
+        fetchEquipos(filtroMarca);
+        setCurrentPage(1);
+    }, [filtroMarca]);
+    useEffect(() => { setCurrentPage(1); }, [filtroQ]);
 
     const handleDelete = async () => {
         if (!equipoToDelete) return;
@@ -87,8 +85,18 @@ export function AerotermiaView() {
         }
     };
 
-    const totalPages = Math.max(1, Math.ceil(equipos.length / itemsPerPage));
-    const paginated = equipos.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+    const filteredEquipos = React.useMemo(() => {
+        if (!filtroQ) return equipos;
+        const q = filtroQ.toLowerCase();
+        return equipos.filter(e =>
+            (e.marca || '').toLowerCase().includes(q) ||
+            (e.modelo_comercial || '').toLowerCase().includes(q) ||
+            (e.modelo_conjunto || '').toLowerCase().includes(q)
+        );
+    }, [equipos, filtroQ]);
+
+    const totalPages = Math.max(1, Math.ceil(filteredEquipos.length / itemsPerPage));
+    const paginated = filteredEquipos.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
     // Mapeo de logos para acceso rápido
     const marcasMap = React.useMemo(() => {
@@ -111,7 +119,7 @@ export function AerotermiaView() {
                         Aerotermia
                     </h1>
                     <p className="text-[10px] text-sky-400 uppercase tracking-[0.3em] mt-1 font-black">
-                        {equipos.length} equipo{equipos.length !== 1 ? 's' : ''} en catálogo
+                        {filtroQ ? `${filteredEquipos.length} resultado${filteredEquipos.length !== 1 ? 's' : ''}` : `${equipos.length} equipo${equipos.length !== 1 ? 's' : ''} en catálogo`}
                     </p>
                 </div>
                 <div className="flex flex-wrap gap-3">
@@ -176,11 +184,17 @@ export function AerotermiaView() {
                         </svg>
                         <input
                             type="text"
-                            placeholder="Buscar en todo el catálogo..."
+                            placeholder="Buscar por marca o modelo..."
                             value={filtroQ}
-                            onChange={e => { 
-                                setFiltroQ(e.target.value); 
-                                if (e.target.value && viewMode === 'brands') setViewMode('models');
+                            onChange={e => {
+                                const val = e.target.value;
+                                setFiltroQ(val);
+                                if (val) {
+                                    setFiltroMarca('');   // limpia filtro de marca para buscar en todo
+                                    setViewMode('models');
+                                } else {
+                                    setViewMode('brands'); // al borrar, vuelve a vista de marcas
+                                }
                             }}
                             className="w-full bg-bkg-surface border border-white/[0.06] rounded-2xl pl-11 pr-4 py-3.5 text-white text-sm placeholder:text-white/20 focus:outline-none focus:border-brand/40 focus:ring-4 focus:ring-brand/5 transition-all"
                         />
@@ -204,7 +218,7 @@ export function AerotermiaView() {
                     <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-sm mb-4">{error}</div>
                 )}
 
-                {!loading && viewMode === 'models' && equipos.length === 0 && (
+                {!loading && viewMode === 'models' && filteredEquipos.length === 0 && (
                     <div className="flex flex-col items-center justify-center py-20 text-center">
                         <div className="w-16 h-16 rounded-2xl bg-white/[0.03] border border-white/[0.06] flex items-center justify-center mb-4">
                             <svg className="w-8 h-8 text-white/20" fill="none" viewBox="0 0 24 24" stroke="currentColor">
