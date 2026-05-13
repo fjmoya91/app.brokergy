@@ -4,6 +4,7 @@ dotenv.config({ path: path.join(__dirname, '.env') });
 
 const express = require('express');
 const cors = require('cors');
+const compression = require('compression');
 const catastroRoutes = require('./routes/catastro');
 const oportunidadesRoutes = require('./routes/oportunidades');
 const prescriptoresRoutes = require('./routes/prescriptores');
@@ -39,6 +40,12 @@ app.use(cors({
     cb(new Error(`CORS: origin ${origin} not allowed`));
   },
   credentials: true,
+}));
+// Compresión gzip para todas las respuestas JSON — reduce payload ~80-90% en listados
+// con datos_calculo/cee/instalacion (JSONB grandes). Mejora drásticamente tiempos de carga.
+app.use(compression({
+  threshold: 1024, // solo comprimir respuestas > 1KB
+  level: 6,        // balance compresión/CPU
 }));
 app.use(express.json({ limit: '50mb' }));
 
