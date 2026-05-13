@@ -218,7 +218,7 @@ router.get('/', enforceAuth, async (req, res) => {
             const opIds = [...new Set(data.map(r => r.oportunidad_id).filter(Boolean))];
 
             const [{ data: clientesData }, { data: opsData }] = await Promise.all([
-                supabase.from('clientes').select('id_cliente, nombre_razon_social, apellidos, dni, email, telefono, ccaa, provincia, prescriptor_id').in('id_cliente', clienteIds),
+                supabase.from('clientes').select('*').in('id_cliente', clienteIds),
                 supabase.from('oportunidades').select('id, id_oportunidad, referencia_cliente, ficha, ref_catastral, datos_calculo, prescriptor_id').in('id', opIds)
             ]);
 
