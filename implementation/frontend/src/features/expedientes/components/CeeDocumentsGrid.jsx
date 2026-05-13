@@ -228,9 +228,14 @@ export function CeeDocumentsGrid({
                     onXmlUploaded(file, section === 'final');
                 }
 
-                let targetName = file.name;
+                let targetName;
                 if (!slot.isMultiple) {
                     targetName = `${numExp} – ${sectionLabel}${slot.suffix}`;
+                } else {
+                    const dotIdx = file.name.lastIndexOf('.');
+                    const basename = dotIdx > 0 ? file.name.substring(0, dotIdx) : file.name;
+                    const ext = dotIdx > 0 ? file.name.substring(dotIdx) : '';
+                    targetName = `${numExp} – ${basename}${ext}`;
                 }
 
                 const reader = new FileReader();
