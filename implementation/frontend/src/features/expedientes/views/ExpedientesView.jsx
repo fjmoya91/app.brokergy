@@ -1052,9 +1052,17 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
                                         <div className="flex items-center gap-2 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
                                             {/* Historial Toggle */}
                                             <button
-                                                onClick={(e) => {
+                                                onClick={async (e) => {
                                                     e.stopPropagation();
+                                                    // Abrimos el modal inmediatamente con los datos del listado,
+                                                    // y en paralelo traemos el `documentacion` completo (no viene en la lista por rendimiento)
                                                     setHistoryModalExp(exp);
+                                                    try {
+                                                        const { data: full } = await axios.get(`/api/expedientes/${exp.id}`);
+                                                        if (full) setHistoryModalExp(prev => prev && prev.id === exp.id ? { ...prev, documentacion: full.documentacion } : prev);
+                                                    } catch (err) {
+                                                        console.error('Error cargando documentacion para historial:', err);
+                                                    }
                                                 }}
                                                 className="text-white/40 hover:text-brand transition-colors"
                                                 title="Ver historial de estados"

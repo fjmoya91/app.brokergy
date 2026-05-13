@@ -233,6 +233,14 @@ router.get('/', enforceAuth, async (req, res) => {
             }));
         }
 
+        // Excluir `documentacion` del payload del listado — solo se usa en el modal
+        // de historial, que ya hace su propio GET /:id con el dato completo.
+        // Reduce significativamente el tamaño de la respuesta.
+        data = data.map(r => {
+            const { documentacion, ...rest } = r;
+            return rest;
+        });
+
         res.json(data);
     } catch (err) {
         console.error('Error GET expedientes (Manual Join):', err);
