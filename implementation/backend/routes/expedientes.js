@@ -192,17 +192,13 @@ router.get('/', enforceAuth, async (req, res) => {
         if (!canViewAll && req.user.rol_nombre !== 'CERTIFICADOR') {
             if (!req.user.prescriptor_id) return res.json([]);
 
-            // Clientes con prescriptor_id del distribuidor
-            const { data: clienteIds } = await supabase
-                .from('clientes')
-                .select('id_cliente')
-                .eq('prescriptor_id', req.user.prescriptor_id);
-
-            // Oportunidades asignadas directamente al distribuidor (prescriptor_id en oportunidades)
-            const { data: opIds } = await supabase
-                .from('oportunidades')
-                .select('id')
-                .eq('prescriptor_id', req.user.prescriptor_id);
+            // Ambas queries son independientes → en paralelo
+            const [{ data: clienteIdsData }, { data: opIdsData }] = await Promise.all([
+                supabase.from('clientes').select('id_cliente').eq('prescriptor_id', req.user.prescriptor_id),
+                supabase.from('oportunidades').select('id').eq('prescriptor_id', req.user.prescriptor_id)
+            ]);
+            const clienteIds = clienteIdsData;
+            const opIds = opIdsData;
 
             const validClientIds = new Set((clienteIds || []).map(c => c.id_cliente));
             const validOpIds    = new Set((opIds || []).map(o => o.id));
@@ -222,8 +218,8 @@ router.get('/', enforceAuth, async (req, res) => {
             const opIds = [...new Set(data.map(r => r.oportunidad_id).filter(Boolean))];
 
             const [{ data: clientesData }, { data: opsData }] = await Promise.all([
-                supabase.from('clientes').select('*').in('id_cliente', clienteIds),
-                supabase.from('oportunidades').select('id, id_oportunidad, referencia_cliente, ficha, ref_catastral, datos_calculo').in('id', opIds)
+                supabase.from('clientes').select('id_cliente, nombre_razon_social, apellidos, dni, email, telefono, ccaa, provincia, prescriptor_id').in('id_cliente', clienteIds),
+                supabase.from('oportunidades').select('id, id_oportunidad, referencia_cliente, ficha, ref_catastral, datos_calculo, prescriptor_id').in('id', opIds)
             ]);
 
 

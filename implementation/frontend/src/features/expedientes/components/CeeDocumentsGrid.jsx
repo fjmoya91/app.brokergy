@@ -576,7 +576,7 @@ export function CeeDocumentsGrid({
                         </div>
                         
                         {/* Visor o DropZone */}
-                        <div 
+                        <div
                             className={`flex-1 relative z-10 overflow-hidden ${isDraggingModal ? 'bg-brand/10' : 'bg-black/40'}`}
                             onDragOver={e => { e.preventDefault(); setIsDraggingModal(true); }}
                             onDragLeave={() => setIsDraggingModal(false)}
@@ -588,7 +588,7 @@ export function CeeDocumentsGrid({
                                 }
                             }}
                         >
-                            {(!managing.link || isSubstituting || previewData || pendingFiles.length > 0) ? (
+                            {(!managing.link || managing.slot.isMultiple || isSubstituting || previewData || pendingFiles.length > 0) ? (
                                 <div className="w-full h-full flex flex-col items-center justify-center p-12 text-center animate-in fade-in duration-300">
                                     {previewData ? (
                                         <div className="w-full max-w-2xl animate-slide-up">
@@ -645,6 +645,33 @@ export function CeeDocumentsGrid({
                                                 {pendingFiles.length === 1 ? pendingFiles[0].name : 'Varios archivos listos para subir'}
                                             </p>
                                             <p className="text-white/30 text-[10px] font-bold uppercase tracking-widest">¿Deseas subir {pendingFiles.length === 1 ? 'este archivo' : 'estos archivos'} al expediente?</p>
+                                        </div>
+                                    ) : managing.slot.isMultiple && Array.isArray(managing.link) && managing.link.length > 0 ? (
+                                        <div className="w-full max-w-lg animate-slide-up">
+                                            <h4 className="text-base font-black text-white uppercase tracking-widest mb-6 text-center">
+                                                {managing.link.length} archivo{managing.link.length !== 1 ? 's' : ''} subido{managing.link.length !== 1 ? 's' : ''}
+                                            </h4>
+                                            <div className="space-y-2 mb-8 max-h-64 overflow-y-auto pr-1">
+                                                {managing.link.map((url, idx) => (
+                                                    <div key={idx} className="flex items-center gap-3 bg-white/[0.03] border border-white/[0.06] rounded-xl px-4 py-3">
+                                                        <svg className="w-4 h-4 text-brand/60 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                                        </svg>
+                                                        <span className="text-xs text-white/50 font-mono truncate flex-1">Archivo {idx + 1}</span>
+                                                        {user?.rol === 'ADMIN' && (
+                                                            <button
+                                                                onClick={() => window.open(url, '_blank')}
+                                                                className="text-[9px] font-black text-brand/60 hover:text-brand uppercase tracking-widest transition-colors"
+                                                            >
+                                                                Abrir
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                            <p className="text-white/30 text-[10px] font-bold uppercase tracking-widest text-center">
+                                                Arrastra o selecciona archivos para añadir más
+                                            </p>
                                         </div>
                                     ) : (
                                         <>
