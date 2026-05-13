@@ -182,6 +182,7 @@ router.get('/', enforceAuth, async (req, res) => {
         const { data: simpleData, error: simpleErr } = await supabase
             .from('expedientes')
             .select('*')
+            .order('updated_at', { ascending: false, nullsFirst: false })
             .order('created_at', { ascending: false });
 
         if (simpleErr) throw simpleErr;
@@ -747,7 +748,7 @@ router.delete('/:id/historial', adminOnly, async (req, res) => {
         const docObj = exp.documentacion || {};
         docObj.historial = [];
         
-        const { data: upData, error: upErr } = await supabase.from('expedientes').update({ documentacion: docObj }).eq('id', id).select().single();
+        const { data: upData, error: upErr } = await supabase.from('expedientes').update({ documentacion: docObj, updated_at: new Date().toISOString() }).eq('id', id).select().single();
         if (upErr) return res.status(500).json({ error: 'Error al borrar historial.' });
         res.status(200).json(upData);
     } catch (error) {
@@ -766,7 +767,7 @@ router.delete('/:id/historial/:entryId', adminOnly, async (req, res) => {
         const hist = docObj.historial || [];
         docObj.historial = hist.filter(h => h.id !== entryId);
 
-        const { data: upData, error: upErr } = await supabase.from('expedientes').update({ documentacion: docObj }).eq('id', id).select().single();
+        const { data: upData, error: upErr } = await supabase.from('expedientes').update({ documentacion: docObj, updated_at: new Date().toISOString() }).eq('id', id).select().single();
         if (upErr) return res.status(500).json({ error: 'Error al borrar entrada.' });
         res.status(200).json(upData);
     } catch (error) {
@@ -800,7 +801,7 @@ router.put('/:id/historial/:entryId', adminOnly, async (req, res) => {
         
         docObj.historial = hist;
 
-        const { data: upData, error: upErr } = await supabase.from('expedientes').update({ documentacion: docObj }).eq('id', id).select().single();
+        const { data: upData, error: upErr } = await supabase.from('expedientes').update({ documentacion: docObj, updated_at: new Date().toISOString() }).eq('id', id).select().single();
         if (upErr) return res.status(500).json({ error: 'Error al actualizar entrada.' });
         res.status(200).json(upData);
     } catch (error) {
@@ -1073,7 +1074,7 @@ router.post('/:id/notify-certificador', enforceAuth, async (req, res) => {
 
         // Automatización de estado
         const newEstado = phase === 'final' ? 'EN CERTIFICADOR CEE FINAL' : 'EN CERTIFICADOR CEE INICIAL';
-        await supabase.from('expedientes').update({ estado: newEstado }).eq('id', req.params.id);
+        await supabase.from('expedientes').update({ estado: newEstado, updated_at: new Date().toISOString() }).eq('id', req.params.id);
 
         // Persistir el cert si vino en body y difiere del guardado
         let workingCee = { ...(exp.cee || {}) };
@@ -1206,7 +1207,7 @@ router.post('/:id/notify-certificador', enforceAuth, async (req, res) => {
 
         const { error: updErr } = await supabase
             .from('expedientes')
-            .update({ cee: workingCee, seguimiento })
+            .update({ cee: workingCee, seguimiento, updated_at: new Date().toISOString() })
             .eq('id', req.params.id);
         if (updErr) console.error('[notify-certificador] error persistiendo cee:', updErr.message);
 
@@ -1292,7 +1293,7 @@ router.post('/:id/notify-certificador', enforceAuth, async (req, res) => {
                 });
 
                 await supabase.from('expedientes')
-                    .update({ documentacion: { ...docObj, historial } })
+                    .update({ documentacion: { ...docObj, historial }, updated_at: new Date().toISOString() })
                     .eq('id', req.params.id);
             } catch (histErr) {
                 console.error('[notify-certificador] Error guardando historial:', histErr.message);
@@ -1358,7 +1359,7 @@ router.post('/:id/cert-ack', async (req, res) => {
             seguimiento.cee_inicial = 'EN_TRABAJO';
         }
 
-        await supabase.from('expedientes').update({ cee, seguimiento }).eq('id', req.params.id);
+        await supabase.from('expedientes').update({ cee, seguimiento, updated_at: new Date().toISOString() }).eq('id', req.params.id);
 
         // Registrar en historial
         try {
@@ -1372,7 +1373,7 @@ router.post('/:id/cert-ack', async (req, res) => {
                 usuario: certName
             });
             await supabase.from('expedientes')
-                .update({ documentacion: { ...docObj, historial } })
+                .update({ documentacion: { ...docObj, historial }, updated_at: new Date().toISOString() })
                 .eq('id', req.params.id);
         } catch (histErr) {
             console.error('[cert-ack] Error guardando historial:', histErr.message);
@@ -1672,7 +1673,7 @@ router.post('/:id/fichas-tecnicas/upload', enforceAuth, async (req, res) => {
         const linkField = type === 'acs' ? 'ft_aerotermia_acs_link' : 'ft_aerotermia_cal_link';
         const idField   = type === 'acs' ? 'ft_aerotermia_acs_id'   : 'ft_aerotermia_cal_id';
         const docObj = { ...(exp.documentacion || {}), [linkField]: result.link, [idField]: result.id };
-        await supabase.from('expedientes').update({ documentacion: docObj }).eq('id', req.params.id);
+        await supabase.from('expedientes').update({ documentacion: docObj, updated_at: new Date().toISOString() }).eq('id', req.params.id);
         console.log(`[FT] Guardado en Drive: ${fileName} (id=${result.id})`);
 
         res.json({ link: result.link, driveId: result.id });
