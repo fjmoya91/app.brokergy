@@ -468,10 +468,16 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                     alert(err.response?.data?.error || 'Error al notificar al certificador');
                 }
             }}
-            onNotifyReview={async (phase) => {
+            onNotifyReview={async (phase, opts = {}) => {
                 try {
-                    await axios.post(`/api/expedientes/${expediente.id}/notify-review`, { phase });
-                    alert('Revisión solicitada correctamente. Estado actualizado.');
+                    await axios.post(`/api/expedientes/${expediente.id}/notify-review`, {
+                        phase,
+                        priority: opts.priority || 'normal',
+                        techMessage: opts.techMessage || null,
+                    });
+                    alert(opts.priority === 'urgent'
+                        ? '🚨 Revisión URGENTE solicitada. Brokergy ha sido avisado.'
+                        : 'Revisión solicitada correctamente. Brokergy ha sido avisado.');
                     if (onRefresh) onRefresh();
                 } catch (err) {
                     alert(err.response?.data?.error || 'Error al solicitar revisión');
@@ -540,10 +546,16 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                         alert(err.response?.data?.error || 'Error al notificar al certificador');
                     }
                 }}
-                onNotifyReview={async (phase) => {
+                onNotifyReview={async (phase, opts = {}) => {
                     try {
-                        await axios.post(`/api/expedientes/${expediente.id}/notify-review`, { phase });
-                        alert('Revisión solicitada correctamente. Estado actualizado.');
+                        await axios.post(`/api/expedientes/${expediente.id}/notify-review`, {
+                            phase,
+                            priority: opts.priority || 'normal',
+                            techMessage: opts.techMessage || null,
+                        });
+                        alert(opts.priority === 'urgent'
+                            ? '🚨 Revisión URGENTE solicitada. Brokergy ha sido avisado.'
+                            : 'Revisión solicitada correctamente. Brokergy ha sido avisado.');
                         if (onRefresh) onRefresh();
                     } catch (err) {
                         alert(err.response?.data?.error || 'Error al solicitar revisión');

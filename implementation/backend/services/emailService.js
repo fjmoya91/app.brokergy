@@ -1088,35 +1088,143 @@ const sendCertificadorUrgentEmail = async ({
 
 /**
  * Notifica a BROKERGY que un técnico ha terminado el CEE y solicita revisión
+ * Soporta priority + techMessage + datos del cliente + carpeta CEE, homogéneo
+ * con el email de encargo al certificador.
  */
-const sendReviewRequestEmailToAdmin = async (expedienteId, numExp, certName, phase) => {
+const sendReviewRequestEmailToAdmin = async ({
+    expedienteId, numExp, certName, certPhone, certEmail, phase,
+    clienteName, clienteData,
+    portalLink, ceeFolderLink,
+    priority = 'normal',
+    techMessage = null,
+}) => {
     const to = 'franciscojavier.moya.s2e2@gmail.com'; // Email de administración
     const phaseLabel = phase === 'final' ? 'FINAL' : 'INICIAL';
-    const subject = `📢 REVISIÓN SOLICITADA — CEE ${phaseLabel} — ${numExp}`;
-    
-    const html = `
-    <!DOCTYPE html>
-    <html lang="es">
-    <head><meta charset="UTF-8"></head>
-    <body style="background-color:#0a0e1a; font-family:sans-serif; color:#ffffff; padding:40px;">
-        <div style="max-width:600px; margin:0 auto; background-color:#111827; border-radius:20px; border:1px solid #334155; padding:30px;">
-            <h2 style="color:#f59e0b; margin-top:0;">Solicitud de Revisión Técnica</h2>
-            <p style="color:#ffffff;">El técnico <strong>${certName}</strong> ha notificado que el archivo .CEX del <strong>CEE ${phaseLabel}</strong> ya está subido al portal.</p>
-            <hr style="border:0; border-top:1px solid #1e293b; margin:20px 0;">
-            <p style="font-size:14px; color:#94a3b8;">
-                <strong>Expediente:</strong> ${numExp}<br>
-                <strong>Acción Sugerida:</strong> Accede al portal para revisar el archivo XML/CEX y dar el visto bueno si es correcto.
-            </p>
-            <div style="margin-top:30px; text-align:center;">
-                <a href="${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/?exp=${expedienteId}" style="display:inline-block; padding:12px 24px; background-color:#f59e0b; color:#000000; font-weight:bold; text-decoration:none; border-radius:10px;">Ver Expediente en Portal</a>
-            </div>
-            <p style="font-size:10px; color:#475569; margin-top:30px; text-align:center;">Notificación automática de BROKERGY ERP</p>
+    const isUrgent = priority === 'urgent';
+    const clienteUpper = (clienteName || '').toUpperCase().trim();
+    const subject = `${isUrgent ? '🚨 URGENTE — ' : ''}📢 REVISIÓN SOLICITADA — CEE ${phaseLabel} — ${numExp}${clienteUpper ? ` — “${clienteUpper}”` : ''}`;
+
+    const finalPortalLink = portalLink || `${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/?exp=${expedienteId}`;
+
+    const urgentBannerHtml = isUrgent ? `
+        <tr><td style="padding:14px 24px; background:linear-gradient(135deg,#dc2626,#991b1b); text-align:center;">
+            <p style="margin:0; font-size:13px; font-weight:900; color:#ffffff; letter-spacing:2px; text-transform:uppercase;">🚨 Revisión Urgente Solicitada 🚨</p>
+        </td></tr>
+    ` : '';
+
+    const techMessageHtml = techMessage ? `
+        <div style="background:rgba(245,158,11,0.06); border-left:3px solid #f59e0b; border-radius:10px; padding:16px 20px; margin:22px 0;">
+            <p style="margin:0 0 8px; font-size:11px; font-weight:800; color:#f59e0b; text-transform:uppercase; letter-spacing:1.5px;">💬 Mensaje del técnico</p>
+            <p style="margin:0; font-size:14px; line-height:1.6; color:rgba(255,255,255,0.85); white-space:pre-wrap;">${escapeHtml(techMessage)}</p>
         </div>
-    </body>
-    </html>
+    ` : '';
+
+    // Bloque "Quién solicita la revisión" (certName + tlf + email del cert si los tenemos)
+    const certInfoHtml = `
+        <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:14px; padding:18px 22px; margin:24px 0;">
+            <p style="margin:0 0 12px; font-size:11px; font-weight:800; color:rgba(255,255,255,0.55); text-transform:uppercase; letter-spacing:1.5px;">👤 Técnico que solicita la revisión</p>
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:13px; line-height:1.7; color:rgba(255,255,255,0.7);">
+                ${certName ? `<tr><td style="width:140px; padding:3px 0; color:rgba(255,255,255,0.4); font-size:11px; text-transform:uppercase; letter-spacing:0.5px;">Nombre</td><td style="padding:3px 0; color:#ffffff; font-weight:600;">${escapeHtml(certName)}</td></tr>` : ''}
+                ${certPhone ? `<tr><td style="padding:3px 0; color:rgba(255,255,255,0.4); font-size:11px; text-transform:uppercase; letter-spacing:0.5px;">Teléfono</td><td style="padding:3px 0;"><a href="tel:${escapeHtml(certPhone)}" style="color:#f59e0b; text-decoration:none;">${escapeHtml(certPhone)}</a></td></tr>` : ''}
+                ${certEmail ? `<tr><td style="padding:3px 0; color:rgba(255,255,255,0.4); font-size:11px; text-transform:uppercase; letter-spacing:0.5px;">Email</td><td style="padding:3px 0;"><a href="mailto:${escapeHtml(certEmail)}" style="color:#f59e0b; text-decoration:none;">${escapeHtml(certEmail)}</a></td></tr>` : ''}
+            </table>
+        </div>
     `;
 
-    return sendMail({ to, subject, html, text: `El técnico ${certName} solicita revisión del CEE ${phaseLabel} para el expediente ${numExp}.` });
+    // Bloque "Datos del cliente"
+    const clienteInfoHtml = clienteData ? `
+        <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:14px; padding:18px 22px; margin:24px 0;">
+            <p style="margin:0 0 12px; font-size:11px; font-weight:800; color:rgba(255,255,255,0.55); text-transform:uppercase; letter-spacing:1.5px;">📋 Datos del cliente</p>
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:13px; line-height:1.7; color:rgba(255,255,255,0.7);">
+                ${clienteData.nombre ? `<tr><td style="width:140px; padding:3px 0; color:rgba(255,255,255,0.4); font-size:11px; text-transform:uppercase; letter-spacing:0.5px;">Nombre y apellidos</td><td style="padding:3px 0; color:#ffffff; font-weight:600;">${escapeHtml(clienteData.nombre)}</td></tr>` : ''}
+                ${clienteData.dni ? `<tr><td style="padding:3px 0; color:rgba(255,255,255,0.4); font-size:11px; text-transform:uppercase; letter-spacing:0.5px;">DNI</td><td style="padding:3px 0; color:#ffffff; font-family:monospace;">${escapeHtml(clienteData.dni)}</td></tr>` : ''}
+                ${clienteData.tlf ? `<tr><td style="padding:3px 0; color:rgba(255,255,255,0.4); font-size:11px; text-transform:uppercase; letter-spacing:0.5px;">Teléfono</td><td style="padding:3px 0;"><a href="tel:${escapeHtml(clienteData.tlf)}" style="color:#f59e0b; text-decoration:none;">${escapeHtml(clienteData.tlf)}</a></td></tr>` : ''}
+                ${clienteData.email ? `<tr><td style="padding:3px 0; color:rgba(255,255,255,0.4); font-size:11px; text-transform:uppercase; letter-spacing:0.5px;">Email</td><td style="padding:3px 0;"><a href="mailto:${escapeHtml(clienteData.email)}" style="color:#f59e0b; text-decoration:none;">${escapeHtml(clienteData.email)}</a></td></tr>` : ''}
+                ${clienteData.refCatastral ? `<tr><td style="padding:3px 0; color:rgba(255,255,255,0.4); font-size:11px; text-transform:uppercase; letter-spacing:0.5px;">Ref. Catastral</td><td style="padding:3px 0; color:#ffffff; font-family:monospace; font-size:12px;">${escapeHtml(clienteData.refCatastral)}</td></tr>` : ''}
+                ${clienteData.direccion ? `<tr><td style="padding:3px 0; color:rgba(255,255,255,0.4); font-size:11px; text-transform:uppercase; letter-spacing:0.5px; vertical-align:top;">Dirección completa</td><td style="padding:3px 0; color:#ffffff;">${escapeHtml(clienteData.direccion)}</td></tr>` : ''}
+            </table>
+        </div>
+    ` : '';
+
+    const html = `
+<!DOCTYPE html>
+<html lang="es">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+<body style="margin:0; padding:0; background-color:#0a0e1a; font-family:'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif; color:#ffffff;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#0a0e1a; padding:40px 20px;">
+        <tr><td align="center">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px; background-color:#111827; border-radius:24px; border:1px solid rgba(255,255,255,0.06); overflow:hidden;">
+                <tr><td style="height:4px; background:linear-gradient(90deg, #f59e0b, #ea580c);"></td></tr>
+                ${urgentBannerHtml}
+                <tr>
+                    <td style="padding:40px 40px 10px;">
+                        <div style="font-size:22px; font-weight:900; letter-spacing:-0.5px; text-align:center;">
+                            <span style="color:#f59e0b;">BROKERGY </span><span style="color:#ffffff; font-weight:500;">· Ingeniería Energética</span>
+                        </div>
+                    </td>
+                </tr>
+                <tr>
+                    <td style="padding:10px 40px 30px;">
+                        <h2 style="margin:0 0 6px; font-size:19px; font-weight:800; color:#ffffff;">Solicitud de Revisión Técnica</h2>
+                        <p style="margin:0 0 16px; font-size:14px; line-height:1.6; color:rgba(255,255,255,0.6);">
+                            El técnico <strong style="color:#ffffff;">${escapeHtml(certName || 'Técnico')}</strong> ha subido el archivo <strong style="color:#f59e0b;">.CEX</strong> del <strong style="color:#ffffff;">CEE ${phaseLabel}</strong> para el expediente <strong style="color:#f59e0b;">${escapeHtml(numExp)}</strong>${clienteName ? ` del cliente <strong style=\"color:#ffffff;\">${escapeHtml(clienteName)}</strong>` : ''}.
+                        </p>
+                        <p style="margin:8px 0 6px; font-size:14px; line-height:1.6; color:rgba(255,255,255,0.6);">
+                            El expediente está pendiente de tu revisión para validar y autorizar la presentación.
+                        </p>
+
+                        ${certInfoHtml}
+
+                        ${clienteInfoHtml}
+
+                        ${techMessageHtml}
+
+                        <h3 style="margin:24px 0 12px; font-size:14px; font-weight:700; color:#ffffff;">Accesos directos:</h3>
+                        <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                            <tr><td align="center" style="padding-bottom:10px;">
+                                <a href="${finalPortalLink}" target="_blank" style="display:inline-block; padding:14px 32px; background:linear-gradient(135deg, #f59e0b, #ea580c); color:#0a0e1a; font-size:14px; font-weight:800; text-decoration:none; border-radius:10px; width:80%; max-width:280px; box-sizing:border-box; text-align:center; text-transform:uppercase; letter-spacing:1px; box-shadow:0 4px 14px rgba(245,158,11,0.4);">
+                                    🔗 Ver Expediente
+                                </a>
+                            </td></tr>
+                            ${ceeFolderLink ? `
+                            <tr><td align="center">
+                                <a href="${ceeFolderLink}" target="_blank" style="display:inline-block; padding:12px 32px; background-color:rgba(245,158,11,0.12); border:1px solid rgba(245,158,11,0.4); color:#f59e0b; font-size:14px; font-weight:800; text-decoration:none; border-radius:10px; width:80%; max-width:280px; box-sizing:border-box; text-align:center;">
+                                    📁 Abrir Carpeta CEE
+                                </a>
+                            </td></tr>` : ''}
+                        </table>
+
+                        <p style="margin:28px 0 0; font-size:13px; line-height:1.6; color:rgba(255,255,255,0.35); text-align:center;">
+                            Una vez revisado el .CEX, pulsa <strong style="color:rgba(255,255,255,0.6);">Validar y Autorizar Presentación</strong> en el portal.
+                        </p>
+                    </td>
+                </tr>
+                <tr>
+                    <td style="padding:10px 40px 32px; text-align:center; background-color:rgba(255,255,255,0.02); border-top:1px solid rgba(255,255,255,0.04);">
+                        <p style="margin:0; font-size:12px; font-weight:700; color:rgba(255,255,255,0.5);">BROKERGY · Ingeniería Energética</p>
+                        <p style="margin:4px 0 0; font-size:11px; color:rgba(255,255,255,0.25);">Notificación automática · ERP</p>
+                    </td>
+                </tr>
+            </table>
+        </td></tr>
+    </table>
+</body>
+</html>`;
+
+    const clienteText = clienteData ? [
+        clienteData.nombre ? `Cliente: ${clienteData.nombre}` : null,
+        clienteData.dni ? `DNI: ${clienteData.dni}` : null,
+        clienteData.tlf ? `Tlf: ${clienteData.tlf}` : null,
+        clienteData.email ? `Email: ${clienteData.email}` : null,
+        clienteData.refCatastral ? `Ref. Catastral: ${clienteData.refCatastral}` : null,
+        clienteData.direccion ? `Dirección: ${clienteData.direccion}` : null,
+    ].filter(Boolean).join('\n') + '\n\n' : '';
+
+    const urgentText = isUrgent ? '🚨 URGENTE 🚨\n\n' : '';
+    const techMsgText = techMessage ? `\nMensaje del técnico:\n${techMessage}\n\n` : '';
+    const text = `${urgentText}SOLICITUD DE REVISIÓN TÉCNICA\n\nEl técnico ${certName || 'Técnico'} ha subido el .CEX del CEE ${phaseLabel} del expediente ${numExp}.\n\n${clienteText}${techMsgText}Ver expediente: ${finalPortalLink}\n${ceeFolderLink ? 'Carpeta CEE: ' + ceeFolderLink + '\n' : ''}\nBROKERGY · Ingeniería Energética`;
+
+    return sendMail({ to, subject, html, text });
 };
 
 /**

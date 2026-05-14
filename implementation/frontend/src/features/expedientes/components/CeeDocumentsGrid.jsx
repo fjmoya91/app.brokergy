@@ -101,6 +101,8 @@ export function CeeDocumentsGrid({
     // ── Modal "solicitar revisión a Brokergy" disparado al subir .CEX (certificador) ──
     const [notifyReviewModal, setNotifyReviewModal] = useState(null); // { section: 'inicial'|'final' }
     const [sendingNotifyReview, setSendingNotifyReview] = useState(false);
+    const [reviewPriority, setReviewPriority] = useState('normal'); // 'normal' | 'urgent'
+    const [reviewMessage, setReviewMessage] = useState('');
     
     const numExp = expediente?.numero_expediente || 'S-EXP';
     const [resendingNotif, setResendingNotif] = useState(null); // 'inicial' | 'final' | null
@@ -296,6 +298,8 @@ export function CeeDocumentsGrid({
                     console.log('[CEX uploaded] user check:', { rol, rolNombre, idRol, isCert, section, user });
                     if (isCert) {
                         console.log('[CEX uploaded] → abriendo notifyReviewModal');
+                        setReviewPriority('normal');
+                        setReviewMessage('');
                         setNotifyReviewModal({ section });
                     } else {
                         console.log('[CEX uploaded] → NO se abre popup (rol no es CERTIFICADOR)');
@@ -483,14 +487,16 @@ export function CeeDocumentsGrid({
                                                     );
                                                 }
                                                 return (
-                                                    <button 
+                                                    <button
                                                         title="Notificar CEE Realizado (Solicitar Revisión)"
                                                         onClick={() => {
                                                             if (!ceeFiles?.[section]?.cex && !ceeFiles?.[section]?.xml) {
                                                                 showAlert('Debes subir el archivo .CEX (o .XML) antes de solicitar la revisión.', 'Archivo Faltante', 'warning');
                                                                 return;
                                                             }
-                                                            if (onNotifyReview) onNotifyReview(section);
+                                                            setReviewPriority('normal');
+                                                            setReviewMessage('');
+                                                            setNotifyReviewModal({ section });
                                                         }}
                                                         className="w-7 h-7 rounded-lg bg-brand/10 border border-brand/20 flex items-center justify-center text-brand/80 hover:bg-brand hover:text-black transition-all shadow-[0_0_10px_rgba(238,143,31,0.2)] active:scale-95"
                                                     >
@@ -1043,24 +1049,64 @@ export function CeeDocumentsGrid({
 
             {/* ── MODAL: solicitar revisión a Brokergy al subir .CEX ─────────── */}
             {notifyReviewModal && (
-                <div className="fixed inset-0 z-[500] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
-                    <div className="bg-[#0b0c11] border border-white/10 rounded-[2.5rem] w-full max-w-md p-8 shadow-2xl relative overflow-hidden">
+                <div
+                    className="fixed inset-0 z-[500] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in"
+                    onClick={() => { if (!sendingNotifyReview) setNotifyReviewModal(null); }}
+                >
+                    <div
+                        className="bg-[#0b0c11] border border-white/10 rounded-[2.5rem] w-full max-w-md p-8 shadow-2xl relative overflow-hidden"
+                        onClick={e => e.stopPropagation()}
+                    >
                         <div className="absolute top-0 right-0 w-40 h-40 bg-brand/10 blur-[60px] rounded-full -translate-y-1/2 translate-x-1/2 pointer-events-none" />
 
                         <div className="relative z-10 flex flex-col items-center text-center">
-                            <div className="w-16 h-16 rounded-full bg-brand/10 border border-brand/20 flex items-center justify-center mb-6">
-                                <svg className="w-8 h-8 text-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <div className={`w-16 h-16 rounded-full flex items-center justify-center mb-6 border ${reviewPriority === 'urgent' ? 'bg-red-500/10 border-red-500/30' : 'bg-brand/10 border-brand/20'}`}>
+                                <svg className={`w-8 h-8 ${reviewPriority === 'urgent' ? 'text-red-400' : 'text-brand'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
                                 </svg>
                             </div>
 
-                            <h3 className="text-lg font-black text-white uppercase tracking-widest mb-2">Notificar Revisión</h3>
+                            <h3 className="text-lg font-black text-white uppercase tracking-widest mb-2">Solicitar Revisión</h3>
                             <p className="text-[11px] text-white/40 font-bold uppercase tracking-widest mb-6">
-                                .CEX CEE {notifyReviewModal.section === 'inicial' ? 'INICIAL' : 'FINAL'} SUBIDO
+                                CEE {notifyReviewModal.section === 'inicial' ? 'INICIAL' : 'FINAL'} · Expediente <span className="text-brand">{numExp}</span>
                             </p>
-                            <p className="text-sm text-white/60 mb-8 leading-relaxed">
-                                ¿Avisar a Brokergy de que el CEE está listo para revisión?
-                            </p>
+
+                            {/* Selector de prioridad */}
+                            <p className="text-[9px] font-black text-white/30 uppercase tracking-widest mb-2 self-start pl-1">Prioridad</p>
+                            <div className="flex gap-2 mb-5 w-full">
+                                <button
+                                    onClick={() => setReviewPriority('normal')}
+                                    className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border ${
+                                        reviewPriority === 'normal'
+                                            ? 'bg-brand/10 border-brand/30 text-brand'
+                                            : 'border-white/5 text-white/20 hover:text-white/40'
+                                    }`}
+                                >
+                                    📋 Normal
+                                </button>
+                                <button
+                                    onClick={() => setReviewPriority('urgent')}
+                                    className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border ${
+                                        reviewPriority === 'urgent'
+                                            ? 'bg-red-500/10 border-red-500/30 text-red-400'
+                                            : 'border-white/5 text-white/20 hover:text-white/40'
+                                    }`}
+                                >
+                                    🚨 Urgente
+                                </button>
+                            </div>
+
+                            {/* Mensaje libre del técnico */}
+                            <p className="text-[9px] font-black text-white/30 uppercase tracking-widest mb-2 self-start pl-1">Mensaje a Brokergy (opcional)</p>
+                            <textarea
+                                value={reviewMessage}
+                                onChange={e => setReviewMessage(e.target.value)}
+                                placeholder="Ej: He ajustado los valores de la envolvente, revisar antes de presentar."
+                                rows={3}
+                                maxLength={500}
+                                className="w-full bg-white/[0.03] border border-white/10 rounded-xl px-4 py-3 text-xs text-white placeholder:text-white/20 focus:outline-none focus:border-brand/40 focus:bg-white/[0.05] transition-all resize-none mb-2"
+                            />
+                            <p className="text-[9px] text-white/20 mb-6 self-end pr-1">{reviewMessage.length}/500</p>
 
                             <div className="grid grid-cols-1 gap-3 w-full">
                                 <button
@@ -1068,22 +1114,31 @@ export function CeeDocumentsGrid({
                                     onClick={async () => {
                                         setSendingNotifyReview(true);
                                         try {
-                                            if (onNotifyReview) await onNotifyReview(notifyReviewModal.section);
+                                            if (onNotifyReview) {
+                                                await onNotifyReview(notifyReviewModal.section, {
+                                                    priority: reviewPriority,
+                                                    techMessage: reviewMessage.trim() || null,
+                                                });
+                                            }
                                             setNotifyReviewModal(null);
                                         } finally {
                                             setSendingNotifyReview(false);
                                         }
                                     }}
-                                    className="w-full py-4 rounded-2xl bg-brand text-bkg-deep text-[11px] font-black uppercase tracking-[0.2em] hover:scale-[1.02] transition-all shadow-xl shadow-brand/20 flex items-center justify-center gap-3"
+                                    className={`w-full py-4 rounded-2xl text-[11px] font-black uppercase tracking-[0.2em] transition-all shadow-xl flex items-center justify-center gap-3 ${
+                                        reviewPriority === 'urgent'
+                                            ? 'bg-red-500 text-white hover:scale-[1.02] shadow-red-500/20'
+                                            : 'bg-brand text-bkg-deep hover:scale-[1.02] shadow-brand/20'
+                                    }`}
                                 >
                                     {sendingNotifyReview ? (
-                                        <div className="w-4 h-4 border-2 border-bkg-deep/20 border-t-bkg-deep rounded-full animate-spin" />
+                                        <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" />
                                     ) : (
                                         <>
                                             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
                                             </svg>
-                                            Sí, Notificar a Brokergy
+                                            {reviewPriority === 'urgent' ? '🚨 Notificar URGENTE a Brokergy' : 'Notificar a Brokergy'}
                                         </>
                                     )}
                                 </button>
@@ -1091,7 +1146,7 @@ export function CeeDocumentsGrid({
                                 <button
                                     onClick={() => setNotifyReviewModal(null)}
                                     disabled={sendingNotifyReview}
-                                    className="w-full py-4 text-white/30 text-[10px] font-black uppercase tracking-[0.2em] hover:text-white transition-all mt-2"
+                                    className="w-full py-3 text-white/30 text-[10px] font-black uppercase tracking-[0.2em] hover:text-white transition-all"
                                 >
                                     Más Tarde
                                 </button>

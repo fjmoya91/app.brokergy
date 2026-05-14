@@ -1401,40 +1401,100 @@ router.post('/:id/cert-ack', async (req, res) => {
 
 // ─── POST /api/expedientes/:id/notify-review ──────────────────────────────
 // El certificador notifica que ha subido el CEX y está pendiente de revisión
+// Body: { phase, priority?, techMessage? }
 router.post('/:id/notify-review', enforceAuth, async (req, res) => {
     try {
         const { phase } = req.body;
+        const priority = req.body?.priority === 'urgent' ? 'urgent' : 'normal';
+        const techMessage = (req.body?.techMessage || '').trim() || null;
+
         const { data: exp, error: expErr } = await supabase
             .from('expedientes')
             .select('*')
             .eq('id', req.params.id)
             .single();
-            
+
         if (expErr || !exp) return res.status(404).json({ error: 'Expediente no encontrado' });
 
         const phaseLabel = phase === 'final' ? 'CEE Final' : 'CEE Inicial';
         const newEstado = phase === 'final' ? 'PENDIENTE REVISIÓN (FINAL)' : 'PENDIENTE REVISIÓN (INICIAL)';
 
-        const userName = req.user?.rol_nombre === 'CERTIFICADOR' ? req.user?.acronimo || req.user?.razon_social : 'Técnico';
+        const userName = req.user?.rol_nombre === 'CERTIFICADOR'
+            ? (req.user?.acronimo || req.user?.razon_social)
+            : (req.user?.nombre || 'Técnico');
+
+        // ── Datos del certificador (para teléfono/email) y del cliente ────
+        const certId = exp.cee?.certificador_id || null;
+        const [
+            { data: cert } = { data: null },
+            { data: cli } = { data: null },
+            { data: op } = { data: null }
+        ] = await Promise.all([
+            certId
+                ? supabase.from('prescriptores').select('*').eq('id_empresa', certId).maybeSingle()
+                : Promise.resolve({ data: null }),
+            exp.cliente_id
+                ? supabase.from('clientes').select('*').eq('id_cliente', exp.cliente_id).maybeSingle()
+                : Promise.resolve({ data: null }),
+            exp.oportunidad_id
+                ? supabase.from('oportunidades').select('*').eq('id', exp.oportunidad_id).maybeSingle()
+                : Promise.resolve({ data: null }),
+        ]);
+
+        const inputs = op?.datos_calculo?.inputs || {};
+        const clienteName = (cli
+            ? `${cli.nombre_razon_social || ''} ${cli.apellidos || ''}`.trim()
+            : null) || op?.referencia_cliente || null;
+
+        const baseDir = (inputs.direccion || inputs.address || cli?.direccion || '').trim();
+        const cp = (cli?.codigo_postal || inputs.cp || '').trim();
+        const municipio = (cli?.municipio || inputs.municipio || '').trim();
+        const provincia = (cli?.provincia || inputs.provincia || '').trim();
+        let direccionCompleta = baseDir;
+        if (baseDir.length < 30 && cp && !baseDir.includes(cp)) {
+            direccionCompleta = [baseDir, cp, municipio, provincia ? `(${provincia})` : null].filter(Boolean).join(', ');
+        }
+
+        const clienteData = {
+            nombre: clienteName,
+            dni: cli?.dni || inputs.dni || null,
+            tlf: cli?.tlf || cli?.telefono || inputs.tlf || inputs.phone || null,
+            email: cli?.email || inputs.email || null,
+            refCatastral: op?.ref_catastral || inputs.rc || inputs.referencia_catastral || null,
+            direccion: direccionCompleta || null,
+        };
+
+        const certName = (cert?.razon_social || cert?.acronimo) || userName || 'Técnico';
+        const certPhone = cert?.telefono || cert?.movil || cert?.tlf || null;
+        const certEmail = cert?.email || null;
+
+        const expedienteNum = exp.numero_expediente || op?.id_oportunidad || req.params.id;
+        const portalLink = `${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/?exp=${req.params.id}`;
+        const ceeFolderLink = exp.cee?.cee_folder_link || null;
 
         // Preparar actualizaciones
         const cee = exp.cee || {};
         cee.estado = newEstado;
-        const globalEstado = newEstado; // PENDIENTE REVISIÓN (INICIAL) o FINAL
+        const globalEstado = newEstado;
 
         const docObj = exp.documentacion || {};
         const historial = docObj.historial || [];
-        
-        // 1. Añadir notificación técnica
+
+        const priorityTag = priority === 'urgent' ? ' · 🚨 URGENTE' : '';
+        const msgTag = techMessage ? `\n💬 Mensaje: "${techMessage}"` : '';
+
+        // 1. Notificación técnica (con prioridad y mensaje opcional)
         historial.push({
             id: Date.now().toString() + '_revreq',
             tipo: 'notificacion_tecnica',
-            texto: `El técnico ha subido el archivo .CEX del ${phaseLabel}. PENDIENTE DE REVISIÓN por BROKERGY.`,
+            texto: `El técnico ha subido el archivo .CEX del ${phaseLabel}${priorityTag}. PENDIENTE DE REVISIÓN por BROKERGY.${msgTag}`,
+            priority,
+            techMessage,
             fecha: new Date().toISOString(),
             usuario: userName || 'Sistema'
         });
 
-        // 2. Añadir registro de cambio de estado (para que se vea en el historial unificado)
+        // 2. Cambio de estado para historial unificado
         historial.push({
             id: Date.now().toString() + '_status',
             estado: globalEstado,
@@ -1449,31 +1509,42 @@ router.post('/:id/notify-review', enforceAuth, async (req, res) => {
             seguimiento.cee_inicial = 'PTE_REVISION';
         }
 
-        // Actualizar en Supabase (Todo en una sola llamada)
         const { error: updErr } = await supabase.from('expedientes')
-            .update({ 
-                cee, 
+            .update({
+                cee,
                 estado: globalEstado,
                 seguimiento,
                 documentacion: { ...docObj, historial },
                 updated_at: new Date().toISOString()
             })
             .eq('id', req.params.id);
-            
+
         if (updErr) {
             console.error('Error actualizando Supabase en notify-review:', updErr);
             throw updErr;
         }
 
-        // Enviar aviso por email
+        // Email rico al admin
         try {
-            const certName = userName || 'Un técnico';
-            await emailService.sendReviewRequestEmailToAdmin(exp.id, exp.numero_expediente, certName, phase);
+            await emailService.sendReviewRequestEmailToAdmin({
+                expedienteId: exp.id,
+                numExp: expedienteNum,
+                certName,
+                certPhone,
+                certEmail,
+                phase,
+                clienteName,
+                clienteData,
+                portalLink,
+                ceeFolderLink,
+                priority,
+                techMessage,
+            });
         } catch (mailErr) {
             console.error('Error enviando email a admin notify-review:', mailErr.message);
         }
 
-        res.json({ ok: true, newEstado });
+        res.json({ ok: true, newEstado, priority });
     } catch (err) {
         console.error('[notify-review]', err.message);
         res.status(500).json({ error: 'Error procesando la solicitud de revisión' });
