@@ -216,6 +216,8 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
     const [showCertPopup, setShowCertPopup] = useState(false);
     const [certNotifLoading, setCertNotifLoading] = useState(false);
     const [certNotifResult, setCertNotifResult] = useState(null);
+    const [certPriority, setCertPriority] = useState('normal');
+    const [certAdminMessage, setCertAdminMessage] = useState('');
     const savedCertId = useRef(expediente?.cee?.certificador_id || null);
 
     // Notificar al padre de cambios en tiempo real
@@ -334,6 +336,8 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
             // Mostrar popup de confirmación antes de guardar
             setShowCertPopup(true);
             setCertNotifResult(null);
+            setCertPriority('normal');
+            setCertAdminMessage('');
         } else {
             onSave({ cee: local });
             setEditMode(false);
@@ -376,7 +380,9 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
             const { data } = await axios.post(`/api/expedientes/${expediente.id}/notify-certificador`, {
                 certificador_id: local.certificador_id,
                 sendEmail: !!notify,
-                phase: 'initial'
+                phase: 'initial',
+                priority: certPriority,
+                adminMessage: certAdminMessage.trim() || null
             });
 
             const driveOk = data?.driveAccessGranted;
@@ -613,7 +619,44 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                                         <p className="text-[10px] text-white/40">Se asignará <span className="text-brand font-bold">{selectedCertName}</span> al expediente</p>
                                     </div>
                                 </div>
-                                <p className="text-xs text-white/60 mb-6">¿Deseas enviar un email de notificación al certificador con los datos del expediente y el enlace a la documentación?</p>
+                                <p className="text-xs text-white/60 mb-5">¿Deseas enviar un email de notificación al certificador con los datos del expediente y el enlace a la documentación?</p>
+
+                                {/* Prioridad */}
+                                <p className="text-[9px] font-black text-white/30 uppercase tracking-widest mb-2">Prioridad</p>
+                                <div className="flex gap-2 mb-4">
+                                    <button
+                                        type="button"
+                                        onClick={() => setCertPriority('normal')}
+                                        disabled={certNotifLoading}
+                                        className={`flex-1 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all border ${
+                                            certPriority === 'normal'
+                                                ? 'bg-brand/10 border-brand/30 text-brand'
+                                                : 'border-white/5 text-white/20 hover:text-white/40'
+                                        }`}
+                                    >📋 Normal</button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setCertPriority('urgent')}
+                                        disabled={certNotifLoading}
+                                        className={`flex-1 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all border ${
+                                            certPriority === 'urgent'
+                                                ? 'bg-red-500/10 border-red-500/40 text-red-400'
+                                                : 'border-white/5 text-white/20 hover:text-white/40'
+                                        }`}
+                                    >🚨 Urgente</button>
+                                </div>
+
+                                {/* Mensaje libre */}
+                                <p className="text-[9px] font-black text-white/30 uppercase tracking-widest mb-2">Mensaje adicional (opcional)</p>
+                                <textarea
+                                    value={certAdminMessage}
+                                    onChange={e => setCertAdminMessage(e.target.value)}
+                                    disabled={certNotifLoading}
+                                    placeholder="Indicaciones específicas para el certificador (se incluyen en el email/WhatsApp y se registran en el historial)…"
+                                    rows={3}
+                                    className="w-full bg-black/30 border border-white/10 rounded-xl p-3 text-xs text-white placeholder:text-white/20 focus:outline-none focus:border-brand/40 resize-none mb-5"
+                                />
+
                                 <div className="flex gap-3">
                                     <button
                                         onClick={() => handleCertConfirm(false)}
@@ -623,11 +666,15 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                                     <button
                                         onClick={() => handleCertConfirm(true)}
                                         disabled={certNotifLoading}
-                                        className="flex-1 py-2.5 rounded-xl bg-brand text-black text-[11px] font-black uppercase tracking-widest shadow-lg transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2"
+                                        className={`flex-1 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest shadow-lg transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2 ${
+                                            certPriority === 'urgent'
+                                                ? 'bg-red-500 text-white shadow-red-500/30'
+                                                : 'bg-brand text-black'
+                                        }`}
                                     >
                                         {certNotifLoading ? (
                                             <><div className="w-4 h-4 border-2 border-black/20 border-t-black rounded-full animate-spin"></div> Enviando...</>
-                                        ) : 'Asignar y notificar'}
+                                        ) : (certPriority === 'urgent' ? '🚨 Asignar y avisar URGENTE' : 'Asignar y notificar')}
                                     </button>
                                 </div>
                             </>

@@ -579,27 +579,20 @@ router.put('/:id', enforceAuth, async (req, res) => {
         if (seguimiento !== undefined)   updates.seguimiento   = { ...existing.seguimiento,   ...seguimiento };
         
         // ─── AUTOMATIZACIÓN REGISTRO CEE INICIAL ────────────────────────────────
-        // Si el estado del CEE Inicial pasa a REGISTRADO, automatizamos tareas básicas
+        // Cambio de estado automático cuando el CEE Inicial pasa a REGISTRADO.
+        // Las notificaciones (cliente/partner/admin) las decide el ADMIN desde el
+        // popup del frontend (/notify-registration). El botón "Omitir" del popup
+        // debe omitir de verdad, así que NO disparamos nada automático aquí.
         if (seguimiento?.cee_inicial === 'REGISTRADO' && existing.seguimiento?.cee_inicial !== 'REGISTRADO') {
             if (existing.estado === 'PTE. CEE INICIAL') {
                 updates.estado = 'PTE. FIN OBRA';
-                console.log(`[Automation] Exp ${req.params.id}: Triggereando cambio a PTE. FIN OBRA por Registro CEE.`);
             }
-            console.log(`[Automation] Exp ${req.params.id}: Detectado paso a CEE INICIAL REGISTRADO (cliente_id=${existing.cliente_id}, oportunidad_id=${existing.oportunidad_id})`);
-
-            // Notificaciones automáticas a Cliente, Admin y Partner (no bloqueante)
-            const expedienteForNotif = { ...existing, ...updates, id: req.params.id, cee: { ...existing.cee, ...(cee || {}) } };
-            notifyCeeInicialRegistrado(expedienteForNotif)
-                .catch(err => console.error('[Automation Error CEE Inicial]', err));
+            console.log(`[Automation] Exp ${req.params.id}: CEE INICIAL → REGISTRADO`);
         }
 
         // ─── AUTOMATIZACIÓN REGISTRO CEE FINAL ──────────────────────────────────
         if (seguimiento?.cee_final === 'REGISTRADO' && existing.seguimiento?.cee_final !== 'REGISTRADO') {
-            console.log(`[Automation] Exp ${req.params.id}: Detectado paso a CEE FINAL REGISTRADO (cliente_id=${existing.cliente_id}, oportunidad_id=${existing.oportunidad_id})`);
-
-            const expedienteForNotif = { ...existing, ...updates, id: req.params.id, cee: { ...existing.cee, ...(cee || {}) } };
-            notifyCeeFinalRegistrado(expedienteForNotif)
-                .catch(err => console.error('[Automation Error CEE Final]', err));
+            console.log(`[Automation] Exp ${req.params.id}: CEE FINAL → REGISTRADO`);
         }
 
         let docObj = existing.documentacion || {};
@@ -1068,6 +1061,8 @@ router.post('/:id/notify-certificador', enforceAuth, async (req, res) => {
         const sendWhatsApp = req.body?.sendWhatsApp === true;
         const phase = req.body?.phase || 'initial';
         const template = req.body?.template || 'standard';
+        const priority = req.body?.priority === 'urgent' ? 'urgent' : 'normal';
+        const adminMessage = (req.body?.adminMessage || '').trim() || null;
         const dbCertId = exp.cee?.certificador_id || null;
         const certId = bodyCertId || dbCertId;
         if (!certId) return res.status(400).json({ error: 'El expediente no tiene certificador asignado' });
@@ -1228,7 +1223,9 @@ router.post('/:id/notify-certificador', enforceAuth, async (req, res) => {
                 tipoActuacion,
                 ceeFolderLink,
                 portalLink,
-                ackLink
+                ackLink,
+                priority,
+                adminMessage,
             };
 
             if (template === 'reminder') {
@@ -1254,15 +1251,18 @@ router.post('/:id/notify-certificador', enforceAuth, async (req, res) => {
             if (!certPhone) {
                 console.warn('[notify-certificador] Certificador sin teléfono para WhatsApp');
             } else {
+                const urgentWaPrefix = priority === 'urgent' && template === 'standard' ? '🚨 *URGENTE* 🚨\n\n' : '';
+                const adminMsgWa = adminMessage ? `\n💬 *Mensaje:* ${adminMessage}\n` : '';
+
                 let waMsg = '';
                 if (template === 'reminder') {
                     waMsg = `¡Hola *${certName}*! 👋\n\nTe recordamos que tienes pendiente el *${phaseLabel}* del expediente *${expedienteNum}*${clienteName ? ` (${clienteName})` : ''}.\n\n¿Podrías darnos una estimación de fecha de entrega?\n\n${ceeFolderLink ? '📁 Carpeta: ' + ceeFolderLink + '\n' : ''}${portalLink ? '🔗 Portal: ' + portalLink + '\n' : ''}\n¡Gracias!\n*BROKERGY · Ingeniería Energética*`;
                 } else if (template === 'urgent') {
                     waMsg = `*⚠️ AVISO URGENTE*\n\nHola *${certName}*, necesitamos con urgencia el *${phaseLabel}* del expediente *${expedienteNum}*${clienteName ? ` (${clienteName})` : ''}.\n\nEs importante que lo priorices para cumplir con los plazos del programa.\n\n${ceeFolderLink ? '📁 Carpeta: ' + ceeFolderLink + '\n' : ''}${portalLink ? '🔗 Portal: ' + portalLink + '\n' : ''}\nQuedamos a la espera.\n*BROKERGY · Ingeniería Energética*`;
                 } else if (phase === 'final') {
-                    waMsg = `¡Hola *${certName}*! 👋\n\nYa puedes presentar el *CEE FINAL* del expediente *${expedienteNum}*${clienteName ? ` (${clienteName})` : ''}.\n\nToda la documentación de obra ya está en la carpeta compartida.\n\n${ceeFolderLink ? '📁 Carpeta: ' + ceeFolderLink + '\n' : ''}${portalLink ? '🔗 Portal: ' + portalLink + '\n' : ''}\n¡Gracias!\n*BROKERGY · Ingeniería Energética*`;
+                    waMsg = `${urgentWaPrefix}¡Hola *${certName}*! 👋\n\nYa puedes presentar el *CEE FINAL* del expediente *${expedienteNum}*${clienteName ? ` (${clienteName})` : ''}.\n\nToda la documentación de obra ya está en la carpeta compartida.${adminMsgWa}\n\n${ceeFolderLink ? '📁 Carpeta: ' + ceeFolderLink + '\n' : ''}${portalLink ? '🔗 Portal: ' + portalLink + '\n' : ''}\n¡Gracias!\n*BROKERGY · Ingeniería Energética*`;
                 } else {
-                    waMsg = `¡Hola *${certName}*! 👋\n\nTe hemos asignado el expediente *${expedienteNum}*${clienteName ? ` (${clienteName})` : ''} para el *CEE Inicial*.\n\nTienes toda la documentación en la carpeta y el portal.\n\n${ceeFolderLink ? '📁 Carpeta: ' + ceeFolderLink + '\n' : ''}${portalLink ? '🔗 Portal: ' + portalLink + '\n' : ''}\n¡Gracias!\n*BROKERGY · Ingeniería Energética*`;
+                    waMsg = `${urgentWaPrefix}¡Hola *${certName}*! 👋\n\nTe hemos asignado el expediente *${expedienteNum}*${clienteName ? ` (${clienteName})` : ''} para el *CEE Inicial*.\n\nTienes toda la documentación en la carpeta y el portal.${adminMsgWa}\n\n${ceeFolderLink ? '📁 Carpeta: ' + ceeFolderLink + '\n' : ''}${portalLink ? '🔗 Portal: ' + portalLink + '\n' : ''}\n¡Gracias!\n*BROKERGY · Ingeniería Energética*`;
                 }
 
                 try {
@@ -1284,12 +1284,16 @@ router.post('/:id/notify-certificador', enforceAuth, async (req, res) => {
                     ? 'ADMINISTRADOR'
                     : (req.user?.acronimo || req.user?.razon_social || 'SISTEMA');
 
+                const priorityTag = priority === 'urgent' ? ' · 🚨 URGENTE' : '';
+                const msgTag = adminMessage ? `\n💬 Mensaje: "${adminMessage}"` : '';
                 historial.push({
                     id: Date.now().toString() + '_certnotif',
                     tipo: 'notificacion_certificador',
-                    texto: `Notificación ${phaseLabel} (${templateLabels[template] || 'Estándar'}) enviada a ${certName} vía ${channels.join(' + ')}`,
+                    texto: `Notificación ${phaseLabel} (${templateLabels[template] || 'Estándar'}${priorityTag}) enviada a ${certName} vía ${channels.join(' + ')}${msgTag}`,
                     fecha: new Date().toISOString(),
-                    usuario: userName
+                    usuario: userName,
+                    priority,
+                    adminMessage
                 });
 
                 await supabase.from('expedientes')

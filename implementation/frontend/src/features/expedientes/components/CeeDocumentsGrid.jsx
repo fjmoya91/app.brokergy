@@ -98,6 +98,9 @@ export function CeeDocumentsGrid({
     const [certTemplate, setCertTemplate] = useState('standard');
     const [certChannels, setCertChannels] = useState(['email']);
     const [sendingCertNotify, setSendingCertNotify] = useState(false);
+    // ── Modal "solicitar revisión a Brokergy" disparado al subir .CEX (certificador) ──
+    const [notifyReviewModal, setNotifyReviewModal] = useState(null); // { section: 'inicial'|'final' }
+    const [sendingNotifyReview, setSendingNotifyReview] = useState(false);
     
     const numExp = expediente?.numero_expediente || 'S-EXP';
     const [resendingNotif, setResendingNotif] = useState(null); // 'inicial' | 'final' | null
@@ -266,27 +269,38 @@ export function CeeDocumentsGrid({
                     return next;
                 });
 
+                console.log(`[Upload OK] section=${section} slot=${slot.id}`);
+
                 // Trigger automático de estado si es el REGISTRO del CEE Inicial o Final
                 if (slot.id === 'registro') {
                     if (onAutoStatus) {
                         if (section === 'inicial') {
-                            console.log('[AutoStatus] Detectada subida de Registro Inicial. Marcando como REGISTRADO y pasando estado a PTE. FIN OBRA.');
                             onAutoStatus('cee_inicial', 'REGISTRADO');
                             onAutoStatus('estado', 'PTE. FIN OBRA');
                         } else if (section === 'final') {
-                            console.log('[AutoStatus] Detectada subida de Registro Final. Marcando como REGISTRADO.');
                             onAutoStatus('cee_final', 'REGISTRADO');
-                            // Para el final, podríamos pasar a PTE FIRMA ANEXOS si quisiéramos, 
-                            // pero el usuario solo ha pedido explícitamente el cambio de PTE FIN DE OBRA.
                         }
                     }
-                    // Activar el popup de notificación manual (Cliente/Partner) solo para ADMIN
-                                    if (user?.rol === 'ADMIN') {
-                                        setNotifyModal({ section, type: section });
-                                    }
-                                }
+                    // Popup de notificación manual (Cliente/Partner) solo para ADMIN
+                    if (user?.rol === 'ADMIN') {
+                        setNotifyModal({ section, type: section });
+                    }
+                }
 
-
+                // Al subir el .CEX, si es certificador, ofrecer notificar a Brokergy para revisión
+                if (slot.id === 'cex') {
+                    const rol = (user?.rol || '').toUpperCase();
+                    const rolNombre = (user?.rol_nombre || '').toUpperCase();
+                    const idRol = Number(user?.id_rol);
+                    const isCert = rol === 'CERTIFICADOR' || rolNombre === 'CERTIFICADOR' || idRol === 4;
+                    console.log('[CEX uploaded] user check:', { rol, rolNombre, idRol, isCert, section, user });
+                    if (isCert) {
+                        console.log('[CEX uploaded] → abriendo notifyReviewModal');
+                        setNotifyReviewModal({ section });
+                    } else {
+                        console.log('[CEX uploaded] → NO se abre popup (rol no es CERTIFICADOR)');
+                    }
+                }
 
             } catch (err) {
                 console.error(`Error uploading to ${slot.label}:`, err);
@@ -1023,6 +1037,66 @@ export function CeeDocumentsGrid({
                         >
                             Cancelar
                         </button>
+                    </div>
+                </div>
+            )}
+
+            {/* ── MODAL: solicitar revisión a Brokergy al subir .CEX ─────────── */}
+            {notifyReviewModal && (
+                <div className="fixed inset-0 z-[500] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
+                    <div className="bg-[#0b0c11] border border-white/10 rounded-[2.5rem] w-full max-w-md p-8 shadow-2xl relative overflow-hidden">
+                        <div className="absolute top-0 right-0 w-40 h-40 bg-brand/10 blur-[60px] rounded-full -translate-y-1/2 translate-x-1/2 pointer-events-none" />
+
+                        <div className="relative z-10 flex flex-col items-center text-center">
+                            <div className="w-16 h-16 rounded-full bg-brand/10 border border-brand/20 flex items-center justify-center mb-6">
+                                <svg className="w-8 h-8 text-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                                </svg>
+                            </div>
+
+                            <h3 className="text-lg font-black text-white uppercase tracking-widest mb-2">Notificar Revisión</h3>
+                            <p className="text-[11px] text-white/40 font-bold uppercase tracking-widest mb-6">
+                                .CEX CEE {notifyReviewModal.section === 'inicial' ? 'INICIAL' : 'FINAL'} SUBIDO
+                            </p>
+                            <p className="text-sm text-white/60 mb-8 leading-relaxed">
+                                ¿Avisar a Brokergy de que el CEE está listo para revisión?
+                            </p>
+
+                            <div className="grid grid-cols-1 gap-3 w-full">
+                                <button
+                                    disabled={sendingNotifyReview}
+                                    onClick={async () => {
+                                        setSendingNotifyReview(true);
+                                        try {
+                                            if (onNotifyReview) await onNotifyReview(notifyReviewModal.section);
+                                            setNotifyReviewModal(null);
+                                        } finally {
+                                            setSendingNotifyReview(false);
+                                        }
+                                    }}
+                                    className="w-full py-4 rounded-2xl bg-brand text-bkg-deep text-[11px] font-black uppercase tracking-[0.2em] hover:scale-[1.02] transition-all shadow-xl shadow-brand/20 flex items-center justify-center gap-3"
+                                >
+                                    {sendingNotifyReview ? (
+                                        <div className="w-4 h-4 border-2 border-bkg-deep/20 border-t-bkg-deep rounded-full animate-spin" />
+                                    ) : (
+                                        <>
+                                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                            </svg>
+                                            Sí, Notificar a Brokergy
+                                        </>
+                                    )}
+                                </button>
+
+                                <button
+                                    onClick={() => setNotifyReviewModal(null)}
+                                    disabled={sendingNotifyReview}
+                                    className="w-full py-4 text-white/30 text-[10px] font-black uppercase tracking-[0.2em] hover:text-white transition-all mt-2"
+                                >
+                                    Más Tarde
+                                </button>
+                            </div>
+                        </div>
                     </div>
                 </div>
             )}

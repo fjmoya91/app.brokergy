@@ -5,6 +5,13 @@ const nodemailer = require('nodemailer');
  * Usa SMTP de Hostinger con la cuenta brokergy@brokergy.es
  */
 
+const escapeHtml = (str) => String(str ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+
 const transporter = nodemailer.createTransport({
     host: process.env.SMTP_HOST || 'smtp.hostinger.com',
     port: parseInt(process.env.SMTP_PORT || '465'),
@@ -675,11 +682,28 @@ const sendCertificadorNotificationEmail = async ({
     superficieRef,      // m²
     // RES080
     ahorroObjetivo,     // kWh/año
+    // Prioridad y mensaje libre del admin
+    priority = 'normal',
+    adminMessage = null,
 }) => {
     const isReforma = ficha === 'RES080';
     const tipoLabel = tipoActuacion || (isReforma ? 'REFORMA' : ficha === 'RES093' ? 'HIBRIDACIÓN' : 'AEROTERMIA');
     const clienteUpper = (clienteName || '').toUpperCase().trim();
-    const subject = `“${expedienteNum} ENCARGO CEE (${tipoLabel}) – “${clienteUpper}”`;
+    const isUrgent = priority === 'urgent';
+    const subject = `${isUrgent ? '🚨 URGENTE — ' : ''}“${expedienteNum} ENCARGO CEE (${tipoLabel}) – “${clienteUpper}”`;
+
+    const urgentBannerHtml = isUrgent ? `
+        <tr><td style="padding:14px 24px; background:linear-gradient(135deg,#dc2626,#991b1b); text-align:center;">
+            <p style="margin:0; font-size:13px; font-weight:900; color:#ffffff; letter-spacing:2px; text-transform:uppercase;">🚨 Encargo Urgente 🚨</p>
+        </td></tr>
+    ` : '';
+
+    const adminMessageHtml = adminMessage ? `
+        <div style="background:rgba(245,158,11,0.06); border-left:3px solid #f59e0b; border-radius:10px; padding:16px 20px; margin:22px 0;">
+            <p style="margin:0 0 8px; font-size:11px; font-weight:800; color:#f59e0b; text-transform:uppercase; letter-spacing:1.5px;">💬 Mensaje de Brokergy</p>
+            <p style="margin:0; font-size:14px; line-height:1.6; color:rgba(255,255,255,0.85); white-space:pre-wrap;">${escapeHtml(adminMessage)}</p>
+        </div>
+    ` : '';
 
     const directrizHtml = isReforma ? `
         <div style="background:rgba(245,158,11,0.08); border:1px solid rgba(245,158,11,0.3); border-radius:14px; padding:20px 24px; margin:20px 0;">
@@ -735,6 +759,7 @@ const sendCertificadorNotificationEmail = async ({
         <tr><td align="center">
             <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px; background-color:#111827; border-radius:24px; border:1px solid rgba(255,255,255,0.06); overflow:hidden;">
                 <tr><td style="height:4px; background:linear-gradient(90deg, #f59e0b, #ea580c);"></td></tr>
+                ${urgentBannerHtml}
                 <tr>
                     <td style="padding:40px 40px 10px;">
                         <div style="font-size:22px; font-weight:900; letter-spacing:-0.5px; text-align:center;">
@@ -757,6 +782,8 @@ const sendCertificadorNotificationEmail = async ({
                         ${directrizHtml}
 
                         ${clienteInfoHtml}
+
+                        ${adminMessageHtml}
 
                         <h3 style="margin:24px 0 12px; font-size:14px; font-weight:700; color:#ffffff;">Accesos directos:</h3>
                         <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
@@ -810,7 +837,9 @@ const sendCertificadorNotificationEmail = async ({
         clienteData.direccion ? `Dirección: ${clienteData.direccion}` : null,
     ].filter(Boolean).join('\n') + '\n\n' : '';
 
-    const text = `Hola ${certName}!\n\nTe asignamos el expediente ${expedienteNum}.\n\n${clienteText}${isReforma ? `Ahorro mínimo esperado: ${ahorroObjetivo ? Math.round(ahorroObjetivo) + ' kWh/año' : 'Consultar propuesta'}` : `Demanda mínima esperada: ${demandaPerM2 ? demandaPerM2.toFixed(1).replace('.', ',') + ' kWh/m²·año' : 'Consultar propuesta'}`}\n\n${ackLink ? 'Para aceptar el encargo haz clic aquí: ' + ackLink + '\n\n' : ''}${portalLink ? 'Portal: ' + portalLink + '\n' : ''}${ceeFolderLink ? 'Carpeta CEE: ' + ceeFolderLink : ''}\n\nBROKERGY · Ingeniería Energética`;
+    const urgentText = isUrgent ? '🚨 URGENTE 🚨\n\n' : '';
+    const adminMsgText = adminMessage ? `\nMensaje de Brokergy:\n${adminMessage}\n\n` : '';
+    const text = `${urgentText}Hola ${certName}!\n\nTe asignamos el expediente ${expedienteNum}.\n\n${clienteText}${isReforma ? `Ahorro mínimo esperado: ${ahorroObjetivo ? Math.round(ahorroObjetivo) + ' kWh/año' : 'Consultar propuesta'}` : `Demanda mínima esperada: ${demandaPerM2 ? demandaPerM2.toFixed(1).replace('.', ',') + ' kWh/m²·año' : 'Consultar propuesta'}`}\n\n${adminMsgText}${ackLink ? 'Para aceptar el encargo haz clic aquí: ' + ackLink + '\n\n' : ''}${portalLink ? 'Portal: ' + portalLink + '\n' : ''}${ceeFolderLink ? 'Carpeta CEE: ' + ceeFolderLink : ''}\n\nBROKERGY · Ingeniería Energética`;
 
     return sendMail({ to, subject, html, text });
 };
@@ -821,12 +850,28 @@ const sendCertificadorNotificationEmail = async ({
 const sendCertificadorFinalNotificationEmail = async ({
     to, certName, expedienteNum, clienteName, clienteData,
     ficha, tipoActuacion,
-    ceeFolderLink, portalLink, ackLink
+    ceeFolderLink, portalLink, ackLink,
+    priority = 'normal',
+    adminMessage = null,
 }) => {
     const isReforma = ficha === 'RES080';
     const tipoLabel = tipoActuacion || (isReforma ? 'REFORMA' : ficha === 'RES093' ? 'HIBRIDACIÓN' : 'AEROTERMIA');
     const clienteUpper = (clienteName || '').toUpperCase().trim();
-    const subject = `“${expedienteNum} ENCARGO CEE FINAL (${tipoLabel}) – “${clienteUpper}”`;
+    const isUrgent = priority === 'urgent';
+    const subject = `${isUrgent ? '🚨 URGENTE — ' : ''}“${expedienteNum} ENCARGO CEE FINAL (${tipoLabel}) – “${clienteUpper}”`;
+
+    const urgentBannerHtml = isUrgent ? `
+        <tr><td style="padding:14px 24px; background:linear-gradient(135deg,#dc2626,#991b1b); text-align:center;">
+            <p style="margin:0; font-size:13px; font-weight:900; color:#ffffff; letter-spacing:2px; text-transform:uppercase;">🚨 Encargo Urgente 🚨</p>
+        </td></tr>
+    ` : '';
+
+    const adminMessageHtml = adminMessage ? `
+        <div style="background:rgba(245,158,11,0.06); border-left:3px solid #f59e0b; border-radius:10px; padding:16px 20px; margin:22px 0;">
+            <p style="margin:0 0 8px; font-size:11px; font-weight:800; color:#f59e0b; text-transform:uppercase; letter-spacing:1.5px;">💬 Mensaje de Brokergy</p>
+            <p style="margin:0; font-size:14px; line-height:1.6; color:rgba(255,255,255,0.85); white-space:pre-wrap;">${escapeHtml(adminMessage)}</p>
+        </div>
+    ` : '';
 
     const clienteInfoHtml = clienteData ? `
         <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:14px; padding:18px 22px; margin:24px 0;">
@@ -848,6 +893,7 @@ const sendCertificadorFinalNotificationEmail = async ({
         <tr><td align="center">
             <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px; background-color:#111827; border-radius:24px; border:1px solid rgba(255,255,255,0.06); overflow:hidden;">
                 <tr><td style="height:4px; background:linear-gradient(90deg, #f59e0b, #ea580c);"></td></tr>
+                ${urgentBannerHtml}
                 <tr>
                     <td style="padding:40px 40px 10px;">
                         <div style="font-size:22px; font-weight:900; letter-spacing:-0.5px; text-align:center;">
@@ -867,6 +913,8 @@ const sendCertificadorFinalNotificationEmail = async ({
                         </p>
 
                         ${clienteInfoHtml}
+
+                        ${adminMessageHtml}
 
                         <h3 style="margin:24px 0 12px; font-size:14px; font-weight:700; color:#ffffff;">Accesos directos:</h3>
                         <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
@@ -901,7 +949,9 @@ const sendCertificadorFinalNotificationEmail = async ({
 </body>
 </html>`;
 
-    const text = `¡Hola ${certName}!\n\nYa puedes emitir el CEE FINAL para el expediente ${expedienteNum}.\n\n${ackLink ? 'Para aceptar el encargo haz clic aquí: ' + ackLink + '\n\n' : ''}Documentación disponible en: ${ceeFolderLink}\n\nBROKERGY · Ingeniería Energética`;
+    const urgentText = isUrgent ? '🚨 URGENTE 🚨\n\n' : '';
+    const adminMsgText = adminMessage ? `\nMensaje de Brokergy:\n${adminMessage}\n\n` : '';
+    const text = `${urgentText}¡Hola ${certName}!\n\nYa puedes emitir el CEE FINAL para el expediente ${expedienteNum}.\n\n${adminMsgText}${ackLink ? 'Para aceptar el encargo haz clic aquí: ' + ackLink + '\n\n' : ''}Documentación disponible en: ${ceeFolderLink}\n\nBROKERGY · Ingeniería Energética`;
 
     return sendMail({ to, subject, html, text });
 };

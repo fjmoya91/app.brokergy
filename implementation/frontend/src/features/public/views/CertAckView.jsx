@@ -16,8 +16,10 @@ export function CertAckView({ expedienteId, token, phase }) {
                 });
                 setData(res.data);
                 setStatus('success');
-                
-                // Redirigir al expediente (que pedirá login si no está autenticado)
+
+                // Redirigir siempre al expediente. Si hay sesión Supabase activa, la
+                // app abre el expediente; si no, muestra el LoginView y el
+                // initialExpediente persiste tras el login.
                 setTimeout(() => {
                     window.location.href = `/?exp=${expedienteId}`;
                 }, 2500);

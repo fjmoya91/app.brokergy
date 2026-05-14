@@ -42,7 +42,11 @@ export const AuthProvider = ({ children }) => {
   const cachedProfile = getCachedProfile();
   const [user, setUser] = useState(cachedProfile);
   const [session, setSession] = useState(null);
-  const [loading, setLoading] = useState(!cachedProfile);
+  // Siempre arrancamos en loading=true para esperar a que Supabase confirme la
+  // sesión. Sin esto, el cache de localStorage hace que la app pinte el
+  // Dashboard antes de saber si el token es válido, generando 401 cuando la
+  // sesión está caducada (caso típico: link "Aceptar Encargo" desde email).
+  const [loading, setLoading] = useState(true);
   
   // Refs para controlar el flujo sin depender de closures obsoletas
   const hasRichProfile = useRef(!!cachedProfile?.rol);
@@ -58,6 +62,28 @@ export const AuthProvider = ({ children }) => {
 
   useEffect(() => {
     let isMounted = true;
+
+    // Interceptor global de respuestas 401: si una request falla por sesión
+    // caducada/no presente, limpiamos el perfil cacheado y la cookie de
+    // Authorization para que la app muestre el login en vez de seguir
+    // intentando renderizar el dashboard con datos stale.
+    // Excluye /cert-ack y /aceptar-propuesta (rutas públicas que pueden 401
+    // por token de negocio inválido, no por sesión).
+    const axiosInterceptor = axios.interceptors.response.use(
+      r => r,
+      (error) => {
+        const status = error?.response?.status;
+        const url = error?.config?.url || '';
+        const isPublicEndpoint = url.includes('/cert-ack') || url.includes('/aceptar-propuesta') || url.includes('/subir-cifo');
+        if (status === 401 && !isPublicEndpoint) {
+          hasRichProfile.current = false;
+          setCachedProfile(null);
+          setAxiosAuth(null);
+          setUser(null);
+        }
+        return Promise.reject(error);
+      }
+    );
 
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (!isMounted) return;
@@ -104,6 +130,7 @@ export const AuthProvider = ({ children }) => {
     return () => {
       isMounted = false;
       subscription.unsubscribe();
+      axios.interceptors.response.eject(axiosInterceptor);
     };
   }, []);
 
