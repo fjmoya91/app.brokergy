@@ -363,11 +363,11 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
             return;
         }
 
-        // Pre-validación del email del cert (evita roundtrip si el cert no tiene email registrado)
+        // Pre-validación del email del cert (solo si vamos a notificar; "Solo asignar" no requiere email)
         const localCert = certificadores.find(c => String(c.id_empresa) === String(local.certificador_id));
         const knownEmail = localCert?.email;
 
-        if (!knownEmail) {
+        if (notify && !knownEmail) {
             setCertNotifResult({
                 type: 'error',
                 text: `${localCert?.razon_social || 'El certificador'} no tiene email registrado en su ficha. Edítalo desde Prescriptores.`
