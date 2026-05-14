@@ -1,8 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, lazy, Suspense } from 'react';
 import axios from 'axios';
 import { CatastroSearchBox } from './components/CatastroSearchBox';
 import { ConfirmationCard } from './components/ConfirmationCard';
 import { PropertySheet } from './components/PropertySheet';
+import { GeoLocatingOverlay } from './components/GeoLocatingOverlay';
+import { MapPickerModal } from './components/MapPickerModal';
 import { CalculatorView } from './features/calculator/views/CalculatorView';
 import { AdminPanelView } from './features/admin/views/AdminPanelView';
 import { useAuth } from './context/AuthContext';
@@ -19,11 +21,31 @@ import { CertAckView } from './features/public/views/CertAckView';
 import { SubirCifoView } from './features/public/views/SubirCifoView';
 import { WhatsappSettingsView } from './features/whatsapp/views/WhatsappSettingsView';
 
+// Landing pública — chunk separado (lazy) para que admin/partners no lo descarguen
+const LandingFunnelView = lazy(() => import('./features/landing/views/LandingFunnelView'));
+
 const API_URL = '/api/catastro'; // Vercel force redeploy v3
 
 function App() {
   const { user, loading: authLoading } = useAuth();
   const [step, setStep] = useState('ADMIN');
+
+  // 0. Detección de landing pública (/calcula-tu-ayuda y /p/[slug]).
+  //    Se renderiza condicionalmente más abajo, antes que cualquier otra vista,
+  //    para que el visitante no necesite estar autenticado ni cargue el dashboard.
+  const [landingRoute] = useState(() => {
+    const path = window.location.pathname;
+    if (path === '/calcula-tu-ayuda' || path === '/ayudas-aerotermia') {
+      return { type: 'brokergy', slug: null };
+    }
+    if (path.startsWith('/p/')) {
+      const slug = path.split('/p/')[1]?.split('/')[0] || null;
+      if (slug && /^[a-z0-9]([a-z0-9-]{1,78}[a-z0-9])$/.test(slug)) {
+        return { type: 'partner', slug };
+      }
+    }
+    return null;
+  });
 
   // 1. Detectar parámetros de URL (necesarios para inicializar otros estados)
   const [resetToken, setResetToken] = useState(() => {
@@ -103,6 +125,11 @@ function App() {
   const [pendingPropertyData, setPendingPropertyData] = useState(null);
   const [showOverwriteConfirm, setShowOverwriteConfirm] = useState(false);
 
+  // Geolocate states
+  const [geoStage, setGeoStage] = useState(null); // 'gps' | 'catastro' | 'neighbors' | null
+  const [lastGeoCoords, setLastGeoCoords] = useState(null); // { lat, lng } — última posición usada para reverse-geocode
+  const [showMapPicker, setShowMapPicker] = useState(false);
+
   // Scroll al inicio cuando cambia de pantalla (mejora UX en móvil)
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -176,6 +203,112 @@ function App() {
     }
   };
 
+  // Construye el candidate y carga vecinos. Reutilizable desde GPS y MapPicker.
+  const buildCandidateFromPropertyData = async (propertyData, location) => {
+    const candidate = {
+      description: propertyData.address,
+      rc: propertyData.rc,
+      location,
+      imageUrl: `${API_URL}/image/${propertyData.rc}`,
+      fullData: propertyData,
+      isResolved: true,
+      neighbors: []
+    };
+
+    if (propertyData.address) {
+      try {
+        setGeoStage('neighbors');
+        const neighborsRes = await axios.get(`${API_URL}/neighbors`, {
+          params: { address: propertyData.address }
+        });
+        candidate.neighbors = neighborsRes.data;
+      } catch (e) {
+        console.warn('No se pudieron cargar vecinos', e);
+      }
+    }
+
+    return candidate;
+  };
+
+  const handleGeolocate = () => {
+    return new Promise((resolve) => {
+      if (!navigator.geolocation) {
+        setError('Tu navegador no soporta geolocalización.');
+        resolve();
+        return;
+      }
+
+      setError(null);
+      setPersistentCalculatorInputs(null);
+      setGeoStage('gps');
+
+      navigator.geolocation.getCurrentPosition(
+        async (position) => {
+          try {
+            const { latitude: lat, longitude: lng } = position.coords;
+            setLastGeoCoords({ lat, lng });
+            setGeoStage('catastro');
+
+            const revRes = await axios.post(`${API_URL}/reverse-geocode`, {
+              lat,
+              lng,
+              source: 'gps'
+            });
+            const propertyData = revRes.data;
+
+            const candidate = await buildCandidateFromPropertyData(propertyData, { lat, lng });
+
+            setSelectedCandidate(candidate);
+            setCandidates([candidate]);
+            setStep('CONFIRM');
+          } catch (err) {
+            console.error(err);
+            if (err.response?.status === 404) {
+              setError('No se ha encontrado ninguna propiedad en tu ubicación actual. Prueba a ajustar la posición en el mapa o a buscar por dirección.');
+            } else {
+              setError('No se pudo obtener la información catastral de tu ubicación.');
+            }
+          } finally {
+            setGeoStage(null);
+            resolve();
+          }
+        },
+        (err) => {
+          setGeoStage(null);
+          console.error('Geolocation error', err);
+          if (err.code === 1) {
+            setError('Has denegado el acceso a la ubicación. Habilítalo en los ajustes del navegador para usar esta función.');
+          } else if (err.code === 2) {
+            setError('No se pudo determinar tu ubicación. Comprueba que el GPS está activo.');
+          } else if (err.code === 3) {
+            setError('Tu ubicación ha tardado demasiado en obtenerse. Inténtalo de nuevo.');
+          } else {
+            setError('No se pudo obtener tu ubicación.');
+          }
+          resolve();
+        },
+        { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+      );
+    });
+  };
+
+  // Llamado desde MapPickerModal cuando el usuario confirma una ubicación manual.
+  const handleMapPickConfirm = async (propertyData) => {
+    setShowMapPicker(false);
+    setGeoStage('neighbors');
+    try {
+      const candidate = await buildCandidateFromPropertyData(propertyData, lastGeoCoords);
+      setSelectedCandidate(candidate);
+      setCandidates([candidate]);
+      setStep('CONFIRM');
+    } catch (err) {
+      console.error(err);
+      setError('No se pudo cargar el entorno de la vivienda seleccionada.');
+    } finally {
+      setGeoStage(null);
+    }
+  };
+
   const handleAddressSelect = async (suggestion) => {
     setLoading(true);
     setError(null);
@@ -184,6 +317,7 @@ function App() {
       // 1. Get Details (Lat/Lng)
       const detailsRes = await axios.get(`${API_URL}/place-details`, { params: { place_id: suggestion.place_id } });
       const location = detailsRes.data; // { lat, lng }
+      setLastGeoCoords(location);
 
       // 2. Resolve to RC using reverse-geocode
       const revRes = await axios.post(`${API_URL}/reverse-geocode`, {
@@ -491,8 +625,16 @@ function App() {
     <div className="min-h-screen bg-slate-950 overflow-x-hidden relative">
       <DynamicNetworkBackground />
       
-      <div className={`relative z-10 ${(user && !firmaOportunidadId && !resetToken && !certAckData && !cifoUploadId) ? 'p-0 h-screen overflow-hidden' : 'px-4 py-8'}`}>
-        {cifoUploadId ? (
+      <div className={`relative z-10 ${(user && !firmaOportunidadId && !resetToken && !certAckData && !cifoUploadId && !landingRoute) ? 'p-0 h-screen overflow-hidden' : 'px-4 py-8'}`}>
+        {landingRoute ? (
+          <Suspense fallback={
+            <div className="min-h-screen flex items-center justify-center">
+              <div className="animate-pulse text-amber-500 font-bold tracking-widest text-sm uppercase">Cargando…</div>
+            </div>
+          }>
+            <LandingFunnelView route={landingRoute} />
+          </Suspense>
+        ) : cifoUploadId ? (
           <SubirCifoView expedienteId={cifoUploadId} />
         ) : certAckData ? (
           <CertAckView expedienteId={certAckData.id} token={certAckData.token} phase={certAckData.phase} />
@@ -627,6 +769,7 @@ function App() {
                     <CatastroSearchBox
                       onSearch={handleSearch}
                       onAddressSelect={handleAddressSelect}
+                      onGeolocate={handleGeolocate}
                       onManualEntry={() => handleOpenCalculator(null)}
                     />
                   </div>
@@ -640,6 +783,7 @@ function App() {
                       candidate={selectedCandidate}
                       onConfirm={handleConfirmAddress}
                       onCancel={reset}
+                      onPickOnMap={lastGeoCoords ? () => setShowMapPicker(true) : undefined}
                     />
                   </div>
                 )}
@@ -724,10 +868,24 @@ function App() {
               <CatastroSearchBox
                 onSearch={(q) => { setShowSearchModal(false); handleSearch(q); }}
                 onAddressSelect={(c) => { setShowSearchModal(false); handleAddressSelect(c); }}
+                onGeolocate={async () => { setShowSearchModal(false); await handleGeolocate(); }}
                 onManualEntry={() => { setShowSearchModal(false); handleOpenCalculator(null); }}
               />
             </div>
         </div>
+      )}
+
+      {/* GPS / Catastro loading overlay (sobre cualquier vista) */}
+      <GeoLocatingOverlay stage={geoStage} />
+
+      {/* Map picker (ajuste manual de ubicación) */}
+      {showMapPicker && lastGeoCoords && (
+        <MapPickerModal
+          initialLat={lastGeoCoords.lat}
+          initialLng={lastGeoCoords.lng}
+          onConfirm={handleMapPickConfirm}
+          onCancel={() => setShowMapPicker(false)}
+        />
       )}
 
       {showExistingModal && existingOpportunityData && (
