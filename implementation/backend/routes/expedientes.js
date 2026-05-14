@@ -1165,11 +1165,15 @@ router.post('/:id/notify-certificador', enforceAuth, async (req, res) => {
                 if (ceeFolderId && !ceeFolderLink) {
                     ceeFolderLink = await driveService.getWebViewLink(ceeFolderId);
                 }
+                // Persistir SIEMPRE la info de carpeta, independiente del grant
                 if (ceeFolderId) {
-                    await driveService.grantPermissionToEmail(ceeFolderId, cert.email, 'writer');
-                    driveAccessGranted = true;
                     workingCee.cee_folder_id = ceeFolderId;
                     workingCee.cee_folder_link = ceeFolderLink;
+                }
+                // Grant solo si el cert tiene email registrado
+                if (ceeFolderId && cert.email) {
+                    await driveService.grantPermissionToEmail(ceeFolderId, cert.email, 'writer');
+                    driveAccessGranted = true;
                 }
             } catch (driveErr) {
                 console.error('[notify-certificador] error Drive:', driveErr.message);
@@ -1256,9 +1260,9 @@ router.post('/:id/notify-certificador', enforceAuth, async (req, res) => {
 
                 let waMsg = '';
                 if (template === 'reminder') {
-                    waMsg = `¡Hola *${certName}*! 👋\n\nTe recordamos que tienes pendiente el *${phaseLabel}* del expediente *${expedienteNum}*${clienteName ? ` (${clienteName})` : ''}.\n\n¿Podrías darnos una estimación de fecha de entrega?\n\n${ceeFolderLink ? '📁 Carpeta: ' + ceeFolderLink + '\n' : ''}${portalLink ? '🔗 Portal: ' + portalLink + '\n' : ''}\n¡Gracias!\n*BROKERGY · Ingeniería Energética*`;
+                    waMsg = `¡Hola *${certName}*! 👋\n\nTe recordamos que tienes pendiente el *${phaseLabel}* del expediente *${expedienteNum}*${clienteName ? ` (${clienteName})` : ''}.\n\n¿Podrías darnos una estimación de fecha de entrega?${adminMsgWa}\n\n${ceeFolderLink ? '📁 Carpeta: ' + ceeFolderLink + '\n' : ''}${portalLink ? '🔗 Portal: ' + portalLink + '\n' : ''}\n¡Gracias!\n*BROKERGY · Ingeniería Energética*`;
                 } else if (template === 'urgent') {
-                    waMsg = `*⚠️ AVISO URGENTE*\n\nHola *${certName}*, necesitamos con urgencia el *${phaseLabel}* del expediente *${expedienteNum}*${clienteName ? ` (${clienteName})` : ''}.\n\nEs importante que lo priorices para cumplir con los plazos del programa.\n\n${ceeFolderLink ? '📁 Carpeta: ' + ceeFolderLink + '\n' : ''}${portalLink ? '🔗 Portal: ' + portalLink + '\n' : ''}\nQuedamos a la espera.\n*BROKERGY · Ingeniería Energética*`;
+                    waMsg = `*⚠️ AVISO URGENTE*\n\nHola *${certName}*, necesitamos con urgencia el *${phaseLabel}* del expediente *${expedienteNum}*${clienteName ? ` (${clienteName})` : ''}.\n\nEs importante que lo priorices para cumplir con los plazos del programa.${adminMsgWa}\n\n${ceeFolderLink ? '📁 Carpeta: ' + ceeFolderLink + '\n' : ''}${portalLink ? '🔗 Portal: ' + portalLink + '\n' : ''}\nQuedamos a la espera.\n*BROKERGY · Ingeniería Energética*`;
                 } else if (phase === 'final') {
                     waMsg = `${urgentWaPrefix}¡Hola *${certName}*! 👋\n\nYa puedes presentar el *CEE FINAL* del expediente *${expedienteNum}*${clienteName ? ` (${clienteName})` : ''}.\n\nToda la documentación de obra ya está en la carpeta compartida.${adminMsgWa}\n\n${ceeFolderLink ? '📁 Carpeta: ' + ceeFolderLink + '\n' : ''}${portalLink ? '🔗 Portal: ' + portalLink + '\n' : ''}\n¡Gracias!\n*BROKERGY · Ingeniería Energética*`;
                 } else {
@@ -1328,7 +1332,7 @@ router.post('/:id/notify-certificador', enforceAuth, async (req, res) => {
 // Protegido por token temporal generado en notify-certificador.
 router.post('/:id/cert-ack', async (req, res) => {
     try {
-        const { token, phase } = req.body;
+        const { token } = req.body;
         if (!token) return res.status(400).json({ error: 'Token requerido' });
 
         const { data: exp, error: expErr } = await supabase
@@ -1343,19 +1347,24 @@ router.post('/:id/cert-ack', async (req, res) => {
             return res.status(403).json({ error: 'Token inválido o expirado. Es posible que se haya enviado una notificación más reciente.' });
         }
 
+        // La fase REAL es la que se guardó al generar el token, no la del body
+        // (evita que un URL manipulado cambie el estado a fase incorrecta)
+        const phase = cee.ack_phase || req.body.phase || 'initial';
+
         // Token válido — marcar como confirmado
         const certId = cee.certificador_id;
         const { data: cert } = await supabase.from('prescriptores').select('razon_social, acronimo').eq('id_empresa', certId).maybeSingle();
         const certName = cert?.razon_social || cert?.acronimo || 'Técnico';
 
         const phaseLabel = phase === 'final' ? 'CEE Final' : 'CEE Inicial';
+        const newEstado = phase === 'final' ? 'EN TRABAJO (CEE FINAL)' : 'EN TRABAJO (CEE INICIAL)';
 
         // Invalidar token (uso único)
         cee.ack_token = null;
         cee.ack_confirmed_at = new Date().toISOString();
         cee.ack_confirmed_phase = phase;
-        cee.estado = phase === 'final' ? 'EN TRABAJO (CEE FINAL)' : 'EN TRABAJO (CEE INICIAL)';
-        
+        cee.estado = newEstado;
+
         const seguimiento = exp.seguimiento || { cee_inicial: 'ASIGNADO', cee_final: 'ASIGNADO', anexos: 'PTE_EMITIR' };
         if (phase === 'final') {
             seguimiento.cee_final = 'EN_TRABAJO';
@@ -1363,25 +1372,36 @@ router.post('/:id/cert-ack', async (req, res) => {
             seguimiento.cee_inicial = 'EN_TRABAJO';
         }
 
-        await supabase.from('expedientes').update({ cee, seguimiento, updated_at: new Date().toISOString() }).eq('id', req.params.id);
+        // Persistimos cee + seguimiento + estado global + historial en una sola escritura
+        const docObj = exp.documentacion || {};
+        const historial = docObj.historial || [];
+        const nowIso = new Date().toISOString();
 
-        // Registrar en historial
-        try {
-            const docObj = exp.documentacion || {};
-            const historial = docObj.historial || [];
-            historial.push({
-                id: Date.now().toString() + '_certack',
-                tipo: 'confirmacion_certificador',
-                texto: `El certificador ${certName} ha confirmado la recepción del encargo ${phaseLabel}`,
-                fecha: new Date().toISOString(),
-                usuario: certName
-            });
-            await supabase.from('expedientes')
-                .update({ documentacion: { ...docObj, historial }, updated_at: new Date().toISOString() })
-                .eq('id', req.params.id);
-        } catch (histErr) {
-            console.error('[cert-ack] Error guardando historial:', histErr.message);
-        }
+        // Entry de confirmación (tipo)
+        historial.push({
+            id: Date.now().toString() + '_certack',
+            tipo: 'confirmacion_certificador',
+            texto: `El certificador ${certName} ha confirmado la recepción del encargo ${phaseLabel}`,
+            fecha: nowIso,
+            usuario: certName
+        });
+        // Entry de cambio de estado (para historial unificado)
+        historial.push({
+            id: Date.now().toString() + '_status_certack',
+            estado: newEstado,
+            fecha: nowIso,
+            usuario: certName
+        });
+
+        await supabase.from('expedientes')
+            .update({
+                cee,
+                seguimiento,
+                estado: newEstado,
+                documentacion: { ...docObj, historial },
+                updated_at: nowIso
+            })
+            .eq('id', req.params.id);
 
         // Notificar a BROKERGY por email (de fondo, sin bloquear respuesta)
         setImmediate(async () => {
@@ -1472,6 +1492,11 @@ router.post('/:id/notify-review', enforceAuth, async (req, res) => {
         const portalLink = `${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/?exp=${req.params.id}`;
         const ceeFolderLink = exp.cee?.cee_folder_link || null;
 
+        // ¿Es un reenvío? (ya estaba PTE_REVISION antes de esta llamada)
+        const prevSeguimiento = exp.seguimiento || {};
+        const seguimientoKey = phase === 'final' ? 'cee_final' : 'cee_inicial';
+        const isResend = prevSeguimiento[seguimientoKey] === 'PTE_REVISION';
+
         // Preparar actualizaciones
         const cee = exp.cee || {};
         cee.estado = newEstado;
@@ -1482,25 +1507,29 @@ router.post('/:id/notify-review', enforceAuth, async (req, res) => {
 
         const priorityTag = priority === 'urgent' ? ' · 🚨 URGENTE' : '';
         const msgTag = techMessage ? `\n💬 Mensaje: "${techMessage}"` : '';
+        const resendTag = isResend ? ' (reenvío)' : '';
 
         // 1. Notificación técnica (con prioridad y mensaje opcional)
         historial.push({
             id: Date.now().toString() + '_revreq',
             tipo: 'notificacion_tecnica',
-            texto: `El técnico ha subido el archivo .CEX del ${phaseLabel}${priorityTag}. PENDIENTE DE REVISIÓN por BROKERGY.${msgTag}`,
+            texto: `El técnico ha subido el archivo .CEX del ${phaseLabel}${priorityTag}${resendTag}. PENDIENTE DE REVISIÓN por BROKERGY.${msgTag}`,
             priority,
             techMessage,
+            isResend,
             fecha: new Date().toISOString(),
             usuario: userName || 'Sistema'
         });
 
-        // 2. Cambio de estado para historial unificado
-        historial.push({
-            id: Date.now().toString() + '_status',
-            estado: globalEstado,
-            fecha: new Date().toISOString(),
-            usuario: userName || 'Sistema'
-        });
+        // 2. Cambio de estado para historial unificado (solo si no es reenvío)
+        if (!isResend) {
+            historial.push({
+                id: Date.now().toString() + '_status',
+                estado: globalEstado,
+                fecha: new Date().toISOString(),
+                usuario: userName || 'Sistema'
+            });
+        }
 
         const seguimiento = exp.seguimiento || { cee_inicial: 'ASIGNADO', cee_final: 'ASIGNADO', anexos: 'PTE_EMITIR' };
         if (phase === 'final') {
@@ -1524,6 +1553,8 @@ router.post('/:id/notify-review', enforceAuth, async (req, res) => {
             throw updErr;
         }
 
+        const channels = [];
+
         // Email rico al admin
         try {
             await emailService.sendReviewRequestEmailToAdmin({
@@ -1539,12 +1570,30 @@ router.post('/:id/notify-review', enforceAuth, async (req, res) => {
                 ceeFolderLink,
                 priority,
                 techMessage,
+                isResend,
             });
+            channels.push('Email');
         } catch (mailErr) {
             console.error('Error enviando email a admin notify-review:', mailErr.message);
         }
 
-        res.json({ ok: true, newEstado, priority });
+        // WhatsApp al admin (homogeneidad con el flujo admin → cert)
+        try {
+            const adminPhone = process.env.WHATSAPP_ADMIN_CHAT;
+            if (adminPhone) {
+                const urgentWaPrefix = priority === 'urgent' ? '🚨 *URGENTE* 🚨\n\n' : '';
+                const resendWaTag = isResend ? ' *(reenvío)*' : '';
+                const msgBlock = techMessage ? `\n💬 *Mensaje del técnico:* ${techMessage}\n` : '';
+                const clientLine = clienteName ? ` del cliente *${clienteName}*` : '';
+                const waMsg = `${urgentWaPrefix}📢 *REVISIÓN SOLICITADA*${resendWaTag}\n\nEl técnico *${certName}* ha subido el *.CEX* del *${phaseLabel}* del expediente *${expedienteNum}*${clientLine}.${msgBlock}\n${certPhone ? '📞 Tlf técnico: ' + certPhone + '\n' : ''}🔗 Ver expediente: ${portalLink}\n${ceeFolderLink ? '📁 Carpeta CEE: ' + ceeFolderLink + '\n' : ''}\n*BROKERGY · Ingeniería Energética*`;
+                await whatsappService.sendText(adminPhone, waMsg);
+                channels.push('WhatsApp');
+            }
+        } catch (waErr) {
+            console.error('[notify-review] Error WhatsApp admin:', waErr.message);
+        }
+
+        res.json({ ok: true, newEstado, priority, isResend, channels });
     } catch (err) {
         console.error('[notify-review]', err.message);
         res.status(500).json({ error: 'Error procesando la solicitud de revisión' });

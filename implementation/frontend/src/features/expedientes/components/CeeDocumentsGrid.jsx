@@ -97,6 +97,7 @@ export function CeeDocumentsGrid({
     const [certNotifyModal, setCertNotifyModal] = useState(null); // { section: 'inicial'|'final' }
     const [certTemplate, setCertTemplate] = useState('standard');
     const [certChannels, setCertChannels] = useState(['email']);
+    const [certNotifyMessage, setCertNotifyMessage] = useState('');
     const [sendingCertNotify, setSendingCertNotify] = useState(false);
     // ── Modal "solicitar revisión a Brokergy" disparado al subir .CEX (certificador) ──
     const [notifyReviewModal, setNotifyReviewModal] = useState(null); // { section: 'inicial'|'final' }
@@ -467,6 +468,7 @@ export function CeeDocumentsGrid({
                                                             onClick={() => {
                                                                 setCertTemplate('standard');
                                                                 setCertChannels(['email']);
+                                                                setCertNotifyMessage('');
                                                                 setCertNotifyModal({ section });
                                                             }}
                                                             className="w-7 h-7 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center text-white/40 hover:bg-brand/20 hover:text-brand hover:border-brand/40 transition-all active:scale-95"
@@ -986,6 +988,19 @@ export function CeeDocumentsGrid({
                             )}
                         </div>
 
+                        {/* Mensaje libre */}
+                        <p className="text-[9px] font-black text-white/30 uppercase tracking-widest mb-2">Mensaje adicional (opcional)</p>
+                        <textarea
+                            value={certNotifyMessage}
+                            onChange={e => setCertNotifyMessage(e.target.value)}
+                            disabled={sendingCertNotify}
+                            placeholder="Indicaciones específicas para el certificador (se incluyen en email/WhatsApp y se registran en el historial)…"
+                            rows={3}
+                            maxLength={500}
+                            className="w-full bg-black/30 border border-white/10 rounded-xl p-3 text-xs text-white placeholder:text-white/20 focus:outline-none focus:border-brand/40 resize-none mb-1"
+                        />
+                        <p className="text-[9px] text-white/20 mb-5 text-right">{certNotifyMessage.length}/500</p>
+
                         {/* Botón Enviar */}
                         <button
                             disabled={sendingCertNotify || certChannels.length === 0}
@@ -1009,7 +1024,7 @@ export function CeeDocumentsGrid({
                                 setSendingCertNotify(true);
                                 try {
                                     const phase = certNotifyModal.section === 'final' ? 'final' : 'initial';
-                                    await onForceNotify(phase, certChannels, certTemplate);
+                                    await onForceNotify(phase, certChannels, certTemplate, certNotifyMessage);
                                     setCertNotifyModal(null);
                                 } catch (err) {
                                     console.error('Error notifying cert:', err);

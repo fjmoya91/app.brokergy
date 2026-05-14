@@ -961,11 +961,19 @@ const sendCertificadorFinalNotificationEmail = async ({
  */
 const sendCertificadorReminderEmail = async ({
     to, certName, expedienteNum, clienteName, clienteData,
-    ficha, tipoActuacion, ceeFolderLink, portalLink, ackLink
+    ficha, tipoActuacion, ceeFolderLink, portalLink, ackLink,
+    adminMessage = null,
 }) => {
     const tipoLabel = tipoActuacion || 'CEE';
     const clienteUpper = (clienteName || '').toUpperCase().trim();
     const subject = `Recordatorio: ${expedienteNum} (${tipoLabel}) – ${clienteUpper}`;
+
+    const adminMessageHtml = adminMessage ? `
+        <div style="background:rgba(59,130,246,0.08); border-left:3px solid #3b82f6; border-radius:10px; padding:16px 20px; margin:22px 0;">
+            <p style="margin:0 0 8px; font-size:11px; font-weight:800; color:#60a5fa; text-transform:uppercase; letter-spacing:1.5px;">💬 Mensaje de Brokergy</p>
+            <p style="margin:0; font-size:14px; line-height:1.6; color:rgba(255,255,255,0.85); white-space:pre-wrap;">${escapeHtml(adminMessage)}</p>
+        </div>
+    ` : '';
 
     const html = `
 <!DOCTYPE html>
@@ -993,6 +1001,8 @@ const sendCertificadorReminderEmail = async ({
                             ¿Podrías darnos una estimación de fecha de entrega? Nos ayudaría mucho para la planificación.
                         </p>
 
+                        ${adminMessageHtml}
+
                         <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
                             ${portalLink ? `<tr><td align="center" style="padding-bottom:10px;"><a href="${portalLink}" target="_blank" style="display:inline-block; padding:12px 32px; background:linear-gradient(135deg, #3b82f6, #6366f1); color:#ffffff; font-size:14px; font-weight:800; text-decoration:none; border-radius:10px; width:80%; max-width:280px; box-sizing:border-box; text-align:center;">🔗 Acceder al Portal</a></td></tr>` : ''}
                             ${ceeFolderLink ? `<tr><td align="center"><a href="${ceeFolderLink}" target="_blank" style="display:inline-block; padding:12px 32px; background-color:rgba(99,102,241,0.12); border:1px solid rgba(99,102,241,0.4); color:#818cf8; font-size:14px; font-weight:800; text-decoration:none; border-radius:10px; width:80%; max-width:280px; box-sizing:border-box; text-align:center;">📁 Carpeta CEE</a></td></tr>` : ''}
@@ -1014,7 +1024,8 @@ const sendCertificadorReminderEmail = async ({
 </body>
 </html>`;
 
-    const text = `¡Hola ${certName}!\n\nTe recordamos que tienes pendiente el expediente ${expedienteNum}${clienteName ? ` (${clienteName})` : ''}.\n\n¿Podrías darnos una estimación de fecha?\n\nBROKERGY · Ingeniería Energética`;
+    const adminMsgText = adminMessage ? `\nMensaje de Brokergy:\n${adminMessage}\n\n` : '';
+    const text = `¡Hola ${certName}!\n\nTe recordamos que tienes pendiente el expediente ${expedienteNum}${clienteName ? ` (${clienteName})` : ''}.\n\n${adminMsgText}¿Podrías darnos una estimación de fecha?\n\nBROKERGY · Ingeniería Energética`;
 
     return sendMail({ to, subject, html, text });
 };
@@ -1024,11 +1035,19 @@ const sendCertificadorReminderEmail = async ({
  */
 const sendCertificadorUrgentEmail = async ({
     to, certName, expedienteNum, clienteName, clienteData,
-    ficha, tipoActuacion, ceeFolderLink, portalLink, ackLink
+    ficha, tipoActuacion, ceeFolderLink, portalLink, ackLink,
+    adminMessage = null,
 }) => {
     const tipoLabel = tipoActuacion || 'CEE';
     const clienteUpper = (clienteName || '').toUpperCase().trim();
     const subject = `⚠️ URGENTE: ${expedienteNum} (${tipoLabel}) – ${clienteUpper}`;
+
+    const adminMessageHtml = adminMessage ? `
+        <div style="background:rgba(239,68,68,0.08); border-left:3px solid #ef4444; border-radius:10px; padding:16px 20px; margin:22px 0;">
+            <p style="margin:0 0 8px; font-size:11px; font-weight:800; color:#ef4444; text-transform:uppercase; letter-spacing:1.5px;">💬 Mensaje de Brokergy</p>
+            <p style="margin:0; font-size:14px; line-height:1.6; color:rgba(255,255,255,0.85); white-space:pre-wrap;">${escapeHtml(adminMessage)}</p>
+        </div>
+    ` : '';
 
     const html = `
 <!DOCTYPE html>
@@ -1060,6 +1079,8 @@ const sendCertificadorUrgentEmail = async ({
                             Es importante que lo priorices para poder cumplir con los plazos establecidos en el programa de ayudas. Por favor, contacta con nosotros lo antes posible si hay algún impedimento.
                         </p>
 
+                        ${adminMessageHtml}
+
                         <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
                             ${portalLink ? `<tr><td align="center" style="padding-bottom:10px;"><a href="${portalLink}" target="_blank" style="display:inline-block; padding:12px 32px; background:linear-gradient(135deg, #ef4444, #dc2626); color:#ffffff; font-size:14px; font-weight:800; text-decoration:none; border-radius:10px; width:80%; max-width:280px; box-sizing:border-box; text-align:center;">🔗 Acceder al Portal</a></td></tr>` : ''}
                             ${ceeFolderLink ? `<tr><td align="center"><a href="${ceeFolderLink}" target="_blank" style="display:inline-block; padding:12px 32px; background-color:rgba(239,68,68,0.12); border:1px solid rgba(239,68,68,0.4); color:#ef4444; font-size:14px; font-weight:800; text-decoration:none; border-radius:10px; width:80%; max-width:280px; box-sizing:border-box; text-align:center;">📁 Carpeta CEE</a></td></tr>` : ''}
@@ -1081,7 +1102,8 @@ const sendCertificadorUrgentEmail = async ({
 </body>
 </html>`;
 
-    const text = `⚠️ URGENTE\n\nHola ${certName},\n\nNecesitamos con carácter urgente la documentación del expediente ${expedienteNum}${clienteName ? ` (${clienteName})` : ''}.\n\nPor favor, priorízalo para cumplir plazos.\n\nBROKERGY · Ingeniería Energética`;
+    const adminMsgText = adminMessage ? `\nMensaje de Brokergy:\n${adminMessage}\n\n` : '';
+    const text = `⚠️ URGENTE\n\nHola ${certName},\n\nNecesitamos con carácter urgente la documentación del expediente ${expedienteNum}${clienteName ? ` (${clienteName})` : ''}.\n\n${adminMsgText}Por favor, priorízalo para cumplir plazos.\n\nBROKERGY · Ingeniería Energética`;
 
     return sendMail({ to, subject, html, text });
 };
@@ -1097,18 +1119,26 @@ const sendReviewRequestEmailToAdmin = async ({
     portalLink, ceeFolderLink,
     priority = 'normal',
     techMessage = null,
+    isResend = false,
 }) => {
     const to = 'franciscojavier.moya.s2e2@gmail.com'; // Email de administración
     const phaseLabel = phase === 'final' ? 'FINAL' : 'INICIAL';
     const isUrgent = priority === 'urgent';
     const clienteUpper = (clienteName || '').toUpperCase().trim();
-    const subject = `${isUrgent ? '🚨 URGENTE — ' : ''}📢 REVISIÓN SOLICITADA — CEE ${phaseLabel} — ${numExp}${clienteUpper ? ` — “${clienteUpper}”` : ''}`;
+    const resendPrefix = isResend ? '🔁 REENVÍO — ' : '';
+    const subject = `${isUrgent ? '🚨 URGENTE — ' : ''}${resendPrefix}📢 REVISIÓN SOLICITADA — CEE ${phaseLabel} — ${numExp}${clienteUpper ? ` — “${clienteUpper}”` : ''}`;
 
     const finalPortalLink = portalLink || `${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/?exp=${expedienteId}`;
 
     const urgentBannerHtml = isUrgent ? `
         <tr><td style="padding:14px 24px; background:linear-gradient(135deg,#dc2626,#991b1b); text-align:center;">
             <p style="margin:0; font-size:13px; font-weight:900; color:#ffffff; letter-spacing:2px; text-transform:uppercase;">🚨 Revisión Urgente Solicitada 🚨</p>
+        </td></tr>
+    ` : '';
+
+    const resendBannerHtml = isResend ? `
+        <tr><td style="padding:10px 24px; background:rgba(59,130,246,0.12); border-bottom:1px solid rgba(59,130,246,0.3); text-align:center;">
+            <p style="margin:0; font-size:11px; font-weight:800; color:#60a5fa; letter-spacing:1.5px; text-transform:uppercase;">🔁 Reenvío — Ya había una solicitud previa</p>
         </td></tr>
     ` : '';
 
@@ -1156,6 +1186,7 @@ const sendReviewRequestEmailToAdmin = async ({
             <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px; background-color:#111827; border-radius:24px; border:1px solid rgba(255,255,255,0.06); overflow:hidden;">
                 <tr><td style="height:4px; background:linear-gradient(90deg, #f59e0b, #ea580c);"></td></tr>
                 ${urgentBannerHtml}
+                ${resendBannerHtml}
                 <tr>
                     <td style="padding:40px 40px 10px;">
                         <div style="font-size:22px; font-weight:900; letter-spacing:-0.5px; text-align:center;">

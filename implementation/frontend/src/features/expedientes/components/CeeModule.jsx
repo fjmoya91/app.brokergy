@@ -218,6 +218,7 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
     const [certNotifResult, setCertNotifResult] = useState(null);
     const [certPriority, setCertPriority] = useState('normal');
     const [certAdminMessage, setCertAdminMessage] = useState('');
+    const [certChannels, setCertChannels] = useState(['email']); // 'email' | 'whatsapp'
     const savedCertId = useRef(expediente?.cee?.certificador_id || null);
 
     // Notificar al padre de cambios en tiempo real
@@ -338,6 +339,7 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
             setCertNotifResult(null);
             setCertPriority('normal');
             setCertAdminMessage('');
+            setCertChannels(['email']);
         } else {
             onSave({ cee: local });
             setEditMode(false);
@@ -363,14 +365,32 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
             return;
         }
 
-        // Pre-validación del email del cert (solo si vamos a notificar; "Solo asignar" no requiere email)
+        // Pre-validación del email del cert (solo si vamos a notificar por email)
         const localCert = certificadores.find(c => String(c.id_empresa) === String(local.certificador_id));
         const knownEmail = localCert?.email;
+        const knownPhone = localCert?.telefono || localCert?.movil || localCert?.tlf || null;
 
-        if (notify && !knownEmail) {
+        const wantsEmail = notify && certChannels.includes('email');
+        const wantsWA = notify && certChannels.includes('whatsapp');
+
+        if (wantsEmail && !knownEmail) {
             setCertNotifResult({
                 type: 'error',
                 text: `${localCert?.razon_social || 'El certificador'} no tiene email registrado en su ficha. Edítalo desde Prescriptores.`
+            });
+            return;
+        }
+        if (wantsWA && !knownPhone) {
+            setCertNotifResult({
+                type: 'error',
+                text: `${localCert?.razon_social || 'El certificador'} no tiene teléfono registrado en su ficha. Edítalo desde Prescriptores.`
+            });
+            return;
+        }
+        if (notify && !wantsEmail && !wantsWA) {
+            setCertNotifResult({
+                type: 'error',
+                text: 'Selecciona al menos un canal (Email o WhatsApp).'
             });
             return;
         }
@@ -379,7 +399,8 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
         try {
             const { data } = await axios.post(`/api/expedientes/${expediente.id}/notify-certificador`, {
                 certificador_id: local.certificador_id,
-                sendEmail: !!notify,
+                sendEmail: wantsEmail,
+                sendWhatsApp: wantsWA,
                 phase: 'initial',
                 priority: certPriority,
                 adminMessage: certAdminMessage.trim() || null
@@ -387,9 +408,12 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
 
             const driveOk = data?.driveAccessGranted;
             if (notify) {
-                const target = data?.sentTo || knownEmail;
+                const chans = data?.channels || [];
                 const driveMsg = driveOk ? ' Tiene acceso de edición a la carpeta CEE.' : '';
-                setCertNotifResult({ type: 'ok', text: `Email enviado a ${target}.${driveMsg}` });
+                const sentText = chans.length > 0
+                    ? `Enviado vía ${chans.join(' + ')}${data?.sentTo ? ' (' + data.sentTo + ')' : ''}.`
+                    : `Notificación enviada.`;
+                setCertNotifResult({ type: 'ok', text: `${sentText}${driveMsg}` });
             } else {
                 const driveMsg = driveOk
                     ? `Certificador asignado. ${localCert?.razon_social || 'El cert'} tiene acceso de edición a la carpeta CEE.`
@@ -444,7 +468,7 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                 onSave({ cee: nextLocal });
             }}
             onAutoStatus={onAutoStatus}
-            onForceNotify={async (phase, channels, template) => {
+            onForceNotify={async (phase, channels, template, adminMessage) => {
                 if (!local.certificador_id) {
                     alert('Asigna primero un certificador');
                     return;
@@ -455,7 +479,9 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                         sendEmail: channels.includes('email'),
                         sendWhatsApp: channels.includes('whatsapp'),
                         phase,
-                        template
+                        template,
+                        adminMessage: (adminMessage || '').trim() || null,
+                        priority: template === 'urgent' ? 'urgent' : 'normal'
                     });
                     const msgs = [];
                     if (data.emailSent) msgs.push(`Email enviado a ${data.sentTo}`);
@@ -522,7 +548,7 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                     onSave({ cee: nextLocal });
                 }}
                 onAutoStatus={onAutoStatus}
-                onForceNotify={async (phase, channels, template) => {
+                onForceNotify={async (phase, channels, template, adminMessage) => {
                     if (!local.certificador_id) {
                         alert('Asigna primero un certificador');
                         return;
@@ -533,7 +559,9 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                             sendEmail: channels.includes('email'),
                             sendWhatsApp: channels.includes('whatsapp'),
                             phase,
-                            template
+                            template,
+                            adminMessage: (adminMessage || '').trim() || null,
+                            priority: template === 'urgent' ? 'urgent' : 'normal'
                         });
                         const msgs = [];
                         if (data.emailSent) msgs.push(`Email enviado a ${data.sentTo}`);
@@ -656,6 +684,31 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                                                 : 'border-white/5 text-white/20 hover:text-white/40'
                                         }`}
                                     >🚨 Urgente</button>
+                                </div>
+
+                                {/* Canales de comunicación */}
+                                <p className="text-[9px] font-black text-white/30 uppercase tracking-widest mb-2">Canales</p>
+                                <div className="flex gap-2 mb-4">
+                                    <button
+                                        type="button"
+                                        onClick={() => setCertChannels(prev => prev.includes('email') ? prev.filter(c => c !== 'email') : [...prev, 'email'])}
+                                        disabled={certNotifLoading}
+                                        className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all border ${
+                                            certChannels.includes('email')
+                                                ? 'bg-brand/10 border-brand/30 text-brand'
+                                                : 'border-white/5 text-white/20 hover:text-white/40'
+                                        }`}
+                                    >✉️ Email</button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setCertChannels(prev => prev.includes('whatsapp') ? prev.filter(c => c !== 'whatsapp') : [...prev, 'whatsapp'])}
+                                        disabled={certNotifLoading}
+                                        className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all border ${
+                                            certChannels.includes('whatsapp')
+                                                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                                                : 'border-white/5 text-white/20 hover:text-white/40'
+                                        }`}
+                                    >💬 WhatsApp</button>
                                 </div>
 
                                 {/* Mensaje libre */}
