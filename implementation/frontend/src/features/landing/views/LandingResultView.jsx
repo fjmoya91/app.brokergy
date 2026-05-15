@@ -46,38 +46,35 @@ export function LandingResultView({ leadResult, funnel, contacto, partnerBrandin
 
     return (
         <div className="animate-fade-in max-w-2xl mx-auto">
-            {/* Header */}
-            <div className="text-center mb-8">
-                <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-emerald-500/20 border-2 border-emerald-500/40 mb-5">
-                    <span className="text-3xl">✓</span>
-                </div>
-                <h1 className="text-2xl md:text-3xl font-black text-white tracking-tight mb-2">
+            {/* Header compacto */}
+            <div className="text-center mb-5">
+                <h1 className="text-xl md:text-2xl font-black text-white tracking-tight mb-1">
                     ¡Listo, {contacto?.nombre?.split(' ')[0] || 'enhorabuena'}!
                 </h1>
-                <p className="text-white/60 text-sm md:text-base">
+                <p className="text-white/50 text-xs md:text-sm">
                     Hemos calculado tu propuesta orientativa.
                 </p>
             </div>
 
             {/* HERO: Inversión neta final + Ayuda total */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-6">
-                <div className="p-5 bg-gradient-to-br from-emerald-500/20 to-emerald-500/5 border-2 border-emerald-500/30 rounded-3xl text-center">
-                    <div className="text-[9px] font-black uppercase tracking-widest text-emerald-300/80 mb-1">Ayuda total estimada</div>
-                    <div className="text-3xl md:text-4xl font-black text-emerald-300 tracking-tight">{fmtEur(r.totalAyuda)}</div>
-                    <div className="text-[10px] text-emerald-400/60 mt-1 font-bold uppercase tracking-widest">{r.porcentajeCubierto}% cubierto</div>
+            <div className="grid grid-cols-2 gap-2 md:gap-3 mb-4">
+                <div className="p-3 md:p-5 bg-gradient-to-br from-emerald-500/20 to-emerald-500/5 border-2 border-emerald-500/30 rounded-2xl md:rounded-3xl text-center">
+                    <div className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-emerald-300/80 mb-1">Ayuda total estimada</div>
+                    <div className="text-2xl md:text-4xl font-black text-emerald-300 tracking-tight">{fmtEur(r.totalAyudaCliente)}</div>
+                    <div className="text-[9px] md:text-[10px] text-emerald-400/60 mt-1 font-bold uppercase tracking-widest">{r.porcentajeCubiertoCliente}% cubierto</div>
                 </div>
-                <div className="p-5 bg-gradient-to-br from-amber-500/20 to-amber-500/5 border-2 border-amber-500/30 rounded-3xl text-center">
-                    <div className="text-[9px] font-black uppercase tracking-widest text-amber-300/80 mb-1">Tu inversión final</div>
-                    <div className="text-3xl md:text-4xl font-black text-amber-300 tracking-tight">{fmtEur(r.inversionNeta)}</div>
-                    <div className="text-[10px] text-amber-400/60 mt-1 font-bold uppercase tracking-widest">tras todas las ayudas</div>
+                <div className="p-3 md:p-5 bg-gradient-to-br from-amber-500/20 to-amber-500/5 border-2 border-amber-500/30 rounded-2xl md:rounded-3xl text-center">
+                    <div className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-amber-300/80 mb-1">Tu inversión final</div>
+                    <div className="text-2xl md:text-4xl font-black text-amber-300 tracking-tight">{fmtEur(r.inversionNetaCliente)}</div>
+                    <div className="text-[9px] md:text-[10px] text-amber-400/60 mt-1 font-bold uppercase tracking-widest">tras todas las ayudas</div>
                 </div>
             </div>
 
-            {/* TABLA: Análisis de subvenciones y deducciones */}
-            <div className="bg-white/[0.03] border border-white/10 rounded-3xl overflow-hidden mb-6">
-                <div className="px-5 py-3 bg-orange-500/15 border-b border-orange-500/20 flex justify-between items-center">
-                    <h3 className="text-[11px] font-black uppercase tracking-widest text-orange-300">Análisis de subvenciones y deducciones</h3>
-                    <span className="text-[9px] font-black uppercase tracking-widest text-orange-300/60">Importe</span>
+            {/* TABLA: Análisis de subvenciones y deducciones (versión cliente, simplificada) */}
+            <div className="bg-white/[0.03] border border-white/10 rounded-2xl md:rounded-3xl overflow-hidden mb-5">
+                <div className="px-4 md:px-5 py-2.5 md:py-3 bg-orange-500/15 border-b border-orange-500/20 flex justify-between items-center">
+                    <h3 className="text-[10px] md:text-[11px] font-black uppercase tracking-widest text-orange-300">Subvenciones y deducciones</h3>
+                    <span className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-orange-300/60">Importe</span>
                 </div>
                 <div className="divide-y divide-white/[0.05]">
                     <RowFin
@@ -86,21 +83,9 @@ export function LandingResultView({ leadResult, funnel, contacto, partnerBrandin
                         color="text-white"
                     />
                     <RowFin
-                        label="Bono Energético CAE (Ingreso bruto)"
-                        value={fmtEurSigned(r.caeBonus, '-')}
+                        label="Bono Energético CAE"
+                        value={fmtEurSigned(r.caeBonusNetoCliente, '-')}
                         color="text-emerald-400"
-                    />
-                    {r.irpfCaeAmount > 0 && (
-                        <RowFin
-                            label="Impuestos aplicables por cobro de ayuda CAE (estimado)"
-                            value={fmtEurSigned(r.irpfCaeAmount, '+')}
-                            color="text-pink-400 italic"
-                        />
-                    )}
-                    <RowFin
-                        label="Gestión y tramitación expediente CAE"
-                        value={fmtEurSigned(r.gestionCAE, '+')}
-                        color="text-red-400"
                     />
                     {r.irpfDeduction > 0 && (
                         <RowFin
@@ -110,17 +95,17 @@ export function LandingResultView({ leadResult, funnel, contacto, partnerBrandin
                         />
                     )}
                 </div>
-                <div className="px-5 py-3 bg-orange-500/15 border-t border-orange-500/20 flex justify-between items-center">
-                    <span className="text-[11px] font-black uppercase tracking-widest text-orange-300">Ayuda total estimada</span>
-                    <span className="text-base font-black text-orange-300">{fmtEur(r.totalAyuda)}</span>
+                <div className="px-4 md:px-5 py-2.5 md:py-3 bg-orange-500/15 border-t border-orange-500/20 flex justify-between items-center">
+                    <span className="text-[10px] md:text-[11px] font-black uppercase tracking-widest text-orange-300">Ayuda total estimada</span>
+                    <span className="text-sm md:text-base font-black text-orange-300">{fmtEur(r.totalAyudaCliente)}</span>
                 </div>
-                <div className="px-5 py-3 bg-emerald-500/15 border-t border-emerald-500/20 flex justify-between items-center">
-                    <span className="text-[11px] font-black uppercase tracking-widest text-emerald-300">% cubierto por ayudas</span>
-                    <span className="text-base font-black text-emerald-300">{r.porcentajeCubierto}%</span>
+                <div className="px-4 md:px-5 py-2.5 md:py-3 bg-emerald-500/15 border-t border-emerald-500/20 flex justify-between items-center">
+                    <span className="text-[10px] md:text-[11px] font-black uppercase tracking-widest text-emerald-300">% cubierto por ayudas</span>
+                    <span className="text-sm md:text-base font-black text-emerald-300">{r.porcentajeCubiertoCliente}%</span>
                 </div>
-                <div className="px-5 py-4 bg-black/40 border-t border-white/10 flex justify-between items-center">
+                <div className="px-4 md:px-5 py-3 md:py-4 bg-black/40 border-t border-white/10 flex justify-between items-center">
                     <span className="text-xs font-black uppercase tracking-widest text-white">Inversión neta final</span>
-                    <span className="text-2xl font-black text-white">{fmtEur(r.inversionNeta)}</span>
+                    <span className="text-xl md:text-2xl font-black text-white">{fmtEur(r.inversionNetaCliente)}</span>
                 </div>
             </div>
 

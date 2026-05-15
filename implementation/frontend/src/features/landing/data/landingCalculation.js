@@ -134,10 +134,27 @@ export function computeLandingResult(inputs) {
     const irpfCaeAmount = Math.max(0, Math.round(financials.irpfCaeAmount || 0));    // Impuestos por cobro CAE
     const irpfDeduction = Math.max(0, Math.round(financials.irpfDeduction || 0));    // Deducción IRPF rehab
     const gestionCAE = Math.max(0, Math.round(financials.caeMaintenanceCost || 250));
+
+    // Bono CAE "neto cliente" — el que se muestra al cliente final en la
+    // pantalla pública: ya tiene descontados los impuestos por cobro de CAE
+    // y el coste de gestión/tramitación. Esto simplifica la visión del cliente
+    // (una sola cifra "lo que recibes") sin perder detalle: el admin sigue
+    // viendo el desglose técnico completo en la calculadora interna.
+    const caeBonusNetoCliente = Math.max(0, caeBonus - gestionCAE - irpfCaeAmount);
+
     const totalAyuda = Math.max(0, Math.round(financials.totalBeneficioFiscal || (caeBonus - irpfCaeAmount + irpfDeduction)));
     const inversionNeta = Math.max(0, Math.round(financials.costeFinal || (presupuesto + gestionCAE - totalAyuda)));
     const porcentajeCubierto = presupuesto > 0
         ? Math.min(100, Math.round((totalAyuda / presupuesto) * 100))
+        : 0;
+
+    // Versión "cliente": como el bono CAE ya está neto (descontados impuestos
+    // y gestión), la ayuda total es solo bono_neto + deducción IRPF, y la
+    // inversión neta es presupuesto − ayuda.
+    const totalAyudaCliente = Math.max(0, caeBonusNetoCliente + irpfDeduction);
+    const inversionNetaCliente = Math.max(0, presupuesto - totalAyudaCliente);
+    const porcentajeCubiertoCliente = presupuesto > 0
+        ? Math.min(100, Math.round((totalAyudaCliente / presupuesto) * 100))
         : 0;
 
     // Gastos comparativos (€/año actual vs aerotermia)
@@ -152,7 +169,8 @@ export function computeLandingResult(inputs) {
 
     return {
         // Cifras principales
-        caeBonus,
+        caeBonus,                  // bruto (admin lo ve así)
+        caeBonusNetoCliente,       // bruto − impuestos − gestión (lo que se muestra en landing)
         irpfDeduction,
         irpfCaeAmount,
         ahorroAnualEur,
@@ -161,9 +179,14 @@ export function computeLandingResult(inputs) {
         // Desglose financiero (tabla tipo PDF)
         presupuesto: Math.round(presupuesto),
         gestionCAE,
+        // Versión completa (admin)
         totalAyuda,
         inversionNeta,
         porcentajeCubierto,
+        // Versión cliente (con gestión + impuestos ya descontados del bono)
+        totalAyudaCliente,
+        inversionNetaCliente,
+        porcentajeCubiertoCliente,
 
         // Análisis de ahorro
         gastoActualEur,

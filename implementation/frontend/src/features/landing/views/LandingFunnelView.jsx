@@ -344,20 +344,18 @@ export default function LandingFunnelView({ route }) {
             <DynamicNetworkBackground />
             <GeoLocatingOverlay stage={geoStage} />
 
-            <div className="relative z-10 px-4 py-8 md:py-12">
-                {/* Header con branding */}
-                <header className="max-w-3xl mx-auto mb-8 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                        {partnerBranding?.logo_url ? (
-                            <img src={partnerBranding.logo_url} alt={partnerBranding.nombre_comercial} className="h-10 w-auto object-contain" />
-                        ) : (
-                            <div className="text-2xl md:text-3xl font-black tracking-tight">
-                                <span className="text-white">BROKER</span><span className="text-amber-400">GY</span>
-                            </div>
-                        )}
-                    </div>
+            <div className="relative z-10 px-4 py-5 md:py-8">
+                {/* Header con branding centrado */}
+                <header className="max-w-3xl mx-auto mb-5 md:mb-8 flex flex-col items-center gap-2">
+                    {partnerBranding?.logo_url ? (
+                        <img src={partnerBranding.logo_url} alt={partnerBranding.nombre_comercial} className="h-10 md:h-12 w-auto object-contain" />
+                    ) : (
+                        <div className="text-2xl md:text-3xl font-black tracking-tight">
+                            <span className="text-white">BROKER</span><span className="text-amber-400">GY</span>
+                        </div>
+                    )}
                     {partnerBranding?.telefono_contacto && (
-                        <a href={`tel:${partnerBranding.telefono_contacto}`} className="text-xs font-bold text-amber-400 hover:text-amber-300">
+                        <a href={`tel:${partnerBranding.telefono_contacto}`} className="text-[11px] font-bold text-amber-400 hover:text-amber-300">
                             📞 {partnerBranding.telefono_contacto}
                         </a>
                     )}
