@@ -1053,10 +1053,29 @@ export function AdminPanelView({
                                             
                                             {user?.rol === 'ADMIN' && (
                                                 <td className="p-3.5 text-center min-w-[140px]" onClick={e => e.stopPropagation()}>
-                                                    <SearchablePartnerSelect 
-                                                        value={op} 
-                                                        onSelect={val => handleAssignPrescriptor({ stopPropagation: () => {} }, op, val)}
-                                                    />
+                                                    {op.datos_calculo?.origen === 'landing_publica' ? (
+                                                        // LEAD entrado por el formulario web público —
+                                                        // mostramos badge WEB y debajo el selector por si
+                                                        // el admin quiere asignar después un partner.
+                                                        <div className="flex flex-col items-stretch gap-1.5">
+                                                            <div className="inline-flex items-center justify-center gap-1.5 px-2 py-1 rounded-md bg-violet-500/15 border border-violet-500/30 text-violet-300">
+                                                                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M3.6 9h16.8M3.6 15h16.8M11.5 3a17 17 0 000 18M12.5 3a17 17 0 010 18" />
+                                                                </svg>
+                                                                <span className="text-[10px] font-black uppercase tracking-widest">Web</span>
+                                                            </div>
+                                                            <SearchablePartnerSelect
+                                                                value={op}
+                                                                onSelect={val => handleAssignPrescriptor({ stopPropagation: () => {} }, op, val)}
+                                                            />
+                                                        </div>
+                                                    ) : (
+                                                        <SearchablePartnerSelect
+                                                            value={op}
+                                                            onSelect={val => handleAssignPrescriptor({ stopPropagation: () => {} }, op, val)}
+                                                        />
+                                                    )}
                                                 </td>
                                             )}
 
