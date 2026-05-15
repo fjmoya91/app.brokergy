@@ -100,6 +100,10 @@ function funnelToCalculatorInputs(funnel, catastro) {
     inputs.superficieCalefactable = Number(catastro?.superficieCalefactable || catastro?.superficie || inputs.superficie);
     inputs.plantas = Number(catastro?.plantas || catastro?.floors?.total || BASE_DEFAULTS.plantas);
     inputs.zona = catastro?.zona || catastro?.climateInfo?.climateZone || BASE_DEFAULTS.zona;
+    // Código INE de provincia — el panel admin lee CCAA desde aquí
+    inputs.provincia = String(catastro?.provinceCode || '').padStart(2, '0').slice(0, 2);
+    inputs.direccion = catastro?.address || '';
+    inputs.municipio = catastro?.municipality || catastro?.municipio || '';
     const part = catastro?.participation
         ? parseFloat(String(catastro.participation).replace('%', '').replace(',', '.'))
         : 100;

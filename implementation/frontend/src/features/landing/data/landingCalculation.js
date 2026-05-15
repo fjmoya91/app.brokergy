@@ -128,12 +128,51 @@ export function computeLandingResult(inputs) {
 
     const financials = isReformaResult ? finRes080 : finRes;
 
+    // Desglose financiero (nombres EXACTOS de calculateFinancials)
+    const presupuesto = (inputs.presupuesto || 0) + (isReformaResult ? (inputs.presupuestoEnvolvente || 0) : 0);
+    const caeBonus = Math.max(0, Math.round(financials.caeBonus || 0));
+    const irpfCaeAmount = Math.max(0, Math.round(financials.irpfCaeAmount || 0));    // Impuestos por cobro CAE
+    const irpfDeduction = Math.max(0, Math.round(financials.irpfDeduction || 0));    // Deducción IRPF rehab
+    const gestionCAE = Math.max(0, Math.round(financials.caeMaintenanceCost || 250));
+    const totalAyuda = Math.max(0, Math.round(financials.totalBeneficioFiscal || (caeBonus - irpfCaeAmount + irpfDeduction)));
+    const inversionNeta = Math.max(0, Math.round(financials.costeFinal || (presupuesto + gestionCAE - totalAyuda)));
+    const porcentajeCubierto = presupuesto > 0
+        ? Math.min(100, Math.round((totalAyuda / presupuesto) * 100))
+        : 0;
+
+    // Gastos comparativos (€/año actual vs aerotermia)
+    const gastoActualEur = Math.max(0, Math.round(annualRes?.costeActual || (inputs.gastoAnualReal || 0)));
+    const gastoNuevoEur = Math.max(0, Math.round(annualRes?.costeNuevo || 0));
+    const ahorroAnualEur = Math.max(0, Math.round(annualRes?.ahorroAnual || 0));
+
+    // Amortización (años) — solo si hay ahorro positivo
+    const paybackYears = ahorroAnualEur > 0 && inversionNeta > 0
+        ? Math.max(0, Number((inversionNeta / ahorroAnualEur).toFixed(1)))
+        : 0;
+
     return {
-        caeBonus: Math.max(0, Math.round(financials.caeBonus || 0)),
+        // Cifras principales
+        caeBonus,
+        irpfDeduction,
+        irpfCaeAmount,
+        ahorroAnualEur,
         savingsKwh: Math.round(savings),
-        ahorroAnualEur: Math.max(0, Math.round(annualRes?.ahorroAnual || 0)),
-        co2TonsAvoided: Math.max(0, Number(co2TonsAvoided.toFixed(2))),
-        payback: null,
-        isReformaResult
+
+        // Desglose financiero (tabla tipo PDF)
+        presupuesto: Math.round(presupuesto),
+        gestionCAE,
+        totalAyuda,
+        inversionNeta,
+        porcentajeCubierto,
+
+        // Análisis de ahorro
+        gastoActualEur,
+        gastoNuevoEur,
+        paybackYears,
+
+        // Meta
+        isReformaResult,
+        fuelLabel: annualRes?.fuelLabel || 'tu sistema actual',
+        co2TonsAvoided: Math.max(0, Number(co2TonsAvoided.toFixed(2))) // queda disponible, ya no se muestra
     };
 }

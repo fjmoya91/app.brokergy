@@ -624,37 +624,55 @@ router.put('/:id/historial/:entryId', requireAuth, async (req, res) => {
 // 4. RUTAS GENÉRICAS (Al final)
 
 // Obtener una (GET /api/oportunidades/:id)
+// Acepta tanto id_oportunidad (ej. 26RES060_OP90) como ref_catastral (20 chars).
+// Si hay varias coincidencias por RC (varios LEAD para la misma vivienda),
+// devuelve la MÁS RECIENTE — nunca 500 por duplicados.
 router.get('/:id', async (req, res) => {
     try {
         const { id } = req.params;
+        if (!id) return res.status(400).json({ error: 'ID requerido' });
         console.log(`[Backend] Buscando oportunidad por ID o RC: ${id}`);
 
-        // Buscamos primero por ID interno, si no por Ref Catastral.
-        // Si hay varias coincidencias (ej: varias oportunidades LEAD para la
-        // misma RC), devolvemos la MÁS RECIENTE en vez de fallar con 500.
-        const { data, error } = await supabase
+        // 1. Intento por id_oportunidad
+        const byId = await supabase
             .from('oportunidades')
             .select('*')
-            .or(`id_oportunidad.eq.${id},ref_catastral.eq.${id}`)
+            .eq('id_oportunidad', id)
             .order('created_at', { ascending: false })
             .limit(1);
 
-        if (error) {
-            console.error('[Backend] Error en búsqueda or:', error);
-            return res.status(500).json({ error: 'Error consulta.' });
+        if (byId.error) {
+            console.error('[Backend] Error en búsqueda por id_oportunidad:', byId.error);
+        }
+        if (byId.data && byId.data.length > 0) {
+            const found = byId.data[0];
+            console.log(`[Backend] Encontrada por id_oportunidad: ${found.id_oportunidad}`);
+            return res.status(200).json(found);
         }
 
-        const found = data && data.length > 0 ? data[0] : null;
-        if (!found) {
-            console.log(`[Backend] Oportunidad no encontrada para: ${id}`);
-            return res.status(404).json({ error: 'No encontrada.' });
+        // 2. Fallback por ref_catastral
+        const byRc = await supabase
+            .from('oportunidades')
+            .select('*')
+            .eq('ref_catastral', id)
+            .order('created_at', { ascending: false })
+            .limit(1);
+
+        if (byRc.error) {
+            console.error('[Backend] Error en búsqueda por ref_catastral:', byRc.error);
+            return res.status(500).json({ error: 'Error consulta.', details: byRc.error.message });
+        }
+        if (byRc.data && byRc.data.length > 0) {
+            const found = byRc.data[0];
+            console.log(`[Backend] Encontrada por ref_catastral: ${found.id_oportunidad}`);
+            return res.status(200).json(found);
         }
 
-        console.log(`[Backend] Oportunidad encontrada: ${found.id_oportunidad}`);
-        res.status(200).json(found);
+        console.log(`[Backend] Oportunidad no encontrada para: ${id}`);
+        return res.status(404).json({ error: 'No encontrada.' });
     } catch (error) {
         console.error('[Backend] Error fatal GET /:id:', error);
-        res.status(500).json({ error: 'Error servidor.' });
+        res.status(500).json({ error: 'Error servidor.', details: error.message });
     }
 });
 

@@ -12,22 +12,22 @@
 const EMISOR_MAP = {
     radiadores_convencionales: {
         emitterType: 'radiadores_convencionales',
-        scopHeating: 2.8,
+        scopHeating: 4.0,
         label: 'Radiadores tradicionales'
     },
     radiadores_baja_temp: {
         emitterType: 'radiadores_baja_temp',
-        scopHeating: 3.2,
+        scopHeating: 4.5,
         label: 'Radiadores de baja temperatura'
     },
     suelo_radiante: {
         emitterType: 'suelo_radiante',
-        scopHeating: 4.0,
+        scopHeating: 5.0,
         label: 'Suelo radiante'
     },
     fancoils: {
         emitterType: 'fancoils',
-        scopHeating: 3.5,
+        scopHeating: 4.0,
         label: 'Fancoils / Split'
     }
 };

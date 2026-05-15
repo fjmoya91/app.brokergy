@@ -70,23 +70,27 @@ export function Step3_EdadCaldera({ funnel, updateFunnel, onNext }) {
                         <div className="text-amber-300 text-xs font-black uppercase tracking-widest mb-2">
                             ¿Tu caldera es de condensación?
                         </div>
-                        <p className="text-white/40 text-xs">
-                            Las de condensación suelen sacar el humo por un tubo de plástico blanco
-                            por la fachada. Las antiguas usan chimenea metálica.
+                        <p className="text-white/40 text-xs leading-relaxed">
+                            <strong className="text-white/70">Pista:</strong> las de condensación
+                            tienen una <strong className="text-amber-400">manguera fina por debajo</strong>
+                            {' '}que evacúa agua. También aparece en la placa de fabricación.
+                            <br />
+                            <span className="text-white/30">(Las calderas estancas también pueden tener tubo
+                            blanco pero NO esa manguera de condensados.)</span>
                         </p>
                     </div>
                     <div className="space-y-3">
                         <IconCard
-                            icon="🤍"
-                            title="Sí, sale por un tubo blanco"
-                            subtitle="Caldera moderna de condensación (más eficiente)"
+                            icon="💧"
+                            title="Sí, tiene manguera de condensados"
+                            subtitle="Tubo fino por debajo que evacúa agua, o se indica en la placa"
                             selected={funnel.condensacion === 'si'}
                             onClick={() => selectCondensacion('si')}
                         />
                         <IconCard
                             icon="🏭"
-                            title="No, tiene chimenea o conducto metálico"
-                            subtitle="Caldera convencional"
+                            title="No, sin manguera de condensados"
+                            subtitle="Caldera convencional (atmosférica o estanca sin condensación)"
                             selected={funnel.condensacion === 'no'}
                             onClick={() => selectCondensacion('no')}
                         />
