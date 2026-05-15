@@ -23,10 +23,10 @@ const INITIAL_FUNNEL = {
     combustible_actual: null,    // 'gas' | 'gasoleo' | 'electrica' | 'solido'
     sub_solido: null,            // 'pellets' | 'lena' | 'carbon' (si aplica)
     edad_caldera: null,          // '<10' | '10-20' | '>20' | 'no_se'
+    condensacion: null,          // 'si' | 'no' | 'no_se' (solo si gas o gasoleo)
     emisor_tipo: null,           // 'radiadores_convencionales' | ...
+    boiler_acs_type: null,       // 'misma_caldera' | 'termo' | 'butano' | 'gas' | 'gasoleo' | 'solar' | 'no_tengo'
     incluir_acs: null,
-    boiler_acs_type: null,
-    insulation_state: null,
     reforma_elementos: { ventanas: false, cubierta: false, suelo: false, paredes: false },
     gasto_anual_eur: null,
     presupuesto_modo: null,      // 'tengo' | 'no_se' | 'pide_instalador'

@@ -2,12 +2,12 @@
  * Convierte el `funnelData` (respuestas del cliente sin experiencia) en
  * `calculatorInputs` (el formato exacto que entiende CalculatorView).
  *
- * El backend (leadService.createLead) almacena AMBOS objetos en
- * datos_calculo.inputs y datos_calculo.landing_funnel respectivamente.
- * Si el técnico abre la oportunidad luego, los inputs ya están listos.
+ * Mapea AMBOS esquemas de caldera para que admin vea correctamente:
+ *   - boilerId + boilerEff → desplegable RES060 (aerotermia)
+ *   - boilerHeatingType + boilerAcsType (como labels) → desplegable RES080 (reforma)
  */
 
-import { mapBoiler, shouldWarnBiomasa } from './boilerMapping';
+import { mapBoiler, mapAcsType, shouldWarnBiomasa } from './boilerMapping';
 import { mapEmisor } from './emisoresMapping';
 
 /**
@@ -27,19 +27,22 @@ function inferInsulationStateByYear(anio) {
     return 'bien_aislada';
 }
 
-/**
- * @param {object} funnel    Respuestas raw del funnel.
- * @param {object} catastro  Datos resueltos del catastro.
- * @returns {object} calculatorInputs listo para guardar.
- */
 function funnelToCalculatorInputs(funnel, catastro) {
-    const { boilerHeatingType, boilerEff, fuelType } = mapBoiler(funnel);
+    const boilerMap = mapBoiler(funnel);
     const emisor = mapEmisor(funnel.emisor_tipo);
 
-    // Edad y participación llegan del catastro; el resto se completa con
-    // defaults razonables que el técnico puede afinar en la calculadora.
+    // Label de calefacción para RES080: si no hay caldera de calefacción, usar
+    // el especial 'No tiene Calefacción'. En la landing siempre se pregunta
+    // combustible, así que esto solo aplica si combustible_actual viene vacío.
+    const heatingLabel = funnel.combustible_actual
+        ? boilerMap.boilerHeatingTypeLabel
+        : 'No tiene Calefacción';
+
+    // Label de ACS: si el usuario no respondió, default a 'Butano' (petición usuario)
+    const acsLabel = mapAcsType(funnel.boiler_acs_type, heatingLabel);
+
     const inputs = {
-        // Vivienda (de catastro o defaults)
+        // ---- Vivienda (de catastro) ----
         rc: catastro.ref_catastral || catastro.rc,
         zona: catastro.zona || 'D3',
         anio: Number(catastro.yearBuilt || catastro.anio || 2000),
@@ -51,24 +54,27 @@ function funnelToCalculatorInputs(funnel, catastro) {
         ),
         tipo: catastro.tipo || (Number(catastro.participation) < 100 ? 'piso' : 'unifamiliar'),
 
-        // Caldera + combustible (mapeo del funnel)
-        boilerHeatingType,
-        boilerEff,
-        fuelType,
+        // ---- Caldera (DOS esquemas a la vez) ----
+        // Para desplegable RES060 (aerotermia):
+        boilerId: boilerMap.boilerId,
+        boilerEff: boilerMap.boilerEff,
+        fuelType: boilerMap.fuelType,
+        // Para desplegable RES080 (reforma estimada):
+        boilerHeatingType: heatingLabel,
+        boilerAcsType: acsLabel,
 
-        // ACS
+        // ---- ACS ----
         changeAcs: !!funnel.incluir_acs,
-        boilerAcsType: funnel.boiler_acs_type || '',
         scopAcs: 3.0,
 
-        // Emisores → SCOP heating
+        // ---- Emisores → SCOP heating ----
         emitterType: emisor.emitterType,
         scopHeating: emisor.scopHeating,
 
-        // Aislamiento inferido automáticamente por año de construcción
+        // ---- Aislamiento inferido automáticamente por año ----
         insulationState: inferInsulationStateByYear(catastro.yearBuilt || catastro.anio),
 
-        // Reforma (RES080) si aplica
+        // ---- Reforma (RES080) ----
         isReforma: !!funnel.isReforma,
         reformaType: funnel.isReforma ? 'estimated' : 'none',
         reformaVentanas: !!funnel.reforma_elementos?.ventanas,
@@ -76,25 +82,29 @@ function funnelToCalculatorInputs(funnel, catastro) {
         reformaSuelo: !!funnel.reforma_elementos?.suelo,
         reformaParedes: !!funnel.reforma_elementos?.paredes,
 
-        // Gasto y modo de cálculo de ahorros
+        // ---- Gasto y ahorro ----
         savingsMode: funnel.gasto_anual_eur > 0 ? 'real' : 'theoretical',
         gastoAnualReal: Number(funnel.gasto_anual_eur) || 0,
         includeAnnualSavings: true,
 
-        // Presupuesto (default 15.000 si "no_se" o "pide_instalador")
+        // ---- Presupuesto ----
         presupuesto: funnel.presupuesto_modo === 'tengo' && funnel.presupuesto_eur > 0
             ? Number(funnel.presupuesto_eur)
             : 15000,
 
-        // Titular y cliente
+        // ---- Titular y cliente ----
         titularType: funnel.titular_type || 'particular',
         numOwners: 1,
         includeIrpf: funnel.titular_type !== 'empresa',
-        referenciaCliente: '',  // se completa en backend a partir del nombre
+        referenciaCliente: '',
 
-        // Demanda: estimada (la calculadora la computa)
+        // ---- Demanda ----
         demandMode: 'estimated',
-        xmlDemandData: null
+        xmlDemandData: null,
+
+        // ---- Precios CAE (defaults — el admin afina) ----
+        caePriceClient: 95,
+        caePriceSO: 160
     };
 
     return inputs;
