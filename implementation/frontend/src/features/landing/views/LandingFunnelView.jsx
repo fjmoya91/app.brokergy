@@ -528,50 +528,98 @@ export default function LandingFunnelView({ route }) {
             {/* Overlay calculando — mostrar durante submit */}
             <CalculatingOverlay visible={submitting} />
 
-            {/* Modal RC duplicada — la vivienda ya ha sido simulada antes */}
-            {duplicateRcInfo && (
-                <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
-                    <div className="bg-slate-900 rounded-3xl max-w-md w-full p-6 md:p-8 border-2 border-amber-500/40 shadow-2xl relative">
-                        <div className="text-center">
-                            <div className="text-5xl mb-4">🏠</div>
-                            <h3 className="text-xl md:text-2xl font-black text-white mb-2">
-                                Esta vivienda ya tiene una simulación
-                            </h3>
-                            <p className="text-white/60 text-sm mb-5 leading-relaxed">
-                                {duplicateRcInfo.daysAgo === 0
-                                    ? 'Alguien ha hecho una simulación para esta dirección hoy mismo.'
-                                    : duplicateRcInfo.daysAgo === 1
-                                        ? 'Alguien ha hecho una simulación para esta dirección hace 1 día.'
-                                        : `Alguien ha hecho una simulación para esta dirección hace ${duplicateRcInfo.daysAgo} días.`}
-                            </p>
-                            <div className="p-4 bg-white/[0.04] border border-white/10 rounded-2xl mb-5 text-left">
-                                <p className="text-white/70 text-xs leading-relaxed">
-                                    <strong className="text-amber-400">Si eres el mismo propietario,</strong> al
-                                    continuar actualizaremos tu propuesta con los datos nuevos.
-                                </p>
-                                <p className="text-white/70 text-xs leading-relaxed mt-2">
-                                    <strong className="text-amber-400">Si eres otro propietario o vecino</strong>{' '}
-                                    (en edificios divididos), también puedes continuar — crearemos una nueva simulación.
-                                </p>
-                            </div>
-                            <div className="flex flex-col gap-3">
-                                <button
-                                    onClick={handleDuplicateRcContinue}
-                                    className="w-full py-3 bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-400 hover:to-amber-300 text-bkg-deep font-black uppercase tracking-widest text-xs rounded-2xl shadow-lg shadow-amber-500/20 transition-all"
-                                >
-                                    Continuar con mi simulación
-                                </button>
-                                <button
-                                    onClick={handleDuplicateRcCancel}
-                                    className="w-full py-3 text-white/40 hover:text-white/70 text-[10px] font-black uppercase tracking-widest transition-all"
-                                >
-                                    Cancelar y buscar otra dirección
-                                </button>
-                            </div>
+            {/* Modal RC duplicada — comportamiento depende del estado */}
+            {duplicateRcInfo && (() => {
+                // Estados que indican gestión activa por Brokergy/partner → BLOQUEAR
+                // 'LEAD' = aún no se ha tocado por humanos → permitir actualizar
+                const enGestion = duplicateRcInfo.estado && duplicateRcInfo.estado !== 'LEAD';
+                const phoneContact = partnerBranding?.telefono_contacto || '900 000 000';
+                const emailContact = 'contacto@brokergy.es';
+
+                return (
+                    <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm animate-fade-in">
+                        <div className="bg-bkg-surface rounded-3xl max-w-md w-full p-6 md:p-8 border border-white/[0.08] shadow-[0_30px_100px_rgba(0,0,0,0.8)] relative">
+                            {enGestion ? (
+                                /* CASO 1: oportunidad en gestión por admin/partner → bloqueo */
+                                <div className="text-center">
+                                    <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-amber-500/15 border border-amber-500/30 mb-5">
+                                        <span className="text-3xl">🔒</span>
+                                    </div>
+                                    <h3 className="text-xl md:text-2xl font-black text-white mb-2">
+                                        Esta vivienda ya está en gestión
+                                    </h3>
+                                    <p className="text-white/55 text-sm mb-5 leading-relaxed">
+                                        Tenemos una propuesta en curso para esta dirección. Para evitar
+                                        duplicidades y darte la mejor atención, contacta directamente con nosotros.
+                                    </p>
+                                    <div className="p-4 bg-white/[0.03] border border-white/[0.08] rounded-2xl mb-5 text-left">
+                                        <p className="text-white/70 text-xs leading-relaxed mb-2">
+                                            <strong className="text-amber-400">📞 Teléfono:</strong>
+                                            <a href={`tel:${phoneContact}`} className="text-white ml-2 font-bold">{phoneContact}</a>
+                                        </p>
+                                        <p className="text-white/70 text-xs leading-relaxed">
+                                            <strong className="text-amber-400">✉ Email:</strong>
+                                            <a href={`mailto:${emailContact}`} className="text-white ml-2 font-bold">{emailContact}</a>
+                                        </p>
+                                        <p className="text-white/40 text-[10px] mt-3 leading-relaxed">
+                                            Indica la referencia catastral{' '}
+                                            <span className="font-mono text-white/60">{catastro?.rc}</span>
+                                            {' '}cuando contactes.
+                                        </p>
+                                    </div>
+                                    <button
+                                        onClick={handleDuplicateRcCancel}
+                                        className="w-full py-3 bg-white/[0.04] hover:bg-white/[0.07] border border-white/10 text-white/80 font-black uppercase tracking-widest text-xs rounded-2xl transition-all"
+                                    >
+                                        Buscar otra dirección
+                                    </button>
+                                </div>
+                            ) : (
+                                /* CASO 2: otra simulación pública previa → cliente puede continuar */
+                                <div className="text-center">
+                                    <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-white/[0.05] border border-white/[0.08] mb-5">
+                                        <span className="text-3xl">🏠</span>
+                                    </div>
+                                    <h3 className="text-xl md:text-2xl font-black text-white mb-2">
+                                        Esta vivienda ya tiene una simulación
+                                    </h3>
+                                    <p className="text-white/55 text-sm mb-5 leading-relaxed">
+                                        {duplicateRcInfo.daysAgo === 0
+                                            ? 'Se hizo una simulación para esta dirección hoy mismo.'
+                                            : duplicateRcInfo.daysAgo === 1
+                                                ? 'Se hizo una simulación para esta dirección hace 1 día.'
+                                                : `Se hizo una simulación para esta dirección hace ${duplicateRcInfo.daysAgo} días.`}
+                                    </p>
+                                    <div className="p-4 bg-white/[0.03] border border-white/[0.08] rounded-2xl mb-5 text-left">
+                                        <p className="text-white/70 text-xs leading-relaxed">
+                                            <strong className="text-amber-400">Si eres el mismo propietario,</strong>{' '}
+                                            actualizaremos tu propuesta con los datos nuevos.
+                                        </p>
+                                        <p className="text-white/70 text-xs leading-relaxed mt-2">
+                                            <strong className="text-amber-400">Si eres otro propietario o vecino</strong>{' '}
+                                            (edificios divididos), también puedes continuar — crearemos una nueva simulación.
+                                        </p>
+                                    </div>
+                                    <div className="flex flex-col gap-3">
+                                        <button
+                                            onClick={handleDuplicateRcContinue}
+                                            className="w-full py-3 bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-400 hover:to-amber-300 text-bkg-deep font-black uppercase tracking-widest text-xs rounded-2xl shadow-lg shadow-amber-500/20 transition-all"
+                                        >
+                                            Continuar con mi simulación
+                                        </button>
+                                        <button
+                                            onClick={handleDuplicateRcCancel}
+                                            className="w-full py-2 text-white/30 hover:text-white/60 text-[10px] font-black uppercase tracking-widest transition-all"
+                                        >
+                                            Cancelar y buscar otra dirección
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     </div>
-                </div>
-            )}
+                );
+            })()}
         </div>
     );
 }
