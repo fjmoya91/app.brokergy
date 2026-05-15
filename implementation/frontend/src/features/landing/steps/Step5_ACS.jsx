@@ -19,7 +19,8 @@ export function Step5_ACS({ funnel, updateFunnel, onNext }) {
             case 'gas': return 'Gas';
             case 'gasoleo': return 'Gasóleo';
             case 'electrica': return 'electricidad';
-            case 'solido': return 'biomasa';
+            case 'carbon': return 'Carbón';
+            case 'biomasa': return 'biomasa';
             default: return null;
         }
     })();
@@ -62,7 +63,7 @@ export function Step5_ACS({ funnel, updateFunnel, onNext }) {
                         onClick={() => selectAcs('termo')}
                     />
                     <IconCard
-                        icon="🍾"
+                        icon="🛢️"
                         title="Calentador de butano o GLP"
                         subtitle="Bombona de butano o tanque de propano"
                         selected={funnel.boiler_acs_type === 'butano'}

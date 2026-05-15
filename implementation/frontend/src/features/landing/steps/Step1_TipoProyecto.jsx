@@ -21,7 +21,7 @@ export function Step1_TipoProyecto({ funnel, updateFunnel, onNext }) {
                 onClick={() => select(false)}
             />
             <IconCard
-                icon="🏡"
+                icon="🏗️"
                 title="Reforma integral: aerotermia + mejorar aislamiento"
                 subtitle="Cambias la caldera y, además, mejoras ventanas, fachada o cubierta."
                 selected={funnel.isReforma === true}

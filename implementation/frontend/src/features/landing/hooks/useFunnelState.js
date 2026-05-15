@@ -20,8 +20,7 @@ const INITIAL_FUNNEL = {
 
     // Pasos del funnel
     isReforma: null,
-    combustible_actual: null,    // 'gas' | 'gasoleo' | 'electrica' | 'solido'
-    sub_solido: null,            // 'pellets' | 'lena' | 'carbon' (si aplica)
+    combustible_actual: null,    // 'gas' | 'gasoleo' | 'electrica' | 'carbon' | 'biomasa'
     edad_caldera: null,          // '<10' | '10-20' | '>20' | 'no_se'
     condensacion: null,          // 'si' | 'no' | 'no_se' (solo si gas o gasoleo)
     emisor_tipo: null,           // 'radiadores_convencionales' | ...
