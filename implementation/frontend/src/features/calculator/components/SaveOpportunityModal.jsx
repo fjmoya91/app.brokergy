@@ -226,22 +226,31 @@ export function SaveOpportunityModal({ isOpen, onClose, onSaveSuccess, onClientL
             return executeSave();
         }
 
+        // Si ya tenemos id_oportunidad cargado (caso típico: oportunidad LEAD
+        // cargada desde panel), saltamos la verificación previa — el backend
+        // hará UPDATE de esa fila al detectar el id_oportunidad en el payload.
+        if (inputs.id_oportunidad) {
+            return executeSave();
+        }
+
         setLoading(true);
         setError(null);
         try {
-            // Check if it exists
+            // Comprobar si existe una oportunidad previa para la misma RC
             await axios.get(`/api/oportunidades/${inputs.rc}`);
-            // If it succeeds (200 OK), it means it exists
+            // Si éxito (200), existe → pedimos confirmación al usuario
             setShowConfirmation(true);
             setLoading(false);
         } catch (err) {
-            // If 404, it doesn't exist, just save directly
-            if (err.response?.status === 404) {
-                executeSave();
-            } else {
-                setError('Error al verificar existencia de la oportunidad.');
-                setLoading(false);
+            // Si 404 o cualquier otro error de verificación (500, network,
+            // timeout): asumimos que no existe y procedemos a guardar.
+            // Esto evita bloquear al usuario cuando el endpoint de verificación
+            // tiene un problema transitorio — el backend ya hace dedup por
+            // id_oportunidad y por ref_catastral al insertar.
+            if (err.response?.status !== 404) {
+                console.warn('[SaveModal] Verificación previa falló; procedemos con save:', err.message);
             }
+            executeSave();
         }
     };
 

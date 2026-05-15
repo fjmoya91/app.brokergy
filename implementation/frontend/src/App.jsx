@@ -510,16 +510,11 @@ function App() {
             }
           };
 
-          let warningMsg = 'El servicio de Catastro no responde. Se muestran los datos guardados.';
-          if (code === 'RC_NOT_FOUND') {
-            warningMsg = 'La referencia catastral ya no parece existir en Catastro. Usando datos guardados.';
-          } else if (code === 'RC_INVALID_FORMAT') {
-            warningMsg = 'La referencia guardada tiene un formato inválido. Usando datos locales.';
-          }
-
-          setError(warningMsg);
-          // Quitar el aviso automáticamente después de 6 segundos
-          setTimeout(() => setError(null), 6000);
+          // El catastro falló o tardó demasiado, pero los datos guardados de
+          // la oportunidad son suficientes para mostrar la calculadora. No
+          // mostramos warning visible al admin para no confundirlo — solo
+          // dejamos un log en consola para diagnóstico.
+          console.warn(`[loadOpportunity] Catastro no respondió (code=${code || 'unknown'}). Usando datos locales de la oportunidad.`);
         }
       }
 

@@ -136,11 +136,11 @@ export function computeLandingResult(inputs) {
     const gestionCAE = Math.max(0, Math.round(financials.caeMaintenanceCost || 250));
 
     // Bono CAE "neto cliente" — el que se muestra al cliente final en la
-    // pantalla pública: ya tiene descontados los impuestos por cobro de CAE
-    // y el coste de gestión/tramitación. Esto simplifica la visión del cliente
-    // (una sola cifra "lo que recibes") sin perder detalle: el admin sigue
-    // viendo el desglose técnico completo en la calculadora interna.
-    const caeBonusNetoCliente = Math.max(0, caeBonus - gestionCAE - irpfCaeAmount);
+    // pantalla pública: SOLO se le descuenta el coste de gestión/tramitación
+    // (~250€). Los impuestos por cobro CAE no se restan aquí — son un dato
+    // técnico que solo ve el admin. El cliente ve "el bono que recibo, neto
+    // de costes operativos".
+    const caeBonusNetoCliente = Math.max(0, caeBonus - gestionCAE);
 
     const totalAyuda = Math.max(0, Math.round(financials.totalBeneficioFiscal || (caeBonus - irpfCaeAmount + irpfDeduction)));
     const inversionNeta = Math.max(0, Math.round(financials.costeFinal || (presupuesto + gestionCAE - totalAyuda)));
