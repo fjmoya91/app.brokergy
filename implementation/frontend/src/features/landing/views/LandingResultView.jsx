@@ -87,13 +87,25 @@ export function LandingResultView({ leadResult, funnel, contacto, partnerBrandin
                         value={fmtEurSigned(r.caeBonusNetoCliente, '-')}
                         color="text-emerald-400"
                     />
-                    {r.irpfDeduction > 0 && (
+                    {r.irpfDeduction > 0 && r.numOwners > 1 ? (
+                        // Mostrar una línea por propietario cuando son varios
+                        Array.from({ length: r.numOwners }, (_, i) => (
+                            <RowFin
+                                key={`irpf-${i}`}
+                                label={`Deducción IRPF Propietario ${i + 1}`}
+                                sublabel={r.irpfCap ? `${r.irpfRate}%, límite ${r.irpfCap.toLocaleString('es-ES')} €` : null}
+                                value={fmtEurSigned(r.irpfDeductionPerOwner, '-')}
+                                color="text-emerald-400"
+                            />
+                        ))
+                    ) : r.irpfDeduction > 0 ? (
                         <RowFin
                             label="Deducción en el IRPF por rehabilitación energética"
+                            sublabel={r.irpfCap ? `${r.irpfRate}%, límite ${r.irpfCap.toLocaleString('es-ES')} €` : null}
                             value={fmtEurSigned(r.irpfDeduction, '-')}
                             color="text-emerald-400"
                         />
-                    )}
+                    ) : null}
                 </div>
                 <div className="px-4 md:px-5 py-2.5 md:py-3 bg-orange-500/15 border-t border-orange-500/20 flex justify-between items-center">
                     <span className="text-[10px] md:text-[11px] font-black uppercase tracking-widest text-orange-300">Ayuda total estimada</span>
@@ -202,10 +214,15 @@ export function LandingResultView({ leadResult, funnel, contacto, partnerBrandin
 }
 
 // Pequeño componente de fila para la tabla financiera
-function RowFin({ label, value, color = 'text-white' }) {
+function RowFin({ label, sublabel, value, color = 'text-white' }) {
     return (
-        <div className="px-5 py-3 flex justify-between items-center gap-3">
-            <span className="text-white/80 text-sm leading-snug flex-1">{label}</span>
+        <div className="px-4 md:px-5 py-2.5 md:py-3 flex justify-between items-center gap-3">
+            <div className="flex-1 min-w-0">
+                <div className="text-white/80 text-xs md:text-sm leading-snug">{label}</div>
+                {sublabel && (
+                    <div className="text-white/35 text-[10px] mt-0.5 leading-tight">{sublabel}</div>
+                )}
+            </div>
             <span className={`text-sm font-bold whitespace-nowrap ${color}`}>{value}</span>
         </div>
     );

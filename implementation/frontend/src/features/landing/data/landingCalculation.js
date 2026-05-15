@@ -133,7 +133,11 @@ export function computeLandingResult(inputs) {
     const presupuesto = (inputs.presupuesto || 0) + (isReformaResult ? (inputs.presupuestoEnvolvente || 0) : 0);
     const caeBonus = Math.max(0, Math.round(financials.caeBonus || 0));
     const irpfCaeAmount = Math.max(0, Math.round(financials.irpfCaeAmount || 0));    // Impuestos por cobro CAE
-    const irpfDeduction = Math.max(0, Math.round(financials.irpfDeduction || 0));    // Deducción IRPF rehab
+    const irpfDeduction = Math.max(0, Math.round(financials.irpfDeduction || 0));    // Deducción IRPF rehab (total)
+    const irpfDeductionPerOwner = Math.max(0, Math.round(financials.irpfDeductionPerOwner || 0));
+    const numOwners = Math.max(1, Number(financials.numOwners) || 1);
+    const irpfRate = Math.round(financials.irpfRate || 0);   // 60 o 40
+    const irpfCap = Math.round(financials.irpfCap || 0);     // 9000 o 3000
     const gestionCAE = Math.max(0, Math.round(financials.caeMaintenanceCost || 250));
 
     // Bono CAE "neto cliente" — el que se muestra al cliente final en la
@@ -173,6 +177,10 @@ export function computeLandingResult(inputs) {
         caeBonus,                  // bruto (admin lo ve así)
         caeBonusNetoCliente,       // bruto − impuestos − gestión (lo que se muestra en landing)
         irpfDeduction,
+        irpfDeductionPerOwner,
+        numOwners,
+        irpfRate,
+        irpfCap,
         irpfCaeAmount,
         ahorroAnualEur,
         savingsKwh: Math.round(savings),
