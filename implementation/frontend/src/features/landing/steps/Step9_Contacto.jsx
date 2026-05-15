@@ -13,6 +13,9 @@ export function Step9_Contacto({ funnel, updateFunnel, contacto, setContacto, on
     const tlfValid = !contacto.tlf || /^[+]?\d{9,15}$/.test(contacto.tlf.replace(/\s/g, ''));
     const tieneContacto = !!(contacto.email || contacto.tlf);
 
+    const isParticular = contacto.titular_type === 'particular';
+    const propietariosOk = !isParticular || !!contacto.num_propietarios;
+
     const canSubmit = !!(
         contacto.nombre?.trim() &&
         tieneContacto &&
@@ -20,7 +23,8 @@ export function Step9_Contacto({ funnel, updateFunnel, contacto, setContacto, on
         tlfValid &&
         contacto.rgpd_aceptado &&
         contacto.titular_type &&
-        contacto.timeline
+        contacto.timeline &&
+        propietariosOk
     );
 
     const handleSubmit = () => {
@@ -110,6 +114,35 @@ export function Step9_Contacto({ funnel, updateFunnel, contacto, setContacto, on
                         />
                     </div>
                 </div>
+
+                {/* Propietarios (solo si particular) — afecta a la deducción IRPF */}
+                {contacto.titular_type === 'particular' && (
+                    <div>
+                        <label className="block text-[10px] font-black uppercase tracking-widest text-white/40 mb-2 ml-1">
+                            ¿Cuántos propietarios figuráis en la vivienda? *
+                        </label>
+                        <p className="text-white/40 text-[10px] mb-3 ml-1 leading-relaxed">
+                            Si la vivienda está a nombre de más de una persona (matrimonio, herencia, etc.),
+                            cada propietario puede deducirse en su IRPF — la ayuda total será mayor.
+                        </p>
+                        <div className="grid grid-cols-4 gap-2">
+                            {[1, 2, 3, 4].map(n => (
+                                <button
+                                    key={n}
+                                    type="button"
+                                    onClick={() => setField('num_propietarios', n)}
+                                    className={`py-3 rounded-2xl border-2 font-black text-base transition-all ${
+                                        contacto.num_propietarios === n
+                                            ? 'border-amber-400 bg-amber-400/15 text-amber-300'
+                                            : 'border-white/10 bg-white/[0.03] text-white/60 hover:border-amber-400/40'
+                                    }`}
+                                >
+                                    {n === 4 ? '4+' : n}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                )}
 
                 {/* Timeline */}
                 <div>

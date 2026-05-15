@@ -65,13 +65,16 @@ export default function LandingFunnelView({ route }) {
     const [geoStage, setGeoStage] = useState(null);
     const [lastGeoCoords, setLastGeoCoords] = useState(null);
     const [showMapPicker, setShowMapPicker] = useState(false);
+    const [duplicateRcInfo, setDuplicateRcInfo] = useState(null); // { daysAgo, ficha, ... }
 
     // ---- Funnel state ----
     const { funnel, updateFunnel, currentStep, goNext, goBack, resetFunnel } = useFunnelState();
 
     // ---- Contacto (separado del funnel persistido por RGPD) ----
     const [contacto, setContacto] = useState({
-        nombre: '', email: '', tlf: '', titular_type: null, timeline: null, rgpd_aceptado: false
+        nombre: '', email: '', tlf: '',
+        titular_type: null, num_propietarios: null,
+        timeline: null, rgpd_aceptado: false
     });
 
     // ---- Resultado del POST ----
@@ -227,12 +230,11 @@ export default function LandingFunnelView({ route }) {
         }
     };
 
-    // Tras resolver catastro: validar provincia y entrar al funnel
+    // Tras resolver catastro: validar provincia, comprobar RC duplicada y entrar al funnel
     const handleCatastroResolved = async (data) => {
         setConfirmCandidate(null);
 
-        // Llamada de prueba al endpoint protegido por geoGate — usamos OPTIONS-like
-        // verificación: hacemos un fetch a /config para sacar la lista de provincias.
+        // 1. Geo-gate (provincia atendida)
         try {
             const configRes = await axios.get('/api/landing/config');
             const provCode = String(data.provinceCode || '').padStart(2, '0');
@@ -251,8 +253,32 @@ export default function LandingFunnelView({ route }) {
             console.warn('[Landing] No se pudo verificar config; permitimos paso optimista', err);
         }
 
+        // 2. Comprobar si ya existe una simulación para esta vivienda
+        try {
+            const dupRes = await axios.get(`/api/landing/check-rc/${data.rc}`);
+            if (dupRes.data?.exists) {
+                setCatastro(data);
+                setDuplicateRcInfo(dupRes.data);
+                return; // El modal decidirá si seguir al funnel
+            }
+        } catch (err) {
+            // Si el check falla, permitimos el paso (no es bloqueante)
+            console.warn('[Landing] check-rc falló, continuando:', err);
+        }
+
         setCatastro(data);
         setPhase('FUNNEL');
+    };
+
+    const handleDuplicateRcContinue = () => {
+        setDuplicateRcInfo(null);
+        setPhase('FUNNEL');
+    };
+
+    const handleDuplicateRcCancel = () => {
+        setDuplicateRcInfo(null);
+        setCatastro(null);
+        setPhase('HOME');
     };
 
     // ---- Submit del funnel ----
@@ -263,7 +289,15 @@ export default function LandingFunnelView({ route }) {
         const MIN_VISIBLE_MS = 3000; // Mostrar overlay al menos 3s para percepción "cálculo serio"
 
         try {
-            const calculatorInputs = funnelToCalculatorInputs(funnel, catastro);
+            // Fusionamos campos de contacto que afectan al cálculo (titular_type,
+            // num_propietarios) con el funnel antes de mapear a inputs.
+            const funnelConContacto = {
+                ...funnel,
+                titular_type: contacto.titular_type,
+                num_propietarios: contacto.num_propietarios,
+                timeline: contacto.timeline
+            };
+            const calculatorInputs = funnelToCalculatorInputs(funnelConContacto, catastro);
 
             // Computar el `result` completo en frontend (mismo formato que
             // CalculatorView.handleCalculate). Así el admin verá los datos
@@ -493,6 +527,51 @@ export default function LandingFunnelView({ route }) {
 
             {/* Overlay calculando — mostrar durante submit */}
             <CalculatingOverlay visible={submitting} />
+
+            {/* Modal RC duplicada — la vivienda ya ha sido simulada antes */}
+            {duplicateRcInfo && (
+                <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
+                    <div className="bg-slate-900 rounded-3xl max-w-md w-full p-6 md:p-8 border-2 border-amber-500/40 shadow-2xl relative">
+                        <div className="text-center">
+                            <div className="text-5xl mb-4">🏠</div>
+                            <h3 className="text-xl md:text-2xl font-black text-white mb-2">
+                                Esta vivienda ya tiene una simulación
+                            </h3>
+                            <p className="text-white/60 text-sm mb-5 leading-relaxed">
+                                {duplicateRcInfo.daysAgo === 0
+                                    ? 'Alguien ha hecho una simulación para esta dirección hoy mismo.'
+                                    : duplicateRcInfo.daysAgo === 1
+                                        ? 'Alguien ha hecho una simulación para esta dirección hace 1 día.'
+                                        : `Alguien ha hecho una simulación para esta dirección hace ${duplicateRcInfo.daysAgo} días.`}
+                            </p>
+                            <div className="p-4 bg-white/[0.04] border border-white/10 rounded-2xl mb-5 text-left">
+                                <p className="text-white/70 text-xs leading-relaxed">
+                                    <strong className="text-amber-400">Si eres el mismo propietario,</strong> al
+                                    continuar actualizaremos tu propuesta con los datos nuevos.
+                                </p>
+                                <p className="text-white/70 text-xs leading-relaxed mt-2">
+                                    <strong className="text-amber-400">Si eres otro propietario o vecino</strong>{' '}
+                                    (en edificios divididos), también puedes continuar — crearemos una nueva simulación.
+                                </p>
+                            </div>
+                            <div className="flex flex-col gap-3">
+                                <button
+                                    onClick={handleDuplicateRcContinue}
+                                    className="w-full py-3 bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-400 hover:to-amber-300 text-bkg-deep font-black uppercase tracking-widest text-xs rounded-2xl shadow-lg shadow-amber-500/20 transition-all"
+                                >
+                                    Continuar con mi simulación
+                                </button>
+                                <button
+                                    onClick={handleDuplicateRcCancel}
+                                    className="w-full py-3 text-white/40 hover:text-white/70 text-[10px] font-black uppercase tracking-widest transition-all"
+                                >
+                                    Cancelar y buscar otra dirección
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

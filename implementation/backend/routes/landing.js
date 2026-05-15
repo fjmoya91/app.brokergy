@@ -177,6 +177,50 @@ router.get('/instaladores', async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// GET /api/landing/check-rc/:rc
+// Verifica si ya existe alguna oportunidad para esa referencia catastral.
+// Solo devuelve metadata segura (no expone email/tlf/nombre del cliente que
+// la creó). Se usa en la landing para avisar "ya hicimos una simulación
+// para esta vivienda" sin filtrar datos personales.
+// ---------------------------------------------------------------------------
+router.get('/check-rc/:rc', async (req, res) => {
+    const { rc } = req.params;
+    if (!rc || rc.length < 14) {
+        return res.status(400).json({ error: 'RC inválida', code: 'INVALID_RC' });
+    }
+    try {
+        const { data, error } = await supabase
+            .from('oportunidades')
+            .select('id_oportunidad, created_at, ficha, datos_calculo')
+            .eq('ref_catastral', rc)
+            .order('created_at', { ascending: false })
+            .limit(1);
+
+        if (error) {
+            console.error('[landing/check-rc] Error:', error.message);
+            return res.status(500).json({ error: 'Error consulta' });
+        }
+        if (!data || data.length === 0) {
+            return res.json({ exists: false });
+        }
+
+        const op = data[0];
+        const diffDays = Math.floor((Date.now() - new Date(op.created_at).getTime()) / 86400000);
+        return res.json({
+            exists: true,
+            createdAt: op.created_at,
+            daysAgo: diffDays,
+            ficha: op.ficha,
+            origen: op.datos_calculo?.origen || null,
+            estado: op.datos_calculo?.estado || null
+        });
+    } catch (err) {
+        console.error('[landing/check-rc] Excepción:', err);
+        res.status(500).json({ error: 'Error inesperado' });
+    }
+});
+
+// ---------------------------------------------------------------------------
 // POST /api/landing/lead
 // Crea un LEAD en estado='LEAD' a partir del funnel completo.
 //

@@ -179,9 +179,10 @@ function funnelToCalculatorInputs(funnel, catastro) {
         ? Number(funnel.presupuesto_eur)
         : 15000;
 
-    // 12. Titular
+    // 12. Titular y número de propietarios (afecta cap IRPF)
     inputs.titularType = funnel.titular_type || 'particular';
     inputs.includeIrpf = funnel.titular_type !== 'empresa';
+    inputs.numOwners = Math.max(1, Number(funnel.num_propietarios) || 1);
 
     return inputs;
 }
