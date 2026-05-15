@@ -271,7 +271,66 @@ async function createLead({ contacto, catastro, funnel, calculatorInputs, geoCon
         }]
     };
 
-    // 6. INSERT de la oportunidad
+    // 6. Idempotencia: si ya existe una oportunidad LEAD para la misma RC y
+    // mismo cliente, ACTUALIZAR esa fila en vez de crear duplicado. Esto evita
+    // que un cliente que prueba el funnel varias veces acumule oportunidades.
+    const { data: existing } = await supabase
+        .from('oportunidades')
+        .select('id, id_oportunidad, datos_calculo')
+        .eq('ref_catastral', catastro.ref_catastral)
+        .eq('cliente_id', id_cliente)
+        .order('created_at', { ascending: false })
+        .limit(1);
+
+    const existingLead = existing && existing.length > 0
+        ? existing.find(o => o.datos_calculo?.estado === 'LEAD')
+        : null;
+
+    if (existingLead) {
+        // UPDATE — preservamos id_oportunidad e historial original
+        const prevHistorial = Array.isArray(existingLead.datos_calculo?.historial)
+            ? existingLead.datos_calculo.historial
+            : [];
+        datosCalculo.historial = [
+            ...prevHistorial,
+            {
+                id: `${Date.now()}_landing_resubmit`,
+                estado: 'LEAD',
+                fecha: now,
+                usuario: 'Landing pública',
+                detalle: 'Re-envío del funnel (datos actualizados)'
+            }
+        ];
+
+        const { data: updated, error: updErr } = await supabase
+            .from('oportunidades')
+            .update({
+                ficha: fichaType,
+                referencia_cliente: referenciaCliente || null,
+                prescriptor_id: prescriptorId || existingLead.prescriptor_id || null,
+                datos_calculo: datosCalculo
+            })
+            .eq('id', existingLead.id)
+            .select('id, id_oportunidad')
+            .single();
+
+        if (updErr) {
+            throw new Error(`No se pudo actualizar la oportunidad LEAD: ${updErr.message}`);
+        }
+
+        return {
+            id_oportunidad: updated.id_oportunidad,
+            oportunidad_uuid: updated.id,
+            cliente_id: id_cliente,
+            cliente_created: clienteCreated,
+            lead_score: score,
+            lead_caliente: caliente,
+            ficha: fichaType,
+            updated: true
+        };
+    }
+
+    // 7. INSERT de la oportunidad (caso nuevo)
     const newOpp = {
         id_oportunidad: idOportunidad,
         ficha: fichaType,
@@ -301,7 +360,8 @@ async function createLead({ contacto, catastro, funnel, calculatorInputs, geoCon
         cliente_created: clienteCreated,
         lead_score: score,
         lead_caliente: caliente,
-        ficha: fichaType
+        ficha: fichaType,
+        updated: false
     };
 }
 

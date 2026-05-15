@@ -629,26 +629,29 @@ router.get('/:id', async (req, res) => {
         const { id } = req.params;
         console.log(`[Backend] Buscando oportunidad por ID o RC: ${id}`);
 
-        // Buscamos primero por ID interno, si no por Ref Catastral
-        // Nota: Quitamos las comillas dobles internas ya que para alfanuméricos simples no son necesarias en PostgREST
+        // Buscamos primero por ID interno, si no por Ref Catastral.
+        // Si hay varias coincidencias (ej: varias oportunidades LEAD para la
+        // misma RC), devolvemos la MÁS RECIENTE en vez de fallar con 500.
         const { data, error } = await supabase
             .from('oportunidades')
             .select('*')
             .or(`id_oportunidad.eq.${id},ref_catastral.eq.${id}`)
-            .maybeSingle();
+            .order('created_at', { ascending: false })
+            .limit(1);
 
         if (error) {
             console.error('[Backend] Error en búsqueda or:', error);
             return res.status(500).json({ error: 'Error consulta.' });
         }
 
-        if (!data) {
+        const found = data && data.length > 0 ? data[0] : null;
+        if (!found) {
             console.log(`[Backend] Oportunidad no encontrada para: ${id}`);
             return res.status(404).json({ error: 'No encontrada.' });
         }
 
-        console.log(`[Backend] Oportunidad encontrada: ${data.id_oportunidad}`);
-        res.status(200).json(data);
+        console.log(`[Backend] Oportunidad encontrada: ${found.id_oportunidad}`);
+        res.status(200).json(found);
     } catch (error) {
         console.error('[Backend] Error fatal GET /:id:', error);
         res.status(500).json({ error: 'Error servidor.' });

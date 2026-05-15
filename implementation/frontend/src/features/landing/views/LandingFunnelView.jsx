@@ -25,6 +25,7 @@ import { useFunnelState } from '../hooks/useFunnelState';
 import { funnelToCalculatorInputs, shouldWarnBiomasa } from '../data/funnelToInputs';
 
 import { StepHeader } from '../components/StepHeader';
+import { CalculatingOverlay } from '../components/CalculatingOverlay';
 import { Step1_TipoProyecto } from '../steps/Step1_TipoProyecto';
 import { Step2_Combustible } from '../steps/Step2_Combustible';
 import { Step3_EdadCaldera } from '../steps/Step3_EdadCaldera';
@@ -257,6 +258,9 @@ export default function LandingFunnelView({ route }) {
     const handleSubmit = useCallback(async () => {
         setSubmitting(true);
         setSubmitError(null);
+        const submitStart = Date.now();
+        const MIN_VISIBLE_MS = 3000; // Mostrar overlay al menos 3s para percepción "cálculo serio"
+
         try {
             const calculatorInputs = funnelToCalculatorInputs(funnel, catastro);
             const payload = {
@@ -279,11 +283,22 @@ export default function LandingFunnelView({ route }) {
             };
 
             const res = await axios.post('/api/landing/lead', payload);
+
+            // Esperar a que se cumpla el tiempo mínimo de overlay antes de mostrar resultado
+            const elapsed = Date.now() - submitStart;
+            if (elapsed < MIN_VISIBLE_MS) {
+                await new Promise(r => setTimeout(r, MIN_VISIBLE_MS - elapsed));
+            }
+
             setLeadResult({ ...res.data, provincia: catastro?.province || null });
             setSubmittedInputs(calculatorInputs);
             setPhase('RESULT');
+            setSubmitting(false);
         } catch (err) {
             const msg = err.response?.data?.error || err.message || 'No pudimos guardar tus datos. Inténtalo en un momento.';
+            // Aun ante error, esperamos un poco para no parpadear la pantalla
+            const elapsed = Date.now() - submitStart;
+            if (elapsed < 800) await new Promise(r => setTimeout(r, 800 - elapsed));
             setSubmitError(msg);
             setSubmitting(false);
         }
@@ -460,6 +475,9 @@ export default function LandingFunnelView({ route }) {
                     onCancel={() => setShowMapPicker(false)}
                 />
             )}
+
+            {/* Overlay calculando — mostrar durante submit */}
+            <CalculatingOverlay visible={submitting} />
         </div>
     );
 }
