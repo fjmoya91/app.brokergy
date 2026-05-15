@@ -70,6 +70,13 @@ export default function LandingFunnelView({ route }) {
     // ---- Funnel state ----
     const { funnel, updateFunnel, currentStep, goNext, goBack, resetFunnel } = useFunnelState();
 
+    // Scroll-to-top automático cuando cambia la fase o el paso del funnel.
+    // Sin esto, el cliente al avanzar de paso o llegar al resultado se queda
+    // en la posición scrolleada anterior y tiene que subir manualmente.
+    useEffect(() => {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    }, [phase, currentStep]);
+
     // ---- Contacto (separado del funnel persistido por RGPD) ----
     const [contacto, setContacto] = useState({
         nombre: '', email: '', tlf: '',

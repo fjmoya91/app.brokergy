@@ -1,14 +1,11 @@
 import React from 'react';
-import { IconCard } from '../components/IconCard';
 import { StepLayout } from '../components/StepLayout';
 
+// Tramos simplificados (3 opciones reales + "no lo sé")
 const TIERS = [
-    { value: 500,  label: 'Menos de 500 €' },
-    { value: 1000, label: 'Unos 1.000 €' },
-    { value: 1500, label: 'Unos 1.500 €' },
-    { value: 2000, label: 'Unos 2.000 €' },
-    { value: 3000, label: 'Unos 3.000 €' },
-    { value: 4000, label: 'Más de 3.500 €' }
+    { value: 1000, label: 'Menos de 1.500 €',  hint: 'Vivienda pequeña o uso bajo' },
+    { value: 2000, label: 'Entre 1.500 y 2.500 €', hint: 'Lo más común en unifamiliar' },
+    { value: 3500, label: 'Más de 2.500 €', hint: 'Vivienda grande o uso intensivo' }
 ];
 
 export function Step7_Gasto({ funnel, updateFunnel, onNext }) {
@@ -20,24 +17,51 @@ export function Step7_Gasto({ funnel, updateFunnel, onNext }) {
     return (
         <StepLayout
             question="¿Cuánto te gastas al año en calefacción y agua caliente?"
-            subtitle="Una estimación aproximada. Cuanto más sepas, más preciso será tu cálculo."
+            subtitle="Una estimación aproximada. Si lo sabes, el cálculo será más preciso."
         >
-            {TIERS.map(t => (
-                <IconCard
-                    key={t.value}
-                    icon="💶"
-                    title={t.label}
-                    selected={funnel.gasto_anual_eur === t.value}
-                    onClick={() => select(t.value)}
-                />
-            ))}
-            <IconCard
-                icon="🤷"
-                title="No lo sé, calcúlamelo"
-                subtitle="Calculamos con la media nacional según tu zona"
-                selected={funnel.gasto_anual_eur === 0}
-                onClick={() => select(0)}
-            />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {TIERS.map(t => (
+                    <button
+                        key={t.value}
+                        type="button"
+                        onClick={() => select(t.value)}
+                        className={`group p-4 md:p-5 rounded-2xl border-2 transition-all text-left ${
+                            funnel.gasto_anual_eur === t.value
+                                ? 'border-amber-400 bg-amber-400/10'
+                                : 'border-white/10 bg-white/[0.03] hover:border-amber-400/40 hover:bg-white/[0.05]'
+                        }`}
+                    >
+                        <div className="flex items-center gap-3">
+                            <div className="text-3xl md:text-4xl flex-shrink-0">💶</div>
+                            <div className="flex-1 min-w-0">
+                                <div className={`font-bold text-sm md:text-base ${funnel.gasto_anual_eur === t.value ? 'text-amber-300' : 'text-white'}`}>
+                                    {t.label}
+                                </div>
+                                <div className="text-white/40 text-[10px] md:text-xs mt-0.5">{t.hint}</div>
+                            </div>
+                        </div>
+                    </button>
+                ))}
+                <button
+                    type="button"
+                    onClick={() => select(0)}
+                    className={`group p-4 md:p-5 rounded-2xl border-2 transition-all text-left ${
+                        funnel.gasto_anual_eur === 0
+                            ? 'border-amber-400 bg-amber-400/10'
+                            : 'border-white/10 bg-white/[0.03] hover:border-amber-400/40 hover:bg-white/[0.05]'
+                    }`}
+                >
+                    <div className="flex items-center gap-3">
+                        <div className="text-3xl md:text-4xl flex-shrink-0">🤷</div>
+                        <div className="flex-1 min-w-0">
+                            <div className={`font-bold text-sm md:text-base ${funnel.gasto_anual_eur === 0 ? 'text-amber-300' : 'text-white'}`}>
+                                No lo sé
+                            </div>
+                            <div className="text-white/40 text-[10px] md:text-xs mt-0.5">Calculamos con la media de tu zona</div>
+                        </div>
+                    </div>
+                </button>
+            </div>
         </StepLayout>
     );
 }

@@ -11,14 +11,25 @@ const useDebounce = (value, delay) => {
     return debouncedValue;
 };
 
-export function CatastroSearchBox({ onSearch, onAddressSelect, onManualEntry }) {
+export function CatastroSearchBox({ onSearch, onAddressSelect, onManualEntry, onGeolocate }) {
     const [searchMode, setSearchMode] = useState('rc'); // 'rc' | 'address'
     const [query, setQuery] = useState('');
     const [isFocused, setIsFocused] = useState(false);
+    const [geoLoading, setGeoLoading] = useState(false);
 
     // Autocomplete states
     const [suggestions, setSuggestions] = useState([]);
     const [showSuggestions, setShowSuggestions] = useState(false);
+
+    const handleGeolocateClick = async () => {
+        if (!onGeolocate || geoLoading) return;
+        setGeoLoading(true);
+        try {
+            await onGeolocate();
+        } finally {
+            setGeoLoading(false);
+        }
+    };
 
     const debouncedQuery = useDebounce(query, 300);
     const wrapperRef = useRef(null);
@@ -94,11 +105,11 @@ export function CatastroSearchBox({ onSearch, onAddressSelect, onManualEntry }) 
                     </p>
                 </div>
 
-                {/* TABS - Refined Glasmorphism */}
-                <div className="flex p-1.5 rounded-2xl bg-white/[0.03] border border-white/10 mb-8 max-w-md mx-auto relative">
+                {/* TABS — Referencia · Dirección · Ubicación */}
+                <div className="flex p-1.5 rounded-2xl bg-white/[0.03] border border-white/10 mb-8 max-w-2xl mx-auto relative gap-1">
                     <button
                         onClick={() => { setSearchMode('rc'); setQuery(''); setSuggestions([]); }}
-                        className={`relative z-10 flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-[10px] sm:text-xs font-black uppercase tracking-widest transition-all duration-500 ${searchMode === 'rc'
+                        className={`relative z-10 flex-1 flex items-center justify-center gap-1.5 px-2 sm:px-3 py-3 rounded-xl text-[9px] sm:text-[11px] font-black uppercase tracking-widest transition-all duration-500 ${searchMode === 'rc'
                             ? 'bg-brand text-bkg-deep shadow-lg shadow-brand/20'
                             : 'text-white/40 hover:text-white hover:bg-white/5'
                             }`}
@@ -110,7 +121,7 @@ export function CatastroSearchBox({ onSearch, onAddressSelect, onManualEntry }) 
                     </button>
                     <button
                         onClick={() => { setSearchMode('address'); setQuery(''); }}
-                        className={`relative z-10 flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-[10px] sm:text-xs font-black uppercase tracking-widest transition-all duration-500 ${searchMode === 'address'
+                        className={`relative z-10 flex-1 flex items-center justify-center gap-1.5 px-2 sm:px-3 py-3 rounded-xl text-[9px] sm:text-[11px] font-black uppercase tracking-widest transition-all duration-500 ${searchMode === 'address'
                             ? 'bg-brand text-bkg-deep shadow-lg shadow-brand/20'
                             : 'text-white/40 hover:text-white hover:bg-white/5'
                             }`}
@@ -121,6 +132,27 @@ export function CatastroSearchBox({ onSearch, onAddressSelect, onManualEntry }) 
                         </svg>
                         <span className="whitespace-nowrap">Dirección</span>
                     </button>
+                    {onGeolocate && (
+                        <button
+                            type="button"
+                            onClick={handleGeolocateClick}
+                            disabled={geoLoading}
+                            className="relative z-10 flex-1 flex items-center justify-center gap-1.5 px-2 sm:px-3 py-3 rounded-xl text-[9px] sm:text-[11px] font-black uppercase tracking-widest transition-all duration-500 text-white/40 hover:text-white hover:bg-white/5 disabled:opacity-60 disabled:cursor-wait"
+                        >
+                            {geoLoading ? (
+                                <svg className="w-4 h-4 flex-shrink-0 animate-spin" fill="none" viewBox="0 0 24 24">
+                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                                </svg>
+                            ) : (
+                                <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32l1.41 1.41M2 12h2m16 0h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />
+                                    <circle cx="12" cy="12" r="4" strokeWidth={2.5} />
+                                </svg>
+                            )}
+                            <span className="whitespace-nowrap">{geoLoading ? 'GPS…' : 'Ubicación'}</span>
+                        </button>
+                    )}
                 </div>
 
                 <form onSubmit={handleSubmit} className="space-y-6 max-w-2xl mx-auto">
@@ -188,15 +220,16 @@ export function CatastroSearchBox({ onSearch, onAddressSelect, onManualEntry }) 
                     </div>
                 </form>
 
-                <div className="mt-12 text-center">
-                    <p className="text-[10px] text-white/20 uppercase tracking-[0.2em] mb-4">Otras opciones</p>
-                    <button
-                        onClick={onManualEntry}
-                        className="px-6 py-3 rounded-xl bg-white/[0.02] border border-white/[0.04] text-[10px] font-black text-white/40 hover:text-white hover:bg-white/[0.05] hover:border-white/10 transition-all uppercase tracking-widest"
-                    >
-                        Simulación Manual (Sin Catastro)
-                    </button>
-                </div>
+                {onManualEntry && (
+                    <div className="mt-10 text-center">
+                        <button
+                            onClick={onManualEntry}
+                            className="px-6 py-3 rounded-xl bg-white/[0.02] border border-white/[0.04] text-[10px] font-black text-white/40 hover:text-white hover:bg-white/[0.05] hover:border-white/10 transition-all uppercase tracking-widest"
+                        >
+                            Simulación Manual (Sin Catastro)
+                        </button>
+                    </div>
+                )}
             </div>
         </div>
     );
