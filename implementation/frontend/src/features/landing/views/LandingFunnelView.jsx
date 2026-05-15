@@ -533,8 +533,10 @@ export default function LandingFunnelView({ route }) {
                 // Estados que indican gestión activa por Brokergy/partner → BLOQUEAR
                 // 'LEAD' = aún no se ha tocado por humanos → permitir actualizar
                 const enGestion = duplicateRcInfo.estado && duplicateRcInfo.estado !== 'LEAD';
-                const phoneContact = partnerBranding?.telefono_contacto || '900 000 000';
-                const emailContact = 'contacto@brokergy.es';
+                // Si la landing es white-label, mostramos el tel del partner.
+                // Para landing BROKERGY pura no exponemos teléfono — solo email.
+                const phoneContact = partnerBranding?.telefono_contacto || null;
+                const emailContact = 'info@brokergy.es';
 
                 return (
                     <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm animate-fade-in">
@@ -553,10 +555,12 @@ export default function LandingFunnelView({ route }) {
                                         duplicidades y darte la mejor atención, contacta directamente con nosotros.
                                     </p>
                                     <div className="p-4 bg-white/[0.03] border border-white/[0.08] rounded-2xl mb-5 text-left">
-                                        <p className="text-white/70 text-xs leading-relaxed mb-2">
-                                            <strong className="text-amber-400">📞 Teléfono:</strong>
-                                            <a href={`tel:${phoneContact}`} className="text-white ml-2 font-bold">{phoneContact}</a>
-                                        </p>
+                                        {phoneContact && (
+                                            <p className="text-white/70 text-xs leading-relaxed mb-2">
+                                                <strong className="text-amber-400">📞 Teléfono:</strong>
+                                                <a href={`tel:${phoneContact}`} className="text-white ml-2 font-bold">{phoneContact}</a>
+                                            </p>
+                                        )}
                                         <p className="text-white/70 text-xs leading-relaxed">
                                             <strong className="text-amber-400">✉ Email:</strong>
                                             <a href={`mailto:${emailContact}`} className="text-white ml-2 font-bold">{emailContact}</a>
