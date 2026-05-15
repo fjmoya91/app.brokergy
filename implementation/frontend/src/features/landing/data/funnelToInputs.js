@@ -11,6 +11,23 @@ import { mapBoiler, shouldWarnBiomasa } from './boilerMapping';
 import { mapEmisor } from './emisoresMapping';
 
 /**
+ * Inferencia automática del estado de aislamiento a partir del año de
+ * construcción del catastro. Coincide con la lógica de la calculadora
+ * (getUByYear de calculation.js):
+ *   < 1980 → sin aislamiento (NBE-CT-79 aún no vigente)
+ *   1980-2006 → antigua mal aislada
+ *   2007-2013 → antigua aislamiento medio (CTE 2006)
+ *   2014+ → bien aislada (CTE-DB-HE 2013+)
+ */
+function inferInsulationStateByYear(anio) {
+    const y = Number(anio) || 0;
+    if (y === 0 || y < 1980) return 'sin_aislamiento';
+    if (y < 2007) return 'antigua_mal_aislamiento';
+    if (y < 2014) return 'antigua_aislamiento_medio';
+    return 'bien_aislada';
+}
+
+/**
  * @param {object} funnel    Respuestas raw del funnel.
  * @param {object} catastro  Datos resueltos del catastro.
  * @returns {object} calculatorInputs listo para guardar.
@@ -48,8 +65,8 @@ function funnelToCalculatorInputs(funnel, catastro) {
         emitterType: emisor.emitterType,
         scopHeating: emisor.scopHeating,
 
-        // Aislamiento percibido
-        insulationState: funnel.insulation_state || 'sin_aislamiento',
+        // Aislamiento inferido automáticamente por año de construcción
+        insulationState: inferInsulationStateByYear(catastro.yearBuilt || catastro.anio),
 
         // Reforma (RES080) si aplica
         isReforma: !!funnel.isReforma,

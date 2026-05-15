@@ -12,13 +12,14 @@
  * Exporta DEFAULT para que React.lazy() funcione en App.jsx.
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import axios from 'axios';
 
 import { CatastroSearchBox } from '../../../components/CatastroSearchBox';
 import { ConfirmationCard } from '../../../components/ConfirmationCard';
 import { GeoLocatingOverlay } from '../../../components/GeoLocatingOverlay';
 import { DynamicNetworkBackground } from '../../../components/DynamicNetworkBackground';
+import { MapPickerModal } from '../../../components/MapPickerModal';
 
 import { useFunnelState } from '../hooks/useFunnelState';
 import { funnelToCalculatorInputs, shouldWarnBiomasa } from '../data/funnelToInputs';
@@ -29,14 +30,13 @@ import { Step2_Combustible } from '../steps/Step2_Combustible';
 import { Step3_EdadCaldera } from '../steps/Step3_EdadCaldera';
 import { Step4_Emisores } from '../steps/Step4_Emisores';
 import { Step5_ACS } from '../steps/Step5_ACS';
-import { Step6_Aislamiento } from '../steps/Step6_Aislamiento';
+import { Step6_ElementosReforma } from '../steps/Step6_ElementosReforma';
 import { Step7_Gasto } from '../steps/Step7_Gasto';
 import { Step8_Presupuesto } from '../steps/Step8_Presupuesto';
 import { Step9_Contacto } from '../steps/Step9_Contacto';
 import { LandingResultView } from './LandingResultView';
 
 const CATASTRO_API = '/api/catastro';
-const TOTAL_STEPS = 9;
 
 export default function LandingFunnelView({ route }) {
     // ---- Branding del partner ----
@@ -61,6 +61,8 @@ export default function LandingFunnelView({ route }) {
     const [catastroError, setCatastroError] = useState(null);
     const [geoBlockedInfo, setGeoBlockedInfo] = useState(null);
     const [geoStage, setGeoStage] = useState(null);
+    const [lastGeoCoords, setLastGeoCoords] = useState(null);
+    const [showMapPicker, setShowMapPicker] = useState(false);
 
     // ---- Funnel state ----
     const { funnel, updateFunnel, currentStep, goNext, goBack, resetFunnel } = useFunnelState();
@@ -72,8 +74,35 @@ export default function LandingFunnelView({ route }) {
 
     // ---- Resultado del POST ----
     const [leadResult, setLeadResult] = useState(null);
+    const [submittedInputs, setSubmittedInputs] = useState(null);
     const [submitError, setSubmitError] = useState(null);
     const [submitting, setSubmitting] = useState(false);
+
+    // ---- Helpers catastro (replican el flujo de App.jsx) ----
+    // Construye un candidate listo para ConfirmationCard, con vecinos cargados.
+    const buildCandidateFromPropertyData = async (propertyData, location) => {
+        const candidate = {
+            description: propertyData.address,
+            rc: propertyData.rc,
+            location,
+            imageUrl: `${CATASTRO_API}/image/${propertyData.rc}`,
+            fullData: propertyData,
+            isResolved: true,
+            neighbors: []
+        };
+        if (propertyData.address) {
+            try {
+                setGeoStage('neighbors');
+                const neighborsRes = await axios.get(`${CATASTRO_API}/neighbors`, {
+                    params: { address: propertyData.address }
+                });
+                candidate.neighbors = neighborsRes.data;
+            } catch (e) {
+                console.warn('[Landing] No se pudieron cargar vecinos', e);
+            }
+        }
+        return candidate;
+    };
 
     // ---- Búsqueda catastral ----
     const handleSearch = async (query) => {
@@ -82,6 +111,7 @@ export default function LandingFunnelView({ route }) {
         try {
             const res = await axios.get(`${CATASTRO_API}/search`, { params: { q: query } });
             if (res.data.type === 'RC_RESULT') {
+                // Es una RC ya resuelta — pasamos al gate sin pantalla de confirmación
                 handleCatastroResolved(res.data.data);
             } else if (res.data.type === 'ADDRESS_CANDIDATES') {
                 if (!res.data.data.length) {
@@ -104,13 +134,19 @@ export default function LandingFunnelView({ route }) {
         setCatastroLoading(true);
         setCatastroError(null);
         try {
+            // 1. Place details → lat/lng
             const detailsRes = await axios.get(`${CATASTRO_API}/place-details`, { params: { place_id: suggestion.place_id } });
             const location = detailsRes.data;
+            setLastGeoCoords(location);
+            // 2. Reverse-geocode → propertyData
             const revRes = await axios.post(`${CATASTRO_API}/reverse-geocode`, { lat: location.lat, lng: location.lng });
-            handleCatastroResolved(revRes.data);
+            // 3. Candidate con vecinos
+            const candidate = await buildCandidateFromPropertyData(revRes.data, location);
+            setConfirmCandidate(candidate);
         } catch (err) {
             setCatastroError('No pudimos obtener los datos de esta dirección.');
         } finally {
+            setGeoStage(null);
             setCatastroLoading(false);
         }
     };
@@ -125,13 +161,23 @@ export default function LandingFunnelView({ route }) {
         navigator.geolocation.getCurrentPosition(
             async (pos) => {
                 try {
+                    const { latitude: lat, longitude: lng } = pos.coords;
+                    setLastGeoCoords({ lat, lng });
                     setGeoStage('catastro');
+
                     const revRes = await axios.post(`${CATASTRO_API}/reverse-geocode`, {
-                        lat: pos.coords.latitude, lng: pos.coords.longitude, source: 'gps'
+                        lat, lng, source: 'gps'
                     });
-                    handleCatastroResolved(revRes.data);
-                } catch {
-                    setCatastroError('No pudimos identificar tu propiedad por GPS. Prueba a buscar por dirección.');
+                    const propertyData = revRes.data;
+
+                    const candidate = await buildCandidateFromPropertyData(propertyData, { lat, lng });
+                    setConfirmCandidate(candidate);
+                } catch (err) {
+                    if (err.response?.status === 404) {
+                        setCatastroError('No encontramos ninguna propiedad en tu ubicación. Puedes ajustar la posición en el mapa o buscar por dirección.');
+                    } else {
+                        setCatastroError('No pudimos identificar tu propiedad por GPS. Prueba a buscar por dirección o ajustar la chincheta en el mapa.');
+                    }
                 } finally {
                     setGeoStage(null);
                     resolve();
@@ -139,13 +185,29 @@ export default function LandingFunnelView({ route }) {
             },
             (err) => {
                 setGeoStage(null);
-                if (err.code === 1) setCatastroError('Has denegado el acceso a la ubicación.');
+                if (err.code === 1) setCatastroError('Has denegado el acceso a la ubicación. Habilítalo en los ajustes del navegador.');
+                else if (err.code === 2) setCatastroError('No pudimos determinar tu ubicación. Comprueba que el GPS esté activo.');
+                else if (err.code === 3) setCatastroError('La ubicación ha tardado demasiado. Inténtalo de nuevo.');
                 else setCatastroError('No pudimos obtener tu ubicación.');
                 resolve();
             },
             { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
         );
     });
+
+    // Usuario ajustó la chincheta en el mapa y confirmó
+    const handleMapPickConfirm = async (propertyData) => {
+        setShowMapPicker(false);
+        setGeoStage('neighbors');
+        try {
+            const candidate = await buildCandidateFromPropertyData(propertyData, lastGeoCoords);
+            setConfirmCandidate(candidate);
+        } catch (err) {
+            setCatastroError('No pudimos cargar el entorno de la vivienda seleccionada.');
+        } finally {
+            setGeoStage(null);
+        }
+    };
 
     const handleConfirmCandidate = async (candidate) => {
         if (candidate.isResolved && candidate.fullData) {
@@ -218,6 +280,7 @@ export default function LandingFunnelView({ route }) {
 
             const res = await axios.post('/api/landing/lead', payload);
             setLeadResult({ ...res.data, provincia: catastro?.province || null });
+            setSubmittedInputs(calculatorInputs);
             setPhase('RESULT');
         } catch (err) {
             const msg = err.response?.data?.error || err.message || 'No pudimos guardar tus datos. Inténtalo en un momento.';
@@ -226,19 +289,28 @@ export default function LandingFunnelView({ route }) {
         }
     }, [funnel, contacto, catastro, partnerBranding]);
 
-    // ---- Render del paso actual ----
+    // ---- Pasos activos (8 si solo cambio de caldera, 9 si reforma integral) ----
+    const activeSteps = useMemo(() => {
+        const base = [
+            Step1_TipoProyecto,
+            Step2_Combustible,
+            Step3_EdadCaldera,
+            Step4_Emisores,
+            Step5_ACS
+        ];
+        if (funnel.isReforma) base.push(Step6_ElementosReforma);
+        base.push(Step7_Gasto, Step8_Presupuesto, Step9_Contacto);
+        return base;
+    }, [funnel.isReforma]);
+
+    const totalSteps = activeSteps.length;
+
     const renderStep = () => {
-        const props = { funnel, updateFunnel, onNext: goNext };
-        switch (currentStep) {
-            case 0: return <Step1_TipoProyecto {...props} />;
-            case 1: return <Step2_Combustible {...props} />;
-            case 2: return <Step3_EdadCaldera {...props} />;
-            case 3: return <Step4_Emisores {...props} />;
-            case 4: return <Step5_ACS {...props} />;
-            case 5: return <Step6_Aislamiento {...props} />;
-            case 6: return <Step7_Gasto {...props} />;
-            case 7: return <Step8_Presupuesto {...props} />;
-            case 8: return (
+        const StepComponent = activeSteps[currentStep];
+        if (!StepComponent) return null;
+        // El último paso (contacto) recibe props extra para el submit
+        if (StepComponent === Step9_Contacto) {
+            return (
                 <Step9_Contacto
                     funnel={funnel} updateFunnel={updateFunnel}
                     contacto={contacto} setContacto={setContacto}
@@ -247,8 +319,8 @@ export default function LandingFunnelView({ route }) {
                     submitError={submitError}
                 />
             );
-            default: return null;
         }
+        return <StepComponent funnel={funnel} updateFunnel={updateFunnel} onNext={goNext} />;
     };
 
     // ---- Render principal ----
@@ -308,6 +380,7 @@ export default function LandingFunnelView({ route }) {
                                     candidate={confirmCandidate}
                                     onConfirm={handleConfirmCandidate}
                                     onCancel={() => setConfirmCandidate(null)}
+                                    onPickOnMap={lastGeoCoords ? () => setShowMapPicker(true) : undefined}
                                 />
                             )}
 
@@ -352,7 +425,7 @@ export default function LandingFunnelView({ route }) {
                         <>
                             <StepHeader
                                 currentStep={currentStep + 1}
-                                totalSteps={TOTAL_STEPS}
+                                totalSteps={totalSteps}
                                 onBack={goBack}
                                 canGoBack={currentStep > 0}
                             />
@@ -366,6 +439,7 @@ export default function LandingFunnelView({ route }) {
                             funnel={funnel}
                             contacto={contacto}
                             partnerBranding={partnerBranding}
+                            calculatorInputs={submittedInputs}
                         />
                     )}
                 </main>
@@ -376,6 +450,16 @@ export default function LandingFunnelView({ route }) {
                     </p>
                 </footer>
             </div>
+
+            {/* MapPicker (ajuste manual de la chincheta) */}
+            {showMapPicker && lastGeoCoords && (
+                <MapPickerModal
+                    initialLat={lastGeoCoords.lat}
+                    initialLng={lastGeoCoords.lng}
+                    onConfirm={handleMapPickConfirm}
+                    onCancel={() => setShowMapPicker(false)}
+                />
+            )}
         </div>
     );
 }

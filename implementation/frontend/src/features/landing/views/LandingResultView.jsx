@@ -8,10 +8,11 @@
  * real en la calculadora al revisar la oportunidad.
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
+import { computeLandingResult } from '../data/landingCalculation';
 
-export function LandingResultView({ leadResult, funnel, contacto, partnerBranding }) {
+export function LandingResultView({ leadResult, funnel, contacto, partnerBranding, calculatorInputs }) {
     const [instaladores, setInstaladores] = useState([]);
     const [loadingInst, setLoadingInst] = useState(false);
 
@@ -33,12 +34,24 @@ export function LandingResultView({ leadResult, funnel, contacto, partnerBrandin
             .finally(() => setLoadingInst(false));
     }, [funnel?.presupuesto_modo, leadResult, contacto, partnerBranding]);
 
-    // Cifras orientativas — se afina con la calculadora real luego
-    const ahorroAnualOrientativo = Math.round((funnel?.gasto_anual_eur || 1500) * 0.6);
-    const bonoCaeOrientativo = funnel?.isReforma ? 5500 : 3500;
-    const co2Orientativo = Math.round((funnel?.gasto_anual_eur || 1500) * 0.003);
+    // Cifras REALES — usamos el mismo motor que la calculadora interna,
+    // así el bono CAE mostrado al cliente coincide con el del admin.
+    const resultado = useMemo(() => {
+        if (!calculatorInputs) return null;
+        try {
+            return computeLandingResult(calculatorInputs);
+        } catch (err) {
+            console.error('[Landing] Error calculando resultado:', err);
+            return null;
+        }
+    }, [calculatorInputs]);
+
+    const bonoCae = resultado?.caeBonus ?? 0;
+    const ahorroAnual = resultado?.ahorroAnualEur ?? 0;
+    const co2Tons = resultado?.co2TonsAvoided ?? 0;
 
     const fmt = (n) => new Intl.NumberFormat('es-ES', { maximumFractionDigits: 0 }).format(n);
+    const fmtDec = (n) => new Intl.NumberFormat('es-ES', { maximumFractionDigits: 1 }).format(n);
 
     return (
         <div className="animate-fade-in max-w-3xl mx-auto">
@@ -58,23 +71,25 @@ export function LandingResultView({ leadResult, funnel, contacto, partnerBrandin
             {/* Cifras principales */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-10">
                 <div className="p-6 bg-gradient-to-br from-amber-500/20 to-amber-500/5 border-2 border-amber-500/30 rounded-3xl text-center">
-                    <div className="text-[10px] font-black uppercase tracking-widest text-amber-300/80 mb-2">Bono CAE</div>
+                    <div className="text-[10px] font-black uppercase tracking-widest text-amber-300/80 mb-2">
+                        {resultado?.isReformaResult ? 'Bono CAE Reforma' : 'Bono CAE'}
+                    </div>
                     <div className="text-4xl md:text-5xl font-black text-amber-300 tracking-tight">
-                        {fmt(bonoCaeOrientativo)}<span className="text-2xl ml-1">€</span>
+                        {fmt(bonoCae)}<span className="text-2xl ml-1">€</span>
                     </div>
                     <div className="text-xs text-white/40 mt-2">Ayuda directa del Estado</div>
                 </div>
                 <div className="p-6 bg-gradient-to-br from-emerald-500/20 to-emerald-500/5 border-2 border-emerald-500/30 rounded-3xl text-center">
                     <div className="text-[10px] font-black uppercase tracking-widest text-emerald-300/80 mb-2">Ahorro anual</div>
                     <div className="text-4xl md:text-5xl font-black text-emerald-300 tracking-tight">
-                        {fmt(ahorroAnualOrientativo)}<span className="text-2xl ml-1">€</span>
+                        {fmt(ahorroAnual)}<span className="text-2xl ml-1">€</span>
                     </div>
                     <div className="text-xs text-white/40 mt-2">En tu factura cada año</div>
                 </div>
                 <div className="p-6 bg-gradient-to-br from-cyan-500/20 to-cyan-500/5 border-2 border-cyan-500/30 rounded-3xl text-center">
                     <div className="text-[10px] font-black uppercase tracking-widest text-cyan-300/80 mb-2">CO₂ evitado</div>
                     <div className="text-4xl md:text-5xl font-black text-cyan-300 tracking-tight">
-                        {fmt(co2Orientativo)}<span className="text-2xl ml-1">t</span>
+                        {fmtDec(co2Tons)}<span className="text-2xl ml-1">t</span>
                     </div>
                     <div className="text-xs text-white/40 mt-2">Al año vs tu sistema actual</div>
                 </div>
