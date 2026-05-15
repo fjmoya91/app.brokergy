@@ -203,7 +203,7 @@ async function generateOpportunityId(fichaType) {
  * @param {string|null} params.prescriptorId UUID del prescriptor (resuelto en la ruta).
  * @returns {Promise<{ id_oportunidad: string, oportunidad_uuid: string, cliente_id: string, lead_score: number }>}
  */
-async function createLead({ contacto, catastro, funnel, calculatorInputs, geoContext, partnerSlug, prescriptorId }) {
+async function createLead({ contacto, catastro, funnel, calculatorInputs, precomputedResult, demandaCalefaccionPorM2, geoContext, partnerSlug, prescriptorId }) {
     // 1. Validaciones mínimas — fail-fast antes de tocar BD
     if (!contacto?.nombre) throw new Error('Falta el nombre del cliente');
     if (!contacto?.email && !contacto?.tlf) throw new Error('Necesitamos al menos email o teléfono para contactar');
@@ -239,6 +239,13 @@ async function createLead({ contacto, catastro, funnel, calculatorInputs, geoCon
     const referenciaCliente = [contacto.nombre, contacto.apellidos].filter(Boolean).join(' ').trim().toUpperCase();
     const now = new Date().toISOString();
 
+    // referenciaCliente también dentro de inputs para que la calculadora lo
+    // muestre pre-relleno al admin (el SaveOpportunityModal lo lee de aquí).
+    const inputsConRef = {
+        ...(calculatorInputs || {}),
+        referenciaCliente: referenciaCliente || ''
+    };
+
     const datosCalculo = {
         estado: 'LEAD',
         origen: 'landing_publica',
@@ -256,7 +263,12 @@ async function createLead({ contacto, catastro, funnel, calculatorInputs, geoCon
         warning_biomasa_aplicado: warningBiomasa,
 
         // Inputs ya mapeados a la calculadora interna (lo que el técnico verá)
-        inputs: calculatorInputs || {},
+        inputs: inputsConRef,
+
+        // Resultado precomputado por el frontend (mismo formato que
+        // CalculatorView.handleCalculate). El panel admin lo lee directamente
+        // para mostrar bono CAE, ahorro, etc., sin tener que recalcular.
+        result: precomputedResult || null,
 
         // Respuestas raw del funnel para auditoría / reprocesado futuro
         landing_funnel: funnel || {},
@@ -308,6 +320,7 @@ async function createLead({ contacto, catastro, funnel, calculatorInputs, geoCon
                 ficha: fichaType,
                 referencia_cliente: referenciaCliente || null,
                 prescriptor_id: prescriptorId || existingLead.prescriptor_id || null,
+                demanda_calefaccion: demandaCalefaccionPorM2 || null,
                 datos_calculo: datosCalculo
             })
             .eq('id', existingLead.id)
@@ -339,7 +352,7 @@ async function createLead({ contacto, catastro, funnel, calculatorInputs, geoCon
         referencia_cliente: referenciaCliente || null,
         cliente_id: id_cliente,
         prescriptor_id: prescriptorId || null,
-        demanda_calefaccion: null, // El técnico la calcula al revisar
+        demanda_calefaccion: demandaCalefaccionPorM2 || null,
         datos_calculo: datosCalculo
     };
 

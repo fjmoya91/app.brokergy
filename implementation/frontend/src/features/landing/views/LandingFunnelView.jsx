@@ -23,6 +23,7 @@ import { MapPickerModal } from '../../../components/MapPickerModal';
 
 import { useFunnelState } from '../hooks/useFunnelState';
 import { funnelToCalculatorInputs, shouldWarnBiomasa } from '../data/funnelToInputs';
+import { computeFullCalculatorResult } from '../data/landingCalculation';
 
 import { StepHeader } from '../components/StepHeader';
 import { CalculatingOverlay } from '../components/CalculatingOverlay';
@@ -263,6 +264,20 @@ export default function LandingFunnelView({ route }) {
 
         try {
             const calculatorInputs = funnelToCalculatorInputs(funnel, catastro);
+
+            // Computar el `result` completo en frontend (mismo formato que
+            // CalculatorView.handleCalculate). Así el admin verá los datos
+            // pre-calculados en la lista de oportunidades sin tener que
+            // recargar la calculadora.
+            let precomputedResult = null;
+            let demandaCalefaccionPorM2 = null;
+            try {
+                precomputedResult = computeFullCalculatorResult(calculatorInputs);
+                demandaCalefaccionPorM2 = precomputedResult?.q_net || null;
+            } catch (e) {
+                console.warn('[Landing] No se pudo pre-calcular el result:', e);
+            }
+
             const payload = {
                 provinceCode: String(catastro?.provinceCode || '').padStart(2, '0'),
                 partner_slug: partnerBranding?.slug || null,
@@ -279,7 +294,9 @@ export default function LandingFunnelView({ route }) {
                     timeline: contacto.timeline,
                     titular_type: contacto.titular_type
                 },
-                calculatorInputs
+                calculatorInputs,
+                precomputedResult,
+                demandaCalefaccionPorM2
             };
 
             const res = await axios.post('/api/landing/lead', payload);

@@ -539,6 +539,12 @@ function App() {
         cod_cliente_interno: rootInputs.cod_cliente_interno || '',
         id_uuid: op.id,
         id_oportunidad: op.id_oportunidad,
+        prescriptor_id: op.prescriptor_id || cleanNested.prescriptor_id || rootInputs.prescriptor_id || '',
+        // Referencia del cliente — priorizamos la columna SQL canónica de la
+        // oportunidad. Sin esto, los LEAD de la landing pública abrían la
+        // calculadora con el campo vacío (los inputs no la replicaban) y al
+        // guardar se sobreescribía la referencia original con un valor en blanco.
+        referenciaCliente: op.referencia_cliente || cleanNested.referenciaCliente || rootInputs.referenciaCliente || '',
         isPersistent: true,
         demandMode: (cleanNested.demandMode || rootInputs.demandMode) || 'estimated',
         // Resultado guardado canónico (siempre desde la raíz, no desde nested)

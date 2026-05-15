@@ -16,6 +16,7 @@ import {
     calculateAnnualSavingsTheoretical,
     calculateAnnualSavingsFromSpending,
     calculateRes080Estimated,
+    calculatePayback,
     FACTORES_PASO
 } from '../../calculator/logic/calculation';
 
@@ -197,5 +198,122 @@ export function computeLandingResult(inputs) {
         isReformaResult,
         fuelLabel: annualRes?.fuelLabel || 'tu sistema actual',
         co2TonsAvoided: Math.max(0, Number(co2TonsAvoided.toFixed(2))) // queda disponible, ya no se muestra
+    };
+}
+
+/**
+ * Computa el `result` completo que la calculadora interna guarda en
+ * `datos_calculo.result`. Replica exactamente CalculatorView.handleCalculate
+ * para que cuando admin abra la oportunidad LEAD, vea el mismo bono CAE,
+ * ahorros, y el panel de oportunidades muestre datos pre-calculados (no 0).
+ *
+ * Forma de salida idéntica a setResult({...}) en CalculatorView.
+ */
+export function computeFullCalculatorResult(inputs) {
+    if (!inputs) return null;
+
+    // 1. Demanda (modo estimated por defecto en landing)
+    const demandRes = calculateDemand(inputs);
+    demandRes.fromXml = false;
+
+    // 2. Hibridación: la landing no la ofrece, cb = 1.0
+    const cb = 1.0;
+
+    // 3. Ahorro energético
+    const savingsRes = calculateSavings({
+        q_net_heating: demandRes.Q_net,
+        dacs: 2731.4,
+        boilerEff: inputs.boilerEff,
+        scopHeating: inputs.scopHeating,
+        scopAcs: inputs.scopAcs,
+        changeAcs: inputs.changeAcs,
+        cb
+    });
+
+    // 4. Financieros base
+    const financialRes = calculateFinancials({
+        presupuesto: inputs.presupuesto,
+        savingsKwh: savingsRes.savingsKwh,
+        caePriceClient: inputs.caePriceClient || 95,
+        caePriceSO: inputs.caePriceSO || 160,
+        caePricePrescriptor: inputs.includeCommission ? (inputs.caePricePrescriptor || 0) : 0,
+        prescriptorMode: inputs.prescriptorMode || 'brokergy',
+        tipo: inputs.tipo,
+        participation: inputs.participation,
+        numOwners: inputs.numOwners || 1,
+        discountCertificates: inputs.discountCertificates,
+        includeLegalization: inputs.includeLegalization,
+        installerNoCard: inputs.installerNoCard,
+        legalizationPrice: inputs.legalizationPrice,
+        itpPercent: inputs.itpPercent,
+        includeIrpf: inputs.includeIrpf !== false,
+        titularType: inputs.titularType || 'particular',
+        aplicarIrpfCae: true
+    });
+
+    // 5. Ahorro económico anual
+    let annualSavingsRes;
+    if (inputs.savingsMode === 'real' && inputs.gastoAnualReal > 0) {
+        annualSavingsRes = calculateAnnualSavingsFromSpending({
+            gastoAnual: inputs.gastoAnualReal,
+            fuelType: inputs.fuelType,
+            boilerEff: inputs.boilerEff,
+            scopCalefaccion: inputs.scopHeating
+        });
+    } else {
+        annualSavingsRes = calculateAnnualSavingsTheoretical({
+            demandaCalefaccion: demandRes.Q_net,
+            demandaACS: 2731.4,
+            boilerEff: inputs.boilerEff,
+            scopCalefaccion: inputs.scopHeating,
+            scopACS: inputs.scopAcs,
+            fuelType: inputs.fuelType,
+            changeACS: inputs.changeAcs,
+            cb
+        });
+    }
+
+    // 6. Payback
+    const paybackRes = calculatePayback({
+        presupuesto: inputs.presupuesto,
+        totalAyuda: financialRes.totalAyuda,
+        ahorroAnual: annualSavingsRes.ahorroAnual
+    });
+
+    // 7. RES080 si aplica
+    let res080Data = null;
+    let financialsRes080 = null;
+    if (inputs.isReforma && inputs.reformaType !== 'none') {
+        res080Data = calculateRes080Estimated(inputs);
+        if (res080Data) {
+            financialsRes080 = calculateFinancials({
+                presupuesto: (inputs.presupuesto || 0) + (inputs.presupuestoEnvolvente || 0),
+                savingsKwh: res080Data.ahorroEnergiaFinalTotal,
+                caePriceClient: inputs.caePriceClient || 95,
+                caePriceSO: inputs.caePriceSO || 160,
+                caePricePrescriptor: inputs.includeCommission ? (inputs.caePricePrescriptor || 0) : 0,
+                prescriptorMode: inputs.prescriptorMode || 'brokergy',
+                tipo: inputs.tipo,
+                participation: inputs.participation,
+                numOwners: inputs.numOwners || 1,
+                titularType: inputs.titularType || 'particular',
+                includeIrpf: inputs.includeIrpf !== false,
+                aplicarIrpfCae: true
+            });
+        }
+    }
+
+    return {
+        ...demandRes,
+        savings: savingsRes,
+        financials: financialRes,
+        annualSavings: annualSavingsRes,
+        payback: paybackRes,
+        res080: res080Data,
+        financialsRes080,
+        includeAnnualSavings: !!inputs.includeAnnualSavings,
+        discountCertificates: !!inputs.discountCertificates,
+        selectedModel: null,
+        hybridization: null
     };
 }

@@ -192,7 +192,7 @@ router.get('/instaladores', async (req, res) => {
 // }
 // ---------------------------------------------------------------------------
 router.post('/lead', geoGate, async (req, res) => {
-    const { turnstile_token, partner_slug, contacto, catastro, funnel, calculatorInputs } = req.body || {};
+    const { turnstile_token, partner_slug, contacto, catastro, funnel, calculatorInputs, precomputedResult, demandaCalefaccionPorM2 } = req.body || {};
 
     // 1. Captcha (si está habilitado)
     const clientIp = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.socket?.remoteAddress;
@@ -227,6 +227,8 @@ router.post('/lead', geoGate, async (req, res) => {
             catastro: catastro || {},
             funnel: funnel || {},
             calculatorInputs: calculatorInputs || {},
+            precomputedResult: precomputedResult || null,
+            demandaCalefaccionPorM2: demandaCalefaccionPorM2 || null,
             geoContext: req.geoContext,
             partnerSlug: partner_slug || null,
             prescriptorId
