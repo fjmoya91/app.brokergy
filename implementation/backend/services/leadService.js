@@ -254,6 +254,10 @@ async function createLead({ contacto, catastro, funnel, calculatorInputs, precom
         ccaa: geoContext.ccaa,
         provinceCode: geoContext.provinceCode,
 
+        // Consentimientos de comunicación (opt-in del cliente en Step 9)
+        consent_email: contacto?.consent_email !== false,
+        consent_whatsapp: contacto?.consent_whatsapp !== false,
+
         // Lead intelligence
         lead_score: score,
         lead_caliente: caliente,

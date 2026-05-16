@@ -81,7 +81,10 @@ export default function LandingFunnelView({ route }) {
     const [contacto, setContacto] = useState({
         nombre: '', email: '', tlf: '',
         titular_type: null, num_propietarios: null,
-        timeline: null, rgpd_aceptado: false
+        timeline: null, rgpd_aceptado: false,
+        // Consents para recibir comunicaciones — pre-marcados (el cliente
+        // está pidiendo activamente su propuesta, no es marketing puro).
+        consent_email: true, consent_whatsapp: true
     });
 
     // ---- Resultado del POST ----
