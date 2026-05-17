@@ -11,10 +11,10 @@
 import React, { useState } from 'react';
 
 const BADGES = [
-    { icon: '✅', label: 'Sin compromiso' },
-    { icon: '📋', label: 'Datos oficiales del Catastro' },
-    { icon: '⏱', label: 'Tarda menos de 1 minuto' },
-    { icon: '🏛', label: 'Bono CAE garantizado' }
+    { icon: '🏆', label: '100% de éxito' },
+    { icon: '⏱', label: 'Cobro en 3-6 meses' },
+    { icon: '✍️', label: 'Solo 2 firmas' },
+    { icon: '🏛', label: 'Datos oficiales del Catastro' }
 ];
 
 const STEPS = [
@@ -25,16 +25,24 @@ const STEPS = [
 
 const FAQ = [
     {
-        q: '¿Qué es el Bono CAE?',
-        a: 'Es una ayuda económica del Estado, regulada por el RD 36/2023, para sustituir tu caldera antigua por aerotermia (más eficiente y limpia). Es compatible con la deducción del IRPF por rehabilitación energética: pueden cubrir entre el 60% y el 95% de la inversión.'
+        q: '¿Qué es el Bono Energético CAE?',
+        a: 'Los Certificados de Ahorro Energético (CAE) son un mecanismo regulado por el Ministerio para la Transición Ecológica y el Reto Demográfico (Real Decreto 36/2023) que premia económicamente las acciones de eficiencia energética realizadas en hogares y negocios — como sustituir una caldera antigua por aerotermia, mejorar el aislamiento o cambiar ventanas.'
     },
     {
-        q: '¿Tengo que devolver el bono?',
-        a: 'No. El Bono CAE es una subvención directa, no un préstamo. Una vez recibida no se devuelve, siempre que la instalación cumpla los requisitos técnicos (lo verifica un técnico certificado por BROKERGY).'
+        q: '¿Quién paga el bono?',
+        a: 'Las grandes empresas energéticas — los llamados "sujetos obligados" — están obligadas por ley a comprar estos certificados. Sin embargo, solo los adquieren en grandes volúmenes y no negocian directamente con particulares. BROKERGY actúa como intermediario especializado: agrupa tu expediente con otros similares, gestiona toda la documentación técnica y administrativa, y negocia con los sujetos obligados para obtener el máximo precio por tus certificados.'
     },
     {
         q: '¿Cuánto se tarda en cobrar?',
-        a: 'Entre 30 y 90 días desde la finalización de la obra. BROKERGY adelanta el bono al cliente para que no tenga que esperar — recibes la ayuda al momento.'
+        a: 'Entre 3 y 6 meses desde la finalización de la obra. BROKERGY no realiza adelantos — cobramos a éxito una vez los sujetos obligados validan y pagan el expediente. El pago es íntegro y en el plazo garantizado, sin sorpresas.'
+    },
+    {
+        q: '¿Qué tengo que hacer yo?',
+        a: 'Casi nada. Solo necesitas firmar 2 documentos (cesión del CAE y autorización de gestión). BROKERGY se encarga de toda la documentación técnica, la emisión de facturas específicas y la tramitación administrativa de principio a fin. Sin papeleo, sin complicaciones.'
+    },
+    {
+        q: '¿Tengo que devolver el bono?',
+        a: 'No. El Bono CAE es una subvención directa, no un préstamo. Una vez tramitado y cobrado, no se devuelve. La instalación queda verificada por un técnico certificado por BROKERGY y validada por el sujeto obligado.'
     },
     {
         q: '¿Cuándo me llamáis?',
