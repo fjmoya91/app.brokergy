@@ -1,16 +1,11 @@
-import React, { useEffect } from 'react';
+import React from 'react';
 import { IconCard } from '../components/IconCard';
 import { StepLayout } from '../components/StepLayout';
 
 export function Step3_EdadCaldera({ funnel, updateFunnel, onNext }) {
-    // Si el combustible es electricidad, este paso se salta (rendimiento siempre 1.0)
-    useEffect(() => {
-        if (funnel.combustible_actual === 'electrica') {
-            updateFunnel({ edad_caldera: 'no_se', condensacion: 'no_se' });
-            onNext();
-        }
-    }, [funnel.combustible_actual]);
-
+    // Nota: si combustible es eléctrico, este paso NO se monta — el filtrado se
+    // hace en LandingFunnelView.activeSteps. Esto evita el bucle de navegación
+    // que aparecía con auto-skip por useEffect (volvía atrás → re-skipeaba).
     const aplicaCondensacion = funnel.combustible_actual === 'gas' || funnel.combustible_actual === 'gasoleo';
     const necesitaCondensacion = aplicaCondensacion && !funnel.condensacion;
 

@@ -1,10 +1,37 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import { DwellingPicker } from './DwellingPicker';
 
-export function ConfirmationCard({ candidate, onConfirm, onCancel }) {
+export function ConfirmationCard({ candidate, onConfirm, onCancel, onPickOnMap }) {
     const [selected, setSelected] = React.useState(candidate);
     const [loadingDetails, setLoadingDetails] = React.useState(false);
     const [details, setDetails] = React.useState(candidate.fullData || null);
+    const [pickingDwelling, setPickingDwelling] = React.useState(false);
+
+    // Lista de viviendas viene en details.dwellings cuando es bloque (división horizontal)
+    const dwellings = details?.dwellings || candidate.fullData?.dwellings;
+
+    const handleSelectDwelling = async (dwelling) => {
+        if (dwelling.rc === details?.rc) return;
+        setPickingDwelling(true);
+        try {
+            const res = await axios.get('/api/catastro/property-data', { params: { rc: dwelling.rc } });
+            const newData = res.data;
+            setDetails(newData);
+            setSelected(prev => ({
+                ...prev,
+                rc: newData.rc,
+                description: newData.address,
+                imageUrl: `/api/catastro/image/${newData.rc}`,
+                fullData: newData,
+                isResolved: true
+            }));
+        } catch (err) {
+            console.error('No se pudo cargar la vivienda seleccionada', err);
+        } finally {
+            setPickingDwelling(false);
+        }
+    };
 
     // Reset when candidate changes
     useEffect(() => {
@@ -60,24 +87,42 @@ export function ConfirmationCard({ candidate, onConfirm, onCancel }) {
     return (
         <div className="glass-card p-6 border-l-4 border-amber-500 animate-fade-in">
             {/* Header */}
-            <div className="flex items-center gap-3 mb-6">
-                <div className="w-10 h-10 rounded-lg bg-amber-500/20 flex items-center justify-center text-amber-500">
-                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-                    </svg>
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-6">
+                <div className="flex items-center gap-3 flex-1 min-w-0">
+                    <div className="w-10 h-10 rounded-lg bg-amber-500/20 flex items-center justify-center text-amber-500 flex-shrink-0">
+                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                        </svg>
+                    </div>
+                    <div className="min-w-0">
+                        <h3 className="text-xl font-bold text-white">Confirma el inmueble</h3>
+                        <p className="text-white/50 text-sm">Verifica la imagen y los datos básicos</p>
+                    </div>
                 </div>
-                <div>
-                    <h3 className="text-xl font-bold text-white">Confirma el inmueble</h3>
-                    <p className="text-white/50 text-sm">Verifica la imagen y los datos básicos</p>
+
+                <div className="flex items-center gap-2 sm:ml-auto flex-shrink-0">
+                    {!isOriginal && (
+                        <button
+                            onClick={() => setSelected(candidate)}
+                            className="text-xs bg-white/10 hover:bg-white/20 text-white px-3 py-1.5 rounded-full transition-colors"
+                        >
+                            Volver al original
+                        </button>
+                    )}
+                    {onPickOnMap && (
+                        <button
+                            onClick={onPickOnMap}
+                            className="px-4 py-2.5 rounded-xl bg-brand/10 border border-brand/30 text-brand text-[10px] font-black uppercase tracking-widest hover:bg-brand/20 hover:border-brand/50 transition-all flex items-center gap-2 whitespace-nowrap"
+                            title="Selecciona tu inmueble sobre la cartografía catastral"
+                        >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
+                            </svg>
+                            <span className="hidden sm:inline">Ajustar en el mapa</span>
+                            <span className="sm:hidden">Mapa</span>
+                        </button>
+                    )}
                 </div>
-                {!isOriginal && (
-                    <button
-                        onClick={() => setSelected(candidate)}
-                        className="ml-auto text-xs bg-white/10 hover:bg-white/20 text-white px-3 py-1 rounded-full transition-colors"
-                    >
-                        Volver al original
-                    </button>
-                )}
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -176,11 +221,24 @@ export function ConfirmationCard({ candidate, onConfirm, onCancel }) {
                             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                             </svg>
-                            Confirmar Inmueble
+                            <span className="hidden sm:inline">Confirmar Inmueble</span>
+                            <span className="sm:hidden">Confirmar</span>
                         </button>
                     </div>
                 </div>
             </div>
+
+            {/* Selector de vivienda (bloques con división horizontal) */}
+            {dwellings && dwellings.length > 1 && (
+                <div className="mt-6 pt-5 border-t border-white/10">
+                    <DwellingPicker
+                        dwellings={dwellings}
+                        selectedRc={details?.rc || selected.rc}
+                        onSelect={handleSelectDwelling}
+                        loading={pickingDwelling}
+                    />
+                </div>
+            )}
 
             {/* Neighborhood Strip */}
             <NeighborhoodStrip
@@ -195,6 +253,7 @@ export function ConfirmationCard({ candidate, onConfirm, onCancel }) {
                     });
                 }}
             />
+
         </div>
     );
 }

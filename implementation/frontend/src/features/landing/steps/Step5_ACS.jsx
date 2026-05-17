@@ -14,14 +14,16 @@ import { StepLayout } from '../components/StepLayout';
  * 'Butano' como referencia por defecto (criterio negocio).
  */
 export function Step5_ACS({ funnel, updateFunnel, onNext }) {
-    const heatingLabel = (() => {
+    // Copy natural de la primera opción "misma caldera" según combustible.
+    const mismaInstalacion = (() => {
         switch (funnel.combustible_actual) {
-            case 'gas': return 'Gas';
-            case 'gasoleo': return 'Gasóleo';
-            case 'electrica': return 'electricidad';
-            case 'carbon': return 'Carbón';
-            case 'biomasa': return 'biomasa';
-            default: return null;
+            case 'gas':       return { title: 'La misma caldera de gas',      subtitle: 'Si tu caldera de gas te da calefacción y agua caliente' };
+            case 'gasoleo':   return { title: 'La misma caldera de gasóleo',  subtitle: 'Si tu caldera de gasóleo te da calefacción y agua caliente' };
+            case 'carbon':    return { title: 'La misma caldera de carbón',   subtitle: 'Si tu caldera te da calefacción y agua caliente' };
+            case 'biomasa':   return { title: 'La misma caldera de biomasa',  subtitle: 'Si tu caldera te da calefacción y agua caliente' };
+            // Para eléctrica no hay "caldera" — esta opción no aplica y se oculta.
+            case 'electrica': return null;
+            default:          return null;
         }
     })();
 
@@ -46,11 +48,11 @@ export function Step5_ACS({ funnel, updateFunnel, onNext }) {
                     1. ¿Cómo calientas el agua caliente HOY?
                 </div>
                 <div className="space-y-3">
-                    {heatingLabel && (
+                    {mismaInstalacion && (
                         <IconCard
                             icon="🔁"
-                            title={`La misma caldera de ${heatingLabel}`}
-                            subtitle="Si tu caldera te da calefacción y agua caliente"
+                            title={mismaInstalacion.title}
+                            subtitle={mismaInstalacion.subtitle}
                             selected={funnel.boiler_acs_type === 'misma_caldera'}
                             onClick={() => selectAcs('misma_caldera')}
                         />

@@ -365,19 +365,21 @@ export default function LandingFunnelView({ route }) {
         }
     }, [funnel, contacto, catastro, partnerBranding]);
 
-    // ---- Pasos activos (8 si solo cambio de caldera, 9 si reforma integral) ----
+    // ---- Pasos activos (variable según respuestas) ----
+    // - Step 3 (edad caldera) se omite si combustible es eléctrico (rendimiento
+    //   siempre 1.0, no afecta al cálculo). Filtrar aquí evita el bucle de
+    //   navegación que aparecía al volver atrás desde Step 5.
+    // - Step 6 (elementos reforma) solo si isReforma=true.
     const activeSteps = useMemo(() => {
-        const base = [
-            Step1_TipoProyecto,
-            Step2_Combustible,
-            Step3_EdadCaldera,
-            Step4_Emisores,
-            Step5_ACS
-        ];
+        const base = [Step1_TipoProyecto, Step2_Combustible];
+        if (funnel.combustible_actual !== 'electrica') {
+            base.push(Step3_EdadCaldera);
+        }
+        base.push(Step4_Emisores, Step5_ACS);
         if (funnel.isReforma) base.push(Step6_ElementosReforma);
         base.push(Step7_Gasto, Step8_Presupuesto, Step9_Contacto);
         return base;
-    }, [funnel.isReforma]);
+    }, [funnel.isReforma, funnel.combustible_actual]);
 
     const totalSteps = activeSteps.length;
 
