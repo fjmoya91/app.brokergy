@@ -10,13 +10,6 @@
 
 import React, { useState } from 'react';
 
-const BADGES = [
-    { icon: '🏆', label: '100% de éxito' },
-    { icon: '⏱', label: 'Cobro en 3-6 meses' },
-    { icon: '✍️', label: 'Solo 2 firmas' },
-    { icon: '🏛', label: 'Datos oficiales del Catastro' }
-];
-
 const STEPS = [
     { n: 1, icon: '🏠', title: 'Busca tu vivienda', desc: 'Por referencia catastral, dirección o tu ubicación actual' },
     { n: 2, icon: '💬', title: 'Responde 8 preguntas', desc: 'Sobre tu caldera actual y cómo te calientas hoy' },
@@ -54,17 +47,7 @@ export function HomeInfoSections() {
     const [openFaq, setOpenFaq] = useState(null);
 
     return (
-        <div className="max-w-3xl mx-auto mt-8 md:mt-12 space-y-10 md:space-y-14">
-
-            {/* ───── Badges de confianza ───── */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3">
-                {BADGES.map((b, i) => (
-                    <div key={i} className="flex items-center gap-2 md:gap-3 p-3 bg-white/[0.03] border border-white/[0.08] rounded-2xl">
-                        <span className="text-xl md:text-2xl flex-shrink-0">{b.icon}</span>
-                        <span className="text-white/70 text-[11px] md:text-xs font-bold leading-tight">{b.label}</span>
-                    </div>
-                ))}
-            </div>
+        <div className="max-w-3xl mx-auto mt-10 md:mt-14 space-y-10 md:space-y-14">
 
             {/* ───── Cómo funciona ───── */}
             <section>
