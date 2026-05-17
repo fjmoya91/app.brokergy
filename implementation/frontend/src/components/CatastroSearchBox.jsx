@@ -105,36 +105,34 @@ export function CatastroSearchBox({ onSearch, onAddressSelect, onManualEntry, on
                     </p>
                 </div>
 
-                {/* TABS — Referencia · Dirección (cards prominentes, GPS dentro de Dirección) */}
-                <div className="grid grid-cols-2 gap-2 sm:gap-3 mb-6 max-w-2xl mx-auto">
+                {/* TABS — Referencia · Dirección (iconos compactos) */}
+                <div className="grid grid-cols-2 gap-2 sm:gap-3 mb-5 max-w-2xl mx-auto">
                     <button
                         onClick={() => { setSearchMode('rc'); setQuery(''); setSuggestions([]); }}
-                        className={`flex flex-col items-center justify-center gap-2 px-3 sm:px-4 py-5 sm:py-6 rounded-2xl border-2 font-black uppercase tracking-widest transition-all duration-300 ${
+                        className={`flex items-center justify-center gap-2 px-3 sm:px-4 py-3 sm:py-4 rounded-xl border-2 font-black uppercase tracking-widest transition-all duration-300 ${
                             searchMode === 'rc'
-                                ? 'bg-gradient-to-br from-brand to-brand-500 border-brand text-bkg-deep shadow-xl shadow-brand/30 scale-[1.02]'
+                                ? 'bg-gradient-to-br from-brand to-brand-500 border-brand text-bkg-deep shadow-lg shadow-brand/20'
                                 : 'bg-white/[0.03] border-white/10 text-white/60 hover:text-white hover:border-white/20 hover:bg-white/[0.05]'
                         }`}
                     >
-                        {/* Icono: hash (referencia catastral) */}
-                        <svg className="w-7 h-7 sm:w-8 sm:h-8 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg className="w-4 h-4 sm:w-5 sm:h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M7 20l4-16m2 16l4-16M6 9h14M4 15h14" />
                         </svg>
-                        <span className="text-[11px] sm:text-sm leading-none">Referencia catastral</span>
+                        <span className="text-[10px] sm:text-xs leading-none whitespace-nowrap">Referencia catastral</span>
                     </button>
                     <button
                         onClick={() => { setSearchMode('address'); setQuery(''); }}
-                        className={`flex flex-col items-center justify-center gap-2 px-3 sm:px-4 py-5 sm:py-6 rounded-2xl border-2 font-black uppercase tracking-widest transition-all duration-300 ${
+                        className={`flex items-center justify-center gap-2 px-3 sm:px-4 py-3 sm:py-4 rounded-xl border-2 font-black uppercase tracking-widest transition-all duration-300 ${
                             searchMode === 'address'
-                                ? 'bg-gradient-to-br from-brand to-brand-500 border-brand text-bkg-deep shadow-xl shadow-brand/30 scale-[1.02]'
+                                ? 'bg-gradient-to-br from-brand to-brand-500 border-brand text-bkg-deep shadow-lg shadow-brand/20'
                                 : 'bg-white/[0.03] border-white/10 text-white/60 hover:text-white hover:border-white/20 hover:bg-white/[0.05]'
                         }`}
                     >
-                        {/* Icono: edificio/casa (dirección postal) */}
-                        <svg className="w-7 h-7 sm:w-8 sm:h-8 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg className="w-4 h-4 sm:w-5 sm:h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9Z" />
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 22V12h6v10" />
                         </svg>
-                        <span className="text-[11px] sm:text-sm leading-none">Dirección</span>
+                        <span className="text-[10px] sm:text-xs leading-none">Dirección</span>
                     </button>
                 </div>
 
@@ -203,8 +201,8 @@ export function CatastroSearchBox({ onSearch, onAddressSelect, onManualEntry, on
                     </div>
                 </form>
 
-                {/* Botón GPS dentro del modo Dirección */}
-                {searchMode === 'address' && onGeolocate && (
+                {/* Botón GPS — siempre visible (sirve tanto para Referencia como Dirección) */}
+                {onGeolocate && (
                     <div className="mt-5 max-w-2xl mx-auto">
                         <div className="flex items-center gap-3 mb-3">
                             <div className="flex-1 h-px bg-white/10"></div>
@@ -215,20 +213,20 @@ export function CatastroSearchBox({ onSearch, onAddressSelect, onManualEntry, on
                             type="button"
                             onClick={handleGeolocateClick}
                             disabled={geoLoading}
-                            className="w-full flex items-center justify-center gap-3 px-5 py-4 rounded-2xl bg-emerald-500/10 hover:bg-emerald-500/15 border-2 border-emerald-500/30 hover:border-emerald-500/50 text-emerald-400 font-black text-xs sm:text-sm uppercase tracking-widest transition-all disabled:opacity-60 disabled:cursor-wait"
+                            className="w-full flex items-center justify-center gap-2.5 px-5 py-3.5 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/15 border-2 border-emerald-500/30 hover:border-emerald-500/50 text-emerald-400 font-black text-xs sm:text-sm uppercase tracking-widest transition-all disabled:opacity-60 disabled:cursor-wait"
                         >
                             {geoLoading ? (
-                                <svg className="w-5 h-5 flex-shrink-0 animate-spin" fill="none" viewBox="0 0 24 24">
+                                <svg className="w-4 h-4 sm:w-5 sm:h-5 flex-shrink-0 animate-spin" fill="none" viewBox="0 0 24 24">
                                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
                                 </svg>
                             ) : (
-                                <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <svg className="w-4 h-4 sm:w-5 sm:h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32l1.41 1.41M2 12h2m16 0h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />
                                     <circle cx="12" cy="12" r="4" strokeWidth={2.5} />
                                 </svg>
                             )}
-                            <span>{geoLoading ? 'Localizando…' : 'Estoy en casa, usar mi ubicación'}</span>
+                            <span>{geoLoading ? 'Localizando…' : 'Usar mi ubicación'}</span>
                         </button>
                     </div>
                 )}
