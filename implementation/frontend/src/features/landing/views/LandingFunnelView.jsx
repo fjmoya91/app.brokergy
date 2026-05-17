@@ -27,6 +27,7 @@ import { computeFullCalculatorResult } from '../data/landingCalculation';
 
 import { StepHeader } from '../components/StepHeader';
 import { CalculatingOverlay } from '../components/CalculatingOverlay';
+import { HomeInfoSections } from '../components/HomeInfoSections';
 import { Step1_TipoProyecto } from '../steps/Step1_TipoProyecto';
 import { Step2_Combustible } from '../steps/Step2_Combustible';
 import { Step3_EdadCaldera } from '../steps/Step3_EdadCaldera';
@@ -468,6 +469,10 @@ export default function LandingFunnelView({ route }) {
                                     <p className="text-red-400 text-sm">{catastroError}</p>
                                 </div>
                             )}
+
+                            {/* Secciones informativas (badges + cómo funciona + FAQ).
+                                Solo en HOME sin candidato confirmado — no estorba el flujo. */}
+                            {!confirmCandidate && <HomeInfoSections />}
                         </>
                     )}
 
