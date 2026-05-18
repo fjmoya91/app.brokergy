@@ -364,73 +364,109 @@ async function getFullRC(rc14) {
 }
 
 async function getRCByCoords(lat, lng, numberHint = null) {
-    // 1 sola petición central (sin grid). Si la coord no cae sobre parcela
-    // devolvemos null y el frontend pide al usuario que ajuste la chincheta.
+    // Estrategia ESCALONADA con cache:
+    //   1. Cache hit → 0 peticiones
+    //   2. Petición central → si encuentra parcela, 1 petición total
+    //   3. Si la central falla, grid de 8 puntos adicionales en paralelo
+    //      (3x3 sin la central, ya probada) → max 9 peticiones
     //
-    // Antes hacíamos un grid 3x3 (9 peticiones simultáneas). En entornos VPS
-    // con IP de datacenter eso quema rápidamente el rate-limit del Catastro
-    // (límite oficial: ~3000 peticiones/hora por IP). Con 1 petición + cache
-    // + el throttle del monitor, el consumo es 9x menor.
+    // Caso típico (chincheta sobre edificio): 1 petición.
+    // Caso difícil (GPS impreciso, chincheta sobre calle): 9 peticiones.
+    // Monitor del rate-limit y cache protegen el conjunto.
 
     const cacheKey = cache.coordsKey(lat, lng);
     const cached = cache.get(cacheKey);
-    if (cached) return cached;
+    if (cached !== null) return cached;
 
     if (monitor.shouldSkipRequest()) {
         throw new CatastroBlockedError();
     }
 
-    monitor.recordRequest();
-    const url = `${COORD_URL}/Consulta_RCCOOR?SRS=EPSG:4326&Coordenada_X=${lng}&Coordenada_Y=${lat}`;
+    // Helper: una sola consulta de coordenada. Devuelve { rc14, address, lat, lng, distance } o null.
+    const queryPoint = async (targetLat, targetLng, distance) => {
+        const url = `${COORD_URL}/Consulta_RCCOOR?SRS=EPSG:4326&Coordenada_X=${targetLng}&Coordenada_Y=${targetLat}`;
+        monitor.recordRequest();
+        try {
+            const response = await axios.get(url, {
+                headers: { 'Accept': 'application/xml, text/xml, */*', 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
+                timeout: 5000
+            });
+            if (isRateLimitResponse(null, response.data)) {
+                monitor.record403(String(response.data).substring(0, 200));
+                throw new CatastroBlockedError();
+            }
+            const result = await parseXML(response.data);
+            const coordenadas = result.consulta_coordenadas || result['Consulta_Coordenadas'];
+            if (!coordenadas || coordenadas.lerr) {
+                monitor.recordSuccess();
+                return null;
+            }
+            const coord = coordenadas.coordenadas?.coord || coordenadas.coord;
+            const pc = coord?.pc || {};
+            if (!pc.pc1 || !pc.pc2) {
+                monitor.recordSuccess();
+                return null;
+            }
+            monitor.recordSuccess();
+            return {
+                rc14: pc.pc1 + pc.pc2,
+                address: getText(coord?.ldt),
+                lat: targetLat,
+                lng: targetLng,
+                distance
+            };
+        } catch (err) {
+            if (err instanceof CatastroBlockedError) throw err;
+            if (isRateLimitResponse(err)) {
+                monitor.record403(err.message);
+                throw new CatastroBlockedError();
+            }
+            monitor.recordOtherError(err.message);
+            return null;
+        }
+    };
 
     try {
-        const response = await axios.get(url, {
-            headers: { 'Accept': 'application/xml, text/xml, */*', 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
-            timeout: 5000
-        });
+        // 1. Petición CENTRAL
+        let match = await queryPoint(lat, lng, 0);
 
-        // Algunos rate-limits llegan como 200 con XML/HTML que indica el bloqueo
-        if (isRateLimitResponse(null, response.data)) {
-            monitor.record403(String(response.data).substring(0, 200));
-            throw new CatastroBlockedError();
+        // 2. Si la central falla, grid de 8 puntos en paralelo (~11m offsets)
+        if (!match) {
+            const step = 0.0001;
+            const offsets = [
+                { dlat:  step, dlng:     0, d: 1 },
+                { dlat: -step, dlng:     0, d: 1 },
+                { dlat:     0, dlng:  step, d: 1 },
+                { dlat:     0, dlng: -step, d: 1 },
+                { dlat:  step, dlng:  step, d: 2 },
+                { dlat:  step, dlng: -step, d: 2 },
+                { dlat: -step, dlng:  step, d: 2 },
+                { dlat: -step, dlng: -step, d: 2 }
+            ];
+            const results = await Promise.all(
+                offsets.map(o => queryPoint(lat + o.dlat, lng + o.dlng, o.d))
+            );
+            // Quedarse con el más cercano (menor distance)
+            const valid = results.filter(Boolean).sort((a, b) => a.distance - b.distance);
+            match = valid[0] || null;
         }
 
-        const result = await parseXML(response.data);
-        const coordenadas = result.consulta_coordenadas || result['Consulta_Coordenadas'];
-        if (!coordenadas || coordenadas.lerr) {
-            monitor.recordSuccess(); // El catastro respondió OK aunque sin parcela
+        if (!match) {
             cache.set(cacheKey, null, cache.TTL_COORDS);
             return null;
         }
 
-        const coord = coordenadas.coordenadas?.coord || coordenadas.coord;
-        const pc = coord?.pc || {};
-        if (!pc.pc1 || !pc.pc2) {
-            monitor.recordSuccess();
-            cache.set(cacheKey, null, cache.TTL_COORDS);
-            return null;
-        }
-
-        monitor.recordSuccess();
-        const rc14 = pc.pc1 + pc.pc2;
-        const address = getText(coord?.ldt);
-        const fullRC = await getFullRC(rc14);
-
+        const fullRC = await getFullRC(match.rc14);
         const result_data = {
             rc: fullRC,
-            address,
-            location: { lat, lng },
-            distance: 0
+            address: match.address,
+            location: { lat: match.lat, lng: match.lng },
+            distance: match.distance === 0 ? 0 : 'approx_10m'
         };
         cache.set(cacheKey, result_data, cache.TTL_COORDS);
         return result_data;
     } catch (err) {
         if (err instanceof CatastroBlockedError) throw err;
-        if (isRateLimitResponse(err)) {
-            monitor.record403(err.message);
-            throw new CatastroBlockedError();
-        }
-        monitor.recordOtherError(err.message);
         console.warn(`[getRCByCoords] Error en ${lat},${lng}:`, err.message);
         return null;
     }
