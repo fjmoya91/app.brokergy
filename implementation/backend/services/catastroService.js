@@ -14,7 +14,14 @@ const monitor = require('./catastroMonitor');
 // que sí pasa el WAF. Sin esto, todas las llamadas al Catastro desde VPS fallan.
 const httpAgent = new http.Agent({ keepAlive: true, family: 4 });
 const httpsAgent = new https.Agent({ keepAlive: true, family: 4 });
-const AXIOS_DEFAULTS = { httpAgent, httpsAgent };
+// `Accept-Encoding: identity` evita gzip/br que axios añade por defecto y que
+// el WAF del Catastro penaliza desde IPs de datacenter. Comportamiento empírico.
+const COMMON_HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Accept': 'application/xml, text/xml, */*',
+    'Accept-Encoding': 'identity'
+};
+const AXIOS_DEFAULTS = { httpAgent, httpsAgent, decompress: false };
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
@@ -105,10 +112,7 @@ async function getCoordinatesByRC(rc) {
         const url = `${COORD_URL}/Consulta_CPMRC?Provincia=&Municipio=&SRS=EPSG:25830&RC=${parcelRC}`;
         const response = await axios.get(url, {
             ...AXIOS_DEFAULTS,
-            headers: {
-                'Accept': 'application/xml, text/xml, */*',
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-            },
+            headers: COMMON_HEADERS,
             timeout: 8000
         });
 
@@ -167,13 +171,10 @@ async function getByRC(rc) {
         // paralelas desde IPs de datacenter — devuelve 400/TCP-reset).
         const response = await axios.get(url, {
             ...AXIOS_DEFAULTS,
-            headers: {
-                'Accept': 'application/xml, text/xml, */*',
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-            },
+            headers: COMMON_HEADERS,
             timeout: 8000
         });
-        await sleep(150);
+        await sleep(500);
         const coordinates = await getCoordinatesByRC(cleanRC);
 
         // Detectar rate-limit en el body de respuesta 200
@@ -342,7 +343,7 @@ async function getFullRC(rc14) {
 
         const response = await axios.get(url, {
             ...AXIOS_DEFAULTS,
-            headers: { 'Accept': 'application/xml, text/xml, */*', 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
+            headers: COMMON_HEADERS,
             timeout: 5000
         });
 
@@ -410,7 +411,7 @@ async function getRCByCoords(lat, lng, numberHint = null) {
         try {
             const response = await axios.get(url, {
                 ...AXIOS_DEFAULTS,
-                headers: { 'Accept': 'application/xml, text/xml, */*', 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
+                headers: COMMON_HEADERS,
                 timeout: 5000
             });
             if (isRateLimitResponse(null, response.data)) {
@@ -452,17 +453,17 @@ async function getRCByCoords(lat, lng, numberHint = null) {
         // 1. Petición CENTRAL
         let match = await queryPoint(lat, lng, 0);
 
-        // 2. Si la central falla, hasta 4 puntos en SERIE (N, S, E, O ~11m).
+        // 2. Si la central falla, 2 puntos en SERIE (N, E) con delay generoso.
+        //    Reducido de 4→2 puntos y 200→800ms tras detectar que el WAF del
+        //    Catastro bloquea agresivamente IPs de datacenter al menor burst.
         if (!match) {
             const step = 0.0001;
             const offsets = [
                 { dlat:  step, dlng:     0, d: 1 },  // N
-                { dlat: -step, dlng:     0, d: 1 },  // S
-                { dlat:     0, dlng:  step, d: 1 },  // E
-                { dlat:     0, dlng: -step, d: 1 }   // O
+                { dlat:     0, dlng:  step, d: 1 }   // E
             ];
             for (const o of offsets) {
-                await sleep(200);
+                await sleep(800);
                 const r = await queryPoint(lat + o.dlat, lng + o.dlng, o.d);
                 if (r) { match = r; break; }
             }
@@ -473,7 +474,7 @@ async function getRCByCoords(lat, lng, numberHint = null) {
             return null;
         }
 
-        await sleep(150);
+        await sleep(500);
         const fullRC = await getFullRC(match.rc14);
         const result_data = {
             rc: fullRC,
@@ -551,7 +552,7 @@ async function getDwellingsByParcel(rc14) {
         monitor.recordRequest();
         const response = await axios.get(url, {
             ...AXIOS_DEFAULTS,
-            headers: { 'Accept': 'application/xml, text/xml, */*', 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
+            headers: COMMON_HEADERS,
             timeout: 8000
         });
 

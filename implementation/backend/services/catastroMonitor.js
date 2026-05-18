@@ -17,12 +17,25 @@
  */
 
 const axios = require('axios');
+const http = require('http');
 const whatsappService = require('./whatsappService');
 const emailService = require('./emailService');
 
 const COORD_URL = 'http://ovc.catastro.meh.es/ovcservweb/OVCSWLocalizacionRC/OVCCoordenadas.asmx';
+
+// Mismos defaults que catastroService: IPv4 forzado + sin gzip. El WAF del
+// Catastro rechaza axios con headers default desde IPs de datacenter.
+const PING_AGENT = new http.Agent({ keepAlive: false, family: 4 });
+const PING_HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Accept': 'application/xml, text/xml, */*',
+    'Accept-Encoding': 'identity'
+};
 const PING_INTERVAL_MS = 5 * 60 * 1000; // 5 minutos
-const CONSECUTIVE_403_THRESHOLD = 3;
+// Bajado de 3 → 1 (2026-05-18): el WAF del Catastro contra IPs de datacenter
+// es agresivo y prolongado. Tras detectar 1 sólo error de WAF/rate-limit
+// conviene cortar tráfico de inmediato para no empeorar el ban.
+const CONSECUTIVE_403_THRESHOLD = 1;
 
 let state = {
     blocked: false,
@@ -199,7 +212,9 @@ function startPingLoop() {
         const url = `${COORD_URL}/Consulta_RCCOOR?SRS=EPSG:4326&Coordenada_X=-3.703&Coordenada_Y=40.4168`;
         try {
             const response = await axios.get(url, {
-                headers: { 'Accept': 'application/xml, text/xml, */*', 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
+                httpAgent: PING_AGENT,
+                decompress: false,
+                headers: PING_HEADERS,
                 timeout: 5000
             });
             // Si responde 200 sin "limite de peticiones" → desbloqueado
