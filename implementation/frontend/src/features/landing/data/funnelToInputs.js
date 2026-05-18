@@ -98,7 +98,19 @@ function funnelToCalculatorInputs(funnel, catastro, options = {}) {
     // 2. Datos del catastro
     inputs.rc = catastro?.ref_catastral || catastro?.rc;
     inputs.anio = Number(catastro?.yearBuilt || catastro?.anio || BASE_DEFAULTS.anio);
-    inputs.superficie = Number(catastro?.superficie || catastro?.totalSurface || BASE_DEFAULTS.superficie);
+    // Superficie: priorizar la superficie VIVIENDA (uso residencial) y NO la
+    // suma total de catastro, que incluye aparcamiento, trastero y otros usos.
+    // Mismo criterio que PropertySheet.jsx — coherencia entre flujo público
+    // y flujo admin.
+    const superficieVivienda = catastro?.summaryByType?.['VIVIENDA']
+        || catastro?.summaryByType?.VIVIENDA
+        || 0;
+    inputs.superficie = Number(
+        catastro?.superficie
+        || superficieVivienda
+        || catastro?.totalSurface
+        || BASE_DEFAULTS.superficie
+    );
     inputs.superficieCalefactable = Number(catastro?.superficieCalefactable || catastro?.superficie || inputs.superficie);
     inputs.plantas = Number(catastro?.plantas || catastro?.floors?.total || BASE_DEFAULTS.plantas);
     inputs.zona = catastro?.zona || catastro?.climateInfo?.climateZone || BASE_DEFAULTS.zona;
