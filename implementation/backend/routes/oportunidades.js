@@ -3,11 +3,13 @@ const router = express.Router();
 const supabase = require('../services/supabaseClient');
 const driveService = require('../services/driveService');
 const pdfService = require('../services/pdfService');
-const { requireAuth } = require('../middleware/auth');
+const { requireAuth, enforceAuth } = require('../middleware/auth');
 const { normalizeData } = require('../utils/normalization');
 const expedienteService = require('../services/expedienteService');
 const whatsappService = require('../services/whatsappService');
 const emailService = require('../services/emailService');
+const { createLead } = require('../services/leadService');
+const { getProvinceInfo, normalizeProvinceCode } = require('../data/allowedProvinces');
 
 router.use((req, res, next) => {
     console.log(`[Router Oportunidades] ${req.method} ${req.url}`);
@@ -16,6 +18,53 @@ router.use((req, res, next) => {
 
 router.get('/test-router', (req, res) => {
     res.json({ message: 'Oportunidades router is alive' });
+});
+
+// ─── Nueva Simulación interna (Funnel friendly desde admin/partner) ───
+// Endpoint utilizado por App.jsx cuando un partner/admin pulsa "Nueva
+// Simulación" y completa el funnel friendly. Reutiliza la misma lógica
+// que la landing pública (leadService.createLead) pero con mode='internal':
+//   - Sin RGPD obligatorio
+//   - Estado inicial: PTE ENVIAR (no LEAD)
+//   - Origen: 'admin' o 'partner' según rol del user logueado
+//   - prescriptor_id, prescriptor display y creador_id se rellenan del user
+//   - Sin gate geográfico (los partners pueden trabajar fuera de las CCAA
+//     atendidas por la landing pública)
+router.post('/internal-simulation', enforceAuth, async (req, res) => {
+    try {
+        const { contacto, catastro, funnel, calculatorInputs, precomputedResult, demandaCalefaccionPorM2 } = req.body || {};
+
+        // Resolver geoContext sin gate (los partners no tienen restricción)
+        const provCode = normalizeProvinceCode(catastro?.provinceCode);
+        const provInfo = (provCode && getProvinceInfo(provCode)) || { provincia: null, ccaa: null };
+        const geoContext = {
+            provinceCode: provCode || '00',
+            provincia: provInfo.provincia,
+            ccaa: provInfo.ccaa
+        };
+
+        const result = await createLead({
+            contacto: contacto || {},
+            catastro: catastro || {},
+            funnel: funnel || {},
+            calculatorInputs: calculatorInputs || {},
+            precomputedResult: precomputedResult || null,
+            demandaCalefaccionPorM2: demandaCalefaccionPorM2 || null,
+            geoContext,
+            partnerSlug: null,
+            prescriptorId: req.user?.prescriptor_id || null,
+            mode: 'internal',
+            creatorUser: req.user
+        });
+
+        console.log(`[oportunidades/internal-simulation] Creada: ${result.id_oportunidad} (rol=${req.user?.rol_nombre})`);
+        return res.status(201).json(result);
+    } catch (err) {
+        console.error('[oportunidades/internal-simulation] Error:', err.message);
+        const msg = err.message || 'Error creando la simulación';
+        const isValidation = /Falta|obligatorio|inválid|inválido|Necesitamos/i.test(msg);
+        return res.status(isValidation ? 400 : 500).json({ error: msg });
+    }
 });
 
 // 1. Registrar una nueva oportunidad (POST /api/oportunidades)

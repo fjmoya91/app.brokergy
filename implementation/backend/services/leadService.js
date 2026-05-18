@@ -203,13 +203,24 @@ async function generateOpportunityId(fichaType) {
  * @param {string|null} params.prescriptorId UUID del prescriptor (resuelto en la ruta).
  * @returns {Promise<{ id_oportunidad: string, oportunidad_uuid: string, cliente_id: string, lead_score: number }>}
  */
-async function createLead({ contacto, catastro, funnel, calculatorInputs, precomputedResult, demandaCalefaccionPorM2, geoContext, partnerSlug, prescriptorId }) {
+async function createLead({ contacto, catastro, funnel, calculatorInputs, precomputedResult, demandaCalefaccionPorM2, geoContext, partnerSlug, prescriptorId, mode = 'public', creatorUser = null }) {
     // 1. Validaciones mínimas — fail-fast antes de tocar BD
     if (!contacto?.nombre) throw new Error('Falta el nombre del cliente');
     if (!contacto?.email && !contacto?.tlf) throw new Error('Necesitamos al menos email o teléfono para contactar');
-    if (!contacto?.rgpd_aceptado) throw new Error('Es obligatorio aceptar la política de privacidad');
+    // RGPD obligatorio solo en modo public — en internal asumimos que el
+    // partner/admin tiene su propio consentimiento del cliente final.
+    if (mode === 'public' && !contacto?.rgpd_aceptado) {
+        throw new Error('Es obligatorio aceptar la política de privacidad');
+    }
     if (!catastro?.ref_catastral) throw new Error('Falta la referencia catastral');
     if (!geoContext?.provinceCode) throw new Error('Falta el contexto geográfico');
+
+    const isInternal = mode === 'internal';
+    const rolCreator = (creatorUser?.rol_nombre || creatorUser?.rol || '').toUpperCase();
+    const origenLead = isInternal
+        ? (rolCreator === 'ADMIN' ? 'admin' : 'partner')
+        : 'landing_publica';
+    const estadoLead = isInternal ? 'PTE ENVIAR' : 'LEAD';
 
     // 2. Cliente: upsert por email/DNI
     const { id_cliente, created: clienteCreated } = await upsertClienteFromLanding({
@@ -247,16 +258,17 @@ async function createLead({ contacto, catastro, funnel, calculatorInputs, precom
     };
 
     const datosCalculo = {
-        estado: 'LEAD',
-        origen: 'landing_publica',
+        estado: estadoLead,
+        origen: origenLead,
         partner_slug: partnerSlug || null,
         provincia: geoContext.provincia,
         ccaa: geoContext.ccaa,
         provinceCode: geoContext.provinceCode,
 
-        // Consentimientos de comunicación (opt-in del cliente en Step 9)
-        consent_email: contacto?.consent_email !== false,
-        consent_whatsapp: contacto?.consent_whatsapp !== false,
+        // Consentimientos de comunicación. En internal asumimos que el partner
+        // gestiona los consents fuera del sistema, por defecto false.
+        consent_email: isInternal ? false : (contacto?.consent_email !== false),
+        consent_whatsapp: isInternal ? false : (contacto?.consent_whatsapp !== false),
 
         // Lead intelligence
         lead_score: score,
@@ -279,11 +291,15 @@ async function createLead({ contacto, catastro, funnel, calculatorInputs, precom
 
         // Historial inicial
         historial: [{
-            id: `${Date.now()}_landing`,
-            estado: 'LEAD',
+            id: `${Date.now()}_${isInternal ? rolCreator.toLowerCase() : 'landing'}`,
+            estado: estadoLead,
             fecha: now,
-            usuario: 'Landing pública',
-            detalle: partnerSlug ? `Vía partner: ${partnerSlug}` : 'Vía landing BROKERGY'
+            usuario: isInternal
+                ? (creatorUser?.acronimo || creatorUser?.razon_social || rolCreator || 'Usuario')
+                : 'Landing pública',
+            detalle: isInternal
+                ? `Creada vía Nueva Simulación (${rolCreator})`
+                : (partnerSlug ? `Vía partner: ${partnerSlug}` : 'Vía landing BROKERGY')
         }]
     };
 
@@ -298,7 +314,10 @@ async function createLead({ contacto, catastro, funnel, calculatorInputs, precom
         .order('created_at', { ascending: false })
         .limit(1);
 
-    const existingLead = existing && existing.length > 0
+    // En modo público reusamos LEADs previos (upsert por RC+cliente). En modo
+    // internal NUNCA hacemos upsert — cada simulación interna crea su propia
+    // oportunidad porque el partner/admin puede querer rehacer cálculos.
+    const existingLead = (!isInternal && existing && existing.length > 0)
         ? existing.find(o => o.datos_calculo?.estado === 'LEAD')
         : null;
 
@@ -348,14 +367,28 @@ async function createLead({ contacto, catastro, funnel, calculatorInputs, precom
     }
 
     // 7. INSERT de la oportunidad (caso nuevo)
+    // En modo internal, el creador puede ser un PARTNER que tiene su propio
+    // prescriptor_id (su empresa) → la oportunidad queda asignada a él.
+    // Si es ADMIN, prescriptor_id queda null hasta que el admin lo asigne.
+    const finalPrescriptorId = isInternal
+        ? (creatorUser?.prescriptor_id || prescriptorId || null)
+        : (prescriptorId || null);
+
+    // El campo `prescriptor` (string display) en internal usa el nombre del
+    // partner si existe, BROKERGY si admin.
+    const prescriptorDisplay = isInternal && rolCreator !== 'ADMIN'
+        ? (creatorUser?.acronimo || creatorUser?.razon_social || 'BROKERGY')
+        : 'BROKERGY';
+
     const newOpp = {
         id_oportunidad: idOportunidad,
         ficha: fichaType,
         ref_catastral: catastro.ref_catastral,
-        prescriptor: 'BROKERGY', // El lead es siempre de BROKERGY (decisión de negocio)
+        prescriptor: prescriptorDisplay,
         referencia_cliente: referenciaCliente || null,
         cliente_id: id_cliente,
-        prescriptor_id: prescriptorId || null,
+        prescriptor_id: finalPrescriptorId,
+        creador_id: creatorUser?.id_usuario || null,
         demanda_calefaccion: demandaCalefaccionPorM2 || null,
         datos_calculo: datosCalculo
     };

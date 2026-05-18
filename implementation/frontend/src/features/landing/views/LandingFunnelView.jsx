@@ -41,12 +41,15 @@ import { LandingResultView } from './LandingResultView';
 
 const CATASTRO_API = '/api/catastro';
 
-export default function LandingFunnelView({ route }) {
-    // ---- Branding del partner ----
+export default function LandingFunnelView({ route, mode = 'public', onCreated, onCancel }) {
+    const isInternal = mode === 'internal';
+
+    // ---- Branding del partner (solo en mode public con slug) ----
     const [partnerBranding, setPartnerBranding] = useState(null);
     const [partnerError, setPartnerError] = useState(null);
 
     useEffect(() => {
+        if (isInternal) return;
         if (route?.type !== 'partner' || !route?.slug) return;
         axios.get(`/api/landing/partner/${route.slug}`)
             .then(res => setPartnerBranding(res.data))
@@ -54,7 +57,7 @@ export default function LandingFunnelView({ route }) {
                 console.warn('[Landing] Partner no encontrado:', err.message);
                 setPartnerError('Esta landing no está disponible.');
             });
-    }, [route?.type, route?.slug]);
+    }, [route?.type, route?.slug, isInternal]);
 
     // ---- Fase global ----
     const [phase, setPhase] = useState('HOME'); // HOME | GEO_BLOCKED | FUNNEL | SUBMITTING | RESULT
@@ -297,16 +300,18 @@ export default function LandingFunnelView({ route }) {
         setSubmitting(true);
         setSubmitError(null);
         const submitStart = Date.now();
-        const MIN_VISIBLE_MS = 3000; // Mostrar overlay al menos 3s para percepción "cálculo serio"
+        // En internal NO mostramos overlay con delay artificial — el partner
+        // espera respuesta rápida y va directo a la calculadora.
+        const MIN_VISIBLE_MS = isInternal ? 0 : 3000;
 
         try {
-            // Fusionamos campos de contacto que afectan al cálculo (titular_type,
-            // num_propietarios) con el funnel antes de mapear a inputs.
+            // Fusionamos campos de contacto que afectan al cálculo. En internal
+            // asumimos defaults razonables si el partner no los rellenó.
             const funnelConContacto = {
                 ...funnel,
-                titular_type: contacto.titular_type,
-                num_propietarios: contacto.num_propietarios,
-                timeline: contacto.timeline
+                titular_type: contacto.titular_type || (isInternal ? 'particular' : null),
+                num_propietarios: contacto.num_propietarios || (isInternal ? 1 : null),
+                timeline: contacto.timeline || (isInternal ? 'explorando' : null)
             };
             const calculatorInputs = funnelToCalculatorInputs(funnelConContacto, catastro);
 
@@ -344,12 +349,28 @@ export default function LandingFunnelView({ route }) {
                 demandaCalefaccionPorM2
             };
 
-            const res = await axios.post('/api/landing/lead', payload);
+            // Endpoint diferente según modo:
+            //   public   → /api/landing/lead (sin auth)
+            //   internal → /api/oportunidades/internal-simulation (requiere auth)
+            const endpoint = isInternal
+                ? '/api/oportunidades/internal-simulation'
+                : '/api/landing/lead';
 
-            // Esperar a que se cumpla el tiempo mínimo de overlay antes de mostrar resultado
+            const res = await axios.post(endpoint, payload);
+
+            // En public esperamos el delay mínimo del overlay; en internal vamos directos
             const elapsed = Date.now() - submitStart;
             if (elapsed < MIN_VISIBLE_MS) {
                 await new Promise(r => setTimeout(r, MIN_VISIBLE_MS - elapsed));
+            }
+
+            if (isInternal) {
+                // Internal: notificamos al padre con la oportunidad creada para
+                // que abra el CalculatorView con esos datos. No mostramos
+                // LandingResultView ni nada del flujo público.
+                setSubmitting(false);
+                if (onCreated) onCreated(res.data);
+                return;
             }
 
             setLeadResult({ ...res.data, provincia: catastro?.province || null });
@@ -364,13 +385,13 @@ export default function LandingFunnelView({ route }) {
             setSubmitError(msg);
             setSubmitting(false);
         }
-    }, [funnel, contacto, catastro, partnerBranding]);
+    }, [funnel, contacto, catastro, partnerBranding, isInternal, onCreated]);
 
-    // ---- Pasos activos (variable según respuestas) ----
-    // - Step 3 (edad caldera) se omite si combustible es eléctrico (rendimiento
-    //   siempre 1.0, no afecta al cálculo). Filtrar aquí evita el bucle de
-    //   navegación que aparecía al volver atrás desde Step 5.
+    // ---- Pasos activos (variable según respuestas y mode) ----
+    // - Step 3 (edad caldera) se omite si combustible es eléctrico.
     // - Step 6 (elementos reforma) solo si isReforma=true.
+    // - Step 7 (gasto anual) se OMITE en mode='internal' — el partner/admin
+    //   afina ese dato en la calculadora si lo necesita.
     const activeSteps = useMemo(() => {
         const base = [Step1_TipoProyecto, Step2_Combustible];
         if (funnel.combustible_actual !== 'electrica') {
@@ -378,9 +399,10 @@ export default function LandingFunnelView({ route }) {
         }
         base.push(Step4_Emisores, Step5_ACS);
         if (funnel.isReforma) base.push(Step6_ElementosReforma);
-        base.push(Step7_Gasto, Step8_Presupuesto, Step9_Contacto);
+        if (!isInternal) base.push(Step7_Gasto);
+        base.push(Step8_Presupuesto, Step9_Contacto);
         return base;
-    }, [funnel.isReforma, funnel.combustible_actual]);
+    }, [funnel.isReforma, funnel.combustible_actual, isInternal]);
 
     const totalSteps = activeSteps.length;
 
@@ -396,6 +418,15 @@ export default function LandingFunnelView({ route }) {
                     onSubmit={handleSubmit}
                     submitting={submitting}
                     submitError={submitError}
+                    mode={mode}
+                />
+            );
+        }
+        if (StepComponent === Step8_Presupuesto) {
+            return (
+                <Step8_Presupuesto
+                    funnel={funnel} updateFunnel={updateFunnel} onNext={goNext}
+                    hideInstalador={isInternal}
                 />
             );
         }
@@ -409,6 +440,21 @@ export default function LandingFunnelView({ route }) {
             <GeoLocatingOverlay stage={geoStage} />
 
             <div className="relative z-10 px-4 py-5 md:py-8">
+                {/* Botón Cancelar (solo en modo internal) */}
+                {isInternal && onCancel && (
+                    <div className="max-w-3xl mx-auto mb-3 flex justify-end">
+                        <button
+                            type="button"
+                            onClick={onCancel}
+                            className="flex items-center gap-2 text-white/40 hover:text-white text-xs uppercase tracking-widest font-bold px-3 py-2 rounded-lg hover:bg-white/[0.05] transition-all"
+                        >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                            Cancelar
+                        </button>
+                    </div>
+                )}
                 {/* Header con branding centrado */}
                 <header className="max-w-3xl mx-auto mb-5 md:mb-8 flex flex-col items-center gap-2">
                     {partnerBranding?.logo_url ? (
@@ -471,8 +517,9 @@ export default function LandingFunnelView({ route }) {
                             )}
 
                             {/* Secciones informativas (badges + cómo funciona + FAQ).
-                                Solo en HOME sin candidato confirmado — no estorba el flujo. */}
-                            {!confirmCandidate && <HomeInfoSections />}
+                                Solo en HOME sin candidato confirmado — no estorba el flujo.
+                                Se omiten en modo internal (partner/admin no las necesita). */}
+                            {!confirmCandidate && !isInternal && <HomeInfoSections />}
                         </>
                     )}
 

@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { IconCard } from '../components/IconCard';
 import { StepLayout } from '../components/StepLayout';
 
-export function Step8_Presupuesto({ funnel, updateFunnel, onNext }) {
+export function Step8_Presupuesto({ funnel, updateFunnel, onNext, hideInstalador = false }) {
     const [showInput, setShowInput] = useState(false);
     const [customValue, setCustomValue] = useState(funnel.presupuesto_eur || '');
 
@@ -33,7 +33,9 @@ export function Step8_Presupuesto({ funnel, updateFunnel, onNext }) {
     return (
         <StepLayout
             question="¿Tienes un presupuesto orientativo?"
-            subtitle="Si no lo sabes, no te preocupes — usamos una media o te conectamos con un instalador."
+            subtitle={hideInstalador
+                ? "Si no lo sabes, no te preocupes — usamos una media de referencia."
+                : "Si no lo sabes, no te preocupes — usamos una media o te conectamos con un instalador."}
         >
             <IconCard
                 icon="💶"
@@ -49,14 +51,16 @@ export function Step8_Presupuesto({ funnel, updateFunnel, onNext }) {
                 selected={funnel.presupuesto_modo === 'no_se'}
                 onClick={() => selectMode('no_se')}
             />
-            <IconCard
-                icon="🛠️"
-                title="Quiero presupuesto de un instalador"
-                subtitle="Te conectamos al final con instaladores certificados de tu zona"
-                selected={funnel.presupuesto_modo === 'pide_instalador'}
-                onClick={() => selectMode('pide_instalador')}
-                badge="Personalizado"
-            />
+            {!hideInstalador && (
+                <IconCard
+                    icon="🛠️"
+                    title="Quiero presupuesto de un instalador"
+                    subtitle="Te conectamos al final con instaladores certificados de tu zona"
+                    selected={funnel.presupuesto_modo === 'pide_instalador'}
+                    onClick={() => selectMode('pide_instalador')}
+                    badge="Personalizado"
+                />
+            )}
 
             {showInput && funnel.presupuesto_modo === 'tengo' && (
                 <div className="mt-6 pt-6 border-t border-white/10 animate-fade-in">

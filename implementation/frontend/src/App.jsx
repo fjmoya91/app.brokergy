@@ -841,38 +841,34 @@ function App() {
         )}
       </div>
 
+       {/* Nueva Simulación (admin/partner): abre el funnel friendly en modo internal.
+           Tras "CALCULAR", la oportunidad creada se carga directamente en
+           CalculatorView con loadOpportunity(). */}
        {showSearchModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-bkg-deep/60 backdrop-blur-md p-4 animate-fade-in">
-            <button 
-                onClick={() => setShowSearchModal(false)} 
-                className="absolute top-6 right-6 text-white/20 hover:text-white transition-all bg-white/[0.03] p-4 rounded-full border border-white/10 hover:border-red-500/40 hover:bg-red-500/10 hover:text-red-500 z-50 group"
-            >
-                <svg className="w-6 h-6 transform group-hover:rotate-90 transition-transform duration-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-            </button>
-            <div className="w-full max-w-4xl relative z-10 animate-slide-up">
-              <div className="text-center mb-12">
-                <div className="inline-flex items-center gap-4 mb-4">
-                  <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-brand to-brand-700 flex items-center justify-center shadow-lg shadow-brand/20">
-                    <svg className="w-6 h-6 text-black" fill="currentColor" viewBox="0 0 24 24">
-                        <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
-                    </svg>
-                  </div>
-                  <h2 className="text-3xl md:text-5xl font-black tracking-tight">
-                    <span className="text-white">Calculadora</span>{' '}
-                    <span className="text-brand">BROKERGY</span>
-                  </h2>
-                </div>
-              </div>
- 
-              <CatastroSearchBox
-                onSearch={(q) => { setShowSearchModal(false); handleSearch(q); }}
-                onAddressSelect={(c) => { setShowSearchModal(false); handleAddressSelect(c); }}
-                onGeolocate={async () => { setShowSearchModal(false); await handleGeolocate(); }}
-                onManualEntry={() => { setShowSearchModal(false); handleOpenCalculator(null); }}
-              />
+        <div className="fixed inset-0 z-[100] bg-bkg-deep overflow-y-auto animate-fade-in">
+          <Suspense fallback={
+            <div className="min-h-screen flex items-center justify-center">
+              <div className="animate-pulse text-amber-500 font-bold tracking-widest text-sm uppercase">Cargando…</div>
             </div>
+          }>
+            <LandingFunnelView
+              mode="internal"
+              onCancel={() => setShowSearchModal(false)}
+              onCreated={async (opResult) => {
+                setShowSearchModal(false);
+                if (!opResult?.id_oportunidad) return;
+                // Obtener el objeto completo de la oportunidad recién creada
+                // (con ref_catastral y datos_calculo) y delegar en
+                // loadOpportunity, que hará todo el flujo de abrir CalculatorView.
+                try {
+                  const { data: opFull } = await axios.get(`/api/oportunidades/${opResult.id_oportunidad}`);
+                  loadOpportunity(opFull);
+                } catch (err) {
+                  console.error('[App] Error cargando oportunidad recién creada:', err);
+                }
+              }}
+            />
+          </Suspense>
         </div>
       )}
 

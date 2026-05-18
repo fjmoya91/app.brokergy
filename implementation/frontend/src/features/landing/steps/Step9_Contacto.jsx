@@ -37,28 +37,38 @@ const TIMELINE_OPTIONS = [
 ];
 
 // ---- Componente principal -----------------------------------------------
-export function Step9_Contacto({ funnel, updateFunnel, contacto, setContacto, onSubmit, submitting, submitError }) {
+export function Step9_Contacto({ funnel, updateFunnel, contacto, setContacto, onSubmit, submitting, submitError, mode = 'public', submitLabel }) {
     const [touched, setTouched] = useState({});
+    const isInternal = mode === 'internal';
 
     const setField = (key, value) => setContacto(prev => ({ ...prev, [key]: value }));
 
     const emailValid = !contacto.email || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contacto.email);
     const tlfValid = !contacto.tlf || /^[+]?\d{9,15}$/.test(contacto.tlf.replace(/\s/g, ''));
-    const tieneContacto = !!(contacto.email || contacto.tlf);
+
+    // ---- Reglas de validación según mode ----
+    // public:   nombre + (email O tlf) + RGPD + titular + timeline + (propietarios si particular)
+    // internal: nombre + tlf (obligatorio) + email opcional. Sin titular/timeline/RGPD UI
+    //           (RGPD se asume gestionado por el partner fuera del sistema).
+    const tieneContacto = isInternal
+        ? !!contacto.tlf
+        : !!(contacto.email || contacto.tlf);
 
     const isParticular = contacto.titular_type === 'particular';
-    const propietariosOk = !isParticular || !!contacto.num_propietarios;
+    const propietariosOk = isInternal || !isParticular || !!contacto.num_propietarios;
 
-    const canSubmit = !!(
-        contacto.nombre?.trim() &&
-        tieneContacto &&
-        emailValid &&
-        tlfValid &&
-        contacto.rgpd_aceptado &&
-        contacto.titular_type &&
-        contacto.timeline &&
-        propietariosOk
-    );
+    const canSubmit = isInternal
+        ? !!(contacto.nombre?.trim() && tieneContacto && tlfValid && emailValid)
+        : !!(
+            contacto.nombre?.trim() &&
+            tieneContacto &&
+            emailValid &&
+            tlfValid &&
+            contacto.rgpd_aceptado &&
+            contacto.titular_type &&
+            contacto.timeline &&
+            propietariosOk
+        );
 
     const handleSubmit = () => {
         setTouched({ nombre: true, email: true, tlf: true, rgpd: true, titular: true, timeline: true, propietarios: true });
@@ -77,13 +87,74 @@ export function Step9_Contacto({ funnel, updateFunnel, contacto, setContacto, on
             : 'border-white/10 bg-white/[0.03] text-white/70 hover:border-amber-400/40 hover:text-white'
     }`;
 
+    const defaultLabel = isInternal ? 'Calcular' : 'Recibir mi cálculo';
+
+    // ─── Modo INTERNAL: vista simplificada ─────────────────────────────────
+    if (isInternal) {
+        return (
+            <StepLayout
+                question="Datos del cliente"
+                subtitle="Solo necesitamos nombre y teléfono para crear la oportunidad. El email es opcional."
+                onContinue={handleSubmit}
+                canContinue={canSubmit && !submitting}
+                continueLabel={submitting ? 'Creando…' : (submitLabel || defaultLabel)}
+            >
+                <div className="space-y-3 max-w-md mx-auto">
+                    <div>
+                        <label className={fieldLabel}>Nombre y apellidos *</label>
+                        <input
+                            type="text"
+                            placeholder="Ej. María García López"
+                            value={contacto.nombre || ''}
+                            onChange={e => setField('nombre', e.target.value)}
+                            onBlur={() => setTouched(t => ({ ...t, nombre: true }))}
+                            className={inputCls(touched.nombre && !contacto.nombre)}
+                            autoFocus
+                        />
+                    </div>
+                    <div>
+                        <label className={fieldLabel}>Teléfono *</label>
+                        <input
+                            type="tel"
+                            autoComplete="tel"
+                            placeholder="+34 600 000 000"
+                            value={contacto.tlf || ''}
+                            onChange={e => setField('tlf', e.target.value)}
+                            onBlur={() => setTouched(t => ({ ...t, tlf: true }))}
+                            className={inputCls(touched.tlf && (!contacto.tlf || !tlfValid))}
+                        />
+                    </div>
+                    <div>
+                        <label className={fieldLabel}>Email (opcional)</label>
+                        <input
+                            type="email"
+                            autoComplete="email"
+                            placeholder="cliente@email.com"
+                            value={contacto.email || ''}
+                            onChange={e => setField('email', e.target.value)}
+                            onBlur={() => setTouched(t => ({ ...t, email: true }))}
+                            className={inputCls(touched.email && !emailValid)}
+                        />
+                    </div>
+                </div>
+
+                {submitError && (
+                    <div className="mt-4 p-3 bg-red-500/10 border border-red-500/30 rounded-xl max-w-md mx-auto">
+                        <p className="text-red-400 text-xs font-bold text-center">{submitError}</p>
+                    </div>
+                )}
+            </StepLayout>
+        );
+    }
+
+    // ─── Modo PUBLIC: versión completa con todos los campos ────────────────
     return (
         <StepLayout
             question="¿A dónde te enviamos tu cálculo?"
             subtitle="Solo lo usamos para mandarte el resultado y contactarte si tienes preguntas."
             onContinue={handleSubmit}
             canContinue={canSubmit && !submitting}
-            continueLabel={submitting ? 'Enviando…' : 'Recibir mi cálculo'}
+            continueLabel={submitting ? 'Enviando…' : (submitLabel || defaultLabel)}
         >
             {/* Layout 2 columnas en desktop, 1 en móvil */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-5">
