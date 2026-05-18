@@ -68,7 +68,7 @@ async function getCoordinatesByRC(rc) {
         const response = await axios.get(url, {
             headers: {
                 'Accept': 'application/xml, text/xml, */*',
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                'User-Agent': 'CatastroIntegration/1.0'
             },
             timeout: 8000
         });
@@ -117,7 +117,7 @@ async function getByRC(rc) {
             axios.get(url, {
                 headers: {
                     'Accept': 'application/xml, text/xml, */*',
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                    'User-Agent': 'CatastroIntegration/1.0'
                 },
                 timeout: 8000
             }),
@@ -267,7 +267,7 @@ async function getFullRC(rc14) {
         const url = `${BASE_URL}/Consulta_DNPRC?Provincia=&Municipio=&RC=${cleanRC}`;
 
         const response = await axios.get(url, {
-            headers: { 'Accept': 'application/xml, text/xml, */*', 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
+            headers: { 'Accept': 'application/xml, text/xml, */*', 'User-Agent': 'CatastroIntegration/1.0' },
             timeout: 5000
         });
 
@@ -307,254 +307,84 @@ async function getFullRC(rc14) {
     }
 }
 
-async function getRCByCoords(lat, lng, options = {}) {
-    // Búsqueda escalonada por anillos en lugar de "todos los puntos en paralelo".
-    // Razón: 25 peticiones simultáneas al Catastro desde una IP de datacenter
-    // dispara rate-limiting (403). Probando anillos secuenciales:
-    //   1. Solo centro     → 1 petición
-    //   2. Si falla, anillo medio → 8 peticiones
-    //   3. Si falla, anillo externo (solo GPS) → 16 peticiones
-    // El caso ideal (chincheta sobre edificio) resuelve con UNA sola llamada.
-    const source = typeof options === 'string' ? options : (options.source || 'maps');
-    const isGps = source === 'gps';
-    const step = isGps ? 0.00015 : 0.0001; // ~16m vs ~11m
+async function getRCByCoords(lat, lng, numberHint = null) {
+    // Search pattern: Center + 8 surrounding points (3x3 grid)
+    // 0.0001 deg ~ 11 meters
+    const step = 0.0001;
+    const offsets = [
+        { lat: 0, lng: 0 },         // Center
+        { lat: step, lng: 0 },      // N
+        { lat: -step, lng: 0 },     // S
+        { lat: 0, lng: step },      // E
+        { lat: 0, lng: -step },     // W
+        { lat: step, lng: step },   // NE
+        { lat: step, lng: -step },  // NW
+        { lat: -step, lng: step },  // SE
+        { lat: -step, lng: -step }  // SW
+    ];
 
-    const queryPoint = async (targetLat, targetLng, distanceScore) => {
+    const candidates = [];
+
+    const requests = offsets.map(offset => {
+        const targetLat = lat + offset.lat;
+        const targetLng = lng + offset.lng;
         const url = `${COORD_URL}/Consulta_RCCOOR?SRS=EPSG:4326&Coordenada_X=${targetLng}&Coordenada_Y=${targetLat}`;
-        try {
-            const response = await axios.get(url, {
-                headers: { 'Accept': 'application/xml, text/xml, */*', 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
-                timeout: 5000
-            });
-            const result = await parseXML(response.data);
-            const coordenadas = result.consulta_coordenadas || result['Consulta_Coordenadas'];
-            if (coordenadas && !coordenadas.lerr) {
-                const coord = coordenadas.coordenadas?.coord || coordenadas.coord;
-                const pc = coord?.pc || {};
-                if (pc.pc1 && pc.pc2) {
-                    return {
-                        rc14: pc.pc1 + pc.pc2,
-                        address: getText(coord?.ldt),
-                        location: { lat: targetLat, lng: targetLng },
-                        distanceScore
-                    };
+
+        return axios.get(url, {
+            headers: { 'Accept': 'application/xml, text/xml, */*', 'User-Agent': 'CatastroIntegration/1.0' },
+            timeout: 5000
+        })
+            .then(response => parseXML(response.data))
+            .then(result => {
+                const coordenadas = result.consulta_coordenadas || result['Consulta_Coordenadas'];
+                if (coordenadas && !coordenadas.lerr) {
+                    const coord = coordenadas.coordenadas?.coord || coordenadas.coord;
+                    const pc = coord?.pc || {};
+
+                    if (pc.pc1 && pc.pc2) {
+                        const rc14 = pc.pc1 + pc.pc2;
+                        const address = getText(coord?.ldt);
+                        return {
+                            rc14,
+                            address,
+                            location: { lat: targetLat, lng: targetLng },
+                            distanceScore: Math.abs(offset.lat) + Math.abs(offset.lng) // Lower is closer to center
+                        };
+                    }
                 }
-            }
-        } catch {
-            // Errores individuales se ignoran (timeout, 403, etc.)
+                return null;
+            })
+            .catch(() => null); // Ignore errors for individual requests
+    });
+
+    const results = await Promise.all(requests);
+
+    // Filter valid results and deduplicate
+    const uniqueCandidates = new Map();
+    results.forEach(res => {
+        if (res && !uniqueCandidates.has(res.rc14)) {
+            uniqueCandidates.set(res.rc14, res);
         }
-        return null;
-    };
+    });
 
-    // Genera offsets de un anillo concreto (radio = N): los puntos que están
-    // EXACTAMENTE a distancia N del centro (norma Chebyshev). El centro es
-    // anillo 0 (1 punto), anillo 1 son los 8 adyacentes, anillo 2 son 16, etc.
-    const ringOffsets = (radius) => {
-        if (radius === 0) return [{ lat: 0, lng: 0 }];
-        const offsets = [];
-        for (let dy = -radius; dy <= radius; dy++) {
-            for (let dx = -radius; dx <= radius; dx++) {
-                if (Math.max(Math.abs(dx), Math.abs(dy)) === radius) {
-                    offsets.push({ lat: dy * step, lng: dx * step });
-                }
-            }
-        }
-        return offsets;
-    };
+    if (uniqueCandidates.size === 0) return null;
 
-    const maxRadius = isGps ? 2 : 1; // GPS busca en anillo 0,1,2 (max 25). Maps en 0,1 (max 9).
-    let bestCandidate = null;
+    // Convert map to array and sort by distance score (closest to center first)
+    const sortedCandidates = Array.from(uniqueCandidates.values())
+        .sort((a, b) => a.distanceScore - b.distanceScore);
 
-    for (let r = 0; r <= maxRadius; r++) {
-        const offsets = ringOffsets(r);
-        const results = await Promise.all(offsets.map(o =>
-            queryPoint(lat + o.lat, lng + o.lng, Math.abs(o.lat) + Math.abs(o.lng))
-        ));
-        const valid = results.filter(Boolean);
-        if (valid.length > 0) {
-            // El más cercano al centro de este anillo
-            bestCandidate = valid.sort((a, b) => a.distanceScore - b.distanceScore)[0];
-            break;
-        }
-    }
+    // Pick the best candidate (closest to center)
+    const bestCandidate = sortedCandidates[0];
 
-    if (!bestCandidate) return null;
+    // Retrieve full RC for the chosen candidate
     const fullRC = await getFullRC(bestCandidate.rc14);
+
     return {
         rc: fullRC,
         address: bestCandidate.address,
         location: bestCandidate.location,
         distance: bestCandidate.distanceScore === 0 ? 0 : 'approx_10m'
     };
-}
-
-/**
- * Construye la dirección de un inmueble a partir del nodo `dt` del XML resumido.
- * El XML resumido (lrcdnp.rcdnp) no incluye `ldt`, solo la estructura jerárquica.
- */
-function buildAddressFromDt(dt) {
-    if (!dt) return '';
-    const lourb = dt.locs?.lous?.lourb || dt.lourb || {};
-    const dir = lourb.dir || {};
-    const loint = lourb.loint || {};
-
-    const tv = getText(dir.tv);
-    const nv = getText(dir.nv);
-    const pnp = getText(dir.pnp);
-    const es = getText(loint.es);
-    const pt = getText(loint.pt);
-    const pu = getText(loint.pu);
-    const dp = getText(lourb.dp);
-    const nm = getText(dt.nm);
-    const np = getText(dt.np);
-
-    const parts = [];
-    if (tv && nv) parts.push(`${tv} ${nv}`);
-    if (pnp) parts.push(pnp);
-
-    const intParts = [];
-    if (es) intParts.push(`Es:${es}`);
-    if (pt) intParts.push(`Pl:${pt}`);
-    if (pu) intParts.push(`Pt:${pu}`);
-
-    let address = parts.join(' ');
-    if (intParts.length) address += ' ' + intParts.join(' ');
-    if (dp) address += ' ' + dp;
-    if (nm) address += ' ' + nm;
-    if (np) address += ` (${np})`;
-
-    return address.trim();
-}
-
-/**
- * Heurística rápida: las plantas negativas o sótanos NO son residenciales.
- * Permite descartar trasteros/garajes sin necesidad de hacer un fetch adicional.
- */
-function isLikelyNonResidentialFloor(floor) {
-    if (!floor) return false;
-    const f = floor.toString().trim().toUpperCase();
-    if (/^-\d+$/.test(f)) return true;          // -1, -2, -3…
-    if (['SS', 'SO', 'ST'].includes(f)) return true; // sótanos
-    return false;
-}
-
-/**
- * Llama a Consulta_DNPRC con la RC COMPLETA (20 chars) para obtener uso + superficie.
- * Devuelve { use, surface, block, floor, door } o null si falla.
- */
-async function fetchInmuebleDetail(rcFull) {
-    try {
-        const url = `${BASE_URL}/Consulta_DNPRC?Provincia=&Municipio=&RC=${rcFull}`;
-        const r = await axios.get(url, {
-            headers: { 'Accept': 'application/xml, text/xml, */*', 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
-            timeout: 7000
-        });
-        const parsed = await parseXML(r.data);
-        const c = parsed.consulta_dnp || parsed['consulta_dnp'];
-        if (!c || c.lerr) return null;
-
-        const bi = c.bico && (Array.isArray(c.bico.bi) ? c.bico.bi[0] : c.bico.bi);
-        if (!bi) return null;
-
-        const debi = bi.debi || {};
-        const use = getText(debi.luso) || '';
-        const surface = parseInt(getText(debi.sfc)) || 0;
-
-        // En la respuesta detallada el path es bi.dt.lourb.loint (sin locs.lous)
-        const dt = bi.dt || {};
-        const lourb = dt.locs?.lous?.lourb || dt.lourb || {};
-        const loint = lourb.loint || {};
-        const block = getText(loint.es) || '';
-        const floor = getText(loint.pt) || '';
-        const door = getText(loint.pu) || '';
-
-        return { use, surface, block, floor, door };
-    } catch (e) {
-        return null;
-    }
-}
-
-/**
- * Lista de inmuebles (viviendas, locales, trasteros…) de una parcela con división horizontal.
- *
- * Una sola llamada con la RC parcelaria (14 chars). Heurística por planta para detectar
- * residenciales (rápido, no bloqueante). El detalle de superficie/uso real de cada inmueble
- * se carga bajo demanda cuando el usuario lo selecciona (vía /property-data).
- */
-async function getDwellingsByParcel(rc14) {
-    try {
-        const cleanRC = rc14.replace(/[^A-Za-z0-9]/g, '').toUpperCase().substring(0, 14);
-        const url = `${BASE_URL}/Consulta_DNPRC?Provincia=&Municipio=&RC=${cleanRC}`;
-
-        const response = await axios.get(url, {
-            headers: { 'Accept': 'application/xml, text/xml, */*', 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
-            timeout: 8000
-        });
-
-        const result = await parseXML(response.data);
-        const consulta = result.consulta_dnp || result['consulta_dnp'];
-        if (!consulta || consulta.lerr) return [];
-
-        const extractBasic = (item) => {
-            const rcNode = item.rc || item.idbi?.rc;
-            let fullRc = '';
-            if (typeof rcNode === 'string') fullRc = rcNode;
-            else if (rcNode && rcNode.pc1 && rcNode.pc2) {
-                fullRc = rcNode.pc1 + rcNode.pc2 + (rcNode.car || '') + (rcNode.cc1 || '') + (rcNode.cc2 || '');
-            }
-
-            // El XML resumido usa dt.locs.lous.lourb; el detallado usa dt.lourb directo.
-            const dt = item.dt || {};
-            const lourb = dt.locs?.lous?.lourb || dt.lourb || {};
-            const loint = lourb.loint || {};
-            const block = getText(loint.es) || '';
-            const floor = getText(loint.pt) || '';
-            const door = getText(loint.pu) || '';
-
-            const debi = item.debi || {};
-            const use = getText(debi.luso) || '';
-            const surface = parseInt(getText(debi.sfc)) || 0;
-
-            const address = getText(item.ldt) || buildAddressFromDt(dt);
-
-            return { rc: fullRc, address, block, floor, door, use, surface };
-        };
-
-        let dwellings = [];
-
-        if (consulta.lrcdnp) {
-            const rcList = Array.isArray(consulta.lrcdnp.rcdnp) ? consulta.lrcdnp.rcdnp : [consulta.lrcdnp.rcdnp];
-            dwellings = rcList.map(extractBasic).filter(d => d.rc);
-        } else if (consulta.bico) {
-            const bi = Array.isArray(consulta.bico.bi) ? consulta.bico.bi[0] : consulta.bico.bi;
-            if (bi) {
-                const d = extractBasic(bi);
-                if (d.rc) dwellings.push(d);
-            }
-        }
-
-        console.log(`[Catastro] Parcela ${cleanRC}: ${dwellings.length} inmuebles detectados`);
-
-        // Marcar isResidential por heurística (sin enrichment bloqueante):
-        //  - Uso explícito presente → matchea por texto.
-        //  - Planta negativa o sótano → false (garaje/trastero casi seguro).
-        //  - Resto → true (asumir vivienda; el usuario reconoce su planta+puerta).
-        return dwellings.map(d => {
-            const u = (d.use || '').toUpperCase();
-            let isResidential;
-            if (u) {
-                isResidential = /RESIDENCIAL|VIVIENDA/.test(u);
-            } else if (isLikelyNonResidentialFloor(d.floor)) {
-                isResidential = false;
-            } else {
-                isResidential = true;
-            }
-            return { ...d, isResidential };
-        });
-    } catch (error) {
-        console.error(`Dwellings Error [${rc14}]:`, error.message);
-        return [];
-    }
 }
 
 async function getFacadeImage(rc) {
@@ -610,4 +440,4 @@ async function getParcelImage(rc) {
 
 async function getDetails(rc) { return await getByRC(rc); }
 
-module.exports = { getByRC, getRCByCoords, getDetails, getFacadeImage, getCoordinatesByRC, getParcelImage, getDwellingsByParcel };
+module.exports = { getByRC, getRCByCoords, getDetails, getFacadeImage, getCoordinatesByRC, getParcelImage };
