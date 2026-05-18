@@ -1,19 +1,35 @@
 const axios = require('axios');
+const http = require('http');
+const https = require('https');
 const xml2js = require('xml2js');
 
 const climateService = require('./climateService');
 const cache = require('./catastroCache');
 const monitor = require('./catastroMonitor');
 
-// Helper para detectar el rate-limit del catastro en respuestas HTTP.
-// El servidor del catastro a veces devuelve 200 con XML/HTML que contiene
-// el mensaje "Peticion denegada. Ha superado el limite de peticiones por hora".
+// Forzamos IPv4 en TODAS las peticiones al Catastro. Desde el VPS (Ubuntu con
+// IPv6 habilitado), Node + axios usan Happy Eyeballs / preferencia IPv6 y el
+// WAF del Catastro responde 400 "No se puede procesar su petición" — incluso
+// aunque el host no tenga AAAA. Forzando family:4 conectamos como `curl -4`,
+// que sí pasa el WAF. Sin esto, todas las llamadas al Catastro desde VPS fallan.
+const httpAgent = new http.Agent({ keepAlive: true, family: 4 });
+const httpsAgent = new https.Agent({ keepAlive: true, family: 4 });
+const AXIOS_DEFAULTS = { httpAgent, httpsAgent };
+
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+// Helper para detectar el rate-limit/WAF del catastro en respuestas HTTP.
+// Variantes vistas:
+//   - 403 directo
+//   - 200 con XML/HTML conteniendo "Peticion denegada / limite de peticiones por hora"
+//   - 400 con HTML "No se puede procesar su petición" (WAF de ráfaga, IP datacenter)
 function isRateLimitResponse(error, body) {
     const status = error?.response?.status;
     const bodyStr = String(body || error?.response?.data || error?.message || '').toLowerCase();
     if (status === 403) return true;
     if (bodyStr.includes('limite de peticiones')) return true;
     if (bodyStr.includes('peticion denegada')) return true;
+    if (bodyStr.includes('no se puede procesar')) return true;
     return false;
 }
 
@@ -88,9 +104,10 @@ async function getCoordinatesByRC(rc) {
 
         const url = `${COORD_URL}/Consulta_CPMRC?Provincia=&Municipio=&SRS=EPSG:25830&RC=${parcelRC}`;
         const response = await axios.get(url, {
+            ...AXIOS_DEFAULTS,
             headers: {
                 'Accept': 'application/xml, text/xml, */*',
-                'User-Agent': 'CatastroIntegration/1.0'
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
             },
             timeout: 8000
         });
@@ -146,17 +163,18 @@ async function getByRC(rc) {
         monitor.recordRequest();
         const url = `${BASE_URL}/Consulta_DNPRC?Provincia=&Municipio=&RC=${cleanRC}`;
 
-        // PARALELIZACIÓN: Lanzamos la petición de datos y la de coordenadas a la vez
-        const [response, coordinates] = await Promise.all([
-            axios.get(url, {
-                headers: {
-                    'Accept': 'application/xml, text/xml, */*',
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-                },
-                timeout: 8000
-            }),
-            getCoordinatesByRC(cleanRC)
-        ]);
+        // Datos y coordenadas en serie (el WAF del Catastro no tolera ráfagas
+        // paralelas desde IPs de datacenter — devuelve 400/TCP-reset).
+        const response = await axios.get(url, {
+            ...AXIOS_DEFAULTS,
+            headers: {
+                'Accept': 'application/xml, text/xml, */*',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            },
+            timeout: 8000
+        });
+        await sleep(150);
+        const coordinates = await getCoordinatesByRC(cleanRC);
 
         // Detectar rate-limit en el body de respuesta 200
         if (isRateLimitResponse(null, response.data)) {
@@ -323,7 +341,8 @@ async function getFullRC(rc14) {
         const url = `${BASE_URL}/Consulta_DNPRC?Provincia=&Municipio=&RC=${cleanRC}`;
 
         const response = await axios.get(url, {
-            headers: { 'Accept': 'application/xml, text/xml, */*', 'User-Agent': 'CatastroIntegration/1.0' },
+            ...AXIOS_DEFAULTS,
+            headers: { 'Accept': 'application/xml, text/xml, */*', 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
             timeout: 5000
         });
 
@@ -364,15 +383,17 @@ async function getFullRC(rc14) {
 }
 
 async function getRCByCoords(lat, lng, numberHint = null) {
-    // Estrategia ESCALONADA con cache:
-    //   1. Cache hit → 0 peticiones
-    //   2. Petición central → si encuentra parcela, 1 petición total
-    //   3. Si la central falla, grid de 8 puntos adicionales en paralelo
-    //      (3x3 sin la central, ya probada) → max 9 peticiones
+    // Estrategia SECUENCIAL con backoff. Diseñada para sobrevivir al WAF
+    // de ráfaga del Catastro que dispara 400/TCP-reset cuando ve >2-3
+    // peticiones simultáneas desde IPs de datacenter (descubierto 2026-05-18).
     //
-    // Caso típico (chincheta sobre edificio): 1 petición.
-    // Caso difícil (GPS impreciso, chincheta sobre calle): 9 peticiones.
-    // Monitor del rate-limit y cache protegen el conjunto.
+    //   1. Cache hit → 0 peticiones
+    //   2. Petición CENTRAL → si encuentra, 1 petición
+    //   3. Si no, hasta 4 puntos del grid EN SERIE con 200ms entre ellos.
+    //      Paramos en cuanto uno acierta.
+    //
+    // Peor caso: 5 peticiones espaciadas ~200ms = ~1.5s. Sigue siendo
+    // rápido y respetuoso con el rate-limit por ráfaga del Catastro.
 
     const cacheKey = cache.coordsKey(lat, lng);
     const cached = cache.get(cacheKey);
@@ -388,6 +409,7 @@ async function getRCByCoords(lat, lng, numberHint = null) {
         monitor.recordRequest();
         try {
             const response = await axios.get(url, {
+                ...AXIOS_DEFAULTS,
                 headers: { 'Accept': 'application/xml, text/xml, */*', 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
                 timeout: 5000
             });
@@ -430,25 +452,20 @@ async function getRCByCoords(lat, lng, numberHint = null) {
         // 1. Petición CENTRAL
         let match = await queryPoint(lat, lng, 0);
 
-        // 2. Si la central falla, grid de 8 puntos en paralelo (~11m offsets)
+        // 2. Si la central falla, hasta 4 puntos en SERIE (N, S, E, O ~11m).
         if (!match) {
             const step = 0.0001;
             const offsets = [
-                { dlat:  step, dlng:     0, d: 1 },
-                { dlat: -step, dlng:     0, d: 1 },
-                { dlat:     0, dlng:  step, d: 1 },
-                { dlat:     0, dlng: -step, d: 1 },
-                { dlat:  step, dlng:  step, d: 2 },
-                { dlat:  step, dlng: -step, d: 2 },
-                { dlat: -step, dlng:  step, d: 2 },
-                { dlat: -step, dlng: -step, d: 2 }
+                { dlat:  step, dlng:     0, d: 1 },  // N
+                { dlat: -step, dlng:     0, d: 1 },  // S
+                { dlat:     0, dlng:  step, d: 1 },  // E
+                { dlat:     0, dlng: -step, d: 1 }   // O
             ];
-            const results = await Promise.all(
-                offsets.map(o => queryPoint(lat + o.dlat, lng + o.dlng, o.d))
-            );
-            // Quedarse con el más cercano (menor distance)
-            const valid = results.filter(Boolean).sort((a, b) => a.distance - b.distance);
-            match = valid[0] || null;
+            for (const o of offsets) {
+                await sleep(200);
+                const r = await queryPoint(lat + o.dlat, lng + o.dlng, o.d);
+                if (r) { match = r; break; }
+            }
         }
 
         if (!match) {
@@ -456,6 +473,7 @@ async function getRCByCoords(lat, lng, numberHint = null) {
             return null;
         }
 
+        await sleep(150);
         const fullRC = await getFullRC(match.rc14);
         const result_data = {
             rc: fullRC,
@@ -532,6 +550,7 @@ async function getDwellingsByParcel(rc14) {
 
         monitor.recordRequest();
         const response = await axios.get(url, {
+            ...AXIOS_DEFAULTS,
             headers: { 'Accept': 'application/xml, text/xml, */*', 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
             timeout: 8000
         });
@@ -611,6 +630,7 @@ async function getFacadeImage(rc) {
     const imageUrl = `https://ovc.catastro.meh.es/OVCServWeb/OVCWcfLibres/OVCFotoFachada.svc/RecuperarFotoFachadaGet?ReferenciaCatastral=${cleanRC}`;
     try {
         const response = await axios.get(imageUrl, {
+            ...AXIOS_DEFAULTS,
             responseType: 'arraybuffer',
             timeout: 15000,
             headers: {
@@ -642,6 +662,7 @@ async function getParcelImage(rc) {
         const params = { SERVICE: 'WMS', REQUEST: 'GetMap', SRS: 'EPSG:25830', LAYERS: 'Catastro', STYLES: '', FORMAT: 'image/jpeg', WIDTH: '800', HEIGHT: '600', BBOX: bbox, TRANSPARENT: 'false', VERSION: '1.1.1' };
 
         const response = await axios.get(wmsUrl, {
+            ...AXIOS_DEFAULTS,
             params,
             responseType: 'arraybuffer',
             timeout: 15000,

@@ -118,6 +118,12 @@ router.post('/reverse-geocode', async (req, res) => {
 
     } catch (error) {
         console.error('Reverse Geocode error:', error.message);
+        if (error.code === 'CATASTRO_RATE_LIMITED') {
+            return res.status(503).json({
+                error: 'El Catastro está temporalmente saturado. Vuelve a intentarlo en unos minutos.',
+                code: 'CATASTRO_RATE_LIMITED'
+            });
+        }
         res.status(500).json({ error: 'Reverse geocode failed' });
     }
 });
