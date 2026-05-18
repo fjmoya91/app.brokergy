@@ -18,7 +18,14 @@ router.get('/search', async (req, res) => {
         if (isRC) {
             // Direct Catastro Lookup
             const data = await catastroService.getByRC(cleanQ);
-            // If found, return as final result
+            // Adjuntar dwellings si es bloque
+            try {
+                const parcelRC = cleanQ.substring(0, 14);
+                const allDwellings = await catastroService.getDwellingsByParcel(parcelRC);
+                if (allDwellings.length > 1) data.dwellings = allDwellings;
+            } catch (e) {
+                console.warn('[search] dwellings lookup failed:', e.message);
+            }
             return res.json({ type: 'RC_RESULT', data });
         } else {
             // Address Search (Google)
@@ -39,23 +46,63 @@ router.get('/search', async (req, res) => {
 // This is called when user CONFIRMS an address candidate. We need to find the RC for that Lat/Lon.
 router.post('/reverse-geocode', async (req, res) => {
     try {
-        const { lat, lng } = req.body;
+        const { lat, lng, source } = req.body;
         if (!lat || !lng) {
             return res.status(400).json({ error: 'Lat and Lng required' });
         }
 
-        // Call Catastro with Coordinates
-        const rcData = await catastroService.getRCByCoords(lat, lng);
+        // Call Catastro with Coordinates (source: 'gps' amplía el área de búsqueda)
+        const rcData = await catastroService.getRCByCoords(lat, lng, { source });
 
         if (!rcData) {
             return res.status(404).json({ error: 'No RC found for these coordinates' });
         }
 
-        // Now get full details for that RC
-        const fullDetails = await catastroService.getDetails(rcData.rc);
+        // Detalles + listado de viviendas (división horizontal) en paralelo
+        const parcelRC = rcData.rc.substring(0, 14);
+        console.log(`\n=== [reverse-geocode] RC=${rcData.rc} parcelRC=${parcelRC} ===`);
 
-        // Merge geo info if needed (like distance)
+        const [detailsRes, dwellingsRes] = await Promise.allSettled([
+            catastroService.getDetails(rcData.rc),
+            catastroService.getDwellingsByParcel(parcelRC)
+        ]);
+
+        const allDwellings = dwellingsRes.status === 'fulfilled' ? dwellingsRes.value : [];
+        if (dwellingsRes.status === 'rejected') {
+            console.error('[reverse-geocode] dwellings error:', dwellingsRes.reason?.message);
+        }
+
+        console.log(`[reverse-geocode] dwellings=${allDwellings.length}`);
+        if (allDwellings[0]) {
+            console.log(`[reverse-geocode] muestra:`, JSON.stringify(allDwellings[0]));
+        }
+
+        let fullDetails;
+        if (detailsRes.status === 'fulfilled') {
+            fullDetails = detailsRes.value;
+        } else {
+            console.error('[reverse-geocode] getDetails error:', detailsRes.reason?.message);
+            if (allDwellings.length === 0) {
+                return res.status(500).json({ error: 'Detalles no disponibles', details: detailsRes.reason?.message });
+            }
+            // Fallback: respuesta mínima si getDetails falló pero tenemos dwellings
+            fullDetails = {
+                rc: rcData.rc,
+                address: allDwellings[0].address || '',
+                source: 'Catastro (parcial)',
+                verified: false,
+                constructions: [],
+                summaryByType: {},
+                floors: { total: 1, list: [] }
+            };
+        }
+
         fullDetails._meta = { distance: rcData.distance };
+
+        // Exponer todos los inmuebles del bloque (división horizontal).
+        if (allDwellings.length > 1) {
+            fullDetails.dwellings = allDwellings;
+        }
 
         res.json(fullDetails);
 
@@ -218,6 +265,18 @@ router.get('/property-data', async (req, res) => {
             return res.status(400).json({ error: 'RC parameter is required' });
         }
         const data = await catastroService.getByRC(rc);
+
+        // Si es un bloque (división horizontal), adjuntar lista completa de inmuebles
+        try {
+            const parcelRC = rc.replace(/[^A-Za-z0-9]/g, '').toUpperCase().substring(0, 14);
+            const allDwellings = await catastroService.getDwellingsByParcel(parcelRC);
+            if (allDwellings.length > 1) {
+                data.dwellings = allDwellings;
+            }
+        } catch (e) {
+            console.warn(`Dwellings lookup failed for ${rc}:`, e.message);
+        }
+
         res.json(data);
     } catch (error) {
         console.error('Property Data error:', error.message);

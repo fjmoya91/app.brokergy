@@ -307,21 +307,20 @@ async function getFullRC(rc14) {
     }
 }
 
-async function getRCByCoords(lat, lng, numberHint = null) {
-    // Search pattern: Center + 8 surrounding points (3x3 grid)
-    // 0.0001 deg ~ 11 meters
-    const step = 0.0001;
-    const offsets = [
-        { lat: 0, lng: 0 },         // Center
-        { lat: step, lng: 0 },      // N
-        { lat: -step, lng: 0 },     // S
-        { lat: 0, lng: step },      // E
-        { lat: 0, lng: -step },     // W
-        { lat: step, lng: step },   // NE
-        { lat: step, lng: -step },  // NW
-        { lat: -step, lng: step },  // SE
-        { lat: -step, lng: -step }  // SW
-    ];
+async function getRCByCoords(lat, lng, options = {}) {
+    // Source 'gps' → 5x5 grid (~32m radio) para tolerar la imprecisión del GPS móvil.
+    // Source 'maps' (default) → 3x3 grid (~11m radio) porque el pin de Google suele ser preciso.
+    const source = typeof options === 'string' ? options : (options.source || 'maps');
+    const isGps = source === 'gps';
+    const step = isGps ? 0.00015 : 0.0001; // ~16m vs ~11m
+    const radius = isGps ? 2 : 1;          // 5x5 vs 3x3
+
+    const offsets = [];
+    for (let dy = -radius; dy <= radius; dy++) {
+        for (let dx = -radius; dx <= radius; dx++) {
+            offsets.push({ lat: dy * step, lng: dx * step });
+        }
+    }
 
     const candidates = [];
 
@@ -387,6 +386,175 @@ async function getRCByCoords(lat, lng, numberHint = null) {
     };
 }
 
+/**
+ * Construye la dirección de un inmueble a partir del nodo `dt` del XML resumido.
+ * El XML resumido (lrcdnp.rcdnp) no incluye `ldt`, solo la estructura jerárquica.
+ */
+function buildAddressFromDt(dt) {
+    if (!dt) return '';
+    const lourb = dt.locs?.lous?.lourb || dt.lourb || {};
+    const dir = lourb.dir || {};
+    const loint = lourb.loint || {};
+
+    const tv = getText(dir.tv);
+    const nv = getText(dir.nv);
+    const pnp = getText(dir.pnp);
+    const es = getText(loint.es);
+    const pt = getText(loint.pt);
+    const pu = getText(loint.pu);
+    const dp = getText(lourb.dp);
+    const nm = getText(dt.nm);
+    const np = getText(dt.np);
+
+    const parts = [];
+    if (tv && nv) parts.push(`${tv} ${nv}`);
+    if (pnp) parts.push(pnp);
+
+    const intParts = [];
+    if (es) intParts.push(`Es:${es}`);
+    if (pt) intParts.push(`Pl:${pt}`);
+    if (pu) intParts.push(`Pt:${pu}`);
+
+    let address = parts.join(' ');
+    if (intParts.length) address += ' ' + intParts.join(' ');
+    if (dp) address += ' ' + dp;
+    if (nm) address += ' ' + nm;
+    if (np) address += ` (${np})`;
+
+    return address.trim();
+}
+
+/**
+ * Heurística rápida: las plantas negativas o sótanos NO son residenciales.
+ * Permite descartar trasteros/garajes sin necesidad de hacer un fetch adicional.
+ */
+function isLikelyNonResidentialFloor(floor) {
+    if (!floor) return false;
+    const f = floor.toString().trim().toUpperCase();
+    if (/^-\d+$/.test(f)) return true;          // -1, -2, -3…
+    if (['SS', 'SO', 'ST'].includes(f)) return true; // sótanos
+    return false;
+}
+
+/**
+ * Llama a Consulta_DNPRC con la RC COMPLETA (20 chars) para obtener uso + superficie.
+ * Devuelve { use, surface, block, floor, door } o null si falla.
+ */
+async function fetchInmuebleDetail(rcFull) {
+    try {
+        const url = `${BASE_URL}/Consulta_DNPRC?Provincia=&Municipio=&RC=${rcFull}`;
+        const r = await axios.get(url, {
+            headers: { 'Accept': 'application/xml, text/xml, */*', 'User-Agent': 'CatastroIntegration/1.0' },
+            timeout: 7000
+        });
+        const parsed = await parseXML(r.data);
+        const c = parsed.consulta_dnp || parsed['consulta_dnp'];
+        if (!c || c.lerr) return null;
+
+        const bi = c.bico && (Array.isArray(c.bico.bi) ? c.bico.bi[0] : c.bico.bi);
+        if (!bi) return null;
+
+        const debi = bi.debi || {};
+        const use = getText(debi.luso) || '';
+        const surface = parseInt(getText(debi.sfc)) || 0;
+
+        // En la respuesta detallada el path es bi.dt.lourb.loint (sin locs.lous)
+        const dt = bi.dt || {};
+        const lourb = dt.locs?.lous?.lourb || dt.lourb || {};
+        const loint = lourb.loint || {};
+        const block = getText(loint.es) || '';
+        const floor = getText(loint.pt) || '';
+        const door = getText(loint.pu) || '';
+
+        return { use, surface, block, floor, door };
+    } catch (e) {
+        return null;
+    }
+}
+
+/**
+ * Lista de inmuebles (viviendas, locales, trasteros…) de una parcela con división horizontal.
+ *
+ * Una sola llamada con la RC parcelaria (14 chars). Heurística por planta para detectar
+ * residenciales (rápido, no bloqueante). El detalle de superficie/uso real de cada inmueble
+ * se carga bajo demanda cuando el usuario lo selecciona (vía /property-data).
+ */
+async function getDwellingsByParcel(rc14) {
+    try {
+        const cleanRC = rc14.replace(/[^A-Za-z0-9]/g, '').toUpperCase().substring(0, 14);
+        const url = `${BASE_URL}/Consulta_DNPRC?Provincia=&Municipio=&RC=${cleanRC}`;
+
+        const response = await axios.get(url, {
+            headers: { 'Accept': 'application/xml, text/xml, */*', 'User-Agent': 'CatastroIntegration/1.0' },
+            timeout: 8000
+        });
+
+        const result = await parseXML(response.data);
+        const consulta = result.consulta_dnp || result['consulta_dnp'];
+        if (!consulta || consulta.lerr) return [];
+
+        const extractBasic = (item) => {
+            const rcNode = item.rc || item.idbi?.rc;
+            let fullRc = '';
+            if (typeof rcNode === 'string') fullRc = rcNode;
+            else if (rcNode && rcNode.pc1 && rcNode.pc2) {
+                fullRc = rcNode.pc1 + rcNode.pc2 + (rcNode.car || '') + (rcNode.cc1 || '') + (rcNode.cc2 || '');
+            }
+
+            // El XML resumido usa dt.locs.lous.lourb; el detallado usa dt.lourb directo.
+            const dt = item.dt || {};
+            const lourb = dt.locs?.lous?.lourb || dt.lourb || {};
+            const loint = lourb.loint || {};
+            const block = getText(loint.es) || '';
+            const floor = getText(loint.pt) || '';
+            const door = getText(loint.pu) || '';
+
+            const debi = item.debi || {};
+            const use = getText(debi.luso) || '';
+            const surface = parseInt(getText(debi.sfc)) || 0;
+
+            const address = getText(item.ldt) || buildAddressFromDt(dt);
+
+            return { rc: fullRc, address, block, floor, door, use, surface };
+        };
+
+        let dwellings = [];
+
+        if (consulta.lrcdnp) {
+            const rcList = Array.isArray(consulta.lrcdnp.rcdnp) ? consulta.lrcdnp.rcdnp : [consulta.lrcdnp.rcdnp];
+            dwellings = rcList.map(extractBasic).filter(d => d.rc);
+        } else if (consulta.bico) {
+            const bi = Array.isArray(consulta.bico.bi) ? consulta.bico.bi[0] : consulta.bico.bi;
+            if (bi) {
+                const d = extractBasic(bi);
+                if (d.rc) dwellings.push(d);
+            }
+        }
+
+        console.log(`[Catastro] Parcela ${cleanRC}: ${dwellings.length} inmuebles detectados`);
+
+        // Marcar isResidential por heurística (sin enrichment bloqueante):
+        //  - Uso explícito presente → matchea por texto.
+        //  - Planta negativa o sótano → false (garaje/trastero casi seguro).
+        //  - Resto → true (asumir vivienda; el usuario reconoce su planta+puerta).
+        return dwellings.map(d => {
+            const u = (d.use || '').toUpperCase();
+            let isResidential;
+            if (u) {
+                isResidential = /RESIDENCIAL|VIVIENDA/.test(u);
+            } else if (isLikelyNonResidentialFloor(d.floor)) {
+                isResidential = false;
+            } else {
+                isResidential = true;
+            }
+            return { ...d, isResidential };
+        });
+    } catch (error) {
+        console.error(`Dwellings Error [${rc14}]:`, error.message);
+        return [];
+    }
+}
+
 async function getFacadeImage(rc) {
     const cleanRC = rc.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
     const imageUrl = `https://ovc.catastro.meh.es/OVCServWeb/OVCWcfLibres/OVCFotoFachada.svc/RecuperarFotoFachadaGet?ReferenciaCatastral=${cleanRC}`;
@@ -440,4 +608,4 @@ async function getParcelImage(rc) {
 
 async function getDetails(rc) { return await getByRC(rc); }
 
-module.exports = { getByRC, getRCByCoords, getDetails, getFacadeImage, getCoordinatesByRC, getParcelImage };
+module.exports = { getByRC, getRCByCoords, getDetails, getFacadeImage, getCoordinatesByRC, getParcelImage, getDwellingsByParcel };
