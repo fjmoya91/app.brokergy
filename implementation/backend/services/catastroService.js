@@ -308,76 +308,78 @@ async function getFullRC(rc14) {
 }
 
 async function getRCByCoords(lat, lng, options = {}) {
-    // Source 'gps' → 5x5 grid (~32m radio) para tolerar la imprecisión del GPS móvil.
-    // Source 'maps' (default) → 3x3 grid (~11m radio) porque el pin de Google suele ser preciso.
+    // Búsqueda escalonada por anillos en lugar de "todos los puntos en paralelo".
+    // Razón: 25 peticiones simultáneas al Catastro desde una IP de datacenter
+    // dispara rate-limiting (403). Probando anillos secuenciales:
+    //   1. Solo centro     → 1 petición
+    //   2. Si falla, anillo medio → 8 peticiones
+    //   3. Si falla, anillo externo (solo GPS) → 16 peticiones
+    // El caso ideal (chincheta sobre edificio) resuelve con UNA sola llamada.
     const source = typeof options === 'string' ? options : (options.source || 'maps');
     const isGps = source === 'gps';
     const step = isGps ? 0.00015 : 0.0001; // ~16m vs ~11m
-    const radius = isGps ? 2 : 1;          // 5x5 vs 3x3
 
-    const offsets = [];
-    for (let dy = -radius; dy <= radius; dy++) {
-        for (let dx = -radius; dx <= radius; dx++) {
-            offsets.push({ lat: dy * step, lng: dx * step });
+    const queryPoint = async (targetLat, targetLng, distanceScore) => {
+        const url = `${COORD_URL}/Consulta_RCCOOR?SRS=EPSG:4326&Coordenada_X=${targetLng}&Coordenada_Y=${targetLat}`;
+        try {
+            const response = await axios.get(url, {
+                headers: { 'Accept': 'application/xml, text/xml, */*', 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
+                timeout: 5000
+            });
+            const result = await parseXML(response.data);
+            const coordenadas = result.consulta_coordenadas || result['Consulta_Coordenadas'];
+            if (coordenadas && !coordenadas.lerr) {
+                const coord = coordenadas.coordenadas?.coord || coordenadas.coord;
+                const pc = coord?.pc || {};
+                if (pc.pc1 && pc.pc2) {
+                    return {
+                        rc14: pc.pc1 + pc.pc2,
+                        address: getText(coord?.ldt),
+                        location: { lat: targetLat, lng: targetLng },
+                        distanceScore
+                    };
+                }
+            }
+        } catch {
+            // Errores individuales se ignoran (timeout, 403, etc.)
+        }
+        return null;
+    };
+
+    // Genera offsets de un anillo concreto (radio = N): los puntos que están
+    // EXACTAMENTE a distancia N del centro (norma Chebyshev). El centro es
+    // anillo 0 (1 punto), anillo 1 son los 8 adyacentes, anillo 2 son 16, etc.
+    const ringOffsets = (radius) => {
+        if (radius === 0) return [{ lat: 0, lng: 0 }];
+        const offsets = [];
+        for (let dy = -radius; dy <= radius; dy++) {
+            for (let dx = -radius; dx <= radius; dx++) {
+                if (Math.max(Math.abs(dx), Math.abs(dy)) === radius) {
+                    offsets.push({ lat: dy * step, lng: dx * step });
+                }
+            }
+        }
+        return offsets;
+    };
+
+    const maxRadius = isGps ? 2 : 1; // GPS busca en anillo 0,1,2 (max 25). Maps en 0,1 (max 9).
+    let bestCandidate = null;
+
+    for (let r = 0; r <= maxRadius; r++) {
+        const offsets = ringOffsets(r);
+        const results = await Promise.all(offsets.map(o =>
+            queryPoint(lat + o.lat, lng + o.lng, Math.abs(o.lat) + Math.abs(o.lng))
+        ));
+        const valid = results.filter(Boolean);
+        if (valid.length > 0) {
+            // El más cercano al centro de este anillo
+            bestCandidate = valid.sort((a, b) => a.distanceScore - b.distanceScore)[0];
+            break;
         }
     }
 
-    const candidates = [];
-
-    const requests = offsets.map(offset => {
-        const targetLat = lat + offset.lat;
-        const targetLng = lng + offset.lng;
-        const url = `${COORD_URL}/Consulta_RCCOOR?SRS=EPSG:4326&Coordenada_X=${targetLng}&Coordenada_Y=${targetLat}`;
-
-        return axios.get(url, {
-            headers: { 'Accept': 'application/xml, text/xml, */*', 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
-            timeout: 5000
-        })
-            .then(response => parseXML(response.data))
-            .then(result => {
-                const coordenadas = result.consulta_coordenadas || result['Consulta_Coordenadas'];
-                if (coordenadas && !coordenadas.lerr) {
-                    const coord = coordenadas.coordenadas?.coord || coordenadas.coord;
-                    const pc = coord?.pc || {};
-
-                    if (pc.pc1 && pc.pc2) {
-                        const rc14 = pc.pc1 + pc.pc2;
-                        const address = getText(coord?.ldt);
-                        return {
-                            rc14,
-                            address,
-                            location: { lat: targetLat, lng: targetLng },
-                            distanceScore: Math.abs(offset.lat) + Math.abs(offset.lng) // Lower is closer to center
-                        };
-                    }
-                }
-                return null;
-            })
-            .catch(() => null); // Ignore errors for individual requests
-    });
-
-    const results = await Promise.all(requests);
-
-    // Filter valid results and deduplicate
-    const uniqueCandidates = new Map();
-    results.forEach(res => {
-        if (res && !uniqueCandidates.has(res.rc14)) {
-            uniqueCandidates.set(res.rc14, res);
-        }
-    });
-
-    if (uniqueCandidates.size === 0) return null;
-
-    // Convert map to array and sort by distance score (closest to center first)
-    const sortedCandidates = Array.from(uniqueCandidates.values())
-        .sort((a, b) => a.distanceScore - b.distanceScore);
-
-    // Pick the best candidate (closest to center)
-    const bestCandidate = sortedCandidates[0];
-
-    // Retrieve full RC for the chosen candidate
+    if (!bestCandidate) return null;
     const fullRC = await getFullRC(bestCandidate.rc14);
-
     return {
         rc: fullRC,
         address: bestCandidate.address,
