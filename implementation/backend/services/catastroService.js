@@ -68,7 +68,7 @@ async function getCoordinatesByRC(rc) {
         const response = await axios.get(url, {
             headers: {
                 'Accept': 'application/xml, text/xml, */*',
-                'User-Agent': 'CatastroIntegration/1.0'
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
             },
             timeout: 8000
         });
@@ -117,7 +117,7 @@ async function getByRC(rc) {
             axios.get(url, {
                 headers: {
                     'Accept': 'application/xml, text/xml, */*',
-                    'User-Agent': 'CatastroIntegration/1.0'
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
                 },
                 timeout: 8000
             }),
@@ -267,7 +267,7 @@ async function getFullRC(rc14) {
         const url = `${BASE_URL}/Consulta_DNPRC?Provincia=&Municipio=&RC=${cleanRC}`;
 
         const response = await axios.get(url, {
-            headers: { 'Accept': 'application/xml, text/xml, */*', 'User-Agent': 'CatastroIntegration/1.0' },
+            headers: { 'Accept': 'application/xml, text/xml, */*', 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
             timeout: 5000
         });
 
@@ -330,7 +330,7 @@ async function getRCByCoords(lat, lng, options = {}) {
         const url = `${COORD_URL}/Consulta_RCCOOR?SRS=EPSG:4326&Coordenada_X=${targetLng}&Coordenada_Y=${targetLat}`;
 
         return axios.get(url, {
-            headers: { 'Accept': 'application/xml, text/xml, */*', 'User-Agent': 'CatastroIntegration/1.0' },
+            headers: { 'Accept': 'application/xml, text/xml, */*', 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
             timeout: 5000
         })
             .then(response => parseXML(response.data))
@@ -444,7 +444,7 @@ async function fetchInmuebleDetail(rcFull) {
     try {
         const url = `${BASE_URL}/Consulta_DNPRC?Provincia=&Municipio=&RC=${rcFull}`;
         const r = await axios.get(url, {
-            headers: { 'Accept': 'application/xml, text/xml, */*', 'User-Agent': 'CatastroIntegration/1.0' },
+            headers: { 'Accept': 'application/xml, text/xml, */*', 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
             timeout: 7000
         });
         const parsed = await parseXML(r.data);
@@ -485,7 +485,7 @@ async function getDwellingsByParcel(rc14) {
         const url = `${BASE_URL}/Consulta_DNPRC?Provincia=&Municipio=&RC=${cleanRC}`;
 
         const response = await axios.get(url, {
-            headers: { 'Accept': 'application/xml, text/xml, */*', 'User-Agent': 'CatastroIntegration/1.0' },
+            headers: { 'Accept': 'application/xml, text/xml, */*', 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
             timeout: 8000
         });
 
