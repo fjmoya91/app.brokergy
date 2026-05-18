@@ -2,6 +2,57 @@ const express = require('express');
 const router = express.Router();
 const catastroService = require('../services/catastroService');
 const googleService = require('../services/googleService');
+const catastroMonitor = require('../services/catastroMonitor');
+const catastroCache = require('../services/catastroCache');
+
+// GET /status
+// Endpoint público (sin auth). Devuelve el estado del Catastro para que el
+// frontend pueda mostrar un banner cuando hay rate-limit activo.
+router.get('/status', (req, res) => {
+    const status = catastroMonitor.getStatus();
+    const cacheStats = catastroCache.stats();
+    res.json({
+        ok: !status.blocked,
+        blocked: status.blocked,
+        blockedAt: status.blockedAt,
+        durationMs: status.durationMs,
+        cache: {
+            size: cacheStats.size,
+            hitRate: Number((cacheStats.hitRate * 100).toFixed(1))
+        }
+    });
+});
+
+// GET /dwellings/:rc14
+// Devuelve la lista de viviendas individuales de un edificio dividido.
+// Solo se llama bajo demanda (el usuario pulsa "Ver otras viviendas") para
+// evitar pegarle al Catastro en cada búsqueda. Cacheado 30 días.
+router.get('/dwellings/:rc14', async (req, res) => {
+    const rc14 = String(req.params.rc14 || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+    if (rc14.length !== 14) {
+        return res.status(400).json({ error: 'RC de parcela inválida (debe ser 14 caracteres)' });
+    }
+    const cached = catastroCache.get(catastroCache.dwellingsKey(rc14));
+    if (cached) return res.json({ dwellings: cached, fromCache: true });
+
+    if (catastroMonitor.shouldSkipRequest()) {
+        return res.status(503).json({ error: 'Servicio del Catastro temporalmente no disponible', code: 'CATASTRO_RATE_LIMITED' });
+    }
+
+    try {
+        const dwellings = (typeof catastroService.getDwellingsByParcel === 'function')
+            ? await catastroService.getDwellingsByParcel(rc14)
+            : [];
+        catastroCache.set(catastroCache.dwellingsKey(rc14), dwellings, catastroCache.TTL_RC);
+        return res.json({ dwellings, fromCache: false });
+    } catch (err) {
+        console.error('[catastro/dwellings] Error:', err.message);
+        if (err.code === 'CATASTRO_RATE_LIMITED') {
+            return res.status(503).json({ error: 'Servicio del Catastro temporalmente no disponible', code: 'CATASTRO_RATE_LIMITED' });
+        }
+        return res.status(500).json({ error: 'Error consultando viviendas del bloque' });
+    }
+});
 
 // GET /search?q=...
 router.get('/search', async (req, res) => {
@@ -27,8 +78,14 @@ router.get('/search', async (req, res) => {
         }
     } catch (error) {
         console.error('Search error:', error.message);
-        res.status(error.code?.startsWith('RC_') ? 404 : 500).json({ 
-            error: 'Search failed', 
+        if (error.code === 'CATASTRO_RATE_LIMITED') {
+            return res.status(503).json({
+                error: 'El Catastro está temporalmente saturado. Vuelve a intentarlo en unos minutos.',
+                code: 'CATASTRO_RATE_LIMITED'
+            });
+        }
+        res.status(error.code?.startsWith('RC_') ? 404 : 500).json({
+            error: 'Search failed',
             details: error.message,
             code: error.code || 'UNKNOWN_ERROR'
         });

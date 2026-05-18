@@ -28,6 +28,7 @@ import { computeFullCalculatorResult } from '../data/landingCalculation';
 import { StepHeader } from '../components/StepHeader';
 import { CalculatingOverlay } from '../components/CalculatingOverlay';
 import { HomeInfoSections } from '../components/HomeInfoSections';
+import { CatastroStatusBanner } from '../components/CatastroStatusBanner';
 import { Step1_TipoProyecto } from '../steps/Step1_TipoProyecto';
 import { Step2_Combustible } from '../steps/Step2_Combustible';
 import { Step3_EdadCaldera } from '../steps/Step3_EdadCaldera';
@@ -438,6 +439,7 @@ export default function LandingFunnelView({ route, mode = 'public', onCreated, o
         <div className="min-h-screen bg-slate-950 relative overflow-x-hidden">
             <DynamicNetworkBackground />
             <GeoLocatingOverlay stage={geoStage} />
+            <CatastroStatusBanner />
 
             <div className="relative z-10 px-4 py-5 md:py-8">
                 {/* Botón Cancelar (solo en modo internal) */}

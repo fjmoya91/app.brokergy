@@ -2,6 +2,28 @@ const axios = require('axios');
 const xml2js = require('xml2js');
 
 const climateService = require('./climateService');
+const cache = require('./catastroCache');
+const monitor = require('./catastroMonitor');
+
+// Helper para detectar el rate-limit del catastro en respuestas HTTP.
+// El servidor del catastro a veces devuelve 200 con XML/HTML que contiene
+// el mensaje "Peticion denegada. Ha superado el limite de peticiones por hora".
+function isRateLimitResponse(error, body) {
+    const status = error?.response?.status;
+    const bodyStr = String(body || error?.response?.data || error?.message || '').toLowerCase();
+    if (status === 403) return true;
+    if (bodyStr.includes('limite de peticiones')) return true;
+    if (bodyStr.includes('peticion denegada')) return true;
+    return false;
+}
+
+class CatastroBlockedError extends Error {
+    constructor(message) {
+        super(message || 'Servicio del Catastro temporalmente no disponible');
+        this.code = 'CATASTRO_RATE_LIMITED';
+        this.statusCode = 503;
+    }
+}
 
 // Catastro Web Services (HTTPS)
 // Docs: https://www.catastro.meh.es/ws/Webservices_Libres.pdf
@@ -105,11 +127,23 @@ async function getCoordinatesByRC(rc) {
 
 /**
  * Consulta_DNPRC: Get data by RC
+ * Cacheado durante 30 días (datos catastrales muy estables).
  */
 async function getByRC(rc) {
     const cleanRC = rc.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
 
+    // 1) Cache hit → devolver al instante sin tocar catastro
+    const cacheKey = cache.rcKey(cleanRC);
+    const cached = cache.get(cacheKey);
+    if (cached) return cached;
+
+    // 2) Si el monitor está bloqueado, abortar antes de quemar quota
+    if (monitor.shouldSkipRequest()) {
+        throw new CatastroBlockedError();
+    }
+
     try {
+        monitor.recordRequest();
         const url = `${BASE_URL}/Consulta_DNPRC?Provincia=&Municipio=&RC=${cleanRC}`;
 
         // PARALELIZACIÓN: Lanzamos la petición de datos y la de coordenadas a la vez
@@ -117,12 +151,18 @@ async function getByRC(rc) {
             axios.get(url, {
                 headers: {
                     'Accept': 'application/xml, text/xml, */*',
-                    'User-Agent': 'CatastroIntegration/1.0'
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
                 },
                 timeout: 8000
             }),
             getCoordinatesByRC(cleanRC)
         ]);
+
+        // Detectar rate-limit en el body de respuesta 200
+        if (isRateLimitResponse(null, response.data)) {
+            monitor.record403(String(response.data).substring(0, 200));
+            throw new CatastroBlockedError();
+        }
 
         const result = await parseXML(response.data);
         const consulta = result.consulta_dnp || result['consulta_dnp'];
@@ -194,7 +234,7 @@ async function getByRC(rc) {
 
         const primaryUse = summaryByType['VIVIENDA'] ? 'Residencial' : (getText(debi.luso) || 'No especificado');
 
-        return {
+        const propertyData = {
             rc: cleanRC,
             address: getText(bi?.ldt || bico.ldt) || 'Dirección no disponible',
             use: primaryUse,
@@ -242,9 +282,25 @@ async function getByRC(rc) {
             source: 'Catastro (OVCC)'
         };
 
+        monitor.recordSuccess();
+        cache.set(cacheKey, propertyData, cache.TTL_RC);
+        return propertyData;
+
     } catch (error) {
-        if (error.code && error.code.startsWith('RC_')) throw error;
-        if (error.code && error.code.startsWith('CATASTRO_')) throw error;
+        if (error instanceof CatastroBlockedError) throw error;
+        if (isRateLimitResponse(error)) {
+            monitor.record403(error.message);
+            throw new CatastroBlockedError();
+        }
+        if (error.code && error.code.startsWith('RC_')) {
+            monitor.recordSuccess(); // RC inválida/no encontrada = catastro respondió OK
+            throw error;
+        }
+        if (error.code && error.code.startsWith('CATASTRO_APP_ERROR')) {
+            monitor.recordSuccess();
+            throw error;
+        }
+        monitor.recordOtherError(error.message);
 
         // Categorizar errores de red/servidor
         if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
@@ -308,83 +364,210 @@ async function getFullRC(rc14) {
 }
 
 async function getRCByCoords(lat, lng, numberHint = null) {
-    // Search pattern: Center + 8 surrounding points (3x3 grid)
-    // 0.0001 deg ~ 11 meters
-    const step = 0.0001;
-    const offsets = [
-        { lat: 0, lng: 0 },         // Center
-        { lat: step, lng: 0 },      // N
-        { lat: -step, lng: 0 },     // S
-        { lat: 0, lng: step },      // E
-        { lat: 0, lng: -step },     // W
-        { lat: step, lng: step },   // NE
-        { lat: step, lng: -step },  // NW
-        { lat: -step, lng: step },  // SE
-        { lat: -step, lng: -step }  // SW
-    ];
+    // 1 sola petición central (sin grid). Si la coord no cae sobre parcela
+    // devolvemos null y el frontend pide al usuario que ajuste la chincheta.
+    //
+    // Antes hacíamos un grid 3x3 (9 peticiones simultáneas). En entornos VPS
+    // con IP de datacenter eso quema rápidamente el rate-limit del Catastro
+    // (límite oficial: ~3000 peticiones/hora por IP). Con 1 petición + cache
+    // + el throttle del monitor, el consumo es 9x menor.
 
-    const candidates = [];
+    const cacheKey = cache.coordsKey(lat, lng);
+    const cached = cache.get(cacheKey);
+    if (cached) return cached;
 
-    const requests = offsets.map(offset => {
-        const targetLat = lat + offset.lat;
-        const targetLng = lng + offset.lng;
-        const url = `${COORD_URL}/Consulta_RCCOOR?SRS=EPSG:4326&Coordenada_X=${targetLng}&Coordenada_Y=${targetLat}`;
+    if (monitor.shouldSkipRequest()) {
+        throw new CatastroBlockedError();
+    }
 
-        return axios.get(url, {
-            headers: { 'Accept': 'application/xml, text/xml, */*', 'User-Agent': 'CatastroIntegration/1.0' },
+    monitor.recordRequest();
+    const url = `${COORD_URL}/Consulta_RCCOOR?SRS=EPSG:4326&Coordenada_X=${lng}&Coordenada_Y=${lat}`;
+
+    try {
+        const response = await axios.get(url, {
+            headers: { 'Accept': 'application/xml, text/xml, */*', 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
             timeout: 5000
-        })
-            .then(response => parseXML(response.data))
-            .then(result => {
-                const coordenadas = result.consulta_coordenadas || result['Consulta_Coordenadas'];
-                if (coordenadas && !coordenadas.lerr) {
-                    const coord = coordenadas.coordenadas?.coord || coordenadas.coord;
-                    const pc = coord?.pc || {};
+        });
 
-                    if (pc.pc1 && pc.pc2) {
-                        const rc14 = pc.pc1 + pc.pc2;
-                        const address = getText(coord?.ldt);
-                        return {
-                            rc14,
-                            address,
-                            location: { lat: targetLat, lng: targetLng },
-                            distanceScore: Math.abs(offset.lat) + Math.abs(offset.lng) // Lower is closer to center
-                        };
-                    }
-                }
-                return null;
-            })
-            .catch(() => null); // Ignore errors for individual requests
-    });
-
-    const results = await Promise.all(requests);
-
-    // Filter valid results and deduplicate
-    const uniqueCandidates = new Map();
-    results.forEach(res => {
-        if (res && !uniqueCandidates.has(res.rc14)) {
-            uniqueCandidates.set(res.rc14, res);
+        // Algunos rate-limits llegan como 200 con XML/HTML que indica el bloqueo
+        if (isRateLimitResponse(null, response.data)) {
+            monitor.record403(String(response.data).substring(0, 200));
+            throw new CatastroBlockedError();
         }
-    });
 
-    if (uniqueCandidates.size === 0) return null;
+        const result = await parseXML(response.data);
+        const coordenadas = result.consulta_coordenadas || result['Consulta_Coordenadas'];
+        if (!coordenadas || coordenadas.lerr) {
+            monitor.recordSuccess(); // El catastro respondió OK aunque sin parcela
+            cache.set(cacheKey, null, cache.TTL_COORDS);
+            return null;
+        }
 
-    // Convert map to array and sort by distance score (closest to center first)
-    const sortedCandidates = Array.from(uniqueCandidates.values())
-        .sort((a, b) => a.distanceScore - b.distanceScore);
+        const coord = coordenadas.coordenadas?.coord || coordenadas.coord;
+        const pc = coord?.pc || {};
+        if (!pc.pc1 || !pc.pc2) {
+            monitor.recordSuccess();
+            cache.set(cacheKey, null, cache.TTL_COORDS);
+            return null;
+        }
 
-    // Pick the best candidate (closest to center)
-    const bestCandidate = sortedCandidates[0];
+        monitor.recordSuccess();
+        const rc14 = pc.pc1 + pc.pc2;
+        const address = getText(coord?.ldt);
+        const fullRC = await getFullRC(rc14);
 
-    // Retrieve full RC for the chosen candidate
-    const fullRC = await getFullRC(bestCandidate.rc14);
+        const result_data = {
+            rc: fullRC,
+            address,
+            location: { lat, lng },
+            distance: 0
+        };
+        cache.set(cacheKey, result_data, cache.TTL_COORDS);
+        return result_data;
+    } catch (err) {
+        if (err instanceof CatastroBlockedError) throw err;
+        if (isRateLimitResponse(err)) {
+            monitor.record403(err.message);
+            throw new CatastroBlockedError();
+        }
+        monitor.recordOtherError(err.message);
+        console.warn(`[getRCByCoords] Error en ${lat},${lng}:`, err.message);
+        return null;
+    }
+}
 
-    return {
-        rc: fullRC,
-        address: bestCandidate.address,
-        location: bestCandidate.location,
-        distance: bestCandidate.distanceScore === 0 ? 0 : 'approx_10m'
-    };
+/**
+ * Construye la dirección de un inmueble a partir del nodo `dt` del XML resumido.
+ */
+function buildAddressFromDt(dt) {
+    if (!dt) return '';
+    const lourb = dt.locs?.lous?.lourb || dt.lourb || {};
+    const dir = lourb.dir || {};
+    const loint = lourb.loint || {};
+
+    const tv = getText(dir.tv);
+    const nv = getText(dir.nv);
+    const pnp = getText(dir.pnp);
+    const es = getText(loint.es);
+    const pt = getText(loint.pt);
+    const pu = getText(loint.pu);
+    const dp = getText(lourb.dp);
+    const nm = getText(dt.nm);
+    const np = getText(dt.np);
+
+    const parts = [];
+    if (tv && nv) parts.push(`${tv} ${nv}`);
+    if (pnp) parts.push(pnp);
+
+    const intParts = [];
+    if (es) intParts.push(`Es:${es}`);
+    if (pt) intParts.push(`Pl:${pt}`);
+    if (pu) intParts.push(`Pt:${pu}`);
+
+    let address = parts.join(' ');
+    if (intParts.length) address += ' ' + intParts.join(' ');
+    if (dp) address += ' ' + dp;
+    if (nm) address += ' ' + nm;
+    if (np) address += ` (${np})`;
+
+    return address.trim();
+}
+
+function isLikelyNonResidentialFloor(floor) {
+    if (!floor) return false;
+    const f = floor.toString().trim().toUpperCase();
+    if (/^-\d+$/.test(f)) return true;
+    if (['SS', 'SO', 'ST'].includes(f)) return true;
+    return false;
+}
+
+/**
+ * Lista de inmuebles (viviendas, locales, trasteros) de una parcela con división horizontal.
+ * Solo se llama BAJO DEMANDA desde /api/catastro/dwellings/:rc14, no en cada búsqueda.
+ * Cache 30 días gestionado por el handler de la ruta.
+ */
+async function getDwellingsByParcel(rc14) {
+    if (monitor.shouldSkipRequest()) {
+        throw new CatastroBlockedError();
+    }
+    try {
+        const cleanRC = rc14.replace(/[^A-Za-z0-9]/g, '').toUpperCase().substring(0, 14);
+        const url = `${BASE_URL}/Consulta_DNPRC?Provincia=&Municipio=&RC=${cleanRC}`;
+
+        monitor.recordRequest();
+        const response = await axios.get(url, {
+            headers: { 'Accept': 'application/xml, text/xml, */*', 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
+            timeout: 8000
+        });
+
+        if (isRateLimitResponse(null, response.data)) {
+            monitor.record403(String(response.data).substring(0, 200));
+            throw new CatastroBlockedError();
+        }
+
+        const result = await parseXML(response.data);
+        const consulta = result.consulta_dnp || result['consulta_dnp'];
+        if (!consulta || consulta.lerr) {
+            monitor.recordSuccess();
+            return [];
+        }
+
+        monitor.recordSuccess();
+
+        const extractBasic = (item) => {
+            const rcNode = item.rc || item.idbi?.rc;
+            let fullRc = '';
+            if (typeof rcNode === 'string') fullRc = rcNode;
+            else if (rcNode && rcNode.pc1 && rcNode.pc2) {
+                fullRc = rcNode.pc1 + rcNode.pc2 + (rcNode.car || '') + (rcNode.cc1 || '') + (rcNode.cc2 || '');
+            }
+            const dt = item.dt || {};
+            const lourb = dt.locs?.lous?.lourb || dt.lourb || {};
+            const loint = lourb.loint || {};
+            const block = getText(loint.es) || '';
+            const floor = getText(loint.pt) || '';
+            const door = getText(loint.pu) || '';
+            const debi = item.debi || {};
+            const use = getText(debi.luso) || '';
+            const surface = parseInt(getText(debi.sfc)) || 0;
+            const address = getText(item.ldt) || buildAddressFromDt(dt);
+            return { rc: fullRc, address, block, floor, door, use, surface };
+        };
+
+        let dwellings = [];
+        if (consulta.lrcdnp) {
+            const rcList = Array.isArray(consulta.lrcdnp.rcdnp) ? consulta.lrcdnp.rcdnp : [consulta.lrcdnp.rcdnp];
+            dwellings = rcList.map(extractBasic).filter(d => d.rc);
+        } else if (consulta.bico) {
+            const bi = Array.isArray(consulta.bico.bi) ? consulta.bico.bi[0] : consulta.bico.bi;
+            if (bi) {
+                const d = extractBasic(bi);
+                if (d.rc) dwellings.push(d);
+            }
+        }
+
+        return dwellings.map(d => {
+            const u = (d.use || '').toUpperCase();
+            let isResidential;
+            if (u) {
+                isResidential = /RESIDENCIAL|VIVIENDA/.test(u);
+            } else if (isLikelyNonResidentialFloor(d.floor)) {
+                isResidential = false;
+            } else {
+                isResidential = true;
+            }
+            return { ...d, isResidential };
+        });
+    } catch (error) {
+        if (error instanceof CatastroBlockedError) throw error;
+        if (isRateLimitResponse(error)) {
+            monitor.record403(error.message);
+            throw new CatastroBlockedError();
+        }
+        monitor.recordOtherError(error.message);
+        console.error(`Dwellings Error [${rc14}]:`, error.message);
+        return [];
+    }
 }
 
 async function getFacadeImage(rc) {
@@ -440,4 +623,4 @@ async function getParcelImage(rc) {
 
 async function getDetails(rc) { return await getByRC(rc); }
 
-module.exports = { getByRC, getRCByCoords, getDetails, getFacadeImage, getCoordinatesByRC, getParcelImage };
+module.exports = { getByRC, getRCByCoords, getDetails, getFacadeImage, getCoordinatesByRC, getParcelImage, getDwellingsByParcel };
