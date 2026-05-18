@@ -86,7 +86,9 @@ const BASE_DEFAULTS = {
     boilerAcsType: 'Butano'
 };
 
-function funnelToCalculatorInputs(funnel, catastro) {
+function funnelToCalculatorInputs(funnel, catastro, options = {}) {
+    const { mode = 'public' } = options;
+    const isInternal = mode === 'internal';
     const boilerMap = mapBoiler(funnel);
     const emisor = mapEmisor(funnel.emisor_tipo);
 
@@ -183,6 +185,18 @@ function funnelToCalculatorInputs(funnel, catastro) {
     inputs.titularType = funnel.titular_type || 'particular';
     inputs.includeIrpf = funnel.titular_type !== 'empresa';
     inputs.numOwners = Math.max(1, Number(funnel.num_propietarios) || 1);
+
+    // 13. Defaults de toggles que difieren entre flujos:
+    //   - public: ambos activos (el cliente quiere ver impacto fiscal y ahorro €/año)
+    //   - internal: ambos DESACTIVADOS (el partner/admin los activa manualmente en
+    //     la calculadora si los necesita; por defecto la propuesta es más limpia)
+    if (isInternal) {
+        inputs.aplicarIrpfCae = false;
+        inputs.includeAnnualSavings = false;
+    } else {
+        inputs.aplicarIrpfCae = true;
+        inputs.includeAnnualSavings = true;
+    }
 
     return inputs;
 }

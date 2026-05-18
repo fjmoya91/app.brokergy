@@ -313,7 +313,7 @@ export default function LandingFunnelView({ route, mode = 'public', onCreated, o
                 num_propietarios: contacto.num_propietarios || (isInternal ? 1 : null),
                 timeline: contacto.timeline || (isInternal ? 'explorando' : null)
             };
-            const calculatorInputs = funnelToCalculatorInputs(funnelConContacto, catastro);
+            const calculatorInputs = funnelToCalculatorInputs(funnelConContacto, catastro, { mode });
 
             // Computar el `result` completo en frontend (mismo formato que
             // CalculatorView.handleCalculate). Así el admin verá los datos

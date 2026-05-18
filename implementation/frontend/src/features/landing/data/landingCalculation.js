@@ -62,7 +62,7 @@ export function computeLandingResult(inputs) {
         numOwners: inputs.numOwners || 1,
         titularType: inputs.titularType || 'particular',
         includeIrpf: inputs.includeIrpf !== false,
-        aplicarIrpfCae: true
+        aplicarIrpfCae: inputs.aplicarIrpfCae !== false
     });
 
     // 4. Si es reforma integral, recalcular con RES080
@@ -84,7 +84,7 @@ export function computeLandingResult(inputs) {
                 numOwners: inputs.numOwners || 1,
                 titularType: inputs.titularType || 'particular',
                 includeIrpf: inputs.includeIrpf !== false,
-                aplicarIrpfCae: true
+                aplicarIrpfCae: inputs.aplicarIrpfCae !== false
             });
             isReformaResult = true;
         }
@@ -256,7 +256,7 @@ export function computeFullCalculatorResult(inputs) {
         itpPercent: inputs.itpPercent,
         includeIrpf: inputs.includeIrpf !== false,
         titularType: inputs.titularType || 'particular',
-        aplicarIrpfCae: true
+        aplicarIrpfCae: inputs.aplicarIrpfCae !== false
     });
 
     // 5. Ahorro económico anual
@@ -306,7 +306,7 @@ export function computeFullCalculatorResult(inputs) {
                 numOwners: inputs.numOwners || 1,
                 titularType: inputs.titularType || 'particular',
                 includeIrpf: inputs.includeIrpf !== false,
-                aplicarIrpfCae: true
+                aplicarIrpfCae: inputs.aplicarIrpfCae !== false
             });
         }
     }
