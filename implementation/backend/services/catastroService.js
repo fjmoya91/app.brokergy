@@ -14,8 +14,11 @@ const monitor = require('./catastroMonitor');
 // El segundo orden (axios) es bloqueado con 400 "No se puede procesar".
 // Solución: usar http.request puro con orden idéntico al de curl/navegadores.
 // Además forzamos family:4 (el VPS tiene IPv6 y Happy Eyeballs confunde al WAF).
+// El WAF de los WCF del Catastro rechaza UAs muy específicos (Chrome desktop
+// completo "Windows NT 10.0...", curl, Postman) pero acepta UAs identificables
+// y genéricos. Empíricamente: "Mozilla/5.0 (compatible; Brokergy/1.0)" pasa.
 const COMMON_HEADERS = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'User-Agent': 'Mozilla/5.0 (compatible; Brokergy/1.0; +https://app.brokergy.es)',
     'Accept': 'application/json',
     'Accept-Encoding': 'identity'
 };

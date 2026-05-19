@@ -17,24 +17,28 @@
  */
 
 const http = require('http');
+const https = require('https');
 const whatsappService = require('./whatsappService');
 const emailService = require('./emailService');
 
-const COORD_URL = 'http://ovc.catastro.meh.es/ovcservweb/OVCSWLocalizacionRC/OVCCoordenadas.asmx';
+const COORD_URL = 'https://ovc.catastro.meh.es/OVCServWeb/OVCWcfCallejero/COVCCoordenadas.svc/json';
 
-// El WAF del Catastro hace fingerprinting por orden de headers y bloquea
-// axios. Usamos http.request puro con orden idéntico al de curl/navegadores.
+// Ver catastroService.js: el WAF del Catastro rechaza axios + UAs específicos
+// (Chrome desktop completo, curl, Postman). Pasa con UA identificable genérico.
 const PING_HEADERS = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Accept': 'application/xml, text/xml, */*',
+    'User-Agent': 'Mozilla/5.0 (compatible; Brokergy/1.0; +https://app.brokergy.es)',
+    'Accept': 'application/json',
     'Accept-Encoding': 'identity'
 };
 
 function pingCatastro(url) {
     return new Promise((resolve, reject) => {
         const u = new URL(url);
-        const req = http.request({
-            host: u.hostname, port: u.port || 80, path: u.pathname + u.search,
+        const lib = u.protocol === 'https:' ? https : http;
+        const req = lib.request({
+            host: u.hostname,
+            port: u.port || (u.protocol === 'https:' ? 443 : 80),
+            path: u.pathname + u.search,
             method: 'GET', family: 4, headers: PING_HEADERS
         }, (res) => {
             const chunks = [];
@@ -232,7 +236,7 @@ function startPingLoop() {
 
     state.pingIntervalHandle = setInterval(async () => {
         // Coordenadas seguras: centro de Madrid (Puerta del Sol)
-        const url = `${COORD_URL}/Consulta_RCCOOR?SRS=EPSG:4326&Coordenada_X=-3.703&Coordenada_Y=40.4168`;
+        const url = `${COORD_URL}/Consulta_RCCOOR?SRS=EPSG:4326&CoorX=-3.703&CoorY=40.4168`;
         try {
             const response = await pingCatastro(url);
             // Si responde 200 sin "limite de peticiones" → desbloqueado
