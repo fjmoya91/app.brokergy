@@ -15,6 +15,7 @@
 
 const path = require('path');
 const fs = require('fs');
+const { execSync } = require('child_process');
 const supabase = require('./supabaseClient');
 
 const SESSION_ROOT = path.join(__dirname, '..', '.wwebjs_auth');
@@ -353,6 +354,44 @@ async function resolveChromium() {
     }
 }
 
+// ─── Orphan Chrome cleanup ────────────────────────────────────────────────────
+
+/**
+ * Mata procesos Chrome huérfanos que tengan --user-data-dir apuntando a sessionDir.
+ * Imprescindible cuando el backend se reinicia tras un crash sin SIGTERM limpio:
+ * Chromium niega lanzar un segundo proceso sobre el mismo perfil ("browser is already running...").
+ */
+function killOrphanChromeProcesses(sessionDir) {
+    try {
+        if (process.platform === 'win32') {
+            // wmic está deprecado pero presente; usamos PowerShell vía CIM como fallback robusto.
+            // Filtramos por CommandLine que contenga la ruta del perfil.
+            const escaped = sessionDir.replace(/\\/g, '\\\\');
+            const ps = `Get-CimInstance Win32_Process -Filter "Name='chrome.exe' OR Name='chromium.exe'" | ` +
+                `Where-Object { $_.CommandLine -like '*${escaped.replace(/'/g, "''")}*' } | ` +
+                `ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue; $_.ProcessId }`;
+            const out = execSync(`powershell -NoProfile -NonInteractive -Command "${ps.replace(/"/g, '\\"')}"`,
+                { encoding: 'utf8', timeout: 10_000, stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+            if (out) console.log(`[wwa] Procesos Chrome huérfanos eliminados: ${out.split(/\s+/).join(', ')}`);
+        } else {
+            // Linux / macOS: pgrep -af coincide commandlines, kill via xargs.
+            const out = execSync(`pgrep -af "user-data-dir=${sessionDir}" || true`,
+                { encoding: 'utf8', timeout: 5_000, stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+            if (out) {
+                const pids = out.split('\n').map(l => l.split(/\s+/)[0]).filter(Boolean);
+                pids.forEach(pid => {
+                    try { process.kill(Number(pid), 'SIGKILL'); }
+                    catch (_) { /* ya muerto */ }
+                });
+                console.log(`[wwa] Procesos Chrome huérfanos eliminados: ${pids.join(', ')}`);
+            }
+        }
+    } catch (e) {
+        // No bloqueante: si falla, Chrome igualmente intentará arrancar.
+        console.warn('[wwa] No se pudo barrer procesos Chrome huérfanos:', e.message);
+    }
+}
+
 // ─── Init & Lifecycle ─────────────────────────────────────────────────────────
 
 async function init() {
@@ -391,9 +430,15 @@ async function init() {
         fs.writeFileSync(versionStampPath, WWEB_VERSION, 'utf8');
     } catch (e) { console.warn('[wwa] No se pudo escribir version stamp:', e.message); }
 
+    // Matar procesos Chrome huérfanos que estén usando este user-data-dir.
+    // Sin esto, Chrome falla con "browser is already running for ..." si el backend
+    // se reinicia bruscamente (Ctrl+C duro, crash) y deja zombies attachados al perfil.
+    killOrphanChromeProcesses(sessionDir);
+
     // Eliminar locks de Chrome — usar unlinkSync directo porque existsSync devuelve
-    // false en symlinks rotos (SingletonLock es un symlink al contenedor anterior)
-    ['SingletonLock', 'SingletonCookie', 'SingletonSocket'].forEach(f => {
+    // false en symlinks rotos (SingletonLock es un symlink al contenedor anterior).
+    // DevToolsActivePort se borra también: si queda de un Chrome muerto, bloquea init en Windows.
+    ['SingletonLock', 'SingletonCookie', 'SingletonSocket', 'DevToolsActivePort', 'lockfile'].forEach(f => {
         try {
             fs.unlinkSync(path.join(sessionDir, f));
             console.log(`[wwa] Lock eliminado: ${f}`);
