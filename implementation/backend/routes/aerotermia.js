@@ -185,6 +185,8 @@ router.post('/', enforceAuth, requireAdmin, async (req, res) => {
         if (!payload.marca) {
             return res.status(400).json({ error: 'La marca es obligatoria' });
         }
+        // Garantizar que la marca existe en aerotermia_marcas (FK constraint)
+        await supabase.from('aerotermia_marcas').upsert({ nombre: payload.marca }, { onConflict: 'nombre', ignoreDuplicates: true });
         const { data, error } = await supabase.from('aerotermia').insert([payload]).select().single();
         if (error) throw error;
         res.status(201).json(data);
@@ -205,6 +207,9 @@ router.put('/:id', enforceAuth, requireAdmin, async (req, res) => {
         if (fetchErr || !existing) return res.status(404).json({ error: 'Equipo no encontrado' });
 
         const payload = buildPayload(req.body);
+        if (payload.marca) {
+            await supabase.from('aerotermia_marcas').upsert({ nombre: payload.marca }, { onConflict: 'nombre', ignoreDuplicates: true });
+        }
         const { data, error } = await supabase
             .from('aerotermia')
             .update(payload)
