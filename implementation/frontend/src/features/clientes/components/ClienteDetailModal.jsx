@@ -47,6 +47,63 @@ function getProvCodByNombre(nombre) {
     return Object.entries(PROV_NOMBRE).find(([, n]) => normalize(n) === norm)?.[0] || '';
 }
 
+// Provincias ordenadas por longitud desc para matchear las largas primero
+const PROV_NOMBRE_SORTED = Object.entries(PROV_NOMBRE).sort((a, b) => b[1].length - a[1].length);
+
+/**
+ * Parsea una dirección catastral tipo "CL EDUARDO NUÑEZ 5 13300 VALDEPEÑAS (CIUDAD REAL)"
+ * en sus partes estructuradas: calle, CP, municipio, provincia, CCAA.
+ * Devuelve null si no encuentra un CP (no se puede inferir nada fiable).
+ */
+function parseCatastroAddressFull(address) {
+    if (!address) return null;
+    const str = String(address).trim().replace(/[()]/g, ' ').replace(/\s+/g, ' ');
+    const cpMatch = str.match(/\b(\d{5})\b/);
+    if (!cpMatch) return null;
+
+    const cp = cpMatch[0];
+    const cpIdx = str.indexOf(cp);
+    const calle = str.substring(0, cpIdx).trim();
+    let municipioRaw = str.substring(cpIdx + 5).trim();
+
+    let provCode = '';
+    let provNombre = '';
+    let ccaa = '';
+
+    for (const [cod, nombre] of PROV_NOMBRE_SORTED) {
+        if (normalize(municipioRaw).endsWith(normalize(nombre))) {
+            provCode = cod;
+            provNombre = nombre;
+            ccaa = PROV_CCAA[cod] || '';
+            const provWords = nombre.split(' ');
+            const muniWords = municipioRaw.split(' ');
+            if (muniWords.length > provWords.length) {
+                municipioRaw = muniWords.slice(0, -provWords.length).join(' ');
+            }
+            break;
+        }
+    }
+
+    // Fallback: derivar provincia del CP
+    if (!provNombre && cp.length >= 2) {
+        const cpProvCode = cp.substring(0, 2);
+        if (PROV_NOMBRE[cpProvCode]) {
+            provCode = cpProvCode;
+            provNombre = PROV_NOMBRE[cpProvCode];
+            ccaa = PROV_CCAA[cpProvCode] || '';
+        }
+    }
+
+    return {
+        direccion: calle,
+        codigo_postal: cp,
+        municipioHint: municipioRaw.trim(),
+        provincia: provNombre,
+        provincia_cod: provCode,
+        ccaa,
+    };
+}
+
 // ─── Sub-componentes ────────────────────────────────────────────────────────
 function FieldView({ label, value, valueClassName = '' }) {
     if (!value) return null;
@@ -94,7 +151,7 @@ function SelectEl({ className = '', children, ...props }) {
 }
 
 // ─── Sección dirección editable ─────────────────────────────────────────────
-function DireccionEdit({ values, onChange }) {
+function DireccionEdit({ values, onChange, autoMunicipioHint, onParseFromDireccion }) {
     const [provincias, setProvincias] = useState([]);
     const [municipios, setMunicipios] = useState([]);
     const [loadingProv, setLoadingProv] = useState(false);
@@ -131,6 +188,17 @@ function DireccionEdit({ values, onChange }) {
             }
         }
     }, [municipios, loadingMuni]);
+
+    // 3b. Auto-seleccionar municipio cuando la lista cargue tras un parseo catastral
+    useEffect(() => {
+        if (!autoMunicipioHint || loadingMuni || municipios.length === 0) return;
+        if (values.municipio) return;
+        const hintNorm = normalize(autoMunicipioHint);
+        const found = municipios.find(m => normalize(m) === hintNorm)
+            || municipios.find(m => normalize(m).includes(hintNorm))
+            || municipios.find(m => hintNorm.includes(normalize(m)));
+        if (found) onChange({ municipio: found });
+    }, [municipios, loadingMuni, autoMunicipioHint]);
 
     // 4. Derivar ccaa del código postal si no viene del cliente
     useEffect(() => {
@@ -204,8 +272,21 @@ function DireccionEdit({ values, onChange }) {
             </FieldInput>
             <div className="sm:col-span-2">
                 <FieldInput label="Dirección">
-                    <Input placeholder="CALLE, NÚMERO, PISO..." uppercase value={values.direccion || ''}
-                        onChange={e => onChange({ direccion: e.target.value })} />
+                    <div className="flex gap-2">
+                        <Input placeholder="CALLE, NÚMERO, PISO..." uppercase value={values.direccion || ''}
+                            onChange={e => onChange({ direccion: e.target.value })} />
+                        {onParseFromDireccion && (
+                            <button
+                                type="button"
+                                onClick={onParseFromDireccion}
+                                disabled={!values.direccion}
+                                title="Rellenar CCAA / Provincia / Municipio / CP a partir de la dirección catastral"
+                                className="shrink-0 px-3 py-2.5 rounded-xl border border-brand/30 bg-brand/10 text-brand text-[10px] font-black uppercase tracking-widest hover:bg-brand/20 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+                            >
+                                Usar Catastro
+                            </button>
+                        )}
+                    </div>
                 </FieldInput>
             </div>
         </div>
@@ -233,6 +314,7 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
     const [error, setError] = useState(null);
     const [saved, setSaved] = useState(false);
     const [showNotas, setShowNotas] = useState(false);
+    const [autoMunicipioHint, setAutoMunicipioHint] = useState('');
 
     const filteredPrescriptores = prescriptores.filter(p => {
         return normalize(p.acronimo || p.razon_social).includes(normalize(searchTerm));
@@ -247,6 +329,7 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
         setSaved(false);
         setSearchTerm('');
         setIsDropdownOpen(false);
+        setAutoMunicipioHint('');
         const id = clienteId || clienteProp?.id_cliente;
         if (!id) return;
         setFetching(true);
@@ -305,6 +388,21 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
     }, [cliente]);
 
     const updateForm = useCallback((patch) => setForm(f => ({ ...f, ...patch })), []);
+
+    const handleParseDireccion = useCallback(() => {
+        const parsed = parseCatastroAddressFull(form.direccion);
+        if (!parsed) return;
+        setAutoMunicipioHint(parsed.municipioHint || '');
+        setForm(f => ({
+            ...f,
+            ccaa: parsed.ccaa || f.ccaa,
+            provincia: parsed.provincia || f.provincia,
+            provincia_cod: parsed.provincia_cod || f.provincia_cod,
+            municipio: '', // se resolverá tras cargar la lista
+            direccion: parsed.direccion || f.direccion,
+            codigo_postal: parsed.codigo_postal || f.codigo_postal,
+        }));
+    }, [form.direccion]);
 
     const handleSave = async () => {
         setError(null);
@@ -664,7 +762,12 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
 
                             <div className="space-y-3">
                                 <p className="text-[10px] uppercase tracking-[0.2em] font-black text-white/30">Dirección</p>
-                                <DireccionEdit values={form} onChange={updateForm} />
+                                <DireccionEdit
+                                    values={form}
+                                    onChange={updateForm}
+                                    autoMunicipioHint={autoMunicipioHint}
+                                    onParseFromDireccion={handleParseDireccion}
+                                />
                             </div>
 
                             {isAdmin && (
