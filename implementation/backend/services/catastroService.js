@@ -16,7 +16,7 @@ const monitor = require('./catastroMonitor');
 // Además forzamos family:4 (el VPS tiene IPv6 y Happy Eyeballs confunde al WAF).
 const COMMON_HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Accept': 'application/xml, text/xml, */*',
+    'Accept': 'application/json',
     'Accept-Encoding': 'identity'
 };
 
@@ -91,10 +91,13 @@ class CatastroBlockedError extends Error {
     }
 }
 
-// Catastro Web Services (HTTPS)
+// Catastro Web Services — WCF JSON (HTTPS).
+// Migrado el 2026-05-19 desde los ASMX/XML legados porque el WAF del Catastro
+// bloquea la familia ASMX desde IPs de datacenter (400 "No se puede procesar
+// su petición"). Los WCF JSON sirven los mismos datos sin ese WAF.
 // Docs: https://www.catastro.meh.es/ws/Webservices_Libres.pdf
-const BASE_URL = 'http://ovc.catastro.meh.es/ovcservweb/OVCSWLocalizacionRC/OVCCallejero.asmx';
-const COORD_URL = 'http://ovc.catastro.meh.es/ovcservweb/OVCSWLocalizacionRC/OVCCoordenadas.asmx';
+const BASE_URL = 'https://ovc.catastro.meh.es/OVCServWeb/OVCWcfCallejero/COVCCallejero.svc/json';
+const COORD_URL = 'https://ovc.catastro.meh.es/OVCServWeb/OVCWcfCallejero/COVCCoordenadas.svc/json';
 
 /**
  * Helper to parse XML response from Catastro
@@ -145,32 +148,27 @@ function extractFloor(loint) {
 }
 
 /**
- * Obtener coordenadas UTM reales desde Consulta_CPMRC
+ * Obtener coordenadas UTM reales desde Consulta_CPMRC (WCF JSON)
  */
 async function getCoordinatesByRC(rc) {
     try {
         const cleanRC = rc.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
         const parcelRC = cleanRC.substring(0, 14);
 
-        const url = `${COORD_URL}/Consulta_CPMRC?Provincia=&Municipio=&SRS=EPSG:25830&RC=${parcelRC}`;
+        const url = `${COORD_URL}/Consulta_CPMRC?Provincia=&Municipio=&SRS=EPSG:25830&RefCat=${parcelRC}`;
         const response = await catastroGet(url, { headers: COMMON_HEADERS, timeout: 8000 });
 
-        const result = await parseXML(response.data);
-        const consulta = result.consulta_coordenadas || result.coordenadas_RC || result['Consulta_Coordenadas'];
+        const result = JSON.parse(response.data);
+        const inner = result.Consulta_CPMRCResult;
+        if (!inner || inner.lerr) return null;
 
-        if (!consulta || consulta.lerr) return null;
+        // Catastro JSON: `coord` puede venir como array u objeto suelto.
+        const coordList = inner.coordenadas?.coord;
+        const coord = Array.isArray(coordList) ? coordList[0] : coordList;
+        if (!coord || !coord.geo) return null;
 
-        const coord = consulta.coordenadas?.coord || consulta.coord;
-        let x = 0, y = 0;
-
-        if (coord && coord.geo) {
-            x = parseFloat(coord.geo.xcen);
-            y = parseFloat(coord.geo.ycen);
-        } else if (consulta.coordenadas?.coord?.geo) {
-            x = parseFloat(consulta.coordenadas.coord.geo.xcen);
-            y = parseFloat(consulta.coordenadas.coord.geo.ycen);
-        }
-
+        const x = parseFloat(coord.geo.xcen);
+        const y = parseFloat(coord.geo.ycen);
         if (!x || !y) return null;
 
         return {
@@ -204,42 +202,37 @@ async function getByRC(rc) {
 
     try {
         monitor.recordRequest();
-        const url = `${BASE_URL}/Consulta_DNPRC?Provincia=&Municipio=&RC=${cleanRC}`;
+        const url = `${BASE_URL}/Consulta_DNPRC?Provincia=&Municipio=&RefCat=${cleanRC}`;
 
-        // Datos y coordenadas en serie (el WAF del Catastro no tolera ráfagas
-        // paralelas desde IPs de datacenter — devuelve 400/TCP-reset).
+        // Datos y coordenadas en serie (defensa contra antiguos WAF de ráfaga).
         const response = await catastroGet(url, { headers: COMMON_HEADERS, timeout: 8000 });
         await sleep(500);
         const coordinates = await getCoordinatesByRC(cleanRC);
 
-        // Detectar rate-limit en el body de respuesta 200
+        // Detectar rate-limit en el body
         if (isRateLimitResponse(null, response.data)) {
             monitor.record403(String(response.data).substring(0, 200));
             throw new CatastroBlockedError();
         }
 
-        const result = await parseXML(response.data);
-        const consulta = result.consulta_dnp || result['consulta_dnp'];
+        const result = JSON.parse(response.data);
+        const consulta = result.consulta_dnprcResult;
 
         if (!consulta || consulta.lerr) {
             let errDesc = 'Error en Catastro';
             let errCode = 'CATASTRO_APP_ERROR';
-            
-            if (consulta?.lerr?.err) {
-                const errs = Array.isArray(consulta.lerr.err) ? consulta.lerr.err : [consulta.lerr.err];
+
+            const errs = Array.isArray(consulta?.lerr) ? consulta.lerr : (consulta?.lerr ? [consulta.lerr] : []);
+            if (errs.length) {
                 const firstErr = errs[0];
-                const code = getText(firstErr.cod);
-                errDesc = errs.map(e => getText(e.des)).filter(Boolean).join('. ') || errDesc;
-                
-                // Categorizar errores comunes de Catastro
+                const code = String(firstErr.cod || '');
+                errDesc = errs.map(e => String(e.des || '')).filter(Boolean).join('. ') || errDesc;
+
                 if (['4', '7', '8'].includes(code)) {
                     errCode = 'RC_INVALID_FORMAT';
                 } else if (code === '1' || errDesc.toUpperCase().includes('NO ENCONTRADA') || errDesc.toUpperCase().includes('NO SE HA ENCONTRADO')) {
                     errCode = 'RC_NOT_FOUND';
                 }
-            } else if (consulta?.lerr?.des) {
-                errDesc = getText(consulta.lerr.des);
-                if (errDesc.toUpperCase().includes('NO ENCONTRADA')) errCode = 'RC_NOT_FOUND';
             }
 
             const error = new Error(errDesc);
@@ -252,17 +245,17 @@ async function getByRC(rc) {
         const bi = Array.isArray(bico.bi) ? bico.bi[0] : bico.bi;
         const debi = bi?.debi || {};
 
-        // Parsear construcciones
-        const lcons = bico.lcons?.cons;
+        // Parsear construcciones — en JSON `lcons` es array directo (no wrap "cons").
+        const lconsRaw = bico.lcons;
         const constructions = [];
         let totalSurface = 0;
         const floorSet = new Set();
         const summaryByType = {};
 
-        if (lcons) {
-            const consList = Array.isArray(lcons) ? lcons : [lcons];
+        if (lconsRaw) {
+            const consList = Array.isArray(lconsRaw) ? lconsRaw : [lconsRaw];
             consList.forEach((c, index) => {
-                const lcd = getText(c.lcd) || 'OTRO';
+                const lcd = String(c.lcd || '') || 'OTRO';
                 const type = normalizeConstructionType(lcd);
                 const surface = parseInt(c.dfcons?.stl) || 0;
                 const floor = extractFloor(c.dt?.lourb?.loint || {});
@@ -286,11 +279,11 @@ async function getByRC(rc) {
             });
         }
 
-        const primaryUse = summaryByType['VIVIENDA'] ? 'Residencial' : (getText(debi.luso) || 'No especificado');
+        const primaryUse = summaryByType['VIVIENDA'] ? 'Residencial' : (String(debi.luso || '') || 'No especificado');
 
         const propertyData = {
             rc: cleanRC,
-            address: getText(bi?.ldt || bico.ldt) || 'Dirección no disponible',
+            address: String(bi?.ldt || bico?.ldt || '') || 'Dirección no disponible',
             use: primaryUse,
             totalSurface: totalSurface || parseInt(debi.sfc) || 0,
             yearBuilt: parseInt(debi.ant) || 0,
@@ -309,20 +302,19 @@ async function getByRC(rc) {
 
             // CAMPOS SOLICITADOS: Participación y Tipo Catastro
             participation: (function (cpt) {
-                const val = getText(cpt);
+                const val = String(cpt || '');
                 if (!val) return '100,00';
-                // Convertir coma a punto para parsear
                 const num = parseFloat(val.replace(',', '.'));
                 if (isNaN(num)) return val;
-                // Formatear a 2 decimales y volver a poner la coma
                 return num.toFixed(2).replace('.', ',');
             })(debi.cpt),
             typeCatastro: (function () {
-                const explicitType = getText(bi?.idbi?.rat?.ant) || getText(debi.tip);
+                // El JSON suele traer el tipo en `bico.finca.ltp`
+                const finca = bico?.finca;
+                if (finca?.ltp) return String(finca.ltp);
+                const explicitType = String(bi?.idbi?.rat?.ant || debi?.tip || '');
                 if (explicitType && explicitType.length > 2) return explicitType;
-
-                // Heuristic for Horizontal Division
-                const val = getText(debi.cpt);
+                const val = String(debi.cpt || '');
                 if (val) {
                     const num = parseFloat(val.replace(',', '.'));
                     if (!isNaN(num) && num < 99.99) {
@@ -374,37 +366,31 @@ async function getByRC(rc) {
 async function getFullRC(rc14) {
     try {
         const cleanRC = rc14.replace(/[^A-Za-z0-9]/g, '').toUpperCase().substring(0, 14);
-        const url = `${BASE_URL}/Consulta_DNPRC?Provincia=&Municipio=&RC=${cleanRC}`;
+        const url = `${BASE_URL}/Consulta_DNPRC?Provincia=&Municipio=&RefCat=${cleanRC}`;
 
         const response = await catastroGet(url, { headers: COMMON_HEADERS, timeout: 5000 });
 
-        const result = await parseXML(response.data);
-        const consulta = result.consulta_dnp || result['consulta_dnp'];
-
+        const result = JSON.parse(response.data);
+        const consulta = result.consulta_dnprcResult;
         if (!consulta || consulta.lerr) return rc14;
 
         // Case 1: Multiple dwellings (lrcdnp - list of property references)
         if (consulta.lrcdnp) {
-            const rcList = Array.isArray(consulta.lrcdnp.rcdnp) ? consulta.lrcdnp.rcdnp : [consulta.lrcdnp.rcdnp];
-            if (rcList.length > 0) {
-                const node = rcList[0].rc;
-                if (typeof node === 'string') return node;
+            const list = Array.isArray(consulta.lrcdnp) ? consulta.lrcdnp : (consulta.lrcdnp.rcdnp ? (Array.isArray(consulta.lrcdnp.rcdnp) ? consulta.lrcdnp.rcdnp : [consulta.lrcdnp.rcdnp]) : []);
+            if (list.length > 0) {
+                const node = list[0].rc || list[0];
                 if (node && node.pc1 && node.pc2) {
                     return node.pc1 + node.pc2 + (node.car || '') + (node.cc1 || '') + (node.cc2 || '');
                 }
-                return getText(node) || rc14;
             }
         }
 
         // Case 2: Single property (bico - direct property data)
         if (consulta.bico) {
             const bi = Array.isArray(consulta.bico.bi) ? consulta.bico.bi[0] : consulta.bico.bi;
-            if (bi && bi.idbi && bi.idbi.rc) {
-                const rcNode = bi.idbi.rc;
-                if (typeof rcNode === 'string') return rcNode;
-                if (rcNode && rcNode.pc1 && rcNode.pc2) {
-                    return rcNode.pc1 + rcNode.pc2 + (rcNode.car || '') + (rcNode.cc1 || '') + (rcNode.cc2 || '');
-                }
+            const rcNode = bi?.idbi?.rc;
+            if (rcNode && rcNode.pc1 && rcNode.pc2) {
+                return rcNode.pc1 + rcNode.pc2 + (rcNode.car || '') + (rcNode.cc1 || '') + (rcNode.cc2 || '');
             }
         }
 
@@ -437,7 +423,7 @@ async function getRCByCoords(lat, lng, numberHint = null) {
 
     // Helper: una sola consulta de coordenada. Devuelve { rc14, address, lat, lng, distance } o null.
     const queryPoint = async (targetLat, targetLng, distance) => {
-        const url = `${COORD_URL}/Consulta_RCCOOR?SRS=EPSG:4326&Coordenada_X=${targetLng}&Coordenada_Y=${targetLat}`;
+        const url = `${COORD_URL}/Consulta_RCCOOR?SRS=EPSG:4326&CoorX=${targetLng}&CoorY=${targetLat}`;
         monitor.recordRequest();
         try {
             const response = await catastroGet(url, { headers: COMMON_HEADERS, timeout: 5000 });
@@ -445,13 +431,14 @@ async function getRCByCoords(lat, lng, numberHint = null) {
                 monitor.record403(String(response.data).substring(0, 200));
                 throw new CatastroBlockedError();
             }
-            const result = await parseXML(response.data);
-            const coordenadas = result.consulta_coordenadas || result['Consulta_Coordenadas'];
-            if (!coordenadas || coordenadas.lerr) {
+            const result = JSON.parse(response.data);
+            const inner = result.Consulta_RCCOORResult;
+            if (!inner || inner.lerr) {
                 monitor.recordSuccess();
                 return null;
             }
-            const coord = coordenadas.coordenadas?.coord || coordenadas.coord;
+            const coordList = inner.coordenadas?.coord;
+            const coord = Array.isArray(coordList) ? coordList[0] : coordList;
             const pc = coord?.pc || {};
             if (!pc.pc1 || !pc.pc2) {
                 monitor.recordSuccess();
@@ -460,7 +447,7 @@ async function getRCByCoords(lat, lng, numberHint = null) {
             monitor.recordSuccess();
             return {
                 rc14: pc.pc1 + pc.pc2,
-                address: getText(coord?.ldt),
+                address: String(coord?.ldt || ''),
                 lat: targetLat,
                 lng: targetLng,
                 distance
@@ -574,7 +561,7 @@ async function getDwellingsByParcel(rc14) {
     }
     try {
         const cleanRC = rc14.replace(/[^A-Za-z0-9]/g, '').toUpperCase().substring(0, 14);
-        const url = `${BASE_URL}/Consulta_DNPRC?Provincia=&Municipio=&RC=${cleanRC}`;
+        const url = `${BASE_URL}/Consulta_DNPRC?Provincia=&Municipio=&RefCat=${cleanRC}`;
 
         monitor.recordRequest();
         const response = await catastroGet(url, { headers: COMMON_HEADERS, timeout: 8000 });
@@ -584,8 +571,8 @@ async function getDwellingsByParcel(rc14) {
             throw new CatastroBlockedError();
         }
 
-        const result = await parseXML(response.data);
-        const consulta = result.consulta_dnp || result['consulta_dnp'];
+        const result = JSON.parse(response.data);
+        const consulta = result.consulta_dnprcResult;
         if (!consulta || consulta.lerr) {
             monitor.recordSuccess();
             return [];
@@ -596,26 +583,26 @@ async function getDwellingsByParcel(rc14) {
         const extractBasic = (item) => {
             const rcNode = item.rc || item.idbi?.rc;
             let fullRc = '';
-            if (typeof rcNode === 'string') fullRc = rcNode;
-            else if (rcNode && rcNode.pc1 && rcNode.pc2) {
+            if (rcNode && rcNode.pc1 && rcNode.pc2) {
                 fullRc = rcNode.pc1 + rcNode.pc2 + (rcNode.car || '') + (rcNode.cc1 || '') + (rcNode.cc2 || '');
             }
             const dt = item.dt || {};
             const lourb = dt.locs?.lous?.lourb || dt.lourb || {};
             const loint = lourb.loint || {};
-            const block = getText(loint.es) || '';
-            const floor = getText(loint.pt) || '';
-            const door = getText(loint.pu) || '';
+            const block = String(loint.es || '');
+            const floor = String(loint.pt || '');
+            const door = String(loint.pu || '');
             const debi = item.debi || {};
-            const use = getText(debi.luso) || '';
-            const surface = parseInt(getText(debi.sfc)) || 0;
-            const address = getText(item.ldt) || buildAddressFromDt(dt);
+            const use = String(debi.luso || '');
+            const surface = parseInt(debi.sfc) || 0;
+            const address = String(item.ldt || '') || buildAddressFromDt(dt);
             return { rc: fullRc, address, block, floor, door, use, surface };
         };
 
         let dwellings = [];
         if (consulta.lrcdnp) {
-            const rcList = Array.isArray(consulta.lrcdnp.rcdnp) ? consulta.lrcdnp.rcdnp : [consulta.lrcdnp.rcdnp];
+            const raw = consulta.lrcdnp;
+            const rcList = Array.isArray(raw) ? raw : (raw.rcdnp ? (Array.isArray(raw.rcdnp) ? raw.rcdnp : [raw.rcdnp]) : []);
             dwellings = rcList.map(extractBasic).filter(d => d.rc);
         } else if (consulta.bico) {
             const bi = Array.isArray(consulta.bico.bi) ? consulta.bico.bi[0] : consulta.bico.bi;
