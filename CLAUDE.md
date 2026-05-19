@@ -68,6 +68,70 @@ POST /api/whatsapp/send-media    → { phone, caption?, media: { base64, filenam
 4. Si `ready`, genera PDF (`/api/pdf/generate`) y envía media (`/api/whatsapp/send-media`)
 5. Mensaje incluye resumen de ayuda (CAE, IRPF, total) + PDF propuesta
 
+### Módulo Catastro — Cambios profundos (2026-05-19)
+
+Este módulo es **crítico para la app** (búsqueda de propiedades por coords/RC) y tiene historia compleja con el WAF del Catastro desde IPs de datacenter. Lo que sigue es lo aprendido empíricamente — **léelo antes de tocar `catastroService.js`**.
+
+#### Endpoints — WCF JSON (no ASMX/XML)
+
+La app usa los **WCF JSON** del Catastro, NO los ASMX legados, porque el WAF del Catastro bloquea la familia ASMX desde IPs de datacenter (devuelve `400` con HTML "No se puede procesar su petición"). Los WCF JSON sirven los mismos datos sin ese filtro.
+
+| Operación | URL | Params (case-sensitive) |
+|---|---|---|
+| Coords → RC | `https://ovc.catastro.meh.es/OVCServWeb/OVCWcfCallejero/COVCCoordenadas.svc/json/Consulta_RCCOOR` | `SRS=EPSG:4326&CoorX={lng}&CoorY={lat}` |
+| RC → datos completos | `https://ovc.catastro.meh.es/OVCServWeb/OVCWcfCallejero/COVCCallejero.svc/json/Consulta_DNPRC` | `Provincia=&Municipio=&RefCat={RC}` |
+| RC → coordenadas UTM | `https://ovc.catastro.meh.es/OVCServWeb/OVCWcfCallejero/COVCCoordenadas.svc/json/Consulta_CPMRC` | `Provincia=&Municipio=&SRS=EPSG:25830&RefCat={RC14}` |
+
+**Diferencias críticas con el ASMX**:
+- Param `CoorX/CoorY` (no `Coordenada_X/_Y`)
+- Param `RefCat` (no `RC`)
+- Estructura raíz JSON: `consulta_dnprcResult`, `Consulta_RCCOORResult`, `Consulta_CPMRCResult` (no `consulta_dnp`, `consulta_coordenadas`)
+- `bico.lcons` es array directo (no `bico.lcons.cons[]`)
+- Tipo de catastro viene en `bico.finca.ltp`
+
+#### Cliente HTTP — REGLA DE ORO
+
+**NO USAR `axios` con el Catastro.** El WAF detecta el orden de headers de axios (`Accept` antes que `User-Agent`) y bloquea. Usar el helper `catastroGet(url, opts)` definido en [catastroService.js](implementation/backend/services/catastroService.js) que envuelve `http.request` puro.
+
+`catastroGet` cumple obligatoriamente:
+- `family: 4` (IPv4 forzado — Happy Eyeballs en IPv6 dispara el WAF)
+- Headers en orden: `User-Agent`, `Accept`, `Accept-Encoding: identity`
+- UA = `"Mozilla/5.0 (compatible; Brokergy/1.0; +https://app.brokergy.es)"` — UAs muy específicos (Chrome desktop completo, `curl/*`, `PostmanRuntime/*`) son bloqueados; UAs identificables genéricos pasan.
+
+#### Estrategia de búsqueda por coords
+
+`getRCByCoords(lat, lng)` en [catastroService.js](implementation/backend/services/catastroService.js) — orden:
+
+1. **Cache LRU** (30 días por coords redondeadas) → 0 peticiones
+2. **Petición central** → si acierta, 1 petición total
+3. Si la central falla: **2 puntos en SERIE** (N, E ~11m offsets) con **800ms de sleep entre cada uno**. Para en el primer acierto.
+
+**No** usar `Promise.all` con varias coords — el WAF rechaza ráfagas paralelas desde IPs datacenter (TCP reset / 400 HTML).
+
+#### Monitor de rate-limit ([catastroMonitor.js](implementation/backend/services/catastroMonitor.js))
+
+- `CONSECUTIVE_403_THRESHOLD = 1` — al primer error WAF, modo BLOQUEADO + alerta WhatsApp/email al admin.
+- En modo BLOQUEADO, `shouldSkipRequest()` corta tráfico (no quemar más quota).
+- Ping cada 5 min al endpoint `Consulta_RCCOOR` (Puerta del Sol) detecta recuperación → `recordSuccess()` desbloquea.
+- `isRateLimitResponse(err, body)` detecta: status 403, "limite de peticiones", "peticion denegada", "no se puede procesar".
+
+#### Frontend — Auto-parse de dirección catastral
+
+En `ClienteDetailModal.jsx`, el botón **"Usar Catastro"** junto al input de dirección parsea strings tipo `"CL DON SERGIO 15 13700 TOMELLOSO (CIUDAD REAL)"` y rellena CCAA/Provincia/Municipio/CP automáticamente (matching por sufijo o fallback por dígitos del CP). Función `parseCatastroAddressFull()`.
+
+#### Diagnóstico rápido si vuelve a fallar en VPS
+
+```bash
+ssh root@<VPS> 'docker exec brokergy-backend node -e "
+const https=require(\"https\");
+const o={host:\"ovc.catastro.meh.es\",port:443,family:4,path:\"/OVCServWeb/OVCWcfCallejero/COVCCoordenadas.svc/json/Consulta_RCCOOR?SRS=EPSG:4326&CoorX=-3.6841&CoorY=40.4292\",method:\"GET\",headers:{\"User-Agent\":\"Mozilla/5.0 (compatible; Brokergy/1.0)\",\"Accept\":\"application/json\",\"Accept-Encoding\":\"identity\"}};
+https.request(o,r=>{let d=\"\"; r.on(\"data\",c=>d+=c); r.on(\"end\",()=>console.log(\"status=\"+r.statusCode+\" body=\"+d.substring(0,200)));}).end();"'
+```
+
+- Si da `200` con `<pc1>` → el catastro funciona; mirar logs del backend, no es problema de IP.
+- Si da `400` con HTML "No se puede procesar" → IP del VPS en lista del WAF. Esperar 30-60 min (suele liberarse solo). Si persiste >2 h, sospechar cambio en el WAF y revisar UA / orden de headers.
+- También: `curl -s https://app.brokergy.es/api/catastro/status` muestra el estado del monitor en producción.
+
 ---
 
 ## Reglas Críticas — No Romper
@@ -86,6 +150,9 @@ POST /api/whatsapp/send-media    → { phone, caption?, media: { base64, filenam
 12. **ACS en Anexo I**: Validar `inputs.changeAcs || inputs.incluir_acs`. Si es false, ocultar unidad interior.
 13. **WhatsApp en Sidebar**: El botón debe estar posicionado en la sección inferior (entre tabs principales y user profile). Polling del estado: **30s** en sidebar, **8s** en WhatsappSettingsView (reducido desde 5s/2.5s el 2026-04-29 para limitar egress de Supabase — cada request pasa por auth middleware y generaba ~720 req/hora). No bloquear app si servicio no está disponible (graceful degradation con 503).
 14. **WhatsApp Session**: `.wwebjs_auth/` y `.wwebjs_cache/` DEBEN estar en `.gitignore`. La sesión es local del servidor.
+15. **Catastro — Cliente HTTP**: NUNCA usar `axios` contra `ovc.catastro.meh.es`. Usar el helper `catastroGet()` en [catastroService.js](implementation/backend/services/catastroService.js) (http.request puro, `family:4`, UA `Mozilla/5.0 (compatible; Brokergy/1.0)`). El WAF rechaza axios + Chrome UA largo desde IPs de datacenter.
+16. **Catastro — Endpoints**: usar SOLO los WCF JSON (`/OVCServWeb/OVCWcf.../svc/json/*`), NUNCA los ASMX (`/ovcservweb/.../asmx/*`). Los ASMX están filtrados por el WAF a IPs de datacenter; los WCF JSON sirven la misma data sin ese filtro. Params del JSON: `CoorX/CoorY` (no `Coordenada_X/_Y`), `RefCat` (no `RC`).
+17. **Catastro — Sin ráfagas**: no usar `Promise.all` con peticiones al Catastro. Siempre secuencial con `await sleep(200+)` entre cada una. Ver `getRCByCoords` para el patrón actual (central + 2 puntos N/E en serie, 800ms).
 
 ---
 
@@ -106,7 +173,9 @@ implementation/
 │   ├── services/
 │   │   ├── driveService.js     ← setupOpportunityFolder, moveFolder, copyFolderContents,
 │   │   │                          saveFileToFolder, findSubfolderByName, createSubfolder
-│   │   ├── catastroService.js  ← getCoordinatesByRC(rc) → { x, y } UTM EPSG:25830
+│   │   ├── catastroService.js  ← WCF JSON: getByRC, getRCByCoords, getCoordinatesByRC, getDwellingsByParcel
+│   │   │                          + helper catastroGet() (http.request puro, family:4, UA Brokergy)
+│   │   ├── catastroMonitor.js  ← Monitor de WAF: bloquea al 1er 403, alerta admin, ping cada 5min
 │   │   ├── whatsappService.js  ← Singleton: init(), disconnect(), getStatus(), getQr(), 
 │   │   │                          sendText(), sendMedia() + Queue + rate limiting
 │   │   └── supabaseClient.js
