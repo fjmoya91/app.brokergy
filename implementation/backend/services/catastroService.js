@@ -1,27 +1,70 @@
 const axios = require('axios');
 const http = require('http');
 const https = require('https');
+const { URL } = require('url');
 const xml2js = require('xml2js');
 
 const climateService = require('./climateService');
 const cache = require('./catastroCache');
 const monitor = require('./catastroMonitor');
 
-// Forzamos IPv4 en TODAS las peticiones al Catastro. Desde el VPS (Ubuntu con
-// IPv6 habilitado), Node + axios usan Happy Eyeballs / preferencia IPv6 y el
-// WAF del Catastro responde 400 "No se puede procesar su petición" — incluso
-// aunque el host no tenga AAAA. Forzando family:4 conectamos como `curl -4`,
-// que sí pasa el WAF. Sin esto, todas las llamadas al Catastro desde VPS fallan.
-const httpAgent = new http.Agent({ keepAlive: true, family: 4 });
-const httpsAgent = new https.Agent({ keepAlive: true, family: 4 });
-// `Accept-Encoding: identity` evita gzip/br que axios añade por defecto y que
-// el WAF del Catastro penaliza desde IPs de datacenter. Comportamiento empírico.
+// El WAF del Catastro hace HTTP fingerprinting por orden de headers:
+//   - http.request envía:  User-Agent, Accept, Accept-Encoding, Host, Connection
+//   - axios envía:         Accept, User-Agent, Accept-Encoding, Host, Connection
+// El segundo orden (axios) es bloqueado con 400 "No se puede procesar".
+// Solución: usar http.request puro con orden idéntico al de curl/navegadores.
+// Además forzamos family:4 (el VPS tiene IPv6 y Happy Eyeballs confunde al WAF).
 const COMMON_HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     'Accept': 'application/xml, text/xml, */*',
     'Accept-Encoding': 'identity'
 };
-const AXIOS_DEFAULTS = { httpAgent, httpsAgent, decompress: false };
+
+/**
+ * Cliente HTTP minimalista para Catastro. Devuelve { status, data, headers }
+ * compatible con la firma de axios. data es Buffer si responseType==='arraybuffer',
+ * string en otro caso. Rechaza con Error que tiene .response={status, data} si status>=400.
+ */
+function catastroGet(rawUrl, { headers = COMMON_HEADERS, timeout = 8000, responseType = 'text', params } = {}) {
+    return new Promise((resolve, reject) => {
+        let urlObj;
+        try {
+            urlObj = new URL(rawUrl);
+            if (params) {
+                for (const [k, v] of Object.entries(params)) urlObj.searchParams.append(k, v);
+            }
+        } catch (e) { return reject(e); }
+
+        const lib = urlObj.protocol === 'https:' ? https : http;
+        const opts = {
+            host: urlObj.hostname,
+            port: urlObj.port || (urlObj.protocol === 'https:' ? 443 : 80),
+            path: urlObj.pathname + urlObj.search,
+            method: 'GET',
+            family: 4,
+            headers
+        };
+
+        const req = lib.request(opts, (res) => {
+            const chunks = [];
+            res.on('data', (c) => chunks.push(c));
+            res.on('end', () => {
+                const buf = Buffer.concat(chunks);
+                const data = responseType === 'arraybuffer' ? buf : buf.toString('utf8');
+                const response = { status: res.statusCode, data, headers: res.headers };
+                if (res.statusCode >= 400) {
+                    const err = new Error(`Request failed with status code ${res.statusCode}`);
+                    err.response = response;
+                    return reject(err);
+                }
+                resolve(response);
+            });
+        });
+        req.setTimeout(timeout, () => { req.destroy(new Error('timeout')); });
+        req.on('error', reject);
+        req.end();
+    });
+}
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
@@ -110,11 +153,7 @@ async function getCoordinatesByRC(rc) {
         const parcelRC = cleanRC.substring(0, 14);
 
         const url = `${COORD_URL}/Consulta_CPMRC?Provincia=&Municipio=&SRS=EPSG:25830&RC=${parcelRC}`;
-        const response = await axios.get(url, {
-            ...AXIOS_DEFAULTS,
-            headers: COMMON_HEADERS,
-            timeout: 8000
-        });
+        const response = await catastroGet(url, { headers: COMMON_HEADERS, timeout: 8000 });
 
         const result = await parseXML(response.data);
         const consulta = result.consulta_coordenadas || result.coordenadas_RC || result['Consulta_Coordenadas'];
@@ -169,11 +208,7 @@ async function getByRC(rc) {
 
         // Datos y coordenadas en serie (el WAF del Catastro no tolera ráfagas
         // paralelas desde IPs de datacenter — devuelve 400/TCP-reset).
-        const response = await axios.get(url, {
-            ...AXIOS_DEFAULTS,
-            headers: COMMON_HEADERS,
-            timeout: 8000
-        });
+        const response = await catastroGet(url, { headers: COMMON_HEADERS, timeout: 8000 });
         await sleep(500);
         const coordinates = await getCoordinatesByRC(cleanRC);
 
@@ -341,11 +376,7 @@ async function getFullRC(rc14) {
         const cleanRC = rc14.replace(/[^A-Za-z0-9]/g, '').toUpperCase().substring(0, 14);
         const url = `${BASE_URL}/Consulta_DNPRC?Provincia=&Municipio=&RC=${cleanRC}`;
 
-        const response = await axios.get(url, {
-            ...AXIOS_DEFAULTS,
-            headers: COMMON_HEADERS,
-            timeout: 5000
-        });
+        const response = await catastroGet(url, { headers: COMMON_HEADERS, timeout: 5000 });
 
         const result = await parseXML(response.data);
         const consulta = result.consulta_dnp || result['consulta_dnp'];
@@ -409,11 +440,7 @@ async function getRCByCoords(lat, lng, numberHint = null) {
         const url = `${COORD_URL}/Consulta_RCCOOR?SRS=EPSG:4326&Coordenada_X=${targetLng}&Coordenada_Y=${targetLat}`;
         monitor.recordRequest();
         try {
-            const response = await axios.get(url, {
-                ...AXIOS_DEFAULTS,
-                headers: COMMON_HEADERS,
-                timeout: 5000
-            });
+            const response = await catastroGet(url, { headers: COMMON_HEADERS, timeout: 5000 });
             if (isRateLimitResponse(null, response.data)) {
                 monitor.record403(String(response.data).substring(0, 200));
                 throw new CatastroBlockedError();
@@ -550,11 +577,7 @@ async function getDwellingsByParcel(rc14) {
         const url = `${BASE_URL}/Consulta_DNPRC?Provincia=&Municipio=&RC=${cleanRC}`;
 
         monitor.recordRequest();
-        const response = await axios.get(url, {
-            ...AXIOS_DEFAULTS,
-            headers: COMMON_HEADERS,
-            timeout: 8000
-        });
+        const response = await catastroGet(url, { headers: COMMON_HEADERS, timeout: 8000 });
 
         if (isRateLimitResponse(null, response.data)) {
             monitor.record403(String(response.data).substring(0, 200));
@@ -630,13 +653,13 @@ async function getFacadeImage(rc) {
     const cleanRC = rc.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
     const imageUrl = `https://ovc.catastro.meh.es/OVCServWeb/OVCWcfLibres/OVCFotoFachada.svc/RecuperarFotoFachadaGet?ReferenciaCatastral=${cleanRC}`;
     try {
-        const response = await axios.get(imageUrl, {
-            ...AXIOS_DEFAULTS,
+        const response = await catastroGet(imageUrl, {
             responseType: 'arraybuffer',
             timeout: 15000,
             headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-                'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8'
+                'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+                'Accept-Encoding': 'identity'
             }
         });
         if (response.headers['content-type']?.includes('image')) {
@@ -662,13 +685,14 @@ async function getParcelImage(rc) {
         const wmsUrl = 'http://ovc.catastro.meh.es/Cartografia/WMS/ServidorWMS.aspx';
         const params = { SERVICE: 'WMS', REQUEST: 'GetMap', SRS: 'EPSG:25830', LAYERS: 'Catastro', STYLES: '', FORMAT: 'image/jpeg', WIDTH: '800', HEIGHT: '600', BBOX: bbox, TRANSPARENT: 'false', VERSION: '1.1.1' };
 
-        const response = await axios.get(wmsUrl, {
-            ...AXIOS_DEFAULTS,
+        const response = await catastroGet(wmsUrl, {
             params,
             responseType: 'arraybuffer',
             timeout: 15000,
             headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                'Accept': '*/*',
+                'Accept-Encoding': 'identity'
             }
         });
 

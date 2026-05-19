@@ -16,21 +16,44 @@
  * frontend pueda mostrar un banner informativo al cliente.
  */
 
-const axios = require('axios');
 const http = require('http');
 const whatsappService = require('./whatsappService');
 const emailService = require('./emailService');
 
 const COORD_URL = 'http://ovc.catastro.meh.es/ovcservweb/OVCSWLocalizacionRC/OVCCoordenadas.asmx';
 
-// Mismos defaults que catastroService: IPv4 forzado + sin gzip. El WAF del
-// Catastro rechaza axios con headers default desde IPs de datacenter.
-const PING_AGENT = new http.Agent({ keepAlive: false, family: 4 });
+// El WAF del Catastro hace fingerprinting por orden de headers y bloquea
+// axios. Usamos http.request puro con orden idéntico al de curl/navegadores.
 const PING_HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     'Accept': 'application/xml, text/xml, */*',
     'Accept-Encoding': 'identity'
 };
+
+function pingCatastro(url) {
+    return new Promise((resolve, reject) => {
+        const u = new URL(url);
+        const req = http.request({
+            host: u.hostname, port: u.port || 80, path: u.pathname + u.search,
+            method: 'GET', family: 4, headers: PING_HEADERS
+        }, (res) => {
+            const chunks = [];
+            res.on('data', c => chunks.push(c));
+            res.on('end', () => {
+                const data = Buffer.concat(chunks).toString('utf8');
+                if (res.statusCode >= 400) {
+                    const err = new Error(`status ${res.statusCode}`);
+                    err.response = { status: res.statusCode, data };
+                    return reject(err);
+                }
+                resolve({ status: res.statusCode, data });
+            });
+        });
+        req.setTimeout(5000, () => req.destroy(new Error('timeout')));
+        req.on('error', reject);
+        req.end();
+    });
+}
 const PING_INTERVAL_MS = 5 * 60 * 1000; // 5 minutos
 // Bajado de 3 → 1 (2026-05-18): el WAF del Catastro contra IPs de datacenter
 // es agresivo y prolongado. Tras detectar 1 sólo error de WAF/rate-limit
@@ -211,12 +234,7 @@ function startPingLoop() {
         // Coordenadas seguras: centro de Madrid (Puerta del Sol)
         const url = `${COORD_URL}/Consulta_RCCOOR?SRS=EPSG:4326&Coordenada_X=-3.703&Coordenada_Y=40.4168`;
         try {
-            const response = await axios.get(url, {
-                httpAgent: PING_AGENT,
-                decompress: false,
-                headers: PING_HEADERS,
-                timeout: 5000
-            });
+            const response = await pingCatastro(url);
             // Si responde 200 sin "limite de peticiones" → desbloqueado
             const body = String(response.data || '');
             if (!body.toLowerCase().includes('limite de peticiones')) {
