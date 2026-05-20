@@ -25,21 +25,30 @@ const supabase = createClient(
 );
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+// v_expedientes_pendientes — columnas reales verificadas
 const PENDING_FIELDS = [
-    'numero_expediente', 'cliente_nombre', 'partner_nombre', 'partner_acronimo',
-    'estado_actual', 'responsable_bloqueo', 'dias_en_estado_actual', 'campos_pendientes',
-    'docs_generados_total', 'docs_firmados_total', 'docs_enviados_total', 'anomalias_docs'
+    'numero_expediente', 'estado_actual', 'dias_en_estado_actual',
+    'responsable_bloqueo', 'campos_pendientes',
+    'num_facturas', 'docs_generados_total', 'docs_firmados_total', 'docs_enviados_total',
+    'seguimiento_cee_inicial', 'seguimiento_cee_final', 'anomalias_docs',
+    'cliente_nombre', 'cliente_municipio', 'cliente_provincia',
+    'partner_nombre', 'partner_acronimo'
 ].join(', ');
 
+// v_expedientes_lifecycle — columnas reales verificadas
 const LIFECYCLE_FIELDS = [
     'numero_expediente', 'cliente_id', 'estado_actual', 'dias_en_estado_actual',
     'responsable_bloqueo', 'campos_pendientes', 'seguimiento_cee_inicial', 'seguimiento_cee_final',
     'cee_ini_visita_ok', 'cee_ini_firma_ok', 'cee_ini_registro_ok',
     'cee_fin_visita_ok', 'cee_fin_firma_ok', 'cee_fin_registro_ok',
+    'num_facturas', 'cert_inst_pruebas_ok', 'cert_inst_firma_ok',
     'anexo_i_generado', 'anexo_i_enviado', 'anexo_i_firmado',
     'cesion_generada', 'cesion_enviada', 'cesion_firmada',
-    'ficha_res060_generada', 'cert_cifo_generado', 'cert_cifo_enviado', 'cert_cifo_firmado',
-    'cert_rite_subido', 'facturas_ok', 'anomalias_docs'
+    'ficha_res_generada', 'ficha_res_enviada', 'ficha_res_firmada',
+    'cifo_generado', 'cifo_enviado', 'cifo_firmado',
+    'rite_aportado',
+    'foto_generada', 'foto_enviada', 'foto_firmada',
+    'historial_json'
 ].join(', ');
 
 function ok(data) {
