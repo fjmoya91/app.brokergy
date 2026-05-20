@@ -180,6 +180,19 @@ router.post('/', requireAuth, async (req, res) => {
         datosCalculoFinal.estado = estadoActual;
         datosCalculoFinal.historial = historial;
 
+        // Preservar campos de metadata del lead que no forman parte del cálculo
+        // y que el SaveOpportunityModal no envía (origen, consents, score, etc.)
+        if (existingData?.datos_calculo) {
+            const META_KEYS = ['origen', 'consent_email', 'consent_whatsapp', 'lead_score',
+                               'lead_caliente', 'partner_slug', 'timeline', 'motivacion',
+                               'warning_biomasa_aplicado', 'landing_funnel', 'solicita_instalador'];
+            for (const k of META_KEYS) {
+                if (existingData.datos_calculo[k] !== undefined && datosCalculoFinal[k] === undefined) {
+                    datosCalculoFinal[k] = existingData.datos_calculo[k];
+                }
+            }
+        }
+
         let payloadPrescriptorStr = prescriptor || 'BROKERGY';
         if (!prescriptor && req.user && req.user.perfilCompleto) {
             payloadPrescriptorStr = `${req.user.perfilCompleto.nombre || ''} ${req.user.perfilCompleto.apellidos || ''}`.trim();
