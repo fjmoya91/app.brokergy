@@ -1046,28 +1046,48 @@ export function getScopFromModel(model, zone, temp, method = 'ficha') {
     return parseFloat(((parseFloat(scop35) + parseFloat(scop55)) / 2).toFixed(2));
 }
 
+// Factores de corrección Fc por zona climática CTE (Anexo VI RES060, Caso 3)
+const FC_BY_ZONE = {
+    A3: 1.246, A4: 1.251,
+    B3: 1.223, B4: 1.228,
+    C1: 1.154, C2: 1.165, C3: 1.175, C4: 1.181,
+    D1: 1.093, D2: 1.103, D3: 1.113,
+    E1: 1.056,
+};
+
 /**
- * Extrae el SCOP ACS adecuado del modelo
+ * Extrae el SCOP ACS adecuado del modelo.
+ * method: 'ficha' | 'conjunto' (Anexo IV, depósito integrado) | 'independiente' (Anexo VI, depósito separado)
+ * Retrocompat: 'eprel' legacy → trata como 'ficha'
  */
 export function getScopAcsFromModel(model, zone, method = 'ficha') {
     if (!model) return 3.0;
 
     const normalizedZone = zone?.toUpperCase() || 'D3';
-    // Regla de negocio: Todo es clima CALIDO excepto E1 que es MEDIO
     const isWarm = normalizedZone !== 'E1';
-    
-    // CASO 1: EPREL
-    if (method === 'eprel') {
+
+    // CASO: Depósito como conjunto — Anexo IV RES060
+    // SCOP = CC × ηhw = 2,5 × (eta_acs / 100)
+    if (method === 'conjunto') {
         const etaAcs = isWarm ? (model.eta_acs_calida || model.eta_acs_media) : model.eta_acs_media;
         if (etaAcs) {
-            // SCOP = 2.5 * ( (eta_acs / 100) + 0.03 )
-            return parseFloat((((parseFloat(etaAcs) + 3) / 100) * 2.5).toFixed(2));
+            return parseFloat(((parseFloat(etaAcs) / 100) * 2.5).toFixed(2));
         }
     }
 
-    // CASO 2: Ficha Técnica
-    let scopAcs = isWarm ? (model.scop_dhw_calido || model.scop_dhw_medio) : model.scop_dhw_medio;
+    // CASO: Depósito independiente — Anexo VI RES060
+    // SCOPdhw = COP_A7/55 × Fc(zona)
+    if (method === 'independiente') {
+        const cop = parseFloat(model.cop_a7_55);
+        if (Number.isFinite(cop) && cop > 0) {
+            const fc = FC_BY_ZONE[normalizedZone] ?? FC_BY_ZONE['D3'];
+            return parseFloat((cop * fc).toFixed(2));
+        }
+    }
 
+    // CASO: Ficha Técnica (default) — valor directo de la BD
+    // También captura legacy 'eprel' → ficha
+    let scopAcs = isWarm ? (model.scop_dhw_calido || model.scop_dhw_medio) : model.scop_dhw_medio;
     return parseFloat(scopAcs || 3.0);
 }
 

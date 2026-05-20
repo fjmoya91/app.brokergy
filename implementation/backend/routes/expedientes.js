@@ -1852,4 +1852,20 @@ router.get('/:id/fichas-tecnicas/:type', async (req, res) => {
     }
 });
 
+// Hace público un archivo de Drive (anyone with link → reader)
+// Usado para fichas técnicas del modelo de aerotermia que se referencian por enlace
+router.post('/drive/make-public', enforceAuth, async (req, res) => {
+    const { fileId } = req.body;
+    if (!fileId) return res.status(400).json({ error: 'fileId requerido' });
+    try {
+        const { setFolderPublic } = require('../services/driveService');
+        await setFolderPublic(fileId);
+        res.json({ ok: true });
+    } catch (err) {
+        // Si ya es público o no tenemos acceso, no es un error crítico
+        console.warn('[drive/make-public] No se pudo hacer público el archivo:', err.message);
+        res.json({ ok: false, warning: err.message });
+    }
+});
+
 module.exports = router;

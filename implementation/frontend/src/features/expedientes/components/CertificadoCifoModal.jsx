@@ -403,11 +403,26 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
                     await handleFileChange(slotId, file, false, true);
                 } catch (err) {
                     if (err.response?.status === 404) {
-                        // El archivo no existe en Drive: vaciar el slot por si tenía datos viejos
-                        console.log(`[CIFO autoload] 404 para ${type} - slot vaciado`);
-                        setAttachments(prev => prev.map(a =>
-                            a.id === slotId ? { ...a, file: null } : a
-                        ));
+                        // No hay ficha subida al expediente — intentar link del modelo de BD
+                        const urlFicha = type === 'cal' ? inst.aerotermia_cal?.url_ficha : inst.aerotermia_acs?.url_ficha;
+                        if (urlFicha) {
+                            console.log(`[CIFO autoload] 404 para ${type} - usando url_ficha del modelo`);
+                            // Hacer el archivo público para que el enlace sea accesible sin autenticación
+                            const fileIdMatch = urlFicha.match(/\/d\/([a-zA-Z0-9_-]+)/) || urlFicha.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+                            const driveFileId = fileIdMatch?.[1];
+                            if (driveFileId) {
+                                axios.post(`/api/expedientes/drive/make-public`, { fileId: driveFileId })
+                                    .catch(e => console.warn('[CIFO] make-public falló (no crítico):', e.message));
+                            }
+                            setAttachments(prev => prev.map(a =>
+                                a.id === slotId ? { ...a, file: { name: 'Ficha técnica (BD)', data: [], driveLink: urlFicha, driveOnly: true } } : a
+                            ));
+                        } else {
+                            console.log(`[CIFO autoload] 404 para ${type} - sin ficha técnica`);
+                            setAttachments(prev => prev.map(a =>
+                                a.id === slotId ? { ...a, file: null, missing: true } : a
+                            ));
+                        }
                     } else {
                         console.error(`[CIFO autoload] Error cargando ${type}:`, err);
                     }
@@ -591,7 +606,7 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
                         <div className="w-8 h-8 rounded-lg bg-brand/20 flex items-center justify-center">
                             <svg className="w-5 h-5 text-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
                         </div>
-                        <h3 className="text-white font-bold uppercase tracking-[0.2em] text-xs">Gestión de Anexos RES060</h3>
+                        <h3 className="text-white font-bold uppercase tracking-[0.2em] text-xs">Gestión de Anexos {numexpte.match(/RES\d+/)?.[0] || 'RES060'}</h3>
                     </div>
                     <button onClick={() => setIsAnexosOpen(false)} className="text-white/20 hover:text-white transition-colors"><svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg></button>
                 </div>
@@ -619,7 +634,7 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
                                      reorderAttachments(draggedIndex, idx); 
                                  }
                              }}
-                             className={`group flex items-center justify-between p-4 bg-white/[0.03] rounded-2xl border transition-all duration-300 ${draggedIndex === idx ? 'opacity-30' : 'opacity-100'} ${item.file ? 'border-white/10 hover:border-brand/40' : 'border-white/5 border-dashed hover:border-white/20'}`}>
+                             className={`group flex items-center justify-between p-4 bg-white/[0.03] rounded-2xl border transition-all duration-300 ${draggedIndex === idx ? 'opacity-30' : 'opacity-100'} ${item.file ? 'border-white/10 hover:border-brand/40' : item.missing ? 'border-amber-400/30 border-dashed hover:border-amber-400/60' : 'border-white/5 border-dashed hover:border-white/20'}`}>
                             
                             <div className="flex items-center gap-4">
                                 {/* Handle para arrastrar */}
@@ -633,13 +648,17 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
                                         <div className="flex flex-col gap-0.5">
                                             <span className="text-[10px] text-brand font-bold flex items-center gap-1.5">
                                                 <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd"/></svg>
-                                                {item.file.name} ({item.file.data.length} pág)
+                                                {item.file.name} {item.file.driveOnly ? '(enlace Drive)' : `(${item.file.data?.length ?? 0} pág)`}
                                             </span>
-                                            {item.file.driveLink
-                                                ? <span className="text-[9px] text-emerald-400/70 font-bold uppercase tracking-wider">✓ Guardado en Drive</span>
-                                                : <span className="text-[9px] text-amber-400/60 font-bold uppercase tracking-wider">Pendiente guardar</span>
+                                            {item.file.driveOnly
+                                                ? <a href={item.file.driveLink} target="_blank" rel="noreferrer" className="text-[9px] text-emerald-400/80 font-bold uppercase tracking-wider hover:text-emerald-300 transition-colors">↗ Ver ficha técnica en Drive</a>
+                                                : item.file.driveLink
+                                                    ? <span className="text-[9px] text-emerald-400/70 font-bold uppercase tracking-wider">✓ Guardado en Drive</span>
+                                                    : <span className="text-[9px] text-amber-400/60 font-bold uppercase tracking-wider">Pendiente guardar</span>
                                             }
                                         </div>
+                                    ) : item.missing ? (
+                                        <span className="text-[10px] text-amber-400/80 font-bold">⚠ No subida — debes adjuntarla</span>
                                     ) : (
                                         <span className="text-[10px] text-white/10 italic">Subir archivo...</span>
                                     )}
@@ -896,6 +915,72 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
             `;
         };
 
+        // Justificación SCOPdhw según método seleccionado para ACS
+        const renderAcsScopJustification = () => {
+            const FC_TABLE = { A3: 1.246, A4: 1.251, B3: 1.223, B4: 1.228, C1: 1.154, C2: 1.165, C3: 1.175, C4: 1.181, D1: 1.093, D2: 1.103, D3: 1.113, E1: 1.056 };
+            const acsEprelUrl = inst.misma_aerotermia_acs ? inst.aerotermia_cal?.url_eprel : inst.aerotermia_acs?.url_eprel;
+            const acsFtUrl   = inst.misma_aerotermia_acs ? inst.aerotermia_cal?.url_ficha  : inst.aerotermia_acs?.url_ficha;
+
+            if (metodoAcs === 'conjunto') {
+                // Anexo IV RES060: SCOPdhw = CC × ηwh = 2,5 × (eta_acs / 100)
+                const etaWh = (scopAcsRaw / 2.5 * 100).toFixed(1).replace('.', ',');
+                const eprelLink = acsEprelUrl ? `<li>- Enlace EPREL: <a href="${acsEprelUrl}" style="color: #0000EE; text-decoration: underline;">Acceder a la Ficha Oficial EPREL</a></li>` : '';
+                return `
+                    <div class="eprel-container" style="margin-top: 15px;">
+                        <div style="font-weight: bold; margin-bottom: 8px; font-size: 11pt;">Cálculo del SCOP en ACS</div>
+                        <div style="font-weight: bold; margin-bottom: 4px;">Fórmula Aplicada</div>
+                        <div class="doc-p" style="margin-bottom: 4px;">Según el Anexo IV de la ficha RES060, para sistemas con depósito de ACS suministrado como conjunto con la bomba de calor:</div>
+                        <div style="margin: 10px 0; font-size: 12pt;"><strong>SCOP<sub>dhw</sub> = CC · η<sub>wh</sub></strong></div>
+                        <div class="doc-p" style="margin-bottom: 12px;">Donde:</div>
+                        <ul style="list-style-type: none; margin-left: 0; padding-left: 10px; margin-bottom: 15px;">
+                            <li>- CC: Coeficiente de conversión</li>
+                            <li>- η<sub>wh</sub>: Eficiencia energética de caldeo de agua (obtenida de la Ficha EPREL para clima ${zoneLabel.toLowerCase()} y perfil ACS)</li>
+                            ${eprelLink}
+                        </ul>
+                        <div style="font-weight: bold; margin-bottom: 8px;">Valores Utilizados</div>
+                        <ul style="list-style-type: none; margin-left: 0; padding-left: 10px; margin-bottom: 15px;">
+                            <li>- CC = 2,5</li>
+                            <li>- η<sub>wh</sub> = ${etaWh}%</li>
+                        </ul>
+                        <div style="font-weight: bold; margin-bottom: 8px;">Cálculo</div>
+                        <div class="doc-p" style="margin-bottom: 15px;">SCOP<sub>dhw</sub> = 2,5 · ${etaWh}% = ${scopAcsStr}</div>
+                        <div style="font-weight: bold; font-size: 12pt; margin-top: 10px;">SCOP en ACS = ${scopAcsStr}</div>
+                    </div>`;
+            }
+
+            if (metodoAcs === 'independiente') {
+                // Anexo VI RES060 Caso 3: SCOPdhw = COP × Fc(zona)
+                const fc = FC_TABLE[zoneStr] ?? FC_TABLE['D3'];
+                const fcStr  = fc.toFixed(3).replace('.', ',');
+                const copCalc = (scopAcsRaw / fc).toFixed(2).replace('.', ',');
+                const ftLink = acsFtUrl ? `<li>- Ficha técnica: <a href="${acsFtUrl}" style="color: #0000EE; text-decoration: underline;">Acceder a la Ficha Técnica del fabricante</a></li>` : '';
+                return `
+                    <div class="eprel-container" style="margin-top: 15px;">
+                        <div style="font-weight: bold; margin-bottom: 8px; font-size: 11pt;">Cálculo del SCOP en ACS</div>
+                        <div style="font-weight: bold; margin-bottom: 4px;">Fórmula Aplicada</div>
+                        <div class="doc-p" style="margin-bottom: 4px;">Según el Anexo VI de la ficha RES060 (Caso 3: bomba de calor aerotérmica con depósito de ACS no suministrado como conjunto), para la zona climática ${zoneStr}:</div>
+                        <div style="margin: 10px 0; font-size: 12pt;"><strong>SCOP<sub>dhw</sub> = COP · F<sub>c</sub></strong></div>
+                        <div class="doc-p" style="margin-bottom: 12px;">Donde:</div>
+                        <ul style="list-style-type: none; margin-left: 0; padding-left: 10px; margin-bottom: 15px;">
+                            <li>- COP: Coeficiente de rendimiento según ficha técnica y placa de características del equipo</li>
+                            <li>- F<sub>c</sub>: Factor de corrección para la zona climática ${zoneStr} (clima ${zoneLabel.toLowerCase()})</li>
+                            ${ftLink}
+                        </ul>
+                        <div style="font-weight: bold; margin-bottom: 8px;">Valores Utilizados</div>
+                        <ul style="list-style-type: none; margin-left: 0; padding-left: 10px; margin-bottom: 15px;">
+                            <li>- COP = ${copCalc} (según ficha técnica del fabricante)</li>
+                            <li>- F<sub>c</sub> = ${fcStr} (para zona climática ${zoneStr})</li>
+                        </ul>
+                        <div style="font-weight: bold; margin-bottom: 8px;">Cálculo</div>
+                        <div class="doc-p" style="margin-bottom: 15px;">SCOP<sub>dhw</sub> = ${copCalc} × ${fcStr} = ${scopAcsStr}</div>
+                        <div style="font-weight: bold; font-size: 12pt; margin-top: 10px;">SCOP en ACS = ${scopAcsStr}</div>
+                    </div>`;
+            }
+
+            // Ficha técnica (default + legacy 'eprel')
+            return `<div class="doc-p" style="font-weight: bold; margin-top: 10px;">SCOP en ACS = ${scopAcsStr} Según la ficha técnica aportada por el fabricante que se entregará como anexo al expediente CAE.</div>`;
+        };
+
         pages.push(`
             <div class="doc-page">
                 <div class="section-title">6. COEFICIENTE DE RENDIMIENTO ESTACIONAL DE LA BOMBA CALOR EN CALEFACCIÓN SCOP<sub>bdc</sub></div>
@@ -912,20 +997,19 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
                 }
 
                 <div class="section-title" style="margin-top: 25px;">7. RENDIMIENTO ESTACIONAL SCOP<sub>dhw</sub></div>
-                ${tieneAcs 
-                    ? (metodoAcs === 'eprel' 
-                        ? renderEprelJustification(true)
-                        : `<div class="doc-p" style="font-weight: bold; margin-top: 10px;">SCOP en ACS = ${scopAcsStr} Según la ficha técnica aportada por el fabricante que se entregará como anexo al expediente CAE.</div>`
-                      )
-                    : `<div class="doc-p" style="font-weight: bold;">SCOP en ACS = no aplica</div>`
-                }
-                
-                ${isHybrid ? (() => {
-                    const cappedNote = coveragePct >= 95
-                        ? `<div class="doc-p" style="border: 1px solid #000; padding: 6px 10px; margin-top: 6px;"><strong>Nota:</strong> El porcentaje de cobertura calculado (${coveragePctStr}%) es superior al 95%. Conforme al Anexo III de la ficha RES093, el valor máximo aplicable es el 95% (límite de la tabla de bivalencia).</div>`
-                        : '';
-                    return `
-                    <div class="section-title" style="margin-top: 22px;">8. COEFICIENTE DE COBERTURA POR BIVALENCIA C<sub>b</sub></div>
+                ${tieneAcs ? renderAcsScopJustification() : `<div class="doc-p" style="font-weight: bold;">SCOP en ACS = no aplica</div>`}
+                <div class="footer" style="position: absolute; bottom: 30px; left: 70px; right: 70px; text-align: right; font-size: 8pt; color: #666;">PAGE_X_OF_Y</div>
+            </div>
+        `);
+
+        // PÁGINA 5 (solo RES093): sección Cb en página propia para evitar desbordamiento
+        if (isHybrid) {
+            const cappedNote = coveragePct >= 95
+                ? `<div class="doc-p" style="border: 1px solid #000; padding: 6px 10px; margin-top: 6px;"><strong>Nota:</strong> El porcentaje de cobertura calculado (${coveragePctStr}%) es superior al 95%. Conforme al Anexo III de la ficha RES093, el valor máximo aplicable es el 95% (límite de la tabla de bivalencia).</div>`
+                : '';
+            pages.push(`
+                <div class="doc-page">
+                    <div class="section-title" style="margin-top: 0;">8. COEFICIENTE DE COBERTURA POR BIVALENCIA C<sub>b</sub></div>
                     <div class="doc-p">La ficha técnica RES093 establece que el ahorro de energía se pondera mediante el coeficiente de cobertura por bivalencia (C<sub>b</sub>), que refleja la fracción de la demanda de calefacción cubierta por la bomba de calor en modo de funcionamiento bivalente paralelo. Su valor se determina conforme al Anexo III de la ficha RES093 siguiendo el procedimiento que se indica a continuación:</div>
 
                     <div class="section-title" style="font-size: 10pt; margin-top: 12px;">Paso 1 — Horas equivalentes de calefacción (t<sub>h</sub>)</div>
@@ -953,11 +1037,11 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
                             <td style="text-align: center; font-weight: bold; font-size: 13pt; background: #fff2cc;">${appliedCovStr}%${coveragePct >= 95 ? ' ← VALOR APLICADO' : ''}</td>
                             <td style="text-align: center; font-weight: bold; font-size: 13pt; background: #d9f0d3;">${cbStr}</td>
                         </tr>
-                    </table>`;
-                })() : ''}
-                <div class="footer" style="position: absolute; bottom: 30px; left: 70px; right: 70px; text-align: right; font-size: 8pt; color: #666;">PAGE_X_OF_Y</div>
-            </div>
-        `);
+                    </table>
+                    <div class="footer" style="position: absolute; bottom: 30px; left: 70px; right: 70px; text-align: right; font-size: 8pt; color: #666;">PAGE_X_OF_Y</div>
+                </div>
+            `);
+        }
 
         // SEPARADOR ANEXOS
         const hasAttachments = attachments.some(a => a.file);

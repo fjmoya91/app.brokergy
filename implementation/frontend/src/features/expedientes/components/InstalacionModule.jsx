@@ -279,26 +279,65 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
                     SCOP (rendimiento)
                 </label>
                 <div className="space-y-2">
-                    <div className="flex bg-bkg-elevated p-1 rounded-lg border border-white/5 w-fit">
-                        {[
-                            { id: 'ficha', label: 'Ficha Técnica' },
-                            { id: 'eprel', label: 'EPREL (ηs)' }
-                        ].map(m => (
-                            <button
-                                key={m.id}
-                                type="button"
-                                onClick={() => !readOnly && handleMethodChange(m.id)}
-                                disabled={readOnly}
-                                className={`px-3 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider transition-all ${
-                                    (data?.metodo_scop || 'ficha') === m.id
-                                        ? 'bg-brand text-bkg-deep'
-                                        : 'text-white/40 hover:text-white disabled:opacity-50'
-                                }`}
-                            >
-                                {m.label}
-                            </button>
-                        ))}
-                    </div>
+                    {isAcs ? (
+                        // ACS: 3 opciones de método
+                        <div className="flex flex-wrap gap-1 bg-bkg-elevated p-1 rounded-lg border border-white/5">
+                            {[
+                                { id: 'ficha',       label: 'Ficha Técnica' },
+                                { id: 'conjunto',    label: 'Dep. Conjunto (Anexo IV)' },
+                                { id: 'independiente', label: 'Dep. Independiente (Anexo VI)' },
+                            ].map(m => (
+                                <button
+                                    key={m.id}
+                                    type="button"
+                                    onClick={() => !readOnly && handleMethodChange(m.id)}
+                                    disabled={readOnly}
+                                    className={`px-3 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider transition-all ${
+                                        (data?.metodo_scop || 'ficha') === m.id
+                                            ? 'bg-brand text-bkg-deep'
+                                            : 'text-white/40 hover:text-white disabled:opacity-50'
+                                    }`}
+                                >
+                                    {m.label}
+                                </button>
+                            ))}
+                        </div>
+                    ) : (
+                        // Calefacción: 2 opciones sin cambios
+                        <div className="flex bg-bkg-elevated p-1 rounded-lg border border-white/5 w-fit">
+                            {[
+                                { id: 'ficha', label: 'Ficha Técnica' },
+                                { id: 'eprel', label: 'EPREL (ηs)' }
+                            ].map(m => (
+                                <button
+                                    key={m.id}
+                                    type="button"
+                                    onClick={() => !readOnly && handleMethodChange(m.id)}
+                                    disabled={readOnly}
+                                    className={`px-3 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider transition-all ${
+                                        (data?.metodo_scop || 'ficha') === m.id
+                                            ? 'bg-brand text-bkg-deep'
+                                            : 'text-white/40 hover:text-white disabled:opacity-50'
+                                    }`}
+                                >
+                                    {m.label}
+                                </button>
+                            ))}
+                        </div>
+                    )}
+                    {/* Aviso si faltan datos para el método ACS seleccionado */}
+                    {isAcs && (() => {
+                        const method = data?.metodo_scop || 'ficha';
+                        const found = availableModels.find(m => String(m.id) === String(data?.aerotermia_db_id));
+                        if (!found) return null;
+                        if (method === 'conjunto' && !found.eta_acs_calida && !found.eta_acs_media) {
+                            return <p className="text-[10px] text-amber-400/90 font-semibold">⚠ El modelo no tiene η ACS (eta_acs_calida / eta_acs_media). Rellena esos campos en la base de datos de aerotermia.</p>;
+                        }
+                        if (method === 'independiente' && !found.cop_a7_55) {
+                            return <p className="text-[10px] text-amber-400/90 font-semibold">⚠ El modelo no tiene COP A7/55. Rellena ese campo en la base de datos de aerotermia.</p>;
+                        }
+                        return null;
+                    })()}
                     <input
                         type="number"
                         step="0.01"
