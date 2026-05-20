@@ -480,7 +480,9 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
             if (!isPresent(op.datos_calculo?.inputs?.rc || cli.referencia_catastral || inst.ref_catastral)) missing.push('Referencia Catastral');
             if (!isPresent(inst.aerotermia_cal?.numero_serie)) missing.push('Número de Serie Ud. Exterior');
             
-            const hasAcs = !!(op.datos_calculo?.inputs?.changeAcs === true || op.datos_calculo?.inputs?.incluir_acs === true);
+            const hasAcs = inst.cambio_acs != null
+                ? !!(inst.cambio_acs === true || inst.cambio_acs === 'si')
+                : !!(op.datos_calculo?.inputs?.changeAcs === true || op.datos_calculo?.inputs?.incluir_acs === true);
             if (hasAcs && !isPresent(inst.aerotermia_acs?.numero_serie) && !inst.misma_aerotermia_acs) {
                 missing.push('Número de Serie Ud. Interior (ACS)');
             }

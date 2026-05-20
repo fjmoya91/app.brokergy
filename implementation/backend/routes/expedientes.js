@@ -1068,8 +1068,19 @@ router.post('/:id/notify-certificador', enforceAuth, async (req, res) => {
         if (!certId) return res.status(400).json({ error: 'El expediente no tiene certificador asignado' });
 
         // Automatización de estado
+        // GUARD: solo avanzar si el estado actual es anterior al de "en certificador".
+        // Evita que un recordatorio al certificador sobreescriba un estado más avanzado
+        // (ej: PENDIENTE REVISIÓN → EN CERTIFICADOR es un retroceso incorrecto).
+        const estadosQuePermiteAvanzar = [
+            'PTE. CEE INICIAL',
+            'EN CERTIFICADOR CEE INICIAL',
+            'PTE. CEE FINAL',
+            'EN CERTIFICADOR CEE FINAL'
+        ];
         const newEstado = phase === 'final' ? 'EN CERTIFICADOR CEE FINAL' : 'EN CERTIFICADOR CEE INICIAL';
-        await supabase.from('expedientes').update({ estado: newEstado, updated_at: new Date().toISOString() }).eq('id', req.params.id);
+        if (estadosQuePermiteAvanzar.includes(exp.estado)) {
+            await supabase.from('expedientes').update({ estado: newEstado, updated_at: new Date().toISOString() }).eq('id', req.params.id);
+        }
 
         // Persistir el cert si vino en body y difiere del guardado
         let workingCee = { ...(exp.cee || {}) };
@@ -1605,6 +1616,7 @@ router.post('/:id/notify-review', enforceAuth, async (req, res) => {
 router.post('/:id/approve-cee', adminOnly, async (req, res) => {
     try {
         const { phase } = req.body;
+        const adminMessage = (req.body?.adminMessage || '').trim() || null;
         const { data: exp, error: expErr } = await supabase
             .from('expedientes')
             .select('*')
@@ -1646,7 +1658,7 @@ router.post('/:id/approve-cee', adminOnly, async (req, res) => {
         historial.push({
             id: Date.now().toString() + '_revok',
             tipo: 'aprobacion_tecnica',
-            texto: `BROKERGY ha revisado y dado el VISTO BUENO al ${phaseLabel}. Se autoriza su registro en Industria.`,
+            texto: `BROKERGY ha revisado y dado el VISTO BUENO al ${phaseLabel}. Se autoriza su registro en Industria.${adminMessage ? ` Nota: ${adminMessage}` : ''}`,
             fecha: new Date().toISOString(),
             usuario: 'ADMINISTRADOR'
         });
@@ -1680,12 +1692,13 @@ router.post('/:id/approve-cee', adminOnly, async (req, res) => {
             setImmediate(async () => {
                 try {
                     await emailService.sendCertificadorApproveNotification(
-                        certEmail, 
-                        certName, 
-                        exp.numero_expediente, 
-                        phaseLabel, 
-                        portalLink, 
-                        ceeFolderLink
+                        certEmail,
+                        certName,
+                        exp.numero_expediente,
+                        phaseLabel,
+                        portalLink,
+                        ceeFolderLink,
+                        adminMessage
                     );
                 } catch (mailErr) {
                     console.error('[approve-cee] Error enviando email de visto bueno al certificador:', mailErr.message);

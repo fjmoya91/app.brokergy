@@ -221,6 +221,13 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
     const [certChannels, setCertChannels] = useState(['email']); // 'email' | 'whatsapp'
     const savedCertId = useRef(expediente?.cee?.certificador_id || null);
 
+    // ─── Estado para popup de validación (approve-cee) ─────────────────────
+    const [showApprovePopup, setShowApprovePopup] = useState(false);
+    const [approveLoading, setApproveLoading] = useState(false);
+    const [approveResult, setApproveResult] = useState(null);
+    const [approveMessage, setApproveMessage] = useState('');
+    const [approvePendingPhase, setApprovePendingPhase] = useState(null);
+
     // Notificar al padre de cambios en tiempo real
     useEffect(() => {
         if (onLiveUpdate) onLiveUpdate(local);
@@ -431,6 +438,27 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
         }
     };
 
+    const handleApproveConfirm = async () => {
+        if (!expediente?.id || !approvePendingPhase) return;
+        setApproveLoading(true);
+        try {
+            await axios.post(`/api/expedientes/${expediente.id}/approve-cee`, {
+                phase: approvePendingPhase,
+                adminMessage: approveMessage.trim() || null
+            });
+            const phaseLabel = approvePendingPhase === 'final' ? 'CEE Final' : 'CEE Inicial';
+            setApproveResult({
+                type: 'ok',
+                text: `${phaseLabel} validado correctamente. El certificador ha sido notificado para proceder al registro en Industria.`
+            });
+            if (onRefresh) onRefresh();
+        } catch (err) {
+            setApproveResult({ type: 'error', text: err.response?.data?.error || 'Error al aprobar el CEE' });
+        } finally {
+            setApproveLoading(false);
+        }
+    };
+
     const res080Data = isReforma && local.cee_inicial && local.cee_final ? calculateRes080({
         xmlInicial: local.cee_inicial,
         xmlFinal: local.cee_final,
@@ -509,14 +537,11 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                     alert(err.response?.data?.error || 'Error al solicitar revisión');
                 }
             }}
-            onApproveCee={async (phase) => {
-                try {
-                    await axios.post(`/api/expedientes/${expediente.id}/approve-cee`, { phase });
-                    alert('CEE validado. Estado actualizado a REVISADO Y LISTO.');
-                    if (onRefresh) onRefresh();
-                } catch (err) {
-                    alert(err.response?.data?.error || 'Error al aprobar el CEE');
-                }
+            onApproveCee={(phase) => {
+                setApprovePendingPhase(phase);
+                setApproveMessage('');
+                setApproveResult(null);
+                setShowApprovePopup(true);
             }}
         />
     );
@@ -589,14 +614,11 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                         alert(err.response?.data?.error || 'Error al solicitar revisión');
                     }
                 }}
-                onApproveCee={async (phase) => {
-                    try {
-                        await axios.post(`/api/expedientes/${expediente.id}/approve-cee`, { phase });
-                        alert('CEE validado. Estado actualizado a REVISADO Y LISTO.');
-                        if (onRefresh) onRefresh();
-                    } catch (err) {
-                        alert(err.response?.data?.error || 'Error al aprobar el CEE');
-                    }
+                onApproveCee={(phase) => {
+                    setApprovePendingPhase(phase);
+                    setApproveMessage('');
+                    setApproveResult(null);
+                    setShowApprovePopup(true);
                 }}
             />
 
@@ -632,6 +654,66 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
 
     return (
         <div className="space-y-6">
+            {/* ─── Popup de validación CEE (approve-cee) ─────────────────── */}
+            {showApprovePopup && (
+                <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/70 backdrop-blur-sm animate-fade-in" onClick={() => { if (!approveLoading) setShowApprovePopup(false); }}>
+                    <div className="bg-bkg-deep border border-white/10 rounded-2xl p-6 max-w-md w-full mx-4 shadow-2xl" onClick={e => e.stopPropagation()}>
+                        {approveResult ? (
+                            <div className="text-center py-4">
+                                <div className={`w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-4 border ${approveResult.type === 'ok' ? 'bg-emerald-500/20 border-emerald-500/30' : 'bg-red-500/20 border-red-500/30'}`}>
+                                    {approveResult.type === 'ok' ? (
+                                        <svg className="w-7 h-7 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                                    ) : (
+                                        <svg className="w-7 h-7 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                    )}
+                                </div>
+                                <p className={`text-sm font-bold ${approveResult.type === 'ok' ? 'text-emerald-400' : 'text-red-400'}`}>{approveResult.text}</p>
+                                <button onClick={() => setShowApprovePopup(false)} className="mt-4 px-6 py-2 bg-white/5 border border-white/10 rounded-xl text-white/60 text-xs font-black uppercase hover:text-white transition-all">Cerrar</button>
+                            </div>
+                        ) : (
+                            <>
+                                <div className="flex items-center gap-3 mb-5">
+                                    <div className="w-10 h-10 rounded-full bg-emerald-500/20 flex items-center justify-center">
+                                        <svg className="w-5 h-5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                    </div>
+                                    <div>
+                                        <h4 className="text-sm font-black text-white uppercase tracking-widest">Validar {approvePendingPhase === 'final' ? 'CEE Final' : 'CEE Inicial'}</h4>
+                                        <p className="text-[10px] text-white/40">El certificador recibirá luz verde para registrar en Industria</p>
+                                    </div>
+                                </div>
+
+                                <p className="text-[9px] font-black text-white/30 uppercase tracking-widest mb-2">Nota / Instrucción para el certificador (opcional)</p>
+                                <textarea
+                                    value={approveMessage}
+                                    onChange={e => setApproveMessage(e.target.value)}
+                                    disabled={approveLoading}
+                                    placeholder="Indicaciones adicionales… se incluirán en el email al certificador y quedarán registradas en el historial."
+                                    rows={3}
+                                    className="w-full bg-black/30 border border-white/10 rounded-xl p-3 text-xs text-white placeholder:text-white/20 focus:outline-none focus:border-emerald-500/40 resize-none mb-5"
+                                />
+
+                                <div className="flex gap-3">
+                                    <button
+                                        onClick={() => setShowApprovePopup(false)}
+                                        disabled={approveLoading}
+                                        className="flex-1 py-2.5 rounded-xl border border-white/10 text-white/50 text-[11px] font-black uppercase tracking-widest hover:text-white hover:border-white/20 transition-all"
+                                    >Cancelar</button>
+                                    <button
+                                        onClick={handleApproveConfirm}
+                                        disabled={approveLoading}
+                                        className="flex-1 py-2.5 bg-emerald-500 text-black text-[11px] font-black uppercase tracking-widest rounded-xl shadow-lg shadow-emerald-500/20 transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2"
+                                    >
+                                        {approveLoading ? (
+                                            <><div className="w-4 h-4 border-2 border-black/20 border-t-black rounded-full animate-spin" />Validando...</>
+                                        ) : '✅ Confirmar Visto Bueno'}
+                                    </button>
+                                </div>
+                            </>
+                        )}
+                    </div>
+                </div>
+            )}
+
             {/* ─── Popup de notificación al certificador ─────────────────── */}
             {showCertPopup && (
                 <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/70 backdrop-blur-sm animate-fade-in" onClick={() => { if (!certNotifLoading) setShowCertPopup(false); }}>

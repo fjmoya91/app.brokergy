@@ -16,6 +16,16 @@ services:
     networks:
       - brokergy
 
+  mcp:
+    build: ./implementation/backend/mcp-brokergy
+    container_name: brokergy-mcp
+    restart: unless-stopped
+    env_file: ./implementation/backend/.env
+    environment:
+      - MCP_PORT=3001
+    networks:
+      - brokergy
+
   nginx:
     image: nginx:alpine
     container_name: brokergy-nginx

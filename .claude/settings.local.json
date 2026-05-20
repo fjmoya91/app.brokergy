@@ -25,7 +25,21 @@
       "Bash(wmic process *)",
       "PowerShell(Get-CimInstance Win32_Process -Filter \"ProcessId=40244\")",
       "Bash(curl -s -m 3 http://localhost:3000/api/whatsapp/status)",
-      "Bash(echo \"Exit code: $?\")"
+      "Bash(echo \"Exit code: $?\")",
+      "mcp__4d48e865-7489-4de9-9364-24a2dc88fab9__execute_sql",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)",
+      "Bash(git commit *)",
+      "Bash(xargs grep *)",
+      "Bash(Get-ChildItem -Path \"C:\\\\Proyectos\\\\app.brokergy\\\\implementation\\\\backend\\\\routes\" -Force)",
+      "Skill(anthropic-skills:docx)",
+      "Skill(anthropic-skills:docx:*)",
+      "Bash(pandoc \"C:\\\\Users\\\\Usuario\\\\Downloads\\\\OPCIONES DE CALCULO DE SCOP ACS.docx\" -t markdown)",
+      "Read(//c/Users/Usuario/AppData/Roaming/Claude/local-agent-mode-sessions/skills-plugin/77c25be2-14f2-4f59-b93c-cafebcd636e5/7348625f-f246-4250-bed0-76f7acd46ae1/skills/docx/**)",
+      "Bash(python scripts/office/unpack.py \"C:\\\\Users\\\\Usuario\\\\Downloads\\\\OPCIONES DE CALCULO DE SCOP ACS.docx\" /tmp/docx_unpacked)",
+      "Bash(pip install *)",
+      "Bash(python scripts/office/unpack.py \"C:\\\\Users\\\\Usuario\\\\Downloads\\\\OPCIONES DE CALCULO DE SCOP ACS.docx\" \"C:\\\\Temp\\\\docx_unpacked\")",
+      "Bash(ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no root@187.77.93.213 \"cat /opt/brokergy/nginx/nginx.conf\")"
     ]
   }
 }

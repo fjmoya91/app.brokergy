@@ -165,11 +165,15 @@ export const buildAnexoIHtml = (expediente, results, states = {}, isForPdf = tru
     const ccaa = (inst.ccaa || cliente.ccaa || 'CASTILLA-LA MANCHA').toUpperCase();
     const dirActuacion = [cliente.direccion, cliente.codigo_postal, cliente.municipio, cliente.provincia ? `(${cliente.provincia})` : null].filter(Boolean).join(' ').toUpperCase() || '___________';
     const opInputs = op?.datos_calculo?.inputs || {};
-    const hasAcs = !!(opInputs.changeAcs === true || opInputs.changeAcs === 'si' || opInputs.incluir_acs === true || opInputs.incluir_acs === 'si' || inst.cambio_acs === true || inst.cambio_acs === 'si');
+    // inst.cambio_acs es autoritativo (fijado por el usuario en InstalacionModule);
+    // si no está establecido aún, cae al valor del calculador de la oportunidad.
+    const hasAcs = inst.cambio_acs != null
+        ? !!(inst.cambio_acs === true || inst.cambio_acs === 'si')
+        : !!(opInputs.changeAcs === true || opInputs.changeAcs === 'si' || opInputs.incluir_acs === true || opInputs.incluir_acs === 'si');
     const snExt = inst.aerotermia_cal?.numero_serie || '___________';
     const snInt = inst.misma_aerotermia_acs ? snExt : (inst.aerotermia_acs?.numero_serie || '___________');
     const refCatastral = inst.ref_catastral || opInputs.rc || cliente.referencia_catastral || '___________';
-    const serialsHtml = (hasAcs || !inst.misma_aerotermia_acs) ? `Ud. exterior: ${snExt}<br>Ud. interior: ${snInt}` : `Ud. exterior: ${snExt}`;
+    const serialsHtml = hasAcs ? `Ud. exterior: ${snExt}<br>Ud. interior: ${snInt}` : `Ud. exterior: ${snExt}`;
     const nombrePropietario = [cliente.nombre_razon_social, cliente.apellidos].filter(Boolean).join(' ') || '___________';
     const nif = cliente.dni_nie || cliente.dni || '___________';
     const domicilio = [cliente.direccion, cliente.codigo_postal, cliente.municipio].filter(Boolean).join(', ') || '___________';

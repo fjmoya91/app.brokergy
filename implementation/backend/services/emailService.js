@@ -1293,9 +1293,9 @@ const sendCertifierAcceptedAdminNotification = async (expedienteId, numExp, cert
 /**
  * Notifica al certificador que el administrador ha validado su CEE (Inicial o Final)
  */
-const sendCertificadorApproveNotification = async (to, certName, numExp, phaseLabel, portalLink, folderLink) => {
+const sendCertificadorApproveNotification = async (to, certName, numExp, phaseLabel, portalLink, folderLink, adminMessage = null) => {
     const subject = `✅ VISTO BUENO — ${phaseLabel} — ${numExp}`;
-    
+
     const html = `
     <!DOCTYPE html>
     <html lang="es">
@@ -1304,6 +1304,11 @@ const sendCertificadorApproveNotification = async (to, certName, numExp, phaseLa
         <div style="max-width:600px; margin:0 auto; background-color:#111827; border-radius:20px; border:1px solid #334155; padding:30px;">
             <h2 style="color:#10b981; margin-top:0;">Certificado Validado</h2>
             <p style="color:#ffffff;">Hola <strong>${certName}</strong>, el equipo de BROKERGY ha revisado y dado el visto bueno al archivo .CEX del <strong>${phaseLabel}</strong>.</p>
+            ${adminMessage ? `
+            <div style="background-color:rgba(16,185,129,0.08); border-left:4px solid #10b981; padding:15px; margin:20px 0; border-radius:0 8px 8px 0;">
+                <p style="color:#94a3b8; margin:0; font-size:13px;"><strong style="color:#10b981;">Mensaje de Brokergy:</strong><br>${adminMessage}</p>
+            </div>
+            ` : ''}
             <hr style="border:0; border-top:1px solid #1e293b; margin:20px 0;">
             <p style="font-size:14px; color:#94a3b8;">
                 <strong>Expediente:</strong> ${numExp}<br><br>
