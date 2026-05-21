@@ -190,13 +190,24 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
             handleSave({ estado: value });
             return;
         }
-        handleSave({ 
-            seguimiento: { 
-                ...expediente?.seguimiento, 
-                [key]: value 
-            } 
+        // Claves fecha_* van a documentacion (ej: fecha_registro_cee_inicial)
+        // Esto garantiza que los flags cee_ini/fin_registro_ok de la vista SQL sean correctos
+        if (key.startsWith('fecha_')) {
+            handleSave({
+                documentacion: {
+                    ...expediente?.documentacion,
+                    [key]: value,
+                }
+            });
+            return;
+        }
+        handleSave({
+            seguimiento: {
+                ...expediente?.seguimiento,
+                [key]: value
+            }
         });
-    }, [handleSave, expediente?.seguimiento]);
+    }, [handleSave, expediente?.seguimiento, expediente?.documentacion]);
 
     const handleQuickNoteSave = async (text) => {
         try {

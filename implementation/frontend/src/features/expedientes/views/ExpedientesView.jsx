@@ -957,6 +957,17 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
                                                     {exp.oportunidades.referencia_cliente}
                                                 </div>
                                             )}
+                                            {(() => {
+                                                const inputs = exp.oportunidades?.datos_calculo?.inputs || {};
+                                                const dir = inputs.direccion || inputs.address || exp.clientes?.direccion || '';
+                                                const mun = inputs.municipio || exp.clientes?.municipio || '';
+                                                const text = [dir, mun].filter(Boolean).join(', ');
+                                                return text ? (
+                                                    <div className="text-white/25 text-[10px] mt-0.5 truncate max-w-[260px] font-medium uppercase tracking-wider">
+                                                        {text}
+                                                    </div>
+                                                ) : null;
+                                            })()}
                                         </div>
                                     </td>
                                     <td className="px-5 py-4 hidden md:table-cell text-white/50 text-xs font-medium uppercase tracking-wider">

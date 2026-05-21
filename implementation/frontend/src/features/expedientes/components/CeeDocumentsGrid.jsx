@@ -277,10 +277,15 @@ export function CeeDocumentsGrid({
                 // Trigger automático de estado si es el REGISTRO del CEE Inicial o Final
                 if (slot.id === 'registro') {
                     if (onAutoStatus) {
+                        // Auto-fecha de registro: garantiza que cee_ini/fin_registro_ok sea true en BD
+                        // (única fuente de verdad para el tick de REGISTRO en la vista SQL)
+                        const today = new Date().toISOString().split('T')[0];
                         if (section === 'inicial') {
+                            onAutoStatus('fecha_registro_cee_inicial', today);
                             onAutoStatus('cee_inicial', 'REGISTRADO');
                             onAutoStatus('estado', 'PTE. FIN OBRA');
                         } else if (section === 'final') {
+                            onAutoStatus('fecha_registro_cee_final', today);
                             onAutoStatus('cee_final', 'REGISTRADO');
                         }
                     }

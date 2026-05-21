@@ -1503,18 +1503,46 @@ router.post('/:id/notify-review', enforceAuth, async (req, res) => {
         const portalLink = `${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/?exp=${req.params.id}`;
         const ceeFolderLink = exp.cee?.cee_folder_link || null;
 
-        // ¿Es un reenvío? (ya estaba PTE_REVISION antes de esta llamada)
         const prevSeguimiento = exp.seguimiento || {};
         const seguimientoKey = phase === 'final' ? 'cee_final' : 'cee_inicial';
+
+        // ¿Es un reenvío? (ya estaba PTE_REVISION antes de esta llamada)
         const isResend = prevSeguimiento[seguimientoKey] === 'PTE_REVISION';
+
+        // Guard: si Brokergy ya dio el visto bueno (REVISADO o REGISTRADO), la nueva subida
+        // de .CEX es el definitivo — solo se registra el evento, sin retroceder el estado.
+        const postApprovalStates = ['REVISADO', 'REGISTRADO'];
+        const isAlreadyApproved = postApprovalStates.includes(prevSeguimiento[seguimientoKey]);
+
+        const docObj = exp.documentacion || {};
+        const historial = docObj.historial || [];
+
+        if (isAlreadyApproved) {
+            historial.push({
+                id: Date.now().toString() + '_cex_def',
+                tipo: 'informativo',
+                texto: `El certificador ha subido la versión definitiva del .CEX del ${phaseLabel}. El expediente ya estaba revisado y aprobado por BROKERGY; no se requiere nueva revisión.`,
+                fecha: new Date().toISOString(),
+                usuario: userName || 'Sistema'
+            });
+
+            const { error: updErr } = await supabase.from('expedientes')
+                .update({ documentacion: { ...docObj, historial }, updated_at: new Date().toISOString() })
+                .eq('id', req.params.id);
+
+            if (updErr) throw updErr;
+
+            return res.json({
+                ok: true,
+                alreadyApproved: true,
+                message: 'CEX actualizado. Estado no modificado — el expediente ya estaba aprobado por Brokergy.'
+            });
+        }
 
         // Preparar actualizaciones
         const cee = exp.cee || {};
         cee.estado = newEstado;
         const globalEstado = newEstado;
-
-        const docObj = exp.documentacion || {};
-        const historial = docObj.historial || [];
 
         const priorityTag = priority === 'urgent' ? ' · 🚨 URGENTE' : '';
         const msgTag = techMessage ? `\n💬 Mensaje: "${techMessage}"` : '';

@@ -404,11 +404,15 @@ function App() {
     let baseData = data;
     if (persistentCalculatorInputs && data && persistentCalculatorInputs.rc === data.rc) {
       if (persistentCalculatorInputs.isPersistent) {
-        // Oportunidad guardada: los valores del usuario tienen prioridad absoluta sobre el Catastro.
-        // Catastro solo aporta campos que no existan ya en los inputs guardados.
+        // Oportunidad guardada: los valores del usuario tienen prioridad absoluta sobre el Catastro,
+        // EXCEPTO plantas y superficieCalefactable que siempre se recalculan desde las construcciones
+        // seleccionadas en PropertySheet (el usuario acaba de elegir qué elementos calcular).
         baseData = {
           ...data,
           ...persistentCalculatorInputs,
+          plantas: data.plantas,
+          superficieCalefactable: data.superficieCalefactable,
+          selectedConstructions: data.selectedConstructions,
           isPersistent: true
         };
       } else {
