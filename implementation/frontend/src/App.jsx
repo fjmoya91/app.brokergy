@@ -30,12 +30,12 @@ function App() {
   const { user, loading: authLoading } = useAuth();
   const [step, setStep] = useState('ADMIN');
 
-  // 0. Detección de landing pública (/calcula-tu-ayuda y /p/[slug]).
+  // 0. Detección de landing pública (/calcula-tu-ahorro, /calcula-tu-ayuda y /p/[slug]).
   //    Se renderiza condicionalmente más abajo, antes que cualquier otra vista,
   //    para que el visitante no necesite estar autenticado ni cargue el dashboard.
   const [landingRoute] = useState(() => {
     const path = window.location.pathname;
-    if (path === '/calcula-tu-ayuda' || path === '/ayudas-aerotermia') {
+    if (path === '/calcula-tu-ahorro' || path === '/calcula-tu-ayuda' || path === '/ayudas-aerotermia') {
       return { type: 'brokergy', slug: null };
     }
     if (path.startsWith('/p/')) {
