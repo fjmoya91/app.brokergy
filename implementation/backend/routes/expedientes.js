@@ -40,7 +40,9 @@ async function loadNotificationContext(expediente) {
     return { cli, op, techName, partnerPhone, partnerEmail };
 }
 
-async function notifyCeeInicialRegistrado(expediente) {
+async function notifyCeeInicialRegistrado(expediente, filters = {}) {
+    const targets  = filters.targets  || ['CLIENTE', 'PARTNER', 'ADMIN'];
+    const chFilter = filters.channels || ['email', 'whatsapp'];
     const tag = `[CEE-INICIAL ${expediente.id}]`;
     try {
         const { cli, op, techName, partnerPhone, partnerEmail } = await loadNotificationContext(expediente);
@@ -58,46 +60,54 @@ async function notifyCeeInicialRegistrado(expediente) {
 
         const waState = whatsappService.getStatus?.()?.state || 'unknown';
         const cliPhone = (cli.notificaciones_contacto_activas && cli.persona_contacto_tlf) ? cli.persona_contacto_tlf : cli.tlf;
-        console.log(`${tag} Disparando notificaciones (whatsappState=${waState}, cliente=${cliPhone || 'sin tlf'}, partner=${partnerPhone || 'sin partner'})`);
+        console.log(`${tag} Disparando notificaciones (targets=[${targets}], channels=[${chFilter}], wa=${waState})`);
 
         const channels = { whatsapp: [], email: [] };
 
-        // --- WHATSAPP ---
         const clientMsg = `¡Hola *${clienteName}*! 👋\n\nTe escribimos para comunicarte que ya ha sido presentado el *Certificado de Eficiencia Energética INICIAL* de tu expediente *${numExp}*.\n\n*Desde este momento ya se pueden emitir facturas y pagos*\n\n📸 Recuerda hacerle fotografías a todo:\n• *Caldera existente y placa de fabricación.*\n• *Desmontaje de la caldera.*\n• *Montaje de la aerotermia.*\n• *Fotos de las nuevas placas de fabricación* (tanto de la unidad exterior como de la interior).\n\nLas fotos son la parte más importante del proceso para que podamos argumentar ante el ministerio que se ha realizado la reforma.\n\nPuedes subirlas directamente al expediente a través de este enlace:\n🔗 ${portalLink}\n\nUna vez finalizada la obra, debes comunicárnoslo por aquí para proceder con el CEE Final y el resto de la documentación.\n\n¡Muchas gracias!\n*BROKERGY — Ingeniería Energética*`;
         const staffMsg = `✅ *REGISTRO CEE INICIAL PRESENTADO*\nExpediente: ${numExp}\nCliente: ${clienteFull}\n\nSe ha subido el justificante de registro del CEE Inicial al sistema. Desde este momento ya se pueden emitir facturas y pagos.\n\nVer expediente:\n🔗 ${expedienteLink}`;
 
-        if (cliPhone) {
-            channels.whatsapp.push('cliente');
-            whatsappService.sendText(cliPhone, clientMsg)
-                .catch(e => console.error(`${tag} WhatsApp Cliente (state=${waState}, phone=${cliPhone}):`, e.message));
-        } else {
-            console.warn(`${tag} Cliente sin teléfono, no se envía WhatsApp`);
-        }
+        // --- WHATSAPP ---
+        if (chFilter.includes('whatsapp')) {
+            if (targets.includes('CLIENTE') && cliPhone) {
+                channels.whatsapp.push('cliente');
+                whatsappService.sendText(cliPhone, clientMsg)
+                    .catch(e => console.error(`${tag} WhatsApp Cliente:`, e.message));
+            } else if (targets.includes('CLIENTE') && !cliPhone) {
+                console.warn(`${tag} Cliente sin teléfono, no se envía WhatsApp`);
+            }
 
-        const adminPhone = process.env.WHATSAPP_ADMIN_CHAT || '34623926179';
-        channels.whatsapp.push('admin');
-        whatsappService.sendText(adminPhone, staffMsg)
-            .catch(e => console.error(`${tag} WhatsApp Admin (state=${waState}):`, e.message));
+            if (targets.includes('ADMIN')) {
+                const adminPhone = process.env.WHATSAPP_ADMIN_CHAT || '34623926179';
+                channels.whatsapp.push('admin');
+                whatsappService.sendText(adminPhone, staffMsg)
+                    .catch(e => console.error(`${tag} WhatsApp Admin:`, e.message));
+            }
 
-        if (partnerPhone) {
-            channels.whatsapp.push('partner');
-            whatsappService.sendText(partnerPhone, staffMsg)
-                .catch(e => console.error(`${tag} WhatsApp Partner (state=${waState}, phone=${partnerPhone}):`, e.message));
+            if (targets.includes('PARTNER') && partnerPhone) {
+                channels.whatsapp.push('partner');
+                whatsappService.sendText(partnerPhone, staffMsg)
+                    .catch(e => console.error(`${tag} WhatsApp Partner:`, e.message));
+            }
         }
 
         // --- EMAIL ---
-        if (cli.email) {
-            channels.email.push('cliente');
-            await emailService.sendCeeInicialRegistradoClientEmail(cli.email, clienteName, numExp, portalLink)
-                .catch(e => console.error(`${tag} Email Cliente:`, e.message));
-        }
-        channels.email.push('admin');
-        await emailService.sendCeeRegistradoStaffEmail('franciscojavier.moya.s2e2@gmail.com', false, numExp, clienteFull, ubicacion, techName, 'CEE INICIAL', expedienteLink)
-            .catch(e => console.error(`${tag} Email Admin:`, e.message));
-        if (partnerEmail) {
-            channels.email.push('partner');
-            await emailService.sendCeeRegistradoStaffEmail(partnerEmail, true, numExp, clienteFull, ubicacion, techName, 'CEE INICIAL', expedienteLink)
-                .catch(e => console.error(`${tag} Email Partner:`, e.message));
+        if (chFilter.includes('email')) {
+            if (targets.includes('CLIENTE') && cli.email) {
+                channels.email.push('cliente');
+                await emailService.sendCeeInicialRegistradoClientEmail(cli.email, clienteName, numExp, portalLink)
+                    .catch(e => console.error(`${tag} Email Cliente:`, e.message));
+            }
+            if (targets.includes('ADMIN')) {
+                channels.email.push('admin');
+                await emailService.sendCeeRegistradoStaffEmail('franciscojavier.moya.s2e2@gmail.com', false, numExp, clienteFull, ubicacion, techName, 'CEE INICIAL', expedienteLink)
+                    .catch(e => console.error(`${tag} Email Admin:`, e.message));
+            }
+            if (targets.includes('PARTNER') && partnerEmail) {
+                channels.email.push('partner');
+                await emailService.sendCeeRegistradoStaffEmail(partnerEmail, true, numExp, clienteFull, ubicacion, techName, 'CEE INICIAL', expedienteLink)
+                    .catch(e => console.error(`${tag} Email Partner:`, e.message));
+            }
         }
 
         console.log(`${tag} Disparado: whatsapp=[${channels.whatsapp.join(',')}] email=[${channels.email.join(',')}]`);
@@ -108,7 +118,9 @@ async function notifyCeeInicialRegistrado(expediente) {
     }
 }
 
-async function notifyCeeFinalRegistrado(expediente) {
+async function notifyCeeFinalRegistrado(expediente, filters = {}) {
+    const targets  = filters.targets  || ['CLIENTE', 'PARTNER', 'ADMIN'];
+    const chFilter = filters.channels || ['email', 'whatsapp'];
     const tag = `[CEE-FINAL ${expediente.id}]`;
     try {
         const { cli, op, techName, partnerPhone, partnerEmail } = await loadNotificationContext(expediente);
@@ -125,40 +137,49 @@ async function notifyCeeFinalRegistrado(expediente) {
 
         const waState = whatsappService.getStatus?.()?.state || 'unknown';
         const cliPhone = (cli.notificaciones_contacto_activas && cli.persona_contacto_tlf) ? cli.persona_contacto_tlf : cli.tlf;
-        console.log(`${tag} Disparando notificaciones (whatsappState=${waState}, cliente=${cliPhone || 'sin tlf'}, partner=${partnerPhone || 'sin partner'})`);
+        console.log(`${tag} Disparando notificaciones (targets=[${targets}], channels=[${chFilter}], wa=${waState})`);
 
         const channels = { whatsapp: [], email: [] };
 
         const clientMsg = `¡Hola *${clienteName}*! 👋\n\nTe comunicamos que ya ha sido presentado el *Certificado de Eficiencia Energética FINAL* de tu expediente *${numExp}*.\n\n¡Muchas gracias!\n*BROKERGY — Ingeniería Energética*`;
         const staffMsg = `✅ *REGISTRO CEE FINAL PRESENTADO*\nExpediente: ${numExp}\nCliente: ${clienteFull}\n\nSe ha subido el justificante de registro del CEE Final al sistema.\n\nVer expediente:\n🔗 ${expedienteLink}`;
 
-        if (cliPhone) {
-            channels.whatsapp.push('cliente');
-            whatsappService.sendText(cliPhone, clientMsg)
-                .catch(e => console.error(`${tag} WhatsApp Cliente (state=${waState}, phone=${cliPhone}):`, e.message));
-        } else {
-            console.warn(`${tag} Cliente sin teléfono, no se envía WhatsApp`);
-        }
+        // --- WHATSAPP ---
+        if (chFilter.includes('whatsapp')) {
+            if (targets.includes('CLIENTE') && cliPhone) {
+                channels.whatsapp.push('cliente');
+                whatsappService.sendText(cliPhone, clientMsg)
+                    .catch(e => console.error(`${tag} WhatsApp Cliente:`, e.message));
+            } else if (targets.includes('CLIENTE') && !cliPhone) {
+                console.warn(`${tag} Cliente sin teléfono, no se envía WhatsApp`);
+            }
 
-        const adminPhone = process.env.WHATSAPP_ADMIN_CHAT || '34623926179';
-        channels.whatsapp.push('admin');
-        whatsappService.sendText(adminPhone, staffMsg)
-            .catch(e => console.error(`${tag} WhatsApp Admin (state=${waState}):`, e.message));
+            if (targets.includes('ADMIN')) {
+                const adminPhone = process.env.WHATSAPP_ADMIN_CHAT || '34623926179';
+                channels.whatsapp.push('admin');
+                whatsappService.sendText(adminPhone, staffMsg)
+                    .catch(e => console.error(`${tag} WhatsApp Admin:`, e.message));
+            }
 
-        if (partnerPhone) {
-            channels.whatsapp.push('partner');
-            whatsappService.sendText(partnerPhone, staffMsg)
-                .catch(e => console.error(`${tag} WhatsApp Partner (state=${waState}, phone=${partnerPhone}):`, e.message));
+            if (targets.includes('PARTNER') && partnerPhone) {
+                channels.whatsapp.push('partner');
+                whatsappService.sendText(partnerPhone, staffMsg)
+                    .catch(e => console.error(`${tag} WhatsApp Partner:`, e.message));
+            }
         }
 
         // --- EMAIL ---
-        channels.email.push('admin');
-        await emailService.sendCeeRegistradoStaffEmail('franciscojavier.moya.s2e2@gmail.com', false, numExp, clienteFull, ubicacion, techName, 'CEE FINAL', expedienteLink)
-            .catch(e => console.error(`${tag} Email Admin:`, e.message));
-        if (partnerEmail) {
-            channels.email.push('partner');
-            await emailService.sendCeeRegistradoStaffEmail(partnerEmail, true, numExp, clienteFull, ubicacion, techName, 'CEE FINAL', expedienteLink)
-                .catch(e => console.error(`${tag} Email Partner:`, e.message));
+        if (chFilter.includes('email')) {
+            if (targets.includes('ADMIN')) {
+                channels.email.push('admin');
+                await emailService.sendCeeRegistradoStaffEmail('franciscojavier.moya.s2e2@gmail.com', false, numExp, clienteFull, ubicacion, techName, 'CEE FINAL', expedienteLink)
+                    .catch(e => console.error(`${tag} Email Admin:`, e.message));
+            }
+            if (targets.includes('PARTNER') && partnerEmail) {
+                channels.email.push('partner');
+                await emailService.sendCeeRegistradoStaffEmail(partnerEmail, true, numExp, clienteFull, ubicacion, techName, 'CEE FINAL', expedienteLink)
+                    .catch(e => console.error(`${tag} Email Partner:`, e.message));
+            }
         }
 
         console.log(`${tag} Disparado: whatsapp=[${channels.whatsapp.join(',')}] email=[${channels.email.join(',')}]`);
@@ -1849,6 +1870,10 @@ router.post('/:id/resend-cee-notifications', enforceAuth, async (req, res) => {
             return res.status(400).json({ error: 'phase debe ser "inicial" o "final"' });
         }
 
+        // Filtros opcionales enviados por el frontend
+        const targets  = req.body?.targets  || ['CLIENTE', 'PARTNER', 'ADMIN'];
+        const channels = req.body?.channels || ['email', 'whatsapp'];
+
         const { data: exp, error } = await supabase.from('expedientes').select('*').eq('id', req.params.id).single();
         if (error || !exp) return res.status(404).json({ error: 'Expediente no encontrado' });
 
@@ -1858,8 +1883,8 @@ router.post('/:id/resend-cee-notifications', enforceAuth, async (req, res) => {
         }
 
         const result = phase === 'final'
-            ? await notifyCeeFinalRegistrado(exp)
-            : await notifyCeeInicialRegistrado(exp);
+            ? await notifyCeeFinalRegistrado(exp, { targets, channels })
+            : await notifyCeeInicialRegistrado(exp, { targets, channels });
 
         return res.json(result);
     } catch (err) {

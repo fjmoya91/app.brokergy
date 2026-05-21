@@ -107,21 +107,30 @@ export function CeeDocumentsGrid({
     
     const numExp = expediente?.numero_expediente || 'S-EXP';
     const [resendingNotif, setResendingNotif] = useState(null); // 'inicial' | 'final' | null
+    const [resendNotifModal, setResendNotifModal] = useState(null); // { section: 'inicial'|'final' }
+    const [resendTargets, setResendTargets] = useState(['CLIENTE', 'PARTNER', 'ADMIN']);
+    const [resendChannels, setResendChannels] = useState(['email', 'whatsapp']);
 
-    const handleResendCeeNotifications = async (section) => {
+    const handleResendCeeNotifications = (section) => {
+        // Pre-seleccionar todos según datos disponibles
+        const hasPartner = expediente?.oportunidades?.prescriptor_id && String(expediente?.oportunidades?.prescriptor_id) !== '1';
+        setResendTargets(['CLIENTE', ...(hasPartner ? ['PARTNER'] : []), 'ADMIN']);
+        setResendChannels(['email', 'whatsapp']);
+        setResendNotifModal({ section });
+    };
+
+    const handleConfirmResend = async () => {
+        const section = resendNotifModal.section;
         const phase = section === 'final' ? 'final' : 'inicial';
-        const phaseLabel = phase === 'final' ? 'CEE Final' : 'CEE Inicial';
-        const confirmed = await showConfirm(
-            `¿Reenviar las notificaciones de registro del ${phaseLabel} a cliente, admin y partner?`,
-            'Reenviar notificación',
-            'info'
-        );
-        if (!confirmed) return;
-
         setResendingNotif(section);
         try {
-            const res = await axios.post(`/api/expedientes/${expediente.id}/resend-cee-notifications`, { phase });
+            const res = await axios.post(`/api/expedientes/${expediente.id}/resend-cee-notifications`, {
+                phase,
+                targets: resendTargets,
+                channels: resendChannels,
+            });
             const r = res.data || {};
+            setResendNotifModal(null);
             if (r.ok) {
                 const wa = r.channels?.whatsapp?.join(', ') || '—';
                 const em = r.channels?.email?.join(', ') || '—';
@@ -135,11 +144,15 @@ export function CeeDocumentsGrid({
             }
         } catch (err) {
             console.error('[resend-cee-notifications]', err);
+            setResendNotifModal(null);
             showAlert(err.response?.data?.error || err.message || 'Error de red', 'Error reenviando', 'error');
         } finally {
             setResendingNotif(null);
         }
     };
+
+    const toggleResendTarget = (t) => setResendTargets(prev => prev.includes(t) ? prev.filter(x => x !== t) : [...prev, t]);
+    const toggleResendChannel = (c) => setResendChannels(prev => prev.includes(c) ? prev.filter(x => x !== c) : [...prev, c]);
 
     const parseXmlForPreview = (file) => {
         return new Promise((resolve) => {
@@ -1175,6 +1188,152 @@ export function CeeDocumentsGrid({
                     </div>
                 </div>
             )}
+
+            {/* ── Modal Reenviar Notificación CEE Registrado ──────────────────── */}
+            {resendNotifModal && (() => {
+                const cli = expediente?.clientes;
+                const op  = expediente?.oportunidades;
+                const pres = expediente?.prescriptores;
+                const cliName = cli ? `${cli.nombre_razon_social || ''} ${cli.apellidos || ''}`.trim() : 'Cliente';
+                const cliContact = cli?.tlf || cli?.persona_contacto_tlf || cli?.email || null;
+                const hasPartner = op?.prescriptor_id && String(op.prescriptor_id) !== '1';
+                const presName   = pres?.razon_social || pres?.acronimo || 'Partner';
+                const presContact = pres?.telefono || pres?.movil || pres?.email || null;
+                const phaseLabel = resendNotifModal.section === 'final' ? 'CEE FINAL' : 'CEE INICIAL';
+
+                const RecipientRow = ({ id, label, detail }) => (
+                    <button
+                        onClick={() => toggleResendTarget(id)}
+                        className={`flex items-center gap-3 w-full px-4 py-3 rounded-xl text-left transition-all border ${
+                            resendTargets.includes(id)
+                                ? 'bg-brand/10 border-brand/30 text-brand'
+                                : 'border-white/5 text-white/20 hover:text-white/40'
+                        }`}
+                    >
+                        <div className={`w-4 h-4 rounded border flex-shrink-0 flex items-center justify-center ${
+                            resendTargets.includes(id) ? 'bg-brand border-brand' : 'border-white/20'
+                        }`}>
+                            {resendTargets.includes(id) && (
+                                <svg className="w-3 h-3 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                                </svg>
+                            )}
+                        </div>
+                        <div className="flex flex-col min-w-0">
+                            <span className="text-[10px] font-black uppercase tracking-widest leading-tight">{label}</span>
+                            {detail && <span className="text-[9px] opacity-60 truncate mt-0.5">{detail}</span>}
+                        </div>
+                    </button>
+                );
+
+                return (
+                    <div
+                        className="fixed inset-0 z-[500] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in"
+                        onClick={() => { if (!resendingNotif) setResendNotifModal(null); }}
+                    >
+                        <div
+                            className="bg-[#0b0c11] border border-white/10 rounded-[2.5rem] w-full max-w-md p-8 shadow-2xl relative overflow-hidden"
+                            onClick={e => e.stopPropagation()}
+                        >
+                            <div className="absolute top-0 right-0 w-40 h-40 bg-brand/10 blur-[60px] rounded-full -translate-y-1/2 translate-x-1/2 pointer-events-none" />
+
+                            <div className="relative z-10 flex flex-col items-center text-center">
+                                <div className="w-16 h-16 rounded-full bg-brand/10 border border-brand/20 flex items-center justify-center mb-6">
+                                    <svg className="w-8 h-8 text-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                    </svg>
+                                </div>
+
+                                <h3 className="text-lg font-black text-white uppercase tracking-widest mb-2">Reenviar Notificación</h3>
+                                <p className="text-[11px] text-white/40 font-bold uppercase tracking-widest mb-8">
+                                    {phaseLabel} · {numExp}
+                                </p>
+
+                                {/* Recipients */}
+                                <p className="text-xs text-white/40 font-bold uppercase tracking-widest mb-3 self-start pl-1">
+                                    1. ¿A quién notificar?
+                                </p>
+                                <div className="flex flex-col gap-2 mb-6 w-full">
+                                    <RecipientRow
+                                        id="CLIENTE"
+                                        label="Cliente"
+                                        detail={cliContact ? `${cliName} · ${cliContact}` : cliName}
+                                    />
+                                    {hasPartner && (
+                                        <RecipientRow
+                                            id="PARTNER"
+                                            label="Partner"
+                                            detail={presContact ? `${presName} · ${presContact}` : presName}
+                                        />
+                                    )}
+                                    <RecipientRow
+                                        id="ADMIN"
+                                        label="Admin"
+                                        detail="BROKERGY · Resumen del registro"
+                                    />
+                                </div>
+
+                                {/* Channels */}
+                                <p className="text-xs text-white/40 font-bold uppercase tracking-widest mb-3 self-start pl-1">
+                                    2. Vías de comunicación
+                                </p>
+                                <div className="flex items-center gap-2 mb-8 p-1 bg-white/[0.03] border border-white/5 rounded-2xl w-full">
+                                    <button
+                                        onClick={() => toggleResendChannel('email')}
+                                        className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all ${
+                                            resendChannels.includes('email')
+                                                ? 'bg-white/10 border border-white/20 text-white'
+                                                : 'text-white/20 hover:text-white/40 border border-transparent'
+                                        }`}
+                                    >
+                                        ✉️ Email
+                                    </button>
+                                    <button
+                                        onClick={() => toggleResendChannel('whatsapp')}
+                                        className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all ${
+                                            resendChannels.includes('whatsapp')
+                                                ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-400'
+                                                : 'text-white/20 hover:text-white/40 border border-transparent'
+                                        }`}
+                                    >
+                                        💬 WhatsApp
+                                    </button>
+                                </div>
+
+                                {/* Actions */}
+                                <div className="grid grid-cols-1 gap-3 w-full">
+                                    <button
+                                        onClick={handleConfirmResend}
+                                        disabled={!!resendingNotif || resendTargets.length === 0 || resendChannels.length === 0}
+                                        className="w-full py-4 rounded-2xl bg-brand text-bkg-deep text-[11px] font-black uppercase tracking-[0.2em] hover:scale-[1.02] transition-all shadow-xl shadow-brand/20 flex items-center justify-center gap-3 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
+                                    >
+                                        {resendingNotif ? (
+                                            <div className="w-4 h-4 border-2 border-bkg-deep/20 border-t-bkg-deep rounded-full animate-spin" />
+                                        ) : (
+                                            <>
+                                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                                                </svg>
+                                                {resendTargets.length === 0 || resendChannels.length === 0
+                                                    ? 'Selecciona destinatario y canal'
+                                                    : `Reenviar a ${resendTargets.length} destinatario${resendTargets.length > 1 ? 's' : ''}`
+                                                }
+                                            </>
+                                        )}
+                                    </button>
+                                    <button
+                                        onClick={() => setResendNotifModal(null)}
+                                        disabled={!!resendingNotif}
+                                        className="w-full py-4 text-white/30 text-[10px] font-black uppercase tracking-[0.2em] hover:text-white transition-all"
+                                    >
+                                        Cancelar
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                );
+            })()}
         </div>
     );
 }
