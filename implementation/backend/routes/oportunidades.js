@@ -436,93 +436,22 @@ router.patch('/:id/estado', requireAuth, async (req, res) => {
         });
         dc.historial = hist;
 
-        // --- LÓGICA ESPECIAL PARA ACEPTACIÓN POR DISTRIBUIDOR ---
+        // --- LÓGICA ESPECIAL PARA ACEPTACIÓN ---
+        // IMPORTANTE: createExpediente se llama ANTES de guardar el estado en la BD.
+        // Si falla, el estado NO se guarda y el frontend recibe el error (sin silencio).
         let numeroExpediente = null;
         if (nuevo_estado === 'ACEPTADA' && prevEstado !== 'ACEPTADA') {
-            console.log(`[StatusUpdate] Detectada NUEVA ACEPTACIÓN para OP ${id}.`);
-            console.log(`[StatusUpdate] Usuario: ${req.user.email} (Rol: ${req.user.rol_nombre})`);
-            
-            // 1. Asegurar creación de expediente (si no existe ya)
-            try {
-                const newExp = await expedienteService.createExpediente(op.id, op.cliente_id);
-                numeroExpediente = newExp?.numero_expediente;
-                console.log(`[StatusUpdate] Expediente procesado: ${numeroExpediente}`);
-
-                // 2. Notificar a administración siempre que sea una aceptación
-                console.log(`[StatusUpdate] Notificando a administración (Usuario: ${req.user.email})...`);
-                try {
-                    const [clientRes, instRes] = await Promise.all([
-                        supabase.from('clientes').select('*').eq('id_cliente', op.cliente_id).maybeSingle(),
-                        supabase.from('prescriptores').select('razon_social, acronimo').eq('id_empresa', op.instalador_asociado_id || op.prescriptor_id).maybeSingle()
-                    ]);
-                    
-                    const client = clientRes.data;
-                    const inst = instRes.data;
-                    const address = dc.inputs?.direccion || 'No especificada';
-                    const installerName = inst ? (inst.acronimo || inst.razon_social) : 'No asignado';
-                    const usuarioName = req.user.acronimo || req.user.razon_social || req.user.email || 'SISTEMA';
-                    
-                    // --- EXTRACCIÓN DE NOTAS ---
-                    const notesList = dc.historial?.filter(h => h.tipo === 'comentario') || [];
-                    let notesStr = notesList.length > 0 
-                        ? notesList.map(n => `- ${n.texto} (${n.usuario})`).join('\n')
-                        : '';
-                    
-                    // Añadir notas del cliente si existen
-                    if (client?.notas) {
-                        notesStr = `[NOTA CLIENTE]: ${client.notas}\n` + (notesStr ? `\n[HISTORIAL]:\n${notesStr}` : '');
-                    }
-
-                    if (!notesStr) notesStr = 'Sin notas adicionales.';
-
-                    const deepLink = `${process.env.FRONTEND_URL || 'https://app.brokergy.es'}?exp=${numeroExpediente || id}`;
-
-                    // WhatsApp a Admin (Paco)
-                    const adminMsg = 
-`*${id} – ACEPTACIÓN DE EXPEDIENTE*
-
-¡Hola BROKERGY! 👋
-Se ha marcado como ACEPTADA la oportunidad por *${usuarioName}*:
-
-*Cliente:* ${client?.nombre_razon_social || op.referencia_cliente || 'S/N'} ${client?.apellidos || ''}
-*Expediente:* ${numeroExpediente || id}
-*Instalador:* ${installerName}
-
-*NOTAS:*
-${notesStr}
-
-🔗 *Acceso Directo:* ${deepLink}
-
-¡Muchas gracias!
-*BROKERGY — Ingeniería Energética*`;
-
-
-                    whatsappService.sendText(process.env.WHATSAPP_ADMIN_CHAT || '34623926179', adminMsg)
-                        .then(() => console.log(`[StatusUpdate] WhatsApp Admin enviado`))
-                        .catch(e => console.warn('[StatusUpdate] Error WhatsApp Admin:', e.message));
-
-                    // Email a Admin
-                    await emailService.sendAdminNotificationEmail({
-                        numeroExpediente: numeroExpediente || id,
-                        clientName: `${client?.nombre_razon_social || op.referencia_cliente || 'S/N'} ${client?.apellidos || ''}`.trim(),
-                        address,
-                        distributorName: usuarioName,
-                        installerName,
-                        notes: notesStr,
-                        expedienteId: numeroExpediente || id
-                    }).then(() => console.log(`[StatusUpdate] Email Admin enviado`))
-                    .catch(e => console.warn('[StatusUpdate] Error Email Admin:', e.message));
-
-                } catch (notifyErr) {
-                    console.error('[StatusUpdate] Error preparando notificaciones:', notifyErr.message);
-                }
-            } catch (err) {
-                console.error('[StatusUpdate] Error al procesar expediente/aceptación:', err.message);
+            console.log(`[StatusUpdate] Nueva aceptación OP ${id} — creando expediente...`);
+            if (!op.cliente_id) {
+                return res.status(400).json({ error: 'No se puede aceptar sin cliente vinculado.' });
             }
+            // Sin try/catch: si lanza, el outer handler devuelve 500 al frontend con el mensaje real
+            const newExp = await expedienteService.createExpediente(op.id, op.cliente_id);
+            numeroExpediente = newExp?.numero_expediente;
+            console.log(`[StatusUpdate] ✅ Expediente creado: ${numeroExpediente}`);
         }
 
-        // --------------------------------------------------------
-
+        // ── Guardar estado (solo llega aquí si el expediente se creó con éxito) ──
         const { data: upData, error: upErr } = await supabase.from('oportunidades').update({ datos_calculo: dc }).eq('id_oportunidad', id).select();
         if (upErr) return res.status(500).json({ error: 'Error al actualizar.' });
 
@@ -554,9 +483,62 @@ ${notesStr}
         }
         // ----------------------------------------------
 
-        res.status(200).json({ success: true, data: upData[0] });
+        // ── Notificaciones de aceptación (no-bloqueantes) ─────────────────────
+        if (nuevo_estado === 'ACEPTADA' && prevEstado !== 'ACEPTADA' && numeroExpediente) {
+            (async () => {
+                try {
+                    const [clientRes, instRes] = await Promise.all([
+                        supabase.from('clientes').select('*').eq('id_cliente', op.cliente_id).maybeSingle(),
+                        supabase.from('prescriptores').select('razon_social, acronimo').eq('id_empresa', op.instalador_asociado_id || op.prescriptor_id).maybeSingle()
+                    ]);
+                    const client = clientRes.data;
+                    const inst = instRes.data;
+                    const address = dc.inputs?.direccion || 'No especificada';
+                    const installerName = inst ? (inst.acronimo || inst.razon_social) : 'No asignado';
+                    const usuarioName = req.user.acronimo || req.user.razon_social || req.user.email || 'SISTEMA';
+                    const notesList = dc.historial?.filter(h => h.tipo === 'comentario') || [];
+                    let notesStr = notesList.length > 0 ? notesList.map(n => `- ${n.texto} (${n.usuario})`).join('\n') : '';
+                    if (client?.notas) notesStr = `[NOTA CLIENTE]: ${client.notas}\n` + (notesStr ? `\n[HISTORIAL]:\n${notesStr}` : '');
+                    if (!notesStr) notesStr = 'Sin notas adicionales.';
+                    const deepLink = `${process.env.FRONTEND_URL || 'https://app.brokergy.es'}?exp=${numeroExpediente}`;
+                    const adminMsg =
+`*${id} – ACEPTACIÓN DE EXPEDIENTE*
+
+¡Hola BROKERGY! 👋
+Se ha marcado como ACEPTADA la oportunidad por *${usuarioName}*:
+
+*Cliente:* ${client?.nombre_razon_social || op.referencia_cliente || 'S/N'} ${client?.apellidos || ''}
+*Expediente:* ${numeroExpediente}
+*Instalador:* ${installerName}
+
+*NOTAS:*
+${notesStr}
+
+🔗 *Acceso Directo:* ${deepLink}
+
+¡Muchas gracias!
+*BROKERGY — Ingeniería Energética*`;
+                    whatsappService.sendText(process.env.WHATSAPP_ADMIN_CHAT || '34623926179', adminMsg)
+                        .catch(e => console.warn('[StatusUpdate] WhatsApp Admin error:', e.message));
+                    emailService.sendAdminNotificationEmail({
+                        numeroExpediente,
+                        clientName: `${client?.nombre_razon_social || op.referencia_cliente || 'S/N'} ${client?.apellidos || ''}`.trim(),
+                        address,
+                        distributorName: usuarioName,
+                        installerName,
+                        notes: notesStr,
+                        expedienteId: numeroExpediente
+                    }).catch(e => console.warn('[StatusUpdate] Email Admin error:', e.message));
+                } catch (notifyErr) {
+                    console.warn('[StatusUpdate] Error en notificaciones post-aceptación:', notifyErr.message);
+                }
+            })();
+        }
+
+        res.status(200).json({ success: true, data: upData[0], numeroExpediente });
     } catch (error) {
-        res.status(500).json({ error: 'Error del servidor.' });
+        console.error('[StatusUpdate] Error:', error.message);
+        res.status(500).json({ error: error.message || 'Error del servidor.' });
     }
 });
 

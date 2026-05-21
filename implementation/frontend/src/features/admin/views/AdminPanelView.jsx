@@ -316,7 +316,8 @@ export function AdminPanelView({
             ));
         } catch (err) {
             console.error('Error al actualizar estado:', err);
-            setError('Error al actualizar el estado de la oportunidad.');
+            const msg = err.response?.data?.error || 'Error al actualizar el estado de la oportunidad.';
+            setError(msg);
         } finally {
             setUpdatingStatus(null);
         }

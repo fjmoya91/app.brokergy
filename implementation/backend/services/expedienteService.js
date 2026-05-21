@@ -187,8 +187,8 @@ async function createExpediente(uuid_oportunidad, id_cliente, manualNumber = nul
                 // 1. Renombrar en Drive
                 await driveService.renameFolder(driveFolderId, newFolderName);
                 
-                // 2. Mover a la carpeta de "ACEPTADAS"
-                const ACEPTADAS_FOLDER_ID = '1L2Wl9OIOpvmihySZkT09S1FG14Pu3VNy';
+                // 2. Mover a la carpeta de "ACEPTADAS" (usa env var, igual que el route de estado)
+                const ACEPTADAS_FOLDER_ID = process.env.DRIVE_FOLDER_ACEPTADA || '1L2Wl9OIOpvmihySZkT09S1FG14Pu3VNy';
                 await driveService.moveFolder(driveFolderId, ACEPTADAS_FOLDER_ID);
                 
                 // 3. Sincronizar oportunidad
