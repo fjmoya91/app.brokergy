@@ -406,6 +406,7 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
     const [statusFilter, setStatusFilter] = useState('ALL');
     const [certificadorFilter, setCertificadorFilter] = useState('ALL');
     const [ccaaFilter, setCcaaFilter] = useState('ALL');
+    const [prioridadFilter, setPrioridadFilter] = useState('ALL');
     const [certificadores, setCertificadores] = useState([]);
     const [showStats, setShowStats] = useState(true);
 
@@ -617,8 +618,14 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
         const matchesStatus = statusFilter === 'ALL' || (e.estado || 'PTE. CEE INICIAL') === statusFilter;
         const matchesCert = certificadorFilter === 'ALL' || String(e.cee?.certificador_id) === String(certificadorFilter);
         const matchesCCAA = ccaaFilter === 'ALL' || getCCAA(e) === ccaaFilter;
-        return matchesSearch && matchesStatus && matchesCert && matchesCCAA;
+        const matchesPrioridad = prioridadFilter === 'ALL' || (e.prioridad || 'NORMAL') === prioridadFilter;
+        return matchesSearch && matchesStatus && matchesCert && matchesCCAA && matchesPrioridad;
     });
+
+    const PRIORITY_ORDER = { URGENTE: 0, ALTA: 1, NORMAL: 2 };
+    const sortedFiltered = [...filtered].sort((a, b) =>
+        (PRIORITY_ORDER[a.prioridad || 'NORMAL'] ?? 2) - (PRIORITY_ORDER[b.prioridad || 'NORMAL'] ?? 2)
+    );
 
     // Cálculos financieros dinámicos basados en filtros (CÁLCULO REAL DE EXPEDIENTE)
     const financialStats = filtered.reduce((acc, exp) => {
@@ -877,7 +884,20 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
                                     {/* Fila de Filtros Integrados (Estilo Ejemplo) */}
                                     <tr className="bg-white/[0.01]">
                                         <td className="px-5 py-3 border-b border-white/[0.04]">
-                                            <div className="text-[10px] font-black text-white/20 uppercase tracking-[0.1em]">Filtrar por:</div>
+                                            <select
+                                                value={prioridadFilter}
+                                                onChange={(e) => setPrioridadFilter(e.target.value)}
+                                                className={`bg-transparent text-[10px] font-black uppercase tracking-wider focus:outline-none transition-colors cursor-pointer w-full p-0 appearance-none ${
+                                                    prioridadFilter === 'URGENTE' ? 'text-red-400' :
+                                                    prioridadFilter === 'ALTA' ? 'text-amber-400' :
+                                                    'text-white/40 hover:text-brand'
+                                                }`}
+                                            >
+                                                <option value="ALL" className="bg-bkg-deep text-white">PRIORIDAD</option>
+                                                <option value="URGENTE" className="bg-bkg-deep text-white">URGENTE</option>
+                                                <option value="ALTA" className="bg-bkg-deep text-white">ALTA</option>
+                                                <option value="NORMAL" className="bg-bkg-deep text-white">NORMAL</option>
+                                            </select>
                                         </td>
                                         <td className="px-5 py-3 border-b border-white/[0.04] hidden md:table-cell">
                                             <select
@@ -940,14 +960,25 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
                                     </tr>
                             </thead>
                             <tbody className="divide-y divide-white/[0.04]">
-                                {filtered.map((exp, idx) => (
+                                {sortedFiltered.map((exp, idx) => (
                                 <tr
                                     key={exp.id}
                                     onClick={() => setSelectedExpediente(exp)}
-                                    className="border-b border-white/[0.04] hover:bg-white/[0.03] cursor-pointer transition-colors group"
+                                    className={`border-b border-white/[0.04] cursor-pointer transition-colors group ${
+                                        exp.prioridad === 'URGENTE' ? 'border-l-2 border-l-red-500/70 hover:bg-red-500/[0.03]' :
+                                        exp.prioridad === 'ALTA' ? 'border-l-2 border-l-amber-500/70 hover:bg-amber-500/[0.03]' :
+                                        'hover:bg-white/[0.03]'
+                                    }`}
                                 >
                                     <td className="px-5 py-4">
                                         <div className="flex flex-col">
+                                            {exp.prioridad && exp.prioridad !== 'NORMAL' && (
+                                                <span className={`self-start inline-flex items-center gap-1 text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded border mb-1 ${
+                                                    exp.prioridad === 'URGENTE' ? 'bg-red-500/10 border-red-500/30 text-red-400' : 'bg-amber-500/10 border-amber-500/30 text-amber-400'
+                                                }`}>
+                                                    {exp.prioridad === 'URGENTE' ? '⚠ ' : '● '}{exp.prioridad}
+                                                </span>
+                                            )}
                                             <span className="font-mono text-brand text-xs font-bold">
                                                 {exp.numero_expediente || exp.id_oportunidad_ref || exp.oportunidades?.id_oportunidad || '—'}
                                                 {exp.clientes && ` - ${exp.clientes.nombre_razon_social} ${exp.clientes.apellidos || ''}`.toUpperCase()}

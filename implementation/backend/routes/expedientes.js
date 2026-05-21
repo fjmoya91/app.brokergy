@@ -1314,6 +1314,12 @@ router.post('/:id/notify-certificador', enforceAuth, async (req, res) => {
                 await supabase.from('expedientes')
                     .update({ documentacion: { ...docObj, historial }, updated_at: new Date().toISOString() })
                     .eq('id', req.params.id);
+
+                if (priority === 'urgent') {
+                    await supabase.from('expedientes')
+                        .update({ prioridad: 'URGENTE' })
+                        .eq('id', req.params.id);
+                }
             } catch (histErr) {
                 console.error('[notify-certificador] Error guardando historial:', histErr.message);
             }
@@ -1906,6 +1912,22 @@ router.post('/drive/make-public', enforceAuth, async (req, res) => {
         // Si ya es público o no tenemos acceso, no es un error crítico
         console.warn('[drive/make-public] No se pudo hacer público el archivo:', err.message);
         res.json({ ok: false, warning: err.message });
+    }
+});
+
+// PATCH /api/expedientes/:id/prioridad
+router.patch('/:id/prioridad', enforceAuth, async (req, res) => {
+    try {
+        const { prioridad } = req.body;
+        const valid = ['NORMAL', 'ALTA', 'URGENTE'];
+        if (!valid.includes(prioridad)) return res.status(400).json({ error: 'Prioridad inválida' });
+        const { error } = await supabase.from('expedientes')
+            .update({ prioridad, updated_at: new Date().toISOString() })
+            .eq('id', req.params.id);
+        if (error) return res.status(500).json({ error: error.message });
+        res.json({ ok: true, prioridad });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
     }
 });
 

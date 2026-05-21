@@ -107,6 +107,7 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
     const [liveDoc, setLiveDoc] = useState(null);
     const [liveSeguimiento, setLiveSeguimiento] = useState(null);
     const [showQuickNote, setShowQuickNote] = useState(false);
+    const [localPrioridad, setLocalPrioridad] = useState('NORMAL');
 
     // Carga de certificadores (utilizado en Header CEE y CeeModule)
     useEffect(() => {
@@ -124,6 +125,7 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
         try {
             const { data } = await axios.get(`/api/expedientes/${expedienteId}`);
             setExpediente(data);
+            setLocalPrioridad(data.prioridad || 'NORMAL');
             // Inicializar datos live
             setLiveCee(data.cee || {});
             setLiveInst(data.instalacion || {});
@@ -157,6 +159,15 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
         }
     }, [expedienteId, fetchExpediente]);
  
+    const handlePrioridadChange = async (newPrio) => {
+        setLocalPrioridad(newPrio);
+        try {
+            await axios.patch(`/api/expedientes/${expedienteId}/prioridad`, { prioridad: newPrio });
+        } catch (err) {
+            console.error('[prioridad]', err.message);
+        }
+    };
+
     const handleCeeSave = useCallback((ceePatch) => {
         // Al guardar CEE, también persistimos las fechas en Documentación.
         // Devolvemos la promise para que CeeModule pueda esperar antes de notificar al certificador.
@@ -636,6 +647,33 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
                             </>
                         )}
                     </div>
+
+                    {/* Selector de prioridad */}
+                    {isAdmin ? (
+                        <div className="flex items-center rounded-xl overflow-hidden border border-white/[0.08]" title="Prioridad del expediente">
+                            {['NORMAL', 'ALTA', 'URGENTE'].map(p => (
+                                <button
+                                    key={p}
+                                    onClick={() => handlePrioridadChange(p)}
+                                    className={`px-2.5 py-1.5 text-[9px] font-black uppercase tracking-widest transition-all border-r border-white/[0.05] last:border-r-0 ${
+                                        localPrioridad === p
+                                            ? p === 'URGENTE' ? 'bg-red-500 text-white' :
+                                              p === 'ALTA' ? 'bg-amber-500 text-black' :
+                                              'bg-white/10 text-white/70'
+                                            : 'text-white/20 hover:text-white/50 hover:bg-white/[0.03]'
+                                    }`}
+                                >
+                                    {p === 'URGENTE' ? '⚠ ' : ''}{p}
+                                </button>
+                            ))}
+                        </div>
+                    ) : (localPrioridad !== 'NORMAL' && (
+                        <span className={`px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-widest border ${
+                            localPrioridad === 'URGENTE' ? 'bg-red-500/10 border-red-500/30 text-red-400' : 'bg-amber-500/10 border-amber-500/30 text-amber-400'
+                        }`}>
+                            {localPrioridad === 'URGENTE' ? '⚠ ' : '● '}{localPrioridad}
+                        </span>
+                    ))}
 
                     {/* Acceso Drive raíz (solo ADMIN) */}
                     {driveLink && isAdmin && (
