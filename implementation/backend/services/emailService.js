@@ -1375,9 +1375,9 @@ const sendCeeInicialRegistradoClientEmail = async (to, clientName, numExp, porta
 /**
  * Notifica a Admin/Partner que el CEE (Inicial o Final) ha sido presentado
  */
-const sendCeeRegistradoStaffEmail = async (to, isPartner, numExp, clientName, ubicacion, techName, phaseLabel, portalLink) => {
+const sendCeeRegistradoStaffEmail = async (to, isPartner, numExp, clientName, ubicacion, techName, phaseLabel, portalLink, notifyClientLink = null) => {
     const subject = `✅ REGISTRO ${phaseLabel} PRESENTADO — ${numExp}`;
-    
+
     const html = `
     <!DOCTYPE html>
     <html lang="es">
@@ -1393,15 +1393,24 @@ const sendCeeRegistradoStaffEmail = async (to, isPartner, numExp, clientName, ub
                 <tr><td style="padding:4px 0;"><strong>Ubicación:</strong></td><td>${ubicacion}</td></tr>
                 <tr><td style="padding:4px 0;"><strong>Certificador:</strong></td><td>${techName}</td></tr>
             </table>
-            
+
             ${phaseLabel === 'CEE INICIAL' ? `
             <div style="background-color:rgba(16, 185, 129, 0.1); border-left:4px solid #10b981; padding:15px; margin:20px 0;">
                 <p style="color:#10b981; margin:0; font-weight:bold;">Desde este momento ya se pueden emitir facturas y pagos.</p>
             </div>
             ` : ''}
 
-            <div style="margin-top:30px; text-align:center;">
-                <a href="${portalLink}" style="display:inline-block; padding:12px 24px; background-color:#10b981; color:#000000; font-weight:bold; text-decoration:none; border-radius:10px;">Ver Expediente</a>
+            ${notifyClientLink && !isPartner ? `
+            <div style="margin-top:24px; padding:20px; background-color:rgba(16,185,129,0.08); border:1px solid #10b981; border-radius:12px; text-align:center;">
+                <p style="color:#10b981; font-weight:bold; margin:0 0 6px 0; font-size:15px;">👆 Acción requerida</p>
+                <p style="color:#94a3b8; font-size:13px; margin:0 0 16px 0;">Pulsa el botón para enviar la notificación al cliente.</p>
+                <a href="${notifyClientLink}" style="display:inline-block; padding:14px 32px; background-color:#10b981; color:#000000; font-weight:bold; text-decoration:none; border-radius:10px; font-size:16px;">📱 Notificar al Cliente</a>
+                <p style="color:#475569; font-size:11px; margin:12px 0 0 0;">Enlace de uso único · Válido 7 días</p>
+            </div>
+            ` : ''}
+
+            <div style="margin-top:24px; text-align:center;">
+                <a href="${portalLink}" style="display:inline-block; padding:12px 24px; background-color:transparent; border:1px solid #10b981; color:#10b981; font-weight:bold; text-decoration:none; border-radius:10px;">Ver Expediente</a>
             </div>
             <p style="font-size:10px; color:#475569; margin-top:30px; text-align:center;">Notificación automática de BROKERGY ERP</p>
         </div>
@@ -1409,7 +1418,7 @@ const sendCeeRegistradoStaffEmail = async (to, isPartner, numExp, clientName, ub
     </html>
     `;
 
-    return sendMail({ to, subject, html, text: `El justificante de registro del ${phaseLabel} ha sido presentado para el expediente ${numExp} del cliente ${clientName}.` });
+    return sendMail({ to, subject, html, text: `El justificante de registro del ${phaseLabel} ha sido presentado para el expediente ${numExp} del cliente ${clientName}. ${notifyClientLink && !isPartner ? 'Enlace para notificar al cliente: ' + notifyClientLink : ''}` });
 };
 
 module.exports = {

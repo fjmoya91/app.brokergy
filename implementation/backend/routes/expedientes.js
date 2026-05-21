@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const crypto = require('crypto');
 const axios = require('axios');
 const supabase = require('../services/supabaseClient');
 const { enforceAuth, adminOnly } = require('../middleware/auth');
@@ -579,20 +580,32 @@ router.put('/:id', enforceAuth, async (req, res) => {
         if (seguimiento !== undefined)   updates.seguimiento   = { ...existing.seguimiento,   ...seguimiento };
         
         // ─── AUTOMATIZACIÓN REGISTRO CEE INICIAL ────────────────────────────────
-        // Cambio de estado automático cuando el CEE Inicial pasa a REGISTRADO.
-        // Las notificaciones (cliente/partner/admin) las decide el ADMIN desde el
-        // popup del frontend (/notify-registration). El botón "Omitir" del popup
-        // debe omitir de verdad, así que NO disparamos nada automático aquí.
+        // Cuando el CEE Inicial pasa a REGISTRADO:
+        //   1. Avanzar estado global a PTE. FIN OBRA (si procede)
+        //   2. Generar token de un solo uso para que el admin notifique al cliente
+        //      pulsando el enlace que recibirá por WA/email
+        let _notifyAdminCeeInicial = null;
         if (seguimiento?.cee_inicial === 'REGISTRADO' && existing.seguimiento?.cee_inicial !== 'REGISTRADO') {
             if (existing.estado === 'PTE. CEE INICIAL') {
                 updates.estado = 'PTE. FIN OBRA';
             }
-            console.log(`[Automation] Exp ${req.params.id}: CEE INICIAL → REGISTRADO`);
+            const notifyToken = crypto.randomBytes(32).toString('hex');
+            if (!updates.seguimiento) updates.seguimiento = { ...existing.seguimiento };
+            updates.seguimiento.notify_client_token_inicial = notifyToken;
+            updates.seguimiento.notify_client_token_inicial_exp = Date.now() + 7 * 24 * 60 * 60 * 1000; // 7 días
+            _notifyAdminCeeInicial = { token: notifyToken, expId: req.params.id, exp: existing };
+            console.log(`[Automation] Exp ${req.params.id}: CEE INICIAL → REGISTRADO, token generado`);
         }
 
         // ─── AUTOMATIZACIÓN REGISTRO CEE FINAL ──────────────────────────────────
+        let _notifyAdminCeeFinal = null;
         if (seguimiento?.cee_final === 'REGISTRADO' && existing.seguimiento?.cee_final !== 'REGISTRADO') {
-            console.log(`[Automation] Exp ${req.params.id}: CEE FINAL → REGISTRADO`);
+            const notifyToken = crypto.randomBytes(32).toString('hex');
+            if (!updates.seguimiento) updates.seguimiento = { ...existing.seguimiento };
+            updates.seguimiento.notify_client_token_final = notifyToken;
+            updates.seguimiento.notify_client_token_final_exp = Date.now() + 7 * 24 * 60 * 60 * 1000;
+            _notifyAdminCeeFinal = { token: notifyToken, expId: req.params.id, exp: existing };
+            console.log(`[Automation] Exp ${req.params.id}: CEE FINAL → REGISTRADO, token generado`);
         }
 
         let docObj = existing.documentacion || {};
@@ -627,6 +640,64 @@ router.put('/:id', enforceAuth, async (req, res) => {
             .single();
 
         if (error) throw error;
+
+        // ── Notificaciones admin con enlace one-tap (fire-and-forget post-save) ──
+        if (_notifyAdminCeeInicial) {
+            const { token, expId, exp: capturedExp } = _notifyAdminCeeInicial;
+            setImmediate(async () => {
+                try {
+                    const [{ data: cli }, { data: op }] = await Promise.all([
+                        supabase.from('clientes').select('nombre_razon_social, apellidos, municipio, provincia, codigo_postal, direccion').eq('id_cliente', capturedExp.cliente_id).maybeSingle(),
+                        supabase.from('oportunidades').select('id_oportunidad').eq('id', capturedExp.oportunidad_id).maybeSingle()
+                    ]);
+                    const numExp = capturedExp.numero_expediente || op?.id_oportunidad || expId;
+                    const clienteFull = cli ? `${cli.nombre_razon_social || ''} ${cli.apellidos || ''}`.trim() : '';
+                    const expedienteLink = `https://app.brokergy.es/expedientes/${expId}`;
+                    const notifyLink = `https://app.brokergy.es/api/expedientes/${expId}/notify-client?token=${token}&phase=inicial`;
+
+                    const adminMsg = `✅ *CEE INICIAL REGISTRADO*\nExpediente: *${numExp}*${clienteFull ? '\nCliente: ' + clienteFull : ''}\n\nEl certificador ha subido el justificante de registro del CEE Inicial.\n\n👆 *Toca para notificar al cliente:*\n🔗 ${notifyLink}\n\nVer expediente:\n🔗 ${expedienteLink}`;
+                    const adminPhone = process.env.WHATSAPP_ADMIN_CHAT || '34623926179';
+                    whatsappService.sendText(adminPhone, adminMsg)
+                        .catch(e => console.error('[Automation CEE_INI] WA Admin:', e.message));
+
+                    const ubicacion = cli ? `${cli.direccion || ''} - ${cli.codigo_postal || ''} ${cli.municipio || ''} (${cli.provincia || ''})` : '';
+                    await emailService.sendCeeRegistradoStaffEmail(
+                        'franciscojavier.moya.s2e2@gmail.com', false, numExp, clienteFull, ubicacion, '', 'CEE INICIAL', expedienteLink, notifyLink
+                    ).catch(e => console.error('[Automation CEE_INI] Email Admin:', e.message));
+                } catch (notifErr) {
+                    console.error('[Automation CEE_INI REGISTRADO] Admin notification error:', notifErr.message);
+                }
+            });
+        }
+
+        if (_notifyAdminCeeFinal) {
+            const { token, expId, exp: capturedExp } = _notifyAdminCeeFinal;
+            setImmediate(async () => {
+                try {
+                    const [{ data: cli }, { data: op }] = await Promise.all([
+                        supabase.from('clientes').select('nombre_razon_social, apellidos, municipio, provincia, codigo_postal, direccion').eq('id_cliente', capturedExp.cliente_id).maybeSingle(),
+                        supabase.from('oportunidades').select('id_oportunidad').eq('id', capturedExp.oportunidad_id).maybeSingle()
+                    ]);
+                    const numExp = capturedExp.numero_expediente || op?.id_oportunidad || expId;
+                    const clienteFull = cli ? `${cli.nombre_razon_social || ''} ${cli.apellidos || ''}`.trim() : '';
+                    const expedienteLink = `https://app.brokergy.es/expedientes/${expId}`;
+                    const notifyLink = `https://app.brokergy.es/api/expedientes/${expId}/notify-client?token=${token}&phase=final`;
+
+                    const adminMsg = `✅ *CEE FINAL REGISTRADO*\nExpediente: *${numExp}*${clienteFull ? '\nCliente: ' + clienteFull : ''}\n\nEl certificador ha subido el justificante de registro del CEE Final.\n\n👆 *Toca para notificar al cliente:*\n🔗 ${notifyLink}\n\nVer expediente:\n🔗 ${expedienteLink}`;
+                    const adminPhone = process.env.WHATSAPP_ADMIN_CHAT || '34623926179';
+                    whatsappService.sendText(adminPhone, adminMsg)
+                        .catch(e => console.error('[Automation CEE_FIN] WA Admin:', e.message));
+
+                    const ubicacion = cli ? `${cli.direccion || ''} - ${cli.codigo_postal || ''} ${cli.municipio || ''} (${cli.provincia || ''})` : '';
+                    await emailService.sendCeeRegistradoStaffEmail(
+                        'franciscojavier.moya.s2e2@gmail.com', false, numExp, clienteFull, ubicacion, '', 'CEE FINAL', expedienteLink, notifyLink
+                    ).catch(e => console.error('[Automation CEE_FIN] Email Admin:', e.message));
+                } catch (notifErr) {
+                    console.error('[Automation CEE_FIN REGISTRADO] Admin notification error:', notifErr.message);
+                }
+            });
+        }
+
         res.json(data);
     } catch (err) {
         console.error('Error PUT expedientes/:id:', err);
@@ -1912,6 +1983,99 @@ router.post('/drive/make-public', enforceAuth, async (req, res) => {
         // Si ya es público o no tenemos acceso, no es un error crítico
         console.warn('[drive/make-public] No se pudo hacer público el archivo:', err.message);
         res.json({ ok: false, warning: err.message });
+    }
+});
+
+// ─── GET /api/expedientes/:id/notify-client ──────────────────────────────────
+// Endpoint PÚBLICO (sin auth). El admin lo recibe como enlace one-tap en su WA/email
+// cuando el certificador registra el CEE. Al pulsarlo envía las notificaciones
+// al cliente (WA + email) y marca el expediente como notificado.
+// Query params: token (string), phase (inicial | final)
+router.get('/:id/notify-client', async (req, res) => {
+    const { token, phase } = req.query;
+
+    const sendHtmlPage = (ok, message) => {
+        const color = ok ? '#10b981' : '#ef4444';
+        const icon = ok ? '✅' : '❌';
+        res.setHeader('Content-Type', 'text/html; charset=utf-8');
+        res.send(`<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BROKERGY</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #0a0e1a; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #fff; display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 20px; }
+    .card { background: #111827; border: 1px solid #334155; border-radius: 20px; padding: 40px 30px; max-width: 420px; width: 100%; text-align: center; }
+    .icon { font-size: 48px; margin-bottom: 16px; }
+    h2 { color: ${color}; margin-bottom: 12px; font-size: 22px; }
+    p { color: #94a3b8; line-height: 1.5; margin-bottom: 8px; }
+    .brand { color: #475569; font-size: 11px; margin-top: 30px; letter-spacing: 0.05em; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon">${ok ? '📱' : '⚠️'}</div>
+    <h2>${ok ? 'Cliente Notificado' : 'Error'}</h2>
+    <p>${message}</p>
+    <div class="brand">BROKERGY · Ingeniería Energética</div>
+  </div>
+</body>
+</html>`);
+    };
+
+    if (!token || !phase) return sendHtmlPage(false, 'Parámetros inválidos.');
+    if (phase !== 'inicial' && phase !== 'final') return sendHtmlPage(false, 'Phase inválida. Usa "inicial" o "final".');
+
+    try {
+        const { data: exp, error: expErr } = await supabase
+            .from('expedientes')
+            .select('*')
+            .eq('id', req.params.id)
+            .single();
+        if (expErr || !exp) return sendHtmlPage(false, 'Expediente no encontrado.');
+
+        const seguimiento = exp.seguimiento || {};
+        const tokenField = phase === 'final' ? 'notify_client_token_final' : 'notify_client_token_inicial';
+        const expField   = phase === 'final' ? 'notify_client_token_final_exp' : 'notify_client_token_inicial_exp';
+        const notifiedField = phase === 'final' ? 'cee_fin_client_notified_at' : 'cee_ini_client_notified_at';
+
+        if (!seguimiento[tokenField]) {
+            return sendHtmlPage(false, 'Este enlace ya fue utilizado o no existe.');
+        }
+        if (seguimiento[tokenField] !== token) {
+            return sendHtmlPage(false, 'Token inválido. Es posible que se haya generado un enlace más reciente.');
+        }
+        const expTimestamp = seguimiento[expField];
+        if (expTimestamp && Date.now() > expTimestamp) {
+            return sendHtmlPage(false, 'El enlace ha caducado (validez 7 días). Genera uno nuevo desde el panel.');
+        }
+
+        // Invalidar token de inmediato (uso único) y marcar como notificado
+        const newSeguimiento = {
+            ...seguimiento,
+            [tokenField]: null,
+            [expField]: null,
+            [notifiedField]: new Date().toISOString()
+        };
+        await supabase.from('expedientes')
+            .update({ seguimiento: newSeguimiento, updated_at: new Date().toISOString() })
+            .eq('id', req.params.id);
+
+        // Enviar notificaciones al cliente (y partners/admin como de costumbre)
+        const result = phase === 'final'
+            ? await notifyCeeFinalRegistrado(exp)
+            : await notifyCeeInicialRegistrado(exp);
+
+        if (!result.ok && result.reason === 'cliente-not-found') {
+            return sendHtmlPage(false, 'No se encontró al cliente en la base de datos. Verifícalo en el panel.');
+        }
+
+        return sendHtmlPage(true, `El cliente ha sido notificado correctamente por WhatsApp y email sobre el registro del CEE ${phase === 'final' ? 'Final' : 'Inicial'}.`);
+    } catch (err) {
+        console.error('[notify-client]', err.message);
+        return sendHtmlPage(false, 'Error interno del servidor. Inténtalo desde el panel de administración.');
     }
 });
 
