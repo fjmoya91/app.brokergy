@@ -647,8 +647,8 @@ async function getFacadeImage(rc) {
             responseType: 'arraybuffer',
             timeout: 15000,
             headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-                'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+                'User-Agent': 'Mozilla/5.0 (compatible; Brokergy/1.0; +https://app.brokergy.es)',
+                'Accept': '*/*',
                 'Accept-Encoding': 'identity'
             }
         });
@@ -680,7 +680,7 @@ async function getParcelImage(rc) {
             responseType: 'arraybuffer',
             timeout: 15000,
             headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                'User-Agent': 'Mozilla/5.0 (compatible; Brokergy/1.0; +https://app.brokergy.es)',
                 'Accept': '*/*',
                 'Accept-Encoding': 'identity'
             }
