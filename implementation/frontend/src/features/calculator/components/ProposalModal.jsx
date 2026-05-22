@@ -1749,13 +1749,6 @@ info@brokergy.es · 623 926 179`;
                                                         </div>
                                                     )}
 
-                                                    {f.legalizationCost > 0 && (
-                                                        <div className="prop-ftr">
-                                                            <span className="prop-fl">Legalización Instalación</span>
-                                                            <span className="prop-fv" style={{ color: 'var(--red)' }}>+ {formatNumber(f.legalizationCost)} €</span>
-                                                        </div>
-                                                    )}
-
                                                     {f.itpCost > 0 && (
                                                         <div className="prop-ftr">
                                                             <span className="prop-fl">Ajuste Fiscal: Notaría e ITP</span>
@@ -1806,13 +1799,6 @@ info@brokergy.es · 623 926 179`;
                                                         <div className="prop-ftr">
                                                             <span className="prop-fl">Gestión tramitación Expediente CAE</span>
                                                             <span className="prop-fv" style={{ color: 'var(--red)' }}>+ {formatNumber(f80.caeMaintenanceCost)} €</span>
-                                                        </div>
-                                                    )}
-
-                                                    {f80.legalizationCost > 0 && (
-                                                        <div className="prop-ftr">
-                                                            <span className="prop-fl">Legalización Instalación</span>
-                                                            <span className="prop-fv" style={{ color: 'var(--red)' }}>+ {formatNumber(f80.legalizationCost)} €</span>
                                                         </div>
                                                     )}
 
