@@ -21,6 +21,8 @@ const { geoGate } = require('../middleware/geoGate');
 const { getAvailableCCAA, ALLOWED_PROVINCES } = require('../data/allowedProvinces');
 const { verifyTurnstileToken, isEnabled: isTurnstileEnabled } = require('../services/turnstileService');
 const { createLead } = require('../services/leadService');
+const reformaUploadService = require('../services/reformaUploadService');
+const { sendLeadSummaryEmail } = require('../services/emailService');
 
 // Regex de validación del slug (mismo que en SQL CHECK constraint)
 const SLUG_REGEX = /^[a-z0-9]([a-z0-9-]{1,78}[a-z0-9])$/;
@@ -236,7 +238,8 @@ router.get('/check-rc/:rc', async (req, res) => {
 // }
 // ---------------------------------------------------------------------------
 router.post('/lead', geoGate, async (req, res) => {
-    const { turnstile_token, partner_slug, contacto, catastro, funnel, calculatorInputs, precomputedResult, demandaCalefaccionPorM2 } = req.body || {};
+    const { turnstile_token, partner_slug, contacto, catastro, funnel, calculatorInputs, precomputedResult, demandaCalefaccionPorM2, origen, delivery_preference, delivery_summary } = req.body || {};
+    const isReformaLead = origen === 'reforma';
 
     // 1. Captcha (si está habilitado)
     const clientIp = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.socket?.remoteAddress;
@@ -278,7 +281,125 @@ router.post('/lead', geoGate, async (req, res) => {
             prescriptorId
         });
 
-        console.log(`[landing/lead] LEAD creado: ${result.id_oportunidad} (score=${result.lead_score}, caliente=${result.lead_caliente})`);
+        // delivery_preference llega como array desde el frontend
+        const deliveryArr = Array.isArray(delivery_preference)
+            ? delivery_preference
+            : (delivery_preference ? [delivery_preference] : ['tecnico']);
+        const wantsWA    = deliveryArr.includes('whatsapp');
+        const wantsEmail = deliveryArr.includes('email');
+
+        console.log(`[landing/lead] LEAD creado: ${result.id_oportunidad} (score=${result.lead_score}, caliente=${result.lead_caliente}, delivery=${deliveryArr.join(',')})`);
+
+        // --- Enlace único de subida de documentación (TODOS los leads) ---
+        // Se genera siempre el token + se expone en la respuesta para que el
+        // frontend muestre el CTA de "Subir fotos" en la pantalla de resultado.
+        // La carpeta Drive se crea en background (no bloquea la respuesta).
+        let uploadLink = null;
+        if (result.oportunidad_uuid) {
+            try {
+                const { token } = await reformaUploadService.attachUploadToken(result.oportunidad_uuid);
+                uploadLink = reformaUploadService.buildUploadLink(result.oportunidad_uuid, token);
+                result.upload_link = uploadLink;
+                setImmediate(async () => {
+                    try { await reformaUploadService.ensureDriveFolder(result.oportunidad_uuid); }
+                    catch (e) { console.error('[lead/upload] Error creando carpeta Drive:', e.message); }
+                });
+            } catch (e) {
+                console.error('[lead/upload] No se pudo preparar el enlace de subida:', e.message);
+            }
+        }
+
+        // --- Entrega de la propuesta al cliente según su preferencia ---
+        // Los valores financieros vienen pre-calculados desde el frontend en
+        // delivery_summary. Se ejecuta en background (setImmediate) para no
+        // bloquear la respuesta.
+        if (wantsWA || wantsEmail) {
+            setImmediate(async () => {
+                try {
+                    const ds    = delivery_summary || {};
+                    const nombre = contacto?.nombre?.split(' ')[0] || 'cliente';
+                    const fmtEur = (n) => `${new Intl.NumberFormat('es-ES', { maximumFractionDigits: 0 }).format(Math.abs(n || 0))} €`;
+                    const caeN   = ds.cae   || 0;
+                    const irpfN  = ds.irpf  || 0;
+                    const totalN = caeN + irpfN;
+                    const netaN  = ds.neta  || 0;
+                    const ahorroN = ds.ahorro || 0;
+
+                    if (wantsWA && contacto?.tlf) {
+                        const whatsappService = require('../services/whatsappService');
+                        const status = await whatsappService.getStatus();
+                        if (status?.ready) {
+                            // Mensaje estilo propuesta admin (ProposalModal) adaptado a lead.
+                            const lines = [
+                                `¡Hola ${nombre}! 👋`,
+                                ``,
+                                `Hemos calculado tu simulación de ayudas para cambiar a aerotermia (Ref. *${result.id_oportunidad}*).`,
+                                ``,
+                                `🔹 *A modo resumen:*`,
+                                ``,
+                                `Instalando el sistema de aerotermia, podrías obtener una ayuda de *${fmtEur(caeN)}* gracias al Bono Energético BROKERGY.`,
+                            ];
+                            if (irpfN > 0) {
+                                lines.push('');
+                                lines.push(`Además, si en tu caso puedes acogerte a las deducciones en el IRPF por contar con retenciones aplicables y siempre que estén vigentes, el importe estimado sería de *${fmtEur(irpfN)}*. (Nosotros dejaremos toda la parte técnica preparada para que las puedas solicitar).`);
+                            }
+                            lines.push('');
+                            lines.push(`💡 *Resumen total de ayudas:* hasta *${fmtEur(totalN)}*.`);
+                            lines.push(`🏠 *Tu inversión neta tras ayudas:* *${fmtEur(netaN)}*.`);
+                            if (ahorroN > 0) {
+                                lines.push(`⚡ *Ahorro estimado en factura:* *${fmtEur(ahorroN)}* al año.`);
+                            }
+                            if (uploadLink) {
+                                lines.push('');
+                                lines.push(`📸 *Ayúdanos a afinar la propuesta* subiendo unas fotos de tu instalación actual (caldera, etiqueta, sitio para la unidad exterior, factura de luz...). Te llevará 2 minutos desde el móvil:`);
+                                lines.push(uploadLink);
+                            }
+                            lines.push('');
+                            lines.push(`Un técnico de Brokergy revisará tu caso y te contactará para concretar la propuesta definitiva.`);
+                            lines.push('');
+                            lines.push(`Un saludo,`);
+                            lines.push(`*BROKERGY — Ingeniería Energética*`);
+                            lines.push(`info@brokergy.es · 623 926 179`);
+                            await whatsappService.sendText(contacto.tlf, lines.join('\n'));
+                            console.log(`[landing/delivery] WhatsApp enviado a ${contacto.tlf}`);
+                        } else {
+                            console.warn('[landing/delivery] WhatsApp no disponible, no se envió al cliente');
+                        }
+                    }
+
+                    if (wantsEmail && contacto?.email) {
+                        await sendLeadSummaryEmail({
+                            to: contacto.email,
+                            nombre: contacto.nombre,
+                            idOportunidad: result.id_oportunidad,
+                            cae:    caeN,
+                            irpf:   irpfN,
+                            neta:   netaN,
+                            ahorro: ahorroN,
+                            uploadLink,
+                        });
+                        console.log(`[landing/delivery] Email enviado a ${contacto.email}`);
+                    }
+                } catch (e) {
+                    console.error('[landing/delivery] Error entregando propuesta al cliente:', e.message);
+                }
+            });
+        }
+
+        // --- Flujo /reforma: notificación específica con lista de slots ---
+        // Mantiene el WhatsApp/email de subida (más enfocado en docs) para el
+        // canal /reforma. El funnel estándar usa el bloque anterior.
+        if (isReformaLead && uploadLink) {
+            setImmediate(async () => {
+                try {
+                    const slots = reformaUploadService.getLeadSlots(funnel || {}, 'reforma');
+                    await reformaUploadService.sendReformaUploadNotifications({
+                        contacto, idOportunidad: result.id_oportunidad, uploadLink, slots
+                    });
+                } catch (e) { console.error('[reforma/lead] Error notificando:', e.message); }
+            });
+        }
+
         return res.status(201).json(result);
     } catch (err) {
         console.error('[landing/lead] Error creando lead:', err.message);

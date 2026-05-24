@@ -13,7 +13,25 @@ import { computeLandingResult } from '../data/landingCalculation';
 const fmtEur = (n) => `${new Intl.NumberFormat('es-ES', { maximumFractionDigits: 0 }).format(Math.abs(n || 0))} €`;
 const fmtEurSigned = (n, sign) => `${sign === '-' ? '−' : '+'} ${fmtEur(n)}`;
 
-export function LandingResultView({ leadResult, funnel, contacto, partnerBranding, calculatorInputs }) {
+const DELIVERY_BANNERS = {
+    whatsapp: (contacto) => ({
+        icon: '📱',
+        color: 'border-[#25D366]/40 bg-[#25D366]/[0.07]',
+        text: `Propuesta enviada por WhatsApp${contacto?.tlf ? ` al ${contacto.tlf}` : ''}. Revisa tus mensajes.`,
+    }),
+    email: (contacto) => ({
+        icon: '✉️',
+        color: 'border-blue-400/40 bg-blue-400/[0.07]',
+        text: `Propuesta enviada por email${contacto?.email ? ` a ${contacto.email}` : ''}. Revisa tu bandeja de entrada.`,
+    }),
+    tecnico: () => ({
+        icon: '👨‍💼',
+        color: 'border-amber-400/40 bg-amber-400/[0.07]',
+        text: 'Un técnico de Brokergy revisará tu propuesta y te contactará antes de las 18h del siguiente día laborable.',
+    }),
+};
+
+export function LandingResultView({ leadResult, funnel, contacto, partnerBranding, calculatorInputs, deliveryPreference }) {
     const [instaladores, setInstaladores] = useState([]);
     const [loadingInst, setLoadingInst] = useState(false);
 
@@ -44,15 +62,45 @@ export function LandingResultView({ leadResult, funnel, contacto, partnerBrandin
         );
     }
 
+    // deliveryPreference llega como array ['whatsapp'], ['email'], ['whatsapp','email'] o ['tecnico']
+    const deliveryArr = Array.isArray(deliveryPreference)
+        ? deliveryPreference
+        : (deliveryPreference ? [deliveryPreference] : []);
+    // Construir los banners activos: WA + Email individualmente; Técnico si no hay ningún otro
+    const activeBanners = deliveryArr
+        .filter(p => p !== 'tecnico' && DELIVERY_BANNERS[p])
+        .map(p => DELIVERY_BANNERS[p](contacto));
+    if (activeBanners.length === 0 && deliveryArr.includes('tecnico')) {
+        activeBanners.push(DELIVERY_BANNERS.tecnico(contacto));
+    }
+
     return (
         <div className="animate-fade-in max-w-2xl mx-auto">
-            {/* Header compacto */}
-            <div className="text-center mb-5">
-                <h1 className="text-xl md:text-2xl font-black text-white tracking-tight mb-1">
-                    ¡Listo, {contacto?.nombre?.split(' ')[0] || 'enhorabuena'}!
+            {/* Banners de entrega — confirmación visual (puede haber más de uno) */}
+            {activeBanners.map((banner, i) => (
+                <div key={i} className={`mb-3 p-4 rounded-2xl border-2 flex items-start gap-3 ${banner.color}`}>
+                    <span className="text-2xl shrink-0">{banner.icon}</span>
+                    <p className="text-white/80 text-sm leading-snug">{banner.text}</p>
+                </div>
+            ))}
+            {activeBanners.length > 0 && <div className="mb-2" />}
+
+            {/* Header celebratorio — más visible y "vistoso" */}
+            <div className="text-center mb-6 relative">
+                {/* Resplandor decorativo */}
+                <div className="absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-emerald-500/15 via-amber-500/8 to-transparent rounded-full blur-3xl -z-10 pointer-events-none" />
+
+                <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 mb-3 animate-fade-in">
+                    <span className="text-sm">🎉</span>
+                    <span className="text-[10px] font-black uppercase tracking-[0.18em] text-emerald-300">¡Buenas noticias!</span>
+                </div>
+                <h1 className="text-3xl md:text-5xl font-black text-white tracking-tight leading-[1.05] mb-3">
+                    Enhorabuena{contacto?.nombre?.split(' ')[0] ? <>, <span className="text-amber-400">{contacto.nombre.split(' ')[0]}</span></> : ''}.
+                    <br/>
+                    <span className="text-white/90">Tu vivienda</span> <span className="text-emerald-400">cumple</span><span className="text-white/90"> con las ayudas.</span>
                 </h1>
-                <p className="text-white/50 text-xs md:text-sm">
-                    Hemos calculado tu propuesta orientativa.
+                <p className="text-white/55 text-sm md:text-base max-w-md mx-auto leading-relaxed">
+                    Aquí tienes el detalle de tu estimación. Un técnico afinará los números con tu caso real.
                 </p>
             </div>
 
@@ -190,6 +238,44 @@ export function LandingResultView({ leadResult, funnel, contacto, partnerBrandin
                             ))}
                         </div>
                     )}
+                </div>
+            )}
+
+            {/* CTA: Subir fotos y documentos — destaca, llamativo */}
+            {leadResult?.upload_link && (
+                <div className="mb-8 animate-fade-in">
+                    <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-[#25D366]/25 via-emerald-500/10 to-emerald-500/5 border-2 border-[#25D366]/40 p-6 md:p-7">
+                        {/* Burbujas decorativas */}
+                        <div className="absolute -top-12 -right-12 w-40 h-40 rounded-full bg-[#25D366]/15 blur-3xl pointer-events-none" />
+                        <div className="absolute -bottom-12 -left-12 w-32 h-32 rounded-full bg-emerald-500/15 blur-3xl pointer-events-none" />
+
+                        <div className="relative">
+                            <div className="flex items-center gap-2 mb-3">
+                                <span className="text-2xl">📸</span>
+                                <span className="text-[10px] font-black uppercase tracking-[0.18em] text-[#25D366]">Ayúdanos a afinar tu propuesta</span>
+                            </div>
+                            <h3 className="text-xl md:text-2xl font-black text-white tracking-tight mb-2">
+                                Sube unas fotos rápidas
+                            </h3>
+                            <p className="text-white/65 text-sm leading-relaxed mb-5">
+                                Con un par de fotos de tu instalación actual (caldera, etiqueta, sitio para la unidad exterior y factura de luz) podemos preparar mejor tu propuesta. <strong className="text-white/85">2 minutos desde el móvil.</strong>
+                            </p>
+                            <a
+                                href={leadResult.upload_link}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center justify-center gap-2 w-full md:w-auto px-7 py-4 rounded-2xl bg-[#25D366] hover:bg-[#1eb554] text-white font-black uppercase tracking-widest text-sm shadow-xl shadow-[#25D366]/30 transition-all"
+                            >
+                                <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12" />
+                                </svg>
+                                Subir fotos y documentos
+                            </a>
+                            <p className="text-white/35 text-[10px] mt-3 leading-relaxed">
+                                Puedes hacerlo ahora o desde el enlace que te hemos enviado por WhatsApp / email.
+                            </p>
+                        </div>
+                    </div>
                 </div>
             )}
 

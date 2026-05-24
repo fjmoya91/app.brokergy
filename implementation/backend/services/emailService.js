@@ -170,6 +170,118 @@ const sendPasswordResetEmail = async (to, resetLink, userName) => {
 };
 
 /**
+ * Envía un resumen de propuesta al lead cuando elige "enviar por email"
+ * en el funnel público. No requiere PDF, solo los números clave.
+ */
+const sendLeadSummaryEmail = async ({ to, nombre, idOportunidad, cae, irpf, neta, ahorro, uploadLink }) => {
+    const fmtEur = (n) => `${new Intl.NumberFormat('es-ES', { maximumFractionDigits: 0 }).format(Math.abs(n || 0))} €`;
+    const primerNombre = (nombre || '').split(' ')[0] || 'cliente';
+    const subject = `Tu propuesta Brokergy — ${idOportunidad}`;
+    const total = cae + irpf;
+
+    const html = `<!DOCTYPE html>
+<html lang="es">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#0f172a;font-family:Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#0f172a;padding:40px 16px;">
+    <tr><td align="center">
+      <table width="100%" style="max-width:560px;background:#1e293b;border-radius:24px;overflow:hidden;border:1px solid rgba(255,255,255,0.08);">
+        <!-- Header -->
+        <tr><td style="padding:32px 32px 20px;text-align:center;background:linear-gradient(135deg,#1e293b,#0f172a);">
+          <div style="font-size:22px;font-weight:900;letter-spacing:-0.5px;color:#fff;">
+            BROKER<span style="color:#f59e0b">GY</span>
+          </div>
+          <h1 style="color:#fff;font-size:20px;font-weight:900;margin:16px 0 6px;">¡Hola, ${primerNombre}!</h1>
+          <p style="color:rgba(255,255,255,0.55);font-size:14px;margin:0;">Tu estimación de ayudas energéticas</p>
+        </td></tr>
+
+        <!-- Cifras clave -->
+        <tr><td style="padding:24px 32px;">
+          <table width="100%" cellpadding="0" cellspacing="0">
+            <tr>
+              <td width="48%" style="background:rgba(16,185,129,0.12);border:2px solid rgba(16,185,129,0.4);border-radius:16px;padding:16px;text-align:center;">
+                <div style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:1.5px;color:rgba(52,211,153,0.8);margin-bottom:6px;">Ayuda total estimada</div>
+                <div style="font-size:28px;font-weight:900;color:#34d399;">${fmtEur(total)}</div>
+                <div style="font-size:10px;color:rgba(52,211,153,0.6);margin-top:4px;font-weight:700;text-transform:uppercase;letter-spacing:1px;">incluye CAE${irpf > 0 ? ' + IRPF' : ''}</div>
+              </td>
+              <td width="4%"></td>
+              <td width="48%" style="background:rgba(245,158,11,0.12);border:2px solid rgba(245,158,11,0.4);border-radius:16px;padding:16px;text-align:center;">
+                <div style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:1.5px;color:rgba(251,191,36,0.8);margin-bottom:6px;">Tu inversión neta</div>
+                <div style="font-size:28px;font-weight:900;color:#fbbf24;">${fmtEur(neta)}</div>
+                <div style="font-size:10px;color:rgba(251,191,36,0.6);margin-top:4px;font-weight:700;text-transform:uppercase;letter-spacing:1px;">tras todas las ayudas</div>
+              </td>
+            </tr>
+          </table>
+        </td></tr>
+
+        <!-- Desglose -->
+        <tr><td style="padding:0 32px 24px;">
+          <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid rgba(255,255,255,0.1);border-radius:16px;overflow:hidden;">
+            <tr style="background:rgba(255,165,0,0.1);">
+              <td style="padding:10px 16px;font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:1.5px;color:rgba(251,191,36,0.8);">Concepto</td>
+              <td style="padding:10px 16px;font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:1.5px;color:rgba(251,191,36,0.8);text-align:right;">Importe</td>
+            </tr>
+            <tr style="border-top:1px solid rgba(255,255,255,0.06);">
+              <td style="padding:12px 16px;font-size:13px;color:rgba(255,255,255,0.8);">Bono Energético CAE</td>
+              <td style="padding:12px 16px;font-size:13px;font-weight:700;color:#34d399;text-align:right;">${fmtEur(cae)}</td>
+            </tr>
+            ${irpf > 0 ? `<tr style="border-top:1px solid rgba(255,255,255,0.06);">
+              <td style="padding:12px 16px;font-size:13px;color:rgba(255,255,255,0.8);">Deducción en el IRPF</td>
+              <td style="padding:12px 16px;font-size:13px;font-weight:700;color:#34d399;text-align:right;">${fmtEur(irpf)}</td>
+            </tr>` : ''}
+            ${ahorro > 0 ? `<tr style="border-top:1px solid rgba(255,255,255,0.06);">
+              <td style="padding:12px 16px;font-size:13px;color:rgba(255,255,255,0.8);">Ahorro en calefacción</td>
+              <td style="padding:12px 16px;font-size:13px;font-weight:700;color:#60a5fa;text-align:right;">${fmtEur(ahorro)}/año</td>
+            </tr>` : ''}
+            <tr style="background:rgba(0,0,0,0.3);border-top:1px solid rgba(255,255,255,0.1);">
+              <td style="padding:12px 16px;font-size:13px;font-weight:900;color:#fff;">Ayuda total estimada</td>
+              <td style="padding:12px 16px;font-size:15px;font-weight:900;color:#34d399;text-align:right;">${fmtEur(total)}</td>
+            </tr>
+          </table>
+        </td></tr>
+
+        ${uploadLink ? `
+        <!-- CTA: Subir documentación -->
+        <tr><td style="padding:0 32px 16px;">
+          <div style="background:linear-gradient(135deg,rgba(37,211,102,0.18),rgba(37,211,102,0.06));border:2px solid rgba(37,211,102,0.4);border-radius:16px;padding:20px;text-align:center;">
+            <p style="color:#fff;font-size:14px;font-weight:900;margin:0 0 6px 0;">📸 Ayúdanos a afinar tu propuesta</p>
+            <p style="color:rgba(255,255,255,0.7);font-size:12px;margin:0 0 14px 0;line-height:1.5;">
+              Sube unas fotos de tu instalación actual (caldera, etiqueta, sitio para la unidad exterior, factura de luz). 2 minutos desde el móvil.
+            </p>
+            <a href="${uploadLink}" style="display:inline-block;background:#25D366;color:#fff;padding:12px 28px;border-radius:12px;text-decoration:none;font-weight:900;font-size:13px;text-transform:uppercase;letter-spacing:1px;">
+              Subir fotos y documentos
+            </a>
+          </div>
+        </td></tr>
+        ` : ''}
+
+        <!-- Siguiente paso -->
+        <tr><td style="padding:0 32px 32px;">
+          <div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.25);border-radius:16px;padding:20px;text-align:center;">
+            <p style="color:rgba(255,255,255,0.7);font-size:13px;margin:0 0 6px 0;">
+              Un técnico de Brokergy revisará tu expediente y te contactará en breve con la propuesta definitiva.
+            </p>
+            <p style="color:rgba(255,255,255,0.35);font-size:11px;margin:0;">Ref: <strong style="color:rgba(251,191,36,0.7);font-family:monospace;">${idOportunidad}</strong></p>
+          </div>
+        </td></tr>
+
+        <!-- Footer -->
+        <tr><td style="padding:16px 32px;border-top:1px solid rgba(255,255,255,0.06);text-align:center;">
+          <p style="color:rgba(255,255,255,0.2);font-size:10px;margin:0;text-transform:uppercase;letter-spacing:2px;font-weight:700;">Brokergy · Ingeniería Energética</p>
+          <p style="color:rgba(255,255,255,0.15);font-size:10px;margin:6px 0 0;">Estimación teórica sujeta a verificación técnica. El bono CAE está garantizado por Brokergy.</p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
+
+    const text = `Tu propuesta de Brokergy\n\nHola ${primerNombre},\n\nAquí tienes tu estimación de ayudas:\n\nBono CAE: ${fmtEur(cae)}\n${irpf > 0 ? `Deducción IRPF: ${fmtEur(irpf)}\n` : ''}Ayuda total: ${fmtEur(total)}\nTu inversión neta: ${fmtEur(neta)}\n${ahorro > 0 ? `Ahorro anual: ${fmtEur(ahorro)}/año\n` : ''}\nRef: ${idOportunidad}\n\nBrokergy · brokergy.es`;
+
+    return sendMail({ to, subject, html, text });
+};
+
+/**
  * Envía la propuesta en PDF al cliente por correo
  */
 const sendProposalEmail = async ({ to, userName, pdfBuffer, tableImageBase64, summaryData }) => {
@@ -1425,6 +1537,7 @@ module.exports = {
     sendMail,
     verifySmtp,
     sendPasswordResetEmail,
+    sendLeadSummaryEmail,
     sendProposalEmail,
     sendAcceptanceNotificationEmail,
     sendAnnexEmail,

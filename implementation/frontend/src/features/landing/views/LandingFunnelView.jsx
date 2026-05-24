@@ -12,7 +12,7 @@
  * Exporta DEFAULT para que React.lazy() funcione en App.jsx.
  */
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import axios from 'axios';
 
 import { CatastroSearchBox } from '../../../components/CatastroSearchBox';
@@ -39,11 +39,16 @@ import { Step7_Gasto } from '../steps/Step7_Gasto';
 import { Step8_Presupuesto } from '../steps/Step8_Presupuesto';
 import { Step9_Contacto } from '../steps/Step9_Contacto';
 import { LandingResultView } from './LandingResultView';
+import { ReformaSubFlow } from './ReformaSubFlow';
+import { LeadDeliveryView } from './LeadDeliveryView';
 
 const CATASTRO_API = '/api/catastro';
 
-export default function LandingFunnelView({ route, mode = 'public', onCreated, onCancel }) {
+export default function LandingFunnelView({ route, mode = 'public', variant = 'default', onCreated, onCancel }) {
     const isInternal = mode === 'internal';
+    const isReformaVariant = variant === 'reforma';
+    // Tras resolver el catastro, /reforma muestra primero "¿estado de la obra?".
+    const FUNNEL_ENTRY_PHASE = isReformaVariant ? 'OBRA_ESTADO' : 'FUNNEL';
 
     // ---- Branding del partner (solo en mode public con slug) ----
     const [partnerBranding, setPartnerBranding] = useState(null);
@@ -73,7 +78,7 @@ export default function LandingFunnelView({ route, mode = 'public', onCreated, o
     const [duplicateRcInfo, setDuplicateRcInfo] = useState(null); // { daysAgo, ficha, ... }
 
     // ---- Funnel state ----
-    const { funnel, updateFunnel, currentStep, goNext, goBack, resetFunnel } = useFunnelState();
+    const { funnel, updateFunnel, currentStep, setCurrentStep, goNext, goBack, resetFunnel } = useFunnelState();
 
     // Scroll-to-top automático cuando cambia la fase o el paso del funnel.
     // Sin esto, el cliente al avanzar de paso o llegar al resultado se queda
@@ -97,6 +102,12 @@ export default function LandingFunnelView({ route, mode = 'public', onCreated, o
     const [submittedInputs, setSubmittedInputs] = useState(null);
     const [submitError, setSubmitError] = useState(null);
     const [submitting, setSubmitting] = useState(false);
+
+    // ---- Entrega del resultado al cliente (PRE_RESULT) ----
+    // deliveryPreference: array — ['whatsapp'], ['email'], ['whatsapp','email'], ['tecnico']
+    const [deliveryPreference, setDeliveryPreference] = useState([]);
+    // Captura síncrona del objeto r calculado en LeadDeliveryView antes del submit
+    const deliverySummaryRef = useRef(null);
 
     // ---- Helpers catastro (replican el flujo de App.jsx) ----
     // Construye un candidate listo para ConfirmationCard, con vecinos cargados.
@@ -282,12 +293,12 @@ export default function LandingFunnelView({ route, mode = 'public', onCreated, o
         }
 
         setCatastro(data);
-        setPhase('FUNNEL');
+        setPhase(FUNNEL_ENTRY_PHASE);
     };
 
     const handleDuplicateRcContinue = () => {
         setDuplicateRcInfo(null);
-        setPhase('FUNNEL');
+        setPhase(FUNNEL_ENTRY_PHASE);
     };
 
     const handleDuplicateRcCancel = () => {
@@ -333,6 +344,13 @@ export default function LandingFunnelView({ route, mode = 'public', onCreated, o
                 provinceCode: String(catastro?.provinceCode || '').padStart(2, '0'),
                 partner_slug: partnerBranding?.slug || null,
                 turnstile_token: null, // Fase 2B: integrar widget Turnstile
+                delivery_preference: deliveryPreference.length ? deliveryPreference : ['tecnico'],
+                delivery_summary: deliverySummaryRef.current ? {
+                    cae:    deliverySummaryRef.current.caeBonusNetoCliente   || 0,
+                    irpf:   deliverySummaryRef.current.irpfDeduction          || 0,
+                    neta:   deliverySummaryRef.current.inversionNetaCliente   || 0,
+                    ahorro: deliverySummaryRef.current.ahorroAnualEur         || 0,
+                } : null,
                 contacto,
                 catastro: {
                     ref_catastral: catastro?.rc,
@@ -386,7 +404,7 @@ export default function LandingFunnelView({ route, mode = 'public', onCreated, o
             setSubmitError(msg);
             setSubmitting(false);
         }
-    }, [funnel, contacto, catastro, partnerBranding, isInternal, onCreated]);
+    }, [funnel, contacto, catastro, partnerBranding, isInternal, onCreated, deliveryPreference]);
 
     // ---- Pasos activos (variable según respuestas y mode) ----
     // - Step 3 (edad caldera) se omite si combustible es eléctrico.
@@ -401,7 +419,10 @@ export default function LandingFunnelView({ route, mode = 'public', onCreated, o
         base.push(Step4_Emisores, Step5_ACS);
         if (funnel.isReforma) base.push(Step6_ElementosReforma);
         if (!isInternal) base.push(Step7_Gasto);
-        base.push(Step8_Presupuesto, Step9_Contacto);
+        base.push(Step8_Presupuesto);
+        // En modo public el contacto se recoge en PRE_RESULT (LeadDeliveryView),
+        // no como un paso más del funnel.
+        if (isInternal) base.push(Step9_Contacto);
         return base;
     }, [funnel.isReforma, funnel.combustible_actual, isInternal]);
 
@@ -424,9 +445,13 @@ export default function LandingFunnelView({ route, mode = 'public', onCreated, o
             );
         }
         if (StepComponent === Step8_Presupuesto) {
+            // En público: Step8 es el último paso del funnel; al terminar
+            // vamos a PRE_RESULT (resultado + CTA de entrega) en lugar de
+            // al formulario de contacto clásico.
+            const onStep8Next = isInternal ? goNext : () => setPhase('PRE_RESULT');
             return (
                 <Step8_Presupuesto
-                    funnel={funnel} updateFunnel={updateFunnel} onNext={goNext}
+                    funnel={funnel} updateFunnel={updateFunnel} onNext={onStep8Next}
                     hideInstalador={isInternal}
                 />
             );
@@ -551,6 +576,17 @@ export default function LandingFunnelView({ route, mode = 'public', onCreated, o
                         </div>
                     )}
 
+                    {phase === 'OBRA_ESTADO' && (
+                        <ReformaSubFlow
+                            catastro={catastro}
+                            funnel={funnel}
+                            updateFunnel={updateFunnel}
+                            partnerBranding={partnerBranding}
+                            onNoEmpezada={() => { setCurrentStep(0); setPhase('FUNNEL'); }}
+                            onRestart={() => { resetFunnel(); setCatastro(null); setPhase('HOME'); }}
+                        />
+                    )}
+
                     {phase === 'FUNNEL' && (
                         <>
                             <StepHeader
@@ -563,6 +599,24 @@ export default function LandingFunnelView({ route, mode = 'public', onCreated, o
                         </>
                     )}
 
+                    {/* PRE_RESULT: resultado estimado + 3 CTAs de entrega + form contacto mínimo */}
+                    {phase === 'PRE_RESULT' && (
+                        <LeadDeliveryView
+                            funnel={funnel}
+                            catastro={catastro}
+                            contacto={contacto}
+                            setContacto={setContacto}
+                            deliveryPreference={deliveryPreference}
+                            setDeliveryPreference={setDeliveryPreference}
+                            onCaptureSummary={r => { deliverySummaryRef.current = r; }}
+                            onSubmit={handleSubmit}
+                            onBack={() => { setPhase('FUNNEL'); setCurrentStep(activeSteps.length - 1); }}
+                            submitting={submitting}
+                            submitError={submitError}
+                            partnerBranding={partnerBranding}
+                        />
+                    )}
+
                     {phase === 'RESULT' && leadResult && (
                         <LandingResultView
                             leadResult={leadResult}
@@ -570,6 +624,7 @@ export default function LandingFunnelView({ route, mode = 'public', onCreated, o
                             contacto={contacto}
                             partnerBranding={partnerBranding}
                             calculatorInputs={submittedInputs}
+                            deliveryPreference={deliveryPreference}
                         />
                     )}
                 </main>

@@ -26,10 +26,20 @@ const INITIAL_FUNNEL = {
     emisor_tipo: null,           // 'radiadores_convencionales' | ...
     boiler_acs_type: null,       // 'misma_caldera' | 'termo' | 'butano' | 'gas' | 'gasoleo' | 'solar' | 'no_tengo'
     incluir_acs: null,
-    reforma_elementos: { ventanas: false, cubierta: false, suelo: false, paredes: false },
+    reforma_elementos: { caldera: false, ventanas: false, cubierta: false, suelo: false, paredes: false, placas: false },
     gasto_anual_eur: null,
     presupuesto_modo: null,      // 'tengo' | 'no_se' | 'pide_instalador'
     presupuesto_eur: null,
+
+    // ---- Flujo Reforma (/reforma) ----
+    obra_estado: null,           // 'no_empezada' | 'a_medias' | 'ejecutada' | 'nueva'
+    reforma_sin_caldera: false,  // true si no había caldera de calefacción → boilerHeatingType 'No tiene Calefacción'
+    reforma_facturas: null,      // 'si' | 'no'
+    reforma_factura_fecha: null, // 'menos1mes' | 'mas1mes'
+    reforma_cee_previo: null,    // 'si' | 'no' | 'nose'  (obra a medias)
+    reforma_cee_ambos: null,     // 'si' | 'no'           (obra ejecutada: previo + posterior)
+    reforma_fotos: null,         // 'si' | 'no'
+    reforma_ejec_fecha: null,    // 'antes2024' | 'desde2024'
 
     // Meta
     timeline: null,

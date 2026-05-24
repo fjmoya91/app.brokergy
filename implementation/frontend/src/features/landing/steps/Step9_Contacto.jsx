@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { StepLayout } from '../components/StepLayout';
 
-// ---- Iconos SVG (limpios, line-style, hereda color) ----------------------
+// ── Iconos SVG ────────────────────────────────────────────────────────────────
 const IconMail = ({ className = 'w-5 h-5' }) => (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
         <rect x="3" y="5" width="18" height="14" rx="2" />
@@ -30,13 +30,54 @@ const IconBuilding = ({ className = 'w-4 h-4' }) => (
 );
 
 const TIMELINE_OPTIONS = [
-    { value: 'urgente',     emoji: '🚀',  label: 'Urgente' },
-    { value: '1-3_meses',   emoji: '📅',  label: '1-3 meses' },
-    { value: '6_meses',     emoji: '🗓️',  label: '6+ meses' },
-    { value: 'explorando',  emoji: '🔍',  label: 'Explorando' }
+    { value: 'urgente',    emoji: '🚀', label: 'Urgente' },
+    { value: '1-3_meses', emoji: '📅', label: '1-3 meses' },
+    { value: '6_meses',   emoji: '🗓️', label: '6+ meses' },
+    { value: 'explorando',emoji: '🔍', label: 'Explorando' }
 ];
 
-// ---- Componente principal -----------------------------------------------
+// ── Config por canal elegido en StepPreview ───────────────────────────────────
+const CTA_CONFIG = {
+    whatsapp: {
+        question: '¿A qué número te enviamos la propuesta?',
+        subtitle: 'La recibirás al instante por WhatsApp.',
+        phoneRequired: true,
+        emailRequired: false,
+        submitLabel: 'Enviar por WhatsApp',
+        submitClass: 'bg-[#25D366] hover:bg-[#20b858] text-white',
+        submitIcon: <IconWhatsapp className="w-4 h-4" />,
+    },
+    email: {
+        question: '¿A qué email te enviamos la propuesta?',
+        subtitle: 'Te llegará con todos los detalles del cálculo.',
+        phoneRequired: false,
+        emailRequired: true,
+        submitLabel: 'Enviar por email',
+        submitClass: 'bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-400 hover:to-amber-300 text-bkg-deep',
+        submitIcon: <IconMail className="w-4 h-4" />,
+    },
+    tecnico: {
+        question: '¿A qué número te llamamos?',
+        subtitle: 'Un técnico de BROKERGY revisará tu caso y te contactará antes de las 18h (días laborables).',
+        phoneRequired: true,
+        emailRequired: false,
+        submitLabel: 'Solicitar revisión técnica',
+        submitClass: 'bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white',
+        submitIcon: null,
+    },
+    // Fallback si llega sin cta_choice (ej. modo interno o datos legacy)
+    default: {
+        question: '¿A dónde te enviamos tu cálculo?',
+        subtitle: 'Solo lo usamos para mandarte el resultado y contactarte si tienes preguntas.',
+        phoneRequired: false,
+        emailRequired: false,
+        submitLabel: 'Recibir mi cálculo',
+        submitClass: 'bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-400 hover:to-amber-300 text-bkg-deep',
+        submitIcon: null,
+    },
+};
+
+// ── Componente principal ───────────────────────────────────────────────────────
 export function Step9_Contacto({ funnel, updateFunnel, contacto, setContacto, onSubmit, submitting, submitError, mode = 'public', submitLabel }) {
     const [touched, setTouched] = useState({});
     const isInternal = mode === 'internal';
@@ -44,24 +85,32 @@ export function Step9_Contacto({ funnel, updateFunnel, contacto, setContacto, on
     const setField = (key, value) => setContacto(prev => ({ ...prev, [key]: value }));
 
     const emailValid = !contacto.email || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contacto.email);
-    const tlfValid = !contacto.tlf || /^[+]?\d{9,15}$/.test(contacto.tlf.replace(/\s/g, ''));
+    const tlfValid   = !contacto.tlf   || /^[+]?\d{9,15}$/.test(contacto.tlf.replace(/\s/g, ''));
 
-    // ---- Reglas de validación según mode ----
-    // public:   nombre + (email O tlf) + RGPD + titular + timeline + (propietarios si particular)
-    // internal: nombre + tlf (obligatorio) + email opcional. Sin titular/timeline/RGPD UI
-    //           (RGPD se asume gestionado por el partner fuera del sistema).
-    const tieneContacto = isInternal
+    // Config según canal elegido en StepPreview
+    const cfg = isInternal ? null : (CTA_CONFIG[contacto?.cta_choice] || CTA_CONFIG.default);
+
+    // ── Validación ──
+    const tieneEmail = !!contacto.email && emailValid;
+    const tienePhone = !!contacto.tlf && tlfValid;
+
+    // Para el modo público con CTA elegido, requerimos el campo específico
+    const contactoOk = isInternal
         ? !!contacto.tlf
-        : !!(contacto.email || contacto.tlf);
+        : cfg?.phoneRequired
+            ? tienePhone
+            : cfg?.emailRequired
+                ? tieneEmail
+                : !!(contacto.email || contacto.tlf);
 
     const isParticular = contacto.titular_type === 'particular';
     const propietariosOk = isInternal || !isParticular || !!contacto.num_propietarios;
 
     const canSubmit = isInternal
-        ? !!(contacto.nombre?.trim() && tieneContacto && tlfValid && emailValid)
+        ? !!(contacto.nombre?.trim() && contactoOk && tlfValid && emailValid)
         : !!(
             contacto.nombre?.trim() &&
-            tieneContacto &&
+            contactoOk &&
             emailValid &&
             tlfValid &&
             contacto.rgpd_aceptado &&
@@ -76,7 +125,7 @@ export function Step9_Contacto({ funnel, updateFunnel, contacto, setContacto, on
         onSubmit();
     };
 
-    // Helpers de clases (compactas, mismo lenguaje visual que el resto)
+    // Helpers de clases
     const fieldLabel = 'block text-[10px] font-black uppercase tracking-widest text-white/40 mb-2 ml-1';
     const inputCls = (invalid) => `w-full bg-white/[0.04] border-2 rounded-xl px-4 py-3 text-white text-sm outline-none transition-all ${
         invalid ? 'border-red-500/60' : 'border-white/10 focus:border-amber-400'
@@ -87,9 +136,7 @@ export function Step9_Contacto({ funnel, updateFunnel, contacto, setContacto, on
             : 'border-white/10 bg-white/[0.03] text-white/70 hover:border-amber-400/40 hover:text-white'
     }`;
 
-    const defaultLabel = isInternal ? 'Calcular' : 'Recibir mi cálculo';
-
-    // ─── Modo INTERNAL: vista simplificada ─────────────────────────────────
+    // ── MODO INTERNAL ─────────────────────────────────────────────────────────
     if (isInternal) {
         return (
             <StepLayout
@@ -97,47 +144,35 @@ export function Step9_Contacto({ funnel, updateFunnel, contacto, setContacto, on
                 subtitle="Solo necesitamos nombre y teléfono para crear la oportunidad. El email es opcional."
                 onContinue={handleSubmit}
                 canContinue={canSubmit && !submitting}
-                continueLabel={submitting ? 'Creando…' : (submitLabel || defaultLabel)}
+                continueLabel={submitting ? 'Creando…' : (submitLabel || 'Calcular')}
             >
                 <div className="space-y-3 max-w-md mx-auto">
                     <div>
                         <label className={fieldLabel}>Nombre y apellidos *</label>
-                        <input
-                            type="text"
-                            placeholder="Ej. María García López"
+                        <input type="text" placeholder="Ej. María García López"
                             value={contacto.nombre || ''}
                             onChange={e => setField('nombre', e.target.value)}
                             onBlur={() => setTouched(t => ({ ...t, nombre: true }))}
                             className={inputCls(touched.nombre && !contacto.nombre)}
-                            autoFocus
-                        />
+                            autoFocus />
                     </div>
                     <div>
                         <label className={fieldLabel}>Teléfono *</label>
-                        <input
-                            type="tel"
-                            autoComplete="tel"
-                            placeholder="+34 600 000 000"
+                        <input type="tel" autoComplete="tel" placeholder="+34 600 000 000"
                             value={contacto.tlf || ''}
                             onChange={e => setField('tlf', e.target.value)}
                             onBlur={() => setTouched(t => ({ ...t, tlf: true }))}
-                            className={inputCls(touched.tlf && (!contacto.tlf || !tlfValid))}
-                        />
+                            className={inputCls(touched.tlf && (!contacto.tlf || !tlfValid))} />
                     </div>
                     <div>
                         <label className={fieldLabel}>Email (opcional)</label>
-                        <input
-                            type="email"
-                            autoComplete="email"
-                            placeholder="cliente@email.com"
+                        <input type="email" autoComplete="email" placeholder="cliente@email.com"
                             value={contacto.email || ''}
                             onChange={e => setField('email', e.target.value)}
                             onBlur={() => setTouched(t => ({ ...t, email: true }))}
-                            className={inputCls(touched.email && !emailValid)}
-                        />
+                            className={inputCls(touched.email && !emailValid)} />
                     </div>
                 </div>
-
                 {submitError && (
                     <div className="mt-4 p-3 bg-red-500/10 border border-red-500/30 rounded-xl max-w-md mx-auto">
                         <p className="text-red-400 text-xs font-bold text-center">{submitError}</p>
@@ -147,71 +182,88 @@ export function Step9_Contacto({ funnel, updateFunnel, contacto, setContacto, on
         );
     }
 
-    // ─── Modo PUBLIC: versión completa con todos los campos ────────────────
+    // ── MODO PUBLIC ───────────────────────────────────────────────────────────
+    const submitBtnLabel = submitting
+        ? 'Enviando…'
+        : (submitLabel || cfg?.submitLabel || 'Recibir mi cálculo');
+
+    const showPhone = cfg?.phoneRequired || (!cfg?.emailRequired);
+    const showEmail = cfg?.emailRequired || (!cfg?.phoneRequired);
+
     return (
         <StepLayout
-            question="¿A dónde te enviamos tu cálculo?"
-            subtitle="Solo lo usamos para mandarte el resultado y contactarte si tienes preguntas."
+            question={cfg?.question || '¿A dónde te enviamos tu cálculo?'}
+            subtitle={cfg?.subtitle || 'Solo lo usamos para mandarte el resultado.'}
             onContinue={handleSubmit}
             canContinue={canSubmit && !submitting}
-            continueLabel={submitting ? 'Enviando…' : (submitLabel || defaultLabel)}
+            continueLabel={submitBtnLabel}
+            continueCls={submitting ? undefined : cfg?.submitClass}
+            continueIcon={cfg?.submitIcon}
         >
-            {/* Layout 2 columnas en desktop, 1 en móvil */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-5">
 
-                {/* ───── Columna A: Datos personales ───── */}
+                {/* ── Columna A: Datos personales ── */}
                 <div className="space-y-3">
                     <div>
                         <label className={fieldLabel}>Nombre y apellidos *</label>
-                        <input
-                            type="text"
-                            placeholder="Ej. María García López"
+                        <input type="text" placeholder="Ej. María García López"
                             value={contacto.nombre || ''}
                             onChange={e => setField('nombre', e.target.value)}
                             onBlur={() => setTouched(t => ({ ...t, nombre: true }))}
-                            className={inputCls(touched.nombre && !contacto.nombre)}
-                        />
+                            className={inputCls(touched.nombre && !contacto.nombre)} />
                     </div>
 
-                    <div>
-                        <label className={fieldLabel}>Email</label>
-                        <input
-                            type="email"
-                            autoComplete="email"
-                            placeholder="tu@email.com"
-                            value={contacto.email || ''}
-                            onChange={e => setField('email', e.target.value)}
-                            onBlur={() => setTouched(t => ({ ...t, email: true }))}
-                            className={inputCls(touched.email && !emailValid)}
-                        />
-                    </div>
+                    {/* Email — siempre visible; obligatorio solo si cfg lo requiere */}
+                    {showEmail && (
+                        <div>
+                            <label className={fieldLabel}>
+                                Email {cfg?.emailRequired ? '*' : '(opcional)'}
+                            </label>
+                            <input type="email" autoComplete="email" placeholder="tu@email.com"
+                                value={contacto.email || ''}
+                                onChange={e => setField('email', e.target.value)}
+                                onBlur={() => setTouched(t => ({ ...t, email: true }))}
+                                className={inputCls(
+                                    touched.email && (
+                                        (cfg?.emailRequired && !contacto.email) || !emailValid
+                                    )
+                                )} />
+                        </div>
+                    )}
 
-                    <div>
-                        <label className={fieldLabel}>Teléfono (mejor para que te llamemos)</label>
-                        <input
-                            type="tel"
-                            autoComplete="tel"
-                            placeholder="+34 600 000 000"
-                            value={contacto.tlf || ''}
-                            onChange={e => setField('tlf', e.target.value)}
-                            onBlur={() => setTouched(t => ({ ...t, tlf: true }))}
-                            className={inputCls(touched.tlf && !tlfValid)}
-                        />
-                        {!tieneContacto && (touched.email || touched.tlf) && (
-                            <p className="text-red-400 text-xs mt-1.5 ml-1">Necesitamos al menos email o teléfono.</p>
-                        )}
-                    </div>
+                    {/* Teléfono — obligatorio si cfg lo requiere */}
+                    {showPhone && (
+                        <div>
+                            <label className={fieldLabel}>
+                                Teléfono {cfg?.phoneRequired ? '*' : '(opcional)'}
+                            </label>
+                            <input type="tel" autoComplete="tel" placeholder="+34 600 000 000"
+                                value={contacto.tlf || ''}
+                                onChange={e => setField('tlf', e.target.value)}
+                                onBlur={() => setTouched(t => ({ ...t, tlf: true }))}
+                                className={inputCls(
+                                    touched.tlf && (
+                                        (cfg?.phoneRequired && !contacto.tlf) || !tlfValid
+                                    )
+                                )} />
+                            {!contactoOk && cfg?.phoneRequired && touched.tlf && (
+                                <p className="text-red-400 text-xs mt-1.5 ml-1">
+                                    Necesitamos un teléfono válido para enviarte la propuesta.
+                                </p>
+                            )}
+                        </div>
+                    )}
 
-                    {/* Particular / Empresa — inline compacto */}
+                    {/* Particular / Empresa */}
                     <div>
                         <label className={fieldLabel}>¿Particular o empresa? *</label>
                         <div className="grid grid-cols-2 gap-2">
                             <button type="button" onClick={() => setField('titular_type', 'particular')}
-                                    className={smallCard(contacto.titular_type === 'particular')}>
+                                className={smallCard(contacto.titular_type === 'particular')}>
                                 <IconHome /> Particular
                             </button>
                             <button type="button" onClick={() => setField('titular_type', 'empresa')}
-                                    className={smallCard(contacto.titular_type === 'empresa')}>
+                                className={smallCard(contacto.titular_type === 'empresa')}>
                                 <IconBuilding /> Empresa
                             </button>
                         </div>
@@ -227,12 +279,12 @@ export function Step9_Contacto({ funnel, updateFunnel, contacto, setContacto, on
                             <div className="grid grid-cols-4 gap-2">
                                 {[1, 2, 3, 4].map(n => (
                                     <button key={n} type="button"
-                                            onClick={() => setField('num_propietarios', n)}
-                                            className={`py-2.5 rounded-xl border-2 font-black text-base transition-all ${
-                                                contacto.num_propietarios === n
-                                                    ? 'border-amber-400 bg-amber-400/15 text-amber-300'
-                                                    : 'border-white/10 bg-white/[0.03] text-white/60 hover:border-amber-400/40'
-                                            }`}>
+                                        onClick={() => setField('num_propietarios', n)}
+                                        className={`py-2.5 rounded-xl border-2 font-black text-base transition-all ${
+                                            contacto.num_propietarios === n
+                                                ? 'border-amber-400 bg-amber-400/15 text-amber-300'
+                                                : 'border-white/10 bg-white/[0.03] text-white/60 hover:border-amber-400/40'
+                                        }`}>
                                         {n === 4 ? '4+' : n}
                                     </button>
                                 ))}
@@ -241,19 +293,19 @@ export function Step9_Contacto({ funnel, updateFunnel, contacto, setContacto, on
                     )}
                 </div>
 
-                {/* ───── Columna B: Cuándo + Cómo recibir ───── */}
+                {/* ── Columna B: Cuándo ── */}
                 <div className="space-y-3">
                     <div>
                         <label className={fieldLabel}>¿Cuándo te gustaría hacerlo? *</label>
                         <div className="grid grid-cols-2 gap-2">
                             {TIMELINE_OPTIONS.map(t => (
                                 <button key={t.value} type="button"
-                                        onClick={() => setField('timeline', t.value)}
-                                        className={`flex flex-col items-center justify-center gap-1 py-3 rounded-xl border-2 transition-all ${
-                                            contacto.timeline === t.value
-                                                ? 'border-amber-400 bg-amber-400/10 text-amber-300'
-                                                : 'border-white/10 bg-white/[0.03] text-white/70 hover:border-amber-400/40'
-                                        }`}>
+                                    onClick={() => setField('timeline', t.value)}
+                                    className={`flex flex-col items-center justify-center gap-1 py-3 rounded-xl border-2 transition-all ${
+                                        contacto.timeline === t.value
+                                            ? 'border-amber-400 bg-amber-400/10 text-amber-300'
+                                            : 'border-white/10 bg-white/[0.03] text-white/70 hover:border-amber-400/40'
+                                    }`}>
                                     <span className="text-2xl">{t.emoji}</span>
                                     <span className="text-[11px] font-bold leading-none">{t.label}</span>
                                 </button>
@@ -261,61 +313,28 @@ export function Step9_Contacto({ funnel, updateFunnel, contacto, setContacto, on
                         </div>
                     </div>
 
-                    <div>
-                        <label className={fieldLabel}>¿Cómo quieres recibir tu propuesta?</label>
-                        <p className="text-white/40 text-[10px] mb-2 ml-1 leading-relaxed">
-                            Solo para enviarte tu propuesta. Nada de spam.
-                        </p>
-                        <div className="space-y-2">
-                            <label className={`flex items-center gap-3 cursor-pointer p-3 rounded-xl border-2 transition-all ${
-                                contacto.consent_email !== false
-                                    ? 'border-amber-400/50 bg-amber-400/[0.06]'
-                                    : 'border-white/10 bg-white/[0.03] hover:border-amber-400/30'
-                            }`}>
-                                <input
-                                    type="checkbox"
-                                    checked={contacto.consent_email !== false}
-                                    onChange={e => setField('consent_email', e.target.checked)}
-                                    className="w-4 h-4 rounded border-white/20 bg-white/10 text-amber-400 focus:ring-amber-400 focus:ring-offset-0 cursor-pointer"
-                                />
-                                <span className={`flex-shrink-0 ${contacto.consent_email !== false ? 'text-amber-400' : 'text-white/40'}`}>
-                                    <IconMail className="w-5 h-5" />
-                                </span>
-                                <span className="text-white/80 text-xs flex-1">
-                                    Recibir por <strong className="text-amber-400">email</strong>
-                                </span>
-                            </label>
-                            <label className={`flex items-center gap-3 cursor-pointer p-3 rounded-xl border-2 transition-all ${
-                                contacto.consent_whatsapp !== false
-                                    ? 'border-amber-400/50 bg-amber-400/[0.06]'
-                                    : 'border-white/10 bg-white/[0.03] hover:border-amber-400/30'
-                            }`}>
-                                <input
-                                    type="checkbox"
-                                    checked={contacto.consent_whatsapp !== false}
-                                    onChange={e => setField('consent_whatsapp', e.target.checked)}
-                                    className="w-4 h-4 rounded border-white/20 bg-white/10 text-amber-400 focus:ring-amber-400 focus:ring-offset-0 cursor-pointer"
-                                />
-                                <span className={`flex-shrink-0 ${contacto.consent_whatsapp !== false ? 'text-[#25D366]' : 'text-white/40'}`}>
-                                    <IconWhatsapp className="w-5 h-5" />
-                                </span>
-                                <span className="text-white/80 text-xs flex-1">
-                                    Recibir por <strong className="text-[#25D366]">WhatsApp</strong>
-                                </span>
-                            </label>
+                    {/* Confirmación del canal elegido (solo informativo, ya decidido en StepPreview) */}
+                    {contacto.cta_choice && contacto.cta_choice !== 'default' && (
+                        <div className="animate-fade-in p-3 bg-white/[0.03] border border-white/10 rounded-xl">
+                            <p className="text-white/40 text-[10px] font-bold uppercase tracking-wider mb-1">
+                                Envío elegido
+                            </p>
+                            <p className="text-white/70 text-xs">
+                                {contacto.cta_choice === 'whatsapp' && '📱 Propuesta por WhatsApp al número que indiques'}
+                                {contacto.cta_choice === 'email'    && '✉️ Propuesta por email a la dirección que indiques'}
+                                {contacto.cta_choice === 'tecnico'  && '📞 Un técnico de BROKERGY te llamará antes de las 18h'}
+                            </p>
                         </div>
-                    </div>
+                    )}
                 </div>
             </div>
 
-            {/* RGPD a ancho completo bajo las 2 columnas */}
+            {/* RGPD */}
             <label className="mt-4 flex items-start gap-3 cursor-pointer p-3 bg-white/[0.03] border border-white/10 rounded-xl hover:bg-white/[0.05] transition-all">
-                <input
-                    type="checkbox"
+                <input type="checkbox"
                     checked={!!contacto.rgpd_aceptado}
                     onChange={e => setField('rgpd_aceptado', e.target.checked)}
-                    className="mt-0.5 w-4 h-4 rounded border-white/20 bg-white/10 text-amber-400 focus:ring-amber-400 focus:ring-offset-0 cursor-pointer flex-shrink-0"
-                />
+                    className="mt-0.5 w-4 h-4 rounded border-white/20 bg-white/10 text-amber-400 focus:ring-amber-400 focus:ring-offset-0 cursor-pointer flex-shrink-0" />
                 <span className="text-white/70 text-xs leading-relaxed">
                     Acepto que BROKERGY trate mis datos para enviarme la simulación y contactarme.
                     Puedo solicitar la eliminación en cualquier momento. *

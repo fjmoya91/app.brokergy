@@ -5,6 +5,7 @@ const emailService = require('../services/emailService');
 const expedienteService = require('../services/expedienteService');
 const whatsappService = require('../services/whatsappService');
 const driveService = require('../services/driveService');
+const reformaUploadService = require('../services/reformaUploadService');
 const multer = require('multer');
 const { PDFDocument } = require('pdf-lib');
 
@@ -527,6 +528,90 @@ router.post('/upload-docs/:id', upload.array('files', 50), async (req, res) => {
     } catch (e) {
         console.error('Error public upload docs:', e);
         res.status(500).json({ error: 'Error interno al procesar la subida' });
+    }
+});
+
+// ===========================================================================
+// FLUJO /reforma — subida guiada por slots con enlace único + token
+// ===========================================================================
+
+// GET /api/public/reforma-docs/:uuid?token= → valida token y devuelve slots+estado
+router.get('/reforma-docs/:uuid', async (req, res) => {
+    try {
+        const { uuid } = req.params;
+        const { token } = req.query;
+        const { data: opp } = await supabase
+            .from('oportunidades')
+            .select('id, id_oportunidad, referencia_cliente, datos_calculo')
+            .eq('id', uuid)
+            .maybeSingle();
+        if (!opp) return res.status(404).json({ error: 'Solicitud no encontrada' });
+        if (!token || opp.datos_calculo?.upload_token !== token) {
+            return res.status(403).json({ error: 'Enlace inválido o caducado.' });
+        }
+        const funnel = opp.datos_calculo?.landing_funnel || {};
+        const origen = opp.datos_calculo?.origen || 'aerotermia';
+        return res.json({
+            id_oportunidad: opp.id_oportunidad,
+            cliente: opp.referencia_cliente || '',
+            origen,
+            slots: reformaUploadService.getLeadSlots(funnel, origen),
+            uploaded: opp.datos_calculo?.reforma_uploads || {}
+        });
+    } catch (e) {
+        console.error('Error reforma-docs GET:', e);
+        res.status(500).json({ error: 'Error interno' });
+    }
+});
+
+// POST /api/public/reforma-docs/:uuid/:slot?token= → sube 1 fichero al slot
+router.post('/reforma-docs/:uuid/:slot', upload.single('file'), async (req, res) => {
+    try {
+        const { uuid, slot } = req.params;
+        const { token } = req.query;
+        if (!req.file) return res.status(400).json({ error: 'No se ha recibido ningún archivo' });
+
+        const { data: opp } = await supabase
+            .from('oportunidades')
+            .select('id, id_oportunidad, datos_calculo')
+            .eq('id', uuid)
+            .maybeSingle();
+        if (!opp) return res.status(404).json({ error: 'Solicitud no encontrada' });
+        if (!token || opp.datos_calculo?.upload_token !== token) {
+            return res.status(403).json({ error: 'Enlace inválido o caducado.' });
+        }
+
+        const funnel = opp.datos_calculo?.landing_funnel || {};
+        const origen = opp.datos_calculo?.origen || 'aerotermia';
+        const slotDef = reformaUploadService.getSlotDef(funnel, slot, origen);
+        if (!slotDef) return res.status(400).json({ error: 'Tipo de documento no válido' });
+
+        // Asegurar carpeta del lead + subcarpeta de documentos (la crea si falta)
+        const folderId = await reformaUploadService.ensureDriveFolder(uuid);
+        const subId = await driveService.getOrCreateSubfolder(folderId, reformaUploadService.SUBCARPETA_DOCS);
+
+        // Nombre por slot-key (compatible con scan-photos del Anexo Fotográfico)
+        const ext = (req.file.originalname.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '');
+        const prev = Array.isArray(opp.datos_calculo?.reforma_uploads?.[slot])
+            ? opp.datos_calculo.reforma_uploads[slot] : [];
+        const fileName = slotDef.multiple ? `${slot}_${prev.length + 1}.${ext}` : `${slot}.${ext}`;
+
+        const saved = await driveService.saveFileToFolder(subId, fileName, req.file.mimetype, req.file.buffer);
+        if (!saved?.id) return res.status(500).json({ error: 'Error al subir a Google Drive' });
+
+        // Registrar en datos_calculo.reforma_uploads (merge no destructivo)
+        const entry = { name: fileName, link: saved.link, at: new Date().toISOString() };
+        const uploads = { ...(opp.datos_calculo?.reforma_uploads || {}) };
+        uploads[slot] = slotDef.multiple ? [...prev, entry] : [entry];
+        await supabase
+            .from('oportunidades')
+            .update({ datos_calculo: { ...opp.datos_calculo, reforma_uploads: uploads } })
+            .eq('id', uuid);
+
+        return res.json({ success: true, slot, name: fileName, link: saved.link, count: uploads[slot].length });
+    } catch (e) {
+        console.error('Error reforma-docs POST:', e);
+        res.status(500).json({ error: 'Error interno al subir el archivo' });
     }
 });
 

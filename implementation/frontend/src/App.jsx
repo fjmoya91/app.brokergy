@@ -19,6 +19,7 @@ import { ResetPasswordView } from './features/auth/views/ResetPasswordView';
 import { AceptarPropuestaView } from './features/public/views/AceptarPropuestaView';
 import { CertAckView } from './features/public/views/CertAckView';
 import { SubirCifoView } from './features/public/views/SubirCifoView';
+import { SubirDocsReformaView } from './features/public/views/SubirDocsReformaView';
 import { WhatsappSettingsView } from './features/whatsapp/views/WhatsappSettingsView';
 
 // Landing pública — chunk separado (lazy) para que admin/partners no lo descarguen
@@ -35,6 +36,9 @@ function App() {
   //    para que el visitante no necesite estar autenticado ni cargue el dashboard.
   const [landingRoute] = useState(() => {
     const path = window.location.pathname;
+    if (path === '/reforma') {
+      return { type: 'brokergy', slug: null, variant: 'reforma' };
+    }
     if (path === '/calcula-tu-ayuda' || path === '/ayudas-aerotermia') {
       return { type: 'brokergy', slug: null };
     }
@@ -81,6 +85,17 @@ function App() {
   const [cifoUploadId] = useState(() => {
     const path = window.location.pathname;
     if (path.startsWith('/subir-cifo/')) return path.split('/subir-cifo/')[1] || null;
+    return null;
+  });
+
+  // Subida de documentación del lead /reforma: /subir-docs/:uuid?token=...
+  const [reformaDocsData] = useState(() => {
+    const path = window.location.pathname;
+    if (path.startsWith('/subir-docs/')) {
+      const uuid = path.split('/subir-docs/')[1]?.split('/')[0] || null;
+      const token = new URLSearchParams(window.location.search).get('token');
+      if (uuid && token) return { uuid, token };
+    }
     return null;
   });
 
@@ -630,15 +645,17 @@ function App() {
     <div className="min-h-screen bg-slate-950 overflow-x-hidden relative">
       <DynamicNetworkBackground />
       
-      <div className={`relative z-10 ${(user && !firmaOportunidadId && !resetToken && !certAckData && !cifoUploadId && !landingRoute) ? 'p-0 h-screen overflow-hidden' : 'px-4 py-8'}`}>
+      <div className={`relative z-10 ${(user && !firmaOportunidadId && !resetToken && !certAckData && !cifoUploadId && !reformaDocsData && !landingRoute) ? 'p-0 h-screen overflow-hidden' : 'px-4 py-8'}`}>
         {landingRoute ? (
           <Suspense fallback={
             <div className="min-h-screen flex items-center justify-center">
               <div className="animate-pulse text-amber-500 font-bold tracking-widest text-sm uppercase">Cargando…</div>
             </div>
           }>
-            <LandingFunnelView route={landingRoute} />
+            <LandingFunnelView route={landingRoute} variant={landingRoute.variant || 'default'} />
           </Suspense>
+        ) : reformaDocsData ? (
+          <SubirDocsReformaView uuid={reformaDocsData.uuid} token={reformaDocsData.token} />
         ) : cifoUploadId ? (
           <SubirCifoView expedienteId={cifoUploadId} />
         ) : certAckData ? (

@@ -5,7 +5,15 @@
 
 import React from 'react';
 
-export function StepLayout({ question, subtitle, children, onContinue, canContinue = true, continueLabel = 'Continuar' }) {
+export function StepLayout({ question, subtitle, children, onContinue, canContinue = true, continueLabel = 'Continuar', continueCls, continueIcon }) {
+    // Clases del botón: si se pasa continueCls se usa como override del fondo/color;
+    // el resto (tamaño, forma, disabled) siempre se aplica.
+    const btnBase = 'w-full max-w-xs px-8 py-4 font-black uppercase tracking-widest text-sm rounded-2xl transition-all flex items-center justify-center gap-2';
+    const btnEnabled = continueCls
+        ? `${continueCls} shadow-lg`
+        : 'bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-400 hover:to-amber-300 text-bkg-deep shadow-lg shadow-amber-500/20';
+    const btnDisabled = 'from-white/10 to-white/10 bg-white/10 text-white/30 cursor-not-allowed';
+
     return (
         <div className="animate-fade-in">
             <div className="text-center mb-8">
@@ -29,8 +37,9 @@ export function StepLayout({ question, subtitle, children, onContinue, canContin
                         type="button"
                         onClick={onContinue}
                         disabled={!canContinue}
-                        className="w-full max-w-xs px-8 py-4 bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-400 hover:to-amber-300 disabled:from-white/10 disabled:to-white/10 disabled:text-white/30 disabled:cursor-not-allowed text-bkg-deep font-black uppercase tracking-widest text-sm rounded-2xl shadow-lg shadow-amber-500/20 transition-all"
+                        className={`${btnBase} ${canContinue ? btnEnabled : btnDisabled}`}
                     >
+                        {continueIcon && <span className="flex-shrink-0">{continueIcon}</span>}
                         {continueLabel}
                     </button>
                 </div>
