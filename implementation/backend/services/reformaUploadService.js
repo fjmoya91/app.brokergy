@@ -65,7 +65,9 @@ function getReformaSlots(funnel = {}) {
 
 /**
  * Slots para leads del funnel principal (cambio a aerotermia).
- * Más ligero y orientado a preparar la oferta del instalador / técnico.
+ * Lo mínimo y útil: caldera actual + fachadas/patios donde puede ir la
+ * unidad exterior. Las facturas y el cuadro eléctrico los recoge el técnico
+ * en la visita / llamada posterior.
  */
 function getAerotermiaSlots(funnel = {}) {
     const huboCaldera = BOILER_COMBUSTIBLE.includes(funnel.combustible_actual);
@@ -75,12 +77,9 @@ function getAerotermiaSlots(funnel = {}) {
         slots.push({ key: 'FOTO_CALDERA_ANTES', label: 'Foto de tu caldera actual', help: 'Una foto general del sistema que vas a cambiar.', accept: 'image/*', required: false, multiple: false });
         slots.push({ key: 'FOTO_PLACA_CALDERA_ANTES', label: 'Foto de la placa / etiqueta', help: 'La etiqueta con marca, modelo y potencia.', accept: 'image/*', required: false, multiple: false });
     }
-    slots.push({ key: 'FOTO_SITIO_UE', label: 'Foto del sitio donde irá la unidad exterior', help: 'Patio, terraza o fachada donde se podría colocar.', accept: 'image/*', required: false, multiple: true });
-    slots.push({ key: 'FOTO_CUADRO_ELECTRICO', label: 'Foto del cuadro eléctrico', help: 'Nos ayuda a comprobar la potencia contratada.', accept: 'image/*', required: false, multiple: false });
-    slots.push({ key: 'DOC_FACTURA_LUZ', label: 'Factura de luz reciente', help: 'PDF o foto. Nos ayuda a estimar tu consumo real.', accept: 'application/pdf,image/*', required: false, multiple: true });
-    if (huboCaldera && funnel.combustible_actual !== 'electrica') {
-        slots.push({ key: 'DOC_FACTURA_COMBUSTIBLE', label: `Factura de ${funnel.combustible_actual || 'combustible'} reciente`, help: 'Para estimar mejor el ahorro que vas a tener.', accept: 'application/pdf,image/*', required: false, multiple: true });
-    }
+    slots.push({ key: 'FOTO_FACHADA_PRINCIPAL', label: 'Foto de la fachada principal', help: 'Para valorar dónde podría ir la unidad exterior.', accept: 'image/*', required: false, multiple: true });
+    slots.push({ key: 'FOTO_PATIOS_INTERIORES', label: 'Foto de patios interiores', help: 'Si tu vivienda tiene patios interiores, una foto de cada uno.', accept: 'image/*', required: false, multiple: true });
+    slots.push({ key: 'FOTO_PATIO_LUCES', label: 'Foto del patio de luces (si lo hay)', help: 'Solo si tu edificio tiene patio de luces.', accept: 'image/*', required: false, multiple: true });
     slots.push({ key: 'OTROS', label: 'Otros documentos o fotos', help: 'Cualquier cosa más que quieras aportar.', accept: 'application/pdf,image/*', required: false, multiple: true });
     return slots;
 }
