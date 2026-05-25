@@ -687,11 +687,14 @@ router.get('/cifo-upload/:expedienteId', async (req, res) => {
         const { expedienteId } = req.params;
         const { data: exp, error } = await supabase
             .from('expedientes')
-            .select('id, numero_expediente, clientes(nombre_razon_social, apellidos), prescriptores(razon_social), oportunidades(datos_calculo)')
+            .select('id, numero_expediente, clientes!cliente_id(nombre_razon_social, apellidos), prescriptores!instalador_asociado_id(razon_social), oportunidades!oportunidad_id(datos_calculo)')
             .eq('id', expedienteId)
             .maybeSingle();
 
-        if (error || !exp) return res.status(404).json({ error: 'Expediente no encontrado' });
+        if (error || !exp) {
+            console.error('[CIFO upload info] Query error:', error);
+            return res.status(404).json({ error: 'Expediente no encontrado' });
+        }
 
         res.json({
             numero_expediente: exp.numero_expediente,
@@ -718,7 +721,7 @@ router.post('/cifo-upload/:expedienteId', upload.single('cifo'), async (req, res
 
         const { data: exp, error } = await supabase
             .from('expedientes')
-            .select('id, numero_expediente, documentacion, clientes(nombre_razon_social, apellidos), prescriptores(razon_social, email, tlf), oportunidades(datos_calculo, drive_folder_id)')
+            .select('id, numero_expediente, documentacion, clientes!cliente_id(nombre_razon_social, apellidos), prescriptores!instalador_asociado_id(razon_social, email, tlf), oportunidades!oportunidad_id(datos_calculo, drive_folder_id)')
             .eq('id', expedienteId)
             .maybeSingle();
 
