@@ -322,7 +322,7 @@ router.post('/send-cifo', async (req, res) => {
 
         await emailService.sendMail({
             to,
-            subject: `Certificado CIFO — Expediente ${expte} | BROKERGY`,
+            subject: `${expte} - Firmar Certificado CIFO de ${cliente}`,
             html: `
                 <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#fff;border-radius:8px;overflow:hidden;">
                     <div style="background:linear-gradient(135deg,#f59e0b,#ea580c);padding:24px 32px;">
@@ -354,7 +354,7 @@ router.post('/send-cifo', async (req, res) => {
                 </div>
             `,
             attachments: [{
-                filename: `${expte ? expte + ' - ' : ''}Certificado_CIFO.pdf`,
+                filename: `${expte ? expte + ' - ' : ''}Certificado_CIFO_fdo.pdf`,
                 content: pdfBuffer
             }]
         });

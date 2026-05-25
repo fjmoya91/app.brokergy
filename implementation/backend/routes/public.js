@@ -721,7 +721,7 @@ router.post('/cifo-upload/:expedienteId', upload.single('cifo'), async (req, res
 
         const { data: exp, error } = await supabase
             .from('expedientes')
-            .select('id, numero_expediente, documentacion, clientes!cliente_id(nombre_razon_social, apellidos), prescriptores!instalador_asociado_id(razon_social, email, tlf), oportunidades!oportunidad_id(datos_calculo, drive_folder_id)')
+            .select('id, numero_expediente, documentacion, clientes!cliente_id(nombre_razon_social, apellidos), prescriptores!instalador_asociado_id(razon_social, email, tlf), oportunidades!oportunidad_id(datos_calculo)')
             .eq('id', expedienteId)
             .maybeSingle();
 
@@ -731,7 +731,7 @@ router.post('/cifo-upload/:expedienteId', upload.single('cifo'), async (req, res
         if (!driveFolderId) return res.status(400).json({ error: 'El expediente no tiene carpeta Drive configurada' });
 
         const numexpte = exp.numero_expediente || expedienteId;
-        const fileName = `${numexpte} - Certificado CIFO_fdo.pdf`;
+        const fileName = `${numexpte} - Certificado_CIFO_fdo.pdf`;
 
         // Subir a "6. ANEXOS CAE"
         const subfolderId = await driveService.getOrCreateSubfolder(driveFolderId, '6. ANEXOS CAE');
