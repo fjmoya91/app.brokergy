@@ -641,11 +641,19 @@ function App() {
     );
   }
 
+  // Rutas públicas con su propio layout full-bleed → sin red decorativa y
+  // sin padding del contenedor padre (el componente cubre 100% del viewport).
+  const isPublicRoute = !!(landingRoute || reformaDocsData || firmaOportunidadId || certAckData || cifoUploadId);
+  const isLoggedDashboard = user && !firmaOportunidadId && !resetToken && !certAckData && !cifoUploadId && !reformaDocsData && !landingRoute;
+  const wrapperPadding = (isLoggedDashboard || isPublicRoute) ? 'p-0' : 'px-4 py-8';
+  const wrapperHeight = isLoggedDashboard ? 'h-screen overflow-hidden' : '';
+
   return (
     <div className="min-h-screen bg-slate-950 overflow-x-hidden relative">
-      <DynamicNetworkBackground />
-      
-      <div className={`relative z-10 ${(user && !firmaOportunidadId && !resetToken && !certAckData && !cifoUploadId && !reformaDocsData && !landingRoute) ? 'p-0 h-screen overflow-hidden' : 'px-4 py-8'}`}>
+      {/* Red decorativa solo en pantallas tipo login/reset, no en flujos públicos */}
+      {!isPublicRoute && <DynamicNetworkBackground />}
+
+      <div className={`relative z-10 ${wrapperPadding} ${wrapperHeight}`}>
         {landingRoute ? (
           <Suspense fallback={
             <div className="min-h-screen flex items-center justify-center">
