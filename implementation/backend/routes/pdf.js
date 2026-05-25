@@ -354,7 +354,7 @@ router.post('/send-cifo', async (req, res) => {
                 </div>
             `,
             attachments: [{
-                filename: `${expte ? expte + ' - ' : ''}Certificado_CIFO_fdo.pdf`,
+                filename: `${expte ? expte + ' - ' : ''}Certificado_CIFO.pdf`,
                 content: pdfBuffer
             }]
         });
