@@ -4,9 +4,21 @@ Este archivo se carga automáticamente en cada conversación de Claude Code. Lee
 
 ---
 
-## Estado Actual del Proyecto (Actualizado 2026-05-20)
+## Estado Actual del Proyecto (Actualizado 2026-05-25)
 
-La app Brokergy es un CRM interno para gestión de oportunidades de rehabilitación energética en España. Stack: **React + Vite** (frontend), **Node.js/Express** (backend), **Supabase** (BD + auth), **Google Drive** (expedientes), desplegada en **Vercel**.
+La app Brokergy es un CRM interno para gestión de oportunidades de rehabilitación energética en España. Stack: **React + Vite** (frontend), **Node.js/Express** (backend), **Supabase** (BD + auth), **Google Drive** (expedientes). **Desplegada en VPS propio (`187.77.93.213`, Docker Compose, dominio `app.brokergy.es`)** — NO usamos Vercel ni Railway. Ver memoria `deploy_workflow.md` para el flujo completo.
+
+## ⚠️ Regla de oro de desarrollo
+
+**SIEMPRE trabajamos contra `localhost` primero.** Solo cuando el cambio está validado en local se hace `git push` y luego deploy al VPS. Prohibido pushear "a ver si funciona en producción". El ciclo correcto:
+
+1. Cambio en local.
+2. Probar en `localhost` (frontend `npm run dev` + backend `npm start`).
+3. Si OK → `git push origin main`.
+4. SSH al VPS (`ssh root@187.77.93.213`) → `cd /opt/brokergy && bash scripts/deploy.sh`.
+5. Verificar en `https://app.brokergy.es`.
+
+Si el usuario dice "no veo el cambio", lo primero a comprobar es: **¿hemos hecho el deploy al VPS?** Vercel/Railway NO aplican aquí.
 
 ### Módulos implementados y estables
 
