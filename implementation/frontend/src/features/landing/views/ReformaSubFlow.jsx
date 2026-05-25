@@ -22,16 +22,20 @@ import { StepLayout } from '../components/StepLayout';
 import { Step3_EdadCaldera } from '../steps/Step3_EdadCaldera';
 import { Step4_Emisores } from '../steps/Step4_Emisores';
 import { Step5_ACS } from '../steps/Step5_ACS';
+import { Step7_Gasto } from '../steps/Step7_Gasto';
 import { Step8_Presupuesto } from '../steps/Step8_Presupuesto';
 import { Step9_Contacto } from '../steps/Step9_Contacto';
 import { LandingResultView } from './LandingResultView';
+import { LeadDeliveryView } from './LeadDeliveryView';
 import { funnelToCalculatorInputs } from '../data/funnelToInputs';
-import { computeFullCalculatorResult } from '../data/landingCalculation';
+import { computeFullCalculatorResult, computeLandingResult } from '../data/landingCalculation';
 
 const BOILER_COMBUSTIBLE = ['gas', 'gasoleo', 'carbon', 'biomasa'];
 
 export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding, onNoEmpezada, onRestart }) {
-    const [stack, setStack] = useState(['estado']);
+    // Arranca preguntando el TIPO de proyecto (solo aerotermia vs reforma integral)
+    // como en /calcula-tu-ayuda. Si elige "solo aerotermia" el flujo es más ágil.
+    const [stack, setStack] = useState(['tipo']);
     const [contacto, setContacto] = useState({
         nombre: '', email: '', tlf: '',
         titular_type: null, num_propietarios: null,
@@ -43,6 +47,12 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
     const [leadResult, setLeadResult] = useState(null);
     const [submittedInputs, setSubmittedInputs] = useState(null);
     const [uploadLink, setUploadLink] = useState(null);
+
+    // Para unificar con /calcula-tu-ayuda: canal de entrega elegido por el cliente
+    // (array — ['whatsapp'], ['email'], ['whatsapp','email'], ['tecnico'])
+    const [deliveryPreference, setDeliveryPreference] = useState([]);
+    // Captura síncrona del resultado calculado en LeadDeliveryView antes del submit
+    const deliverySummaryRef = useRef(null);
 
     // Ref al funnel para leer el valor más reciente dentro de onNext con delay.
     const funnelRef = useRef(funnel);
@@ -64,6 +74,14 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
         const env = !!(els.ventanas || els.cubierta || els.paredes || els.suelo);
         const cee = ej ? funnel.reforma_cee_ambos === 'si' : funnel.reforma_cee_previo === 'si';
 
+        // Aires AC: solo dan IRPF si hay ≥ 2 unidades instaladas
+        const airesValidos = !!els.aires && (Number(funnel.reforma_aires_count) || 0) >= 2;
+        // Placas solas: solo IRPF, nunca CAE
+        const placasSolo = !!els.placas;
+
+        // CAE solo se genera con cambio de caldera (aerotermia) o envolvente real
+        const generaCae = cambioCaldera || env;
+
         const ayudaCaldera = esCombustible && cambioCaldera;
         let ayudaReforma = false, reformaRevisar = false;
         if (!ej) {
@@ -71,10 +89,36 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
             else if (cee) reformaRevisar = env || cee;
         } else if (cee) reformaRevisar = true;
 
-        const irpfRevisar = cee;
+        // IRPF: aplica con cee, o si hay aires válidos (≥2) o placas (con sus condiciones)
+        const irpfRevisar = cee || airesValidos || placasSolo;
         const ayudaBaja = !cambioCaldera;
-        const elegible = ayudaCaldera || ayudaReforma || reformaRevisar || env || cee;
-        return { esCombustible, esBiomasa, cambioCaldera, env, cee, ayudaCaldera, ayudaReforma, reformaRevisar, irpfRevisar, ayudaBaja, elegible };
+        const elegible = ayudaCaldera || ayudaReforma || reformaRevisar || env || cee || airesValidos || placasSolo;
+        return {
+            esCombustible, esBiomasa, cambioCaldera, env, cee, ayudaCaldera, ayudaReforma, reformaRevisar,
+            irpfRevisar, ayudaBaja, elegible, generaCae, airesValidos, placasSolo
+        };
+    };
+
+    // Próxima pantalla "real" tras elementos según estado de la obra
+    // - ejecutada → fotos
+    // - a_medias → facturas
+    // - no_empezada → directo a gasto (no hay facturas ni fotos previas relevantes)
+    const nextAfterElementos = () => {
+        if (funnel.obra_estado === 'no_empezada') return 'gasto';
+        return ej ? 'fotos' : 'facturas';
+    };
+
+    // Handler de transición desde elementos: si la selección no genera CAE, mostrar aviso
+    const goAfterElementos = () => {
+        const els = funnel.reforma_elementos || {};
+        const hayEnv = !!(els.ventanas || els.cubierta || els.paredes || els.suelo);
+        const generaCae = !!els.caldera || hayEnv;
+        const hayAlgoSoloIrpf = !!els.aires || !!els.placas;
+        if (!generaCae && hayAlgoSoloIrpf) {
+            push('aviso_no_cae');
+        } else {
+            push(nextAfterElementos());
+        }
     };
 
     // ---------- Navegación combustible ----------
@@ -92,7 +136,10 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
     const toggleEl = (key) => {
         const next = { ...(funnel.reforma_elementos || {}), [key]: !funnel.reforma_elementos?.[key] };
         const env = !!(next.ventanas || next.cubierta || next.paredes || next.suelo);
-        updateFunnel({ reforma_elementos: next, isReforma: env });
+        const updates = { reforma_elementos: next, isReforma: env };
+        // Al desmarcar aires, resetear el contador. Al marcar, dejar a null para forzar elección.
+        if (key === 'aires') updates.reforma_aires_count = null;
+        updateFunnel(updates);
     };
 
     // ---------- Submit ----------
@@ -117,6 +164,16 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
             calculatorInputs.aplicarIrpfCae = false;
             calculatorInputs.includeAnnualSavings = false;
 
+            // delivery_summary: captura síncrona desde LeadDeliveryView (ref) o fallback
+            // al precomputedResult si no se capturó (no debería ocurrir).
+            const ds = deliverySummaryRef.current || {};
+            const delivery_summary = {
+                cae:    ds.caeBonusNetoCliente || 0,
+                irpf:   ds.irpfDeduction       || 0,
+                neta:   ds.inversionNetaCliente || 0,
+                ahorro: ds.ahorroAnualEur      || 0,
+            };
+
             const payload = {
                 provinceCode: String(catastro?.provinceCode || '').padStart(2, '0'),
                 partner_slug: partnerBranding?.slug || null,
@@ -132,6 +189,9 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
                 calculatorInputs,
                 precomputedResult,
                 demandaCalefaccionPorM2: precomputedResult?.q_net || null,
+                // Canal de entrega elegido por el cliente — mismo formato que /calcula-tu-ayuda
+                delivery_preference: deliveryPreference.length ? deliveryPreference : ['tecnico'],
+                delivery_summary,
                 // Metadatos del flujo Reforma (para el panel admin / clasificación)
                 origen: 'reforma',
                 reforma: {
@@ -144,6 +204,7 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
                     fotos: funnel.reforma_fotos,
                     ejec_fecha: funnel.reforma_ejec_fecha,
                     elementos: funnel.reforma_elementos,
+                    aires_count: funnel.reforma_aires_count,
                     via: fuerte ? 'aerotermia' : 'deduccion_irpf'
                 }
             };
@@ -153,7 +214,8 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
             setUploadLink(res.data?.upload_link || null);
             setSubmittedInputs(calculatorInputs);
             setSubmitting(false);
-            push(fuerte ? 'result' : 'confirm_dedu');
+            // Siempre vamos a la pantalla unificada de resultado (igual que /calcula-tu-ayuda)
+            push('result');
         } catch (err) {
             setSubmitError(err.response?.data?.error || 'No pudimos guardar tus datos. Inténtalo en un momento.');
             setSubmitting(false);
@@ -190,29 +252,79 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
 
     if (screen === 'result') {
         return (
-            <>
-                {uploadLink && (
-                    <div className="max-w-2xl mx-auto mb-6 p-5 bg-gradient-to-br from-amber-500/20 to-amber-400/5 border-2 border-amber-400/40 rounded-3xl animate-fade-in">
-                        <p className="text-amber-300 font-black text-base leading-tight">📎 Sube tu documentación</p>
-                        <p className="text-white/70 text-sm mt-2 leading-relaxed">Te hemos enviado el enlace por WhatsApp y email. También puedes hacerlo ahora mismo (fotos de la caldera, certificados, facturas…).</p>
-                        <a href={uploadLink} className="mt-4 inline-block px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-400 text-bkg-deep font-black uppercase tracking-widest text-xs shadow-lg shadow-amber-500/20">Subir mis documentos</a>
-                    </div>
-                )}
-                <LandingResultView leadResult={leadResult} funnel={funnel} contacto={contacto} partnerBranding={partnerBranding} calculatorInputs={submittedInputs} />
-            </>
+            <LandingResultView
+                leadResult={leadResult}
+                funnel={funnel}
+                contacto={contacto}
+                partnerBranding={partnerBranding}
+                calculatorInputs={submittedInputs}
+                deliveryPreference={deliveryPreference}
+            />
+        );
+    }
+
+    // ---- Tipo de proyecto: aerotermia vs reforma integral (como en /calcula-tu-ayuda) ----
+    if (screen === 'tipo') {
+        const pickSoloAerotermia = () => {
+            updateFunnel({
+                isReforma: false,
+                // Aerotermia implica cambio de caldera de entrada
+                reforma_elementos: { caldera: true, ventanas: false, cubierta: false, suelo: false, paredes: false, placas: false, aires: false },
+                reforma_aires_count: null,
+                // No hay obra previa para casos "solo aerotermia" desde /reforma
+                obra_estado: 'no_empezada',
+            });
+            push('combustible');
+        };
+        const pickIntegral = () => {
+            updateFunnel({
+                isReforma: true,
+                // Mantenemos elementos vacíos para que el usuario elija en su pantalla
+                reforma_elementos: { caldera: false, ventanas: false, cubierta: false, suelo: false, paredes: false, placas: false, aires: false },
+                reforma_aires_count: null,
+            });
+            push('estado');
+        };
+        return (
+            <div className="animate-fade-in">
+                <div className="text-center mb-8">
+                    <h1 className="text-3xl md:text-5xl font-black text-white tracking-tight leading-tight">¿Qué mejora te <span className="text-amber-400">interesa</span>?</h1>
+                    <p className="text-white/60 text-base md:text-lg mt-4 max-w-2xl mx-auto">Elige la opción que mejor describe lo que quieres hacer en tu vivienda.</p>
+                </div>
+                <div className="space-y-3 max-w-2xl mx-auto">
+                    <IconCard
+                        icon="🔄"
+                        title="Solo cambiar mi caldera por aerotermia"
+                        subtitle="Conservas el resto de tu vivienda como está y ganas eficiencia."
+                        onClick={pickSoloAerotermia}
+                    />
+                    <IconCard
+                        icon="🏗️"
+                        title="Reforma integral: aerotermia + mejorar aislamiento"
+                        subtitle="Cambias la caldera y, además, mejoras ventanas, fachada o cubierta."
+                        onClick={pickIntegral}
+                        badge="Mayor ayuda"
+                    />
+                </div>
+            </div>
         );
     }
 
     if (screen === 'estado') {
         return (
             <div className="animate-fade-in">
+                <BackBtn />
                 <div className="text-center mb-10">
                     <h1 className="text-3xl md:text-5xl font-black text-white tracking-tight leading-tight">¿En qué punto está tu <span className="text-amber-400">obra</span>?</h1>
                     <p className="text-white/60 text-base md:text-lg mt-4 max-w-2xl mx-auto">Cuéntanos cómo está la reforma. Sin compromiso.</p>
                 </div>
                 <div className="space-y-3 max-w-2xl mx-auto">
+                    {/* 'no_empezada' YA NO salta de URL — sigue el mismo flujo interno
+                        para que el botón "Atrás" funcione. Las pantallas posteriores
+                        (goAfterElementos) se saltan facturas/fotos cuando la obra
+                        aún no se ha empezado. */}
                     <IconCard icon="📐" title="Aún no he empezado la obra" subtitle="Quiero saber qué ayudas tendría antes de empezar"
-                        onClick={() => { updateFunnel({ obra_estado: 'no_empezada' }); onNoEmpezada(); }} />
+                        onClick={() => { updateFunnel({ obra_estado: 'no_empezada' }); push('combustible'); }} />
                     <IconCard icon="🚧" title="Obra a medias" subtitle="Ya he empezado la reforma pero no está terminada"
                         onClick={() => { updateFunnel({ obra_estado: 'a_medias' }); push('combustible'); }} />
                     <IconCard icon="✅" title="Obra ya ejecutada" subtitle="La reforma ya está hecha y quiero ver si puedo conseguir ayudas"
@@ -280,27 +392,67 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
     }
     // ---- TÉRMICO: ACS (Step5 reutilizado) ----
     if (screen === 'acs') {
-        return (<><BackBtn /><Step5_ACS funnel={funnel} updateFunnel={updateFunnel} onNext={() => push('elementos')} /></>);
+        // Si es "solo aerotermia" no hay envolvente que elegir → saltar elementos → directo a gasto
+        const nextAfterAcs = () => push(funnel.isReforma ? 'elementos' : 'gasto');
+        return (<><BackBtn /><Step5_ACS funnel={funnel} updateFunnel={updateFunnel} onNext={nextAfterAcs} /></>);
     }
 
     // ---- Elementos a incluir (multi) ----
     if (screen === 'elementos') {
         const els = funnel.reforma_elementos || {};
-        const hayEnv = els.ventanas || els.cubierta || els.paredes || els.suelo || els.placas;
-        const any = els.caldera || hayEnv;
+        const hayEnv = els.ventanas || els.cubierta || els.paredes || els.suelo;
+        const any = els.caldera || hayEnv || els.placas || els.aires;
+        // Validación: si solo aires marcados, requerir ≥ 2 unidades para poder continuar
+        const airesOk = !els.aires || (funnel.reforma_aires_count != null);
+        const canContinue = any && airesOk;
+
         return (<><BackBtn />
             <StepLayout
                 question={ej ? '¿Qué incluyó la reforma?' : '¿Qué quieres incluir en la ayuda?'}
                 subtitle="Marca todos los elementos en los que se actúa. Puedes elegir varios."
-                onContinue={() => push(ej ? 'fotos' : 'facturas')}
-                canContinue={any}
+                onContinue={goAfterElementos}
+                canContinue={canContinue}
             >
                 <IconCard icon="🔄" title="Cambio de caldera por aerotermia" subtitle={ej ? 'Se sustituyó la caldera' : 'Sustituir la caldera actual'} selected={!!els.caldera} onClick={() => toggleEl('caldera')} badge="Mayor ayuda" />
+                <IconCard icon="❄️" title="Instalar aires acondicionados" subtitle="Bombas de calor (split, multi-split, conductos)" selected={!!els.aires} onClick={() => toggleEl('aires')} />
+
+                {/* Sub-pregunta inline: cuántas unidades. Solo visible si 'aires' está marcado */}
+                {els.aires && (
+                    <div className="ml-2 -mt-1 mb-1 p-4 rounded-2xl border-2 border-blue-400/30 bg-blue-400/[0.05] animate-fade-in">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-blue-300/80 mb-3">
+                            ¿Cuántas unidades vas a instalar?
+                        </p>
+                        <div className="grid grid-cols-4 gap-2">
+                            {[1, 2, 3, 4].map(n => (
+                                <button
+                                    key={n}
+                                    type="button"
+                                    onClick={() => updateFunnel({ reforma_aires_count: n })}
+                                    className={`py-2.5 rounded-xl border-2 font-black text-base transition-all ${
+                                        funnel.reforma_aires_count === n
+                                            ? 'border-blue-400 bg-blue-400/15 text-blue-200'
+                                            : 'border-white/10 bg-white/[0.03] text-white/60 hover:border-blue-400/40'
+                                    }`}
+                                >
+                                    {n === 4 ? '4+' : n}
+                                </button>
+                            ))}
+                        </div>
+                        {/* Aviso si selecciona 1 unidad: no acceso a IRPF */}
+                        {funnel.reforma_aires_count === 1 && (
+                            <p className="mt-3 text-[11px] text-amber-300/80 leading-snug">
+                                ⚠️ Para optar a la <strong>deducción IRPF</strong> con aires acondicionados son necesarias <strong>como mínimo 2 unidades</strong>. Con 1 sola unidad no se accede a la deducción.
+                            </p>
+                        )}
+                    </div>
+                )}
+
                 <IconCard icon="🪟" title="Ventanas" subtitle="Cambio de ventanas por modelos más eficientes" selected={!!els.ventanas} onClick={() => toggleEl('ventanas')} />
                 <IconCard icon="🏠" title="Cubierta / tejado" subtitle="Aislamiento del techo o tejado" selected={!!els.cubierta} onClick={() => toggleEl('cubierta')} />
                 <IconCard icon="🧱" title="Fachada (paredes exteriores)" subtitle="SATE, trasdosado o aislamiento de fachada" selected={!!els.paredes} onClick={() => toggleEl('paredes')} />
                 <IconCard icon="⬇️" title="Suelo" subtitle="Aislamiento del suelo de la vivienda" selected={!!els.suelo} onClick={() => toggleEl('suelo')} />
                 <IconCard icon="☀️" title="Placas solares" subtitle="Autoconsumo fotovoltaico" selected={!!els.placas} onClick={() => toggleEl('placas')} />
+
                 {!els.caldera && any && (
                     <div className="p-5 bg-gradient-to-r from-amber-500/15 to-amber-400/5 border-2 border-amber-400/30 rounded-2xl animate-fade-in">
                         <div className="flex gap-3"><span className="text-2xl shrink-0">💡</span><div>
@@ -310,6 +462,85 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
                     </div>
                 )}
             </StepLayout></>);
+    }
+
+    // ---- Aviso intermedio: selección no genera CAE (solo aires/placas sin envolvente ni caldera) ----
+    if (screen === 'aviso_no_cae') {
+        const els = funnel.reforma_elementos || {};
+        const soloAires = !!els.aires && !els.placas;
+        const soloPlacas = !!els.placas && !els.aires;
+        const ambos = !!els.aires && !!els.placas;
+        const titulo = 'Tu selección no genera Bono CAE';
+        return (
+            <div className="animate-fade-in max-w-2xl mx-auto">
+                <BackBtn />
+                <div className="text-center mb-6">
+                    <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-amber-500/15 border border-amber-500/30 mb-3">
+                        <span className="text-sm">💡</span>
+                        <span className="text-[10px] font-black uppercase tracking-[0.18em] text-amber-300">Aviso importante</span>
+                    </div>
+                    <h2 className="text-2xl md:text-3xl font-black text-white tracking-tight leading-tight">{titulo}</h2>
+                    <p className="text-white/55 text-sm md:text-base mt-3 max-w-xl mx-auto">
+                        Lo que has marcado solo da derecho a deducción en el IRPF, no a Bono CAE.
+                    </p>
+                </div>
+
+                {/* Explicación según selección */}
+                <div className="space-y-3 mb-6">
+                    {soloPlacas && (
+                        <div className="p-4 rounded-2xl border-2 border-amber-400/30 bg-amber-400/[0.05]">
+                            <p className="text-amber-300 font-black text-sm mb-1">☀️ Placas solares por sí solas</p>
+                            <p className="text-white/70 text-xs leading-relaxed">
+                                Actualmente <strong className="text-white">no generan Bono CAE</strong>. Solo dan derecho a <strong className="text-white">deducción IRPF</strong> del 60% (hasta 9.000€) con certificados antes y después.
+                            </p>
+                        </div>
+                    )}
+                    {soloAires && (
+                        <div className="p-4 rounded-2xl border-2 border-blue-400/30 bg-blue-400/[0.05]">
+                            <p className="text-blue-300 font-black text-sm mb-1">❄️ Aires acondicionados por sí solos</p>
+                            <p className="text-white/70 text-xs leading-relaxed">
+                                No generan Bono CAE. Solo dan derecho a <strong className="text-white">deducción IRPF</strong> con un mínimo de <strong>2 unidades instaladas</strong>.
+                                {funnel.reforma_aires_count === 1 && <> Y tú has marcado solo 1, así que de momento <strong className="text-amber-300">no podrías acogerte ni siquiera a la deducción</strong>.</>}
+                            </p>
+                        </div>
+                    )}
+                    {ambos && (
+                        <div className="p-4 rounded-2xl border-2 border-blue-400/30 bg-blue-400/[0.05]">
+                            <p className="text-blue-300 font-black text-sm mb-1">☀️❄️ Placas + aires acondicionados</p>
+                            <p className="text-white/70 text-xs leading-relaxed">
+                                Solo dan derecho a <strong className="text-white">deducción IRPF</strong> (no Bono CAE). Los aires necesitan mínimo <strong>2 unidades</strong> y las placas requieren certificados antes y después.
+                            </p>
+                        </div>
+                    )}
+
+                    {/* Sugerencia: añadir envolvente o caldera */}
+                    <div className="p-4 rounded-2xl border-2 border-emerald-400/30 bg-emerald-400/[0.05]">
+                        <p className="text-emerald-300 font-black text-sm mb-1">🎯 Para acceder al Bono CAE</p>
+                        <p className="text-white/70 text-xs leading-relaxed">
+                            Necesitas incluir además <strong className="text-white">cambio de caldera por aerotermia</strong> y/o <strong className="text-white">mejora de la envolvente</strong> (ventanas, cubierta, fachada, suelo). Con eso sí accedes al bono y a deducciones combinadas.
+                        </p>
+                    </div>
+                </div>
+
+                {/* Acciones */}
+                <div className="space-y-2.5">
+                    <button
+                        type="button"
+                        onClick={() => back()}
+                        className="w-full py-4 rounded-2xl bg-gradient-to-r from-emerald-500 to-emerald-400 hover:from-emerald-400 hover:to-emerald-300 text-bkg-deep font-black uppercase tracking-widest text-sm shadow-lg shadow-emerald-500/20 transition-all"
+                    >
+                        Volver y añadir más elementos
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => push(nextAfterElementos())}
+                        className="w-full py-3.5 rounded-2xl bg-white/[0.04] hover:bg-white/[0.07] border border-white/10 text-white/70 hover:text-white font-bold uppercase tracking-widest text-xs transition-all"
+                    >
+                        Continuar solo con la deducción IRPF
+                    </button>
+                </div>
+            </div>
+        );
     }
 
     // ---- A medias: facturas ----
@@ -336,7 +567,7 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
     // ---- Fotos (gate) ----
     if (screen === 'fotos') {
         return (<><BackBtn /><StepLayout question="¿Tienes fotografías de lo que había antes?" subtitle="Necesitamos fotos de la caldera antigua y su placa, ventanas viejas, etc. — de todo lo que quieras meter en la ayuda. Sin fotos no se puede justificar la reforma.">
-            <IconCard icon="📸" title="Sí, tengo fotos" subtitle="Del estado anterior (caldera, placa, ventanas…)" onClick={() => { updateFunnel({ reforma_fotos: 'si' }); push(ej ? 'cee_ambos' : 'resumen'); }} />
+            <IconCard icon="📸" title="Sí, tengo fotos" subtitle="Del estado anterior (caldera, placa, ventanas…)" onClick={() => { updateFunnel({ reforma_fotos: 'si' }); push(ej ? 'cee_ambos' : 'gasto'); }} />
             <IconCard icon="🙈" title="No tengo fotos" subtitle="No hice fotos antes de la reforma" onClick={() => { updateFunnel({ reforma_fotos: 'no' }); push('block_fotos'); }} />
         </StepLayout></>);
     }
@@ -349,112 +580,46 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
     }
     if (screen === 'cee_ambos') {
         return (<><BackBtn /><StepLayout question="¿Tienes certificados de eficiencia energética?" subtitle="Para valorar la reforma completa y la deducción de IRPF necesitamos certificado previo (registrado) y posterior a la reforma.">
-            <IconCard icon="📑" title="Sí, tengo ambos (antes y después)" subtitle="Registrados — los revisamos" onClick={() => { updateFunnel({ reforma_cee_ambos: 'si' }); push('resumen'); }} />
-            <IconCard icon="📄" title="No / sólo uno" subtitle="Valoramos las vías posibles al revisar tu caso" onClick={() => { updateFunnel({ reforma_cee_ambos: 'no' }); push('resumen'); }} />
+            <IconCard icon="📑" title="Sí, tengo ambos (antes y después)" subtitle="Registrados — los revisamos" onClick={() => { updateFunnel({ reforma_cee_ambos: 'si' }); push('gasto'); }} />
+            <IconCard icon="📄" title="No / sólo uno" subtitle="Valoramos las vías posibles al revisar tu caso" onClick={() => { updateFunnel({ reforma_cee_ambos: 'no' }); push('gasto'); }} />
         </StepLayout></>);
     }
 
-    // ---- Resumen de elegibilidad ----
-    if (screen === 'resumen') {
-        const r = calc();
-        const els = funnel.reforma_elementos || {};
-        const items = [];
-        if (!r.ayudaBaja) {
-            if (r.ayudaCaldera) items.push({ tone: r.esBiomasa ? 'amber' : 'ok', icon: r.esBiomasa ? '🔎' : '✅', t: 'Ayuda por cambio de caldera por aerotermia', d: r.esBiomasa ? 'Posible — la biomasa está en revisión por el Ministerio.' : 'Sustitución de tu caldera por aerotermia.' });
-            if (r.ayudaReforma) items.push({ tone: 'ok', icon: '✅', t: 'Ayuda por Reforma (mejora de aislamiento)', d: 'Tu reforma es elegible para la ayuda de mejora de la envolvente.' });
-            if (r.reformaRevisar) items.push({ tone: 'amber', icon: '🔎', t: 'Ayuda por Reforma — a revisar', d: 'Posible, sujeto a revisión de tu certificado de eficiencia energética.' });
-            if (r.irpfRevisar) items.push({ tone: 'amber', icon: '🔎', t: 'Deducción en el IRPF — a revisar', d: ej ? 'En obra ejecutada no calculamos el IRPF aquí; lo valoramos al revisar tus certificados.' : 'Posible si mantienes certificados antes/después y facturas.' });
-        } else {
-            if (els.ventanas) items.push({ tone: 'amber', icon: '💶', t: 'Deducción en el IRPF · Ventanas', d: 'Podrías deducir el 20% del coste de la obra, hasta 1.000€. Si la vivienda tiene dos propietarios, se duplica (hasta 2.000€). Necesitas certificados de eficiencia energética antes y después.' });
-            if (els.cubierta || els.paredes || els.suelo) items.push({ tone: 'amber', icon: '🏠', t: 'Deducción IRPF + posible ayuda · Aislamiento', d: 'El 20% del coste hasta 1.000€ en IRPF (el doble si sois dos propietarios). Además, el aislamiento de cubierta, fachada o suelo puede tener ayuda por mejora energética: lo analizamos contigo. Necesitas certificados antes y después.' });
-            if (els.placas) items.push({ tone: 'amber', icon: '☀️', t: 'Deducción en el IRPF · Placas solares', d: 'Las placas no dan ayuda directa, pero podrías deducir el 60% del coste, hasta un máximo de 9.000€. Necesitas certificados de eficiencia energética antes y después.' });
-        }
+    // ───────────────────────────────────────────────────────────────────────
+    // CIERRE UNIFICADO con /calcula-tu-ayuda
+    // Sustituye la antigua pantalla "¡Buenas noticias!" + contacto + confirm_dedu.
+    // Flujo nuevo: gasto → presupuesto → delivery (LeadDeliveryView con 3 CTAs)
+    // → submit → result (LandingResultView con métricas + CTA subida docs).
+    // ───────────────────────────────────────────────────────────────────────
 
-        const titulo = !r.elegible ? 'Lo revisamos contigo' : r.ayudaBaja ? 'Aquí la ayuda es pequeña' : '¡Buenas noticias!';
-        const subt = !r.elegible ? 'Tu caso necesita una revisión personalizada.' : r.ayudaBaja ? 'Sin aerotermia, lo que te corresponde es básicamente una deducción en el IRPF:' : 'Según lo que nos cuentas, esto es lo que podrías conseguir:';
-
-        return (<><BackBtn />
-            <div className="text-center mb-8 animate-fade-in">
-                <h2 className="text-2xl md:text-4xl font-black text-white tracking-tight">{titulo}</h2>
-                <p className="text-white/55 text-sm md:text-base mt-3 max-w-xl mx-auto">{subt}</p>
-            </div>
-            <div className="space-y-3 max-w-2xl mx-auto">
-                {items.length ? items.map((i, idx) => (
-                    <div key={idx} className={`flex items-start gap-3 p-4 rounded-2xl border ${i.tone === 'ok' ? 'border-emerald-400/30 bg-emerald-400/5' : i.tone === 'amber' ? 'border-amber-400/30 bg-amber-400/5' : 'border-white/10 bg-white/[0.03]'}`}>
-                        <span className="text-xl mt-0.5">{i.icon}</span>
-                        <div><p className="font-black text-white text-sm">{i.t}</p><p className="text-white/55 text-xs mt-1 leading-snug">{i.d}</p></div>
-                    </div>
-                )) : <div className="p-4 rounded-2xl border border-white/10 bg-white/[0.03] text-white/50 text-sm">Déjanos tus datos y un técnico revisará tu caso.</div>}
-            </div>
-            {r.ayudaBaja && (
-                <div className="max-w-2xl mx-auto mt-5 p-5 bg-gradient-to-br from-amber-500/20 to-amber-400/5 border-2 border-amber-400/40 rounded-3xl">
-                    <div className="flex items-start gap-4"><span className="text-4xl shrink-0">🔥</span><div className="flex-1">
-                        <p className="text-amber-300 font-black text-base md:text-lg leading-tight">¿Quieres conseguir mucho más?</p>
-                        <p className="text-white/70 text-sm mt-2 leading-relaxed">Donde de verdad se consigue la mayor ayuda es <strong className="text-amber-300">cambiando la caldera por aerotermia</strong>. Si la incluyes, podrías multiplicar lo que recibes.</p>
-                        <button onClick={() => push('elementos')} className="mt-4 px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-400 text-bkg-deep font-black uppercase tracking-widest text-xs shadow-lg shadow-amber-500/20">+ Añadir aerotermia</button>
-                    </div></div>
-                </div>
-            )}
-            <div className="max-w-2xl mx-auto mt-5 p-4 bg-white/[0.02] border border-white/10 rounded-2xl text-xs text-white/45 leading-relaxed">
-                {r.ayudaBaja
-                    ? <span><strong className="text-white/70">Para tramitar la deducción</strong> necesitas certificado de eficiencia energética antes y después de la obra. Déjanos tus datos y enviaremos tu solicitud a nuestro equipo (<span className="text-amber-300">info@brokergy.es</span>) para analizar tu caso.</span>
-                    : <span><strong className="text-white/70">Importante:</strong> esto es una estimación orientativa. La confirmación final depende de la documentación que aportes y de nuestra revisión técnica.</span>}
-            </div>
-            <div className="mt-8 flex justify-center">
-                <button onClick={() => push(r.ayudaBaja ? 'contacto' : 'presupuesto')} className={primaryBtn}>{r.ayudaBaja ? 'Quiero que lo analicéis →' : 'Calcular mi importe exacto →'}</button>
-            </div>
-        </>);
+    // ---- Gasto anual (Step7 reutilizado) ----
+    if (screen === 'gasto') {
+        return (<><BackBtn /><Step7_Gasto funnel={funnel} updateFunnel={updateFunnel} onNext={() => push('presupuesto')} /></>);
     }
 
-    // ---- Presupuesto (Step8 reutilizado) — solo caso con aerotermia ----
+    // ---- Presupuesto (Step8 reutilizado) ----
     if (screen === 'presupuesto') {
-        return (<><BackBtn /><Step8_Presupuesto funnel={funnel} updateFunnel={updateFunnel} onNext={() => push('contacto')} hideInstalador /></>);
+        return (<><BackBtn /><Step8_Presupuesto funnel={funnel} updateFunnel={updateFunnel} onNext={() => push('delivery')} hideInstalador /></>);
     }
 
-    // ---- Contacto (Step9 reutilizado) ----
-    if (screen === 'contacto') {
-        const fuerte = !!funnel.reforma_elementos?.caldera;
-        return (<><BackBtn />
-            <Step9_Contacto
-                funnel={funnel} updateFunnel={updateFunnel}
-                contacto={contacto} setContacto={setContacto}
-                onSubmit={doSubmit} submitting={submitting} submitError={submitError}
-                mode="public"
-                submitLabel={fuerte ? 'Recibir mi cálculo' : 'Enviar mi solicitud'}
-            />
-        </>);
-    }
-
-    // ---- Confirmación (caso solo deducción → info@brokergy.es) ----
-    if (screen === 'confirm_dedu') {
-        const nombre = (contacto.nombre || '').split(' ')[0] || 'gracias';
+    // ---- Delivery: resultado + 3 CTAs (WhatsApp / email / técnico) ----
+    if (screen === 'delivery') {
         return (
-            <div className="animate-fade-in">
-                <div className="max-w-xl mx-auto text-center">
-                    <div className="text-6xl mb-5">📩</div>
-                    <h2 className="text-2xl md:text-3xl font-black text-white mb-3 tracking-tight">¡Recibido, {nombre}!</h2>
-                    <p className="text-white/60 text-sm md:text-base mb-2">Hemos enviado tu solicitud a <span className="font-mono text-amber-400 font-bold">info@brokergy.es</span>.</p>
-                    <p className="text-white/50 text-sm mb-8">Un técnico analizará tu caso y te contactará para explicarte cómo conseguir tu deducción en el IRPF.</p>
-                </div>
-                <div className="max-w-xl mx-auto p-6 bg-white/[0.03] border border-white/10 rounded-3xl">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-amber-300 mb-4">Para tramitar la deducción harán falta</p>
-                    <ul className="space-y-3 text-sm text-white/70">
-                        <li className="flex gap-3"><span>📑</span><span><strong className="text-white">Certificado de eficiencia energética ANTES</strong> de la obra (registrado en tu CCAA).</span></li>
-                        <li className="flex gap-3"><span>📑</span><span><strong className="text-white">Certificado de eficiencia energética DESPUÉS</strong> de la obra.</span></li>
-                        <li className="flex gap-3"><span>🧾</span><span><strong className="text-white">Facturas y justificantes de pago</strong> de la reforma.</span></li>
-                    </ul>
-                    <p className="text-white/35 text-xs mt-5 leading-relaxed border-t border-white/5 pt-4">Sin los certificados antes y después no es posible aplicar la deducción. Si aún no los tienes, te ayudamos a organizarlo.</p>
-                </div>
-                {uploadLink && (
-                    <div className="max-w-xl mx-auto mt-6 text-center">
-                        <a href={uploadLink} className="inline-block px-6 py-3 rounded-2xl bg-gradient-to-r from-amber-500 to-amber-400 text-bkg-deep font-black uppercase tracking-widest text-sm shadow-lg shadow-amber-500/20">📎 Subir mi documentación</a>
-                        <p className="text-white/35 text-xs mt-3">También te lo hemos enviado por WhatsApp y email.</p>
-                    </div>
-                )}
-                <div className="text-center mt-6">
-                    <button onClick={onRestart} className="text-white/30 hover:text-white/70 text-[11px] font-black uppercase tracking-widest">Empezar otra simulación</button>
-                </div>
-            </div>
+            <LeadDeliveryView
+                funnel={funnel}
+                catastro={catastro}
+                contacto={contacto}
+                setContacto={setContacto}
+                deliveryPreference={deliveryPreference}
+                setDeliveryPreference={setDeliveryPreference}
+                onCaptureSummary={r => { deliverySummaryRef.current = r; }}
+                onSubmit={doSubmit}
+                onBack={() => back()}
+                submitting={submitting}
+                submitError={submitError}
+                partnerBranding={partnerBranding}
+                origen="reforma"
+            />
         );
     }
 

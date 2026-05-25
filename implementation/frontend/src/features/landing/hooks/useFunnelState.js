@@ -26,7 +26,8 @@ const INITIAL_FUNNEL = {
     emisor_tipo: null,           // 'radiadores_convencionales' | ...
     boiler_acs_type: null,       // 'misma_caldera' | 'termo' | 'butano' | 'gas' | 'gasoleo' | 'solar' | 'no_tengo'
     incluir_acs: null,
-    reforma_elementos: { caldera: false, ventanas: false, cubierta: false, suelo: false, paredes: false, placas: false },
+    reforma_elementos: { caldera: false, ventanas: false, cubierta: false, suelo: false, paredes: false, placas: false, aires: false },
+    reforma_aires_count: null,   // 1 | 2 | 3 | 4 (4 = "4+"). Solo si reforma_elementos.aires === true
     gasto_anual_eur: null,
     presupuesto_modo: null,      // 'tengo' | 'no_se' | 'pide_instalador'
     presupuesto_eur: null,

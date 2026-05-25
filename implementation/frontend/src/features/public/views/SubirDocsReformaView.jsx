@@ -12,6 +12,7 @@
 
 import React, { useEffect, useState, useRef } from 'react';
 import axios from 'axios';
+import { DynamicNetworkBackground } from '../../../components/DynamicNetworkBackground';
 
 export function SubirDocsReformaView({ uuid, token }) {
     const [loading, setLoading] = useState(true);
@@ -67,16 +68,18 @@ export function SubirDocsReformaView({ uuid, token }) {
 
     if (loading) {
         return (
-            <div className="min-h-screen bg-slate-950 flex items-center justify-center">
-                <div className="animate-pulse text-amber-500 font-bold tracking-widest text-sm uppercase">Cargando…</div>
+            <div className="min-h-screen bg-slate-950 relative overflow-hidden flex items-center justify-center">
+                <DynamicNetworkBackground />
+                <div className="relative z-10 animate-pulse text-amber-500 font-bold tracking-widest text-sm uppercase">Cargando…</div>
             </div>
         );
     }
 
     if (error) {
         return (
-            <div className="min-h-screen bg-slate-950 flex items-center justify-center px-4">
-                <div className="max-w-md text-center">
+            <div className="min-h-screen bg-slate-950 relative overflow-hidden flex items-center justify-center px-4">
+                <DynamicNetworkBackground />
+                <div className="relative z-10 max-w-md text-center">
                     <div className="text-6xl mb-5">🔒</div>
                     <h1 className="text-2xl font-black text-white mb-3">Enlace no válido</h1>
                     <p className="text-white/60 text-sm">{error}</p>
@@ -90,8 +93,9 @@ export function SubirDocsReformaView({ uuid, token }) {
     const doneRequired = slots.filter(s => s.required && (info.uploaded?.[s.key]?.length)).length;
 
     return (
-        <div className="min-h-screen bg-slate-950 text-white px-4 py-6 md:py-10">
-            <div className="max-w-2xl mx-auto">
+        <div className="min-h-screen bg-slate-950 text-white relative overflow-x-hidden px-4 py-6 md:py-10">
+            <DynamicNetworkBackground />
+            <div className="relative z-10 max-w-2xl mx-auto">
                 {/* Header */}
                 <header className="text-center mb-8">
                     <div className="text-2xl md:text-3xl font-black tracking-tight mb-3">

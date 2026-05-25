@@ -246,7 +246,7 @@ const sendLeadSummaryEmail = async ({ to, nombre, idOportunidad, cae, irpf, neta
           <div style="background:linear-gradient(135deg,rgba(37,211,102,0.18),rgba(37,211,102,0.06));border:2px solid rgba(37,211,102,0.4);border-radius:16px;padding:20px;text-align:center;">
             <p style="color:#fff;font-size:14px;font-weight:900;margin:0 0 6px 0;">📸 Ayúdanos a afinar tu propuesta</p>
             <p style="color:rgba(255,255,255,0.7);font-size:12px;margin:0 0 14px 0;line-height:1.5;">
-              Sube unas fotos de tu instalación actual (caldera, etiqueta, sitio para la unidad exterior, factura de luz). 2 minutos desde el móvil.
+              Sube algunas fotos de tu vivienda e instalación actual. 2 minutos desde el móvil.
             </p>
             <a href="${uploadLink}" style="display:inline-block;background:#25D366;color:#fff;padding:12px 28px;border-radius:12px;text-decoration:none;font-weight:900;font-size:13px;text-transform:uppercase;letter-spacing:1px;">
               Subir fotos y documentos

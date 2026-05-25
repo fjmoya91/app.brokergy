@@ -87,7 +87,7 @@ export function ConfirmationCard({ candidate, onConfirm, onCancel, onPickOnMap }
     return (
         <div className="glass-card p-6 border-l-4 border-amber-500 animate-fade-in">
             {/* Header */}
-            <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-6">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-4">
                 <div className="flex items-center gap-3 flex-1 min-w-0">
                     <div className="w-10 h-10 rounded-lg bg-amber-500/20 flex items-center justify-center text-amber-500 flex-shrink-0">
                         <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -100,30 +100,39 @@ export function ConfirmationCard({ candidate, onConfirm, onCancel, onPickOnMap }
                     </div>
                 </div>
 
-                <div className="flex items-center gap-2 sm:ml-auto flex-shrink-0">
-                    {!isOriginal && (
-                        <button
-                            onClick={() => setSelected(candidate)}
-                            className="text-xs bg-white/10 hover:bg-white/20 text-white px-3 py-1.5 rounded-full transition-colors"
-                        >
-                            Volver al original
-                        </button>
-                    )}
-                    {onPickOnMap && (
-                        <button
-                            onClick={onPickOnMap}
-                            className="px-4 py-2.5 rounded-xl bg-brand/10 border border-brand/30 text-brand text-[10px] font-black uppercase tracking-widest hover:bg-brand/20 hover:border-brand/50 transition-all flex items-center gap-2 whitespace-nowrap"
-                            title="Selecciona tu inmueble sobre la cartografía catastral"
-                        >
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
-                            </svg>
-                            <span className="hidden sm:inline">Ajustar en el mapa</span>
-                            <span className="sm:hidden">Mapa</span>
-                        </button>
-                    )}
-                </div>
+                {!isOriginal && (
+                    <button
+                        onClick={() => setSelected(candidate)}
+                        className="text-xs bg-white/10 hover:bg-white/20 text-white px-3 py-1.5 rounded-full transition-colors sm:ml-auto flex-shrink-0"
+                    >
+                        Volver al original
+                    </button>
+                )}
             </div>
+
+            {/* Banner: si no es tu vivienda, ajustar en el mapa — claramente visible
+                tanto en móvil como en desktop, justo debajo del header */}
+            {onPickOnMap && (
+                <button
+                    onClick={onPickOnMap}
+                    className="w-full mb-5 p-3.5 rounded-xl bg-brand/[0.08] border-2 border-brand/30 hover:bg-brand/15 hover:border-brand/60 transition-all flex items-center gap-3 group"
+                    title="Selecciona tu inmueble sobre la cartografía catastral"
+                >
+                    <div className="w-9 h-9 rounded-lg bg-brand/20 flex items-center justify-center text-brand flex-shrink-0 group-hover:scale-105 transition-transform">
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                        </svg>
+                    </div>
+                    <div className="flex-1 min-w-0 text-left">
+                        <p className="text-brand font-black text-sm leading-tight">¿No es esta tu vivienda?</p>
+                        <p className="text-white/50 text-xs mt-0.5 leading-snug">Toca aquí para buscarla en el mapa catastral</p>
+                    </div>
+                    <svg className="w-5 h-5 text-brand/70 flex-shrink-0 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
+                    </svg>
+                </button>
+            )}
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {/* Left Column: Image */}

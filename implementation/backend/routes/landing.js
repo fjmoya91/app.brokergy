@@ -351,7 +351,7 @@ router.post('/lead', geoGate, async (req, res) => {
                             }
                             if (uploadLink) {
                                 lines.push('');
-                                lines.push(`📸 *Ayúdanos a afinar la propuesta* subiendo unas fotos de tu instalación actual (caldera, etiqueta, sitio para la unidad exterior, factura de luz...). Te llevará 2 minutos desde el móvil:`);
+                                lines.push(`📸 *Ayúdanos a afinar la propuesta* subiendo algunas fotos de tu vivienda e instalación actual. Te llevará 2 minutos desde el móvil:`);
                                 lines.push(uploadLink);
                             }
                             lines.push('');
@@ -386,17 +386,18 @@ router.post('/lead', geoGate, async (req, res) => {
             });
         }
 
-        // --- Flujo /reforma: notificación específica con lista de slots ---
-        // Mantiene el WhatsApp/email de subida (más enfocado en docs) para el
-        // canal /reforma. El funnel estándar usa el bloque anterior.
-        if (isReformaLead && uploadLink) {
+        // --- Flujo /reforma: aviso al admin (NO al cliente — el cliente ya
+        //     recibe el mensaje proposal-style del bloque anterior con datos
+        //     económicos y enlace de subida). Aquí solo se avisa al grupo
+        //     admin de Brokergy de la entrada del lead. ---
+        if (isReformaLead) {
             setImmediate(async () => {
                 try {
-                    const slots = reformaUploadService.getLeadSlots(funnel || {}, 'reforma');
-                    await reformaUploadService.sendReformaUploadNotifications({
-                        contacto, idOportunidad: result.id_oportunidad, uploadLink, slots
-                    });
-                } catch (e) { console.error('[reforma/lead] Error notificando:', e.message); }
+                    const whatsappService = require('../services/whatsappService');
+                    const nombre = contacto?.nombre || 'cliente';
+                    const adminMsg = `🆕 *LEAD REFORMA (web)*\n\nRef *${result.id_oportunidad}*\n👤 ${nombre}${contacto?.tlf ? `\n📞 ${contacto.tlf}` : ''}${contacto?.email ? `\n✉ ${contacto.email}` : ''}${uploadLink ? `\n\n📎 Enlace subida: ${uploadLink}` : ''}`;
+                    whatsappService.sendText(process.env.WHATSAPP_ADMIN_CHAT || '34623926179', adminMsg).catch(() => {});
+                } catch (e) { console.error('[reforma/lead] Error avisando al admin:', e.message); }
             });
         }
 

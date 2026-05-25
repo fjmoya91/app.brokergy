@@ -74,7 +74,9 @@ export function LeadDeliveryView({
     onBack,
     submitting,
     submitError,
+    origen = 'aerotermia',   // 'aerotermia' (default) | 'reforma' — adapta el copy
 }) {
+    const esReforma = origen === 'reforma';
     const [touched, setTouched] = useState({});
     const setField = (key, value) => setContacto(prev => ({ ...prev, [key]: value }));
 
@@ -207,23 +209,24 @@ export function LeadDeliveryView({
             {r && (
                 <div className="mb-7">
                     <p className="text-center text-[11px] font-black uppercase tracking-[0.18em] text-amber-400/80 mb-4">
-                        Tu estimación orientativa
+                        {esReforma ? 'Tu ayuda estimada por la reforma' : 'Tu estimación orientativa'}
                     </p>
                     <div className="grid grid-cols-3 gap-2 md:gap-3">
                         <MetricCard label="Ayuda total"     value={fmtEur(r.totalAyudaCliente)}   sub={`${r.porcentajeCubiertoCliente}% cubierto`} color="emerald" />
                         <MetricCard label="Inversión neta"  value={fmtEur(r.inversionNetaCliente)} sub="tras las ayudas"                           color="amber"   />
-                        <MetricCard label="Ahorro anual"    value={r.ahorroAnualEur > 0 ? fmtEur(r.ahorroAnualEur) : '—'} sub="en calefacción"   color="blue"    />
+                        <MetricCard label="Ahorro anual"    value={r.ahorroAnualEur > 0 ? fmtEur(r.ahorroAnualEur) : '—'} sub={esReforma ? 'en factura' : 'en calefacción'}   color="blue"    />
                     </div>
                     <p className="text-center text-[10px] text-white/25 mt-3">
-                        Estimación teórica. Se ajusta tras el CEE inicial.{' '}
-                        <span className="text-amber-400/50 font-bold">El bono CAE lo garantiza Brokergy.</span>
+                        {esReforma
+                            ? <>Estimación teórica. Se ajusta tras revisar tus certificados y facturas. <span className="text-amber-400/50 font-bold">El bono CAE lo garantiza Brokergy.</span></>
+                            : <>Estimación teórica. Se ajusta tras el CEE inicial. <span className="text-amber-400/50 font-bold">El bono CAE lo garantiza Brokergy.</span></>}
                     </p>
                 </div>
             )}
 
             {/* ── Título CTA ── */}
             <p className="text-center font-black text-white text-lg md:text-xl tracking-tight mb-5">
-                ¿Cómo quieres recibir tu propuesta?
+                {esReforma ? '¿Cómo quieres recibir el detalle de tu reforma?' : '¿Cómo quieres recibir tu propuesta?'}
             </p>
 
             {/* ── Las 3 opciones ── */}

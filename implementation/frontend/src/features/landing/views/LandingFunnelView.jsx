@@ -510,11 +510,19 @@ export default function LandingFunnelView({ route, mode = 'public', variant = 'd
                             <div className="text-center mb-10">
                                 <h1 className="text-3xl md:text-5xl font-black text-white tracking-tight leading-tight">
                                     {partnerBranding?.titulo || (
-                                        <>Calcula tu ahorro con <span className="text-amber-400">aerotermia</span></>
+                                        isReformaVariant ? (
+                                            <>Calcula la ayuda de tu <span className="text-amber-400">reforma energética</span></>
+                                        ) : (
+                                            <>Calcula tu ahorro con <span className="text-amber-400">aerotermia</span></>
+                                        )
                                     )}
                                 </h1>
                                 <p className="text-white/60 text-base md:text-lg mt-4 max-w-2xl mx-auto">
-                                    {partnerBranding?.subtitulo || 'Te decimos cuánto te ahorras al año y qué ayuda del Estado te corresponde. Sin compromiso.'}
+                                    {partnerBranding?.subtitulo || (
+                                        isReformaVariant
+                                            ? 'Te decimos cuánto te paga el Estado por la reforma que estás haciendo o vas a hacer. Sin compromiso.'
+                                            : 'Te decimos cuánto te ahorras al año y qué ayuda del Estado te corresponde. Sin compromiso.'
+                                    )}
                                 </p>
                             </div>
 
@@ -524,6 +532,7 @@ export default function LandingFunnelView({ route, mode = 'public', variant = 'd
                                     onAddressSelect={handleAddressSelect}
                                     onGeolocate={handleGeolocate}
                                     onManualEntry={null}
+                                    geolocatePrimary={isReformaVariant}
                                 />
                             ) : (
                                 <ConfirmationCard

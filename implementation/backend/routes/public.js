@@ -687,7 +687,7 @@ router.get('/cifo-upload/:expedienteId', async (req, res) => {
         const { expedienteId } = req.params;
         const { data: exp, error } = await supabase
             .from('expedientes')
-            .select('id, numero_expediente, clientes!cliente_id(nombre_razon_social, apellidos), prescriptores!instalador_asociado_id(razon_social), oportunidades!oportunidad_id(datos_calculo)')
+            .select('id, numero_expediente, instalacion, clientes!cliente_id(nombre_razon_social, apellidos)')
             .eq('id', expedienteId)
             .maybeSingle();
 
@@ -696,10 +696,22 @@ router.get('/cifo-upload/:expedienteId', async (req, res) => {
             return res.status(404).json({ error: 'Expediente no encontrado' });
         }
 
+        // Resolver nombre del instalador desde el JSONB instalacion.instalador_id
+        let instaladorNombre = '—';
+        const instaladorId = exp.instalacion?.instalador_id;
+        if (instaladorId) {
+            const { data: pres } = await supabase
+                .from('prescriptores')
+                .select('razon_social')
+                .eq('id_empresa', instaladorId)
+                .maybeSingle();
+            if (pres?.razon_social) instaladorNombre = pres.razon_social;
+        }
+
         res.json({
             numero_expediente: exp.numero_expediente,
             cliente: [exp.clientes?.nombre_razon_social, exp.clientes?.apellidos].filter(Boolean).join(' ') || '—',
-            instalador: exp.prescriptores?.razon_social || '—',
+            instalador: instaladorNombre,
         });
     } catch (e) {
         console.error('[CIFO upload info] Error:', e);
@@ -721,11 +733,23 @@ router.post('/cifo-upload/:expedienteId', upload.single('cifo'), async (req, res
 
         const { data: exp, error } = await supabase
             .from('expedientes')
-            .select('id, numero_expediente, documentacion, clientes!cliente_id(nombre_razon_social, apellidos), prescriptores!instalador_asociado_id(razon_social, email, tlf), oportunidades!oportunidad_id(datos_calculo)')
+            .select('id, numero_expediente, documentacion, instalacion, clientes!cliente_id(nombre_razon_social, apellidos), oportunidades!oportunidad_id(datos_calculo)')
             .eq('id', expedienteId)
             .maybeSingle();
 
         if (error || !exp) return res.status(404).json({ error: 'Expediente no encontrado' });
+
+        // Resolver nombre del instalador desde el JSONB instalacion.instalador_id
+        let instaladorNombre = '—';
+        const instaladorId = exp.instalacion?.instalador_id;
+        if (instaladorId) {
+            const { data: pres } = await supabase
+                .from('prescriptores')
+                .select('razon_social')
+                .eq('id_empresa', instaladorId)
+                .maybeSingle();
+            if (pres?.razon_social) instaladorNombre = pres.razon_social;
+        }
 
         const driveFolderId = exp.oportunidades?.drive_folder_id || exp.oportunidades?.datos_calculo?.drive_folder_id || exp.oportunidades?.datos_calculo?.inputs?.drive_folder_id;
         if (!driveFolderId) return res.status(400).json({ error: 'El expediente no tiene carpeta Drive configurada' });
@@ -748,7 +772,7 @@ router.post('/cifo-upload/:expedienteId', upload.single('cifo'), async (req, res
 
         // Notificaciones en background
         setImmediate(async () => {
-            const instalador = exp.prescriptores?.razon_social || '—';
+            const instalador = instaladorNombre;
             const clienteNombre = [exp.clientes?.nombre_razon_social, exp.clientes?.apellidos].filter(Boolean).join(' ') || '—';
             const adminPhone = process.env.WHATSAPP_ADMIN_CHAT;
             const adminEmail = 'franciscojavier.moya.s2e2@gmail.com';
