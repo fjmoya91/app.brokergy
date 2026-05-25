@@ -192,81 +192,43 @@ async function notifyCeeFinalRegistrado(expediente, filters = {}) {
 
 
 // ─── GET /api/expedientes ─────────────────────────────────────────────────────
-// Lista todos los expedientes con datos básicos de oportunidad y cliente
+// Lista todos los expedientes usando RPC (1 sola query con JOIN en BD, sin documentacion)
 router.get('/', enforceAuth, async (req, res) => {
     try {
-        // Solo ADMIN puede ver todo. DISTRIBUIDOR e INSTALADOR están limitados por prescriptor_id en el JOIN.
-        // CERTIFICADOR debe ser filtrado específicamente por cee.certificador_id.
-        const canViewAll = req.user.rol_nombre === 'ADMIN';
-        
-        // Ya no usamos embedded resources (.select('clientes(...)')) para evitar fallos por ambigüedad de relaciones (PGRST201)
-        // Hacemos el join manualmente en Node.js, que es más robusto ante cambios en el esquema.
-        const { data: simpleData, error: simpleErr } = await supabase
-            .from('expedientes')
-            .select('*')
-            .order('updated_at', { ascending: false, nullsFirst: false })
-            .order('created_at', { ascending: false });
+        const canViewAll   = req.user.rol_nombre === 'ADMIN';
+        const isCertificador = req.user.rol_nombre === 'CERTIFICADOR';
 
-        if (simpleErr) throw simpleErr;
+        // RPC: un solo JOIN en BD — evita 3 round-trips y el timeout por documentacion pesada
+        const { data: rpcData, error: rpcErr } = await supabase.rpc('get_expedientes_list_v2');
+        if (rpcErr) throw rpcErr;
 
-        let data = simpleData || [];
+        let data = rpcData || [];
 
-        // Filtro adicional por cliente/oportunidad si no es ADMIN ni CERTIFICADOR
-        if (!canViewAll && req.user.rol_nombre !== 'CERTIFICADOR') {
+        // ── Filtros por rol ──────────────────────────────────────────────────
+        if (!canViewAll && !isCertificador) {
+            // PARTNER / INSTALADOR / DISTRIBUIDOR → solo sus clientes u oportunidades
             if (!req.user.prescriptor_id) return res.json([]);
 
-            // Ambas queries son independientes → en paralelo
-            const [{ data: clienteIdsData }, { data: opIdsData }] = await Promise.all([
+            const [{ data: cliIds }, { data: opIds }] = await Promise.all([
                 supabase.from('clientes').select('id_cliente').eq('prescriptor_id', req.user.prescriptor_id),
                 supabase.from('oportunidades').select('id').eq('prescriptor_id', req.user.prescriptor_id)
             ]);
-            const clienteIds = clienteIdsData;
-            const opIds = opIdsData;
 
-            const validClientIds = new Set((clienteIds || []).map(c => c.id_cliente));
-            const validOpIds    = new Set((opIds || []).map(o => o.id));
+            const validCli = new Set((cliIds || []).map(c => c.id_cliente));
+            const validOp  = new Set((opIds  || []).map(o => o.id));
+            if (validCli.size === 0 && validOp.size === 0) return res.json([]);
 
-            if (validClientIds.size === 0 && validOpIds.size === 0) return res.json([]);
-            data = data.filter(r => validClientIds.has(r.cliente_id) || validOpIds.has(r.oportunidad_id));
+            data = data.filter(r => validCli.has(r.cliente_id) || validOp.has(r.oportunidad_id));
         }
 
-        // Filtro específico para CERTIFICADOR
-        if (req.user.rol_nombre === 'CERTIFICADOR') {
+        if (isCertificador) {
             if (!req.user.prescriptor_id) return res.json([]);
             data = data.filter(r => String(r.cee?.certificador_id) === String(req.user.prescriptor_id));
         }
 
-        if (data.length > 0) {
-            const clienteIds = [...new Set(data.map(r => r.cliente_id).filter(Boolean))];
-            const opIds = [...new Set(data.map(r => r.oportunidad_id).filter(Boolean))];
-
-            const [{ data: clientesData }, { data: opsData }] = await Promise.all([
-                supabase.from('clientes').select('*').in('id_cliente', clienteIds),
-                supabase.from('oportunidades').select('id, id_oportunidad, referencia_cliente, ficha, ref_catastral, datos_calculo, prescriptor_id').in('id', opIds)
-            ]);
-
-
-            const cliMap = Object.fromEntries((clientesData || []).map(c => [c.id_cliente, c]));
-            const opMap  = Object.fromEntries((opsData || []).map(o => [o.id, o]));
-
-            data = data.map(r => ({
-                ...r,
-                clientes:      cliMap[r.cliente_id]      || null,
-                oportunidades: opMap[r.oportunidad_id]   || null,
-            }));
-        }
-
-        // Excluir `documentacion` del payload del listado — solo se usa en el modal
-        // de historial, que ya hace su propio GET /:id con el dato completo.
-        // Reduce significativamente el tamaño de la respuesta.
-        data = data.map(r => {
-            const { documentacion, ...rest } = r;
-            return rest;
-        });
-
         res.json(data);
     } catch (err) {
-        console.error('Error GET expedientes (Manual Join):', err);
+        console.error('Error GET expedientes (RPC):', err);
         res.status(500).json({ error: 'Error al recuperar expedientes', details: err.message });
     }
 });
@@ -1073,17 +1035,49 @@ router.post('/:id/documents/upload-budget', enforceAuth, async (req, res) => {
 });
 
 // ─── DELETE /api/expedientes/:id ──────────────────────────────────────────────
+// Al borrar el expediente, también se mueve la carpeta Drive a la papelera
+// (la carpeta vive en la oportunidad asociada — datos_calculo.drive_folder_id).
 router.delete('/:id', adminOnly, async (req, res) => {
     try {
         if (req.user.rol_nombre !== 'ADMIN') {
             return res.status(403).json({ error: 'Solo el administrador puede eliminar expedientes' });
         }
+
+        // 1. Obtener el expediente + la oportunidad asociada (para el drive_folder_id)
+        const { data: exp, error: getErr } = await supabase
+            .from('expedientes')
+            .select('id, numero_expediente, oportunidad_id, oportunidades:oportunidad_id(datos_calculo)')
+            .eq('id', req.params.id)
+            .maybeSingle();
+        if (getErr) throw getErr;
+        if (!exp) return res.status(404).json({ error: 'Expediente no encontrado' });
+
+        // 2. Mover carpeta Drive a papelera si existe (best-effort, no bloqueante)
+        const datosCalculo = exp.oportunidades?.datos_calculo || {};
+        const driveFolderId = datosCalculo.drive_folder_id || datosCalculo.inputs?.drive_folder_id;
+        let driveDeleted = false;
+        if (driveFolderId) {
+            try {
+                const { deleteFile } = require('../services/driveService');
+                driveDeleted = await deleteFile(driveFolderId);
+                if (driveDeleted) {
+                    console.log(`[DELETE expediente ${exp.numero_expediente}] Carpeta Drive ${driveFolderId} movida a papelera`);
+                } else {
+                    console.warn(`[DELETE expediente ${exp.numero_expediente}] No se pudo mover la carpeta Drive ${driveFolderId}`);
+                }
+            } catch (e) {
+                console.warn(`[DELETE expediente ${exp.numero_expediente}] Error borrando Drive folder:`, e.message);
+            }
+        }
+
+        // 3. Borrar el expediente
         const { error } = await supabase
             .from('expedientes')
             .delete()
             .eq('id', req.params.id);
         if (error) throw error;
-        res.json({ success: true });
+
+        res.json({ success: true, drive_deleted: driveDeleted, drive_folder_id: driveFolderId || null });
     } catch (err) {
         console.error('Error DELETE expedientes/:id:', err);
         res.status(500).json({ error: 'Error al eliminar el expediente' });
@@ -1954,8 +1948,11 @@ router.post('/:id/fichas-tecnicas/upload', enforceAuth, async (req, res) => {
 // Busca la ficha técnica directamente en Drive por nombre dentro de
 // "3. FICHAS TÉCNICAS Y CERTIFICACIONES" y la sirve si existe.
 // No depende de IDs guardados en documentacion — fuente de verdad: Drive.
+// Si se pasa ?info=1, devuelve metadatos JSON en lugar del binario (más ligero
+// para que el frontend evite descargar el PDF y lo encadene como Drive ID).
 router.get('/:id/fichas-tecnicas/:type', async (req, res) => {
     const { type } = req.params; // 'cal' | 'acs'
+    const wantInfo = req.query.info === '1' || req.query.info === 'true';
     try {
         const { data: exp } = await supabase
             .from('expedientes')
@@ -1973,7 +1970,7 @@ router.get('/:id/fichas-tecnicas/:type', async (req, res) => {
         const driveFolderId = op?.datos_calculo?.drive_folder_id || op?.datos_calculo?.inputs?.drive_folder_id;
         if (!driveFolderId) return res.status(404).send('Sin carpeta Drive');
 
-        const { findSubfolderByName, findFileByName, getFileContent } = require('../services/driveService');
+        const { findSubfolderByName, findFileByName, getFileContent, getFileMetadata } = require('../services/driveService');
         const ftFolderId = await findSubfolderByName(driveFolderId, '3. FICHAS TÉCNICAS Y CERTIFICACIONES');
         if (!ftFolderId) return res.status(404).send('Subcarpeta no encontrada');
 
@@ -1981,6 +1978,16 @@ router.get('/:id/fichas-tecnicas/:type', async (req, res) => {
         const fileName = `${exp.numero_expediente} - FT AEROTERMIA ${suffix}.pdf`;
         const fileId = await findFileByName(ftFolderId, fileName);
         if (!fileId) return res.status(404).send('Archivo no encontrado en Drive');
+
+        if (wantInfo) {
+            const meta = await getFileMetadata(fileId);
+            return res.json({
+                driveId: fileId,
+                fileName,
+                link: meta?.webViewLink || `https://drive.google.com/file/d/${fileId}/view`,
+                size: meta?.size ? Number(meta.size) : null
+            });
+        }
 
         const content = await getFileContent(fileId);
         if (!content) return res.status(404).send('No se pudo leer el archivo');
@@ -1992,6 +1999,211 @@ router.get('/:id/fichas-tecnicas/:type', async (req, res) => {
     } catch (err) {
         console.error('Error GET expedientes/:id/fichas-tecnicas/:type:', err);
         res.status(500).send('Error');
+    }
+});
+
+// ─── POST /api/expedientes/:id/fichas-tecnicas/auto-copy ─────────────────────
+// Copia la ficha técnica del modelo de aerotermia (campo aerotermia.ficha_tecnica)
+// a la subcarpeta "3. FICHAS TÉCNICAS Y CERTIFICACIONES" del expediente.
+// Body: { type: 'cal'|'acs', force?: boolean }
+// Responde 200 { link, driveId, copied, source } o 400 { error, model? }
+router.post('/:id/fichas-tecnicas/auto-copy', enforceAuth, async (req, res) => {
+    const { type, force } = req.body;
+    if (!['cal', 'acs'].includes(type)) {
+        return res.status(400).json({ error: 'bad_type', message: 'type debe ser cal o acs' });
+    }
+    try {
+        const { data: exp } = await supabase
+            .from('expedientes')
+            .select('id, oportunidad_id, numero_expediente, documentacion, instalacion')
+            .eq('id', req.params.id)
+            .single();
+        if (!exp) return res.status(404).json({ error: 'expediente_not_found' });
+
+        const { data: op } = await supabase
+            .from('oportunidades')
+            .select('datos_calculo')
+            .eq('id', exp.oportunidad_id)
+            .single();
+
+        const driveFolderId = op?.datos_calculo?.drive_folder_id || op?.datos_calculo?.inputs?.drive_folder_id;
+        if (!driveFolderId) return res.status(400).json({ error: 'no_drive_folder' });
+
+        // Resolver el modelo aerotermia que aplica a este "type"
+        const inst = exp.instalacion || {};
+        let aeroNode;
+        if (type === 'cal') {
+            aeroNode = inst.aerotermia_cal;
+        } else {
+            // Para ACS: si misma_aerotermia_acs, usar el de calefacción
+            aeroNode = inst.misma_aerotermia_acs ? inst.aerotermia_cal : inst.aerotermia_acs;
+        }
+        const aeroDbId = aeroNode?.aerotermia_db_id;
+        if (!aeroDbId) {
+            return res.status(400).json({ error: 'no_model', message: 'Selecciona un modelo de aerotermia primero' });
+        }
+
+        const { data: equipo } = await supabase
+            .from('aerotermia')
+            .select('id, marca, modelo_comercial, modelo_conjunto, ficha_tecnica')
+            .eq('id', aeroDbId)
+            .single();
+        if (!equipo) return res.status(400).json({ error: 'model_not_found', aeroDbId });
+        const modelLabel = equipo.modelo_comercial || equipo.modelo_conjunto || `id=${aeroDbId}`;
+
+        if (!equipo.ficha_tecnica) {
+            return res.status(400).json({ error: 'no_ficha_in_db', model: modelLabel });
+        }
+
+        // Extraer fileId del URL de Drive (formatos /d/<id>/ o ?id=<id>)
+        const m = String(equipo.ficha_tecnica).match(/\/d\/([a-zA-Z0-9_-]+)/) || String(equipo.ficha_tecnica).match(/[?&]id=([a-zA-Z0-9_-]+)/);
+        const sourceFileId = m?.[1];
+        if (!sourceFileId) {
+            return res.status(400).json({ error: 'bad_ficha_url', model: modelLabel, url: equipo.ficha_tecnica });
+        }
+
+        const { findSubfolderByName, createSubfolder, findFileByName, copyFile, deleteFile, getFileMetadata } = require('../services/driveService');
+
+        let ftFolderId = await findSubfolderByName(driveFolderId, '3. FICHAS TÉCNICAS Y CERTIFICACIONES');
+        if (!ftFolderId) ftFolderId = await createSubfolder(driveFolderId, '3. FICHAS TÉCNICAS Y CERTIFICACIONES');
+
+        const suffix = type === 'acs' ? 'ACS' : 'CALEFACCION';
+        const fileName = `${exp.numero_expediente} - FT AEROTERMIA ${suffix}.pdf`;
+
+        // Si ya existe y no fuerzan, devolver el existente
+        const existingId = await findFileByName(ftFolderId, fileName);
+        if (existingId && !force) {
+            const meta = await getFileMetadata(existingId);
+            return res.json({
+                driveId: existingId,
+                link: meta?.webViewLink || `https://drive.google.com/file/d/${existingId}/view`,
+                copied: false,
+                source: 'existing'
+            });
+        }
+        if (existingId && force) {
+            await deleteFile(existingId);
+        }
+
+        const result = await copyFile(sourceFileId, ftFolderId, fileName);
+        if (!result) return res.status(500).json({ error: 'copy_failed' });
+
+        const linkField = type === 'acs' ? 'ft_aerotermia_acs_link' : 'ft_aerotermia_cal_link';
+        const idField   = type === 'acs' ? 'ft_aerotermia_acs_id'   : 'ft_aerotermia_cal_id';
+        const docObj = { ...(exp.documentacion || {}), [linkField]: result.link, [idField]: result.id };
+        await supabase.from('expedientes')
+            .update({ documentacion: docObj, updated_at: new Date().toISOString() })
+            .eq('id', req.params.id);
+
+        console.log(`[FT auto-copy] ${fileName} ← modelo "${modelLabel}" (driveId=${result.id})`);
+        res.json({ driveId: result.id, link: result.link, copied: true, source: 'model' });
+    } catch (err) {
+        console.error('Error POST /:id/fichas-tecnicas/auto-copy:', err);
+        res.status(500).json({ error: 'internal', message: err.message });
+    }
+});
+
+// ─── POST /api/expedientes/:id/anexos-cifo/upload ────────────────────────────
+// Sube un PDF arbitrario como anexo extra del CIFO a la subcarpeta
+// "3. FICHAS TÉCNICAS Y CERTIFICACIONES" del expediente y lo persiste en
+// documentacion.cifo_extra_annexes[].
+// Body: { base64, fileName, label? }
+router.post('/:id/anexos-cifo/upload', enforceAuth, async (req, res) => {
+    const { base64, fileName, label } = req.body;
+    if (!base64 || !fileName) return res.status(400).json({ error: 'missing_fields' });
+    try {
+        const { data: exp } = await supabase
+            .from('expedientes')
+            .select('id, oportunidad_id, numero_expediente, documentacion')
+            .eq('id', req.params.id)
+            .single();
+        if (!exp) return res.status(404).json({ error: 'expediente_not_found' });
+
+        const { data: op } = await supabase
+            .from('oportunidades')
+            .select('datos_calculo')
+            .eq('id', exp.oportunidad_id)
+            .single();
+        const driveFolderId = op?.datos_calculo?.drive_folder_id || op?.datos_calculo?.inputs?.drive_folder_id;
+        if (!driveFolderId) return res.status(400).json({ error: 'no_drive_folder' });
+
+        const { findSubfolderByName, createSubfolder, saveFileToFolder } = require('../services/driveService');
+        let ftFolderId = await findSubfolderByName(driveFolderId, '3. FICHAS TÉCNICAS Y CERTIFICACIONES');
+        if (!ftFolderId) ftFolderId = await createSubfolder(driveFolderId, '3. FICHAS TÉCNICAS Y CERTIFICACIONES');
+
+        const safeName = String(fileName).trim().replace(/[\\/<>:"|?*]/g, '_');
+        const buffer = Buffer.from(base64.split(',')[1] || base64, 'base64');
+        const result = await saveFileToFolder(ftFolderId, safeName, 'application/pdf', buffer);
+        if (!result) return res.status(500).json({ error: 'upload_failed' });
+
+        const docObj = exp.documentacion || {};
+        const list = Array.isArray(docObj.cifo_extra_annexes) ? docObj.cifo_extra_annexes : [];
+        list.push({ driveId: result.id, link: result.link, fileName: safeName, label: label || safeName });
+        await supabase.from('expedientes')
+            .update({ documentacion: { ...docObj, cifo_extra_annexes: list }, updated_at: new Date().toISOString() })
+            .eq('id', req.params.id);
+
+        res.json({ driveId: result.id, link: result.link, fileName: safeName, label: label || safeName });
+    } catch (err) {
+        console.error('Error POST /:id/anexos-cifo/upload:', err);
+        res.status(500).json({ error: 'internal', message: err.message });
+    }
+});
+
+// ─── GET /api/expedientes/:id/anexos-cifo/:driveId/content ───────────────────
+// Sirve el contenido binario de un anexo extra del CIFO. Solo lo permite si el
+// driveId aparece en documentacion.cifo_extra_annexes del expediente (para no
+// exponer la Drive API como proxy genérico).
+router.get('/:id/anexos-cifo/:driveId/content', async (req, res) => {
+    try {
+        const { data: exp } = await supabase
+            .from('expedientes')
+            .select('documentacion')
+            .eq('id', req.params.id)
+            .single();
+        if (!exp) return res.status(404).send('Expediente no encontrado');
+        const list = exp.documentacion?.cifo_extra_annexes || [];
+        const allowed = list.some(a => a.driveId === req.params.driveId);
+        if (!allowed) return res.status(404).send('Anexo no encontrado en el expediente');
+
+        const { getFileContent } = require('../services/driveService');
+        const content = await getFileContent(req.params.driveId);
+        if (!content) return res.status(404).send('No se pudo leer el archivo');
+
+        res.setHeader('Content-Type', 'application/pdf');
+        res.send(content);
+    } catch (err) {
+        console.error('Error GET anexos-cifo/:driveId/content:', err);
+        res.status(500).send('Error');
+    }
+});
+
+// ─── DELETE /api/expedientes/:id/anexos-cifo/:driveId ────────────────────────
+// Elimina un anexo extra del CIFO (de la lista cifo_extra_annexes y de Drive).
+router.delete('/:id/anexos-cifo/:driveId', enforceAuth, async (req, res) => {
+    try {
+        const { data: exp } = await supabase
+            .from('expedientes')
+            .select('id, documentacion')
+            .eq('id', req.params.id)
+            .single();
+        if (!exp) return res.status(404).json({ error: 'expediente_not_found' });
+
+        const docObj = exp.documentacion || {};
+        const list = Array.isArray(docObj.cifo_extra_annexes) ? docObj.cifo_extra_annexes : [];
+        const newList = list.filter(a => a.driveId !== req.params.driveId);
+
+        const { deleteFile } = require('../services/driveService');
+        await deleteFile(req.params.driveId);
+
+        await supabase.from('expedientes')
+            .update({ documentacion: { ...docObj, cifo_extra_annexes: newList }, updated_at: new Date().toISOString() })
+            .eq('id', req.params.id);
+
+        res.json({ success: true });
+    } catch (err) {
+        console.error('Error DELETE /:id/anexos-cifo/:driveId:', err);
+        res.status(500).json({ error: 'internal', message: err.message });
     }
 });
 

@@ -871,21 +871,23 @@ router.delete('/:id/anexos/:fileId', async (req, res) => {
 });
 
 // Eliminar una (DELETE /api/oportunidades/:id)
+// Al borrar la oportunidad, también se mueve su carpeta Drive a la papelera
+// (no se borra permanentemente — Drive la mantiene 30 días por seguridad).
 router.delete('/:id', async (req, res) => {
     try {
         const { id } = req.params;
 
-        // 1. Obtener el UUID interno de la oportunidad para verificar relaciones
+        // 1. Obtener UUID interno + datos_calculo (para el drive_folder_id)
         const { data: op, error: opErr } = await supabase
             .from('oportunidades')
-            .select('id, id_oportunidad')
+            .select('id, id_oportunidad, datos_calculo')
             .or(`id_oportunidad.eq.${id},ref_catastral.eq.${id}`)
             .maybeSingle();
 
         if (opErr) return res.status(500).json({ error: 'Error al consultar oportunidad.' });
         if (!op) return res.status(404).json({ error: 'Oportunidad no encontrada.' });
 
-        // 2. Verificar si existe un expediente asociado (usando el UUID interno 'id')
+        // 2. Verificar si existe un expediente asociado
         const { data: exp, error: expErr } = await supabase
             .from('expedientes')
             .select('numero_expediente')
@@ -895,21 +897,39 @@ router.delete('/:id', async (req, res) => {
         if (expErr) return res.status(500).json({ error: 'Error al consultar expedientes asociados.' });
 
         if (exp) {
-            return res.status(400).json({ 
+            return res.status(400).json({
                 error: 'HAS_EXPEDIENTE',
                 message: `Esta oportunidad ya ha sido aceptada y ha generado un número de expediente [${exp.numero_expediente}]. Póngase en contacto con el administrador para borrarlo.`,
                 numero_expediente: exp.numero_expediente
             });
         }
 
-        // 3. Eliminar la oportunidad por su UUID
+        // 3. Mover carpeta Drive a papelera (si existe) — antes del DELETE para no
+        //    quedarnos con el row borrado y la carpeta huérfana si Drive falla.
+        //    Si Drive falla NO bloqueamos el delete: registramos warning y seguimos.
+        const driveFolderId = op.datos_calculo?.drive_folder_id || op.datos_calculo?.inputs?.drive_folder_id;
+        let driveDeleted = false;
+        if (driveFolderId) {
+            try {
+                driveDeleted = await driveService.deleteFile(driveFolderId);
+                if (driveDeleted) {
+                    console.log(`[DELETE oportunidad ${op.id_oportunidad}] Carpeta Drive ${driveFolderId} movida a papelera`);
+                } else {
+                    console.warn(`[DELETE oportunidad ${op.id_oportunidad}] No se pudo mover la carpeta Drive ${driveFolderId} (continuamos con el delete)`);
+                }
+            } catch (e) {
+                console.warn(`[DELETE oportunidad ${op.id_oportunidad}] Error borrando Drive folder:`, e.message);
+            }
+        }
+
+        // 4. Eliminar la oportunidad por su UUID
         const { error: delErr } = await supabase
             .from('oportunidades')
             .delete()
             .eq('id', op.id);
 
         if (delErr) return res.status(500).json({ error: 'Error al eliminar.' });
-        res.status(200).json({ success: true });
+        res.status(200).json({ success: true, drive_deleted: driveDeleted, drive_folder_id: driveFolderId || null });
     } catch (error) {
         console.error('Error fatal DELETE /:', error);
         res.status(500).json({ error: 'Error servidor.' });

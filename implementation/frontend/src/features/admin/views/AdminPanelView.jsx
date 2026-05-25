@@ -1278,9 +1278,18 @@ export function AdminPanelView({
                             </svg>
                             ¿Eliminar Oportunidad?
                         </h3>
-                        <p className="text-white/60 text-sm mb-6 mt-4">
-                            Se eliminarán todos los datos y ahorros calculados de esta oportunidad, liberando su Referencia Catastral. <br /><br />Esta acción es <strong>irreversible</strong>.
+                        <p className="text-white/60 text-sm mb-4 mt-4">
+                            Se eliminarán todos los datos y ahorros calculados de esta oportunidad, liberando su Referencia Catastral.
                         </p>
+                        <div className="mb-6 p-3 rounded-lg bg-amber-500/10 border border-amber-500/30 flex items-start gap-2">
+                            <svg className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                            </svg>
+                            <p className="text-amber-200/90 text-xs leading-relaxed">
+                                <strong>Atención:</strong> también se moverá a la <strong>papelera de Google Drive</strong> la carpeta asociada a esta oportunidad. Drive la conserva 30 días por si necesitas recuperarla.
+                            </p>
+                        </div>
+                        <p className="text-white/60 text-xs mb-6">Esta acción es <strong className="text-red-400">irreversible</strong> en la app.</p>
                         <div className="flex gap-3 justify-end">
                             <button
                                 onClick={() => setOportunidadToDelete(null)}
