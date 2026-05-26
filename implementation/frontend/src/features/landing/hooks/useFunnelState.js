@@ -56,18 +56,25 @@ function loadFromStorage() {
             localStorage.removeItem(STORAGE_KEY);
             return null;
         }
-        return parsed.data;
+        return { funnel: parsed.data, currentStep: parsed.currentStep || 0 };
     } catch {
         return null;
     }
 }
 
-function saveToStorage(data) {
+function saveToStorage(data, currentStep) {
     try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify({ timestamp: Date.now(), data }));
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ timestamp: Date.now(), data, currentStep }));
     } catch {
         // localStorage lleno o deshabilitado — silenciamos, no es crítico
     }
+}
+
+// Caché del estado inicial para no releer localStorage dos veces en el mount
+let _storedOnce = undefined;
+function getStoredOnce() {
+    if (_storedOnce === undefined) _storedOnce = loadFromStorage();
+    return _storedOnce;
 }
 
 function clearStorage() {
@@ -75,16 +82,13 @@ function clearStorage() {
 }
 
 export function useFunnelState() {
-    const [funnel, setFunnelState] = useState(() => {
-        const stored = loadFromStorage();
-        return stored || INITIAL_FUNNEL;
-    });
-    const [currentStep, setCurrentStep] = useState(0);
+    const [funnel, setFunnelState] = useState(() => getStoredOnce()?.funnel || INITIAL_FUNNEL);
+    const [currentStep, setCurrentStepRaw] = useState(() => getStoredOnce()?.currentStep || 0);
 
-    // Persistir en localStorage cada vez que cambia el funnel
+    // Persistir en localStorage cada vez que cambia el funnel o el paso actual
     useEffect(() => {
-        saveToStorage(funnel);
-    }, [funnel]);
+        saveToStorage(funnel, currentStep);
+    }, [funnel, currentStep]);
 
     const updateFunnel = useCallback((patch) => {
         setFunnelState(prev => ({ ...prev, ...patch }));
@@ -92,13 +96,14 @@ export function useFunnelState() {
 
     const resetFunnel = useCallback(() => {
         setFunnelState(INITIAL_FUNNEL);
-        setCurrentStep(0);
+        setCurrentStepRaw(0);
+        _storedOnce = null; // limpiar caché de mount
         clearStorage();
     }, []);
 
-    const goToStep = useCallback((step) => setCurrentStep(step), []);
-    const goNext = useCallback(() => setCurrentStep(s => s + 1), []);
-    const goBack = useCallback(() => setCurrentStep(s => Math.max(0, s - 1)), []);
+    const goToStep  = useCallback((step) => setCurrentStepRaw(step), []);
+    const goNext    = useCallback(() => setCurrentStepRaw(s => s + 1), []);
+    const goBack    = useCallback(() => setCurrentStepRaw(s => Math.max(0, s - 1)), []);
 
     return {
         funnel,

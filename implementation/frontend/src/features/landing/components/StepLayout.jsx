@@ -8,7 +8,7 @@ import React from 'react';
 export function StepLayout({ question, subtitle, children, onContinue, canContinue = true, continueLabel = 'Continuar', continueCls, continueIcon }) {
     // Clases del botón: si se pasa continueCls se usa como override del fondo/color;
     // el resto (tamaño, forma, disabled) siempre se aplica.
-    const btnBase = 'w-full max-w-xs px-8 py-4 font-black uppercase tracking-widest text-sm rounded-2xl transition-all flex items-center justify-center gap-2';
+    const btnBase = 'w-full sm:max-w-xs px-8 py-4 font-black uppercase tracking-widest text-sm rounded-2xl transition-all flex items-center justify-center gap-2';
     const btnEnabled = continueCls
         ? `${continueCls} shadow-lg`
         : 'bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-400 hover:to-amber-300 text-bkg-deep shadow-lg shadow-amber-500/20';

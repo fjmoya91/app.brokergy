@@ -241,7 +241,7 @@ export function CatastroSearchBox({ onSearch, onAddressSelect, onManualEntry, on
     );
 
     return (
-        <div className="bg-bkg-surface border border-white/[0.06] rounded-[2rem] p-8 md:p-12 shadow-[0_20px_50px_rgba(0,0,0,0.5)] relative" ref={wrapperRef}>
+        <div className="bg-bkg-surface border border-white/[0.06] rounded-[2rem] p-5 sm:p-8 md:p-12 shadow-[0_20px_50px_rgba(0,0,0,0.5)] relative" ref={wrapperRef}>
             {/* Background Accents — overflow-hidden acotado a esta capa para no cortar el dropdown de sugerencias */}
             <div className="absolute inset-0 overflow-hidden rounded-[2rem] pointer-events-none">
                 <div className="absolute top-0 right-0 w-64 h-64 bg-brand/5 rounded-full blur-[100px]"></div>

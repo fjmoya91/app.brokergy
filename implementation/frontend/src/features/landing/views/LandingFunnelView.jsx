@@ -65,9 +65,24 @@ export default function LandingFunnelView({ route, mode = 'public', variant = 'd
             });
     }, [route?.type, route?.slug, isInternal]);
 
+    // ---- Persistencia de sesión (sobrevive F5, no cierre de pestaña) ----
+    // Guardamos phase+catastro en sessionStorage para que al recargar el cliente
+    // retome el funnel sin tener que volver a buscar su vivienda.
+    const SESSION_KEY = 'brokergy_session_v1';
+    const _readSession = () => { try { return JSON.parse(sessionStorage.getItem(SESSION_KEY) || 'null'); } catch { return null; } };
+    const _writeSession = (p, c) => { try { sessionStorage.setItem(SESSION_KEY, JSON.stringify({ phase: p, catastro: c })); } catch {} };
+    const _clearSession = () => { try { sessionStorage.removeItem(SESSION_KEY); } catch {} };
+
     // ---- Fase global ----
-    const [phase, setPhase] = useState('HOME'); // HOME | GEO_BLOCKED | FUNNEL | SUBMITTING | RESULT
-    const [catastro, setCatastro] = useState(null);
+    const [phase, setPhase] = useState(() => {
+        const s = _readSession();
+        // Solo restauramos FUNNEL si hay datos catastro; HOME y RESULT siempre arrancan frescos
+        return (s?.phase === 'FUNNEL' && s?.catastro) ? 'FUNNEL' : 'HOME';
+    });
+    const [catastro, setCatastro] = useState(() => {
+        const s = _readSession();
+        return (s?.phase === 'FUNNEL' && s?.catastro) ? s.catastro : null;
+    });
     const [confirmCandidate, setConfirmCandidate] = useState(null);
     const [catastroLoading, setCatastroLoading] = useState(false);
     const [catastroError, setCatastroError] = useState(null);
@@ -80,11 +95,22 @@ export default function LandingFunnelView({ route, mode = 'public', variant = 'd
     // ---- Funnel state ----
     const { funnel, updateFunnel, currentStep, setCurrentStep, goNext, goBack, resetFunnel } = useFunnelState();
 
-    // Scroll-to-top automático cuando cambia la fase o el paso del funnel.
-    // Sin esto, el cliente al avanzar de paso o llegar al resultado se queda
-    // en la posición scrolleada anterior y tiene que subir manualmente.
+    // Sincronizar phase+catastro con sessionStorage
     useEffect(() => {
-        window.scrollTo({ top: 0, behavior: 'smooth' });
+        if (phase === 'FUNNEL' && catastro) {
+            _writeSession(phase, catastro);
+        } else if (phase === 'HOME' || phase === 'RESULT') {
+            _clearSession();
+        }
+    }, [phase, catastro]);
+
+    // Scroll-to-top al cambiar de fase o paso.
+    // Usamos scrollTo(0,0) sin smooth: en iOS el scroll 'smooth' puede no
+    // ejecutarse si hay un re-render simultáneo, dejando la página a mitad.
+    useEffect(() => {
+        window.scrollTo(0, 0);
+        document.documentElement.scrollTop = 0;
+        document.body.scrollTop = 0; // Safari
     }, [phase, currentStep]);
 
     // ---- Contacto (separado del funnel persistido por RGPD) ----
