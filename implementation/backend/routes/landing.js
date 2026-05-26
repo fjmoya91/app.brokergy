@@ -340,44 +340,43 @@ router.post('/lead', requireAuth, geoGate, async (req, res) => {
 
                     if (wantsWA && contacto?.tlf) {
                         const whatsappService = require('../services/whatsappService');
-                        const status = await whatsappService.getStatus();
-                        if (status?.ready) {
-                            // Mensaje estilo propuesta admin (ProposalModal) adaptado a lead.
-                            const lines = [
-                                `¡Hola ${nombre}! 👋`,
-                                ``,
-                                `Hemos calculado tu simulación de ayudas para cambiar a aerotermia (Ref. *${result.id_oportunidad}*).`,
-                                ``,
-                                `🔹 *A modo resumen:*`,
-                                ``,
-                                `Instalando el sistema de aerotermia, podrías obtener una ayuda de *${fmtEur(caeN)}* gracias al Bono Energético BROKERGY.`,
-                            ];
-                            if (irpfN > 0) {
-                                lines.push('');
-                                lines.push(`Además, si en tu caso puedes acogerte a las deducciones en el IRPF por contar con retenciones aplicables y siempre que estén vigentes, el importe estimado sería de *${fmtEur(irpfN)}*. (Nosotros dejaremos toda la parte técnica preparada para que las puedas solicitar).`);
-                            }
+                        // NO comprobamos status?.ready aquí: sendText() ya tiene cola
+                        // persistente en Supabase. Si WhatsApp no está listo en este
+                        // momento, el mensaje queda PENDING y se envía en cuanto reconecte.
+                        // El guard anterior causaba que el mensaje se eliminase en lugar
+                        // de encolarse, de ahí que el cliente no recibiese nada.
+                        const lines = [
+                            `¡Hola ${nombre}! 👋`,
+                            ``,
+                            `Hemos calculado tu simulación de ayudas para cambiar a aerotermia (Ref. *${result.id_oportunidad}*).`,
+                            ``,
+                            `🔹 *A modo resumen:*`,
+                            ``,
+                            `Instalando el sistema de aerotermia, podrías obtener una ayuda de *${fmtEur(caeN)}* gracias al Bono Energético BROKERGY.`,
+                        ];
+                        if (irpfN > 0) {
                             lines.push('');
-                            lines.push(`💡 *Resumen total de ayudas:* hasta *${fmtEur(totalN)}*.`);
-                            lines.push(`🏠 *Tu inversión neta tras ayudas:* *${fmtEur(netaN)}*.`);
-                            if (ahorroN > 0) {
-                                lines.push(`⚡ *Ahorro estimado en factura:* *${fmtEur(ahorroN)}* al año.`);
-                            }
-                            if (uploadLink) {
-                                lines.push('');
-                                lines.push(`📸 *Ayúdanos a afinar la propuesta* subiendo algunas fotos de tu vivienda e instalación actual. Te llevará 2 minutos desde el móvil:`);
-                                lines.push(uploadLink);
-                            }
-                            lines.push('');
-                            lines.push(`Un técnico de Brokergy revisará tu caso y te contactará para concretar la propuesta definitiva.`);
-                            lines.push('');
-                            lines.push(`Un saludo,`);
-                            lines.push(`*BROKERGY — Ingeniería Energética*`);
-                            lines.push(`info@brokergy.es · 623 926 179`);
-                            await whatsappService.sendText(contacto.tlf, lines.join('\n'));
-                            console.log(`[landing/delivery] WhatsApp enviado a ${contacto.tlf}`);
-                        } else {
-                            console.warn('[landing/delivery] WhatsApp no disponible, no se envió al cliente');
+                            lines.push(`Además, si en tu caso puedes acogerte a las deducciones en el IRPF por contar con retenciones aplicables y siempre que estén vigentes, el importe estimado sería de *${fmtEur(irpfN)}*. (Nosotros dejaremos toda la parte técnica preparada para que las puedas solicitar).`);
                         }
+                        lines.push('');
+                        lines.push(`💡 *Resumen total de ayudas:* hasta *${fmtEur(totalN)}*.`);
+                        lines.push(`🏠 *Tu inversión neta tras ayudas:* *${fmtEur(netaN)}*.`);
+                        if (ahorroN > 0) {
+                            lines.push(`⚡ *Ahorro estimado en factura:* *${fmtEur(ahorroN)}* al año.`);
+                        }
+                        if (uploadLink) {
+                            lines.push('');
+                            lines.push(`📸 *Ayúdanos a afinar la propuesta* subiendo algunas fotos de tu vivienda e instalación actual. Te llevará 2 minutos desde el móvil:`);
+                            lines.push(uploadLink);
+                        }
+                        lines.push('');
+                        lines.push(`Un técnico de Brokergy revisará tu caso y te contactará para concretar la propuesta definitiva.`);
+                        lines.push('');
+                        lines.push(`Un saludo,`);
+                        lines.push(`*BROKERGY — Ingeniería Energética*`);
+                        lines.push(`info@brokergy.es · 623 926 179`);
+                        await whatsappService.sendText(contacto.tlf, lines.join('\n'));
+                        console.log(`[landing/delivery] WhatsApp encolado para ${contacto.tlf}`);
                     }
 
                     if (wantsEmail && contacto?.email) {
