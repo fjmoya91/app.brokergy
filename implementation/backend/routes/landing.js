@@ -18,6 +18,7 @@ const express = require('express');
 const router = express.Router();
 const supabase = require('../services/supabaseClient');
 const { geoGate } = require('../middleware/geoGate');
+const { requireAuth } = require('../middleware/auth');
 const { getAvailableCCAA, ALLOWED_PROVINCES } = require('../data/allowedProvinces');
 const { verifyTurnstileToken, isEnabled: isTurnstileEnabled } = require('../services/turnstileService');
 const { createLead } = require('../services/leadService');
@@ -237,9 +238,13 @@ router.get('/check-rc/:rc', async (req, res) => {
 //   calculatorInputs: { ... }          ← ya mapeado por el frontend
 // }
 // ---------------------------------------------------------------------------
-router.post('/lead', geoGate, async (req, res) => {
-    const { turnstile_token, partner_slug, contacto, catastro, funnel, calculatorInputs, precomputedResult, demandaCalefaccionPorM2, origen, delivery_preference, delivery_summary } = req.body || {};
+// requireAuth añadido en modo "opcional" — si hay token resuelve req.user (necesario
+// para identificar al partner que crea desde "Nueva Simulación" en mode='internal').
+// Si no hay token, req.user queda null y el flujo público sigue funcionando normal.
+router.post('/lead', requireAuth, geoGate, async (req, res) => {
+    const { turnstile_token, partner_slug, contacto, catastro, funnel, calculatorInputs, precomputedResult, demandaCalefaccionPorM2, origen, delivery_preference, delivery_summary, mode } = req.body || {};
     const isReformaLead = origen === 'reforma';
+    const isInternalReq = mode === 'internal';
 
     // 1. Captcha (si está habilitado)
     const clientIp = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.socket?.remoteAddress;
@@ -252,9 +257,15 @@ router.post('/lead', geoGate, async (req, res) => {
         });
     }
 
-    // 2. Resolver prescriptor_id desde partner_slug (si vino de landing white-label)
+    // 2. Resolver prescriptor_id:
+    //    - Si es internal (Nueva Simulación) y el user logueado es PARTNER/DISTRIBUIDOR
+    //      → su prescriptor_id (auto-asignación, no se pregunta en el form)
+    //    - Si es público con partner_slug → resolver desde slug (landing white-label)
     let prescriptorId = null;
-    if (partner_slug) {
+    const rol = (req.user?.rol_nombre || req.user?.rol || '').toUpperCase();
+    if (isInternalReq && req.user?.prescriptor_id && rol !== 'ADMIN') {
+        prescriptorId = req.user.prescriptor_id;
+    } else if (partner_slug) {
         if (!SLUG_REGEX.test(partner_slug)) {
             return res.status(400).json({ error: 'Formato de partner_slug inválido' });
         }
@@ -278,7 +289,9 @@ router.post('/lead', geoGate, async (req, res) => {
             demandaCalefaccionPorM2: demandaCalefaccionPorM2 || null,
             geoContext: req.geoContext,
             partnerSlug: partner_slug || null,
-            prescriptorId
+            prescriptorId,
+            mode: isInternalReq ? 'internal' : 'public',
+            creatorUser: req.user || null
         });
 
         // delivery_preference llega como array desde el frontend

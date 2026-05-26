@@ -205,17 +205,28 @@ async function generateOpportunityId(fichaType) {
  */
 async function createLead({ contacto, catastro, funnel, calculatorInputs, precomputedResult, demandaCalefaccionPorM2, geoContext, partnerSlug, prescriptorId, mode = 'public', creatorUser = null }) {
     // 1. Validaciones mínimas — fail-fast antes de tocar BD
-    if (!contacto?.nombre) throw new Error('Falta el nombre del cliente');
-    if (!contacto?.email && !contacto?.tlf) throw new Error('Necesitamos al menos email o teléfono para contactar');
-    // RGPD obligatorio solo en modo public — en internal asumimos que el
-    // partner/admin tiene su propio consentimiento del cliente final.
-    if (mode === 'public' && !contacto?.rgpd_aceptado) {
-        throw new Error('Es obligatorio aceptar la política de privacidad');
+    const isInternal = mode === 'internal';
+
+    // En modo internal, el partner/admin puede crear oportunidades con SOLO una
+    // referencia (datos del cliente final llegan luego). Para 'nombre' aceptamos
+    // contacto.nombre o contacto.referenciaCliente como fallback.
+    if (isInternal) {
+        const refOrName = (contacto?.nombre || contacto?.referenciaCliente || '').toString().trim();
+        if (!refOrName) throw new Error('Falta la referencia del cliente');
+        // Si no hay nombre explícito, usamos la referencia como nombre interno
+        if (!contacto.nombre?.trim() && refOrName) {
+            contacto.nombre = refOrName;
+        }
+        // En internal NO exigimos email ni teléfono (el partner los pedirá luego al cliente)
+    } else {
+        if (!contacto?.nombre) throw new Error('Falta el nombre del cliente');
+        if (!contacto?.email && !contacto?.tlf) throw new Error('Necesitamos al menos email o teléfono para contactar');
+        if (!contacto?.rgpd_aceptado) {
+            throw new Error('Es obligatorio aceptar la política de privacidad');
+        }
     }
     if (!catastro?.ref_catastral) throw new Error('Falta la referencia catastral');
     if (!geoContext?.provinceCode) throw new Error('Falta el contexto geográfico');
-
-    const isInternal = mode === 'internal';
     const rolCreator = (creatorUser?.rol_nombre || creatorUser?.rol || '').toUpperCase();
     const origenLead = isInternal
         ? (rolCreator === 'ADMIN' ? 'admin' : 'partner')
@@ -247,7 +258,11 @@ async function createLead({ contacto, catastro, funnel, calculatorInputs, precom
     const idOportunidad = await generateOpportunityId(fichaType);
 
     // 5. Construcción del datos_calculo (JSONB)
-    const referenciaCliente = [contacto.nombre, contacto.apellidos].filter(Boolean).join(' ').trim().toUpperCase();
+    //   Si el partner indicó referenciaCliente explícita en el formulario internal,
+    //   la respetamos tal cual. Si no, la generamos a partir de nombre+apellidos.
+    const referenciaCliente = (contacto.referenciaCliente && contacto.referenciaCliente.trim())
+        ? contacto.referenciaCliente.trim().toUpperCase()
+        : [contacto.nombre, contacto.apellidos].filter(Boolean).join(' ').trim().toUpperCase();
     const now = new Date().toISOString();
 
     // referenciaCliente también dentro de inputs para que la calculadora lo

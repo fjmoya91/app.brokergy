@@ -106,8 +106,12 @@ export function Step9_Contacto({ funnel, updateFunnel, contacto, setContacto, on
     const isParticular = contacto.titular_type === 'particular';
     const propietariosOk = isInternal || !isParticular || !!contacto.num_propietarios;
 
+    // Modo internal: solo la REFERENCIA del cliente es obligatoria.
+    //   - Nombre/tlf/email son opcionales (si se rellenan, se usan para la ficha del cliente).
+    //   - Si no hay nombre explícito → usaremos la referencia como nombre antes del submit.
+    // Modo public: validación completa (nombre + RGPD + canal contacto + timeline + titular).
     const canSubmit = isInternal
-        ? !!(contacto.nombre?.trim() && contactoOk && tlfValid && emailValid)
+        ? !!(contacto.referenciaCliente?.trim() && tlfValid && emailValid)
         : !!(
             contacto.nombre?.trim() &&
             contactoOk &&
@@ -120,8 +124,16 @@ export function Step9_Contacto({ funnel, updateFunnel, contacto, setContacto, on
         );
 
     const handleSubmit = () => {
-        setTouched({ nombre: true, email: true, tlf: true, rgpd: true, titular: true, timeline: true, propietarios: true });
+        setTouched({ nombre: true, email: true, tlf: true, ref: true, rgpd: true, titular: true, timeline: true, propietarios: true });
         if (!canSubmit) return;
+        // En internal, si nombre vacío usamos la referencia como nombre (el backend
+        // requiere algo en nombre para crear la ficha cliente).
+        if (isInternal && !contacto.nombre?.trim() && contacto.referenciaCliente?.trim()) {
+            setContacto(prev => ({ ...prev, nombre: prev.referenciaCliente.trim() }));
+            // Esperamos un tick para que el setContacto se aplique antes del submit
+            setTimeout(() => onSubmit(), 0);
+            return;
+        }
         onSubmit();
     };
 
@@ -140,29 +152,48 @@ export function Step9_Contacto({ funnel, updateFunnel, contacto, setContacto, on
     if (isInternal) {
         return (
             <StepLayout
-                question="Datos del cliente"
-                subtitle="Solo necesitamos nombre y teléfono para crear la oportunidad. El email es opcional."
+                question="¿Cómo identificas esta oportunidad?"
+                subtitle="Solo necesitamos una referencia para localizarla en tu panel. Los datos del cliente son opcionales — si los tienes a mano, los guardamos en su ficha."
                 onContinue={handleSubmit}
                 canContinue={canSubmit && !submitting}
                 continueLabel={submitting ? 'Creando…' : (submitLabel || 'Calcular')}
             >
                 <div className="space-y-3 max-w-md mx-auto">
+                    {/* Campo PRINCIPAL: referencia del cliente */}
                     <div>
-                        <label className={fieldLabel}>Nombre y apellidos *</label>
+                        <label className={fieldLabel}>Referencia del cliente *</label>
+                        <input type="text" placeholder="Ej. PACO (ESTHER TRUJILLO) o ALEJANDRA TARI"
+                            value={contacto.referenciaCliente || ''}
+                            onChange={e => setField('referenciaCliente', e.target.value)}
+                            onBlur={() => setTouched(t => ({ ...t, ref: true }))}
+                            className={inputCls(touched.ref && !contacto.referenciaCliente?.trim())}
+                            autoFocus />
+                        <p className="text-white/35 text-[10px] mt-1.5 ml-1 leading-snug">
+                            Lo que verás en tu panel para identificar esta oportunidad.
+                        </p>
+                    </div>
+
+                    {/* Separador visual */}
+                    <div className="pt-3 pb-1 flex items-center gap-3">
+                        <div className="flex-1 h-px bg-white/10"></div>
+                        <span className="text-[9px] font-black text-white/30 uppercase tracking-widest">Datos del cliente (opcionales)</span>
+                        <div className="flex-1 h-px bg-white/10"></div>
+                    </div>
+
+                    <div>
+                        <label className={fieldLabel}>Nombre y apellidos (opcional)</label>
                         <input type="text" placeholder="Ej. María García López"
                             value={contacto.nombre || ''}
                             onChange={e => setField('nombre', e.target.value)}
-                            onBlur={() => setTouched(t => ({ ...t, nombre: true }))}
-                            className={inputCls(touched.nombre && !contacto.nombre)}
-                            autoFocus />
+                            className={inputCls(false)} />
                     </div>
                     <div>
-                        <label className={fieldLabel}>Teléfono *</label>
+                        <label className={fieldLabel}>Teléfono (opcional)</label>
                         <input type="tel" autoComplete="tel" placeholder="+34 600 000 000"
                             value={contacto.tlf || ''}
                             onChange={e => setField('tlf', e.target.value)}
                             onBlur={() => setTouched(t => ({ ...t, tlf: true }))}
-                            className={inputCls(touched.tlf && (!contacto.tlf || !tlfValid))} />
+                            className={inputCls(touched.tlf && !tlfValid)} />
                     </div>
                     <div>
                         <label className={fieldLabel}>Email (opcional)</label>

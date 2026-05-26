@@ -21,13 +21,6 @@ export function Step4_Emisores({ funnel, updateFunnel, onNext }) {
                 onClick={() => select('radiadores_convencionales')}
             />
             <IconCard
-                icon="〰️"
-                title="Radiadores de baja temperatura"
-                subtitle="Más modernos, anchos y finos. Suelen ser blancos"
-                selected={funnel.emisor_tipo === 'radiadores_baja_temp'}
-                onClick={() => select('radiadores_baja_temp')}
-            />
-            <IconCard
                 icon="♨️"
                 title="Suelo radiante"
                 subtitle="Calor que sale del suelo de la vivienda"
