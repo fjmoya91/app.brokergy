@@ -638,11 +638,6 @@ router.put('/:id', enforceAuth, async (req, res) => {
                     const expedienteLink = `https://app.brokergy.es/expedientes/${expId}`;
                     const notifyLink = `https://app.brokergy.es/api/expedientes/${expId}/notify-client?token=${token}&phase=inicial`;
 
-                    const adminMsg = `✅ *CEE INICIAL REGISTRADO*\nExpediente: *${numExp}*${clienteFull ? '\nCliente: ' + clienteFull : ''}\n\nEl certificador ha subido el justificante de registro del CEE Inicial.\n\n👆 *Toca para notificar al cliente:*\n🔗 ${notifyLink}\n\nVer expediente:\n🔗 ${expedienteLink}`;
-                    const adminPhone = process.env.WHATSAPP_ADMIN_CHAT || '34623926179';
-                    whatsappService.sendText(adminPhone, adminMsg)
-                        .catch(e => console.error('[Automation CEE_INI] WA Admin:', e.message));
-
                     const ubicacion = cli ? `${cli.direccion || ''} - ${cli.codigo_postal || ''} ${cli.municipio || ''} (${cli.provincia || ''})` : '';
                     await emailService.sendCeeRegistradoStaffEmail(
                         'franciscojavier.moya.s2e2@gmail.com', false, numExp, clienteFull, ubicacion, '', 'CEE INICIAL', expedienteLink, notifyLink
@@ -665,11 +660,6 @@ router.put('/:id', enforceAuth, async (req, res) => {
                     const clienteFull = cli ? `${cli.nombre_razon_social || ''} ${cli.apellidos || ''}`.trim() : '';
                     const expedienteLink = `https://app.brokergy.es/expedientes/${expId}`;
                     const notifyLink = `https://app.brokergy.es/api/expedientes/${expId}/notify-client?token=${token}&phase=final`;
-
-                    const adminMsg = `✅ *CEE FINAL REGISTRADO*\nExpediente: *${numExp}*${clienteFull ? '\nCliente: ' + clienteFull : ''}\n\nEl certificador ha subido el justificante de registro del CEE Final.\n\n👆 *Toca para notificar al cliente:*\n🔗 ${notifyLink}\n\nVer expediente:\n🔗 ${expedienteLink}`;
-                    const adminPhone = process.env.WHATSAPP_ADMIN_CHAT || '34623926179';
-                    whatsappService.sendText(adminPhone, adminMsg)
-                        .catch(e => console.error('[Automation CEE_FIN] WA Admin:', e.message));
 
                     const ubicacion = cli ? `${cli.direccion || ''} - ${cli.codigo_postal || ''} ${cli.municipio || ''} (${cli.provincia || ''})` : '';
                     await emailService.sendCeeRegistradoStaffEmail(
