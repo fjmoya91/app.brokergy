@@ -182,37 +182,43 @@ function getEmitterTemp(val) {
     return 35;
 }
 
-export function CertificadoCifoModal({ isOpen, onClose, expediente, results, attachments: externalAttachments, onAttachmentsChange, onSaveDrive, onSaveFichaLink }) {
+export function CertificadoCifoModal({ isOpen, onClose, expediente, results, attachments: externalAttachments, onAttachmentsChange, onSaveDrive, onSaveFichaLink, onSaveExtraAnnexes }) {
     const { user } = useAuth();
     const containerRef = useRef(null);
     const [generating, setGenerating] = useState(false);
     const [savingDrive, setSavingDrive] = useState(false);
     const [sendingEmail, setSendingEmail] = useState(false);
     const [sendingWhatsapp, setSendingWhatsapp] = useState(false);
-    const [confirmSend, setConfirmSend] = useState(null); // null | 'email' | 'whatsapp'
+    const [confirmSend, setConfirmSend] = useState(null);
     const [scale, setScale] = useState(1);
-    
-    // Si no vienen de fuera, usamos el inicial local (pero idealmente vienen del padre)
+
+    // El padre ahora pasa siempre los attachments fijos en su state efímero;
+    // mantenemos el fallback por si llegan vacíos.
     const initialAttachments = [
         { id: 'aerotermia_cal', label: 'Ficha técnica aerotermia calefacción', file: null, required: true },
         { id: 'aerotermia_acs', label: 'Ficha técnica aerotermia ACS', file: null, required: true }
     ];
-
     const attachments = externalAttachments || initialAttachments;
+    // IMPORTANTE: pasamos el updater function tal cual al setter del padre
+    // (que es un useState setter y sabe encadenarlos). Si resolvieramos aquí
+    // con `newVal(attachments)` se introduciría un stale closure: cuando dos
+    // updates async corren en paralelo (loadFichaSlot 'cal' + 'acs'), el
+    // segundo leería el `attachments` del render previo (sin el cambio del
+    // primero) y solo se conservaría el último.
     const setAttachments = (newVal) => {
-        if (typeof newVal === 'function') {
-            onAttachmentsChange(newVal(attachments));
-        } else {
-            onAttachmentsChange(newVal);
-        }
+        if (onAttachmentsChange) onAttachmentsChange(newVal);
     };
 
     const [isAnexosOpen, setIsAnexosOpen] = useState(false);
-    const [savingAnexos, setSavingAnexos] = useState(false);
-    const [anexosError, setAnexosError] = useState(null);
+    const [loadingFichas, setLoadingFichas] = useState({ cal: false, acs: false });
+    const [resyncingType, setResyncingType] = useState(null);
+    const [uploadingExtra, setUploadingExtra] = useState(false);
     const [draggedIndex, setDraggedIndex] = useState(null);
     const [isGlobalDragging, setIsGlobalDragging] = useState(false);
 
+    // Carga PDF.js (CDN) sólo cuando hace falta para renderizar el preview.
+    // El resultado de la conversión NO se persiste ni se envía al backend
+    // (el backend concatena los PDFs vectoriales originales con pdf-lib).
     const loadPdfJs = () => {
         if (window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
         return new Promise((resolve) => {
@@ -226,94 +232,227 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
         });
     };
 
-    const convertPdfToImages = async (dataUrl) => {
+    const renderPdfBufferToImages = async (arrayBuffer) => {
         try {
             const pdfjs = await loadPdfJs();
-            // Convertir dataURL a Uint8Array — pasar bytes a PDF.js es más fiable
-            // que pasar la dataURL directamente (que fallaba con 'Invalid PDF structure')
-            const base64 = dataUrl.split(',')[1];
-            const binaryStr = atob(base64);
-            const bytes = new Uint8Array(binaryStr.length);
-            for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
-            const loadingTask = pdfjs.getDocument({ data: bytes });
+            const loadingTask = pdfjs.getDocument({ data: new Uint8Array(arrayBuffer) });
             const pdf = await loadingTask.promise;
             const images = [];
             for (let i = 1; i <= pdf.numPages; i++) {
                 const page = await pdf.getPage(i);
-                const viewport = page.getViewport({ scale: 2 });
+                const viewport = page.getViewport({ scale: 1.5 });
                 const canvas = document.createElement('canvas');
-                const context = canvas.getContext('2d');
+                const ctx = canvas.getContext('2d');
                 canvas.height = viewport.height;
                 canvas.width = viewport.width;
-                await page.render({ canvasContext: context, viewport }).promise;
-                images.push(canvas.toDataURL('image/jpeg', 0.8));
+                await page.render({ canvasContext: ctx, viewport }).promise;
+                images.push(canvas.toDataURL('image/jpeg', 0.7));
             }
             return images;
-        } catch (error) {
-            console.error('Error converting PDF:', error);
+        } catch (e) {
+            console.warn('[CIFO preview] No se pudo renderizar el PDF para preview:', e.message);
             return [];
         }
     };
 
-    const handleFileChange = async (targetIdOrIndex, file, isOther = false, driveLink = null) => {
-        if (!file) return;
+    // Construye un slot a partir de los metadatos devueltos por el backend.
+    const makeSlotFile = ({ driveId, link, fileName, source, label }) => ({
+        driveId,
+        link,
+        name: fileName || label || 'Ficha técnica',
+        source // 'drive' | 'model_copy' | 'manual_upload'
+    });
 
-        return new Promise((resolve) => {
-            const reader = new FileReader();
-            reader.onload = async (rev) => {
-                const dataUrl = rev.target.result;
-                const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
-
-                let finalData = [dataUrl];
-                if (isPdf) {
-                    console.log(`[CIFO] Procesando PDF: ${file.name}...`);
-                    setGenerating(true);
-                    finalData = await convertPdfToImages(dataUrl);
-                    setGenerating(false);
-                    console.log(`[CIFO] PDF procesado: ${finalData.length} páginas.`);
-                    if (!finalData || finalData.length === 0) {
-                        console.warn(`[CIFO] PDF inválido (0 páginas). No se establece el archivo en el slot.`);
-                        resolve();
-                        return;
-                    }
-                }
-
-                const newFile = { name: file.name, data: finalData, isPdf, originalDataUrl: dataUrl, driveLink };
-
-                setAttachments(prev => {
-                    const copy = [...prev];
-                    if (isOther) {
-                        return [...copy, { id: `other_${Date.now()}`, label: file.name, file: newFile, isOther: true }];
-                    } else if (typeof targetIdOrIndex === 'number') {
-                        copy[targetIdOrIndex] = { ...copy[targetIdOrIndex], file: newFile };
-                        return copy;
-                    } else {
-                        const idx = copy.findIndex(a => a.id === targetIdOrIndex);
-                        if (idx !== -1) {
-                            copy[idx] = { ...copy[idx], file: newFile };
-                        }
-                        return copy;
-                    }
-                });
-                resolve();
-            };
-            reader.readAsDataURL(file);
-        });
+    const setSlot = (slotId, updater) => {
+        setAttachments(prev => prev.map(a => a.id === slotId ? { ...a, ...updater(a) } : a));
     };
 
-    const removeAttachment = (index) => {
-        setAttachments(prev => {
-            const copy = [...prev];
-            const item = copy[index];
-            if (item.required) {
-                // Si es fijo, solo limpiamos el archivo
-                copy[index] = { ...item, file: null };
-                return copy;
-            } else {
-                // Si es "Otro", lo eliminamos del array
-                return copy.filter((_, i) => i !== index);
+    // Descarga el PDF del slot en binario y lo rasteriza a imágenes para el
+    // preview HTML. Async y no bloqueante: el slot se muestra listo en cuanto
+    // hay metadatos, las páginas del preview llegan después.
+    const hydrateSlotPreview = async (slotId, type) => {
+        try {
+            const res = await axios.get(`/api/expedientes/${expediente.id}/fichas-tecnicas/${type}`, {
+                responseType: 'arraybuffer',
+                validateStatus: s => s === 200
+            });
+            const images = await renderPdfBufferToImages(res.data);
+            if (images.length === 0) return;
+            setSlot(slotId, prev => ({ file: { ...(prev.file || {}), previewPages: images } }));
+        } catch (e) {
+            console.warn(`[CIFO preview] hydrate ${type} falló:`, e.message);
+        }
+    };
+
+    // Intenta obtener metadatos de la ficha del expediente. Si 404, dispara
+    // auto-copy desde el modelo y vuelve a intentar. Si tampoco hay modelo
+    // o ficha en BD, marca el slot como missing con razón clara.
+    const loadFichaSlot = useCallback(async (type) => {
+        if (!expediente?.id) return;
+        const slotId = type === 'cal' ? 'aerotermia_cal' : 'aerotermia_acs';
+        setLoadingFichas(p => ({ ...p, [type]: true }));
+        try {
+            const infoUrl = `/api/expedientes/${expediente.id}/fichas-tecnicas/${type}?info=1`;
+            const res = await axios.get(infoUrl, { validateStatus: s => s === 200 || s === 404 });
+
+            if (res.status === 200) {
+                setSlot(slotId, () => ({
+                    file: makeSlotFile({ driveId: res.data.driveId, link: res.data.link, fileName: res.data.fileName, source: 'drive' }),
+                    missing: false, missingReason: null, missingModel: null
+                }));
+                hydrateSlotPreview(slotId, type);
+                return;
             }
-        });
+
+            // 404 → intentar auto-copy desde el modelo
+            const copyRes = await axios.post(
+                `/api/expedientes/${expediente.id}/fichas-tecnicas/auto-copy`,
+                { type },
+                { validateStatus: s => s === 200 || s === 400 || s === 404 }
+            );
+            if (copyRes.status === 200) {
+                if (onSaveFichaLink) onSaveFichaLink(type, copyRes.data.link, copyRes.data.driveId);
+                setSlot(slotId, () => ({
+                    file: makeSlotFile({ driveId: copyRes.data.driveId, link: copyRes.data.link, fileName: null, source: 'model_copy' }),
+                    missing: false, missingReason: null, missingModel: null
+                }));
+                hydrateSlotPreview(slotId, type);
+            } else {
+                setSlot(slotId, () => ({
+                    file: null,
+                    missing: true,
+                    missingReason: copyRes.data?.error || 'unknown',
+                    missingModel: copyRes.data?.model || null
+                }));
+            }
+        } catch (err) {
+            console.error(`[CIFO] loadFichaSlot(${type}) error:`, err);
+            setSlot(slotId, () => ({ file: null, missing: true, missingReason: 'network_error' }));
+        } finally {
+            setLoadingFichas(p => ({ ...p, [type]: false }));
+        }
+    }, [expediente?.id, onSaveFichaLink]);
+
+    const handleResync = async (type) => {
+        if (!expediente?.id) return;
+        const slotId = type === 'cal' ? 'aerotermia_cal' : 'aerotermia_acs';
+        setResyncingType(type);
+        try {
+            const copyRes = await axios.post(
+                `/api/expedientes/${expediente.id}/fichas-tecnicas/auto-copy`,
+                { type, force: true },
+                { validateStatus: s => s === 200 || s === 400 || s === 404 }
+            );
+            if (copyRes.status === 200) {
+                if (onSaveFichaLink) onSaveFichaLink(type, copyRes.data.link, copyRes.data.driveId);
+                setSlot(slotId, () => ({
+                    file: makeSlotFile({ driveId: copyRes.data.driveId, link: copyRes.data.link, fileName: null, source: 'model_copy' }),
+                    missing: false, missingReason: null, missingModel: null
+                }));
+                hydrateSlotPreview(slotId, type);
+            } else {
+                setSlot(slotId, () => ({
+                    file: null,
+                    missing: true,
+                    missingReason: copyRes.data?.error || 'unknown',
+                    missingModel: copyRes.data?.model || null
+                }));
+            }
+        } catch (err) {
+            console.error(`[CIFO] resync(${type}) error:`, err);
+        } finally {
+            setResyncingType(null);
+        }
+    };
+
+    // Subida manual a un slot fijo (cal/acs): sube a Drive con nombre canónico
+    // vía POST /fichas-tecnicas/upload, luego recarga el slot por info=1.
+    const handleManualFixedUpload = async (slotId, file) => {
+        if (!file || !expediente?.id) return;
+        const type = slotId === 'aerotermia_cal' ? 'cal' : 'acs';
+        setLoadingFichas(p => ({ ...p, [type]: true }));
+        try {
+            // Convertimos el File a buffer en cliente para reaprovecharlo en el
+            // preview (evita una segunda descarga del PDF que acabamos de subir).
+            const arrayBuffer = await file.arrayBuffer();
+            const base64 = arrayBufferToBase64(arrayBuffer);
+            const { data } = await axios.post(`/api/expedientes/${expediente.id}/fichas-tecnicas/upload`, {
+                base64,
+                type,
+                numexpte: expediente.numero_expediente
+            });
+            if (onSaveFichaLink) onSaveFichaLink(type, data.link, data.driveId);
+            const previewPages = await renderPdfBufferToImages(arrayBuffer);
+            setSlot(slotId, () => ({
+                file: { ...makeSlotFile({ driveId: data.driveId, link: data.link, fileName: file.name, source: 'manual_upload' }), previewPages },
+                missing: false, missingReason: null, missingModel: null
+            }));
+        } catch (err) {
+            console.error('[CIFO] manualFixedUpload error:', err);
+            alert('❌ Error al subir la ficha: ' + (err.response?.data?.error || err.message));
+        } finally {
+            setLoadingFichas(p => ({ ...p, [type]: false }));
+        }
+    };
+
+    // Subida de un anexo "extra" (no es ficha cal/acs). Se persiste en
+    // documentacion.cifo_extra_annexes vía POST /anexos-cifo/upload.
+    const handleManualExtraUpload = async (file) => {
+        if (!file || !expediente?.id) return;
+        setUploadingExtra(true);
+        try {
+            const arrayBuffer = await file.arrayBuffer();
+            const base64 = arrayBufferToBase64(arrayBuffer);
+            const { data } = await axios.post(`/api/expedientes/${expediente.id}/anexos-cifo/upload`, {
+                base64, fileName: file.name, label: file.name
+            });
+            const previewPages = await renderPdfBufferToImages(arrayBuffer);
+            setAttachments(prev => [...prev, {
+                id: `extra_${data.driveId}`,
+                label: data.label,
+                isExtra: true,
+                file: { ...makeSlotFile({ driveId: data.driveId, link: data.link, fileName: data.fileName, source: 'manual_upload' }), previewPages }
+            }]);
+            if (onSaveExtraAnnexes) onSaveExtraAnnexes('add', { driveId: data.driveId, link: data.link, fileName: data.fileName, label: data.label });
+        } catch (err) {
+            console.error('[CIFO] manualExtraUpload error:', err);
+            alert('❌ Error al subir el anexo: ' + (err.response?.data?.error || err.message));
+        } finally {
+            setUploadingExtra(false);
+        }
+    };
+
+    const arrayBufferToBase64 = (arrayBuffer) => {
+        const bytes = new Uint8Array(arrayBuffer);
+        // En lotes para no saturar el call stack con PDFs grandes
+        let binary = '';
+        const chunk = 0x8000;
+        for (let i = 0; i < bytes.length; i += chunk) {
+            binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+        }
+        return btoa(binary);
+    };
+
+    const removeAttachment = async (index) => {
+        const item = attachments[index];
+        if (!item) return;
+        if (item.required) {
+            // Slot fijo: limpiamos el archivo localmente (no borramos de Drive)
+            setAttachments(prev => prev.map((a, i) => i === index ? { ...a, file: null, missing: false } : a));
+            return;
+        }
+        // Anexo extra: borrar del backend + Drive
+        if (item.file?.driveId && expediente?.id) {
+            try {
+                await axios.delete(`/api/expedientes/${expediente.id}/anexos-cifo/${item.file.driveId}`);
+                if (onSaveExtraAnnexes) onSaveExtraAnnexes('remove', { driveId: item.file.driveId });
+            } catch (err) {
+                console.error('[CIFO] delete extra annex error:', err);
+                alert('❌ Error al eliminar el anexo');
+                return;
+            }
+        }
+        setAttachments(prev => prev.filter((_, i) => i !== index));
     };
 
     const reorderAttachments = (dragIdx, dropIdx) => {
@@ -324,40 +463,6 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
             copy.splice(dropIdx, 0, moved);
             return copy;
         });
-    };
-
-    const handleSaveAnexos = async () => {
-        setSavingAnexos(true);
-        setAnexosError(null);
-        try {
-            const _inst = expediente?.instalacion || {};
-            const _tieneAcs = _inst.cambio_acs !== false;
-            const fixedSlots = attachments.filter(
-                a => ['aerotermia_cal', 'aerotermia_acs'].includes(a.id) && a.file && !a.file.driveLink
-                    && (a.id !== 'aerotermia_acs' || _tieneAcs)
-            );
-            for (const slot of fixedSlots) {
-                const dataUrl = slot.file.originalDataUrl;
-                if (!dataUrl || !dataUrl.startsWith('data:')) continue;
-                const base64 = dataUrl.split(',')[1];
-                const type = slot.id === 'aerotermia_cal' ? 'cal' : 'acs';
-                const { data } = await axios.post(`/api/expedientes/${expediente.id}/fichas-tecnicas/upload`, {
-                    base64,
-                    type,
-                    numexpte: expediente.numero_expediente
-                });
-                setAttachments(prev => prev.map(a =>
-                    a.id === slot.id ? { ...a, file: { ...a.file, driveLink: data.link } } : a
-                ));
-                if (onSaveFichaLink) onSaveFichaLink(type, data.link, data.driveId);
-            }
-            setIsAnexosOpen(false);
-        } catch (e) {
-            console.error('[CIFO] Error subiendo ficha a Drive:', e);
-            setAnexosError(e.response?.data?.error || e.message || 'Error al guardar en Drive.');
-        } finally {
-            setSavingAnexos(false);
-        }
     };
 
     const updateScale = useCallback(() => {
@@ -374,64 +479,38 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
         return () => { clearTimeout(t); window.removeEventListener('resize', updateScale); };
     }, [isOpen, updateScale]);
 
-    // EFECTO: Carga automática de fichas técnicas desde la Base de Datos
+    // Carga automática de fichas técnicas al abrir el modal.
     useEffect(() => {
-        if (!isOpen || !expediente) return;
+        if (!isOpen || !expediente?.id) return;
+        const inst = expediente.instalacion || {};
+        const tieneAcs = inst.cambio_acs !== false;
+        loadFichaSlot('cal');
+        if (tieneAcs) loadFichaSlot('acs');
 
-        const autoLoadFichas = async () => {
-            const inst = expediente.instalacion || {};
-            const tieneAcs = inst.cambio_acs !== false;
-            const targets = ['cal', ...(tieneAcs ? ['acs'] : [])];
-            console.log('[CIFO autoload] Iniciando para expediente', expediente.id, '- targets:', targets);
-
-            for (const type of targets) {
-                const slotId = type === 'cal' ? 'aerotermia_cal' : 'aerotermia_acs';
-                const currentSlot = attachments.find(a => a.id === slotId);
-                // Skip si ya está cargado desde Drive (file con driveLink=true).
-                // Esto evita re-descargar 1.5MB cada vez que se abre el modal.
-                if (currentSlot?.file?.driveLink === true) {
-                    console.log(`[CIFO autoload] ${type} ya cargado en cache local, skip`);
-                    continue;
+        // Hidratar el preview de los anexos extra que ya venían persistidos.
+        // Para los extras descargamos el PDF de Drive vía el endpoint que sirve
+        // ficheros (no hay endpoint dedicado para extras — usamos el de Drive
+        // directo a través del backend; si no, podemos usar el iframe con link).
+        // Por ahora rasterizamos descargando vía files.get autenticado del backend.
+        const extras = (attachments || []).filter(a => a.isExtra && a.file?.driveId && !a.file.previewPages);
+        extras.forEach(async (extra) => {
+            try {
+                const res = await axios.get(`/api/expedientes/${expediente.id}/anexos-cifo/${extra.file.driveId}/content`, {
+                    responseType: 'arraybuffer',
+                    validateStatus: s => s === 200
+                });
+                const imgs = await renderPdfBufferToImages(res.data);
+                if (imgs.length > 0) {
+                    setAttachments(prev => prev.map(a => a.id === extra.id
+                        ? { ...a, file: { ...a.file, previewPages: imgs } }
+                        : a));
                 }
-                try {
-                    const fetchUrl = `/api/expedientes/${expediente.id}/fichas-tecnicas/${type}`;
-                    console.log(`[CIFO autoload] Llamando ${fetchUrl}...`);
-                    const res = await axios.get(fetchUrl, { responseType: 'arraybuffer', validateStatus: s => s === 200 });
-                    console.log(`[CIFO autoload] Recibido ${res.data.byteLength} bytes para ${type}`);
-                    const blob = new Blob([res.data], { type: 'application/pdf' });
-                    const file = new File([blob], `FT_AEROTERMIA_${type.toUpperCase()}.pdf`, { type: 'application/pdf' });
-                    await handleFileChange(slotId, file, false, true);
-                } catch (err) {
-                    if (err.response?.status === 404) {
-                        // No hay ficha subida al expediente — intentar link del modelo de BD
-                        const urlFicha = type === 'cal' ? inst.aerotermia_cal?.url_ficha : inst.aerotermia_acs?.url_ficha;
-                        if (urlFicha) {
-                            console.log(`[CIFO autoload] 404 para ${type} - usando url_ficha del modelo`);
-                            // Hacer el archivo público para que el enlace sea accesible sin autenticación
-                            const fileIdMatch = urlFicha.match(/\/d\/([a-zA-Z0-9_-]+)/) || urlFicha.match(/[?&]id=([a-zA-Z0-9_-]+)/);
-                            const driveFileId = fileIdMatch?.[1];
-                            if (driveFileId) {
-                                axios.post(`/api/expedientes/drive/make-public`, { fileId: driveFileId })
-                                    .catch(e => console.warn('[CIFO] make-public falló (no crítico):', e.message));
-                            }
-                            setAttachments(prev => prev.map(a =>
-                                a.id === slotId ? { ...a, file: { name: 'Ficha técnica (BD)', data: [], driveLink: urlFicha, driveOnly: true } } : a
-                            ));
-                        } else {
-                            console.log(`[CIFO autoload] 404 para ${type} - sin ficha técnica`);
-                            setAttachments(prev => prev.map(a =>
-                                a.id === slotId ? { ...a, file: null, missing: true } : a
-                            ));
-                        }
-                    } else {
-                        console.error(`[CIFO autoload] Error cargando ${type}:`, err);
-                    }
-                }
+            } catch (e) {
+                console.warn('[CIFO preview] extra hydrate falló:', extra.id, e.message);
             }
-        };
-
-        autoLoadFichas();
-    }, [isOpen, expediente]);
+        });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isOpen, expediente?.id]);
 
     if (!isOpen || !expediente) return null;
 
@@ -597,6 +676,25 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
         appliedCovStr = (coveragePct >= 95 ? 95 : coveragePct).toFixed(0);
     }
 
+    const missingReasonText = (item) => {
+        switch (item.missingReason) {
+            case 'no_model': return '⚠ Selecciona un modelo de aerotermia en Instalación';
+            case 'no_ficha_in_db': return `⚠ El modelo "${item.missingModel || '?'}" no tiene ficha técnica en la BD`;
+            case 'bad_ficha_url': return '⚠ La URL de la ficha del modelo no es válida';
+            case 'model_not_found': return '⚠ El modelo no existe en la BD';
+            case 'no_drive_folder': return '⚠ La oportunidad no tiene carpeta de Drive';
+            case 'network_error': return '⚠ Error de red — reintenta';
+            default: return '⚠ Sube manualmente o re-sincroniza';
+        }
+    };
+
+    const sourceBadge = (source) => {
+        if (source === 'drive') return { text: 'Drive del expediente', tone: 'emerald' };
+        if (source === 'model_copy') return { text: 'Copiada del modelo', tone: 'sky' };
+        if (source === 'manual_upload') return { text: 'Subida manual', tone: 'amber' };
+        return { text: 'Drive', tone: 'emerald' };
+    };
+
     const AnexosModal = () => (
         <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/95 backdrop-blur-xl" onClick={() => setIsAnexosOpen(false)}>
             <div className="bg-[#16181D] border border-white/10 rounded-3xl w-full max-w-2xl overflow-hidden shadow-[0_30px_60px_-15px_rgba(0,0,0,0.5)]"
@@ -610,130 +708,148 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
                     </div>
                     <button onClick={() => setIsAnexosOpen(false)} className="text-white/20 hover:text-white transition-colors"><svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg></button>
                 </div>
-                
+
                 <div className="p-8 grid gap-4 max-h-[65vh] overflow-y-auto custom-scrollbar bg-gradient-to-b from-transparent to-black/20">
-                    <p className="text-white/30 text-[10px] uppercase font-bold tracking-widest mb-2">Haz clic para mover y ordenar · Arrastra para reordenar archivos</p>
-                    
-                    {attachments.filter(item => item.id !== 'aerotermia_acs' || tieneAcs).map((item, idx) => (
-                        <div key={item.id}
-                             draggable
-                             onDragStart={() => setDraggedIndex(idx)}
-                             onDragOver={(e) => { 
-                                 e.preventDefault(); 
-                                 e.currentTarget.style.backgroundColor = 'rgba(242, 166, 64, 0.1)'; 
-                             }}
-                             onDragLeave={(e) => { e.currentTarget.style.backgroundColor = ''; }}
-                             onDrop={(e) => { 
-                                 e.preventDefault(); 
-                                 e.currentTarget.style.backgroundColor = '';
-                                 if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-                                     // Es un archivo, lo subimos a este slot o como nuevo
-                                     handleFileChange(item.id, e.dataTransfer.files[0], !item.required);
-                                 } else {
-                                     // Es una reordenación
-                                     reorderAttachments(draggedIndex, idx); 
-                                 }
-                             }}
-                             className={`group flex items-center justify-between p-4 bg-white/[0.03] rounded-2xl border transition-all duration-300 ${draggedIndex === idx ? 'opacity-30' : 'opacity-100'} ${item.file ? 'border-white/10 hover:border-brand/40' : item.missing ? 'border-amber-400/30 border-dashed hover:border-amber-400/60' : 'border-white/5 border-dashed hover:border-white/20'}`}>
-                            
-                            <div className="flex items-center gap-4">
-                                {/* Handle para arrastrar */}
-                                <div className="cursor-grab active:cursor-grabbing text-white/5 hover:text-white/20 transition-colors">
-                                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M7 2a2 2 0 1 0 .001 4.001A2 2 0 0 0 7 2zm0 6a2 2 0 1 0 .001 4.001A2 2 0 0 0 7 8zm0 6a2 2 0 1 0 .001 4.001A2 2 0 0 0 7 14zm6-12a2 2 0 1 0 .001 4.001A2 2 0 0 0 13 2zm0 6a2 2 0 1 0 .001 4.001A2 2 0 0 0 13 8zm0 6a2 2 0 1 0 .001 4.001A2 2 0 0 0 13 14z" /></svg>
+                    <p className="text-white/30 text-[10px] uppercase font-bold tracking-widest mb-2">Las fichas técnicas se concatenan al PDF automáticamente desde Drive</p>
+
+                    {attachments.filter(item => item.id !== 'aerotermia_acs' || tieneAcs).map((item, idx) => {
+                        const type = item.id === 'aerotermia_cal' ? 'cal' : item.id === 'aerotermia_acs' ? 'acs' : null;
+                        const isLoading = type && loadingFichas[type];
+                        const isResyncing = type && resyncingType === type;
+                        const badge = item.file ? sourceBadge(item.file.source) : null;
+                        return (
+                            <div key={item.id}
+                                 draggable={!isLoading && !isResyncing}
+                                 onDragStart={() => setDraggedIndex(idx)}
+                                 onDragOver={(e) => { e.preventDefault(); e.currentTarget.style.backgroundColor = 'rgba(242, 166, 64, 0.1)'; }}
+                                 onDragLeave={(e) => { e.currentTarget.style.backgroundColor = ''; }}
+                                 onDrop={(e) => {
+                                     e.preventDefault();
+                                     e.currentTarget.style.backgroundColor = '';
+                                     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                                         const f = e.dataTransfer.files[0];
+                                         if (item.required) handleManualFixedUpload(item.id, f);
+                                         else handleManualExtraUpload(f);
+                                     } else {
+                                         reorderAttachments(draggedIndex, idx);
+                                     }
+                                 }}
+                                 className={`group flex items-center justify-between p-4 bg-white/[0.03] rounded-2xl border transition-all duration-300 ${draggedIndex === idx ? 'opacity-30' : 'opacity-100'} ${item.file ? 'border-white/10 hover:border-brand/40' : item.missing ? 'border-amber-400/30 border-dashed hover:border-amber-400/60' : 'border-white/5 border-dashed hover:border-white/20'}`}>
+
+                                <div className="flex items-center gap-4 min-w-0">
+                                    <div className="cursor-grab active:cursor-grabbing text-white/5 hover:text-white/20 transition-colors shrink-0">
+                                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M7 2a2 2 0 1 0 .001 4.001A2 2 0 0 0 7 2zm0 6a2 2 0 1 0 .001 4.001A2 2 0 0 0 7 8zm0 6a2 2 0 1 0 .001 4.001A2 2 0 0 0 7 14zm6-12a2 2 0 1 0 .001 4.001A2 2 0 0 0 13 2zm0 6a2 2 0 1 0 .001 4.001A2 2 0 0 0 13 8zm0 6a2 2 0 1 0 .001 4.001A2 2 0 0 0 13 14z" /></svg>
+                                    </div>
+
+                                    <div className="flex flex-col gap-1 min-w-0">
+                                        <span className={`text-[11px] font-black uppercase tracking-wider ${item.file ? 'text-white/80' : 'text-white/20'} truncate`}>{item.label}</span>
+                                        {isLoading || isResyncing ? (
+                                            <span className="text-[10px] text-white/40 flex items-center gap-1.5">
+                                                <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                                                {isResyncing ? 'Re-sincronizando…' : 'Cargando desde Drive…'}
+                                            </span>
+                                        ) : item.file ? (
+                                            <div className="flex flex-col gap-0.5 min-w-0">
+                                                <a href={item.file.link} target="_blank" rel="noreferrer" className="text-[10px] text-brand font-bold flex items-center gap-1.5 hover:text-brand/70 transition-colors truncate">
+                                                    <svg className="w-3 h-3 shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd"/></svg>
+                                                    <span className="truncate">{item.file.name}</span>
+                                                </a>
+                                                {badge && (
+                                                    <span className={`text-[9px] text-${badge.tone}-400/70 font-bold uppercase tracking-wider`}>✓ {badge.text}</span>
+                                                )}
+                                            </div>
+                                        ) : item.missing ? (
+                                            <span className="text-[10px] text-amber-400/80 font-bold">{missingReasonText(item)}</span>
+                                        ) : (
+                                            <span className="text-[10px] text-white/10 italic">Sin ficha</span>
+                                        )}
+                                    </div>
                                 </div>
 
-                                <div className="flex flex-col gap-1">
-                                    <span className={`text-[11px] font-black uppercase tracking-wider ${item.file ? 'text-white/80' : 'text-white/20'}`}>{item.label}</span>
-                                    {item.file ? (
-                                        <div className="flex flex-col gap-0.5">
-                                            <span className="text-[10px] text-brand font-bold flex items-center gap-1.5">
-                                                <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd"/></svg>
-                                                {item.file.name} {item.file.driveOnly ? '(enlace Drive)' : `(${item.file.data?.length ?? 0} pág)`}
-                                            </span>
-                                            {item.file.driveOnly
-                                                ? <a href={item.file.driveLink} target="_blank" rel="noreferrer" className="text-[9px] text-emerald-400/80 font-bold uppercase tracking-wider hover:text-emerald-300 transition-colors">↗ Ver ficha técnica en Drive</a>
-                                                : item.file.driveLink
-                                                    ? <span className="text-[9px] text-emerald-400/70 font-bold uppercase tracking-wider">✓ Guardado en Drive</span>
-                                                    : <span className="text-[9px] text-amber-400/60 font-bold uppercase tracking-wider">Pendiente guardar</span>
-                                            }
-                                        </div>
-                                    ) : item.missing ? (
-                                        <span className="text-[10px] text-amber-400/80 font-bold">⚠ No subida — debes adjuntarla</span>
-                                    ) : (
-                                        <span className="text-[10px] text-white/10 italic">Subir archivo...</span>
+                                <div className="flex gap-2 shrink-0">
+                                    {type && (item.file || item.missing) && !isLoading && (
+                                        <button
+                                            onClick={() => handleResync(type)}
+                                            disabled={isResyncing}
+                                            title="Re-sincronizar desde el modelo de aerotermia"
+                                            className="p-2.5 text-sky-400/60 hover:text-sky-300 hover:bg-sky-500/10 rounded-xl transition-all disabled:opacity-30"
+                                        >
+                                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                                        </button>
+                                    )}
+                                    {item.file && (
+                                        <button onClick={() => removeAttachment(idx)} title={item.required ? 'Quitar del slot' : 'Eliminar del Drive'} className="p-2.5 text-red-500/50 hover:text-red-500 hover:bg-red-500/10 rounded-xl transition-all"><svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg></button>
+                                    )}
+                                    {!item.file && !isLoading && (
+                                        <label className="p-2.5 bg-white/5 text-white/40 border border-white/10 rounded-xl cursor-pointer hover:bg-brand hover:text-black hover:border-brand transition-all shadow-xl">
+                                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M12 4v16m8-8H4"/></svg>
+                                            <input type="file" className="hidden" accept=".pdf" onChange={(e) => {
+                                                const f = e.target.files[0];
+                                                if (!f) return;
+                                                if (item.required) handleManualFixedUpload(item.id, f);
+                                                else handleManualExtraUpload(f);
+                                            }} />
+                                        </label>
                                     )}
                                 </div>
                             </div>
+                        );
+                    })}
 
-                            <div className="flex gap-2">
-                                {item.file ? (
-                                    <button onClick={() => removeAttachment(idx)} className="p-2.5 text-red-500/50 hover:text-red-500 hover:bg-red-500/10 rounded-xl transition-all"><svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg></button>
-                                ) : (
-                                    <label className="p-2.5 bg-white/5 text-white/40 border border-white/10 rounded-xl cursor-pointer hover:bg-brand hover:text-black hover:border-brand transition-all shadow-xl">
-                                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M12 4v16m8-8H4"/></svg>
-                                        <input type="file" className="hidden" accept="image/*,.pdf" onChange={(e) => handleFileChange(item.id, e.target.files[0])} />
-                                    </label>
-                                )}
-                            </div>
-                        </div>
-                    ))}
-                    
                     <div className="mt-4 flex flex-col items-center gap-4">
-                        <div 
+                        <div
                             onDragOver={e => { e.preventDefault(); setIsGlobalDragging(true); }}
                             onDragLeave={() => setIsGlobalDragging(false)}
                             onDrop={e => {
                                 e.preventDefault();
                                 setIsGlobalDragging(false);
-                                if (e.dataTransfer.files.length > 0) {
-                                    handleFileChange(null, e.dataTransfer.files[0], true);
-                                }
+                                if (e.dataTransfer.files.length > 0) handleManualExtraUpload(e.dataTransfer.files[0]);
                             }}
                             className={`w-full py-8 border-2 border-dashed rounded-2xl flex flex-col items-center justify-center gap-2 transition-all ${isGlobalDragging ? 'border-brand bg-brand/5 scale-[1.02]' : 'border-white/5 bg-white/[0.01]'}`}
                         >
-                            <svg className={`w-8 h-8 transition-transform ${isGlobalDragging ? 'scale-110 text-brand' : 'text-white/10'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
-                            <p className="text-[10px] font-black uppercase tracking-widest text-white/20">Suelta cualquier archivo PDF/JPG aquí para anexarlo</p>
+                            {uploadingExtra ? (
+                                <svg className="w-8 h-8 text-brand animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                            ) : (
+                                <svg className={`w-8 h-8 transition-transform ${isGlobalDragging ? 'scale-110 text-brand' : 'text-white/10'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
+                            )}
+                            <p className="text-[10px] font-black uppercase tracking-widest text-white/20">{uploadingExtra ? 'Subiendo…' : 'Suelta un PDF aquí para anexarlo'}</p>
                         </div>
 
-                        <button 
+                        <button
                             onClick={() => {
                                 const input = document.createElement('input');
                                 input.type = 'file';
-                                input.accept = 'image/*,.pdf';
-                                input.onchange = (e) => handleFileChange(null, e.target.files[0], true);
+                                input.accept = '.pdf';
+                                input.onchange = (e) => { if (e.target.files[0]) handleManualExtraUpload(e.target.files[0]); };
                                 input.click();
                             }}
-                            className="flex items-center gap-2 px-6 py-3 bg-white/5 hover:bg-brand hover:text-black border border-white/10 hover:border-brand text-white/50 text-[10px] font-black rounded-2xl transition-all uppercase tracking-[0.2em] shadow-xl"
+                            disabled={uploadingExtra}
+                            className="flex items-center gap-2 px-6 py-3 bg-white/5 hover:bg-brand hover:text-black border border-white/10 hover:border-brand text-white/50 text-[10px] font-black rounded-2xl transition-all uppercase tracking-[0.2em] shadow-xl disabled:opacity-30"
                         >
                             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M12 4v16m8-8H4"/></svg>
                             Explorar Archivos
                         </button>
                     </div>
                 </div>
-                
-                <div className="p-6 bg-black/40 flex flex-col gap-3">
-                    {anexosError && (
-                        <div className="px-4 py-2 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-[10px] font-bold text-center">
-                            ⚠ {anexosError}
-                        </div>
-                    )}
-                    <div className="flex justify-end">
-                        <button
-                            onClick={handleSaveAnexos}
-                            disabled={savingAnexos}
-                            className="px-10 py-3 bg-brand text-black text-[11px] font-black rounded-2xl uppercase tracking-[0.2em] shadow-[0_10px_20px_-5px_rgba(242,166,64,0.3)] hover:scale-105 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                        >
-                            {savingAnexos && <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>}
-                            {savingAnexos ? 'Guardando en Drive...' : 'Guardar Anexos'}
-                        </button>
-                    </div>
+
+                <div className="p-6 bg-black/40 flex justify-end">
+                    <button
+                        onClick={() => setIsAnexosOpen(false)}
+                        className="px-10 py-3 bg-brand text-black text-[11px] font-black rounded-2xl uppercase tracking-[0.2em] shadow-[0_10px_20px_-5px_rgba(242,166,64,0.3)] hover:scale-105 active:scale-95 transition-all"
+                    >
+                        Cerrar
+                    </button>
                 </div>
             </div>
         </div>
     );
 
     // ── HTML GENERATION ──────────────────────────────────────────────
-    const buildHtml = () => {
+    // `withAnnexPreview`: cuando true, añade páginas-imagen del PDF para que
+    // se vean en el preview del modal. Cuando false (default), solo la portada
+    // ANEXOS — el backend concatena los PDFs vectoriales con pdf-lib en las
+    // 4 llamadas (/api/pdf/generate, save-to-drive, send-cifo, whatsapp).
+    const buildHtml = ({ withAnnexPreview = false } = {}) => {
         const pages = [];
 
         // PÁGINA 1
@@ -1043,47 +1159,72 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
             `);
         }
 
-        // SEPARADOR ANEXOS
-        const hasAttachments = attachments.some(a => a.file);
-        if (hasAttachments) {
+        // SEPARADOR ANEXOS — solo si hay al menos un anexo con driveId.
+        // La portada lista los archivos que se adjuntarán al descargar, para
+        // que el usuario vea desde el preview qué fichas viajan en el PDF
+        // (las páginas reales del PDF se concatenan en backend con pdf-lib,
+        // escaladas a A4 para tamaño uniforme).
+        const annexList = attachments.filter(a => a.file?.driveId && (a.id !== 'aerotermia_acs' || tieneAcs));
+        if (annexList.length > 0) {
+            const items = annexList.map(a => `
+                <li style="margin-bottom: 14px; display: flex; align-items: center; gap: 14px; font-size: 12pt; color: #1a1a1a;">
+                    <span style="display:inline-block; width:10px; height:10px; background:#ee8f1f; border-radius:2px;"></span>
+                    <span style="font-weight: 700;">${a.label}</span>
+                </li>
+            `).join('');
             pages.push(`
-                <div class="doc-page" style="display: flex; align-items: center; justify-content: center; background: #fff;">
-                    <div style="text-align: center; color: #000;">
+                <div class="doc-page" style="display: flex; flex-direction: column; align-items: center; justify-content: center; background: #fff;">
+                    <div style="text-align: center; color: #000; margin-bottom: 40px;">
                         <div style="font-size: 60pt; font-weight: 900; letter-spacing: 20px; margin-bottom: 20px;">ANEXOS</div>
-                        <div style="width: 150px; height: 4px; background: #ee8f1f; margin: 0 auto;"></div>
+                        <div style="width: 150px; height: 4px; background: #ee8f1f; margin: 0 auto 40px;"></div>
+                        <div style="font-size: 10pt; text-transform: uppercase; letter-spacing: 3px; color: #666;">Documentación adjunta</div>
                     </div>
+                    <ul style="list-style: none; margin: 0; padding: 0; max-width: 70%;">${items}</ul>
                 </div>
             `);
-        }
-        // PÁGINAS DE DOCUMENTACIÓN SUBIDA
-        const getAttachmentPages = (attachment) => {
-            if (!attachment || !attachment.data) return [];
-            return attachment.data.map(pageData => `
-                <div class="doc-page" style="padding: 0; position: relative; display: flex; align-items: center; justify-content: center; background: #fff;">
-                    <img src="${pageData}" style="width: 100%; height: 100%; object-fit: contain;">
-                    <div class="footer" style="position: absolute; bottom: 30px; left: 50px; right: 50px; background: white; padding: 5px 10px; border-radius: 5px; text-align: right; font-size: 8pt; color: #666;">PAGE_X_OF_Y</div>
-                </div>
-            `);
-        };
 
-        attachments.forEach(item => {
-            if (item.file) {
-                pages.push(...getAttachmentPages(item.file));
+            // En el preview del modal, añadimos imágenes rasterizadas por anexo
+            // para que el usuario vea TODO el contenido sin descargar. Estas
+            // páginas NO viajan al backend: el HTML generado para /api/pdf/*
+            // pasa `withAnnexPreview: false` y solo lleva la portada arriba.
+            if (withAnnexPreview) {
+                annexList.forEach(a => {
+                    const imgs = a.file.previewPages || [];
+                    imgs.forEach(src => {
+                        pages.push(`
+                            <div class="doc-page" style="padding: 0; position: relative; display: flex; align-items: center; justify-content: center; background: #fff;">
+                                <img src="${src}" style="width: 100%; height: 100%; object-fit: contain;">
+                            </div>
+                        `);
+                    });
+                });
             }
-        });
+        }
 
-        // NUMERACIÓN DINÁMICA
+        // NUMERACIÓN: solo sobre las páginas propias del CIFO (incluida portada
+        // ANEXOS). Las páginas de los anexos las añade pdf-lib en backend y
+        // respetan la numeración del propio fabricante.
         const totalPages = pages.length;
         const finalPages = pages.map((p, i) => p.replace(/PAGE_X_OF_Y/g, `Página ${i + 1} de ${totalPages}`));
 
         return `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>${PDF_CSS}</style></head><body>${finalPages.join('')}</body></html>`;
     };
 
+    // IDs de Drive a concatenar al PDF principal, en orden de attachments.
+    const getAnnexDriveFileIds = () => {
+        const inst = expediente?.instalacion || {};
+        const tieneAcs = inst.cambio_acs !== false;
+        return attachments
+            .filter(a => a.file?.driveId && (a.id !== 'aerotermia_acs' || tieneAcs))
+            .map(a => a.file.driveId);
+    };
+
 
     const handleDownloadPdf = async () => {
         setGenerating(true);
         try {
-            const { data } = await axios.post('/api/pdf/generate', { html: buildHtml() });
+            const annexDriveFileIds = getAnnexDriveFileIds();
+            const { data } = await axios.post('/api/pdf/generate', { html: buildHtml(), annexDriveFileIds });
             const bytes = new Uint8Array(atob(data.pdf).split('').map(c => c.charCodeAt(0)));
             const blob = new Blob([bytes], { type: 'application/pdf' });
             const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
@@ -1097,8 +1238,10 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
         if (!folderId) { alert('No se encontró el identificador de la carpeta de Drive.'); return; }
         setSavingDrive(true);
         try {
+            const annexDriveFileIds = getAnnexDriveFileIds();
             const { data } = await axios.post('/api/pdf/save-to-drive', {
-                html: buildHtml(), folderId, fileName: `${numexpte || 'DRAFT'} - Certificado CIFO`, subfolderName: '6. ANEXOS CAE'
+                html: buildHtml(), folderId, fileName: `${numexpte || 'DRAFT'} - Certificado CIFO`, subfolderName: '6. ANEXOS CAE',
+                annexDriveFileIds
             });
             if (data.driveLink) {
                 if (onSaveDrive) onSaveDrive(data.driveLink);
@@ -1134,6 +1277,7 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
                 clienteNombre: cliNombre,
                 direccionInstalacion: instAddr,
                 uploadLink,
+                annexDriveFileIds: getAnnexDriveFileIds(),
             });
             if (response.data.success) {
                 alert(`✅ Certificado CIFO enviado correctamente a ${empEmail}`);
@@ -1164,7 +1308,7 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
                 return;
             }
 
-            const pdfResp = await axios.post('/api/pdf/generate', { html: buildHtml() });
+            const pdfResp = await axios.post('/api/pdf/generate', { html: buildHtml(), annexDriveFileIds: getAnnexDriveFileIds() });
             const pdfBase64 = pdfResp.data?.pdf;
 
             const firstName = (empResponsable || empNombre || '').split(/\s+/)[0];
@@ -1297,7 +1441,7 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
                     <div className="inline-block text-left" 
                          style={{ transform: `scale(${scale})`, transformOrigin: 'top center', width: 794, flexShrink: 0 }}>
                         <style dangerouslySetInnerHTML={{ __html: DOC_CSS }} />
-                        <div className="doc-wrap" dangerouslySetInnerHTML={{ __html: buildHtml() }} />
+                        <div className="doc-wrap" dangerouslySetInnerHTML={{ __html: buildHtml({ withAnnexPreview: true }) }} />
                     </div>
                 </div>
 

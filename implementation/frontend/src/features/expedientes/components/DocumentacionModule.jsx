@@ -344,10 +344,7 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
             anexo_fotografico_drive_link: null,
             anexo_fotografico_sent_at: null,
             anexo_fotografico_signed_link: null,
-            cifo_attachments: [
-                { id: 'aerotermia_cal', label: 'Ficha técnica aerotermia calefacción', file: null, required: true },
-                { id: 'aerotermia_acs', label: 'Ficha técnica aerotermia ACS', file: null, required: true }
-            ],
+            cifo_extra_annexes: [],
             res080_attachments: [
                 { id: 'aerotermia', label: 'Ficha técnica aerotermia', file: null, required: true },
                 { id: 'rite', label: 'Certificado RITE / Memoria técnica', file: null, required: true },
@@ -363,9 +360,37 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
             ],
             ...(expediente?.documentacion || {})
         };
+        // Saneamiento: nunca dejar cifo_attachments en local — son blobs base64
+        // que ya no se persisten (los anexos del CIFO viven en Drive). Ver
+        // backend/scripts/clean_cifo_attachments.sql para limpiar registros
+        // legacy en BD.
+        if ('cifo_attachments' in doc) delete doc.cifo_attachments;
         const cifo = calcCifo(doc);
         return { ...doc, fecha_inicio_cifo: cifo.inicio, fecha_fin_cifo: cifo.fin };
     });
+
+    // Estado efímero del CIFO: NO se persiste en BD. Se reconstruye en cada
+    // apertura del modal leyendo de Drive (driveId únicamente, sin blobs).
+    const [cifoAttachments, setCifoAttachments] = useState([
+        { id: 'aerotermia_cal', label: 'Ficha técnica aerotermia calefacción', file: null, required: true },
+        { id: 'aerotermia_acs', label: 'Ficha técnica aerotermia ACS', file: null, required: true }
+    ]);
+
+    // Cuando cambia el expediente o se rehidrata documentacion, recargamos los
+    // anexos extra persistidos como slots.
+    React.useEffect(() => {
+        const extras = expediente?.documentacion?.cifo_extra_annexes || [];
+        setCifoAttachments(prev => {
+            const fixed = prev.filter(a => a.required);
+            const extraSlots = extras.map(e => ({
+                id: `extra_${e.driveId}`,
+                label: e.label || e.fileName,
+                isExtra: true,
+                file: { driveId: e.driveId, link: e.link, name: e.fileName, source: 'manual_upload' }
+            }));
+            return [...fixed, ...extraSlots];
+        });
+    }, [expediente?.id, expediente?.documentacion?.cifo_extra_annexes]);
 
     React.useEffect(() => {
         if (expediente?.documentacion) {
@@ -397,10 +422,7 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                 anexo_fotografico_drive_link: null,
                 anexo_fotografico_sent_at: null,
                 anexo_fotografico_signed_link: null,
-                cifo_attachments: [
-                    { id: 'aerotermia_cal', label: 'Ficha técnica aerotermia calefacción', file: null, required: true },
-                    { id: 'aerotermia_acs', label: 'Ficha técnica aerotermia ACS', file: null, required: true }
-                ],
+                cifo_extra_annexes: [],
                 res080_attachments: [
                     { id: 'aerotermia', label: 'Ficha técnica aerotermia', file: null, required: true },
                     { id: 'rite', label: 'Certificado RITE / Memoria técnica', file: null, required: true },
@@ -416,6 +438,8 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                 ],
                 ...expediente.documentacion
             };
+            // Saneamiento: descartar cifo_attachments legacy si viene de BD
+            if ('cifo_attachments' in nextDoc) delete nextDoc.cifo_attachments;
             const cifo = calcCifo(nextDoc);
             setLocal({ ...nextDoc, fecha_inicio_cifo: cifo.inicio, fecha_fin_cifo: cifo.fin });
         }
@@ -715,14 +739,31 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                 onClose={() => setShowCertificadoCifo(false)}
                 expediente={expediente}
                 results={results}
-                attachments={local.cifo_attachments}
-                onAttachmentsChange={(newAnexos) => setLocal(p => ({ ...p, cifo_attachments: newAnexos }))}
+                attachments={cifoAttachments}
+                onAttachmentsChange={setCifoAttachments}
                 onSaveDrive={(link) => handleModalSaveDrive('cert_cifo_drive_link', link)}
                 onSaveFichaLink={(type, link, driveId) => {
                     const linkField = type === 'cal' ? 'ft_aerotermia_cal_link' : 'ft_aerotermia_acs_link';
                     const idField   = type === 'cal' ? 'ft_aerotermia_cal_id'   : 'ft_aerotermia_acs_id';
                     setLocal(prev => {
                         const next = { ...prev, [linkField]: link, [idField]: driveId };
+                        onSave({ documentacion: next });
+                        return next;
+                    });
+                }}
+                onSaveExtraAnnexes={(action, annex) => {
+                    setLocal(prev => {
+                        const list = Array.isArray(prev.cifo_extra_annexes) ? prev.cifo_extra_annexes : [];
+                        let next;
+                        if (action === 'add') {
+                            next = { ...prev, cifo_extra_annexes: [...list, annex] };
+                        } else if (action === 'remove') {
+                            next = { ...prev, cifo_extra_annexes: list.filter(a => a.driveId !== annex.driveId) };
+                        } else {
+                            return prev;
+                        }
+                        // El backend ya persistió; solo refrescamos local + onSave para
+                        // que el padre vea el cambio en su próxima renderización.
                         onSave({ documentacion: next });
                         return next;
                     });

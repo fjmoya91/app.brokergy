@@ -171,20 +171,20 @@ export function CatastroSearchBox({ onSearch, onAddressSelect, onManualEntry, on
                     </div>
 
                     {showSuggestions && suggestions.length > 0 && (
-                        <div className="absolute top-full left-0 right-0 mt-3 bg-bkg-surface/90 backdrop-blur-xl border border-white/[0.06] rounded-2xl shadow-2xl overflow-hidden z-50 animate-fade-in">
-                            {suggestions.map((suggestion) => (
+                        <div className="absolute top-full left-0 right-0 mt-2 bg-bkg-elevated border border-white/10 rounded-2xl shadow-[0_8px_40px_rgba(0,0,0,0.85)] overflow-hidden z-[9999] animate-fade-in">
+                            {suggestions.map((suggestion, idx) => (
                                 <button
                                     key={suggestion.place_id}
                                     type="button"
                                     onClick={() => handleSuggestionClick(suggestion)}
-                                    className="w-full text-left px-5 py-4 hover:bg-white/[0.03] border-b border-white/[0.03] last:border-0 transition-colors flex items-center gap-4 group"
+                                    className="w-full text-left px-4 py-3.5 hover:bg-white/[0.06] border-b border-white/[0.05] last:border-0 transition-colors flex items-center gap-3 group"
                                 >
-                                    <div className="w-8 h-8 rounded-lg bg-white/[0.03] flex items-center justify-center text-white/20 group-hover:text-brand transition-colors">
-                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <div className="w-7 h-7 rounded-lg bg-brand/10 flex items-center justify-center text-brand/40 group-hover:text-brand group-hover:bg-brand/15 transition-colors flex-shrink-0">
+                                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
                                         </svg>
                                     </div>
-                                    <span className="text-white/60 text-sm truncate group-hover:text-white transition-colors">{suggestion.description}</span>
+                                    <span className="text-white/70 text-sm truncate group-hover:text-white transition-colors">{suggestion.description}</span>
                                 </button>
                             ))}
                         </div>
@@ -241,12 +241,14 @@ export function CatastroSearchBox({ onSearch, onAddressSelect, onManualEntry, on
     );
 
     return (
-        <div className="bg-bkg-surface border border-white/[0.06] rounded-[2rem] p-8 md:p-12 shadow-[0_20px_50px_rgba(0,0,0,0.5)] relative overflow-hidden backdrop-blur-xl" ref={wrapperRef}>
-            {/* Background Accents */}
-            <div className="absolute top-0 right-0 w-64 h-64 bg-brand/5 rounded-full blur-[100px] pointer-events-none"></div>
-            <div className="absolute -bottom-20 -left-20 w-80 h-80 bg-brand/5 rounded-full blur-[120px] pointer-events-none"></div>
+        <div className="bg-bkg-surface border border-white/[0.06] rounded-[2rem] p-8 md:p-12 shadow-[0_20px_50px_rgba(0,0,0,0.5)] relative" ref={wrapperRef}>
+            {/* Background Accents — overflow-hidden acotado a esta capa para no cortar el dropdown de sugerencias */}
+            <div className="absolute inset-0 overflow-hidden rounded-[2rem] pointer-events-none">
+                <div className="absolute top-0 right-0 w-64 h-64 bg-brand/5 rounded-full blur-[100px]"></div>
+                <div className="absolute -bottom-20 -left-20 w-80 h-80 bg-brand/5 rounded-full blur-[120px]"></div>
+            </div>
 
-            <div className="relative z-10">
+            <div className="relative">
                 <div className="text-center mb-8">
                     <h2 className="text-2xl md:text-4xl font-black text-white mb-2 tracking-tight">
                         {geolocatePrimary ? '¿Dónde está la vivienda?' : 'Consulta Catastral'}

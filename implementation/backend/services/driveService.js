@@ -380,6 +380,46 @@ async function listFiles(folderId) {
 }
 
 /**
+ * Copia un archivo a una carpeta destino, opcionalmente renombrándolo.
+ * Devuelve { id, link } del nuevo archivo, o null si falla.
+ */
+async function copyFile(sourceFileId, targetFolderId, newName) {
+    try {
+        const response = await drive.files.copy({
+            fileId: sourceFileId,
+            requestBody: {
+                name: newName,
+                parents: [targetFolderId]
+            },
+            fields: 'id, webViewLink'
+        });
+        return {
+            id: response.data.id,
+            link: response.data.webViewLink || `https://drive.google.com/file/d/${response.data.id}/view`
+        };
+    } catch (err) {
+        console.error(`[DriveService] Error copiando archivo ${sourceFileId} → ${targetFolderId}:`, err.message);
+        return null;
+    }
+}
+
+/**
+ * Obtiene metadatos básicos de un archivo (sin contenido).
+ */
+async function getFileMetadata(fileId) {
+    try {
+        const response = await drive.files.get({
+            fileId,
+            fields: 'id, name, size, mimeType, webViewLink'
+        });
+        return response.data;
+    } catch (err) {
+        console.error(`[DriveService] Error metadata ${fileId}:`, err.message);
+        return null;
+    }
+}
+
+/**
  * Elimina un archivo de Drive (lo mueve a la papelera)
  */
 async function deleteFile(fileId) {
@@ -409,6 +449,8 @@ module.exports = {
     grantPermissionToEmail,
     getWebViewLink,
     getFileContent,
+    copyFile,
+    getFileMetadata,
     listFiles,
     deleteFile
 };

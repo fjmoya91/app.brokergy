@@ -298,10 +298,11 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
         let savings = null;
 
         if (ficha === 'RES060' || ficha === 'RES093') {
-            // 1. Datos base prioritarios: CEE Final > Oportunidad Comercial
-            const ceeFinal = cee.cee_final || {};
-            const superficie = parseFloat(ceeFinal.superficieHabitable) || parseFloat(op.datos_calculo?.surface) || 0;
-            const q_net_heating = (parseFloat(ceeFinal.demandaCalefaccion) || 0) * superficie || parseFloat(op.datos_calculo?.Q_net) || 0;
+            // Priorizar CEE inicial (la demanda debe ser la misma en inicial y final para RES060/RES093).
+            // Si solo hay inicial, ya podemos calcular el ahorro estimado.
+            const ceeBase = cee.cee_inicial || cee.cee_final || {};
+            const superficie = parseFloat(ceeBase.superficieHabitable) || parseFloat(op.datos_calculo?.surface) || 0;
+            const q_net_heating = (parseFloat(ceeBase.demandaCalefaccion) || 0) * superficie || parseFloat(op.datos_calculo?.Q_net) || 0;
 
             // Lógica Dual de ACS
             let dacs = 0;
@@ -310,7 +311,7 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
                 // Fórmula CTE: 28 l/p·día * NP * 0.001162 kWh/kg·ºC * 365 días * 46 ºC ΔT
                 dacs = 28 * numPeople * 0.001162 * 365 * 46;
             } else {
-                dacs = (parseFloat(ceeFinal.demandaACS) || 0) * superficie || parseFloat(op.datos_calculo?.demand_acs) || 0;
+                dacs = (parseFloat(ceeBase.demandaACS) || 0) * superficie || parseFloat(op.datos_calculo?.demand_acs) || 0;
             }
 
             if (superficie > 0 && q_net_heating > 0) {

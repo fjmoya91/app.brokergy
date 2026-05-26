@@ -169,6 +169,103 @@ function normalizeCombKey(val) {
     return Object.keys(FACTORES_PASO).find(k => k.toLowerCase() === lower) || null;
 }
 
+// ─── Combobox con búsqueda ────────────────────────────────────────────────────
+function SearchableSelect({ value, onChange, options, placeholder = '— Sin asignar —', disabled = false }) {
+    const [open, setOpen] = useState(false);
+    const [query, setQuery] = useState('');
+    const containerRef = useRef(null);
+    const inputRef = useRef(null);
+
+    const selected = options.find(o => String(o.value) === String(value));
+    const filtered = query
+        ? options.filter(o => o.label.toLowerCase().includes(query.toLowerCase()))
+        : options;
+
+    useEffect(() => {
+        if (!open) setQuery('');
+    }, [open]);
+
+    useEffect(() => {
+        const handler = (e) => {
+            if (containerRef.current && !containerRef.current.contains(e.target)) {
+                setOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handler);
+        return () => document.removeEventListener('mousedown', handler);
+    }, []);
+
+    const handleOpen = () => {
+        if (disabled) return;
+        setOpen(true);
+        setTimeout(() => inputRef.current?.focus(), 0);
+    };
+
+    const handleSelect = (optValue) => {
+        onChange(optValue);
+        setOpen(false);
+    };
+
+    return (
+        <div ref={containerRef} className="relative">
+            <button
+                type="button"
+                onClick={handleOpen}
+                disabled={disabled}
+                className={`w-full flex items-center justify-between bg-white/[0.03] border rounded-xl px-4 py-2 text-[10px] font-black uppercase outline-none transition-all text-left ${
+                    disabled
+                        ? 'border-white/10 text-white/40 cursor-not-allowed'
+                        : 'border-brand/30 text-brand cursor-pointer hover:border-brand/50'
+                }`}
+            >
+                <span className="truncate">{selected ? selected.label : placeholder}</span>
+                <svg className={`w-3 h-3 ml-2 flex-shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7" />
+                </svg>
+            </button>
+
+            {open && (
+                <div className="absolute z-50 bottom-full mb-1 w-full min-w-[220px] bg-bkg-elevated border border-white/10 rounded-xl shadow-xl overflow-hidden">
+                    <div className="p-2 border-b border-white/5">
+                        <input
+                            ref={inputRef}
+                            type="text"
+                            value={query}
+                            onChange={e => setQuery(e.target.value)}
+                            placeholder="Buscar certificador..."
+                            className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white placeholder-white/30 outline-none focus:border-brand/40"
+                        />
+                    </div>
+                    <ul className="max-h-48 overflow-y-auto">
+                        <li
+                            onClick={() => handleSelect('')}
+                            className="px-4 py-2 text-[10px] font-black uppercase text-white/30 hover:bg-white/5 cursor-pointer tracking-widest"
+                        >
+                            {placeholder}
+                        </li>
+                        {filtered.length === 0 && (
+                            <li className="px-4 py-2 text-[10px] text-white/20 italic">Sin resultados</li>
+                        )}
+                        {filtered.map(o => (
+                            <li
+                                key={o.value}
+                                onClick={() => handleSelect(o.value)}
+                                className={`px-4 py-2 text-[10px] font-black uppercase tracking-widest cursor-pointer transition-colors ${
+                                    String(value) === String(o.value)
+                                        ? 'bg-brand/20 text-brand'
+                                        : 'text-white/70 hover:bg-white/5'
+                                }`}
+                            >
+                                {o.label}
+                            </li>
+                        ))}
+                    </ul>
+                </div>
+            )}
+        </div>
+    );
+}
+
 // ─── Componente Principal ─────────────────────────────────────────────────────
 export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving, certificadores = [], onAutoStatus }) {
     const isReforma = expediente?.oportunidades?.ficha === 'RES080' || expediente?.cee?.is_reforma;
@@ -326,6 +423,27 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                             setXmlWarning(null);
                         }
                     } catch (_) {
+                        setXmlWarning(null);
+                    }
+                } else if (isFinal && !isReforma) {
+                    // RES060/RES093: comprobar que la demanda del CEE final coincida con la del inicial
+                    const ceeIni = nextLocal.cee_inicial || local.cee_inicial;
+                    if (ceeIni) {
+                        const iniSup = parseFloat(ceeIni.superficieHabitable) || 0;
+                        const finSup = parseFloat(parsed.superficieHabitable) || 0;
+                        const iniDemanda = (parseFloat(ceeIni.demandaCalefaccion) || 0) * iniSup;
+                        const finDemanda = (parseFloat(parsed.demandaCalefaccion) || 0) * finSup;
+                        // Tolerancia del 2% — diferencias pequeñas son por redondeo en el .cex
+                        if (iniDemanda > 0 && finDemanda > 0 && Math.abs(iniDemanda - finDemanda) > iniDemanda * 0.02) {
+                            setXmlWarning({
+                                type: 'demanda_mismatch',
+                                iniValue: Math.round(iniDemanda),
+                                finValue: Math.round(finDemanda),
+                            });
+                        } else {
+                            setXmlWarning(null);
+                        }
+                    } else {
                         setXmlWarning(null);
                     }
                 } else {
@@ -848,19 +966,13 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                             ))}
                         </div>
                     )}
-                    <select
+                    <SearchableSelect
                         value={local.certificador_id || ''}
-                        onChange={e => setLocal(p => ({ ...p, certificador_id: e.target.value || null }))}
+                        onChange={v => setLocal(p => ({ ...p, certificador_id: v || null }))}
                         disabled={!editMode}
-                        className={`bg-white/[0.03] border rounded-xl px-4 py-2 text-[10px] font-black uppercase outline-none transition-all ${
-                            editMode
-                                ? 'border-brand/30 text-brand cursor-pointer hover:border-brand/50'
-                                : 'border-white/10 text-white/40 cursor-not-allowed'
-                        }`}
-                    >
-                        <option value="">Certificador no asignado</option>
-                        {certificadores.map(c => <option key={c.id_empresa} value={c.id_empresa}>{c.razon_social || c.acronimo}</option>)}
-                    </select>
+                        placeholder="Certificador no asignado"
+                        options={certificadores.map(c => ({ value: c.id_empresa, label: c.razon_social || c.acronimo }))}
+                    />
                 </div>
                 <div className="flex gap-2">
                     {editMode ? (
@@ -922,36 +1034,68 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                             </div>
                             <div className="text-center">
                                 <h4 className="text-sm font-black text-white uppercase tracking-widest">
-                                    {xmlWarning.type === 'demand' ? 'Demanda Inferior a la Propuesta' : 'Ahorro Inferior al Simulado'}
+                                    {xmlWarning.type === 'demand' ? 'Demanda Inferior a la Propuesta' :
+                                     xmlWarning.type === 'ahorro' ? 'Ahorro Inferior al Simulado' :
+                                     'Demanda CEE Inicial ≠ Final'}
                                 </h4>
-                                <p className="text-[10px] text-white/35 mt-1">El certificado no respalda los valores comerciales</p>
+                                <p className="text-[10px] text-white/35 mt-1">
+                                    {xmlWarning.type === 'demanda_mismatch'
+                                        ? 'En RES060/RES093 la demanda de calefacción debe ser idéntica en ambos certificados'
+                                        : 'El certificado no respalda los valores comerciales'}
+                                </p>
                             </div>
                         </div>
 
                         <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl overflow-hidden mb-4">
-                            <div className="grid grid-cols-2 divide-x divide-white/[0.06]">
-                                <div className="p-4 text-center">
-                                    <p className="text-[9px] font-black text-white/30 uppercase tracking-widest mb-1">Valor Propuesta</p>
-                                    <p className="text-xl font-black text-white">{xmlWarning.proposalValue.toLocaleString('es-ES')}</p>
-                                    <p className="text-[9px] text-white/25 mt-0.5">kWh/año</p>
-                                </div>
-                                <div className="p-4 text-center">
-                                    <p className="text-[9px] font-black text-amber-400/60 uppercase tracking-widest mb-1">Valor Certificado</p>
-                                    <p className="text-xl font-black text-amber-400">{xmlWarning.xmlValue.toLocaleString('es-ES')}</p>
-                                    <p className="text-[9px] text-amber-400/40 mt-0.5">kWh/año</p>
-                                </div>
-                            </div>
-                            <div className="px-4 py-2 border-t border-white/[0.04] bg-amber-500/5 text-center">
-                                <span className="text-[10px] font-bold text-amber-400">
-                                    Déficit: −{Math.abs(xmlWarning.proposalValue - xmlWarning.xmlValue).toLocaleString('es-ES')} kWh/año
-                                </span>
-                            </div>
+                            {xmlWarning.type === 'demanda_mismatch' ? (
+                                <>
+                                    <div className="grid grid-cols-2 divide-x divide-white/[0.06]">
+                                        <div className="p-4 text-center">
+                                            <p className="text-[9px] font-black text-white/30 uppercase tracking-widest mb-1">CEE Inicial</p>
+                                            <p className="text-xl font-black text-white">{xmlWarning.iniValue.toLocaleString('es-ES')}</p>
+                                            <p className="text-[9px] text-white/25 mt-0.5">kWh/año</p>
+                                        </div>
+                                        <div className="p-4 text-center">
+                                            <p className="text-[9px] font-black text-amber-400/60 uppercase tracking-widest mb-1">CEE Final</p>
+                                            <p className="text-xl font-black text-amber-400">{xmlWarning.finValue.toLocaleString('es-ES')}</p>
+                                            <p className="text-[9px] text-amber-400/40 mt-0.5">kWh/año</p>
+                                        </div>
+                                    </div>
+                                    <div className="px-4 py-2 border-t border-white/[0.04] bg-amber-500/5 text-center">
+                                        <span className="text-[10px] font-bold text-amber-400">
+                                            Diferencia: {Math.abs(xmlWarning.iniValue - xmlWarning.finValue).toLocaleString('es-ES')} kWh/año
+                                        </span>
+                                    </div>
+                                </>
+                            ) : (
+                                <>
+                                    <div className="grid grid-cols-2 divide-x divide-white/[0.06]">
+                                        <div className="p-4 text-center">
+                                            <p className="text-[9px] font-black text-white/30 uppercase tracking-widest mb-1">Valor Propuesta</p>
+                                            <p className="text-xl font-black text-white">{xmlWarning.proposalValue.toLocaleString('es-ES')}</p>
+                                            <p className="text-[9px] text-white/25 mt-0.5">kWh/año</p>
+                                        </div>
+                                        <div className="p-4 text-center">
+                                            <p className="text-[9px] font-black text-amber-400/60 uppercase tracking-widest mb-1">Valor Certificado</p>
+                                            <p className="text-xl font-black text-amber-400">{xmlWarning.xmlValue.toLocaleString('es-ES')}</p>
+                                            <p className="text-[9px] text-amber-400/40 mt-0.5">kWh/año</p>
+                                        </div>
+                                    </div>
+                                    <div className="px-4 py-2 border-t border-white/[0.04] bg-amber-500/5 text-center">
+                                        <span className="text-[10px] font-bold text-amber-400">
+                                            Déficit: −{Math.abs(xmlWarning.proposalValue - xmlWarning.xmlValue).toLocaleString('es-ES')} kWh/año
+                                        </span>
+                                    </div>
+                                </>
+                            )}
                         </div>
 
                         <p className="text-[11px] text-white/45 text-center mb-5 leading-relaxed">
                             {xmlWarning.type === 'demand'
                                 ? 'La demanda certificada debe igualar o superar la de la propuesta para garantizar el Bono CAE. Confirma los datos con el técnico certificador.'
-                                : 'El ahorro real certificado debe igualar o superar el simulado en la propuesta. Confirma los datos con el técnico certificador.'}
+                                : xmlWarning.type === 'ahorro'
+                                ? 'El ahorro real certificado debe igualar o superar el simulado en la propuesta. Confirma los datos con el técnico certificador.'
+                                : 'La demanda del CEE final debe coincidir con la del inicial para que el Bono CAE sea correcto. Comprueba con el certificador que no haya habido modificaciones de la envolvente.'}
                         </p>
 
                         <button

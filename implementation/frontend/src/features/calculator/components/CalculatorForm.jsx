@@ -1398,8 +1398,13 @@ export function CalculatorForm({
                                                 className="h-12 bg-slate-900/50 border-slate-700/50 rounded-xl"
                                             >
                                                 <option value="suelo_radiante">Suelo radiante (35ºC)</option>
-                                                <option value="radiadores_baja_temp">Fancoils o Baja Temperatura (45ºC)</option>
                                                 <option value="radiadores_convencionales">Radiadores convencionales (55ºC)</option>
+                                                {/* Compatibilidad: la opción "Fancoils/Baja Temperatura" se retiró del
+                                                    funnel y del select, pero la mantenemos visible si una oportunidad
+                                                    legacy ya tenía ese valor — así el técnico puede seguir editándola. */}
+                                                {inputs.emitterType === 'radiadores_baja_temp' && (
+                                                    <option value="radiadores_baja_temp">Fancoils o Baja Temperatura (45ºC) — legacy</option>
+                                                )}
                                             </Select>
                                         </div>
                                     </div>

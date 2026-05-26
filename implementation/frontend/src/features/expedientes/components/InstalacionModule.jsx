@@ -355,6 +355,126 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
     );
 }
 
+// ─── Combobox con búsqueda ────────────────────────────────────────────────────
+function SearchableSelect({ value, onChange, options, placeholder = '— Selecciona —', disabled = false }) {
+    const [open, setOpen] = React.useState(false);
+    const [query, setQuery] = React.useState('');
+    const containerRef = React.useRef(null);
+    const inputRef = React.useRef(null);
+
+    const selected = options.find(o => String(o.value) === String(value));
+    const filtered = query
+        ? options.filter(o => o.label.toLowerCase().includes(query.toLowerCase()))
+        : options;
+
+    React.useEffect(() => {
+        if (!open) setQuery('');
+    }, [open]);
+
+    React.useEffect(() => {
+        const handler = (e) => {
+            if (containerRef.current && !containerRef.current.contains(e.target)) {
+                setOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handler);
+        return () => document.removeEventListener('mousedown', handler);
+    }, []);
+
+    const handleOpen = () => {
+        if (disabled) return;
+        setOpen(true);
+        setTimeout(() => inputRef.current?.focus(), 0);
+    };
+
+    const handleSelect = (optValue) => {
+        onChange(optValue);
+        setOpen(false);
+    };
+
+    return (
+        <div ref={containerRef} className="relative">
+            <button
+                type="button"
+                onClick={handleOpen}
+                disabled={disabled}
+                className={`w-full flex items-center justify-between bg-bkg-elevated border rounded-lg px-3 py-2 text-sm outline-none transition-all text-left ${
+                    disabled
+                        ? 'border-white/5 text-white/60 cursor-not-allowed'
+                        : 'border-white/10 text-white cursor-pointer focus:border-brand/50'
+                }`}
+            >
+                {selected ? (
+                    <span className="flex items-center gap-2 min-w-0">
+                        <span className="w-5 h-5 rounded flex-shrink-0 flex items-center justify-center overflow-hidden bg-white/5 border border-white/10">
+                            {selected.logo
+                                ? <img src={selected.logo} alt="" className="w-full h-full object-contain" />
+                                : <span className="text-[8px] font-black text-white/40">{(selected.acronimo || selected.label || '?').slice(0, 2).toUpperCase()}</span>
+                            }
+                        </span>
+                        <span className="truncate">{selected.label}</span>
+                    </span>
+                ) : (
+                    <span className="text-white/30">{placeholder}</span>
+                )}
+                <svg className={`w-4 h-4 ml-2 flex-shrink-0 text-white/20 transition-transform ${open ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+            </button>
+
+            {open && (
+                <div className="absolute z-50 bottom-full mb-1 w-full bg-bkg-elevated border border-white/10 rounded-xl shadow-xl overflow-hidden">
+                    <div className="p-2 border-b border-white/5">
+                        <input
+                            ref={inputRef}
+                            type="text"
+                            value={query}
+                            onChange={e => setQuery(e.target.value)}
+                            placeholder="Buscar instalador..."
+                            className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white placeholder-white/30 outline-none focus:border-brand/40"
+                        />
+                    </div>
+                    <ul className="max-h-52 overflow-y-auto">
+                        <li
+                            onClick={() => handleSelect('')}
+                            className="px-3 py-2 text-sm text-white/30 hover:bg-white/5 cursor-pointer"
+                        >
+                            {placeholder}
+                        </li>
+                        {filtered.length === 0 && (
+                            <li className="px-3 py-2 text-xs text-white/20 italic">Sin resultados</li>
+                        )}
+                        {filtered.map(o => {
+                            const isActive = String(value) === String(o.value);
+                            const initials = (o.acronimo || o.label || '?').slice(0, 2).toUpperCase();
+                            return (
+                                <li
+                                    key={o.value}
+                                    onClick={() => handleSelect(o.value)}
+                                    className={`flex items-center gap-3 px-3 py-2 cursor-pointer transition-colors ${
+                                        isActive ? 'bg-brand/20' : 'hover:bg-white/5'
+                                    }`}
+                                >
+                                    {/* Logo o avatar de iniciales */}
+                                    <div className="w-7 h-7 rounded-md flex-shrink-0 flex items-center justify-center overflow-hidden bg-white/5 border border-white/10">
+                                        {o.logo
+                                            ? <img src={o.logo} alt="" className="w-full h-full object-contain" />
+                                            : <span className="text-[9px] font-black text-white/40">{initials}</span>
+                                        }
+                                    </div>
+                                    <span className={`text-sm truncate ${isActive ? 'text-brand font-semibold' : 'text-white/70'}`}>
+                                        {o.label}
+                                    </span>
+                                </li>
+                            );
+                        })}
+                    </ul>
+                </div>
+            )}
+        </div>
+    );
+}
+
 // ─── Componente Principal ─────────────────────────────────────────────────────
 export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, readOnly = false }) {
     const [marcas, setMarcas] = useState([]);
@@ -529,7 +649,9 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
         .filter(i => i.tipo_empresa === 'INSTALADOR')
         .map(i => ({
             value: i.id_empresa,
-            label: `${i.razon_social || i.acronimo || 'Sin nombre'} ${i.cif ? `(${i.cif})` : ''}`
+            label: `${i.razon_social || i.acronimo || 'Sin nombre'} ${i.cif ? `(${i.cif})` : ''}`,
+            logo: i.logo_empresa || null,
+            acronimo: i.acronimo || null,
         }));
 
     // 1. Extraer demanda con precisión técnica (Prioridad CEE Final > Oportunidad)
@@ -755,12 +877,16 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
                         </div>
                         <h4 className="text-xs font-black text-white uppercase tracking-widest">Empresa Instaladora Asignada</h4>
                     </div>
-                    <SelectField
-                        label="Seleccionar Instalador"
-                        value={local.instalador_id}
-                        onChange={v => setLocal(p => ({ ...p, instalador_id: v || null }))}
-                        options={prescriptorOptions}
-                    />
+                    <div>
+                        <label className="block text-xs text-white/40 uppercase tracking-wider mb-1 font-bold">Seleccionar Instalador</label>
+                        <SearchableSelect
+                            value={local.instalador_id || ''}
+                            onChange={v => setLocal(p => ({ ...p, instalador_id: v || null }))}
+                            options={prescriptorOptions}
+                            placeholder="— Selecciona instalador —"
+                            disabled={readOnly}
+                        />
+                    </div>
                 </div>
             </div>
         </div>

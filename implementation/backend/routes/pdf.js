@@ -1,7 +1,64 @@
 const express = require('express');
 const router = express.Router();
+const { PDFDocument } = require('pdf-lib');
 
 const { getBrowser } = require('../services/pdfService');
+
+// Tamaño A4 en puntos PDF (1 pt = 1/72 pulgada).
+const A4_WIDTH_PT = 595.276;
+const A4_HEIGHT_PT = 841.890;
+
+/**
+ * Concatena el PDF principal con varios PDFs anexo descargados desde Drive.
+ * Cada página del anexo se incrusta en una página A4 nueva, escalándola
+ * proporcionalmente y centrándola, para que TODO el PDF final tenga el mismo
+ * tamaño de página (evita la diferencia visual entre CIFO A4 y fichas
+ * técnicas con tamaños custom).
+ * Si un anexo no se puede parsear (encriptado, corrupto), se ignora con warning.
+ */
+async function mergePdfs(mainBuffer, annexBuffers) {
+    if (!annexBuffers || annexBuffers.length === 0) return mainBuffer;
+    const merged = await PDFDocument.load(mainBuffer);
+    for (const buf of annexBuffers) {
+        if (!buf || buf.length === 0) continue;
+        try {
+            // Cargamos el anexo aparte para conocer su número de páginas, ya
+            // que embedPdf(buf) SIN indices solo embebe la PRIMERA página.
+            const annexDoc = await PDFDocument.load(buf, { ignoreEncryption: true });
+            const indices = annexDoc.getPageIndices();
+            const embedded = await merged.embedPdf(annexDoc, indices);
+            console.log(`[mergePdfs] Anexo: ${indices.length} pág → ${embedded.length} embebidas`);
+            for (const ep of embedded) {
+                const page = merged.addPage([A4_WIDTH_PT, A4_HEIGHT_PT]);
+                const { width: w, height: h } = ep;
+                const scale = Math.min(A4_WIDTH_PT / w, A4_HEIGHT_PT / h);
+                const drawW = w * scale;
+                const drawH = h * scale;
+                const x = (A4_WIDTH_PT - drawW) / 2;
+                const y = (A4_HEIGHT_PT - drawH) / 2;
+                page.drawPage(ep, { x, y, width: drawW, height: drawH });
+            }
+        } catch (e) {
+            console.warn('[mergePdfs] Skip anexo no parseable:', e.message);
+        }
+    }
+    return Buffer.from(await merged.save());
+}
+
+/**
+ * Descarga en paralelo los PDFs de Drive cuyos IDs se pasen.
+ */
+async function fetchAnnexBuffers(annexDriveFileIds) {
+    if (!Array.isArray(annexDriveFileIds) || annexDriveFileIds.length === 0) return [];
+    const { getFileContent } = require('../services/driveService');
+    const buffers = await Promise.all(
+        annexDriveFileIds.map(id => getFileContent(id).catch(err => {
+            console.warn(`[fetchAnnexBuffers] Falló ${id}:`, err.message);
+            return null;
+        }))
+    );
+    return buffers.filter(b => b && b.length > 0);
+}
 
 /**
  * POST /api/pdf/generate
@@ -9,8 +66,8 @@ const { getBrowser } = require('../services/pdfService');
  * Returns: application/pdf
  */
 router.post('/generate', async (req, res) => {
-    const { html } = req.body;
-    console.log(`[PDF] Generando PDF oficial... (Payload: ${Math.round((html?.length || 0)/1024)} KB)`);
+    const { html, annexDriveFileIds } = req.body;
+    console.log(`[PDF] Generando PDF oficial... (Payload: ${Math.round((html?.length || 0)/1024)} KB, anexos=${annexDriveFileIds?.length || 0})`);
 
     if (!html || typeof html !== 'string') {
         return res.status(400).json({ error: 'Se requiere el campo "html" con el contenido HTML.' });
@@ -19,28 +76,26 @@ router.post('/generate', async (req, res) => {
     let browser = null;
     let page = null;
     try {
+        // Lanzar la descarga de anexos en paralelo con la generación del PDF principal
+        const annexPromise = fetchAnnexBuffers(annexDriveFileIds);
+
         browser = await getBrowser();
         page = await browser.newPage();
 
         await page.setViewport({ width: 794, height: 1123, deviceScaleFactor: 2 });
 
-        // setContent con timeout; usamos domcontentloaded para no bloquear
-        // en recursos externos como Google Fonts (que pueden timeout en Lambda)
-        // setContent con domcontentloaded es más rápido y estable para evitar detacheo de frames
         await page.setContent(html, {
             waitUntil: 'domcontentloaded',
-            timeout: 60000 // Aumentamos timeout a 60s
+            timeout: 60000
         });
 
-        // Esperar un poco a que el CSS se aplique y las fuentes se carguen
         await new Promise(r => setTimeout(r, 1000));
 
-        // Comprobar fuentes con seguridad
         try {
             await page.evaluate(() => document.fonts.ready);
         } catch (_) { }
 
-        const pdfBuffer = await page.pdf({
+        let pdfBuffer = await page.pdf({
             format: 'A4',
             printBackground: true,
             margin: { top: 0, right: 0, bottom: 0, left: 0 },
@@ -48,8 +103,11 @@ router.post('/generate', async (req, res) => {
             scale: 1,
         });
 
-        // Enviar como base64 JSON para evitar problemas de serialización
-        // binaria en Vercel serverless (Buffer → JSON.stringify issue)
+        const annexBuffers = await annexPromise;
+        if (annexBuffers.length > 0) {
+            pdfBuffer = await mergePdfs(pdfBuffer, annexBuffers);
+        }
+
         const pdfBase64 = Buffer.from(pdfBuffer).toString('base64');
         res.json({ pdf: pdfBase64 });
     } catch (error) {
@@ -71,7 +129,7 @@ router.post('/generate', async (req, res) => {
  * Returns: { success: boolean, driveLink: string }
  */
 router.post('/save-to-drive', async (req, res) => {
-    const { html, folderId, fileName, subfolderName } = req.body;
+    const { html, folderId, fileName, subfolderName, annexDriveFileIds } = req.body;
     const driveService = require('../services/driveService');
 
     if (!html || !folderId) {
@@ -81,6 +139,8 @@ router.post('/save-to-drive', async (req, res) => {
     let browser = null;
     let page = null;
     try {
+        const annexPromise = fetchAnnexBuffers(annexDriveFileIds);
+
         browser = await getBrowser();
         page = await browser.newPage();
         await page.setViewport({ width: 794, height: 1123, deviceScaleFactor: 2 });
@@ -89,15 +149,19 @@ router.post('/save-to-drive', async (req, res) => {
             timeout: 60000
         });
 
-        // Esperar fuentes y estilos
         await new Promise(r => setTimeout(r, 1000));
         try { await page.evaluate(() => document.fonts.ready); } catch (_) { }
 
-        const pdfBuffer = await page.pdf({
+        let pdfBuffer = await page.pdf({
             format: 'A4',
             printBackground: true,
             margin: { top: 0, right: 0, bottom: 0, left: 0 }
         });
+
+        const annexBuffers = await annexPromise;
+        if (annexBuffers.length > 0) {
+            pdfBuffer = await mergePdfs(pdfBuffer, annexBuffers);
+        }
 
         // Manejar subcarpeta si se provee
         let targetFolderId = folderId;
@@ -291,7 +355,7 @@ router.post('/send-annex', async (req, res) => {
  * Body: { html, to, instaladorNombre, numExpediente }
  */
 router.post('/send-cifo', async (req, res) => {
-    const { html, to, instaladorNombre, numExpediente, clienteNombre, direccionInstalacion, uploadLink } = req.body;
+    const { html, to, instaladorNombre, numExpediente, clienteNombre, direccionInstalacion, uploadLink, annexDriveFileIds } = req.body;
     const emailService = require('../services/emailService');
 
     if (!html || !to) {
@@ -301,6 +365,8 @@ router.post('/send-cifo', async (req, res) => {
     let browser = null;
     let page = null;
     try {
+        const annexPromise = fetchAnnexBuffers(annexDriveFileIds);
+
         browser = await getBrowser();
         page = await browser.newPage();
         await page.setViewport({ width: 794, height: 1123, deviceScaleFactor: 2 });
@@ -308,11 +374,16 @@ router.post('/send-cifo', async (req, res) => {
         await new Promise(r => setTimeout(r, 1000));
         try { await page.evaluate(() => document.fonts.ready); } catch (_) { }
 
-        const pdfBuffer = await page.pdf({
+        let pdfBuffer = await page.pdf({
             format: 'A4',
             printBackground: true,
             margin: { top: 0, right: 0, bottom: 0, left: 0 }
         });
+
+        const annexBuffers = await annexPromise;
+        if (annexBuffers.length > 0) {
+            pdfBuffer = await mergePdfs(pdfBuffer, annexBuffers);
+        }
 
         const nombre  = instaladorNombre   || 'instalador';
         const expte   = numExpediente      || '';

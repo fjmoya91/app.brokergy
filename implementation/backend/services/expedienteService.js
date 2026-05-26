@@ -109,25 +109,31 @@ async function createExpediente(uuid_oportunidad, id_cliente, manualNumber = nul
             const currentYear = new Date().getFullYear().toString().slice(-2);
             const prefix = `${currentYear}${programa}_`;
 
-            console.log(`[ExpedienteService] Buscando último correlativo para prefijo: ${prefix}`);
+            console.log(`[ExpedienteService] Calculando siguiente correlativo para prefijo: ${prefix}`);
 
-            const { data: lastExp } = await supabase
+            // Traemos TODOS los expedientes del prefijo y calculamos el máximo de
+            // forma robusta. NO confiamos en ORDER BY correlativo DESC porque en
+            // Postgres los NULL van primero y un único registro con correlativo
+            // NULL hacía que el contador se reiniciara a 1 (bug 26RESxxx_1).
+            // El máximo se obtiene del MAYOR entre `correlativo` y el sufijo
+            // numérico parseado de `numero_expediente`, ignorando nulos.
+            const { data: rows } = await supabase
                 .from('expedientes')
                 .select('numero_expediente, correlativo')
-                .like('numero_expediente', `${prefix}%`)
-                .order('correlativo', { ascending: false })
-                .limit(1)
-                .maybeSingle();
+                .like('numero_expediente', `${prefix}%`);
 
-            if (lastExp) {
-                console.log(`[ExpedienteService] Último expediente encontrado para ${programa}: ${lastExp.numero_expediente} (Correlativo: ${lastExp.correlativo})`);
-            } else {
-                console.log(`[ExpedienteService] No hay expedientes previos para el programa ${programa} en el año ${currentYear}.`);
+            let maxNum = 0;
+            for (const r of (rows || [])) {
+                const corr = Number.isInteger(r.correlativo) ? r.correlativo : 0;
+                const suffix = parseInt(String(r.numero_expediente || '').slice(prefix.length), 10);
+                const val = Math.max(corr, Number.isNaN(suffix) ? 0 : suffix);
+                if (val > maxNum) maxNum = val;
             }
+            console.log(`[ExpedienteService] Máximo correlativo detectado para ${programa}: ${maxNum} (sobre ${rows?.length || 0} registros)`);
 
             // Para RES080 el contador empieza en 36 si no hay registros previos
             const startOffset = programa === 'RES080' ? 36 : 1;
-            nextCorrelativo = Math.max((lastExp?.correlativo || 0) + 1, startOffset);
+            nextCorrelativo = Math.max(maxNum + 1, startOffset);
             numeroExpediente = `${prefix}${nextCorrelativo}`;
             console.log(`[ExpedienteService] Asignado Número de Expediente: ${numeroExpediente}`);
         }
