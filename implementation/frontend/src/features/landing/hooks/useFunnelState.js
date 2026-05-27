@@ -81,12 +81,19 @@ function clearStorage() {
     try { localStorage.removeItem(STORAGE_KEY); } catch { /* noop */ }
 }
 
-export function useFunnelState() {
-    const [funnel, setFunnelState] = useState(() => getStoredOnce()?.funnel || INITIAL_FUNNEL);
-    const [currentStep, setCurrentStepRaw] = useState(() => getStoredOnce()?.currentStep || 0);
+export function useFunnelState(mode = 'public') {
+    const isInternal = mode === 'internal';
 
-    // Persistir en localStorage cada vez que cambia el funnel o el paso actual
+    const [funnel, setFunnelState] = useState(() =>
+        isInternal ? INITIAL_FUNNEL : (getStoredOnce()?.funnel || INITIAL_FUNNEL)
+    );
+    const [currentStep, setCurrentStepRaw] = useState(() =>
+        isInternal ? 0 : (getStoredOnce()?.currentStep || 0)
+    );
+
+    // Persistir en localStorage cada vez que cambia el funnel o el paso actual (solo público)
     useEffect(() => {
+        if (isInternal) return;
         saveToStorage(funnel, currentStep);
     }, [funnel, currentStep]);
 

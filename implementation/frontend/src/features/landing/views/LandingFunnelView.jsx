@@ -75,11 +75,13 @@ export default function LandingFunnelView({ route, mode = 'public', variant = 'd
 
     // ---- Fase global ----
     const [phase, setPhase] = useState(() => {
+        // Modo interno (admin/partner nueva simulación) → siempre arrancar en HOME
+        if (isInternal) return 'HOME';
         const s = _readSession();
-        // Solo restauramos FUNNEL si hay datos catastro; HOME y RESULT siempre arrancan frescos
         return (s?.phase === 'FUNNEL' && s?.catastro) ? 'FUNNEL' : 'HOME';
     });
     const [catastro, setCatastro] = useState(() => {
+        if (isInternal) return null;
         const s = _readSession();
         return (s?.phase === 'FUNNEL' && s?.catastro) ? s.catastro : null;
     });
@@ -93,10 +95,11 @@ export default function LandingFunnelView({ route, mode = 'public', variant = 'd
     const [duplicateRcInfo, setDuplicateRcInfo] = useState(null); // { daysAgo, ficha, ... }
 
     // ---- Funnel state ----
-    const { funnel, updateFunnel, currentStep, setCurrentStep, goNext, goBack, resetFunnel } = useFunnelState();
+    const { funnel, updateFunnel, currentStep, setCurrentStep, goNext, goBack, resetFunnel } = useFunnelState(mode);
 
-    // Sincronizar phase+catastro con sessionStorage
+    // Sincronizar phase+catastro con sessionStorage (solo en modo público)
     useEffect(() => {
+        if (isInternal) return; // admin/partner no persisten sesión
         if (phase === 'FUNNEL' && catastro) {
             _writeSession(phase, catastro);
         } else if (phase === 'HOME' || phase === 'RESULT') {
@@ -115,7 +118,7 @@ export default function LandingFunnelView({ route, mode = 'public', variant = 'd
 
     // ---- Contacto (separado del funnel persistido por RGPD) ----
     const [contacto, setContacto] = useState({
-        nombre: '', email: '', tlf: '',
+        nombre: '', apellidos: '', email: '', tlf: '',
         titular_type: null, num_propietarios: null,
         timeline: null, rgpd_aceptado: false,
         // Consents para recibir comunicaciones — pre-marcados (el cliente
