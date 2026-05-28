@@ -343,22 +343,49 @@ export function MapPickerModal({ initialLat, initialLng, onConfirm, onCancel }) 
  * Se posiciona en la esquina superior derecha del mapa.
  */
 function FacadeThumbnail({ rc }) {
-    const [loaded, setLoaded] = useState(false);
-    const [failed, setFailed] = useState(false);
+    const [loaded, setLoaded]   = useState(false);
+    const [failed, setFailed]   = useState(false);
+    const [retry, setRetry]     = useState(0);     // incrementar fuerza cache-bust
 
     useEffect(() => {
         setLoaded(false);
         setFailed(false);
+        setRetry(0);
     }, [rc]);
 
+    const handleLoad = (e) => {
+        // Placeholders del Catastro son imágenes de 1×1 px o de tamaño ínfimo.
+        // Si naturalWidth < 20 px consideramos que no es una foto real.
+        if (e.target.naturalWidth < 20 || e.target.naturalHeight < 20) {
+            handleError();
+            return;
+        }
+        setLoaded(true);
+    };
+
+    const handleError = () => {
+        if (retry < 2) {
+            // Reintentar hasta 2 veces con delay creciente (1.5 s, 3 s)
+            const delay = (retry + 1) * 1500;
+            setTimeout(() => setRetry(r => r + 1), delay);
+        } else {
+            setFailed(true);
+        }
+    };
+
     if (failed) return null;
+
+    // Cache-bust solo en reintentos para no interferir con el caché 24 h normal
+    const src = retry > 0
+        ? `/api/catastro/image/${rc}?_r=${retry}`
+        : `/api/catastro/image/${rc}`;
 
     return (
         <div
             className="absolute top-2 right-2 sm:top-3 sm:right-3 z-[1000] animate-fade-in pointer-events-none"
             style={{ animationDuration: '300ms' }}
         >
-            <div className="relative w-28 sm:w-44 rounded-xl overflow-hidden border-2 border-brand/50 shadow-2xl bg-bkg-deep">
+            <div className="relative w-48 sm:w-64 rounded-xl overflow-hidden border-2 border-brand/50 shadow-2xl bg-bkg-deep">
                 <div className="aspect-[4/3] w-full bg-bkg-deep flex items-center justify-center">
                     {!loaded && (
                         <div className="absolute inset-0 flex items-center justify-center">
@@ -369,15 +396,16 @@ function FacadeThumbnail({ rc }) {
                         </div>
                     )}
                     <img
-                        src={`/api/catastro/image/${rc}`}
+                        key={`${rc}-${retry}`}
+                        src={src}
                         alt="Fachada Catastro"
                         className={`w-full h-full object-cover transition-opacity duration-300 ${loaded ? 'opacity-100' : 'opacity-0'}`}
-                        onLoad={() => setLoaded(true)}
-                        onError={() => setFailed(true)}
+                        onLoad={handleLoad}
+                        onError={handleError}
                     />
                 </div>
                 <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/90 to-transparent px-2 py-1">
-                    <p className="text-[8px] sm:text-[9px] text-white/90 font-bold uppercase tracking-wider text-center">
+                    <p className="text-[9px] sm:text-[10px] text-white/90 font-bold uppercase tracking-wider text-center">
                         Foto Catastro
                     </p>
                 </div>

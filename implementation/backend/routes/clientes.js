@@ -237,7 +237,17 @@ router.post('/', enforceAuth, async (req, res) => {
     } catch (err) {
         console.error('Error POST clientes:', err);
         if (err.code === '23505') {
-            return res.status(409).json({ error: 'Ya existe un cliente con ese DNI/NIF.' });
+            const dniFinal = body?.dni || null;
+            let existingCliente = null;
+            if (dniFinal) {
+                const { data } = await supabase
+                    .from('clientes')
+                    .select('id_cliente, nombre_razon_social, apellidos, dni, municipio, email, tlf')
+                    .eq('dni', dniFinal)
+                    .maybeSingle();
+                existingCliente = data;
+            }
+            return res.status(409).json({ error: 'Ya existe un cliente con ese DNI/NIF.', existing_cliente: existingCliente });
         }
         res.status(500).json({ error: 'Error al crear el cliente', details: err.message });
     }
@@ -312,7 +322,18 @@ router.put('/:id', enforceAuth, async (req, res) => {
     } catch (err) {
         console.error('Error PUT cliente:', err);
         if (err.code === '23505') {
-            return res.status(409).json({ error: 'Ya existe un cliente con ese DNI/NIF.' });
+            const dniFinal = (req.body?.dni || '').toString().trim().toUpperCase() || null;
+            let existingCliente = null;
+            if (dniFinal) {
+                const { data } = await supabase
+                    .from('clientes')
+                    .select('id_cliente, nombre_razon_social, apellidos, dni, municipio, email, tlf')
+                    .eq('dni', dniFinal)
+                    .neq('id_cliente', req.params.id)
+                    .maybeSingle();
+                existingCliente = data;
+            }
+            return res.status(409).json({ error: 'Ya existe un cliente con ese DNI/NIF.', existing_cliente: existingCliente });
         }
         res.status(500).json({ error: 'Error al actualizar el cliente', details: err.message });
     }

@@ -590,6 +590,32 @@ router.patch('/:id/cod-cliente', requireAuth, async (req, res) => {
     }
 });
 
+// Vincular cliente existente (PATCH /api/oportunidades/:id/vincular-cliente)
+router.patch('/:id/vincular-cliente', requireAuth, async (req, res) => {
+    const { id } = req.params;
+    const { cliente_id } = req.body;
+    try {
+        if (!cliente_id) return res.status(400).json({ error: 'cliente_id requerido.' });
+
+        const { data: cli, error: cliErr } = await supabase
+            .from('clientes')
+            .select('id_cliente, nombre_razon_social, apellidos')
+            .eq('id_cliente', cliente_id)
+            .single();
+        if (cliErr || !cli) return res.status(404).json({ error: 'Cliente no encontrado.' });
+
+        const { error: upErr } = await supabase
+            .from('oportunidades')
+            .update({ cliente_id })
+            .eq('id_oportunidad', id);
+        if (upErr) return res.status(500).json({ error: upErr.message });
+
+        res.json({ success: true, cliente: cli });
+    } catch (err) {
+        res.status(500).json({ error: 'Error del servidor.' });
+    }
+});
+
 // Borrar historial completo (DELETE /api/oportunidades/:id/historial)
 router.delete('/:id/historial', async (req, res) => {
     const { id } = req.params;

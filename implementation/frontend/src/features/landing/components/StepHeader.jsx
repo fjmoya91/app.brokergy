@@ -5,7 +5,7 @@
 
 import React from 'react';
 
-export function StepHeader({ currentStep, totalSteps, onBack, canGoBack = true }) {
+export function StepHeader({ currentStep, totalSteps, onBack, canGoBack = true, onRestart }) {
     const progress = Math.min(100, Math.round((currentStep / totalSteps) * 100));
 
     return (
@@ -22,9 +22,23 @@ export function StepHeader({ currentStep, totalSteps, onBack, canGoBack = true }
                     </svg>
                     Atrás
                 </button>
-                <span className="text-[10px] font-black uppercase tracking-widest text-white/30">
-                    Paso {currentStep} de {totalSteps}
-                </span>
+                <div className="flex items-center gap-3">
+                    <span className="text-[10px] font-black uppercase tracking-widest text-white/30">
+                        Paso {currentStep} de {totalSteps}
+                    </span>
+                    {onRestart && (
+                        <button
+                            type="button"
+                            onClick={onRestart}
+                            title="Empezar de nuevo"
+                            className="text-white/20 hover:text-white/60 transition-colors p-1"
+                        >
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                            </svg>
+                        </button>
+                    )}
+                </div>
             </div>
             <div className="h-1 bg-white/5 rounded-full overflow-hidden">
                 <div

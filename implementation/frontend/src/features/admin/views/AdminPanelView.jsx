@@ -4,6 +4,7 @@ import { useAuth } from '../../../context/AuthContext';
 import { PrescriptoresList } from './PrescriptoresList';
 import { ClienteFormModal } from '../../clientes/components/ClienteFormModal';
 import { ClienteDetailModal } from '../../clientes/components/ClienteDetailModal';
+import { VincularClienteModal } from '../../clientes/components/VincularClienteModal';
 
 export function AdminPanelView({ 
     onLoadOpportunity, 
@@ -39,8 +40,10 @@ export function AdminPanelView({
     const [editingText, setEditingText] = useState('');
     const [updatingEntry, setUpdatingEntry] = useState(false);
     const [viewMode, setViewMode] = useState(user?.rol?.toUpperCase() === 'ADMIN' ? 'brokergy' : 'prescriptor');
-    const [clienteModalOp, setClienteModalOp] = useState(null); // oportunidad para crear cliente
+    const [clienteModalOp, setClienteModalOp] = useState(null); // oportunidad para crear cliente nuevo
+    const [vincularClienteOp, setVincularClienteOp] = useState(null); // oportunidad para vincular cliente existente
     const [clienteDetailId, setClienteDetailId] = useState(null); // cliente_id para ver detalle
+    const [clienteDetailOp, setClienteDetailOp] = useState(null); // oportunidad contexto del detalle
     const [pendingStatusUpdate, setPendingStatusUpdate] = useState(null); // { op, nuevoEstado }
 
     // Pagination state
@@ -299,7 +302,7 @@ export function AdminPanelView({
         if (nuevoEstado === 'ACEPTADA' && !op.cliente_id) {
             setError('No se puede marcar como ACEPTADA sin haber creado/vinculado un cliente primero.');
             setPendingStatusUpdate({ op, nuevoEstado });
-            setClienteModalOp(op);
+            setVincularClienteOp(op);
             // Forzar re-render para revertir el select visualmente
             setOportunidades(prev => [...prev]);
             return;
@@ -1128,7 +1131,7 @@ export function AdminPanelView({
                                                             {op.cliente_id ? (
                                                                 /* Botón Ver Cliente (ya tiene cliente asignado) */
                                                                 <button
-                                                                    onClick={(e) => { e.stopPropagation(); setClienteDetailId(op.cliente_id); }}
+                                                                    onClick={(e) => { e.stopPropagation(); setClienteDetailId(op.cliente_id); setClienteDetailOp(op); }}
                                                                     className="p-1 text-brand/60 hover:text-brand transition-all rounded-lg hover:bg-brand/10"
                                                                     title="Ver Cliente vinculado"
                                                                 >
@@ -1137,11 +1140,11 @@ export function AdminPanelView({
                                                                     </svg>
                                                                 </button>
                                                             ) : (
-                                                                /* Botón Crear Cliente */
+                                                                /* Botón Vincular/Crear Cliente */
                                                                 <button
-                                                                    onClick={(e) => { e.stopPropagation(); setClienteModalOp(op); }}
+                                                                    onClick={(e) => { e.stopPropagation(); setVincularClienteOp(op); }}
                                                                     className="p-1 text-white/10 hover:text-brand transition-all rounded-lg hover:bg-brand/10 opacity-0 group-hover:opacity-100"
-                                                                    title="Crear Cliente desde esta Oportunidad"
+                                                                    title="Vincular o crear cliente"
                                                                 >
                                                                     <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
@@ -1644,7 +1647,35 @@ export function AdminPanelView({
                 </div>
             )}
 
-            {/* Modal Crear Cliente desde Oportunidad */}
+            {/* Modal Vincular Cliente existente / crear nuevo */}
+            <VincularClienteModal
+                isOpen={!!vincularClienteOp}
+                oportunidad={vincularClienteOp}
+                onClose={() => { setVincularClienteOp(null); setPendingStatusUpdate(null); }}
+                onSuccess={(cliente) => {
+                    if (vincularClienteOp && cliente?.id_cliente) {
+                        setOportunidades(prev => prev.map(o =>
+                            o.id_oportunidad === vincularClienteOp.id_oportunidad
+                                ? { ...o, cliente_id: cliente.id_cliente }
+                                : o
+                        ));
+                        if (pendingStatusUpdate && pendingStatusUpdate.op.id_oportunidad === vincularClienteOp.id_oportunidad) {
+                            const { op: savedOp, nuevoEstado } = pendingStatusUpdate;
+                            const fakeEvent = { target: { value: nuevoEstado }, stopPropagation: () => {} };
+                            handleStatusChange(fakeEvent, { ...savedOp, cliente_id: cliente.id_cliente });
+                        }
+                    }
+                    setVincularClienteOp(null);
+                    setPendingStatusUpdate(null);
+                }}
+                onCreateNew={() => {
+                    const op = vincularClienteOp;
+                    setVincularClienteOp(null);
+                    setClienteModalOp(op);
+                }}
+            />
+
+            {/* Modal Crear Cliente nuevo desde Oportunidad */}
             <ClienteFormModal
                 isOpen={!!clienteModalOp}
                 onClose={() => {
@@ -1653,25 +1684,16 @@ export function AdminPanelView({
                 }}
                 oportunidad={clienteModalOp}
                 onSuccess={(cliente) => {
-                    // Actualizar el cliente_id en la oportunidad localmente
                     if (clienteModalOp && cliente?.id_cliente) {
-                        const updatedOportunidades = oportunidades.map(o =>
+                        setOportunidades(prev => prev.map(o =>
                             o.id_oportunidad === clienteModalOp.id_oportunidad
                                 ? { ...o, cliente_id: cliente.id_cliente }
                                 : o
-                        );
-                        setOportunidades(updatedOportunidades);
-
-                        // Si teníamos una actualización de estado pendiente, ejecutarla ahora
+                        ));
                         if (pendingStatusUpdate && pendingStatusUpdate.op.id_oportunidad === clienteModalOp.id_oportunidad) {
                             const { op: savedOp, nuevoEstado } = pendingStatusUpdate;
-                            // Preparamos un objeto que simule el evento de cambio para reutilizar handleStatusChange
-                            const fakeEvent = { 
-                                target: { value: nuevoEstado }, 
-                                stopPropagation: () => {} 
-                            };
-                            const updatedOpWithClient = { ...savedOp, cliente_id: cliente.id_cliente };
-                            handleStatusChange(fakeEvent, updatedOpWithClient);
+                            const fakeEvent = { target: { value: nuevoEstado }, stopPropagation: () => {} };
+                            handleStatusChange(fakeEvent, { ...savedOp, cliente_id: cliente.id_cliente });
                         }
                     }
                     setClienteModalOp(null);
@@ -1682,9 +1704,22 @@ export function AdminPanelView({
             {/* Modal Ver/Editar Cliente */}
             <ClienteDetailModal
                 isOpen={!!clienteDetailId}
-                onClose={() => setClienteDetailId(null)}
+                onClose={() => { setClienteDetailId(null); setClienteDetailOp(null); }}
                 clienteId={clienteDetailId}
-                onOpenOportunidad={(op) => { setClienteDetailId(null); onLoadOpportunity(op); }}
+                oportunidadId={clienteDetailOp?.id_oportunidad}
+                onOpenOportunidad={(op) => { setClienteDetailId(null); setClienteDetailOp(null); onLoadOpportunity(op); }}
+                onClienteSwapped={(nuevoCliente) => {
+                    // Actualizar el cliente_id en la oportunidad localmente
+                    if (clienteDetailOp) {
+                        setOportunidades(prev => prev.map(o =>
+                            o.id_oportunidad === clienteDetailOp.id_oportunidad
+                                ? { ...o, cliente_id: nuevoCliente.id_cliente }
+                                : o
+                        ));
+                    }
+                    setClienteDetailId(null);
+                    setClienteDetailOp(null);
+                }}
             />
         </>
     );

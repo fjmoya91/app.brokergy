@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { useAuth } from '../../../context/AuthContext';
 import { useModal } from '../../../context/ModalContext';
@@ -12,21 +12,75 @@ const DOCUMENT_SLOTS = [
     { id: 'otros', label: 'OTROS', suffix: '', accept: '*', isMultiple: true },
 ];
 
-function UploadItem({ 
-    label, 
-    value, 
-    uploading, 
-    onUpload, 
+function UploadItem({
+    label,
+    value,
+    uploading,
+    onUpload,
     onManage,
-    accept, 
+    accept,
     isMultiple = false,
-    editMode
+    editMode,
+    onDirectDrop,   // (files) => void  — se llama al soltar ficheros sobre el slot
 }) {
-    const inputRef = React.useRef();
+    const [isDragOver, setIsDragOver] = useState(false);
+    const dragCounter = useRef(0);
+
+    const handleDragEnter = (e) => {
+        if (!editMode) return;
+        e.preventDefault();
+        e.stopPropagation();
+        dragCounter.current += 1;
+        if (e.dataTransfer.types && e.dataTransfer.types.includes('Files')) {
+            setIsDragOver(true);
+        }
+    };
+
+    const handleDragLeave = (e) => {
+        if (!editMode) return;
+        e.preventDefault();
+        e.stopPropagation();
+        dragCounter.current -= 1;
+        if (dragCounter.current <= 0) {
+            dragCounter.current = 0;
+            setIsDragOver(false);
+        }
+    };
+
+    const handleDragOver = (e) => {
+        if (!editMode) return;
+        e.preventDefault();
+        e.stopPropagation();
+        e.dataTransfer.dropEffect = 'copy';
+    };
+
+    const handleDrop = (e) => {
+        if (!editMode) return;
+        e.preventDefault();
+        e.stopPropagation();
+        dragCounter.current = 0;
+        setIsDragOver(false);
+        const files = e.dataTransfer?.files;
+        if (files && files.length > 0 && onDirectDrop) {
+            onDirectDrop(isMultiple ? files : files[0]);
+        }
+    };
+
+    const dropTargetClass = isDragOver
+        ? 'ring-4 ring-brand ring-offset-2 ring-offset-[#0b0c11] scale-110 bg-brand/20 border-brand shadow-2xl shadow-brand/40'
+        : '';
 
     return (
-        <div className="flex flex-col items-center gap-1.5 min-w-[60px]">
-            <span className="text-[9px] font-black uppercase text-white/30 tracking-[0.15em] mb-1">{label}</span>
+        <div
+            className={`flex flex-col items-center gap-1.5 min-w-[60px] transition-all duration-150 relative ${isDragOver ? 'z-30' : ''}`}
+            onDragEnter={handleDragEnter}
+            onDragLeave={handleDragLeave}
+            onDragOver={handleDragOver}
+            onDrop={handleDrop}
+        >
+            <span className={`text-[9px] font-black uppercase tracking-[0.15em] mb-1 transition-colors ${isDragOver ? 'text-brand' : 'text-white/30'}`}>
+                {isDragOver ? `↓ ${label}` : label}
+            </span>
             <div className="relative group">
                 {uploading ? (
                     <div className="w-11 h-11 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center">
@@ -36,9 +90,9 @@ function UploadItem({
                     </div>
                 ) : value && !isMultiple ? (
                     <div className="flex flex-col items-center">
-                        <button 
+                        <button
                             onClick={onManage}
-                            className="w-11 h-11 rounded-2xl bg-brand/10 border border-brand/30 flex items-center justify-center text-brand hover:bg-brand hover:text-bkg-deep transition-all shadow-lg shadow-brand/10"
+                            className={`w-11 h-11 rounded-2xl bg-brand/10 border border-brand/30 flex items-center justify-center text-brand hover:bg-brand hover:text-bkg-deep transition-all shadow-lg shadow-brand/10 ${dropTargetClass}`}
                         >
                             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
@@ -46,22 +100,27 @@ function UploadItem({
                         </button>
                     </div>
                 ) : (
-                    <button 
+                    <button
                         onClick={editMode ? onManage : undefined}
-                        className={`w-11 h-11 rounded-2xl border border-dashed flex items-center justify-center transition-all ${editMode ? 'border-white/10 text-white/20 cursor-pointer hover:bg-white/5 hover:border-brand/40 shadow-sm' : 'border-white/5 text-white/5 cursor-not-allowed'}`}
+                        className={`w-11 h-11 rounded-2xl border border-dashed flex items-center justify-center transition-all ${editMode ? 'border-white/10 text-white/20 cursor-pointer hover:bg-white/5 hover:border-brand/40 shadow-sm' : 'border-white/5 text-white/5 cursor-not-allowed'} ${dropTargetClass}`}
                     >
                         <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                         </svg>
                     </button>
                 )}
-                
+
                 {isMultiple && value && value.length > 0 && (
                     <div className="absolute -bottom-1 -right-1 bg-brand text-black text-[8px] font-black px-1.5 py-0.5 rounded-full shadow-lg border border-black/20">
                         {value.length}
                     </div>
                 )}
             </div>
+            {isDragOver && (
+                <span className="absolute -bottom-5 left-1/2 -translate-x-1/2 text-[8px] font-black uppercase tracking-widest text-brand whitespace-nowrap bg-bkg-deep/90 px-2 py-0.5 rounded-md border border-brand/40 shadow-lg">
+                    Soltar aquí
+                </span>
+            )}
         </div>
     );
 }
@@ -87,7 +146,6 @@ export function CeeDocumentsGrid({
     const [managing, setManaging] = useState(null); // { section, slot, link }
     const [isDraggingModal, setIsDraggingModal] = useState(false);
     const [pendingFiles, setPendingFiles] = useState([]);
-    const [previewData, setPreviewData] = useState(null); // { cal, acs }
     const [isSubstituting, setIsSubstituting] = useState(false);
     const [notifyModal, setNotifyModal] = useState(null); // { section, type }
     const [sendingNotify, setSendingNotify] = useState(false);
@@ -110,6 +168,111 @@ export function CeeDocumentsGrid({
     const [resendNotifModal, setResendNotifModal] = useState(null); // { section: 'inicial'|'final' }
     const [resendTargets, setResendTargets] = useState(['CLIENTE', 'PARTNER', 'ADMIN']);
     const [resendChannels, setResendChannels] = useState(['email', 'whatsapp']);
+
+    // ── Auto-make-public al abrir modal: silenciosamente hace público el archivo
+    //    para garantizar que el iframe /preview cargue, sin que el admin tenga que
+    //    pulsar el botón manualmente. Tras éxito, forzamos reload del iframe con un cache buster.
+    const publicifiedRef = useRef(new Set());
+    const [iframeBuster, setIframeBuster] = useState(0);
+    useEffect(() => {
+        if (!managing?.link || managing.slot?.isMultiple) return;
+        if (typeof managing.link !== 'string') return;
+        if ((user?.rol || '').toUpperCase() !== 'ADMIN') return;
+        // Solo PDFs son previsualizables; para XML/CEX no hace falta hacer público
+        if (['xml', 'cex'].includes(managing.slot?.id)) return;
+        if (publicifiedRef.current.has(managing.link)) return;
+        publicifiedRef.current.add(managing.link);
+
+        (async () => {
+            try {
+                await axios.post(`/api/expedientes/${expediente.id}/documents/make-public`, {
+                    driveLink: managing.link
+                });
+                console.log('[auto-make-public] OK', managing.link);
+                setIframeBuster(b => b + 1);
+            } catch (err) {
+                const status = err.response?.status;
+                console.warn('[auto-make-public] fallo:', status, err.response?.data?.error);
+                // 404 → link probablemente corrupto (bug histórico de normalización en mayúsculas).
+                // Intentamos reparar reescaneando Drive y actualizando los links del expediente.
+                if (status === 404) {
+                    try {
+                        console.log('[auto-make-public] Reparando links del expediente…');
+                        const { data: repair } = await axios.post(`/api/expedientes/${expediente.id}/documents/repair-cee-links`);
+                        console.log('[repair-cee-links] OK', repair);
+                        const repaired = repair?.repaired || {};
+                        // Actualizar ceeFiles localmente con los links nuevos
+                        onFilesChange(prev => ({
+                            inicial: { ...(prev?.inicial || {}), ...(repaired.inicial || {}) },
+                            final:   { ...(prev?.final   || {}), ...(repaired.final   || {}) },
+                        }));
+                        // Si el slot actual del modal tiene un link nuevo, lo actualizamos en sitio
+                        const newLink = repaired[managing.section]?.[managing.slot.id];
+                        if (newLink) {
+                            setManaging(m => ({ ...m, link: newLink }));
+                            publicifiedRef.current.delete(managing.link); // permitir nuevo intento make-public
+                            showAlert('Enlace de Drive reparado. Cargando archivo…', 'Reparado', 'success');
+                        } else {
+                            showAlert('No se encontró el archivo en Drive. Súbelo de nuevo.', 'Archivo no encontrado', 'warning');
+                            setManaging(null);
+                        }
+                    } catch (repErr) {
+                        console.error('[repair-cee-links] error:', repErr);
+                    }
+                }
+            }
+        })();
+    }, [managing?.link, managing?.slot?.isMultiple, managing?.slot?.id, expediente?.id, user?.rol]);
+
+    // ── Detección de archivos existentes en Drive (subidos fuera de la app) ──
+    // Mergeamos slots vacíos con lo que haya en Drive. El ref guarda el último id
+    // escaneado para evitar repetir; si el usuario cambia de expediente y vuelve,
+    // se re-escanea porque el id cambió.
+    const scannedExpIdRef = useRef(null);
+    useEffect(() => {
+        if (!expediente?.id) return;
+        if (scannedExpIdRef.current === expediente.id) return;
+        scannedExpIdRef.current = expediente.id;
+        let cancelled = false;
+        (async () => {
+            try {
+                const { data } = await axios.get(`/api/expedientes/${expediente.id}/documents/scan-cee`);
+                if (cancelled || !data) return;
+
+                // Detectar si hay algo nuevo que mergear: solo añadimos los slots que estén vacíos
+                // en ceeFiles pero llenos en Drive. Así no pisamos cambios locales en curso.
+                const needsMerge = ['inicial', 'final'].some(section => {
+                    const driveSec = data[section] || {};
+                    const localSec = ceeFiles?.[section] || {};
+                    return ['xml', 'pdf', 'cex', 'registro', 'etiqueta'].some(slot => !localSec[slot] && driveSec[slot])
+                        || (Array.isArray(driveSec.otros) && driveSec.otros.length > 0 && (!localSec.otros || localSec.otros.length === 0));
+                });
+                if (!needsMerge) return;
+
+                onFilesChange(prev => {
+                    const next = { ...(prev || {}) };
+                    for (const section of ['inicial', 'final']) {
+                        const driveSec = data[section] || {};
+                        next[section] = { ...(next[section] || {}) };
+                        for (const slot of ['xml', 'pdf', 'cex', 'registro', 'etiqueta']) {
+                            if (!next[section][slot] && driveSec[slot]) {
+                                next[section][slot] = driveSec[slot];
+                            }
+                        }
+                        if (Array.isArray(driveSec.otros) && driveSec.otros.length > 0
+                            && (!next[section].otros || next[section].otros.length === 0)) {
+                            next[section].otros = driveSec.otros;
+                        }
+                    }
+                    return next;
+                });
+            } catch (err) {
+                console.warn('[scan-cee] No se pudo escanear Drive:', err.message);
+            }
+        })();
+        return () => { cancelled = true; };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [expediente?.id]);
 
     const handleResendCeeNotifications = (section) => {
         // Pre-seleccionar todos según datos disponibles
@@ -154,62 +317,14 @@ export function CeeDocumentsGrid({
     const toggleResendTarget = (t) => setResendTargets(prev => prev.includes(t) ? prev.filter(x => x !== t) : [...prev, t]);
     const toggleResendChannel = (c) => setResendChannels(prev => prev.includes(c) ? prev.filter(x => x !== c) : [...prev, c]);
 
-    const parseXmlForPreview = (file) => {
-        return new Promise((resolve) => {
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                try {
-                    const text = e.target.result;
-                    const parser = new DOMParser();
-                    const xmlDoc = parser.parseFromString(text, "text/xml");
-                    
-                    const findNode = (parent, tag) => {
-                        const exact = parent.getElementsByTagName(tag);
-                        if (exact.length > 0) return exact[0];
-                        const all = parent.getElementsByTagName('*');
-                        const search = tag.toLowerCase();
-                        for (let i = 0; i < all.length; i++) {
-                            if (all[i].localName.toLowerCase() === search) return all[i];
-                        }
-                        return null;
-                    };
-
-                    const demandaNode = findNode(xmlDoc, 'Demanda');
-                    const edificioNode = demandaNode ? findNode(demandaNode, 'EdificioObjeto') : null;
-
-                    const getTagValue = (tag) => {
-                        const el = edificioNode ? findNode(edificioNode, tag) : findNode(xmlDoc, tag);
-                        if (!el) return '—';
-                        const val = parseFloat(el.textContent.replace(',', '.'));
-                        return isNaN(val) ? '—' : val.toFixed(2);
-                    };
-                    
-                    resolve({
-                        cal: getTagValue('Calefaccion'),
-                        acs: getTagValue('ACS')
-                    });
-                } catch (err) {
-                    console.error("Preview parse error:", err);
-                    resolve({ cal: '—', acs: '—' });
-                }
-            };
-            reader.readAsText(file);
-        });
-    };
-
     const handleFileSelect = async (fileOrFiles) => {
         if (!fileOrFiles) return;
-        const files = (fileOrFiles instanceof FileList || Array.isArray(fileOrFiles)) 
-            ? Array.from(fileOrFiles) 
+        const files = (fileOrFiles instanceof FileList || Array.isArray(fileOrFiles))
+            ? Array.from(fileOrFiles)
             : [fileOrFiles];
 
         setPendingFiles(files);
-        
-        // Solo previsualizamos el primer XML si es el caso
-        if (managing.slot.id === 'xml' && files[0]) {
-            const preview = await parseXmlForPreview(files[0]);
-            setPreviewData(preview);
-        }
+        // Preview de demandas para XML/CEX eliminada — se va directo a "Confirmar Subida".
     };
 
     const confirmSubstitution = () => {
@@ -217,7 +332,6 @@ export function CeeDocumentsGrid({
             handleUpload(managing.section, managing.slot, pendingFiles);
             setManaging(null);
             setPendingFiles([]);
-            setPreviewData(null);
             setIsSubstituting(false);
         }
     };
@@ -308,6 +422,16 @@ export function CeeDocumentsGrid({
                     }
                 }
 
+                // Al subir el .CEX → marcar seguimiento como PTE_REVISION automáticamente
+                // (independiente del rol; el estado debe reflejar siempre el avance).
+                if (slot.id === 'cex' && onAutoStatus) {
+                    if (section === 'inicial') {
+                        onAutoStatus('cee_inicial', 'PTE_REVISION');
+                    } else if (section === 'final') {
+                        onAutoStatus('cee_final', 'PTE_REVISION');
+                    }
+                }
+
                 // Al subir el .CEX, si es certificador, ofrecer notificar a Brokergy para revisión
                 if (slot.id === 'cex') {
                     const rol = (user?.rol || '').toUpperCase();
@@ -335,11 +459,35 @@ export function CeeDocumentsGrid({
         }
     };
 
-    const handleDelete = (section, slot) => {
+    const handleDelete = async (section, slot, linkOverride = null) => {
+        // 1. Recoger los links a borrar (puede ser uno o varios para slot OTROS)
+        const current = linkOverride
+            ? [linkOverride]
+            : (() => {
+                const val = ceeFiles?.[section]?.[slot.id];
+                if (!val) return [];
+                return Array.isArray(val) ? val : [val];
+            })();
+
+        // 2. Borrar cada uno en Drive (best-effort; si falla, lo notificamos pero seguimos)
+        for (const link of current) {
+            try {
+                await axios.delete(`/api/expedientes/${expediente.id}/documents/file`, {
+                    data: { driveLink: link }
+                });
+            } catch (err) {
+                console.warn(`[delete-file] No se pudo borrar de Drive:`, err.message);
+            }
+        }
+
+        // 3. Actualizar estado local
         onFilesChange(prev => {
             const next = { ...prev };
-            if (next[section]) {
-                next[section][slot.id] = null;
+            if (!next[section]) next[section] = {};
+            if (slot.isMultiple && linkOverride) {
+                next[section][slot.id] = (next[section][slot.id] || []).filter(l => l !== linkOverride);
+            } else {
+                next[section][slot.id] = slot.isMultiple ? [] : null;
             }
             return next;
         });
@@ -420,6 +568,21 @@ export function CeeDocumentsGrid({
                                 accept={slot.accept}
                                 isMultiple={slot.isMultiple}
                                 editMode={editMode}
+                                onDirectDrop={(fileOrFiles) => {
+                                    // Drag directo: sube sin abrir el modal. Solo validamos extensión cuando hay accept específico.
+                                    const filesArr = (fileOrFiles instanceof FileList || Array.isArray(fileOrFiles))
+                                        ? Array.from(fileOrFiles)
+                                        : [fileOrFiles];
+                                    if (slot.accept && slot.accept !== '*') {
+                                        const exts = slot.accept.split(',').map(s => s.trim().toLowerCase());
+                                        const invalid = filesArr.find(f => !exts.some(ext => f.name.toLowerCase().endsWith(ext)));
+                                        if (invalid) {
+                                            showAlert(`El slot ${slot.label} solo acepta archivos ${exts.join(', ')}. Recibido: ${invalid.name}`, 'Tipo no válido', 'warning');
+                                            return;
+                                        }
+                                    }
+                                    handleUpload(section, slot, slot.isMultiple ? filesArr : filesArr[0]);
+                                }}
                             />
                         );
                     };
@@ -613,7 +776,7 @@ export function CeeDocumentsGrid({
                                 <h3 className="text-lg font-black text-white uppercase tracking-[0.2em]">CEE {managing.section} - {managing.slot.label}</h3>
                                 <p className="text-[10px] text-brand font-black uppercase tracking-[0.3em] mt-1.5 opacity-60">Gestión de Expediente Técnico</p>
                             </div>
-                            <button onClick={() => { setManaging(null); setPendingFiles([]); setPreviewData(null); setIsSubstituting(false); }} className="w-10 h-10 flex items-center justify-center hover:bg-white/5 rounded-2xl transition-all border border-transparent hover:border-white/10">
+                            <button onClick={() => { setManaging(null); setPendingFiles([]); setIsSubstituting(false); }} className="w-10 h-10 flex items-center justify-center hover:bg-white/5 rounded-2xl transition-all border border-transparent hover:border-white/10">
                                 <svg className="w-6 h-6 text-white/40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                                 </svg>
@@ -633,50 +796,9 @@ export function CeeDocumentsGrid({
                                 }
                             }}
                         >
-                            {(!managing.link || managing.slot.isMultiple || isSubstituting || previewData || pendingFiles.length > 0) ? (
+                            {(!managing.link || managing.slot.isMultiple || isSubstituting || pendingFiles.length > 0) ? (
                                 <div className="w-full h-full flex flex-col items-center justify-center p-12 text-center animate-in fade-in duration-300">
-                                    {previewData ? (
-                                        <div className="w-full max-w-2xl animate-slide-up">
-                                            <div className="bg-brand/10 border border-brand/20 rounded-3xl p-8 mb-8">
-                                                <h4 className="text-brand text-xs font-black uppercase tracking-[0.3em] mb-8">Previsualización de Datos</h4>
-                                                
-                                                <div className="grid grid-cols-2 gap-8">
-                                                    {/* Calefacción */}
-                                                    <div className="flex flex-col gap-4">
-                                                        <span className="text-[9px] font-black text-white/40 uppercase tracking-widest">Demanda Calefacción</span>
-                                                        <div className="flex items-center justify-center gap-6">
-                                                            <div className="flex flex-col items-center">
-                                                                <span className="text-[8px] text-white/20 uppercase font-bold mb-1">Actual</span>
-                                                                <span className="text-sm font-mono text-white/40">{(demands?.[managing.section]?.demandaCalefaccion) || '—'}</span>
-                                                            </div>
-                                                            <div className="w-8 h-px bg-white/5" />
-                                                            <div className="flex flex-col items-center">
-                                                                <span className="text-[8px] text-brand/60 uppercase font-bold mb-1">Nuevo</span>
-                                                                <span className="text-xl font-mono text-brand font-black">{previewData.cal}</span>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-
-                                                    {/* ACS */}
-                                                    <div className="flex flex-col gap-4">
-                                                        <span className="text-[9px] font-black text-white/40 uppercase tracking-widest">Demanda ACS</span>
-                                                        <div className="flex items-center justify-center gap-6">
-                                                            <div className="flex flex-col items-center">
-                                                                <span className="text-[8px] text-white/20 uppercase font-bold mb-1">Actual</span>
-                                                                <span className="text-sm font-mono text-white/40">{(demands?.[managing.section]?.demandaACS) || '—'}</span>
-                                                            </div>
-                                                            <div className="w-8 h-px bg-white/5" />
-                                                            <div className="flex flex-col items-center">
-                                                                <span className="text-[8px] text-brand/60 uppercase font-bold mb-1">Nuevo</span>
-                                                                <span className="text-xl font-mono text-brand font-black">{previewData.acs}</span>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                            <p className="text-white/40 text-[10px] font-bold uppercase tracking-widest">¿Confirmar actualización de valores y archivo?</p>
-                                        </div>
-                                    ) : pendingFiles.length > 0 ? (
+                                    {pendingFiles.length > 0 ? (
                                         <div className="w-full max-w-md animate-slide-up">
                                              <div className="w-20 h-20 rounded-3xl bg-brand/10 border border-brand/20 flex items-center justify-center mb-8 mx-auto">
                                                 <svg className="w-8 h-8 text-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -729,53 +851,78 @@ export function CeeDocumentsGrid({
                                                 {managing.link ? `¿Deseas actualizar el archivo ${managing.slot.label}?` : `Subir Nuevo ${managing.slot.label}`}
                                             </h4>
                                             <p className="text-white/30 text-sm max-w-md leading-relaxed mb-8">
-                                                Arrastra el nuevo archivo aquí o utiliza el botón inferior para seleccionarlo. {managing.slot.id === 'xml' || managing.slot.id === 'cex' ? 'Podrás revisar los valores antes de confirmar.' : ''}
+                                                Arrastra el nuevo archivo aquí o utiliza el botón inferior para seleccionarlo.
                                             </p>
                                         </>
                                     )}
                                 </div>
-                            ) : (
-                                <iframe 
-                                    src={managing.link.replace('/view?usp=drivesdk', '/preview')} 
-                                    className="w-full h-full border-0"
-                                    title="Visor CEE"
-                                />
-                            )}
+                            ) : ['xml', 'cex'].includes(managing.slot.id) ? (
+                                // XML/CEX: Drive no los renderiza; mostramos pantalla "archivo cargado"
+                                <div className="w-full h-full flex flex-col items-center justify-center p-12 text-center">
+                                    <div className="w-24 h-24 rounded-3xl bg-brand/10 border border-brand/30 flex items-center justify-center mb-6 shadow-lg shadow-brand/20">
+                                        <svg className="w-10 h-10 text-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                        </svg>
+                                    </div>
+                                    <h4 className="text-xl font-black text-white uppercase tracking-widest mb-2">
+                                        Archivo {managing.slot.label} cargado
+                                    </h4>
+                                    <p className="text-white/40 text-sm mb-6 max-w-md">
+                                        Los archivos {managing.slot.label} no se pueden previsualizar en el navegador. {user?.rol === 'ADMIN' ? 'Pulsa "Abrir en Drive" para descargarlo o verlo.' : 'Contacta con un administrador para acceder al archivo.'}
+                                    </p>
+                                </div>
+                            ) : (() => {
+                                // Convertir cualquier webViewLink de Drive a /preview (lo único embedible).
+                                const m = String(managing.link || '').match(/\/file\/d\/([-\w]{20,})/);
+                                const previewSrc = m
+                                    ? `https://drive.google.com/file/d/${m[1]}/preview`
+                                    : String(managing.link || '').replace(/\/view\b.*$/, '/preview');
+                                // iframeBuster fuerza re-mount tras make-public exitoso
+                                return (
+                                    <iframe
+                                        key={`iframe-${previewSrc}-${iframeBuster}`}
+                                        src={previewSrc}
+                                        className="w-full h-full border-0"
+                                        title="Visor CEE"
+                                    />
+                                );
+                            })()}
                         </div>
 
                         {/* Footer */}
                         <div className="p-8 border-t border-white/5 flex items-center justify-between bg-white/[0.01] relative z-10">
-                            <button 
-                                onClick={async () => {
-                                    const confirmed = await showConfirm(
-                                        '¿Estás seguro de que deseas eliminar este documento del expediente? Esta acción quitará el enlace del sistema, aunque el archivo permanecerá en Drive.',
-                                        'Eliminar Documento',
-                                        'error'
-                                    );
-                                    if (confirmed) {
-                                        handleDelete(managing.section, managing.slot);
-                                        setManaging(null);
-                                        setIsSubstituting(false);
-                                        showAlert('El documento ha sido desvinculado del expediente.', 'Documento Eliminado', 'success');
-                                    }
-                                }}
-                                className="px-8 py-3.5 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-500 text-[11px] font-black uppercase tracking-[0.2em] hover:bg-red-500 hover:text-white transition-all shadow-lg shadow-red-500/5 group"
-                            >
-                                <span className="flex items-center gap-2">
-                                    <svg className="w-4 h-4 opacity-50 group-hover:opacity-100" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                    </svg>
-                                    Eliminar del Sistema
-                                </span>
-                            </button>
+                            {managing.link && (
+                                <button
+                                    onClick={async () => {
+                                        const confirmed = await showConfirm(
+                                            '¿Eliminar este documento del expediente y borrarlo de Drive? Esta acción no se puede deshacer (el archivo irá a la papelera de Drive).',
+                                            'Eliminar Documento',
+                                            'error'
+                                        );
+                                        if (confirmed) {
+                                            await handleDelete(managing.section, managing.slot);
+                                            setManaging(null);
+                                            setIsSubstituting(false);
+                                            showAlert('El documento ha sido eliminado del expediente y de Drive.', 'Documento Eliminado', 'success');
+                                        }
+                                    }}
+                                    className="px-8 py-3.5 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-500 text-[11px] font-black uppercase tracking-[0.2em] hover:bg-red-500 hover:text-white transition-all shadow-lg shadow-red-500/5 group"
+                                >
+                                    <span className="flex items-center gap-2">
+                                        <svg className="w-4 h-4 opacity-50 group-hover:opacity-100" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                        </svg>
+                                        Eliminar (Sistema + Drive)
+                                    </span>
+                                </button>
+                            )}
 
                             <div className="flex items-center gap-4">
-                                {(previewData || pendingFiles.length > 0 || isSubstituting || !managing.link) ? (
+                                {(pendingFiles.length > 0 || isSubstituting || !managing.link) ? (
                                     <>
-                                        <button 
-                                            onClick={() => { 
-                                                setPendingFiles([]); 
-                                                setPreviewData(null); 
+                                        <button
+                                            onClick={() => {
+                                                setPendingFiles([]);
                                                 setIsSubstituting(false);
                                                 if (!managing.link) setManaging(null); // Si no hay archivo y cancelamos, cerramos el modal
                                             }}
@@ -783,15 +930,15 @@ export function CeeDocumentsGrid({
                                         >
                                             Cancelar
                                         </button>
-                                        <button 
+                                        <button
                                             onClick={confirmSubstitution}
-                                            disabled={!previewData && pendingFiles.length === 0}
+                                            disabled={pendingFiles.length === 0}
                                             className="px-12 py-3.5 rounded-2xl bg-brand text-bkg-deep text-[11px] font-black uppercase tracking-[0.2em] hover:scale-[1.02] transition-all cursor-pointer shadow-xl shadow-brand/20 disabled:opacity-50 disabled:hover:scale-100"
                                         >
-                                            {previewData ? 'Confirmar y Actualizar' : 'Confirmar Subida'}
+                                            Confirmar Subida
                                         </button>
 
-                                        {!previewData && pendingFiles.length === 0 && (
+                                        {pendingFiles.length === 0 && (
                                             <label className="px-10 py-3.5 rounded-2xl bg-white/5 border border-white/10 text-white/60 text-[11px] font-black uppercase tracking-[0.2em] hover:bg-white/10 hover:text-white transition-all cursor-pointer shadow-lg">
                                                 Seleccionar {managing.slot.isMultiple ? 'Archivos' : 'Archivo'}
                                                 <input 
@@ -807,14 +954,32 @@ export function CeeDocumentsGrid({
                                 ) : (
                                     <>
                                         {user?.rol === 'ADMIN' && (
-                                            <button 
+                                            <button
+                                                onClick={async () => {
+                                                    try {
+                                                        await axios.post(`/api/expedientes/${expediente.id}/documents/make-public`, { driveLink: managing.link });
+                                                        showAlert('Permisos actualizados. Recargando vista del archivo…', 'Acceso reparado', 'success');
+                                                        // Forzar recarga del iframe alterando el link (mismo valor, fuerza React a re-renderizar)
+                                                        setManaging(m => ({ ...m, link: m.link + (m.link.includes('?') ? '&' : '?') + '_r=' + Date.now() }));
+                                                    } catch (err) {
+                                                        showAlert(err.response?.data?.error || 'No se pudo reparar el acceso.', 'Error', 'error');
+                                                    }
+                                                }}
+                                                title="Hace público el archivo en Drive (anyone with link → reader). Útil si el iframe da 403."
+                                                className="px-6 py-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[11px] font-black uppercase tracking-[0.2em] hover:bg-amber-500/20 transition-all"
+                                            >
+                                                🔓 Reparar Acceso
+                                            </button>
+                                        )}
+                                        {user?.rol === 'ADMIN' && (
+                                            <button
                                                 onClick={() => window.open(managing.link, '_blank')}
                                                 className="px-8 py-3.5 rounded-2xl bg-white/5 border border-white/10 text-white/60 text-[11px] font-black uppercase tracking-[0.2em] hover:bg-white/10 hover:text-white transition-all shadow-lg"
                                             >
-                                                Abrir en Drive 
+                                                Abrir en Drive
                                             </button>
                                         )}
-                                        <button 
+                                        <button
                                             onClick={() => setIsSubstituting(true)}
                                             className="px-10 py-3.5 rounded-2xl bg-brand text-bkg-deep text-[11px] font-black uppercase tracking-[0.2em] hover:scale-[1.02] transition-all cursor-pointer shadow-xl shadow-brand/20"
                                         >

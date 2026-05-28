@@ -294,7 +294,7 @@ function DireccionEdit({ values, onChange, autoMunicipioHint, onParseFromDirecci
 }
 
 // ─── Modal principal ────────────────────────────────────────────────────────
-export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clienteId, onUpdated, onOpenOportunidad, onOpenExpediente }) {
+export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clienteId, onUpdated, onOpenOportunidad, onOpenExpediente, expedienteId, oportunidadId, onClienteSwapped }) {
     const { user } = useAuth();
     const userRole = (user?.rol || '').toUpperCase();
     const userRoleId = user?.id_rol ? Number(user.id_rol) : null;
@@ -311,7 +311,9 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
     const [loading, setLoading] = useState(false);
     const [fetching, setFetching] = useState(false);
-    const [error, setError] = useState(null);
+    const [error, setError] = useState(null);       // error de carga inicial
+    const [saveError, setSaveError] = useState(null); // error al guardar edición
+    const [dniConflict, setDniConflict] = useState(null); // cliente existente con mismo DNI
     const [saved, setSaved] = useState(false);
     const [showNotas, setShowNotas] = useState(false);
     const [autoMunicipioHint, setAutoMunicipioHint] = useState('');
@@ -405,7 +407,8 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
     }, [form.direccion]);
 
     const handleSave = async () => {
-        setError(null);
+        setSaveError(null);
+        setDniConflict(null);
         setLoading(true);
         try {
             const payload = {
@@ -434,7 +437,36 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
             setTimeout(() => setSaved(false), 3000);
             if (onUpdated) onUpdated(res.data);
         } catch (err) {
-            setError(err.response?.data?.error || 'Error al guardar cambios');
+            const body = err.response?.data || {};
+            if (err.response?.status === 409 && body.existing_cliente) {
+                setDniConflict(body.existing_cliente);
+            } else {
+                setSaveError(body.error || 'Error al guardar cambios');
+            }
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleVincularCliente = async () => {
+        if (!dniConflict?.id_cliente) { setDniConflict(null); return; }
+        if (!expedienteId && !oportunidadId) { setDniConflict(null); return; }
+        setLoading(true);
+        try {
+            if (expedienteId) {
+                await axios.patch(`/api/expedientes/${expedienteId}/vincular-cliente`, {
+                    cliente_id: dniConflict.id_cliente,
+                });
+            } else {
+                await axios.patch(`/api/oportunidades/${oportunidadId}/vincular-cliente`, {
+                    cliente_id: dniConflict.id_cliente,
+                });
+            }
+            setDniConflict(null);
+            if (onClienteSwapped) onClienteSwapped(dniConflict);
+        } catch (e) {
+            setSaveError(e.response?.data?.error || 'Error al cambiar el cliente.');
+            setDniConflict(null);
         } finally {
             setLoading(false);
         }
@@ -444,7 +476,55 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
 
     return (
         <div className="fixed inset-0 z-[300] flex items-start justify-center p-4 bg-black/75 backdrop-blur-md animate-fade-in overflow-y-auto">
-            <div className="bg-bkg-deep border border-white/[0.08] rounded-2xl w-full max-w-2xl my-8 shadow-2xl">
+            <div className="bg-bkg-deep border border-white/[0.08] rounded-2xl w-full max-w-2xl my-8 shadow-2xl relative">
+                {/* ── Overlay: DNI ya existe ── */}
+                {dniConflict && (
+                    <div className="absolute inset-0 z-20 flex items-center justify-center rounded-2xl bg-bkg-deep/95 backdrop-blur-sm p-6">
+                        <div className="w-full max-w-sm text-center space-y-5">
+                            <div className="mx-auto w-14 h-14 rounded-2xl bg-amber-500/10 flex items-center justify-center">
+                                <svg className="w-7 h-7 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                                </svg>
+                            </div>
+                            <div>
+                                <h3 className="text-base font-black text-white uppercase tracking-widest">DNI ya registrado</h3>
+                                <p className="text-sm text-white/50 mt-1">Ese DNI/CIF pertenece a otro cliente:</p>
+                            </div>
+                            <div className="bg-white/[0.04] border border-white/[0.08] rounded-xl p-4 text-left space-y-1">
+                                <p className="text-sm font-bold text-white">
+                                    {dniConflict.nombre_razon_social}{dniConflict.apellidos ? ` ${dniConflict.apellidos}` : ''}
+                                </p>
+                                <p className="text-xs text-white/40">
+                                    {[dniConflict.dni, dniConflict.municipio].filter(Boolean).join(' · ')}
+                                </p>
+                                {(dniConflict.email || dniConflict.tlf) && (
+                                    <p className="text-xs text-white/40">
+                                        {[dniConflict.email, dniConflict.tlf].filter(Boolean).join(' · ')}
+                                    </p>
+                                )}
+                            </div>
+                            <div className="flex flex-col gap-2">
+                                {(expedienteId || oportunidadId) && (
+                                    <button
+                                        onClick={handleVincularCliente}
+                                        disabled={loading}
+                                        className="w-full py-2.5 rounded-xl bg-brand text-bkg-deep text-sm font-black uppercase tracking-widest hover:bg-brand/90 transition-all disabled:opacity-50"
+                                    >
+                                        {loading ? 'Cambiando...' : expedienteId ? 'Usar este cliente en el expediente' : 'Vincular este cliente a la oportunidad'}
+                                    </button>
+                                )}
+                                <button
+                                    onClick={() => setDniConflict(null)}
+                                    disabled={loading}
+                                    className="w-full py-2.5 rounded-xl border border-white/10 text-white/50 hover:text-white text-sm font-semibold transition-all"
+                                >
+                                    Cancelar — corregir el DNI
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
                 {/* Header */}
                 <div className="flex items-center justify-between p-6 border-b border-white/[0.06]">
                     <div className="flex items-center gap-3">
@@ -885,12 +965,12 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
                                 </div>
                             )}
 
-                            {error && (
-                                <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-xl text-red-400 text-sm">{error}</div>
+                            {saveError && (
+                                <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-xl text-red-400 text-sm">{saveError}</div>
                             )}
 
                             <div className="flex gap-3 pt-2">
-                                <button type="button" onClick={() => { setEditing(false); setError(null); }}
+                                <button type="button" onClick={() => { setEditing(false); setSaveError(null); }}
                                     className="flex-1 py-3 rounded-xl border border-white/10 text-white/60 hover:text-white font-bold text-sm transition-all">
                                     Cancelar
                                 </button>

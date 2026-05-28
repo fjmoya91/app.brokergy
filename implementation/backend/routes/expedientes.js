@@ -678,6 +678,32 @@ router.put('/:id', enforceAuth, async (req, res) => {
     }
 });
 
+// Cambiar cliente vinculado (PATCH /api/expedientes/:id/vincular-cliente)
+router.patch('/:id/vincular-cliente', enforceAuth, async (req, res) => {
+    const { id } = req.params;
+    const { cliente_id } = req.body;
+    try {
+        if (!cliente_id) return res.status(400).json({ error: 'cliente_id requerido.' });
+
+        const { data: cli, error: cliErr } = await supabase
+            .from('clientes')
+            .select('id_cliente, nombre_razon_social, apellidos')
+            .eq('id_cliente', cliente_id)
+            .single();
+        if (cliErr || !cli) return res.status(404).json({ error: 'Cliente no encontrado.' });
+
+        const { error: upErr } = await supabase
+            .from('expedientes')
+            .update({ cliente_id })
+            .eq('id', id);
+        if (upErr) return res.status(500).json({ error: upErr.message });
+
+        res.json({ success: true, cliente: cli });
+    } catch (err) {
+        res.status(500).json({ error: 'Error del servidor.' });
+    }
+});
+
 // Actualizar estado (PATCH /api/expedientes/:id/estado)
 router.patch('/:id/estado', enforceAuth, async (req, res) => {
     const { id } = req.params;
@@ -945,7 +971,7 @@ router.post('/:id/documents/upload', enforceAuth, async (req, res) => {
             return res.status(400).json({ error: 'La oportunidad no tiene carpeta de Drive configurada' });
         }
 
-        const { getOrCreateSubfolder, saveFileToFolder } = require('../services/driveService');
+        const { getOrCreateSubfolder, saveFileToFolder, findFileByName, renameFolder, moveFolder } = require('../services/driveService');
 
         // Navegar/Crear la estructura de subcarpetas
         let currentFolderId = driveFolderId;
@@ -955,15 +981,288 @@ router.post('/:id/documents/upload', enforceAuth, async (req, res) => {
         }
         console.log(`[POST /documents/upload] Final target FolderID: ${currentFolderId}`);
 
+        // Versionado: si ya existe un archivo con el mismo nombre, moverlo a subcarpeta "OLD" con prefijo
+        const existingId = await findFileByName(currentFolderId, fileName);
+        if (existingId) {
+            try {
+                const oldFolderId = await getOrCreateSubfolder(currentFolderId, 'OLD');
+                const stamp = new Date().toISOString().replace(/[:T]/g, '-').slice(0, 19);
+                const dotIdx = fileName.lastIndexOf('.');
+                const baseName = dotIdx > 0 ? fileName.substring(0, dotIdx) : fileName;
+                const ext = dotIdx > 0 ? fileName.substring(dotIdx) : '';
+                const oldName = `_old_${stamp} ${baseName}${ext}`;
+                await renameFolder(existingId, oldName);
+                await moveFolder(existingId, oldFolderId);
+                console.log(`[POST /documents/upload] Versionado: '${fileName}' archivado en OLD como '${oldName}'`);
+            } catch (vErr) {
+                console.warn(`[POST /documents/upload] No se pudo versionar archivo existente: ${vErr.message}`);
+            }
+        }
+
         const fileBuffer = Buffer.from(base64, 'base64');
         const result = await saveFileToFolder(currentFolderId, fileName, mimeType || 'application/octet-stream', fileBuffer);
 
         if (!result) return res.status(500).json({ error: 'Error al subir el archivo a Drive' });
 
+        // Hacer el archivo público (anyone with link → reader). Necesario para que el iframe
+        // /preview funcione desde el navegador del usuario aunque no esté logueado con la cuenta de Brokergy.
+        try {
+            const { setFolderPublic } = require('../services/driveService');
+            await setFolderPublic(result.id, 'reader');
+        } catch (permErr) {
+            console.warn(`[POST /documents/upload] No se pudo hacer público el archivo ${result.id}: ${permErr.message}`);
+        }
+
         res.json({ drive_link: result.link, drive_id: result.id });
     } catch (err) {
         console.error('Error POST expedientes/:id/documents/upload:', err);
         res.status(500).json({ error: 'Error al subir el documento', details: err.message });
+    }
+});
+
+// ─── POST /api/expedientes/:id/documents/make-public ──────────────────────────
+// Endpoint utilitario para hacer público un archivo de Drive existente.
+// Útil para archivos ya subidos antes de este cambio que siguen dando 403.
+// Body: { driveLink?, driveId? }
+router.post('/:id/documents/make-public', enforceAuth, async (req, res) => {
+    try {
+        const { driveLink, driveId } = req.body || {};
+        let fileId = driveId;
+        if (!fileId && driveLink) {
+            // Buscar SOLO en el segmento `/file/d/{ID}` o `/folders/{ID}` para evitar capturar otros tokens largos
+            const m = String(driveLink).match(/\/(?:file\/d|folders|drive\/folders)\/([-\w]{20,})/);
+            fileId = m ? m[1] : null;
+            // Fallback: primera cadena de 25+ chars [-\w]
+            if (!fileId) {
+                const m2 = String(driveLink).match(/[-\w]{25,}/);
+                fileId = m2 ? m2[0] : null;
+            }
+        }
+        if (!fileId) return res.status(400).json({ error: 'No se pudo extraer el ID de Drive del link proporcionado.' });
+
+        console.log(`[make-public] Procesando fileId=${fileId} (link=${driveLink || 'N/A'})`);
+
+        const { setFolderPublic, getFileMetadata } = require('../services/driveService');
+
+        // Verificar primero que el archivo es accesible por la cuenta OAuth de la app.
+        const meta = await getFileMetadata(fileId);
+        if (!meta) {
+            return res.status(404).json({
+                error: 'El archivo no existe o la cuenta de Drive de Brokergy no tiene acceso a él. '
+                     + 'Probablemente fue subido por otra cuenta de Google. Solución: sustitúyelo subiendo el archivo de nuevo desde la app.',
+                fileId
+            });
+        }
+
+        const ok = await setFolderPublic(fileId, 'reader');
+        if (!ok) return res.status(500).json({ error: 'No se pudo cambiar permisos del archivo (ver logs del servidor).' });
+        res.json({ ok: true, fileId, fileName: meta.name });
+    } catch (err) {
+        console.error('Error POST expedientes/:id/documents/make-public:', err);
+        res.status(500).json({ error: 'Error al cambiar permisos', details: err.message });
+    }
+});
+
+// ─── GET /api/expedientes/:id/documents/scan-cee ──────────────────────────────
+// Escanea las carpetas 1. CEE / CEE INICIAL y CEE FINAL en Drive y mapea
+// los archivos encontrados a los slots por sufijo del nombre.
+// Útil para detectar archivos subidos directamente en Drive (fuera de la app).
+router.get('/:id/documents/scan-cee', enforceAuth, async (req, res) => {
+    try {
+        let { data: exp } = await supabase
+            .from('expedientes')
+            .select('*')
+            .eq('id', req.params.id)
+            .maybeSingle();
+        if (!exp) {
+            const { data: expSeq } = await supabase
+                .from('expedientes')
+                .select('*')
+                .eq('numero_expediente', req.params.id)
+                .maybeSingle();
+            exp = expSeq;
+        }
+        if (!exp) return res.status(404).json({ error: 'Expediente no encontrado' });
+
+        const { data: op } = await supabase
+            .from('oportunidades')
+            .select('drive_folder_id, datos_calculo')
+            .eq('id', exp.oportunidad_id)
+            .single();
+
+        let normalizedDatos = op?.datos_calculo || {};
+        if (typeof normalizedDatos === 'string') {
+            try { normalizedDatos = JSON.parse(normalizedDatos); } catch (e) { normalizedDatos = {}; }
+        }
+        const driveFolderId = op?.drive_folder_id || normalizedDatos?.drive_folder_id || normalizedDatos?.inputs?.drive_folder_id || exp.drive_folder_id;
+        if (!driveFolderId) return res.json({ inicial: {}, final: {} });
+
+        const { findSubfolderByName, listFiles } = require('../services/driveService');
+
+        // Mapeo sufijo → slot id (mismo criterio que el frontend en DOCUMENT_SLOTS)
+        const matchSlot = (filename) => {
+            const lower = (filename || '').toLowerCase();
+            if (lower.endsWith('.xml')) return 'xml';
+            if (lower.endsWith('.cex')) return 'cex';
+            if (lower.endsWith('_reg.pdf')) return 'registro';
+            if (lower.endsWith('_etq.pdf')) return 'etiqueta';
+            if (lower.endsWith('_fdo.pdf')) return 'pdf';
+            return null; // OTROS o desconocido
+        };
+
+        const scanSection = async (sectionLabel) => {
+            const out = { xml: null, pdf: null, cex: null, registro: null, etiqueta: null, otros: [] };
+            const ceeRoot = await findSubfolderByName(driveFolderId, '1. CEE');
+            if (!ceeRoot) return out;
+            const sectionFolder = await findSubfolderByName(ceeRoot, sectionLabel);
+            if (!sectionFolder) return out;
+            const files = await listFiles(sectionFolder);
+            for (const f of files) {
+                if (f.mimeType === 'application/vnd.google-apps.folder') continue; // ignorar OLD
+                const slot = matchSlot(f.name);
+                if (slot === 'otros' || slot === null) {
+                    out.otros.push(f.webViewLink);
+                } else if (!out[slot]) {
+                    out[slot] = f.webViewLink;
+                }
+            }
+            return out;
+        };
+
+        const [inicial, final] = await Promise.all([
+            scanSection('CEE INICIAL'),
+            scanSection('CEE FINAL')
+        ]);
+
+        res.json({ inicial, final });
+    } catch (err) {
+        console.error('Error GET expedientes/:id/documents/scan-cee:', err);
+        res.status(500).json({ error: 'Error al escanear carpeta CEE', details: err.message });
+    }
+});
+
+// ─── POST /api/expedientes/:id/documents/repair-cee-links ─────────────────────
+// Repara los webViewLink rotos en cee.cee_files (todos en mayúsculas por bug histórico).
+// Escanea la carpeta CEE en Drive y sustituye cada slot por el link real del archivo.
+router.post('/:id/documents/repair-cee-links', enforceAuth, async (req, res) => {
+    try {
+        console.log(`[repair-cee-links] Inicio para expediente ${req.params.id}`);
+        let { data: exp } = await supabase
+            .from('expedientes')
+            .select('*')
+            .eq('id', req.params.id)
+            .maybeSingle();
+        if (!exp) {
+            const { data: expSeq } = await supabase
+                .from('expedientes')
+                .select('*')
+                .eq('numero_expediente', req.params.id)
+                .maybeSingle();
+            exp = expSeq;
+        }
+        if (!exp) return res.status(404).json({ error: 'Expediente no encontrado' });
+
+        const { data: op } = await supabase
+            .from('oportunidades')
+            .select('drive_folder_id, datos_calculo')
+            .eq('id', exp.oportunidad_id)
+            .single();
+        let normalizedDatos = op?.datos_calculo || {};
+        if (typeof normalizedDatos === 'string') {
+            try { normalizedDatos = JSON.parse(normalizedDatos); } catch (e) { normalizedDatos = {}; }
+        }
+        const driveFolderId = op?.drive_folder_id || normalizedDatos?.drive_folder_id || normalizedDatos?.inputs?.drive_folder_id || exp.drive_folder_id;
+        if (!driveFolderId) return res.status(400).json({ error: 'Sin carpeta de Drive' });
+        console.log(`[repair-cee-links] driveFolderId=${driveFolderId}`);
+
+        const { findSubfolderByName, listFiles, setFolderPublic } = require('../services/driveService');
+        const matchSlot = (filename) => {
+            const lower = (filename || '').toLowerCase();
+            if (lower.endsWith('.xml')) return 'xml';
+            if (lower.endsWith('.cex')) return 'cex';
+            if (lower.endsWith('_reg.pdf')) return 'registro';
+            if (lower.endsWith('_etq.pdf')) return 'etiqueta';
+            if (lower.endsWith('_fdo.pdf')) return 'pdf';
+            return null;
+        };
+
+        const newFiles = { inicial: { otros: [] }, final: { otros: [] } };
+        const ceeRoot = await findSubfolderByName(driveFolderId, '1. CEE');
+        console.log(`[repair-cee-links] ceeRoot=${ceeRoot}`);
+        if (ceeRoot) {
+            for (const sectionLabel of ['CEE INICIAL', 'CEE FINAL']) {
+                const sectionKey = sectionLabel.endsWith('INICIAL') ? 'inicial' : 'final';
+                const sectionFolder = await findSubfolderByName(ceeRoot, sectionLabel);
+                console.log(`[repair-cee-links] ${sectionLabel} folder=${sectionFolder}`);
+                if (!sectionFolder) continue;
+                const files = await listFiles(sectionFolder);
+                console.log(`[repair-cee-links] ${sectionLabel}: ${files.length} archivos`);
+                for (const f of files) {
+                    if (f.mimeType === 'application/vnd.google-apps.folder') continue; // ignorar OLD
+                    const slot = matchSlot(f.name);
+                    console.log(`[repair-cee-links]   '${f.name}' → slot=${slot} link=${f.webViewLink}`);
+                    if (slot && !newFiles[sectionKey][slot]) {
+                        newFiles[sectionKey][slot] = f.webViewLink;
+                        // De paso, hacer público el archivo
+                        try { await setFolderPublic(f.id, 'reader'); } catch (_) {}
+                    } else if (!slot) {
+                        newFiles[sectionKey].otros.push(f.webViewLink);
+                    }
+                }
+            }
+        }
+
+        // Mergear con el cee actual del expediente, preservando otros campos.
+        // IMPORTANTE: sobrescribimos los slots existentes con los del scan (la BD puede tener links corruptos)
+        const currentCee = exp.cee || {};
+        const updatedCee = {
+            ...currentCee,
+            cee_files: {
+                inicial: { ...(currentCee.cee_files?.inicial || {}), ...newFiles.inicial },
+                final:   { ...(currentCee.cee_files?.final   || {}), ...newFiles.final   },
+            }
+        };
+
+        console.log(`[repair-cee-links] Updating expediente ${exp.id} con:`, JSON.stringify(updatedCee.cee_files));
+
+        const { error: updErr } = await supabase
+            .from('expedientes')
+            .update({ cee: updatedCee })
+            .eq('id', exp.id);
+        if (updErr) {
+            console.error(`[repair-cee-links] supabase update error:`, updErr);
+            return res.status(500).json({ error: 'Error guardando cee_files', details: updErr.message });
+        }
+
+        console.log(`[repair-cee-links] ✅ Reparado expediente ${exp.id}`);
+        res.json({ ok: true, repaired: newFiles });
+    } catch (err) {
+        console.error('Error POST expedientes/:id/documents/repair-cee-links:', err);
+        res.status(500).json({ error: 'Error al reparar links', details: err.message });
+    }
+});
+
+// ─── DELETE /api/expedientes/:id/documents/file ───────────────────────────────
+// Borra un archivo de Drive (lo manda a papelera).
+// Body: { driveLink? , driveId? }
+router.delete('/:id/documents/file', enforceAuth, async (req, res) => {
+    try {
+        const { driveLink, driveId } = req.body || {};
+        let fileId = driveId;
+        if (!fileId && driveLink) {
+            // Extraer ID del webViewLink: https://drive.google.com/file/d/{ID}/view?...
+            const m = String(driveLink).match(/[-\w]{25,}/);
+            fileId = m ? m[0] : null;
+        }
+        if (!fileId) return res.status(400).json({ error: 'driveId o driveLink son obligatorios' });
+
+        const { deleteFile } = require('../services/driveService');
+        const ok = await deleteFile(fileId);
+        if (!ok) return res.status(500).json({ error: 'No se pudo eliminar el archivo de Drive' });
+        res.json({ ok: true, deletedId: fileId });
+    } catch (err) {
+        console.error('Error DELETE expedientes/:id/documents/file:', err);
+        res.status(500).json({ error: 'Error al borrar archivo', details: err.message });
     }
 });
 

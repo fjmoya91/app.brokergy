@@ -344,6 +344,7 @@ export function ClienteFormModal({ isOpen, onClose, onSuccess, oportunidad, init
     const [error, setError] = useState(null);
     const [success, setSuccess] = useState(false);
     const [savedCliente, setSavedCliente] = useState(null);
+    const [dniConflict, setDniConflict] = useState(null); // cliente existente con mismo DNI
 
     const filteredPrescriptores = prescriptores.filter(p => {
         return normalize(p.acronimo || p.razon_social).includes(normalize(searchTerm));
@@ -359,6 +360,7 @@ export function ClienteFormModal({ isOpen, onClose, onSuccess, oportunidad, init
         setError(null);
         setSuccess(false);
         setSavedCliente(null);
+        setDniConflict(null);
         setSearchTerm('');
         setIsDropdownOpen(false);
         setShowNotas(!!initialData?.notas);
@@ -490,9 +492,35 @@ export function ClienteFormModal({ isOpen, onClose, onSuccess, oportunidad, init
             if (onSuccess) onSuccess(res.data);
         } catch (err) {
             const body = err.response?.data || {};
+            if (err.response?.status === 409 && body.existing_cliente) {
+                setDniConflict(body.existing_cliente);
+                return;
+            }
             const msg = body.details || body.message || body.error || err.message || 'Error al crear el cliente';
             console.error('[ClienteFormModal] Error creando cliente:', { status: err.response?.status, body, payload });
             setError(msg);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleVincularExistente = async () => {
+        if (!dniConflict?.id_cliente) { setDniConflict(null); return; }
+        if (!oportunidad?.id_oportunidad) {
+            // Sin oportunidad: solo informar, no hay nada que vincular
+            setDniConflict(null);
+            return;
+        }
+        setLoading(true);
+        try {
+            await axios.patch(`/api/oportunidades/${oportunidad.id_oportunidad}/vincular-cliente`, {
+                cliente_id: dniConflict.id_cliente,
+            });
+            if (onSuccess) onSuccess(dniConflict);
+            setDniConflict(null);
+        } catch (e) {
+            setError(e.response?.data?.error || 'Error al vincular el cliente.');
+            setDniConflict(null);
         } finally {
             setLoading(false);
         }
@@ -507,6 +535,76 @@ export function ClienteFormModal({ isOpen, onClose, onSuccess, oportunidad, init
             <div
                 className="bg-bkg-deep border border-white/[0.08] rounded-2xl w-full max-w-2xl my-8 shadow-2xl relative"
             >
+                {/* ── Overlay: DNI ya existe ── */}
+                {dniConflict && (
+                    <div className="absolute inset-0 z-20 flex items-center justify-center rounded-2xl bg-bkg-deep/95 backdrop-blur-sm p-6">
+                        <div className="w-full max-w-sm text-center space-y-5">
+                            {/* Icono */}
+                            <div className="mx-auto w-14 h-14 rounded-2xl bg-amber-500/10 flex items-center justify-center">
+                                <svg className="w-7 h-7 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                                </svg>
+                            </div>
+
+                            <div>
+                                <h3 className="text-base font-black text-white uppercase tracking-widest">Cliente ya registrado</h3>
+                                <p className="text-sm text-white/50 mt-1">Ya existe un cliente con este DNI/CIF:</p>
+                            </div>
+
+                            {/* Tarjeta cliente existente */}
+                            <div className="bg-white/[0.04] border border-white/[0.08] rounded-xl p-4 text-left space-y-1">
+                                <p className="text-sm font-bold text-white">
+                                    {dniConflict.nombre_razon_social}{dniConflict.apellidos ? ` ${dniConflict.apellidos}` : ''}
+                                </p>
+                                <p className="text-xs text-white/40">
+                                    {[dniConflict.dni, dniConflict.municipio].filter(Boolean).join(' · ')}
+                                </p>
+                                {(dniConflict.email || dniConflict.tlf) && (
+                                    <p className="text-xs text-white/40">
+                                        {[dniConflict.email, dniConflict.tlf].filter(Boolean).join(' · ')}
+                                    </p>
+                                )}
+                            </div>
+
+                            {oportunidad ? (
+                                <>
+                                    <p className="text-sm text-white/50">
+                                        ¿Vincular este cliente a la oportunidad{' '}
+                                        <span className="text-brand font-bold">{oportunidad.id_oportunidad}</span>?
+                                    </p>
+                                    <div className="flex flex-col gap-2">
+                                        <button
+                                            onClick={handleVincularExistente}
+                                            disabled={loading}
+                                            className="w-full py-2.5 rounded-xl bg-brand text-bkg-deep text-sm font-black uppercase tracking-widest hover:bg-brand/90 transition-all disabled:opacity-50"
+                                        >
+                                            {loading ? 'Vinculando...' : 'Sí, vincular cliente existente'}
+                                        </button>
+                                        <button
+                                            onClick={() => setDniConflict(null)}
+                                            disabled={loading}
+                                            className="w-full py-2.5 rounded-xl border border-white/10 text-white/50 hover:text-white text-sm font-semibold transition-all"
+                                        >
+                                            Cancelar — editar formulario
+                                        </button>
+                                    </div>
+                                </>
+                            ) : (
+                                <div className="flex flex-col gap-2">
+                                    <p className="text-sm text-white/50">
+                                        Modifica el DNI/CIF si es un cliente diferente.
+                                    </p>
+                                    <button
+                                        onClick={() => setDniConflict(null)}
+                                        className="w-full py-2.5 rounded-xl border border-white/10 text-white/50 hover:text-white text-sm font-semibold transition-all"
+                                    >
+                                        Volver al formulario
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                )}
                 {/* Header */}
                 <div className="flex items-center justify-between p-6 border-b border-white/[0.06]">
                     <div>

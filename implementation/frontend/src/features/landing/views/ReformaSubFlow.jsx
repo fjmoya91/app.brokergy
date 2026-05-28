@@ -36,6 +36,7 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
     // Arranca preguntando el TIPO de proyecto (solo aerotermia vs reforma integral)
     // como en /calcula-tu-ayuda. Si elige "solo aerotermia" el flujo es más ágil.
     const [stack, setStack] = useState(['tipo']);
+    const [noTieneState, setNoTieneState] = useState(null); // null | 'warning' | 'dead_end'
     const [contacto, setContacto] = useState({
         nombre: '', email: '', tlf: '',
         titular_type: null, num_propietarios: null,
@@ -124,10 +125,16 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
     // ---------- Navegación combustible ----------
     const pickCombustible = (value) => {
         if (value === 'no_tiene') {
+            if (!funnel.isReforma) {
+                // Solo aerotermia + sin calefacción previa → requiere reforma integral
+                setNoTieneState('warning');
+                return;
+            }
             updateFunnel({ combustible_actual: null, reforma_sin_caldera: true, edad_caldera: null, condensacion: null, emisor_tipo: 'radiadores_convencionales' });
             push('acs'); // sin caldera: salta edad y emisores
             return;
         }
+        setNoTieneState(null);
         updateFunnel({ combustible_actual: value, reforma_sin_caldera: false, edad_caldera: null, condensacion: null });
         if (value === 'electrica') { push('emisores'); return; } // salta edad
         push('edad');
@@ -372,14 +379,107 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
     // ---- TÉRMICO: combustible (Step2 + opción "sin caldera") ----
     if (screen === 'combustible') {
         const verbo = ej ? 'calentabas tu vivienda ANTES de la reforma' : 'se calienta hoy tu vivienda';
-        return (<><BackBtn /><StepLayout question={`¿Con qué ${verbo}?`} subtitle="Esto nos ayuda a calcular cuánto puedes ahorrar.">
-            <IconCard icon="🔥" title="Gas natural o butano" subtitle="Caldera de gas (la más común en España)" selected={funnel.combustible_actual === 'gas'} onClick={() => pickCombustible('gas')} />
-            <IconCard icon="🛢️" title="Gasóleo / Diésel" subtitle="Caldera con depósito de combustible líquido" selected={funnel.combustible_actual === 'gasoleo'} onClick={() => pickCombustible('gasoleo')} />
-            <IconCard icon="⚡" title="Electricidad" subtitle="Radiadores eléctricos o caldera eléctrica" selected={funnel.combustible_actual === 'electrica'} onClick={() => pickCombustible('electrica')} />
-            <IconCard icon="⚫" title="Carbón" subtitle="Estufa o caldera de carbón" selected={funnel.combustible_actual === 'carbon'} onClick={() => pickCombustible('carbon')} />
-            <IconCard icon="🪵" title="Biomasa" subtitle="Pellets, leña o hueso de aceituna" selected={funnel.combustible_actual === 'biomasa'} onClick={() => pickCombustible('biomasa')} />
-            <IconCard icon="🚫" title={ej ? 'No tenía caldera de calefacción' : 'No tengo caldera de calefacción'} subtitle="No hay/había sistema central de calefacción" selected={funnel.reforma_sin_caldera} onClick={() => pickCombustible('no_tiene')} />
-        </StepLayout></>);
+        return (
+            <>
+                <BackBtn />
+                <StepLayout question={`¿Con qué ${verbo}?`} subtitle="Esto nos ayuda a calcular cuánto puedes ahorrar.">
+                    <IconCard icon="🔥" title="Gas natural o butano" subtitle="Caldera de gas (la más común en España)" selected={funnel.combustible_actual === 'gas'} onClick={() => pickCombustible('gas')} />
+                    <IconCard icon="🛢️" title="Gasóleo / Diésel" subtitle="Caldera con depósito de combustible líquido" selected={funnel.combustible_actual === 'gasoleo'} onClick={() => pickCombustible('gasoleo')} />
+                    <IconCard icon="⚡" title="Electricidad" subtitle="Radiadores eléctricos o caldera eléctrica" selected={funnel.combustible_actual === 'electrica'} onClick={() => pickCombustible('electrica')} />
+                    <IconCard icon="⚫" title="Carbón" subtitle="Estufa o caldera de carbón" selected={funnel.combustible_actual === 'carbon'} onClick={() => pickCombustible('carbon')} />
+                    <IconCard icon="🪵" title="Biomasa" subtitle="Pellets, leña o hueso de aceituna" selected={funnel.combustible_actual === 'biomasa'} onClick={() => pickCombustible('biomasa')} />
+                    <IconCard icon="🚫" title={ej ? 'No tenía caldera de calefacción' : 'No tengo caldera de calefacción'} subtitle="No hay/había sistema central de calefacción" selected={funnel.reforma_sin_caldera} onClick={() => pickCombustible('no_tiene')} />
+                </StepLayout>
+
+                {noTieneState && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center px-4"
+                         style={{ background: 'rgba(10, 6, 0, 0.92)', backdropFilter: 'blur(6px)' }}>
+                        <div className="w-full max-w-sm rounded-3xl p-6 animate-fade-in shadow-2xl shadow-amber-900/40"
+                             style={{ background: 'linear-gradient(150deg, rgba(245,158,11,0.14) 0%, rgba(14,9,1,0.98) 55%)', border: '1px solid rgba(245,158,11,0.35)' }}>
+                            {noTieneState === 'warning' ? (
+                                <>
+                                    <div className="flex items-start gap-3 mb-5 p-4 rounded-2xl"
+                                         style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)' }}>
+                                        <span className="text-xl flex-shrink-0">⚠️</span>
+                                        <div>
+                                            <div className="text-amber-300 font-black text-sm mb-1">
+                                                Esto requiere Reforma integral
+                                            </div>
+                                            <p className="text-white/60 text-xs leading-relaxed">
+                                                Las ayudas CAE requieren{' '}
+                                                <strong className="text-white/90">sustituir una calefacción existente</strong>.
+                                                Sin sistema previo, solo son accesibles si también se mejora
+                                                la envolvente (ventanas, aislamiento, fachada…).
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <div className="flex flex-col gap-3">
+                                        <button
+                                            className="w-full py-4 rounded-2xl bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-400 hover:to-amber-300 text-slate-900 font-black uppercase tracking-widest text-sm shadow-lg shadow-amber-500/20 transition-all"
+                                            onClick={() => {
+                                                updateFunnel({
+                                                    isReforma: true,
+                                                    combustible_actual: null,
+                                                    reforma_sin_caldera: true,
+                                                    edad_caldera: null,
+                                                    condensacion: null,
+                                                    emisor_tipo: 'radiadores_convencionales',
+                                                    reforma_elementos: { caldera: true, ventanas: false, cubierta: false, suelo: false, paredes: false, placas: false, aires: false }
+                                                });
+                                                setNoTieneState(null);
+                                                push('acs');
+                                            }}>
+                                            🏗️ Continuar como Reforma integral
+                                        </button>
+                                        <button
+                                            className="w-full py-3 rounded-2xl border text-white/50 hover:text-white/80 font-bold text-sm transition-all"
+                                            style={{ background: 'rgba(255,255,255,0.03)', borderColor: 'rgba(255,255,255,0.08)' }}
+                                            onClick={() => setNoTieneState('dead_end')}>
+                                            No vamos a hacer reforma
+                                        </button>
+                                        <div className="text-center pt-1">
+                                            <button
+                                                className="text-white/25 hover:text-white/55 text-[11px] font-black uppercase tracking-widest transition-colors"
+                                                onClick={() => setNoTieneState(null)}>
+                                                ← Atrás
+                                            </button>
+                                        </div>
+                                    </div>
+                                </>
+                            ) : (
+                                <>
+                                    <div className="text-center mb-6">
+                                        <div className="text-5xl mb-4">😔</div>
+                                        <h3 className="text-white font-black text-xl mb-3 tracking-tight leading-tight">
+                                            Sin reforma no podemos tramitarlo
+                                        </h3>
+                                        <div className="text-white/55 text-sm leading-relaxed space-y-3">
+                                            <p>
+                                                Las ayudas CAE exigen{' '}
+                                                <strong className="text-white/90">sustituir un sistema de calefacción ya existente</strong>.
+                                                Sin calefacción previa, el programa solo cubre la instalación
+                                                si va acompañada de mejoras en la envolvente del edificio.
+                                            </p>
+                                            <p>
+                                                Si en algún momento decides hacer esas mejoras,{' '}
+                                                <strong className="text-amber-400">podremos tramitar la ayuda</strong>.
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <div className="text-center">
+                                        <button
+                                            className="text-white/25 hover:text-white/55 text-[11px] font-black uppercase tracking-widest transition-colors"
+                                            onClick={() => setNoTieneState(null)}>
+                                            ← Cambiar mi respuesta
+                                        </button>
+                                    </div>
+                                </>
+                            )}
+                        </div>
+                    </div>
+                )}
+            </>
+        );
     }
 
     // ---- TÉRMICO: edad caldera (Step3 reutilizado) ----

@@ -24,6 +24,10 @@ function normalizeData(obj) {
             const trimmed = value.trim();
             if (key.toLowerCase().includes('email')) {
                 normalized[key] = trimmed.toLowerCase();
+            } else if (/^https?:\/\//i.test(trimmed)) {
+                // URLs nunca se normalizan: los IDs/tokens en el path son case-sensitive
+                // (p. ej. Drive fileIds: /file/d/1Tq6-tZiUj... ≠ /file/d/1TQ6-TZIUJ...)
+                normalized[key] = trimmed;
             } else {
                 normalized[key] = trimmed.toUpperCase();
             }

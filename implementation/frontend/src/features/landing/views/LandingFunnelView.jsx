@@ -41,6 +41,7 @@ import { Step9_Contacto } from '../steps/Step9_Contacto';
 import { LandingResultView } from './LandingResultView';
 import { ReformaSubFlow } from './ReformaSubFlow';
 import { LeadDeliveryView } from './LeadDeliveryView';
+import { LandingPropertyReview } from './LandingPropertyReview';
 
 const CATASTRO_API = '/api/catastro';
 
@@ -322,12 +323,22 @@ export default function LandingFunnelView({ route, mode = 'public', variant = 'd
         }
 
         setCatastro(data);
+        setPhase('PROPERTY_REVIEW');
+    };
+
+    // Tras la revisión del inmueble: guardar superficie seleccionada y entrar al funnel
+    const handlePropertyReviewConfirm = (selection) => {
+        setCatastro(prev => ({
+            ...prev,
+            superficieCalefactable: selection.superficieCalefactable,
+            selectedConstructions: selection.selectedConstructions,
+        }));
         setPhase(FUNNEL_ENTRY_PHASE);
     };
 
     const handleDuplicateRcContinue = () => {
         setDuplicateRcInfo(null);
-        setPhase(FUNNEL_ENTRY_PHASE);
+        setPhase('PROPERTY_REVIEW');
     };
 
     const handleDuplicateRcCancel = () => {
@@ -442,7 +453,7 @@ export default function LandingFunnelView({ route, mode = 'public', variant = 'd
     //   afina ese dato en la calculadora si lo necesita.
     const activeSteps = useMemo(() => {
         const base = [Step1_TipoProyecto, Step2_Combustible];
-        if (funnel.combustible_actual !== 'electrica') {
+        if (funnel.combustible_actual !== 'electrica' && funnel.combustible_actual !== 'no_tiene') {
             base.push(Step3_EdadCaldera);
         }
         base.push(Step4_Emisores, Step5_ACS);
@@ -485,6 +496,19 @@ export default function LandingFunnelView({ route, mode = 'public', variant = 'd
                 />
             );
         }
+        if (StepComponent === Step2_Combustible) {
+            const handleGoToReforma = () => {
+                resetFunnel();
+                setCurrentStep(0);
+                setPhase('OBRA_ESTADO');
+            };
+            return (
+                <Step2_Combustible
+                    funnel={funnel} updateFunnel={updateFunnel} onNext={goNext}
+                    onGoToReforma={handleGoToReforma}
+                />
+            );
+        }
         return <StepComponent funnel={funnel} updateFunnel={updateFunnel} onNext={goNext} />;
     };
 
@@ -511,21 +535,23 @@ export default function LandingFunnelView({ route, mode = 'public', variant = 'd
                         </button>
                     </div>
                 )}
-                {/* Header con branding centrado */}
-                <header className="max-w-3xl mx-auto mb-5 md:mb-8 flex flex-col items-center gap-2">
-                    {partnerBranding?.logo_url ? (
-                        <img src={partnerBranding.logo_url} alt={partnerBranding.nombre_comercial} className="h-10 md:h-12 w-auto object-contain" />
-                    ) : (
-                        <div className="text-2xl md:text-3xl font-black tracking-tight">
-                            <span className="text-white">BROKER</span><span className="text-amber-400">GY</span>
-                        </div>
-                    )}
-                    {partnerBranding?.telefono_contacto && (
-                        <a href={`tel:${partnerBranding.telefono_contacto}`} className="text-[11px] font-bold text-amber-400 hover:text-amber-300">
-                            📞 {partnerBranding.telefono_contacto}
-                        </a>
-                    )}
-                </header>
+                {/* Header con branding — solo en HOME */}
+                {phase === 'HOME' && (
+                    <header className="max-w-3xl mx-auto mb-5 md:mb-8 flex flex-col items-center gap-2">
+                        {partnerBranding?.logo_url ? (
+                            <img src={partnerBranding.logo_url} alt={partnerBranding.nombre_comercial} className="h-10 md:h-12 w-auto object-contain" />
+                        ) : (
+                            <div className="text-2xl md:text-3xl font-black tracking-tight">
+                                <span className="text-white">BROKER</span><span className="text-amber-400">GY</span>
+                            </div>
+                        )}
+                        {partnerBranding?.telefono_contacto && (
+                            <a href={`tel:${partnerBranding.telefono_contacto}`} className="text-[11px] font-bold text-amber-400 hover:text-amber-300">
+                                📞 {partnerBranding.telefono_contacto}
+                            </a>
+                        )}
+                    </header>
+                )}
 
                 {partnerError && (
                     <div className="max-w-md mx-auto mb-6 p-4 bg-red-500/10 border border-red-500/30 rounded-2xl text-center">
@@ -536,24 +562,26 @@ export default function LandingFunnelView({ route, mode = 'public', variant = 'd
                 <main className="max-w-3xl mx-auto">
                     {phase === 'HOME' && (
                         <>
-                            <div className="text-center mb-10">
-                                <h1 className="text-3xl md:text-5xl font-black text-white tracking-tight leading-tight">
-                                    {partnerBranding?.titulo || (
-                                        isReformaVariant ? (
-                                            <>Calcula la ayuda de tu <span className="text-amber-400">reforma energética</span></>
-                                        ) : (
-                                            <>Calcula tu ahorro con <span className="text-amber-400">aerotermia</span></>
-                                        )
-                                    )}
-                                </h1>
-                                <p className="text-white/60 text-base md:text-lg mt-4 max-w-2xl mx-auto">
-                                    {partnerBranding?.subtitulo || (
-                                        isReformaVariant
-                                            ? 'Te decimos cuánto te paga el Estado por la reforma que estás haciendo o vas a hacer. Sin compromiso.'
-                                            : 'Te decimos cuánto te ahorras al año y qué ayuda del Estado te corresponde. Sin compromiso.'
-                                    )}
-                                </p>
-                            </div>
+                            {!confirmCandidate && (
+                                <div className="text-center mb-10">
+                                    <h1 className="text-3xl md:text-5xl font-black text-white tracking-tight leading-tight">
+                                        {partnerBranding?.titulo || (
+                                            isReformaVariant ? (
+                                                <>Calcula la ayuda de tu <span className="text-amber-400">reforma energética</span></>
+                                            ) : (
+                                                <>Calcula tu ahorro con <span className="text-amber-400">aerotermia</span></>
+                                            )
+                                        )}
+                                    </h1>
+                                    <p className="text-white/60 text-base md:text-lg mt-4 max-w-2xl mx-auto">
+                                        {partnerBranding?.subtitulo || (
+                                            isReformaVariant
+                                                ? 'Te decimos cuánto te paga el Estado por la reforma que estás haciendo o vas a hacer. Sin compromiso.'
+                                                : 'Te decimos cuánto te ahorras al año y qué ayuda del Estado te corresponde. Sin compromiso.'
+                                        )}
+                                    </p>
+                                </div>
+                            )}
 
                             {!confirmCandidate ? (
                                 <CatastroSearchBox
@@ -614,6 +642,14 @@ export default function LandingFunnelView({ route, mode = 'public', variant = 'd
                         </div>
                     )}
 
+                    {phase === 'PROPERTY_REVIEW' && catastro && (
+                        <LandingPropertyReview
+                            catastro={catastro}
+                            onConfirm={handlePropertyReviewConfirm}
+                            onBack={() => { setCatastro(null); setPhase('HOME'); }}
+                        />
+                    )}
+
                     {phase === 'OBRA_ESTADO' && (
                         <ReformaSubFlow
                             catastro={catastro}
@@ -632,6 +668,7 @@ export default function LandingFunnelView({ route, mode = 'public', variant = 'd
                                 totalSteps={totalSteps}
                                 onBack={goBack}
                                 canGoBack={currentStep > 0}
+                                onRestart={() => { resetFunnel(); setCatastro(null); setPhase('HOME'); }}
                             />
                             {renderStep()}
                         </>

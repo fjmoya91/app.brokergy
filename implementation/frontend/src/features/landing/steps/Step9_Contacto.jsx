@@ -180,12 +180,21 @@ export function Step9_Contacto({ funnel, updateFunnel, contacto, setContacto, on
                         <div className="flex-1 h-px bg-white/10"></div>
                     </div>
 
-                    <div>
-                        <label className={fieldLabel}>Nombre y apellidos (opcional)</label>
-                        <input type="text" placeholder="Ej. María García López"
-                            value={contacto.nombre || ''}
-                            onChange={e => setField('nombre', e.target.value)}
-                            className={inputCls(false)} />
+                    <div className="grid grid-cols-2 gap-3">
+                        <div>
+                            <label className={fieldLabel}>Nombre (opcional)</label>
+                            <input type="text" placeholder="Ej. María"
+                                value={contacto.nombre || ''}
+                                onChange={e => setField('nombre', e.target.value)}
+                                className={inputCls(false)} />
+                        </div>
+                        <div>
+                            <label className={fieldLabel}>Apellidos (opcional)</label>
+                            <input type="text" placeholder="Ej. García López"
+                                value={contacto.apellidos || ''}
+                                onChange={e => setField('apellidos', e.target.value)}
+                                className={inputCls(false)} />
+                        </div>
                     </div>
                     <div>
                         <label className={fieldLabel}>Teléfono (opcional)</label>

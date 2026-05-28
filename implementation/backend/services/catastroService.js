@@ -653,6 +653,14 @@ async function getFacadeImage(rc) {
             }
         });
         if (response.headers['content-type']?.includes('image')) {
+            const byteLength = response.data?.byteLength ?? response.data?.length ?? 0;
+            // Imágenes placeholder del Catastro (sin foto registrada) son píxeles 1×1
+            // o respuestas vacías: siempre < 500 bytes.
+            // Una foto real de fachada, incluso muy comprimida, supera 1 KB.
+            if (byteLength < 500) {
+                console.warn(`Facade Image [${rc}]: placeholder descartado (${byteLength} bytes)`);
+                return null;
+            }
             return { data: response.data, contentType: response.headers['content-type'] };
         }
         return null;

@@ -90,7 +90,12 @@ export function ClienteModule({ expediente }) {
                 <ClienteDetailModal
                     isOpen={true}
                     clienteId={cliente.id_cliente}
+                    expedienteId={expediente?.id}
                     onClose={() => setShowModal(false)}
+                    onClienteSwapped={(nuevoCliente) => {
+                        // Recarga la página para reflejar el cambio de cliente en el expediente
+                        window.location.reload();
+                    }}
                 />
             )}
         </div>

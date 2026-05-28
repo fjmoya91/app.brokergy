@@ -934,7 +934,13 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
             <ClienteDetailModal
                 clienteId={clienteDetailId}
                 isOpen={!!clienteDetailId}
+                oportunidadId={inputs.id_oportunidad}
                 onClose={() => setClienteDetailId(null)}
+                onClienteSwapped={() => {
+                    // Recargamos la página para refrescar los datos de la oportunidad
+                    // con el nuevo cliente vinculado
+                    window.location.reload();
+                }}
             />
 
             {showEfficiency && result.res080 && (
