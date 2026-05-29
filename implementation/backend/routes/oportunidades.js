@@ -4,7 +4,7 @@ const supabase = require('../services/supabaseClient');
 const driveService = require('../services/driveService');
 const reformaUploadService = require('../services/reformaUploadService');
 const pdfService = require('../services/pdfService');
-const { requireAuth, enforceAuth } = require('../middleware/auth');
+const { requireAuth, enforceAuth, adminOnly } = require('../middleware/auth');
 const { normalizeData } = require('../utils/normalization');
 const expedienteService = require('../services/expedienteService');
 const whatsappService = require('../services/whatsappService');
@@ -973,6 +973,106 @@ router.delete('/:id', async (req, res) => {
     } catch (error) {
         console.error('Error fatal DELETE /:', error);
         res.status(500).json({ error: 'Error servidor.' });
+    }
+});
+
+// ===========================================================================
+// DOCUMENTACIÓN FOTOGRÁFICA — superficie unificada (modo admin/instalador)
+// Misma fuente que el enlace público /subir-docs, pero autenticada: el panel
+// usa estos endpoints para ver y (admin) validar/rechazar foto a foto.
+// ===========================================================================
+
+// Resuelve una oportunidad por UUID (id) o por id_oportunidad legible.
+async function findOppForDocs(idParam) {
+    const fields = 'id, id_oportunidad, referencia_cliente, datos_calculo, cliente_id, instalador_asociado_id, prescriptor_id';
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idParam || '');
+    if (isUuid) {
+        const { data } = await supabase.from('oportunidades').select(fields).eq('id', idParam).maybeSingle();
+        if (data) return data;
+    }
+    const { data } = await supabase.from('oportunidades').select(fields).eq('id_oportunidad', idParam).maybeSingle();
+    return data || null;
+}
+
+// Aplica un cambio de estado a una foto concreta dentro de un slot.
+async function setFotoEstado(opp, slot, name, patch) {
+    const dc = opp.datos_calculo || {};
+    const list = Array.isArray(dc.reforma_uploads?.[slot]) ? dc.reforma_uploads[slot] : [];
+    let found = false;
+    const newList = list.map(it => {
+        if (it.name === name) { found = true; return { ...it, ...patch }; }
+        return it;
+    });
+    if (!found) return { ok: false, subido_por: null };
+    const subido_por = list.find(it => it.name === name)?.subido_por || null;
+    // Escritura ATÓMICA por slot (no pisa subidas concurrentes a otros slots)
+    const { error: rpcErr } = await supabase.rpc('reforma_replace_slot', {
+        p_id: opp.id, p_slot: slot, p_array: newList
+    });
+    if (rpcErr) { console.error('[Docs] rpc reforma_replace_slot:', rpcErr.message); return { ok: false, subido_por: null }; }
+    return { ok: true, subido_por };
+}
+
+// GET /api/oportunidades/:id/docs → vista de documentación (autenticado)
+router.get('/:id/docs', enforceAuth, async (req, res) => {
+    try {
+        const opp = await findOppForDocs(req.params.id);
+        if (!opp) return res.status(404).json({ error: 'Oportunidad no encontrada' });
+        // Devolvemos también el token para que el modal admin pueda subir por el mismo canal
+        const view = await reformaUploadService.buildDocsView(opp);
+        view.upload_token = opp.datos_calculo?.upload_token || null;
+        view.uuid = opp.id;
+        return res.json(view);
+    } catch (e) {
+        console.error('[Docs] GET error:', e);
+        res.status(500).json({ error: 'Error interno' });
+    }
+});
+
+// POST /api/oportunidades/:id/docs/:slot/validar  body { name }
+router.post('/:id/docs/:slot/validar', adminOnly, async (req, res) => {
+    try {
+        const { slot } = req.params;
+        const { name } = req.body;
+        if (!name) return res.status(400).json({ error: 'Falta el nombre de la foto' });
+        const opp = await findOppForDocs(req.params.id);
+        if (!opp) return res.status(404).json({ error: 'Oportunidad no encontrada' });
+        const { ok } = await setFotoEstado(opp, slot, name, { estado: 'validada', motivo: null });
+        if (!ok) return res.status(404).json({ error: 'Foto no encontrada en el slot' });
+        return res.json({ success: true, slot, name, estado: 'validada' });
+    } catch (e) {
+        console.error('[Docs] validar error:', e);
+        res.status(500).json({ error: 'Error interno' });
+    }
+});
+
+// POST /api/oportunidades/:id/docs/:slot/rechazar  body { name, motivo }
+router.post('/:id/docs/:slot/rechazar', adminOnly, async (req, res) => {
+    try {
+        const { slot } = req.params;
+        const { name, motivo } = req.body;
+        if (!name) return res.status(400).json({ error: 'Falta el nombre de la foto' });
+        if (!motivo || !motivo.trim()) return res.status(400).json({ error: 'El motivo de rechazo es obligatorio' });
+        const opp = await findOppForDocs(req.params.id);
+        if (!opp) return res.status(404).json({ error: 'Oportunidad no encontrada' });
+        const { ok, subido_por } = await setFotoEstado(opp, slot, name, { estado: 'rechazada', motivo: motivo.trim() });
+        if (!ok) return res.status(404).json({ error: 'Foto no encontrada en el slot' });
+
+        res.json({ success: true, slot, name, estado: 'rechazada' });
+
+        // Aviso en background a quien subió la foto
+        setImmediate(() => {
+            const slotDef = reformaUploadService.buildDocChecklist(opp.datos_calculo || {}).find(s => s.key === slot);
+            reformaUploadService.notifyRechazo({
+                opp,
+                slotLabel: slotDef?.label || slot,
+                motivo: motivo.trim(),
+                subidoPor: subido_por
+            }).catch(err => console.warn('[Docs] notifyRechazo:', err.message));
+        });
+    } catch (e) {
+        console.error('[Docs] rechazar error:', e);
+        res.status(500).json({ error: 'Error interno' });
     }
 });
 

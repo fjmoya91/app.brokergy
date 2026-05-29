@@ -6,6 +6,8 @@ const expedienteService = require('../services/expedienteService');
 const whatsappService = require('../services/whatsappService');
 const driveService = require('../services/driveService');
 const reformaUploadService = require('../services/reformaUploadService');
+const { requireAuth } = require('../middleware/auth');
+const axios = require('axios');
 const multer = require('multer');
 const { PDFDocument } = require('pdf-lib');
 
@@ -606,6 +608,42 @@ router.post('/upload-docs/:id', upload.array('files', 50), async (req, res) => {
 // FLUJO /reforma — subida guiada por slots con enlace único + token
 // ===========================================================================
 
+// GET /api/public/reforma-thumb/:uuid/:driveId?token=&sz=400
+// Proxy de miniatura: el navegador NO puede hotlinkear las URLs de Drive
+// (lh3/thumbnail) de forma fiable desde la app, pero el backend sí. Servimos la
+// imagen desde nuestro propio origen → el navegador siempre la carga. Cacheable.
+router.get('/reforma-thumb/:uuid/:driveId', async (req, res) => {
+    try {
+        const { uuid, driveId } = req.params;
+        const { token, sz } = req.query;
+        const { data: opp } = await supabase
+            .from('oportunidades').select('datos_calculo').eq('id', uuid).maybeSingle();
+        if (!opp || opp.datos_calculo?.upload_token !== token) return res.status(403).end();
+
+        const size = /^\d+$/.test(String(sz)) ? String(sz) : '400';
+        const tryFetch = async (url) => {
+            try {
+                const r = await axios.get(url, { responseType: 'arraybuffer', timeout: 9000, maxRedirects: 5, validateStatus: s => s === 200 });
+                return { buf: Buffer.from(r.data), type: r.headers['content-type'] || 'image/jpeg' };
+            } catch { return null; }
+        };
+        let img = await tryFetch(`https://lh3.googleusercontent.com/d/${driveId}=w${size}`);
+        if (!img) img = await tryFetch(`https://drive.google.com/thumbnail?id=${driveId}&sz=w${size}`);
+        if (!img) {
+            // Último recurso: bytes originales por la API de Drive (autenticada)
+            const buf = await driveService.getFileContent(driveId);
+            if (!buf) return res.status(404).end();
+            img = { buf, type: 'image/jpeg' };
+        }
+        res.set('Content-Type', img.type);
+        res.set('Cache-Control', 'private, max-age=86400');
+        return res.send(img.buf);
+    } catch (e) {
+        console.error('[reforma-thumb]', e.message);
+        return res.status(500).end();
+    }
+});
+
 // GET /api/public/reforma-docs/:uuid?token= → valida token y devuelve slots+estado
 router.get('/reforma-docs/:uuid', async (req, res) => {
     try {
@@ -621,40 +659,8 @@ router.get('/reforma-docs/:uuid', async (req, res) => {
             return res.status(403).json({ error: 'Enlace inválido o caducado.' });
         }
 
-        const dc = opp.datos_calculo || {};
-        const checklist = reformaUploadService.buildDocChecklist(dc);
-        const uploads = dc.reforma_uploads || {};
-        const status = dc.docs_status || {};
-
-        // Fusionar checklist (definición + fase) con estado persistido + ficheros (con miniatura Drive)
-        const slots = checklist.map(s => {
-            const items = (uploads[s.key] || []).map(it => ({
-                name: it.name,
-                link: it.link,
-                at: it.at,
-                driveId: it.driveId || null,
-                thumb: reformaUploadService.driveThumb(it.driveId)
-            }));
-            const st = status[s.key] || {};
-            const estado = st.estado || (items.length > 0 ? 'subida' : 'pendiente');
-            return {
-                ...s,
-                estado,
-                motivo: st.motivo || null,
-                subido_por: st.subido_por || null,
-                items
-            };
-        });
-
-        // La fase DESPUÉS solo se habilita cuando la propuesta está ACEPTADA (ya hay expediente).
-        const aceptada = (dc.estado === 'ACEPTADA');
-
-        return res.json({
-            id_oportunidad: opp.id_oportunidad,
-            cliente: opp.referencia_cliente || '',
-            aceptada,
-            slots
-        });
+        // Vista unificada (checklist + estado por foto + miniaturas + flag aceptada)
+        return res.json(await reformaUploadService.buildDocsView(opp));
     } catch (e) {
         console.error('Error reforma-docs GET:', e);
         res.status(500).json({ error: 'Error interno' });
@@ -662,7 +668,9 @@ router.get('/reforma-docs/:uuid', async (req, res) => {
 });
 
 // POST /api/public/reforma-docs/:uuid/:slot?token= → sube 1 fichero al slot
-router.post('/reforma-docs/:uuid/:slot', upload.single('file'), async (req, res) => {
+// requireAuth es NO bloqueante: si hay sesión (admin/instalador) marca subido_por
+// en consecuencia; si solo hay token (cliente), subido_por = 'cliente'.
+router.post('/reforma-docs/:uuid/:slot', requireAuth, upload.single('file'), async (req, res) => {
     try {
         const { uuid, slot } = req.params;
         const { token } = req.query;
@@ -706,25 +714,27 @@ router.post('/reforma-docs/:uuid/:slot', upload.single('file'), async (req, res)
         const saved = await driveService.saveFileToFolder(subId, fileName, req.file.mimetype, req.file.buffer);
         if (!saved?.id) return res.status(500).json({ error: 'Error al subir a Google Drive' });
 
-        // Registrar fichero en reforma_uploads (con driveId para la miniatura) + estado en docs_status
-        const entry = { name: fileName, link: saved.link, driveId: saved.id, at: new Date().toISOString() };
-        const uploads = { ...(dc.reforma_uploads || {}) };
-        uploads[slot] = slotDef.multiple ? [...prev, entry] : [entry];
-
+        // Estado y autoría POR FOTO en la propia entrada de reforma_uploads
         const subidoPor = req.user ? (req.user.rol_nombre === 'ADMIN' ? 'admin' : 'instalador') : 'cliente';
-        const docs_status = { ...(dc.docs_status || {}) };
-        docs_status[slot] = { ...(docs_status[slot] || {}), estado: 'subida', subido_por: subidoPor, at: entry.at, motivo: null };
+        const entry = {
+            name: fileName, link: saved.link, driveId: saved.id, at: new Date().toISOString(),
+            estado: 'subida', subido_por: subidoPor, motivo: null
+        };
 
-        await supabase
-            .from('oportunidades')
-            .update({ datos_calculo: { ...dc, reforma_uploads: uploads, docs_status } })
-            .eq('id', uuid);
+        // Escritura ATÓMICA por slot (evita que subidas concurrentes se pisen)
+        const { error: rpcErr } = await supabase.rpc('reforma_append', {
+            p_id: uuid, p_slot: slot, p_entry: entry, p_multiple: !!slotDef.multiple
+        });
+        if (rpcErr) {
+            console.error('[Reforma] rpc reforma_append:', rpcErr.message);
+            return res.status(500).json({ error: 'No se pudo registrar la foto. Inténtalo de nuevo.' });
+        }
 
         return res.json({
             success: true, slot, name: fileName, link: saved.link,
             driveId: saved.id,
             thumb: reformaUploadService.driveThumb(saved.id),
-            estado: 'subida', count: uploads[slot].length
+            estado: 'subida', count: (slotDef.multiple ? prev.length + 1 : 1)
         });
     } catch (e) {
         console.error('Error reforma-docs POST:', e);
@@ -736,8 +746,8 @@ router.post('/reforma-docs/:uuid/:slot', upload.single('file'), async (req, res)
 router.delete('/reforma-docs/:uuid/:slot', async (req, res) => {
     try {
         const { uuid, slot } = req.params;
-        const { token, name } = req.query;
-        if (!name) return res.status(400).json({ error: 'Falta el nombre del archivo' });
+        const { token, name, driveId } = req.query;
+        if (!name && !driveId) return res.status(400).json({ error: 'Falta el identificador del archivo' });
 
         const { data: opp } = await supabase
             .from('oportunidades')
@@ -751,13 +761,14 @@ router.delete('/reforma-docs/:uuid/:slot', async (req, res) => {
 
         const dc = opp.datos_calculo || {};
         const list = Array.isArray(dc.reforma_uploads?.[slot]) ? dc.reforma_uploads[slot] : [];
-        const target = list.find(it => it.name === name);
 
-        // Borrar de Drive: por driveId si lo tenemos; si no, búsqueda por nombre en la subcarpeta
+        // Borrar de Drive: por driveId (exacto, evita ambigüedad con nombres duplicados);
+        // si no llega, fallback a la entrada de BD por nombre o búsqueda en la subcarpeta.
         try {
-            if (target?.driveId) {
-                await driveService.deleteFile(target.driveId);
-            } else {
+            const targetId = driveId || list.find(it => it.name === name)?.driveId;
+            if (targetId) {
+                await driveService.deleteFile(targetId);
+            } else if (name) {
                 const folderId = dc.drive_folder_id || dc.inputs?.drive_folder_id;
                 if (folderId) {
                     const subId = await driveService.findSubfolderByName(folderId, reformaUploadService.SUBCARPETA_DOCS);
@@ -767,17 +778,17 @@ router.delete('/reforma-docs/:uuid/:slot', async (req, res) => {
             }
         } catch (dErr) { console.warn('[Reforma] DELETE drive:', dErr.message); }
 
-        const remaining = list.filter(it => it.name !== name);
-        const uploads = { ...(dc.reforma_uploads || {}) };
-        uploads[slot] = remaining;
-        const docs_status = { ...(dc.docs_status || {}) };
-        if (remaining.length === 0) {
-            docs_status[slot] = { ...(docs_status[slot] || {}), estado: 'pendiente', at: new Date().toISOString() };
+        // Filtrar la entrada de la BD por driveId (preferente) o por nombre
+        const remaining = list.filter(it => (driveId ? it.driveId !== driveId : it.name !== name));
+
+        // Escritura ATÓMICA por slot
+        const { error: rpcErr } = await supabase.rpc('reforma_replace_slot', {
+            p_id: uuid, p_slot: slot, p_array: remaining
+        });
+        if (rpcErr) {
+            console.error('[Reforma] rpc reforma_replace_slot (delete):', rpcErr.message);
+            return res.status(500).json({ error: 'No se pudo borrar el archivo.' });
         }
-        await supabase
-            .from('oportunidades')
-            .update({ datos_calculo: { ...dc, reforma_uploads: uploads, docs_status } })
-            .eq('id', uuid);
 
         return res.json({ success: true, slot, count: remaining.length, estado: remaining.length ? 'subida' : 'pendiente' });
     } catch (e) {

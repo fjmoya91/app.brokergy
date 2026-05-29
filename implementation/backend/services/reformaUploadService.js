@@ -258,6 +258,147 @@ async function ensureDriveFolder(oportunidadUuid) {
     return folder.id;
 }
 
+/** ¿El fichero `fileName` pertenece al slot `slotKey`? (exacto o `slotKey_N`) */
+function fileBelongsToSlot(fileName, slotKey) {
+    const base = String(fileName || '').replace(/\.[a-z0-9]+$/i, '');
+    if (base === slotKey) return true;
+    if (base.startsWith(slotKey + '_')) {
+        const rest = base.slice(slotKey.length + 1);
+        return /^\d+$/.test(rest); // solo sufijo numérico (_1, _2…); evita colisión con slots más largos
+    }
+    return false;
+}
+
+/**
+ * Construye la vista de documentación de un expediente (checklist + estado por
+ * foto + miniaturas). Fuente única para el endpoint público (token) y el admin.
+ *
+ * RECONCILIA con Drive: lista la subcarpeta y muestra lo que REALMENTE hay,
+ * fusionando los metadatos de reforma_uploads (estado/motivo/subido_por) por
+ * nombre. Así la vista nunca queda desincronizada con Drive (si una escritura
+ * en BD se perdiera, la foto sigue apareciendo). El estado por foto vive en la
+ * BD; el estado del slot es un resumen derivado.
+ */
+async function buildDocsView(opp) {
+    const dc = opp.datos_calculo || {};
+    const checklist = buildDocChecklist(dc);
+    const uploads = dc.reforma_uploads || {};
+
+    // Listar la carpeta de documentos una sola vez (reconciliación)
+    let driveFiles = [];
+    try {
+        const folderId = dc.drive_folder_id || dc.inputs?.drive_folder_id;
+        if (folderId) {
+            const subId = await driveService.findSubfolderByName(folderId, SUBCARPETA_DOCS);
+            if (subId) driveFiles = await driveService.listFiles(subId);
+        }
+    } catch (e) { console.warn('[Docs] reconciliación Drive:', e.message); }
+
+    const slots = checklist.map(s => {
+        const dbByName = new Map((uploads[s.key] || []).map(it => [it.name, it]));
+        const driveForSlot = driveFiles.filter(f => fileBelongsToSlot(f.name, s.key));
+
+        // Si Drive devolvió ficheros del slot, esa es la verdad de existencia;
+        // si Drive no respondió (lista vacía por error), caemos a la BD.
+        const source = driveForSlot.length > 0
+            ? driveForSlot.map(f => {
+                const db = dbByName.get(f.name) || {};
+                return {
+                    name: f.name,
+                    link: f.webViewLink || db.link || null,
+                    at: db.at || null,
+                    driveId: f.id,
+                    thumb: driveThumb(f.id),
+                    estado: db.estado || 'subida',
+                    motivo: db.motivo || null,
+                    subido_por: db.subido_por || null
+                };
+            })
+            : (uploads[s.key] || []).map(it => ({
+                name: it.name, link: it.link, at: it.at,
+                driveId: it.driveId || null, thumb: driveThumb(it.driveId),
+                estado: it.estado || 'subida', motivo: it.motivo || null, subido_por: it.subido_por || null
+            }));
+
+        let estado = 'pendiente';
+        if (source.length) {
+            if (source.some(i => i.estado === 'rechazada')) estado = 'rechazada';
+            else if (source.every(i => i.estado === 'validada')) estado = 'validada';
+            else estado = 'subida';
+        }
+        return { ...s, estado, items: source };
+    });
+
+    return {
+        id_oportunidad: opp.id_oportunidad,
+        cliente: opp.referencia_cliente || '',
+        aceptada: dc.estado === 'ACEPTADA',
+        slots
+    };
+}
+
+/**
+ * Notifica (WhatsApp + email) a quien subió una foto que ha sido RECHAZADA,
+ * con el motivo y el enlace para volver a subirla. Background-safe.
+ *   subidoPor: 'cliente' | 'instalador' | 'admin'
+ */
+async function notifyRechazo({ opp, slotLabel, motivo, subidoPor }) {
+    const dc = opp.datos_calculo || {};
+    const link = buildUploadLink(opp.id, dc.upload_token || '');
+    let phone = null, email = null, nombre = '';
+
+    try {
+        if (subidoPor === 'instalador') {
+            const insId = opp.instalador_asociado_id || opp.prescriptor_id;
+            if (insId) {
+                const { data: p } = await supabase.from('prescriptores')
+                    .select('razon_social, tlf, tlf_contacto, email, email_contacto')
+                    .eq('id_empresa', insId).maybeSingle();
+                if (p) { phone = p.tlf || p.tlf_contacto; email = p.email || p.email_contacto; nombre = p.razon_social || ''; }
+            }
+        } else {
+            // cliente (también para 'admin'/desconocido: avisamos al cliente por defecto)
+            if (opp.cliente_id) {
+                const { data: c } = await supabase.from('clientes')
+                    .select('nombre_razon_social, tlf, persona_contacto_tlf, email, persona_contacto_email')
+                    .eq('id_cliente', opp.cliente_id).maybeSingle();
+                if (c) { phone = c.tlf || c.persona_contacto_tlf; email = c.email || c.persona_contacto_email; nombre = c.nombre_razon_social || ''; }
+            }
+        }
+    } catch (e) { console.warn('[Reforma] resolviendo contacto rechazo:', e.message); }
+
+    const msg =
+`Hola${nombre ? ` *${nombre}*` : ''} 👋
+
+Revisando la documentación del expediente *${opp.id_oportunidad}* hemos visto que una foto no nos sirve y necesitamos que la repitas:
+
+📷 *${slotLabel}*
+⚠️ Motivo: ${motivo}
+
+🔗 Vuelve a subirla aquí (puedes hacerlo desde el móvil):
+${link}
+
+¡Gracias!
+*BROKERGY — Ingeniería Energética*`;
+
+    if (phone) whatsappService.sendText(phone, msg).catch(err => console.warn('[Reforma] WA rechazo:', err.message));
+    if (email) {
+        emailService.sendMail({
+            to: email,
+            subject: `Foto a repetir · Expediente ${opp.id_oportunidad}`,
+            html: `<div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;color:#222">
+                <h2 style="color:#FF6D00">Hola ${nombre || ''},</h2>
+                <p>Revisando la documentación del expediente <strong>${opp.id_oportunidad}</strong> hemos visto que una foto no nos sirve:</p>
+                <p style="background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:12px"><strong>📷 ${slotLabel}</strong><br/>⚠️ Motivo: ${motivo}</p>
+                <p style="margin:24px 0"><a href="${link}" style="background:#FF6D00;color:#fff;padding:14px 24px;border-radius:10px;text-decoration:none;font-weight:bold">Volver a subir la foto</a></p>
+                <p style="color:#888;font-size:12px">Si el botón no funciona, copia este enlace:<br>${link}</p>
+                <p style="color:#888;font-size:12px">BROKERGY — Ingeniería Energética</p>
+            </div>`,
+            text: `Hola ${nombre || ''}, necesitamos que repitas la foto "${slotLabel}" del expediente ${opp.id_oportunidad}. Motivo: ${motivo}. Súbela aquí: ${link}`
+        }).catch(err => console.warn('[Reforma] email rechazo:', err.message));
+    }
+}
+
 /**
  * Notifica al cliente (WhatsApp + email) y al grupo admin con el enlace de subida.
  * Pensado para ejecutarse en background (setImmediate).
@@ -330,8 +471,10 @@ module.exports = {
     getSlotDef,
     isValidSlot,
     buildDocChecklist,
+    buildDocsView,
     deriveSelectors,
     driveThumb,
+    notifyRechazo,
     generateUploadToken,
     buildUploadLink,
     attachUploadToken,

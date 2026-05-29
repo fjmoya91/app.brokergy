@@ -14,7 +14,7 @@ import { generateBrokergyReport } from '../logic/pdfGenerator';
 import { calculateSavings, calculateFinancials } from '../logic/calculation';
 import { EfficiencyTable } from './EfficiencyTable';
 import realCasesData from '../data/real_cases_db.json';
-import { SubirFotosModal } from './SubirFotosModal';
+import { DocsAdminModal } from './DocsAdminModal';
 import { ErrorBoundary } from '../../../components/ErrorBoundary';
 import { HistorialModal } from '../../../components/HistorialModal';
 
@@ -912,12 +912,10 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
                 result={result}
             />
 
-            <SubirFotosModal
+            <DocsAdminModal
                 isOpen={showSubirFotos}
                 onClose={() => setShowSubirFotos(false)}
-                inputs={inputs}
-                result={result}
-                onInputChange={onInputChange}
+                idOportunidad={inputs.id_oportunidad}
             />
 
             <ClienteFormModal
