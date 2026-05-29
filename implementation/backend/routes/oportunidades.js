@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const supabase = require('../services/supabaseClient');
 const driveService = require('../services/driveService');
+const reformaUploadService = require('../services/reformaUploadService');
 const pdfService = require('../services/pdfService');
 const { requireAuth, enforceAuth } = require('../middleware/auth');
 const { normalizeData } = require('../utils/normalization');
@@ -260,6 +261,19 @@ router.post('/', requireAuth, async (req, res) => {
                 newRecord.datos_calculo.drive_folder_id = existingData.datos_calculo.drive_folder_id;
                 newRecord.datos_calculo.drive_folder_link = existingData.datos_calculo.drive_folder_link;
             }
+        }
+
+        // Token del enlace único de documentación (espina del flujo de fotos).
+        // Idempotente: preserva el existente; genera uno solo si no hay.
+        if (!newRecord.datos_calculo) newRecord.datos_calculo = {};
+        const prevToken = existingData?.datos_calculo?.upload_token;
+        newRecord.datos_calculo.upload_token = prevToken || reformaUploadService.generateUploadToken(newIdOportunidad);
+        // Preservar el estado documental ya recogido (no se pisa al re-guardar la simulación)
+        if (existingData?.datos_calculo?.docs_status && newRecord.datos_calculo.docs_status === undefined) {
+            newRecord.datos_calculo.docs_status = existingData.datos_calculo.docs_status;
+        }
+        if (existingData?.datos_calculo?.reforma_uploads && newRecord.datos_calculo.reforma_uploads === undefined) {
+            newRecord.datos_calculo.reforma_uploads = existingData.datos_calculo.reforma_uploads;
         }
 
         let resultData, resultError;

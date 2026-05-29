@@ -620,14 +620,40 @@ router.get('/reforma-docs/:uuid', async (req, res) => {
         if (!token || opp.datos_calculo?.upload_token !== token) {
             return res.status(403).json({ error: 'Enlace inválido o caducado.' });
         }
-        const funnel = opp.datos_calculo?.landing_funnel || {};
-        const origen = opp.datos_calculo?.origen || 'aerotermia';
+
+        const dc = opp.datos_calculo || {};
+        const checklist = reformaUploadService.buildDocChecklist(dc);
+        const uploads = dc.reforma_uploads || {};
+        const status = dc.docs_status || {};
+
+        // Fusionar checklist (definición + fase) con estado persistido + ficheros (con miniatura Drive)
+        const slots = checklist.map(s => {
+            const items = (uploads[s.key] || []).map(it => ({
+                name: it.name,
+                link: it.link,
+                at: it.at,
+                driveId: it.driveId || null,
+                thumb: reformaUploadService.driveThumb(it.driveId)
+            }));
+            const st = status[s.key] || {};
+            const estado = st.estado || (items.length > 0 ? 'subida' : 'pendiente');
+            return {
+                ...s,
+                estado,
+                motivo: st.motivo || null,
+                subido_por: st.subido_por || null,
+                items
+            };
+        });
+
+        // La fase DESPUÉS solo se habilita cuando la propuesta está ACEPTADA (ya hay expediente).
+        const aceptada = (dc.estado === 'ACEPTADA');
+
         return res.json({
             id_oportunidad: opp.id_oportunidad,
             cliente: opp.referencia_cliente || '',
-            origen,
-            slots: reformaUploadService.getLeadSlots(funnel, origen),
-            uploaded: opp.datos_calculo?.reforma_uploads || {}
+            aceptada,
+            slots
         });
     } catch (e) {
         console.error('Error reforma-docs GET:', e);
@@ -652,9 +678,9 @@ router.post('/reforma-docs/:uuid/:slot', upload.single('file'), async (req, res)
             return res.status(403).json({ error: 'Enlace inválido o caducado.' });
         }
 
-        const funnel = opp.datos_calculo?.landing_funnel || {};
-        const origen = opp.datos_calculo?.origen || 'aerotermia';
-        const slotDef = reformaUploadService.getSlotDef(funnel, slot, origen);
+        const dc = opp.datos_calculo || {};
+        const checklist = reformaUploadService.buildDocChecklist(dc);
+        const slotDef = checklist.find(s => s.key === slot);
         if (!slotDef) return res.status(400).json({ error: 'Tipo de documento no válido' });
 
         // Asegurar carpeta del lead + subcarpeta de documentos (la crea si falta)
@@ -663,26 +689,100 @@ router.post('/reforma-docs/:uuid/:slot', upload.single('file'), async (req, res)
 
         // Nombre por slot-key (compatible con scan-photos del Anexo Fotográfico)
         const ext = (req.file.originalname.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '');
-        const prev = Array.isArray(opp.datos_calculo?.reforma_uploads?.[slot])
-            ? opp.datos_calculo.reforma_uploads[slot] : [];
+        const prev = Array.isArray(dc.reforma_uploads?.[slot]) ? dc.reforma_uploads[slot] : [];
         const fileName = slotDef.multiple ? `${slot}_${prev.length + 1}.${ext}` : `${slot}.${ext}`;
+
+        // Slot único: borrar versión previa en Drive para no acumular duplicados
+        if (!slotDef.multiple) {
+            try {
+                const existing = await driveService.listFilesByPrefix(subId, slot);
+                await Promise.all(existing.map(async (f) => {
+                    const fBase = f.name.replace(/\.[a-z0-9]{2,5}$/i, '');
+                    if (fBase.toUpperCase() === slot.toUpperCase()) await driveService.deleteFile(f.id);
+                }));
+            } catch (dErr) { console.warn('[Reforma] dedup slot único:', dErr.message); }
+        }
 
         const saved = await driveService.saveFileToFolder(subId, fileName, req.file.mimetype, req.file.buffer);
         if (!saved?.id) return res.status(500).json({ error: 'Error al subir a Google Drive' });
 
-        // Registrar en datos_calculo.reforma_uploads (merge no destructivo)
-        const entry = { name: fileName, link: saved.link, at: new Date().toISOString() };
-        const uploads = { ...(opp.datos_calculo?.reforma_uploads || {}) };
+        // Registrar fichero en reforma_uploads (con driveId para la miniatura) + estado en docs_status
+        const entry = { name: fileName, link: saved.link, driveId: saved.id, at: new Date().toISOString() };
+        const uploads = { ...(dc.reforma_uploads || {}) };
         uploads[slot] = slotDef.multiple ? [...prev, entry] : [entry];
+
+        const subidoPor = req.user ? (req.user.rol_nombre === 'ADMIN' ? 'admin' : 'instalador') : 'cliente';
+        const docs_status = { ...(dc.docs_status || {}) };
+        docs_status[slot] = { ...(docs_status[slot] || {}), estado: 'subida', subido_por: subidoPor, at: entry.at, motivo: null };
+
         await supabase
             .from('oportunidades')
-            .update({ datos_calculo: { ...opp.datos_calculo, reforma_uploads: uploads } })
+            .update({ datos_calculo: { ...dc, reforma_uploads: uploads, docs_status } })
             .eq('id', uuid);
 
-        return res.json({ success: true, slot, name: fileName, link: saved.link, count: uploads[slot].length });
+        return res.json({
+            success: true, slot, name: fileName, link: saved.link,
+            driveId: saved.id,
+            thumb: reformaUploadService.driveThumb(saved.id),
+            estado: 'subida', count: uploads[slot].length
+        });
     } catch (e) {
         console.error('Error reforma-docs POST:', e);
         res.status(500).json({ error: 'Error interno al subir el archivo' });
+    }
+});
+
+// DELETE /api/public/reforma-docs/:uuid/:slot?token=&name= → borra un fichero del slot
+router.delete('/reforma-docs/:uuid/:slot', async (req, res) => {
+    try {
+        const { uuid, slot } = req.params;
+        const { token, name } = req.query;
+        if (!name) return res.status(400).json({ error: 'Falta el nombre del archivo' });
+
+        const { data: opp } = await supabase
+            .from('oportunidades')
+            .select('id, datos_calculo')
+            .eq('id', uuid)
+            .maybeSingle();
+        if (!opp) return res.status(404).json({ error: 'Solicitud no encontrada' });
+        if (!token || opp.datos_calculo?.upload_token !== token) {
+            return res.status(403).json({ error: 'Enlace inválido o caducado.' });
+        }
+
+        const dc = opp.datos_calculo || {};
+        const list = Array.isArray(dc.reforma_uploads?.[slot]) ? dc.reforma_uploads[slot] : [];
+        const target = list.find(it => it.name === name);
+
+        // Borrar de Drive: por driveId si lo tenemos; si no, búsqueda por nombre en la subcarpeta
+        try {
+            if (target?.driveId) {
+                await driveService.deleteFile(target.driveId);
+            } else {
+                const folderId = dc.drive_folder_id || dc.inputs?.drive_folder_id;
+                if (folderId) {
+                    const subId = await driveService.findSubfolderByName(folderId, reformaUploadService.SUBCARPETA_DOCS);
+                    const fid = subId ? await driveService.findFileByName(subId, name) : null;
+                    if (fid) await driveService.deleteFile(fid);
+                }
+            }
+        } catch (dErr) { console.warn('[Reforma] DELETE drive:', dErr.message); }
+
+        const remaining = list.filter(it => it.name !== name);
+        const uploads = { ...(dc.reforma_uploads || {}) };
+        uploads[slot] = remaining;
+        const docs_status = { ...(dc.docs_status || {}) };
+        if (remaining.length === 0) {
+            docs_status[slot] = { ...(docs_status[slot] || {}), estado: 'pendiente', at: new Date().toISOString() };
+        }
+        await supabase
+            .from('oportunidades')
+            .update({ datos_calculo: { ...dc, reforma_uploads: uploads, docs_status } })
+            .eq('id', uuid);
+
+        return res.json({ success: true, slot, count: remaining.length, estado: remaining.length ? 'subida' : 'pendiente' });
+    } catch (e) {
+        console.error('Error reforma-docs DELETE:', e);
+        res.status(500).json({ error: 'Error interno al borrar el archivo' });
     }
 });
 

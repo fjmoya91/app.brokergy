@@ -92,6 +92,105 @@ function getSlotDef(funnel, slotKey, origen = 'aerotermia') {
     return getLeadSlots(funnel, origen).find(s => s.key === slotKey) || null;
 }
 
+// ===========================================================================
+// CHECKLIST DOCUMENTAL UNIFICADO (espina del enlace único)
+// ---------------------------------------------------------------------------
+// buildDocChecklist(datosCalculo) deriva, a partir de las respuestas de la
+// simulación (inputs del calculador del instalador) O del landing_funnel, el
+// conjunto completo de slots de documentación del expediente, etiquetados por
+// FASE (ANTES / DESPUÉS de la obra) y con gating (pre_aceptacion).
+//
+// Se computa ON-READ: NO se persiste en BD (evita duplicar labels/help y que
+// se queden obsoletos). En BD solo viven el ESTADO (docs_status) y los ficheros
+// (reforma_uploads). Es determinista sobre datos_calculo, ya guardado.
+// ===========================================================================
+
+const PHASE = { ANTES: 'ANTES', DESPUES: 'DESPUES' };
+
+/** Normaliza distintas fuentes (inputs del calculador o landing_funnel) a selectores de slot. */
+function deriveSelectors(datosCalculo = {}) {
+    const inputs = datosCalculo.inputs || {};
+    const funnel = datosCalculo.landing_funnel || {};
+
+    const reforma = {
+        ventanas: inputs.reformaVentanas !== undefined ? !!inputs.reformaVentanas : !!funnel.reforma_elementos?.ventanas,
+        cubierta: inputs.reformaCubierta !== undefined ? !!inputs.reformaCubierta : !!funnel.reforma_elementos?.cubierta,
+        suelo:    inputs.reformaSuelo    !== undefined ? !!inputs.reformaSuelo    : !!funnel.reforma_elementos?.suelo,
+        paredes:  inputs.reformaParedes  !== undefined ? !!inputs.reformaParedes  : !!funnel.reforma_elementos?.paredes,
+    };
+    const changeAcs = inputs.changeAcs !== undefined ? !!inputs.changeAcs : !!funnel.incluir_acs;
+
+    // ¿Hay caldera de combustión que se va a sustituir?
+    const fuel = String(inputs.fuelType || '').toLowerCase();
+    const heating = String(inputs.boilerHeatingType || '');
+    let hayCaldera;
+    if (funnel.combustible_actual) {
+        hayCaldera = BOILER_COMBUSTIBLE.includes(funnel.combustible_actual);
+    } else if (heating) {
+        hayCaldera = heating !== 'No tiene Calefacción';
+    } else if (fuel) {
+        hayCaldera = !fuel.includes('elect'); // gas_natural, gasoleo, propano... = combustión
+    } else {
+        hayCaldera = true; // caso típico CAE: cambio de caldera por aerotermia
+    }
+    return { reforma, changeAcs, hayCaldera };
+}
+
+/**
+ * Devuelve el checklist documental completo como ARRAY ordenado de slots:
+ *   { key, label, help, accept, multiple, required, gating, fase }
+ * Reutiliza las claves de slot legacy donde existen (no huérfana subidas previas).
+ */
+function buildDocChecklist(datosCalculo = {}) {
+    const sel = deriveSelectors(datosCalculo);
+    const slots = [];
+    const push = (s) => slots.push(s);
+
+    // ───────── ANTES DE LA OBRA ─────────
+    if (sel.hayCaldera) {
+        push({ key: 'FOTO_CALDERA_ANTES', fase: PHASE.ANTES, required: true, gating: 'pre_aceptacion', multiple: true, accept: 'image/*',
+               label: 'Caldera actual (instalada)', help: 'Vista general de la caldera en su sala. Puedes añadir varias perspectivas.' });
+        push({ key: 'FOTO_PLACA_CALDERA_ANTES', fase: PHASE.ANTES, required: true, gating: 'pre_aceptacion', multiple: true, accept: 'image/*',
+               label: 'Placa de la caldera', help: 'La etiqueta del fabricante. Acércate hasta que se lean marca, modelo y potencia.' });
+    }
+    push({ key: 'FOTO_FACHADA_PRINCIPAL', fase: PHASE.ANTES, required: false, multiple: true, accept: 'image/*',
+           label: 'Fachada de la calle (completa)', help: 'Para ver cuántas ventanas hay y su tamaño.' });
+    push({ key: 'FOTO_PATIOS_INTERIORES', fase: PHASE.ANTES, required: false, multiple: true, accept: 'image/*',
+           label: 'Patios interiores', help: 'Paredes que dan a patios, con sus ventanas.' });
+    push({ key: 'VIDEO_VIVIENDA', fase: PHASE.ANTES, required: false, multiple: false, accept: 'video/*',
+           label: 'Vídeo recorriendo la vivienda', help: 'Un vídeo corto mostrando estancias, ventanas y accesos al exterior.' });
+    push({ key: 'DOC_PLANOS', fase: PHASE.ANTES, required: false, multiple: true, accept: 'application/pdf,image/*',
+           label: 'Planos o croquis', help: 'Si los tienes. Si no, con el vídeo nos vale.' });
+    if (sel.reforma.ventanas) push({ key: 'FOTO_VENTANAS_ANTES', fase: PHASE.ANTES, required: false, multiple: true, accept: 'image/*', label: 'Ventanas a sustituir (antes)', help: 'Las que vais a cambiar.' });
+    if (sel.reforma.cubierta) push({ key: 'FOTO_CUBIERTA_ANTES', fase: PHASE.ANTES, required: false, multiple: true, accept: 'image/*', label: 'Cubierta / tejado (antes)' });
+    if (sel.reforma.paredes)  push({ key: 'FOTO_FACHADA_ANTES', fase: PHASE.ANTES, required: false, multiple: true, accept: 'image/*', label: 'Fachada a aislar (antes)' });
+    if (sel.reforma.suelo)    push({ key: 'FOTO_SUELO_ANTES', fase: PHASE.ANTES, required: false, multiple: true, accept: 'image/*', label: 'Suelo (antes)' });
+    if (sel.changeAcs)        push({ key: 'FOTO_ACS_ANTES', fase: PHASE.ANTES, required: false, multiple: true, accept: 'image/*', label: 'Sistema de ACS actual', help: 'Termo eléctrico o conexión de ACS de la caldera.' });
+
+    // ───────── DESPUÉS DE LA OBRA ─────────
+    push({ key: 'FOTO_UNIDAD_EXTERIOR', fase: PHASE.DESPUES, required: false, multiple: true, accept: 'image/*', label: 'Unidad exterior nueva (instalada)' });
+    push({ key: 'FOTO_UNIDAD_EXTERIOR_PLACA', fase: PHASE.DESPUES, required: false, multiple: true, accept: 'image/*', label: 'Placa de la unidad exterior' });
+    push({ key: 'FOTO_UNIDAD_INTERIOR_PLACA', fase: PHASE.DESPUES, required: false, multiple: true, accept: 'image/*', label: 'Placa de la unidad interior / hidrokit' });
+    if (sel.changeAcs) push({ key: 'FOTO_ACS_DEPOSITO', fase: PHASE.DESPUES, required: false, multiple: true, accept: 'image/*', label: 'Depósito de ACS / inercia (con placa)' });
+    push({ key: 'FOTO_CALDERA_DESMONTADA', fase: PHASE.DESPUES, required: false, multiple: true, accept: 'image/*', label: 'Caldera antigua desmontada / hueco' });
+    if (sel.reforma.ventanas) push({ key: 'FOTO_VENTANAS_DESPUES', fase: PHASE.DESPUES, required: false, multiple: true, accept: 'image/*', label: 'Ventanas nuevas (después)' });
+    if (sel.reforma.cubierta) push({ key: 'FOTO_CUBIERTA_DESPUES', fase: PHASE.DESPUES, required: false, multiple: true, accept: 'image/*', label: 'Cubierta terminada' });
+    if (sel.reforma.paredes)  push({ key: 'FOTO_FACHADA_DESPUES', fase: PHASE.DESPUES, required: false, multiple: true, accept: 'image/*', label: 'Aislamiento de fachada terminado' });
+    push({ key: 'DOC_FACTURAS', fase: PHASE.DESPUES, required: false, multiple: true, accept: 'application/pdf,image/*', label: 'Facturas de la instalación' });
+    push({ key: 'DOC_RITE', fase: PHASE.DESPUES, required: false, multiple: false, accept: 'application/pdf,image/*', label: 'Certificado RITE' });
+
+    return slots;
+}
+
+/**
+ * URL de miniatura pública de Drive (sin pasar por backend ni Supabase).
+ * Usa el CDN lh3.googleusercontent.com/d/{id}=w{size}: se sirve antes que el
+ * endpoint /thumbnail tras subir el fichero (menos latencia de generación).
+ */
+function driveThumb(driveId, size = 400) {
+    return driveId ? `https://lh3.googleusercontent.com/d/${driveId}=w${size}` : null;
+}
+
 function generateUploadToken(seed = '') {
     return crypto.createHash('sha256')
         .update(`${seed}-${Date.now()}-${crypto.randomBytes(8).toString('hex')}`)
@@ -224,11 +323,15 @@ ${uploadLink}
 
 module.exports = {
     SUBCARPETA_DOCS,
+    PHASE,
     getReformaSlots,
     getAerotermiaSlots,
     getLeadSlots,
     getSlotDef,
     isValidSlot,
+    buildDocChecklist,
+    deriveSelectors,
+    driveThumb,
     generateUploadToken,
     buildUploadLink,
     attachUploadToken,
