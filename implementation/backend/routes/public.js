@@ -466,7 +466,31 @@ router.patch('/datos/:id', async (req, res) => {
     }
 });
 
+// Extrae la extensión de un nombre, tomando el último punto. Si no hay punto, infiere desde mimeType.
+function inferExtension(originalName, mimeType) {
+    const name = String(originalName || '');
+    const lastDot = name.lastIndexOf('.');
+    if (lastDot >= 0 && lastDot < name.length - 1) {
+        const ext = name.substring(lastDot + 1).toLowerCase().replace(/[^a-z0-9]/g, '');
+        if (ext) return ext;
+    }
+    const mt = String(mimeType || '').toLowerCase();
+    if (mt.includes('jpeg') || mt.includes('jpg')) return 'jpg';
+    if (mt.includes('png')) return 'png';
+    if (mt.includes('webp')) return 'webp';
+    if (mt.includes('heic')) return 'heic';
+    if (mt.includes('heif')) return 'heif';
+    if (mt.includes('pdf')) return 'pdf';
+    if (mt.includes('mp4')) return 'mp4';
+    return 'jpg';
+}
+
 // POST /api/public/upload-docs/:id
+// Body multipart:
+//   files: file[]
+//   canonical_names (opcional): JSON string array — un nombre canónico por fichero (alineado por índice).
+//     Si se proporciona para el fichero i, el backend lo guarda con ese nombre (+ extensión inferida).
+//     Si no, conserva el nombre original.
 router.post('/upload-docs/:id', upload.array('files', 50), async (req, res) => {
     try {
         const paramId = req.params.id;
@@ -476,6 +500,19 @@ router.post('/upload-docs/:id', upload.array('files', 50), async (req, res) => {
 
         if (!files || files.length === 0) {
             return res.status(400).json({ error: 'No se han recibido archivos' });
+        }
+
+        // Parseo defensivo de canonical_names (puede venir como JSON string o como array)
+        let canonicalNames = [];
+        if (req.body.canonical_names) {
+            try {
+                const raw = req.body.canonical_names;
+                canonicalNames = Array.isArray(raw) ? raw : JSON.parse(raw);
+                if (!Array.isArray(canonicalNames)) canonicalNames = [];
+            } catch (e) {
+                console.warn('[Upload] canonical_names inválido, se ignora:', e.message);
+                canonicalNames = [];
+            }
         }
 
         // 1. Buscar la oportunidad para obtener la carpeta de Drive
@@ -490,7 +527,7 @@ router.post('/upload-docs/:id', upload.array('files', 50), async (req, res) => {
         }
 
         const driveFolderId = opp.datos_calculo?.drive_folder_id || opp.datos_calculo?.inputs?.drive_folder_id;
-        
+
         if (!driveFolderId) {
             console.error(`[Upload] Oportunidad ${id} no tiene carpeta de Drive vinculada.`);
             return res.status(500).json({ error: 'La oportunidad no tiene una carpeta de Drive configurada. Contacta con soporte.' });
@@ -500,11 +537,45 @@ router.post('/upload-docs/:id', upload.array('files', 50), async (req, res) => {
         console.log(`[Upload] Preparando subcarpeta en ${driveFolderId}...`);
         const subfolderId = await driveService.getOrCreateSubfolder(driveFolderId, "12. DOCUMENTOS PARA CEE");
 
-        // 3. Subir archivos en paralelo a Drive
-        const uploadPromises = files.map(file => {
+        // 3. Resolver nombres finales con DOS fuentes:
+        //    a) canonical_names[i] (campo body, parseado arriba) — prioridad alta
+        //    b) file.originalname si ya empieza por FOTO_ (frontend lo renombró vía Content-Disposition)
+        //    c) file.originalname tal cual (sin convención canónica)
+        const resolveFileName = (file, i) => {
+            const canonical = (canonicalNames[i] || '').trim();
+            if (canonical) {
+                const hasExt = /\.[a-z0-9]{2,5}$/i.test(canonical);
+                if (hasExt) return canonical;
+                const ext = inferExtension(file.originalname, file.mimetype);
+                return `${canonical}.${ext}`;
+            }
+            return file.originalname;
+        };
+
+        // Log de diagnóstico para detectar problemas de parseo de canonical_names
+        const finalNames = files.map((f, i) => resolveFileName(f, i));
+        console.log(`[Upload] id=${id} canonical_names=${JSON.stringify(canonicalNames)} originalnames=${JSON.stringify(files.map(f => f.originalname))} finalnames=${JSON.stringify(finalNames)}`);
+
+        // 4. Dedup: para cada fichero cuyo nombre final empiece por FOTO_ (canónico, vengan
+        //    de canonical_names o de Content-Disposition), borrar versiones previas del mismo slot.
+        await Promise.all(finalNames.map(async (finalName) => {
+            if (!/^FOTO_/i.test(finalName)) return;
+            const baseNoExt = finalName.replace(/\.[a-z0-9]{2,5}$/i, '');
+            const existing = await driveService.listFilesByPrefix(subfolderId, baseNoExt);
+            await Promise.all(existing.map(async (f) => {
+                const fBase = f.name.replace(/\.[a-z0-9]{2,5}$/i, '');
+                if (fBase.toUpperCase() === baseNoExt.toUpperCase()) {
+                    console.log(`[Upload] Reemplazando archivo previo del slot: ${f.name} (${f.id})`);
+                    await driveService.deleteFile(f.id);
+                }
+            }));
+        }));
+
+        // 5. Subir archivos en paralelo a Drive con el nombre resuelto
+        const uploadPromises = files.map((file, i) => {
             return driveService.saveFileToFolder(
                 subfolderId,
-                file.originalname,
+                finalNames[i],
                 file.mimetype,
                 file.buffer
             );
@@ -519,8 +590,8 @@ router.post('/upload-docs/:id', upload.array('files', 50), async (req, res) => {
             return res.status(500).json({ error: 'Error al subir los archivos a Google Drive' });
         }
 
-        res.json({ 
-            success: true, 
+        res.json({
+            success: true,
             message: `${successCount} archivos subidos correctamente.`,
             count: successCount
         });
@@ -618,11 +689,20 @@ router.post('/reforma-docs/:uuid/:slot', upload.single('file'), async (req, res)
 /**
  * Escanea la carpeta "12. DOCUMENTOS PARA CEE" buscando las fotos pre-cargadas
  * y devuelve su contenido en base64 para el Anexo Fotográfico.
+ *
+ * Búsqueda por PREFIJO (case-insensitive). Resuelve correctamente:
+ *  - Nombres canónicos exactos: `FOTO_CALDERA_ANTES.jpeg`
+ *  - Variantes con sufijo: `FOTO_CALDERA_ANTES_v2.jpeg`, `FOTO_CALDERA_ANTES.compressed.jpg`
+ *  - Nombres legacy mantienen su clave de respuesta (compat con SubirFotosModal y AnexoFotograficoModal)
+ *
+ * Param opcional `?slots=KEY1,KEY2,...` para añadir/restringir slots a escanear.
+ * Cada slot debe coincidir con el prefijo del archivo (sin extensión).
  */
 router.get('/scan-photos/:id', async (req, res) => {
-    const { id } = req.params;
+    const { id: paramId } = req.params;
     try {
-        // 1. Buscar la oportunidad
+        const id = await resolveOportunidadId(paramId);
+
         const { data: opp, error: oppErr } = await supabase
             .from('oportunidades')
             .select('datos_calculo')
@@ -636,39 +716,51 @@ router.get('/scan-photos/:id', async (req, res) => {
         const driveFolderId = opp.datos_calculo?.drive_folder_id || opp.datos_calculo?.inputs?.drive_folder_id;
         if (!driveFolderId) return res.json({ success: true, photos: {} });
 
-        // 2. Buscar la subcarpeta "12. DOCUMENTOS PARA CEE"
         const subfolderId = await driveService.findSubfolderByName(driveFolderId, "12. DOCUMENTOS PARA CEE");
         if (!subfolderId) return res.json({ success: true, photos: {} });
 
-        // 3. Listar archivos
-        const files = await driveService.listFiles(subfolderId);
-        
-        const targetNames = ['FOTO_CALDERA_ANTES', 'FOTO_PLACA_CALDERA_ANTES'];
+        // Slots por defecto (legacy + nuevos canónicos para los 6 huecos del Anexo Fotográfico)
+        const DEFAULT_SLOTS = [
+            'FOTO_CALDERA_ANTES',
+            'FOTO_PLACA_CALDERA_ANTES',
+            'FOTO_UNIDAD_EXTERIOR',
+            'FOTO_UNIDAD_EXTERIOR_PLACA',
+            'FOTO_UNIDAD_INTERIOR',
+            'FOTO_UNIDAD_INTERIOR_PLACA'
+        ];
+        const extraSlots = String(req.query.slots || '')
+            .split(',').map(s => s.trim()).filter(Boolean);
+        const targetSlots = [...new Set([...DEFAULT_SLOTS, ...extraSlots])];
+
         const foundPhotos = {};
 
-        for (const file of files) {
-            const nameWithoutExt = file.name.split('.')[0];
-            if (targetNames.includes(nameWithoutExt)) {
-                console.log(`[ScanPhotos] Encontrado ${file.name} (${file.id}). MimeType: ${file.mimeType}. Descargando...`);
+        const extToMime = (filename) => {
+            const lastDot = filename.lastIndexOf('.');
+            const ext = lastDot >= 0 ? filename.substring(lastDot + 1).toLowerCase() : '';
+            const map = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', heic: 'image/heic', heif: 'image/heif' };
+            return map[ext] || 'image/jpeg';
+        };
+
+        // Búsqueda paralela por prefijo. Cada slot toma el más reciente.
+        await Promise.all(targetSlots.map(async (slot) => {
+            try {
+                const matches = await driveService.listFilesByPrefix(subfolderId, slot);
+                if (!matches.length) return;
+                // listFilesByPrefix devuelve ordenado por createdTime desc
+                const file = matches[0];
+                console.log(`[ScanPhotos] Slot ${slot} -> ${file.name} (${file.id})`);
                 const buffer = await driveService.getFileContent(file.id);
-                if (buffer) {
-                    // Drive puede reportar mimeType como application/octet-stream para imágenes de WhatsApp.
-                    // Inferir por extensión si no es un mimeType de imagen válido.
-                    let mimeType = file.mimeType;
-                    if (!mimeType || !mimeType.startsWith('image/')) {
-                        const ext = file.name.split('.').pop()?.toLowerCase();
-                        const extMap = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', heic: 'image/heic', heif: 'image/heif' };
-                        mimeType = extMap[ext] || 'image/jpeg';
-                        console.log(`[ScanPhotos] MimeType corregido a ${mimeType} por extensión .${ext}`);
-                    }
-                    const b64 = `data:${mimeType};base64,${buffer.toString('base64')}`;
-                    foundPhotos[nameWithoutExt] = {
-                        name: file.name,
-                        data: b64
-                    };
+                if (!buffer) return;
+                let mimeType = file.mimeType;
+                if (!mimeType || !mimeType.startsWith('image/')) {
+                    mimeType = extToMime(file.name);
                 }
+                const b64 = `data:${mimeType};base64,${buffer.toString('base64')}`;
+                foundPhotos[slot] = { name: file.name, data: b64 };
+            } catch (slotErr) {
+                console.warn(`[ScanPhotos] Error procesando slot ${slot}:`, slotErr.message);
             }
-        }
+        }));
 
         res.json({ success: true, photos: foundPhotos });
 

@@ -359,6 +359,17 @@ const DEFAULT_PHOTO_SLOTS = [
     { id: 'placa_unidad_interior', label: 'Foto Placa Unidad Interior / ACS', file: null, required: true },
 ];
 
+// Mapa slot legacy ↔ nombre canónico en Drive (carpeta "12. DOCUMENTOS PARA CEE").
+// `FOTO_CALDERA_ANTES` y `FOTO_PLACA_CALDERA_ANTES` se mantienen por compat con expedientes históricos.
+const SLOT_TO_CANONICAL = {
+    caldera_anterior:        'FOTO_CALDERA_ANTES',
+    placa_caldera_anterior:  'FOTO_PLACA_CALDERA_ANTES',
+    unidad_exterior:         'FOTO_UNIDAD_EXTERIOR',
+    placa_unidad_exterior:   'FOTO_UNIDAD_EXTERIOR_PLACA',
+    unidad_interior:         'FOTO_UNIDAD_INTERIOR',
+    placa_unidad_interior:   'FOTO_UNIDAD_INTERIOR_PLACA',
+};
+
 export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: externalPhotos, onPhotosChange, onSaveDrive, results }) {
     const { showAlert, showConfirm } = useModal();
     const { user } = useAuth();
@@ -404,32 +415,30 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
 
     useEffect(() => {
         const scanDrivePhotos = async () => {
-            const needsCaldera = !photos.find(p => p.id === 'caldera_anterior')?.file;
-            const needsPlaca = !photos.find(p => p.id === 'placa_caldera_anterior')?.file;
+            // Hace falta escanear si algún slot mapeado a canónico está vacío
+            const needsAny = Object.keys(SLOT_TO_CANONICAL)
+                .some(slotId => !photos.find(p => p.id === slotId)?.file);
 
             const oppId = expediente?.id_oportunidad_ref || expediente?.oportunidades?.id_oportunidad;
-            if (isOpen && (needsCaldera || needsPlaca) && oppId) {
+            if (isOpen && needsAny && oppId) {
                 setScanningDrive(true);
                 try {
                     console.log(`[AnexoFotografico] Escaneando Drive para Opportunity: ${oppId}...`);
                     const response = await axios.get(`/api/public/scan-photos/${oppId}`);
-                    
+
                     if (response.data?.success && response.data?.photos) {
                         const drivePhotos = response.data.photos;
-                        const hasNewData = drivePhotos.FOTO_CALDERA_ANTES || drivePhotos.FOTO_PLACA_CALDERA_ANTES;
+                        const hasAnyMatch = Object.values(SLOT_TO_CANONICAL)
+                            .some(canonical => drivePhotos[canonical]);
 
-                        if (hasNewData) {
-                            setPhotos(prev => {
-                                return prev.map(p => {
-                                    if (p.id === 'caldera_anterior' && !p.file && drivePhotos.FOTO_CALDERA_ANTES) {
-                                        return { ...p, file: drivePhotos.FOTO_CALDERA_ANTES };
-                                    }
-                                    if (p.id === 'placa_caldera_anterior' && !p.file && drivePhotos.FOTO_PLACA_CALDERA_ANTES) {
-                                        return { ...p, file: drivePhotos.FOTO_PLACA_CALDERA_ANTES };
-                                    }
-                                    return p;
-                                });
-                            });
+                        if (hasAnyMatch) {
+                            setPhotos(prev => prev.map(p => {
+                                const canonical = SLOT_TO_CANONICAL[p.id];
+                                if (canonical && !p.file && drivePhotos[canonical]) {
+                                    return { ...p, file: drivePhotos[canonical] };
+                                }
+                                return p;
+                            }));
                             console.log('[AnexoFotografico] Fotos de Drive sincronizadas con éxito.');
                         }
                     }
@@ -472,6 +481,29 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
 
     const handleFileChange = async (targetIdOrIndex, file) => {
         if (!file) return;
+
+        // Resolver slot.id para mapearlo a nombre canónico en Drive
+        const resolvedSlotId = typeof targetIdOrIndex === 'number'
+            ? photos[targetIdOrIndex]?.id
+            : targetIdOrIndex;
+        const canonical = SLOT_TO_CANONICAL[resolvedSlotId];
+        const oppId = expediente?.id_oportunidad_ref || expediente?.oportunidades?.id_oportunidad;
+
+        // Fire-and-forget: subir a Drive con nombre canónico para que el SubirFotosModal y futuras
+        // re-aperturas del Anexo encuentren la foto vía scan-photos. Renombramos vía
+        // Content-Disposition (mecanismo probado) + canonical_names como red de seguridad.
+        if (canonical && oppId) {
+            const ext = ((file.name || '').split('.').pop() || 'jpg').toLowerCase();
+            const fd = new FormData();
+            fd.append('files', file, `${canonical}.${ext}`);
+            fd.append('canonical_names', JSON.stringify([canonical]));
+            axios.post(`/api/public/upload-docs/${oppId}`, fd, {
+                headers: { 'Content-Type': 'multipart/form-data' }
+            })
+                .then(() => console.log(`[AnexoFotografico] Foto ${resolvedSlotId} → ${canonical} guardada en Drive`))
+                .catch(err => console.warn(`[AnexoFotografico] No se pudo guardar ${canonical} en Drive:`, err.message));
+        }
+
         return new Promise((resolve) => {
             const reader = new FileReader();
             reader.onload = (rev) => {

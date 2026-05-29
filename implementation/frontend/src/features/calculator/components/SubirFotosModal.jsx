@@ -79,13 +79,16 @@ export function SubirFotosModal({ isOpen, onClose, inputs, result, onInputChange
                     
                     setPreviews(prev => {
                         const next = { ...prev };
-                        const hasValidPreview = (p) => p && isValidImageData(p?.data);
-                        if (!hasValidPreview(next.caldera_anterior) && drivePhotos.FOTO_CALDERA_ANTES) {
-                            console.log("[SubirFotosModal] Precargando Caldera desde Drive");
+                        // Drive es la fuente de verdad: si el slot tiene foto canónica en Drive,
+                        // la usamos siempre (refleja el nombre real guardado: FOTO_CALDERA_ANTES.{ext}).
+                        // Solo conservamos el caché local cuando Drive no devuelve nada válido.
+                        const isValidDrive = (p) => p && isValidImageData(p?.data);
+                        if (isValidDrive(drivePhotos.FOTO_CALDERA_ANTES)) {
+                            console.log("[SubirFotosModal] Caldera ← Drive (canónico):", drivePhotos.FOTO_CALDERA_ANTES.name);
                             next.caldera_anterior = drivePhotos.FOTO_CALDERA_ANTES;
                         }
-                        if (!hasValidPreview(next.placa_caldera_anterior) && drivePhotos.FOTO_PLACA_CALDERA_ANTES) {
-                            console.log("[SubirFotosModal] Precargando Placa desde Drive");
+                        if (isValidDrive(drivePhotos.FOTO_PLACA_CALDERA_ANTES)) {
+                            console.log("[SubirFotosModal] Placa ← Drive (canónico):", drivePhotos.FOTO_PLACA_CALDERA_ANTES.name);
                             next.placa_caldera_anterior = drivePhotos.FOTO_PLACA_CALDERA_ANTES;
                         }
                         return next;
@@ -185,17 +188,22 @@ export function SubirFotosModal({ isOpen, onClose, inputs, result, onInputChange
 
         try {
             // 1. Send to Drive (12. DOCUMENTOS PARA CEE) via API if available
+            //    Renombramos el archivo via Content-Disposition (mecanismo probado) Y
+            //    enviamos canonical_names como red de seguridad. El backend acepta cualquiera de los dos.
             if (fotos.caldera_anterior || fotos.placa_caldera_anterior) {
                 const formData = new FormData();
+                const canonicalNames = [];
+                const extOf = (f) => ((f?.name || '').split('.').pop() || 'jpg').toLowerCase();
                 if (fotos.caldera_anterior) {
-                    const ext = fotos.caldera_anterior.name.split('.').pop() || 'jpg';
-                    formData.append('files', fotos.caldera_anterior, `FOTO_CALDERA_ANTES.${ext}`);
+                    formData.append('files', fotos.caldera_anterior, `FOTO_CALDERA_ANTES.${extOf(fotos.caldera_anterior)}`);
+                    canonicalNames.push('FOTO_CALDERA_ANTES');
                 }
                 if (fotos.placa_caldera_anterior) {
-                    const ext = fotos.placa_caldera_anterior.name.split('.').pop() || 'jpg';
-                    formData.append('files', fotos.placa_caldera_anterior, `FOTO_PLACA_CALDERA_ANTES.${ext}`);
+                    formData.append('files', fotos.placa_caldera_anterior, `FOTO_PLACA_CALDERA_ANTES.${extOf(fotos.placa_caldera_anterior)}`);
+                    canonicalNames.push('FOTO_PLACA_CALDERA_ANTES');
                 }
-    
+                formData.append('canonical_names', JSON.stringify(canonicalNames));
+
                 try {
                     await axios.post(`/api/public/upload-docs/${inputs.id_oportunidad}`, formData, {
                         headers: { 'Content-Type': 'multipart/form-data' }

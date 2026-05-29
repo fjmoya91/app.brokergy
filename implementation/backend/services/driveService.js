@@ -380,6 +380,28 @@ async function listFiles(folderId) {
 }
 
 /**
+ * Lista los archivos de una carpeta cuyo nombre EMPIEZA por `prefix` (case-insensitive).
+ * Útil para precarga de slots canónicos tipo `FOTO_CALDERA_ANTES*`.
+ * Ordena por createdTime descendente (más reciente primero).
+ */
+async function listFilesByPrefix(folderId, prefix) {
+    try {
+        const safePrefix = String(prefix || '').replace(/'/g, "\\'");
+        const response = await drive.files.list({
+            q: `'${folderId}' in parents and trashed = false and name contains '${safePrefix}'`,
+            fields: 'files(id, name, mimeType, webViewLink, createdTime)',
+            orderBy: 'createdTime desc'
+        });
+        const all = response.data.files || [];
+        const upper = String(prefix || '').toUpperCase();
+        return all.filter(f => (f.name || '').toUpperCase().startsWith(upper) && f.name !== 'test.txt');
+    } catch (err) {
+        console.error(`[DriveService] Error listando por prefijo '${prefix}' en ${folderId}:`, err.message);
+        return [];
+    }
+}
+
+/**
  * Copia un archivo a una carpeta destino, opcionalmente renombrándolo.
  * Devuelve { id, link } del nuevo archivo, o null si falla.
  */
@@ -452,5 +474,6 @@ module.exports = {
     copyFile,
     getFileMetadata,
     listFiles,
+    listFilesByPrefix,
     deleteFile
 };
