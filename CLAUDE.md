@@ -35,6 +35,7 @@ Si el usuario dice "no veo el cambio", lo primero a comprobar es: **¿hemos hech
 | Documentos PDF | ✅ Estable (2026-04-08) | Generación oficial de Anexo I, Cesión CAE, Ficha RES060 y Certificado CIFO |
 | WhatsApp | ✅ Estable (2026-04-17) | Envío de mensajes y propuestas PDF, admin panel de conexión, estado en sidebar |
 | Lifecycle Expedientes | ✅ Fase 1 (2026-05-20) | Vistas SQL en Supabase para tracking del ciclo de vida. Sin tocar código de app. |
+| Documentación fotográfica | ✅ Estable (2026-05-29) | Superficie única `DocsManager` (cliente por enlace + admin en panel). Fases ANTES/DESPUÉS, validación foto a foto, escritura atómica, proxy de miniaturas. |
 
 ### Módulo Documentos — Novedades (2026-04-08)
 - **Anexo I**: Formato oficial Arial 12pt. Lógica de ACS blindada (solo muestra unidad interior si se actúa sobre ACS).
@@ -287,6 +288,42 @@ FROM v_expedientes_pendientes WHERE array_length(anomalias_docs, 1) > 0;
 
 ---
 
+## Módulo Documentación Fotográfica — Superficie unificada (2026-05-29)
+
+Reemplaza el antiguo `SubirFotosModal` (2 slots hardcoded + base64 en BD, **eliminado**). Ahora hay **una sola superficie** para subir/ver/validar fotos, con permisos según quién entra.
+
+### Componente núcleo: `DocsManager`
+**Fichero:** `implementation/frontend/src/features/docs/DocsManager.jsx`. Dos modos:
+- `mode="token"` → **cliente/instalador por enlace público** `/subir-docs/:uuid?token=` (subir, ver, sin validar). Envoltorio: `features/public/views/SubirDocsReformaView.jsx`.
+- `mode="admin"` → **logueado** vía `features/calculator/components/DocsAdminModal.jsx` (modal in-app abierto desde el botón **"SUBIR FOTOS"** en `ResultsPanel.jsx`). Si `user.rol === 'ADMIN'` → **validar/rechazar foto a foto** y **borrar** (✕ en miniatura + 🗑 en lightbox).
+
+### Checklist por fases (computado, NO persistido)
+`reformaUploadService.buildDocChecklist(datos_calculo)` deriva los slots desde los `inputs` del instalador **o** del `landing_funnel`, etiquetados por `fase` (`ANTES`/`DESPUES`) y `gating` (`pre_aceptacion` en caldera+placa). La pestaña **DESPUÉS se bloquea** hasta `datos_calculo.estado === 'ACEPTADA'`. Caldera/placa son `multiple` (varias perspectivas, sufijo `_1`, `_2`…).
+
+### Almacenamiento (incremental, sin esquema nuevo)
+- **Ficheros**: Drive, carpeta `12. DOCUMENTOS PARA CEE`, nombre `FOTO_{SLOT}[_N].{ext}`.
+- **Estado POR FOTO**: en cada entrada de `datos_calculo.reforma_uploads[slot][i]` → `{ name, link, driveId, at, estado, motivo, subido_por }`. `estado` ∈ `subida|validada|rechazada`. El estado del SLOT es un resumen derivado.
+- `datos_calculo.upload_token` (32 hex) se siembra al guardar la oportunidad (`POST /api/oportunidades`).
+
+### Endpoints
+```
+GET  /api/public/reforma-docs/:uuid?token=            → vista (checklist+estado+miniaturas) RECONCILIADA con Drive
+POST /api/public/reforma-docs/:uuid/:slot?token=      → sube 1 foto (requireAuth opcional marca subido_por)
+DEL  /api/public/reforma-docs/:uuid/:slot?token=&driveId=  → borra de Drive + estado
+GET  /api/public/reforma-thumb/:uuid/:driveId?token=&sz=  → PROXY de miniatura (mismo origen)
+GET  /api/oportunidades/:id/docs                      → vista admin (enforceAuth); devuelve uuid + upload_token
+POST /api/oportunidades/:id/docs/:slot/validar        → adminOnly
+POST /api/oportunidades/:id/docs/:slot/rechazar       → adminOnly; notifica WhatsApp/email a subido_por
+```
+
+### Notificación de rechazo
+Cada foto guarda `subido_por` (`cliente|instalador|admin`). Al rechazar, el backend resuelve el contacto desde la oportunidad: `instalador`→`prescriptores` (instalador_asociado_id/prescriptor_id); resto→`clientes` (cliente_id). **Cuidado en pruebas**: rechazar en una oportunidad con cliente real envía WhatsApp real.
+
+### Migración SQL (ya en producción)
+`implementation/backend/scripts/reforma_uploads_atomic_writes.sql` → funciones `reforma_append` / `reforma_replace_slot`.
+
+---
+
 ## Reglas Críticas — No Romper
 
 1. **Drive**: La creación de carpetas es **no bloqueante**. **REGLA DE ORO:** Los enlaces a Drive (`drive_folder_link`) solo se muestran en el frontend si `user.rol === 'ADMIN'`.
@@ -306,6 +343,9 @@ FROM v_expedientes_pendientes WHERE array_length(anomalias_docs, 1) > 0;
 15. **Catastro — Cliente HTTP**: NUNCA usar `axios` contra `ovc.catastro.meh.es`. Usar el helper `catastroGet()` en [catastroService.js](implementation/backend/services/catastroService.js) (http.request puro, `family:4`, UA `Mozilla/5.0 (compatible; Brokergy/1.0)`). El WAF rechaza axios + Chrome UA largo desde IPs de datacenter.
 16. **Catastro — Endpoints**: usar SOLO los WCF JSON (`/OVCServWeb/OVCWcf.../svc/json/*`), NUNCA los ASMX (`/ovcservweb/.../asmx/*`). Los ASMX están filtrados por el WAF a IPs de datacenter; los WCF JSON sirven la misma data sin ese filtro. Params del JSON: `CoorX/CoorY` (no `Coordenada_X/_Y`), `RefCat` (no `RC`).
 17. **Catastro — Sin ráfagas**: no usar `Promise.all` con peticiones al Catastro. Siempre secuencial con `await sleep(200+)` entre cada una. Ver `getRCByCoords` para el patrón actual (central + 2 puntos N/E en serie, 800ms).
+18. **Miniaturas de Drive — usar el PROXY**: el navegador NO puede hotlinkear de forma fiable las URLs de Drive (`lh3.googleusercontent.com` / `drive.google.com/thumbnail`) desde la app — fallan en `<img>` aunque den 200 por curl. SIEMPRE servir miniaturas vía `GET /api/public/reforma-thumb/:uuid/:driveId?token=&sz=` (mismo origen). NO volver a poner URLs de Drive directas en `src`.
+19. **reforma_uploads — escritura ATÓMICA**: NUNCA hacer read-modify-write de todo `datos_calculo` para tocar `reforma_uploads` (dos subidas concurrentes se pisan = pérdida de datos). Usar SIEMPRE las RPC `reforma_append` / `reforma_replace_slot` (jsonb_set por slot, bloqueo de fila).
+20. **Documentación — Drive es la fuente de verdad**: la vista (`buildDocsView`) RECONCILIA listando la carpeta Drive y fusiona el estado de `reforma_uploads`. No asumir que la BD y Drive están sincronizados; si Drive tiene un fichero, debe aparecer. El estado (validada/rechazada) vive POR FOTO en la entrada de `reforma_uploads`, no por slot.
 
 ---
 
