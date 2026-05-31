@@ -252,9 +252,10 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
         _setInputs(updater);
     }, []);
 
-    // Si hay resultado guardado (oportunidad cargada desde BD), mostrarlo de inmediato
-    // sin esperar a que el motor recalcule. Solo se recalcula cuando el usuario cambia algo.
-    const [result, setResult] = useState(() => initialData?.result || null);
+    // Arrancamos SIN resultado y dejamos que el motor recalcule en cuanto monta (ver
+    // useEffect más abajo). Así lo mostrado refleja la lógica actual y no un resultado
+    // guardado obsoleto (la retención de IRPF sobre el CAE ya no se aplica por defecto).
+    const [result, setResult] = useState(null);
     const [dbModels, setDbModels] = useState([]);
     const [associatedExpediente, setAssociatedExpediente] = useState(null);
     const [showAcceptModal, setShowAcceptModal] = useState(false);
@@ -293,12 +294,12 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
     }, [inputs.id_oportunidad]);
 
     // Cálculos en tiempo real cada vez que cambian los inputs o se cargan los modelos.
-    // Excepción: si el usuario aún no ha tocado nada Y hay resultado guardado en BD,
-    // no recalculamos para evitar sobreescribir el resultado guardado.
+    // Recalculamos TAMBIÉN al cargar (no solo tras interacción) para que el resultado
+    // mostrado refleje la LÓGICA ACTUAL y no un resultado guardado obsoleto. Antes había
+    // un guard que mostraba el result guardado hasta la primera interacción; eso dejaba ver
+    // cifras desactualizadas (p.ej. la retención de IRPF sobre el CAE, que ya NO se aplica
+    // por defecto, seguía apareciendo al abrir la oportunidad hasta tocar "Datos Económicos").
     useEffect(() => {
-        if (!userInteractedRef.current && initialData?.result) {
-            return; // Mostrar resultado guardado hasta que el usuario modifique algo
-        }
         handleCalculate();
     }, [inputs, dbModels]);
 
@@ -446,7 +447,7 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
             itpPercent: sanitizedInputs.itpPercent,
             includeIrpf: inputs.includeIrpf,
             titularType: inputs.titularType || 'particular',
-            aplicarIrpfCae: inputs.aplicarIrpfCae === true || inputs.aplicarIrpfCae === 'true' || inputs.aplicarIrpfCae === undefined
+            aplicarIrpfCae: inputs.aplicarIrpfCae === true || inputs.aplicarIrpfCae === 'true'
         });
 
         // 4. Cálculos de Ahorro Anual (€)
@@ -546,7 +547,7 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
                 itpPercent: sanitizedInputs.itpPercent,
                 includeIrpf: inputs.includeIrpf,
                 titularType: inputs.titularType || 'particular',
-                aplicarIrpfCae: inputs.aplicarIrpfCae === true || inputs.aplicarIrpfCae === 'true' || inputs.aplicarIrpfCae === undefined
+                aplicarIrpfCae: inputs.aplicarIrpfCae === true || inputs.aplicarIrpfCae === 'true'
             });
         }
 

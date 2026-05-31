@@ -17,6 +17,28 @@ const upload = multer({
     limits: { fileSize: 20 * 1024 * 1024 }, // 20MB para justificante
 });
 
+// Multer dedicado a la documentación del expediente: admite vídeos del recorrido
+// de la vivienda, que pesan bastante más que una foto (móvil 1080p ≈ 30-150MB).
+const DOCS_MAX_MB = 120;
+const uploadDocs = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: DOCS_MAX_MB * 1024 * 1024 },
+});
+// Envuelve multer para devolver un error claro (413) si el archivo excede el límite,
+// en lugar de un 500 genérico.
+function uploadDocsSingle(req, res, next) {
+    uploadDocs.single('file')(req, res, (err) => {
+        if (err) {
+            if (err.code === 'LIMIT_FILE_SIZE') {
+                return res.status(413).json({ error: `El archivo es demasiado grande (máximo ${DOCS_MAX_MB} MB). Si es un vídeo, grábalo más corto o en menor calidad.` });
+            }
+            console.error('[Reforma] multer upload error:', err.message);
+            return res.status(400).json({ error: 'No se pudo procesar el archivo. Inténtalo de nuevo.' });
+        }
+        next();
+    });
+}
+
 async function imageToPdf(imageBuffer, mimeType) {
     const pdfDoc = await PDFDocument.create();
     const img = mimeType === 'image/png'
@@ -670,7 +692,7 @@ router.get('/reforma-docs/:uuid', async (req, res) => {
 // POST /api/public/reforma-docs/:uuid/:slot?token= → sube 1 fichero al slot
 // requireAuth es NO bloqueante: si hay sesión (admin/instalador) marca subido_por
 // en consecuencia; si solo hay token (cliente), subido_por = 'cliente'.
-router.post('/reforma-docs/:uuid/:slot', requireAuth, upload.single('file'), async (req, res) => {
+router.post('/reforma-docs/:uuid/:slot', requireAuth, uploadDocsSingle, async (req, res) => {
     try {
         const { uuid, slot } = req.params;
         const { token } = req.query;

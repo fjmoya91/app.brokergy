@@ -30,6 +30,21 @@ const FOTO_ESTADO_BORDER = {
 
 const driveImgUrl = (driveId, size) => (driveId ? `https://lh3.googleusercontent.com/d/${driveId}=w${size}` : null);
 
+const IMG_EXT = /\.(jpe?g|png|gif|webp|heic|heif|bmp|tiff?)$/i;
+/** ¿El item es una imagen? (por mimeType o, en su defecto, por extensión del nombre) */
+const isImageItem = (it) => {
+    if (it?.mimeType) return it.mimeType.startsWith('image/');
+    return IMG_EXT.test(it?.name || '');
+};
+/** Icono + etiqueta de extensión para documentos no-imagen. */
+const docMetaFor = (it) => {
+    const mt = it?.mimeType || '';
+    const ext = (String(it?.name || '').match(/\.([a-z0-9]+)$/i)?.[1] || '').toUpperCase();
+    if (mt.startsWith('video/')) return { icon: '🎥', ext: ext || 'VÍDEO' };
+    if (mt === 'application/pdf' || ext === 'PDF') return { icon: '📄', ext: 'PDF' };
+    return { icon: '📎', ext: ext || 'DOC' };
+};
+
 /**
  * Imagen con previsualización local instantánea + reintento ante latencia de Drive.
  * Si se pasa `lowSrc` (p.ej. la miniatura ya cacheada), se muestra al instante
@@ -106,6 +121,7 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
     const [acting, setActing] = useState(null); // `${slot}:${name}` en validación
     const [reject, setReject] = useState(null); // { slot, item } cuando se rechaza
     const [rejectMotivo, setRejectMotivo] = useState('');
+    const [waiving, setWaiving] = useState(null); // slot.key cuyo "no necesario" se está cambiando
 
     // Para subir/borrar siempre usamos el canal público con uuid+token reales.
     const uuidRef = useRef(null);
@@ -226,6 +242,21 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
         }
     };
 
+    // Admin: marca un obligatorio como "no necesario" (o lo reactiva).
+    const toggleWaive = async (slot) => {
+        const next = !slot.waived;
+        setWaiving(slot.key);
+        setSlotError(prev => ({ ...prev, [slot.key]: null }));
+        try {
+            await axios.post(`/api/oportunidades/${idOrUuid}/docs/${slot.key}/waive`, { waived: next });
+            patchSlot(slot.key, s => ({ ...s, waived: next, required: next ? false : (s.baseRequired ?? s.required) }));
+        } catch (err) {
+            setSlotError(prev => ({ ...prev, [slot.key]: err.response?.data?.error || 'No se pudo cambiar.' }));
+        } finally {
+            setWaiving(null);
+        }
+    };
+
     const confirmReject = async () => {
         if (!rejectMotivo.trim()) return;
         const { slot, item } = reject;
@@ -244,8 +275,25 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
 
     const slots = info?.slots || [];
     const aceptada = !!info?.aceptada;
-    const antes = slots.filter(s => s.fase === 'ANTES');
-    const despues = slots.filter(s => s.fase === 'DESPUES');
+
+    // Orden dentro de cada fase: lo accionable arriba, lo ya resuelto abajo.
+    //   0 · rechazada (hay que volver a subir)   1 · pendiente / en revisión
+    //   2 · validada (✓, baja a la parte inferior)   3 · catch-all "ya aportados"
+    const tierOf = (s) => {
+        if (s.existing) return 4;       // catch-all "ya aportados" → siempre al final del todo
+        if (s.waived) return 3;         // marcado "no necesario" → por debajo de los validados
+        const e = s.estado || (s.items?.length ? 'subida' : 'pendiente');
+        if (e === 'rechazada') return 0; // acción urgente → arriba
+        if (e === 'validada') return 2;  // validadas → debajo de lo pendiente
+        return 1;                        // pendiente / en revisión
+    };
+    const byTier = (arr) => arr
+        .map((s, i) => ({ s, i }))
+        .sort((a, b) => (tierOf(a.s) - tierOf(b.s)) || (a.i - b.i))
+        .map(x => x.s);
+
+    const antes = byTier(slots.filter(s => s.fase === 'ANTES'));
+    const despues = byTier(slots.filter(s => s.fase === 'DESPUES'));
     const reqAntes = antes.filter(s => s.required);
     const reqDone = reqAntes.filter(s => s.items?.length).length;
     const allReqDone = reqAntes.length > 0 && reqDone === reqAntes.length;
@@ -260,27 +308,52 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
             <div key={slot.key} className={`p-4 md:p-5 rounded-2xl border-2 transition-all ${done ? ui.ring : slot.required ? 'border-amber-400/30 bg-amber-400/[0.04]' : 'border-white/10 bg-white/[0.03]'}`}>
                 <div className="flex items-start justify-between gap-4">
                     <div className="flex-1 min-w-0">
-                        <p className="font-black text-white text-sm md:text-base flex items-center gap-2 flex-wrap">
+                        <p className={`font-black text-sm md:text-base flex items-center gap-2 flex-wrap ${slot.waived ? 'text-white/50' : 'text-white'}`}>
                             {slot.label}
                             {slot.required && !done && <span className="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-400/15 text-amber-300">Obligatorio</span>}
+                            {slot.waived && <span className="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-white/10 text-white/50">No necesario</span>}
                             {ui.chip && <span className={`text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full ${ui.chip.cls}`}>{ui.chip.txt}</span>}
                         </p>
                         {slot.help && <p className="text-white/45 text-xs mt-1 leading-snug">{slot.help}</p>}
+                        {/* Admin: marcar obligatorio como "no necesario" (o reactivar) */}
+                        {canValidate && (slot.required || slot.waived) && (
+                            <button
+                                onClick={() => toggleWaive(slot)}
+                                disabled={waiving === slot.key}
+                                className={`mt-2 inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-lg border transition-all disabled:opacity-40 ${slot.waived ? 'border-amber-400/30 text-amber-300 hover:bg-amber-400/10' : 'border-white/15 text-white/50 hover:bg-white/[0.06] hover:text-white/80'}`}
+                            >
+                                {waiving === slot.key ? '…' : slot.waived ? '↺ Volver a pedir' : '🚫 Marcar “no necesario”'}
+                            </button>
+                        )}
 
                         {items.length > 0 && (
                             <div className="mt-3 flex flex-wrap gap-3">
                                 {items.map((it, i) => {
                                     const fEstado = it.estado || 'subida';
+                                    const img = isImageItem(it);
+                                    const doc = img ? null : docMetaFor(it);
                                     return (
                                         <div key={i} className="flex flex-col items-center gap-1">
                                             <div className="relative group">
-                                                <button
-                                                    onClick={() => { setLbConfirmDelete(false); setLightbox({ slot, item: it, localUrl: it.localUrl, driveId: it.driveId, thumb: it.thumb, label: slot.label }); }}
-                                                    className={`relative w-16 h-16 rounded-lg overflow-hidden border-2 ${FOTO_ESTADO_BORDER[fEstado]} hover:opacity-90 transition-all block`}
-                                                    title={it.motivo ? `Rechazada: ${it.motivo}` : 'Ver en grande'}
-                                                >
-                                                    <DriveImg localUrl={it.localUrl} proxySrc={thumbProxy(it.driveId, 400)} driveId={it.driveId} thumb={it.thumb} size={400} fit="cover" />
-                                                </button>
+                                                {img ? (
+                                                    <button
+                                                        onClick={() => { setLbConfirmDelete(false); setLightbox({ slot, item: it, localUrl: it.localUrl, driveId: it.driveId, thumb: it.thumb, label: slot.label }); }}
+                                                        className={`relative w-16 h-16 rounded-lg overflow-hidden border-2 ${FOTO_ESTADO_BORDER[fEstado]} hover:opacity-90 transition-all block`}
+                                                        title={it.motivo ? `Rechazada: ${it.motivo}` : 'Ver en grande'}
+                                                    >
+                                                        <DriveImg localUrl={it.localUrl} proxySrc={thumbProxy(it.driveId, 400)} driveId={it.driveId} thumb={it.thumb} size={400} fit="cover" />
+                                                    </button>
+                                                ) : (
+                                                    <a
+                                                        href={it.link || (it.driveId ? `https://drive.google.com/file/d/${it.driveId}/view` : '#')}
+                                                        target="_blank" rel="noreferrer"
+                                                        className={`relative w-16 h-16 rounded-lg overflow-hidden border-2 ${FOTO_ESTADO_BORDER[fEstado]} hover:opacity-90 transition-all flex flex-col items-center justify-center gap-0.5 bg-white/[0.04]`}
+                                                        title={`${it.name}${it.motivo ? ` · Rechazada: ${it.motivo}` : ''}`}
+                                                    >
+                                                        <span className="text-xl leading-none">{doc.icon}</span>
+                                                        <span className="text-[7px] font-black uppercase tracking-wider text-white/50">{doc.ext}</span>
+                                                    </a>
+                                                )}
                                                 {/* Borrar: solo ADMIN */}
                                                 {canValidate && (
                                                     <button onClick={() => deleteItem(slot, it)} disabled={busy} title="Eliminar"
@@ -309,15 +382,17 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
                         {slotError[slot.key] && <p className="text-red-400 text-xs mt-2">{slotError[slot.key]}</p>}
                     </div>
 
-                    <label className={`shrink-0 cursor-pointer px-4 py-2.5 rounded-xl font-black uppercase tracking-widest text-[11px] transition-all ${busy ? 'bg-white/10 text-white/40' : done ? 'bg-white/[0.06] text-white/70 hover:bg-white/[0.1] border border-white/10' : 'bg-gradient-to-r from-amber-500 to-amber-400 text-black shadow-lg shadow-amber-500/20'}`}>
-                        {busy ? '…' : done ? (slot.multiple ? '+ Añadir' : 'Cambiar') : 'Subir'}
-                        <input type="file" accept={slot.accept}
-                            capture={slot.accept?.startsWith('image/') ? 'environment' : undefined}
-                            {...(slot.multiple ? { multiple: true } : {})}
-                            disabled={busy}
-                            onChange={e => { uploadFiles(slot, e.target.files); e.target.value = ''; }}
-                            className="hidden" />
-                    </label>
+                    {!slot.existing && (
+                        <label className={`shrink-0 cursor-pointer px-4 py-2.5 rounded-xl font-black uppercase tracking-widest text-[11px] transition-all ${busy ? 'bg-white/10 text-white/40' : done ? 'bg-white/[0.06] text-white/70 hover:bg-white/[0.1] border border-white/10' : 'bg-gradient-to-r from-amber-500 to-amber-400 text-black shadow-lg shadow-amber-500/20'}`}>
+                            {busy ? '…' : done ? (slot.multiple ? '+ Añadir' : 'Cambiar') : 'Subir'}
+                            <input type="file" accept={slot.accept}
+                                capture={slot.accept?.startsWith('image/') ? 'environment' : undefined}
+                                {...(slot.multiple ? { multiple: true } : {})}
+                                disabled={busy}
+                                onChange={e => { uploadFiles(slot, e.target.files); e.target.value = ''; }}
+                                className="hidden" />
+                        </label>
+                    )}
                 </div>
             </div>
         );

@@ -1003,7 +1003,10 @@ async function setFotoEstado(opp, slot, name, patch) {
         if (it.name === name) { found = true; return { ...it, ...patch }; }
         return it;
     });
-    if (!found) return { ok: false, subido_por: null };
+    // Foto reconciliada desde Drive que aún no estaba registrada en BD (expedientes
+    // antiguos con reforma_uploads vacío, volcados de WhatsApp, catch-all): la creamos
+    // para poder guardar su estado. Drive sigue siendo la fuente de existencia.
+    if (!found) newList.push({ name, ...patch });
     const subido_por = list.find(it => it.name === name)?.subido_por || null;
     // Escritura ATÓMICA por slot (no pisa subidas concurrentes a otros slots)
     const { error: rpcErr } = await supabase.rpc('reforma_replace_slot', {
@@ -1018,10 +1021,43 @@ router.get('/:id/docs', enforceAuth, async (req, res) => {
     try {
         const opp = await findOppForDocs(req.params.id);
         if (!opp) return res.status(404).json({ error: 'Oportunidad no encontrada' });
+
+        // Garantiza el token de subida. Las oportunidades antiguas (anteriores a la
+        // siembra del token) no lo tienen, y sin él el canal público —subir foto Y
+        // el proxy de miniaturas— responde 403 ("Enlace inválido o caducado").
+        // Se genera una sola vez, al abrir el modal (sin subidas concurrentes en curso).
+        let uploadToken = opp.datos_calculo?.upload_token || null;
+        if (!uploadToken) {
+            try {
+                const r = await reformaUploadService.attachUploadToken(opp.id);
+                uploadToken = r.token;
+                opp.datos_calculo = r.opp.datos_calculo; // refleja token + reforma_uploads:{}
+            } catch (e) { console.warn('[Docs] no se pudo generar upload_token:', e.message); }
+        }
+
         // Devolvemos también el token para que el modal admin pueda subir por el mismo canal
         const view = await reformaUploadService.buildDocsView(opp);
-        view.upload_token = opp.datos_calculo?.upload_token || null;
+        view.upload_token = uploadToken;
         view.uuid = opp.id;
+        view.upload_link = uploadToken ? reformaUploadService.buildUploadLink(opp.id, uploadToken) : null;
+
+        // Destinatarios disponibles para reenviar el enlace (nombre + teléfono para el modal)
+        let clienteInfo = null;
+        if (opp.cliente_id) {
+            const { data: c } = await supabase.from('clientes')
+                .select('nombre_razon_social, tlf, persona_contacto_tlf').eq('id_cliente', opp.cliente_id).maybeSingle();
+            if (c) clienteInfo = { name: c.nombre_razon_social || view.cliente || 'Cliente', phone: c.tlf || c.persona_contacto_tlf || null };
+            else clienteInfo = { name: view.cliente || 'Cliente', phone: null };
+        }
+        let instaladorInfo = null;
+        const insId = opp.instalador_asociado_id || opp.prescriptor_id;
+        if (insId) {
+            const { data: p } = await supabase.from('prescriptores')
+                .select('razon_social, acronimo, tlf, tlf_contacto').eq('id_empresa', insId).maybeSingle();
+            if (p) instaladorInfo = { name: p.razon_social || p.acronimo || 'Instalador', phone: p.tlf || p.tlf_contacto || null };
+        }
+        view.recipients = { cliente: clienteInfo, instalador: instaladorInfo };
+
         return res.json(view);
     } catch (e) {
         console.error('[Docs] GET error:', e);
@@ -1042,6 +1078,24 @@ router.post('/:id/docs/:slot/validar', adminOnly, async (req, res) => {
         return res.json({ success: true, slot, name, estado: 'validada' });
     } catch (e) {
         console.error('[Docs] validar error:', e);
+        res.status(500).json({ error: 'Error interno' });
+    }
+});
+
+// POST /api/oportunidades/:id/docs/:slot/waive  body { waived }
+// Marca un documento obligatorio como "no necesario" (o lo reactiva). Solo admin.
+// Útil cuando el vídeo del recorrido ya cubre fachada/patios/ventanas, etc.
+router.post('/:id/docs/:slot/waive', adminOnly, async (req, res) => {
+    try {
+        const { slot } = req.params;
+        const waived = req.body?.waived !== false; // default: true
+        const opp = await findOppForDocs(req.params.id);
+        if (!opp) return res.status(404).json({ error: 'Oportunidad no encontrada' });
+        const { error } = await supabase.rpc('set_doc_override', { p_id: opp.id, p_slot: slot, p_waived: waived });
+        if (error) { console.error('[Docs] rpc set_doc_override:', error.message); return res.status(500).json({ error: 'No se pudo guardar el cambio' }); }
+        return res.json({ success: true, slot, waived });
+    } catch (e) {
+        console.error('[Docs] waive error:', e);
         res.status(500).json({ error: 'Error interno' });
     }
 });
@@ -1072,6 +1126,70 @@ router.post('/:id/docs/:slot/rechazar', adminOnly, async (req, res) => {
         });
     } catch (e) {
         console.error('[Docs] rechazar error:', e);
+        res.status(500).json({ error: 'Error interno' });
+    }
+});
+
+// POST /api/oportunidades/:id/docs/enviar-enlace
+// Reenvía el enlace de subida de documentación al cliente y/o instalador (o a un
+// contacto manual) por WhatsApp o email. El mensaje lo construye el frontend
+// (incluye enlace + lo que falta) y aquí solo resolvemos el contacto y enviamos.
+// body: { recipients: [{ type:'cliente'|'instalador'|'otro', value? }], channel:'whatsapp'|'email', message }
+router.post('/:id/docs/enviar-enlace', adminOnly, async (req, res) => {
+    try {
+        const { recipients, channel, message } = req.body;
+        if (!message || !message.trim()) return res.status(400).json({ error: 'El mensaje es obligatorio' });
+        if (!Array.isArray(recipients) || !recipients.length) return res.status(400).json({ error: 'Selecciona al menos un destinatario' });
+        if (!['whatsapp', 'email'].includes(channel)) return res.status(400).json({ error: 'Canal no válido' });
+
+        const opp = await findOppForDocs(req.params.id);
+        if (!opp) return res.status(404).json({ error: 'Oportunidad no encontrada' });
+
+        const results = [];
+        for (const rcp of recipients) {
+            let phone = null, email = null, name = '';
+            try {
+                if (rcp.type === 'cliente' && opp.cliente_id) {
+                    const { data: c } = await supabase.from('clientes')
+                        .select('nombre_razon_social, tlf, persona_contacto_tlf, email, persona_contacto_email')
+                        .eq('id_cliente', opp.cliente_id).maybeSingle();
+                    if (c) { phone = c.tlf || c.persona_contacto_tlf; email = c.email || c.persona_contacto_email; name = c.nombre_razon_social || 'Cliente'; }
+                } else if (rcp.type === 'instalador') {
+                    const insId = opp.instalador_asociado_id || opp.prescriptor_id;
+                    if (insId) {
+                        const { data: p } = await supabase.from('prescriptores')
+                            .select('razon_social, tlf, tlf_contacto, email, email_contacto')
+                            .eq('id_empresa', insId).maybeSingle();
+                        if (p) { phone = p.tlf || p.tlf_contacto; email = p.email || p.email_contacto; name = p.razon_social || 'Instalador'; }
+                    }
+                } else if (rcp.type === 'otro') {
+                    if (channel === 'whatsapp') phone = rcp.value;
+                    else email = rcp.value;
+                    name = rcp.name || '';
+                }
+
+                if (channel === 'whatsapp') {
+                    if (!phone) { results.push({ type: rcp.type, ok: false, error: 'sin teléfono' }); continue; }
+                    await whatsappService.sendText(phone, message);
+                    results.push({ type: rcp.type, ok: true, to: phone });
+                } else {
+                    if (!email) { results.push({ type: rcp.type, ok: false, error: 'sin email' }); continue; }
+                    await emailService.sendMail({
+                        to: email,
+                        subject: `Documentación de tu expediente ${opp.id_oportunidad}`,
+                        html: `<div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;color:#222;white-space:pre-wrap;line-height:1.5">${String(message).replace(/&/g, '&amp;').replace(/</g, '&lt;')}</div>`,
+                        text: message
+                    });
+                    results.push({ type: rcp.type, ok: true, to: email });
+                }
+            } catch (e) {
+                results.push({ type: rcp.type, ok: false, error: e.message });
+            }
+        }
+
+        return res.json({ success: results.some(r => r.ok), results });
+    } catch (e) {
+        console.error('[Docs] enviar-enlace error:', e);
         res.status(500).json({ error: 'Error interno' });
     }
 });

@@ -137,7 +137,7 @@ export function ConfirmationCard({ candidate, onConfirm, onCancel, onPickOnMap }
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {/* Left Column: Image */}
                 <div className="relative group">
-                    <div className="aspect-square w-full rounded-xl overflow-hidden border border-white/10 bg-black/40">
+                    <div className="aspect-square max-h-[38vh] md:max-h-none w-full rounded-xl overflow-hidden border border-white/10 bg-black/40">
                         {selected.imageUrl ? (
                             <img
                                 src={selected.imageUrl}
@@ -162,9 +162,11 @@ export function ConfirmationCard({ candidate, onConfirm, onCancel, onPickOnMap }
                     </div>
                 </div>
 
-                {/* Right Column: Details & Actions */}
-                <div className="flex flex-col h-full">
-                    <div className="bg-white/5 rounded-xl border border-white/5 p-4 flex-1 mb-4">
+                {/* Right Column: Details & Actions.
+                    En MÓVIL invertimos el orden (flex-col-reverse) para que el botón Confirmar
+                    quede justo debajo de la imagen y no haya que scrollear todos los datos. */}
+                <div className="flex flex-col-reverse md:flex-col h-full gap-4">
+                    <div className="bg-white/5 rounded-xl border border-white/5 p-4 flex-1">
                         <div className="flex items-center justify-between mb-4">
                             <span className="text-xs font-bold tracking-wider text-white/40 uppercase">Datos Catastrales</span>
                             {loadingDetails && <span className="text-xs text-primary-400 animate-pulse">Cargando...</span>}
@@ -214,8 +216,8 @@ export function ConfirmationCard({ candidate, onConfirm, onCancel, onPickOnMap }
                         </div>
                     </div>
 
-                    {/* Actions Area - Now on the right */}
-                    <div className="flex gap-3 mt-auto">
+                    {/* Actions Area */}
+                    <div className="flex gap-3">
                         <button
                             onClick={onCancel}
                             className="flex-1 btn-secondary text-sm py-3 justify-center"

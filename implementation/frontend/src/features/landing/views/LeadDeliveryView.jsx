@@ -54,13 +54,6 @@ const IconBuilding = ({ className = 'w-4 h-4' }) => (
     </svg>
 );
 
-const TIMELINE_OPTIONS = [
-    { value: 'urgente',    emoji: '🚀', label: 'Urgente' },
-    { value: '1-3_meses', emoji: '📅', label: '1-3 meses' },
-    { value: '6_meses',   emoji: '🗓️', label: '6+ meses' },
-    { value: 'explorando',emoji: '🔍', label: 'Explorando' },
-];
-
 /* ── Componente principal ────────────────────────────────────── */
 export function LeadDeliveryView({
     funnel,
@@ -124,21 +117,19 @@ export function LeadDeliveryView({
     const emailValid = !contacto.email || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contacto.email);
     const tlfValid   = !contacto.tlf   || /^[+]?\d{9,15}$/.test((contacto.tlf || '').replace(/\s/g, ''));
     const nombre     = (contacto.nombre || '').trim();
+    const apellidos  = (contacto.apellidos || '').trim();
 
     const canSubmit = useMemo(() => {
-        if (!pref.length || !nombre || !contacto.rgpd_aceptado) return false;
+        if (!pref.length || !nombre || !apellidos || !contacto.rgpd_aceptado) return false;
+        // Particular/empresa se pregunta SIEMPRE (afecta a la deducción según nº de propietarios)
+        if (!contacto.titular_type) return false;
         if (hasTecnico) {
-            return !!(
-                (contacto.email || contacto.tlf) &&
-                emailValid && tlfValid &&
-                contacto.titular_type &&
-                contacto.timeline
-            );
+            return !!((contacto.email || contacto.tlf) && emailValid && tlfValid);
         }
         if (hasWA    && (!contacto.tlf   || !tlfValid))   return false;
         if (hasEmail && (!contacto.email || !emailValid)) return false;
         return true;
-    }, [pref, nombre, contacto, emailValid, tlfValid, hasWA, hasEmail, hasTecnico]);
+    }, [pref, nombre, apellidos, contacto, emailValid, tlfValid, hasWA, hasEmail, hasTecnico]);
 
     /* ── CTA label y estilo ── */
     const ctaLabel  = hasTecnico ? 'Confirmar solicitud →'
@@ -157,23 +148,19 @@ export function LeadDeliveryView({
 
     /* ── Submit ── */
     const handleSubmit = () => {
-        setTouched({ nombre: true, email: true, tlf: true, rgpd: true, titular: true, timeline: true, propietarios: true });
+        setTouched({ nombre: true, apellidos: true, email: true, tlf: true, rgpd: true, titular: true, propietarios: true });
         if (!canSubmit || submitting) return;
 
         // ① Capturar valores del resultado local ANTES del submit (síncrono vía ref)
         onCaptureSummary?.(r);
 
-        // ② Defaults suaves para modos simplificados
-        if (!hasTecnico) {
-            setContacto(prev => ({
-                ...prev,
-                titular_type:     prev.titular_type     || 'particular',
-                num_propietarios: prev.num_propietarios || 1,
-                timeline:         prev.timeline          || 'explorando',
-                consent_whatsapp: hasWA,
-                consent_email:    hasEmail,
-            }));
-        }
+        // ② Defaults suaves: propietarios=1 si no eligió; consents según canal elegido.
+        setContacto(prev => ({
+            ...prev,
+            num_propietarios: prev.num_propietarios || 1,
+            consent_whatsapp: hasWA,
+            consent_email:    hasEmail,
+        }));
         onSubmit();
     };
 
@@ -276,18 +263,31 @@ export function LeadDeliveryView({
             {showForm && (
                 <div className="p-5 bg-white/[0.03] border border-white/10 rounded-2xl animate-fade-in space-y-4 mb-5">
 
-                    {/* Nombre — siempre */}
-                    <div>
-                        <label className={fieldLabel}>Nombre y apellidos *</label>
-                        <input
-                            type="text"
-                            placeholder="Ej. María García López"
-                            value={contacto.nombre || ''}
-                            onChange={e => setField('nombre', e.target.value)}
-                            onBlur={() => setTouched(t => ({ ...t, nombre: true }))}
-                            className={inputCls(touched.nombre && !nombre)}
-                            autoFocus
-                        />
+                    {/* Nombre y Apellidos — separados (se copian tal cual al crear el cliente) */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                            <label className={fieldLabel}>Nombre *</label>
+                            <input
+                                type="text"
+                                placeholder="Ej. María"
+                                value={contacto.nombre || ''}
+                                onChange={e => setField('nombre', e.target.value)}
+                                onBlur={() => setTouched(t => ({ ...t, nombre: true }))}
+                                className={inputCls(touched.nombre && !nombre)}
+                                autoFocus
+                            />
+                        </div>
+                        <div>
+                            <label className={fieldLabel}>Apellidos *</label>
+                            <input
+                                type="text"
+                                placeholder="Ej. García López"
+                                value={contacto.apellidos || ''}
+                                onChange={e => setField('apellidos', e.target.value)}
+                                onBlur={() => setTouched(t => ({ ...t, apellidos: true }))}
+                                className={inputCls(touched.apellidos && !apellidos)}
+                            />
+                        </div>
                     </div>
 
                     {/* Teléfono — si WA seleccionado */}
@@ -352,61 +352,43 @@ export function LeadDeliveryView({
                         <p className="text-red-400 text-xs -mt-2">Necesitamos al menos email o teléfono.</p>
                     )}
 
-                    {/* Campos extra solo en modo técnico */}
-                    {hasTecnico && (
-                        <>
-                            <div>
-                                <label className={fieldLabel}>¿Particular o empresa? *</label>
-                                <div className="grid grid-cols-2 gap-2">
-                                    <button type="button" onClick={() => setField('titular_type', 'particular')}
-                                        className={smallCard(contacto.titular_type === 'particular')}>
-                                        <IconHome className="w-4 h-4" /> Particular
-                                    </button>
-                                    <button type="button" onClick={() => setField('titular_type', 'empresa')}
-                                        className={smallCard(contacto.titular_type === 'empresa')}>
-                                        <IconBuilding className="w-4 h-4" /> Empresa
-                                    </button>
-                                </div>
-                            </div>
+                    {/* Particular o empresa — SIEMPRE (afecta a la deducción según nº de propietarios) */}
+                    <div>
+                        <label className={fieldLabel}>¿Particular o empresa? *</label>
+                        <div className="grid grid-cols-2 gap-2">
+                            <button type="button" onClick={() => setField('titular_type', 'particular')}
+                                className={smallCard(contacto.titular_type === 'particular')}>
+                                <IconHome className="w-4 h-4" /> Particular
+                            </button>
+                            <button type="button" onClick={() => setField('titular_type', 'empresa')}
+                                className={smallCard(contacto.titular_type === 'empresa')}>
+                                <IconBuilding className="w-4 h-4" /> Empresa
+                            </button>
+                        </div>
+                        {touched.titular && !contacto.titular_type && (
+                            <p className="text-red-400 text-xs mt-1.5 ml-1">Indica si eres particular o empresa.</p>
+                        )}
+                    </div>
 
-                            {contacto.titular_type === 'particular' && (
-                                <div className="animate-fade-in">
-                                    <label className={fieldLabel}>¿Cuántos propietarios? *</label>
-                                    <p className="text-white/35 text-[10px] mb-2 ml-1">Cada propietario puede aplicar la deducción en su IRPF.</p>
-                                    <div className="grid grid-cols-4 gap-2">
-                                        {[1, 2, 3, 4].map(n => (
-                                            <button key={n} type="button"
-                                                onClick={() => setField('num_propietarios', n)}
-                                                className={`py-2.5 rounded-xl border-2 font-black text-base transition-all ${
-                                                    contacto.num_propietarios === n
-                                                        ? 'border-amber-400 bg-amber-400/15 text-amber-300'
-                                                        : 'border-white/10 bg-white/[0.03] text-white/60 hover:border-amber-400/40'
-                                                }`}>
-                                                {n === 4 ? '4+' : n}
-                                            </button>
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
-
-                            <div>
-                                <label className={fieldLabel}>¿Cuándo te gustaría hacerlo? *</label>
-                                <div className="grid grid-cols-2 gap-2">
-                                    {TIMELINE_OPTIONS.map(t => (
-                                        <button key={t.value} type="button"
-                                            onClick={() => setField('timeline', t.value)}
-                                            className={`flex items-center gap-2 px-3 py-2.5 rounded-xl border-2 transition-all text-left ${
-                                                contacto.timeline === t.value
-                                                    ? 'border-amber-400 bg-amber-400/10 text-amber-300'
-                                                    : 'border-white/10 bg-white/[0.03] text-white/70 hover:border-amber-400/40'
-                                            }`}>
-                                            <span className="text-xl">{t.emoji}</span>
-                                            <span className="text-[11px] font-bold">{t.label}</span>
-                                        </button>
-                                    ))}
-                                </div>
+                    {/* Nº de propietarios — solo particulares (cada uno aplica la deducción en su IRPF) */}
+                    {contacto.titular_type === 'particular' && (
+                        <div className="animate-fade-in">
+                            <label className={fieldLabel}>¿Cuántos propietarios? *</label>
+                            <p className="text-white/35 text-[10px] mb-2 ml-1">Cada propietario puede aplicar la deducción en su IRPF.</p>
+                            <div className="grid grid-cols-4 gap-2">
+                                {[1, 2, 3, 4].map(n => (
+                                    <button key={n} type="button"
+                                        onClick={() => setField('num_propietarios', n)}
+                                        className={`py-2.5 rounded-xl border-2 font-black text-base transition-all ${
+                                            contacto.num_propietarios === n
+                                                ? 'border-amber-400 bg-amber-400/15 text-amber-300'
+                                                : 'border-white/10 bg-white/[0.03] text-white/60 hover:border-amber-400/40'
+                                        }`}>
+                                        {n === 4 ? '4+' : n}
+                                    </button>
+                                ))}
                             </div>
-                        </>
+                        </div>
                     )}
 
                     {/* RGPD — siempre */}

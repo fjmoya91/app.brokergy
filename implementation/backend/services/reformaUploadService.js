@@ -44,14 +44,14 @@ function getReformaSlots(funnel = {}) {
     const slots = [];
 
     if (huboCaldera) {
-        slots.push({ key: 'FOTO_CALDERA_ANTES', label: 'Foto de la caldera antigua', help: 'El sistema de calefacción que había antes.', accept: 'image/*', required: true, multiple: false });
-        slots.push({ key: 'FOTO_PLACA_CALDERA_ANTES', label: 'Foto de la placa de la caldera', help: 'La etiqueta con los datos del fabricante.', accept: 'image/*', required: true, multiple: false });
+        slots.push({ key: 'FOTO_CALDERA_ANTES', label: 'Foto de la caldera antigua', help: 'El sistema de calefacción que había antes.', accept: ACCEPT_FOTO, required: true, multiple: false });
+        slots.push({ key: 'FOTO_PLACA_CALDERA_ANTES', label: 'Foto de la placa de la caldera', help: 'La etiqueta con los datos del fabricante.', accept: ACCEPT_FOTO, required: true, multiple: false });
     }
-    if (els.ventanas) slots.push({ key: 'FOTO_VENTANAS_ANTES', label: 'Fotos de las ventanas (antes)', help: 'Las ventanas que vas a cambiar.', accept: 'image/*', required: false, multiple: true });
-    if (els.cubierta) slots.push({ key: 'FOTO_CUBIERTA_ANTES', label: 'Fotos de la cubierta / tejado (antes)', accept: 'image/*', required: false, multiple: true });
-    if (els.paredes) slots.push({ key: 'FOTO_FACHADA_ANTES', label: 'Fotos de la fachada (antes)', accept: 'image/*', required: false, multiple: true });
-    if (els.suelo) slots.push({ key: 'FOTO_SUELO_ANTES', label: 'Fotos del suelo (antes)', accept: 'image/*', required: false, multiple: true });
-    if (els.placas) slots.push({ key: 'FOTO_PLACAS_SOLARES', label: 'Fotos de las placas solares', accept: 'image/*', required: false, multiple: true });
+    if (els.ventanas) slots.push({ key: 'FOTO_VENTANAS_ANTES', label: 'Fotos de las ventanas (antes)', help: 'Las ventanas que vas a cambiar.', accept: ACCEPT_FOTO, required: false, multiple: true });
+    if (els.cubierta) slots.push({ key: 'FOTO_CUBIERTA_ANTES', label: 'Fotos de la cubierta / tejado (antes)', accept: ACCEPT_FOTO, required: false, multiple: true });
+    if (els.paredes) slots.push({ key: 'FOTO_FACHADA_ANTES', label: 'Fotos de la fachada (antes)', accept: ACCEPT_FOTO, required: false, multiple: true });
+    if (els.suelo) slots.push({ key: 'FOTO_SUELO_ANTES', label: 'Fotos del suelo (antes)', accept: ACCEPT_FOTO, required: false, multiple: true });
+    if (els.placas) slots.push({ key: 'FOTO_PLACAS_SOLARES', label: 'Fotos de las placas solares', accept: ACCEPT_FOTO, required: false, multiple: true });
 
     if (funnel.reforma_cee_previo === 'si' || funnel.reforma_cee_ambos === 'si') {
         slots.push({ key: 'DOC_CEE_PREVIO', label: 'Certificado energético previo', help: 'PDF (y los archivos .cex/.xml si los tienes).', accept: 'application/pdf,image/*,.cex,.xml', required: false, multiple: true });
@@ -74,12 +74,12 @@ function getAerotermiaSlots(funnel = {}) {
     const slots = [];
 
     if (huboCaldera) {
-        slots.push({ key: 'FOTO_CALDERA_ANTES', label: 'Foto de tu caldera actual', help: 'Una foto general del sistema que vas a cambiar.', accept: 'image/*', required: false, multiple: false });
-        slots.push({ key: 'FOTO_PLACA_CALDERA_ANTES', label: 'Foto de la placa / etiqueta', help: 'La etiqueta con marca, modelo y potencia.', accept: 'image/*', required: false, multiple: false });
+        slots.push({ key: 'FOTO_CALDERA_ANTES', label: 'Foto de tu caldera actual', help: 'Una foto general del sistema que vas a cambiar.', accept: ACCEPT_FOTO, required: false, multiple: false });
+        slots.push({ key: 'FOTO_PLACA_CALDERA_ANTES', label: 'Foto de la placa / etiqueta', help: 'La etiqueta con marca, modelo y potencia.', accept: ACCEPT_FOTO, required: false, multiple: false });
     }
-    slots.push({ key: 'FOTO_FACHADA_PRINCIPAL', label: 'Foto de la fachada principal', help: 'Para valorar dónde podría ir la unidad exterior.', accept: 'image/*', required: false, multiple: true });
-    slots.push({ key: 'FOTO_PATIOS_INTERIORES', label: 'Foto de patios interiores', help: 'Si tu vivienda tiene patios interiores, una foto de cada uno.', accept: 'image/*', required: false, multiple: true });
-    slots.push({ key: 'FOTO_PATIO_LUCES', label: 'Foto del patio de luces (si lo hay)', help: 'Solo si tu edificio tiene patio de luces.', accept: 'image/*', required: false, multiple: true });
+    slots.push({ key: 'FOTO_FACHADA_PRINCIPAL', label: 'Foto de la fachada principal', help: 'Para valorar dónde podría ir la unidad exterior.', accept: ACCEPT_FOTO, required: false, multiple: true });
+    slots.push({ key: 'FOTO_PATIOS_INTERIORES', label: 'Foto de patios interiores', help: 'Si tu vivienda tiene patios interiores, una foto de cada uno.', accept: ACCEPT_FOTO, required: false, multiple: true });
+    slots.push({ key: 'FOTO_PATIO_LUCES', label: 'Foto del patio de luces (si lo hay)', help: 'Solo si tu edificio tiene patio de luces.', accept: ACCEPT_FOTO, required: false, multiple: true });
     slots.push({ key: 'OTROS', label: 'Otros documentos o fotos', help: 'Cualquier cosa más que quieras aportar.', accept: 'application/pdf,image/*', required: false, multiple: true });
     return slots;
 }
@@ -106,6 +106,12 @@ function getSlotDef(funnel, slotKey, origen = 'aerotermia') {
 // ===========================================================================
 
 const PHASE = { ANTES: 'ANTES', DESPUES: 'DESPUES' };
+
+// Formatos admitidos por el selector de archivos. Generosos: cualquier imagen + PDF
+// valen para todas las casillas de foto/documento (el backend no filtra por formato).
+const ACCEPT_FOTO = 'image/*,application/pdf';
+const ACCEPT_DOC = 'application/pdf,image/*';
+const ACCEPT_VIDEO = 'video/*';
 
 /** Normaliza distintas fuentes (inputs del calculador o landing_funnel) a selectores de slot. */
 function deriveSelectors(datosCalculo = {}) {
@@ -148,36 +154,47 @@ function buildDocChecklist(datosCalculo = {}) {
 
     // ───────── ANTES DE LA OBRA ─────────
     if (sel.hayCaldera) {
-        push({ key: 'FOTO_CALDERA_ANTES', fase: PHASE.ANTES, required: true, gating: 'pre_aceptacion', multiple: true, accept: 'image/*',
+        push({ key: 'FOTO_CALDERA_ANTES', fase: PHASE.ANTES, required: true, gating: 'pre_aceptacion', multiple: true, accept: ACCEPT_FOTO,
                label: 'Caldera actual (instalada)', help: 'Vista general de la caldera en su sala. Puedes añadir varias perspectivas.' });
-        push({ key: 'FOTO_PLACA_CALDERA_ANTES', fase: PHASE.ANTES, required: true, gating: 'pre_aceptacion', multiple: true, accept: 'image/*',
+        push({ key: 'FOTO_PLACA_CALDERA_ANTES', fase: PHASE.ANTES, required: true, gating: 'pre_aceptacion', multiple: true, accept: ACCEPT_FOTO,
                label: 'Placa de la caldera', help: 'La etiqueta del fabricante. Acércate hasta que se lean marca, modelo y potencia.' });
     }
-    push({ key: 'FOTO_FACHADA_PRINCIPAL', fase: PHASE.ANTES, required: false, multiple: true, accept: 'image/*',
+    push({ key: 'FOTO_FACHADA_PRINCIPAL', fase: PHASE.ANTES, required: false, multiple: true, accept: ACCEPT_FOTO,
            label: 'Fachada de la calle (completa)', help: 'Para ver cuántas ventanas hay y su tamaño.' });
-    push({ key: 'FOTO_PATIOS_INTERIORES', fase: PHASE.ANTES, required: false, multiple: true, accept: 'image/*',
+    push({ key: 'FOTO_PATIOS_INTERIORES', fase: PHASE.ANTES, required: false, multiple: true, accept: ACCEPT_FOTO,
            label: 'Patios interiores', help: 'Paredes que dan a patios, con sus ventanas.' });
-    push({ key: 'VIDEO_VIVIENDA', fase: PHASE.ANTES, required: false, multiple: false, accept: 'video/*',
+    push({ key: 'VIDEO_VIVIENDA', fase: PHASE.ANTES, required: false, multiple: false, accept: ACCEPT_VIDEO,
            label: 'Vídeo recorriendo la vivienda', help: 'Un vídeo corto mostrando estancias, ventanas y accesos al exterior.' });
-    push({ key: 'DOC_PLANOS', fase: PHASE.ANTES, required: false, multiple: true, accept: 'application/pdf,image/*',
-           label: 'Planos o croquis', help: 'Si los tienes. Si no, con el vídeo nos vale.' });
-    if (sel.reforma.ventanas) push({ key: 'FOTO_VENTANAS_ANTES', fase: PHASE.ANTES, required: false, multiple: true, accept: 'image/*', label: 'Ventanas a sustituir (antes)', help: 'Las que vais a cambiar.' });
-    if (sel.reforma.cubierta) push({ key: 'FOTO_CUBIERTA_ANTES', fase: PHASE.ANTES, required: false, multiple: true, accept: 'image/*', label: 'Cubierta / tejado (antes)' });
-    if (sel.reforma.paredes)  push({ key: 'FOTO_FACHADA_ANTES', fase: PHASE.ANTES, required: false, multiple: true, accept: 'image/*', label: 'Fachada a aislar (antes)' });
-    if (sel.reforma.suelo)    push({ key: 'FOTO_SUELO_ANTES', fase: PHASE.ANTES, required: false, multiple: true, accept: 'image/*', label: 'Suelo (antes)' });
-    if (sel.changeAcs)        push({ key: 'FOTO_ACS_ANTES', fase: PHASE.ANTES, required: false, multiple: true, accept: 'image/*', label: 'Sistema de ACS actual', help: 'Termo eléctrico o conexión de ACS de la caldera.' });
+    push({ key: 'DOC_PLANOS', fase: PHASE.ANTES, required: false, multiple: true, accept: ACCEPT_DOC,
+           label: 'Planos o croquis', help: 'PDF o foto (.pdf, .png, .jpg…). Si no los tienes, con el vídeo nos vale.' });
+    if (sel.reforma.ventanas) push({ key: 'FOTO_VENTANAS_ANTES', fase: PHASE.ANTES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Ventanas a sustituir (antes)', help: 'Las que vais a cambiar.' });
+    if (sel.reforma.cubierta) push({ key: 'FOTO_CUBIERTA_ANTES', fase: PHASE.ANTES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Cubierta / tejado (antes)' });
+    if (sel.reforma.paredes)  push({ key: 'FOTO_FACHADA_ANTES', fase: PHASE.ANTES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Fachada a aislar (antes)' });
+    if (sel.reforma.suelo)    push({ key: 'FOTO_SUELO_ANTES', fase: PHASE.ANTES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Suelo (antes)' });
+    if (sel.changeAcs)        push({ key: 'FOTO_ACS_ANTES', fase: PHASE.ANTES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Sistema de ACS actual', help: 'Termo eléctrico o conexión de ACS de la caldera.' });
 
     // ───────── DESPUÉS DE LA OBRA ─────────
-    push({ key: 'FOTO_UNIDAD_EXTERIOR', fase: PHASE.DESPUES, required: false, multiple: true, accept: 'image/*', label: 'Unidad exterior nueva (instalada)' });
-    push({ key: 'FOTO_UNIDAD_EXTERIOR_PLACA', fase: PHASE.DESPUES, required: false, multiple: true, accept: 'image/*', label: 'Placa de la unidad exterior' });
-    push({ key: 'FOTO_UNIDAD_INTERIOR_PLACA', fase: PHASE.DESPUES, required: false, multiple: true, accept: 'image/*', label: 'Placa de la unidad interior / hidrokit' });
-    if (sel.changeAcs) push({ key: 'FOTO_ACS_DEPOSITO', fase: PHASE.DESPUES, required: false, multiple: true, accept: 'image/*', label: 'Depósito de ACS / inercia (con placa)' });
-    push({ key: 'FOTO_CALDERA_DESMONTADA', fase: PHASE.DESPUES, required: false, multiple: true, accept: 'image/*', label: 'Caldera antigua desmontada / hueco' });
-    if (sel.reforma.ventanas) push({ key: 'FOTO_VENTANAS_DESPUES', fase: PHASE.DESPUES, required: false, multiple: true, accept: 'image/*', label: 'Ventanas nuevas (después)' });
-    if (sel.reforma.cubierta) push({ key: 'FOTO_CUBIERTA_DESPUES', fase: PHASE.DESPUES, required: false, multiple: true, accept: 'image/*', label: 'Cubierta terminada' });
-    if (sel.reforma.paredes)  push({ key: 'FOTO_FACHADA_DESPUES', fase: PHASE.DESPUES, required: false, multiple: true, accept: 'image/*', label: 'Aislamiento de fachada terminado' });
-    push({ key: 'DOC_FACTURAS', fase: PHASE.DESPUES, required: false, multiple: true, accept: 'application/pdf,image/*', label: 'Facturas de la instalación' });
-    push({ key: 'DOC_RITE', fase: PHASE.DESPUES, required: false, multiple: false, accept: 'application/pdf,image/*', label: 'Certificado RITE' });
+    push({ key: 'FOTO_UNIDAD_EXTERIOR', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Unidad exterior nueva (instalada)' });
+    push({ key: 'FOTO_UNIDAD_EXTERIOR_PLACA', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Placa de la unidad exterior' });
+    push({ key: 'FOTO_UNIDAD_INTERIOR_PLACA', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Placa de la unidad interior / hidrokit' });
+    if (sel.changeAcs) push({ key: 'FOTO_ACS_DEPOSITO', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Depósito de ACS / inercia (con placa)' });
+    push({ key: 'FOTO_CALDERA_DESMONTADA', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Caldera antigua desmontada / hueco' });
+    if (sel.reforma.ventanas) push({ key: 'FOTO_VENTANAS_DESPUES', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Ventanas nuevas (después)' });
+    if (sel.reforma.cubierta) push({ key: 'FOTO_CUBIERTA_DESPUES', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Cubierta terminada' });
+    if (sel.reforma.paredes)  push({ key: 'FOTO_FACHADA_DESPUES', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Aislamiento de fachada terminado' });
+    push({ key: 'VIDEO_REFORMA', fase: PHASE.DESPUES, required: false, multiple: false, accept: ACCEPT_VIDEO, label: 'Vídeo de la reforma (opcional)', help: 'Recorrido en vídeo de la instalación ya terminada.' });
+    push({ key: 'DOC_FACTURAS', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_DOC, label: 'Facturas de la instalación' });
+    push({ key: 'DOC_RITE', fase: PHASE.DESPUES, required: false, multiple: false, accept: ACCEPT_DOC, label: 'Certificado RITE' });
+
+    // Tras ACEPTAR (ya es expediente), TODA la documentación de ANTES pasa a ser
+    // obligatoria (es imprescindible para emitir el CEE inicial / tramitar el CAE).
+    // Las de DESPUÉS siguen opcionales hasta que la obra avance (no tiene sentido
+    // exigirlas si aún no se ha instalado nada).
+    if (datosCalculo.estado === 'ACEPTADA') {
+        for (const s of slots) {
+            if (s.fase === PHASE.ANTES) s.required = true;
+        }
+    }
 
     return slots;
 }
@@ -214,6 +231,12 @@ async function attachUploadToken(oportunidadUuid) {
         .eq('id', oportunidadUuid)
         .maybeSingle();
     if (error || !opp) throw new Error('Oportunidad no encontrada para adjuntar token');
+
+    // Idempotente: si ya tiene token, no lo regeneramos (evita churn que invalidaría
+    // el token que el frontend ya tiene en mano → 403 espurios en subida/miniaturas).
+    if (opp.datos_calculo?.upload_token) {
+        return { token: opp.datos_calculo.upload_token, opp };
+    }
 
     const token = generateUploadToken(oportunidadUuid);
     const datosCalculo = {
@@ -283,6 +306,7 @@ async function buildDocsView(opp) {
     const dc = opp.datos_calculo || {};
     const checklist = buildDocChecklist(dc);
     const uploads = dc.reforma_uploads || {};
+    const overrides = dc.docs_overrides || {}; // { <slot>: { waived: bool } }
 
     // Listar la carpeta de documentos una sola vez (reconciliación)
     let driveFiles = [];
@@ -294,9 +318,20 @@ async function buildDocsView(opp) {
         }
     } catch (e) { console.warn('[Docs] reconciliación Drive:', e.message); }
 
+    const rollupEstado = (source) => {
+        if (!source.length) return 'pendiente';
+        if (source.some(i => i.estado === 'rechazada')) return 'rechazada';
+        if (source.every(i => i.estado === 'validada')) return 'validada';
+        return 'subida';
+    };
+
+    // IDs de Drive ya "consumidos" por algún slot del checklist → para detectar huérfanos.
+    const consumedDriveIds = new Set();
+
     const slots = checklist.map(s => {
         const dbByName = new Map((uploads[s.key] || []).map(it => [it.name, it]));
         const driveForSlot = driveFiles.filter(f => fileBelongsToSlot(f.name, s.key));
+        driveForSlot.forEach(f => consumedDriveIds.add(f.id));
 
         // Si Drive devolvió ficheros del slot, esa es la verdad de existencia;
         // si Drive no respondió (lista vacía por error), caemos a la BD.
@@ -309,6 +344,7 @@ async function buildDocsView(opp) {
                     at: db.at || null,
                     driveId: f.id,
                     thumb: driveThumb(f.id),
+                    mimeType: f.mimeType || null,
                     estado: db.estado || 'subida',
                     motivo: db.motivo || null,
                     subido_por: db.subido_por || null
@@ -317,17 +353,52 @@ async function buildDocsView(opp) {
             : (uploads[s.key] || []).map(it => ({
                 name: it.name, link: it.link, at: it.at,
                 driveId: it.driveId || null, thumb: driveThumb(it.driveId),
+                mimeType: it.mimeType || null,
                 estado: it.estado || 'subida', motivo: it.motivo || null, subido_por: it.subido_por || null
             }));
 
-        let estado = 'pendiente';
-        if (source.length) {
-            if (source.some(i => i.estado === 'rechazada')) estado = 'rechazada';
-            else if (source.every(i => i.estado === 'validada')) estado = 'validada';
-            else estado = 'subida';
-        }
-        return { ...s, estado, items: source };
+        // Override del admin: "no necesario" → deja de ser obligatorio (y se marca waived).
+        // baseRequired conserva la obligatoriedad original (para reactivar al "volver a pedir").
+        const waived = !!overrides[s.key]?.waived;
+        return { ...s, baseRequired: !!s.required, required: waived ? false : s.required, waived, estado: rollupEstado(source), items: source };
     });
+
+    // ── Catch-all: archivos en la carpeta de Drive que NO encajan en ningún slot
+    // del checklist (fotos legacy, volcados de WhatsApp, slots no aplicables al
+    // caso —p.ej. caldera cuando hayCaldera=false—, PDFs sueltos…).
+    // Se muestran SIEMPRE, al final de la fase ANTES, para poder revisarlos a
+    // golpe de vista. Garantiza que ninguna foto de la carpeta quede invisible.
+    const FOLDER_MIME = 'application/vnd.google-apps.folder';
+    const leftover = driveFiles.filter(f => !consumedDriveIds.has(f.id) && f.mimeType !== FOLDER_MIME);
+    if (leftover.length) {
+        const dbByName = new Map((uploads['OTROS_EXISTENTES'] || []).map(it => [it.name, it]));
+        const items = leftover.map(f => {
+            const db = dbByName.get(f.name) || {};
+            return {
+                name: f.name,
+                link: f.webViewLink || db.link || null,
+                at: db.at || null,
+                driveId: f.id,
+                thumb: driveThumb(f.id),
+                mimeType: f.mimeType || null,
+                estado: db.estado || 'subida',
+                motivo: db.motivo || null,
+                subido_por: db.subido_por || null
+            };
+        });
+        slots.push({
+            key: 'OTROS_EXISTENTES',
+            fase: PHASE.ANTES,
+            required: false,
+            multiple: true,
+            existing: true,
+            accept: 'image/*,application/pdf,video/*',
+            label: 'Otras fotos y documentos ya aportados',
+            help: 'Material que ya está en la carpeta del expediente y no encaja en las casillas anteriores.',
+            estado: rollupEstado(items),
+            items
+        });
+    }
 
     return {
         id_oportunidad: opp.id_oportunidad,

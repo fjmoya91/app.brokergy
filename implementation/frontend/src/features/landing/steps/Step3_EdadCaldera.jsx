@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { IconCard } from '../components/IconCard';
 import { StepLayout } from '../components/StepLayout';
 
@@ -19,11 +19,26 @@ export function Step3_EdadCaldera({ funnel, updateFunnel, onNext }) {
         : 'edad';
     const [phase, setPhase] = useState(initialPhase);
 
+    // Cada sub-pantalla (edad ↔ condensación) debe empezar arriba del todo, sin scroll.
+    // El scroll-to-top del padre solo se dispara al cambiar de paso, no de sub-fase.
+    useEffect(() => {
+        window.scrollTo(0, 0);
+        document.documentElement.scrollTop = 0;
+        document.body.scrollTop = 0;
+    }, [phase]);
+
     const selectEdad = (edad) => {
         updateFunnel({ edad_caldera: edad });
         if (!aplicaCondensacion) {
             // Sin sub-pregunta → avanzar al siguiente paso
             updateFunnel({ condensacion: 'no_se' });
+            setTimeout(onNext, 200);
+            return;
+        }
+        // Caldera > 20 años: no tiene sentido preguntar condensación (es convencional,
+        // las de condensación son posteriores). La marcamos como NO y avanzamos.
+        if (edad === '>20') {
+            updateFunnel({ condensacion: 'no' });
             setTimeout(onNext, 200);
             return;
         }
@@ -93,18 +108,18 @@ export function Step3_EdadCaldera({ funnel, updateFunnel, onNext }) {
                 Cambiar edad de la caldera
             </button>
             <IconCard
-                icon="💧"
-                title="Sí, tiene manguera de condensados"
-                subtitle="Tubo fino por debajo que evacúa agua, o se indica en la placa"
-                selected={funnel.condensacion === 'si'}
-                onClick={() => selectCondensacion('si')}
-            />
-            <IconCard
                 icon="🏭"
                 title="No, sin manguera de condensados"
                 subtitle="Caldera convencional (atmosférica o estanca sin condensación)"
                 selected={funnel.condensacion === 'no'}
                 onClick={() => selectCondensacion('no')}
+            />
+            <IconCard
+                icon="💧"
+                title="Sí, tiene manguera de condensados"
+                subtitle="Tubo fino por debajo que evacúa agua, o se indica en la placa"
+                selected={funnel.condensacion === 'si'}
+                onClick={() => selectCondensacion('si')}
             />
             <IconCard
                 icon="❓"

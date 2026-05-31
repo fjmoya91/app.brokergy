@@ -18,6 +18,7 @@ import {
 } from '../../calculator/logic/calculation';
 import { SeguimientoModule } from '../components/SeguimientoModule';
 import { HistorialModal } from '../../../components/HistorialModal';
+import { DocsAdminModal } from '../../calculator/components/DocsAdminModal';
 
 export const EXPEDIENTE_ESTADOS = [
     'PTE. CEE INICIAL',
@@ -107,6 +108,7 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
     const [liveDoc, setLiveDoc] = useState(null);
     const [liveSeguimiento, setLiveSeguimiento] = useState(null);
     const [showQuickNote, setShowQuickNote] = useState(false);
+    const [showFotos, setShowFotos] = useState(false);
     const [localPrioridad, setLocalPrioridad] = useState('NORMAL');
 
     // Carga de certificadores (utilizado en Header CEE y CeeModule)
@@ -706,6 +708,19 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
                             Carpeta CEE
                         </a>
                     )}
+
+                    {/* Fotos / Documentación — mismo popup que en la oportunidad */}
+                    {op?.id_oportunidad && (
+                        <button
+                            type="button"
+                            onClick={() => setShowFotos(true)}
+                            className="flex items-center gap-2 px-4 py-2 rounded-xl border border-purple-500/30 text-purple-400 text-xs font-bold hover:bg-purple-500/10 transition-all"
+                            title="Gestionar documentación fotográfica del expediente"
+                        >
+                            <span className="text-sm">📸</span>
+                            Fotos
+                        </button>
+                    )}
                 </div>
             </div>
 
@@ -970,6 +985,12 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
                 onClose={() => setShowQuickNote(false)}
                 idOportunidad={expediente?.oportunidades?.id_oportunidad}
                 referenciaCliente={expediente?.oportunidades?.referencia_cliente}
+            />
+
+            <DocsAdminModal
+                isOpen={showFotos}
+                onClose={() => setShowFotos(false)}
+                idOportunidad={expediente?.oportunidades?.id_oportunidad}
             />
         </div>
     );

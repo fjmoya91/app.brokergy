@@ -2090,7 +2090,7 @@ export function CalculatorForm({
                                                         <input
                                                             type="checkbox"
                                                             className="peer sr-only"
-                                                            checked={inputs.aplicarIrpfCae !== false}
+                                                            checked={inputs.aplicarIrpfCae === true || inputs.aplicarIrpfCae === 'true'}
                                                             onChange={e => handleChange('aplicarIrpfCae', e.target.checked)}
                                                         />
                                                         <div className="w-8 h-4 bg-slate-700 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-pink-500"></div>
@@ -2111,10 +2111,10 @@ export function CalculatorForm({
                                                     onChange={e => {
                                                         const val = e.target.value;
                                                         handleChange('titularType', val);
+                                                        // IRPF sobre CAE: desactivado por defecto. Solo el no-particular lo fuerza a OFF.
+                                                        // Para particular NO se auto-activa — el admin lo activa manualmente si procede.
                                                         if(val !== 'particular') {
                                                             handleChange('aplicarIrpfCae', false);
-                                                        } else {
-                                                            handleChange('aplicarIrpfCae', true);
                                                         }
                                                     }}
                                                     className="bg-slate-900/60 border-pink-500/30 focus:border-pink-500 text-xs h-8 flex-1"
@@ -2142,7 +2142,7 @@ export function CalculatorForm({
                                                                 handleChange('aplicarIrpfCae', false);
                                                                 handleChange('includeIrpf', false);
                                                             } else {
-                                                                handleChange('aplicarIrpfCae', true);
+                                                                // IRPF sobre CAE NO se auto-activa (desactivado por defecto)
                                                                 handleChange('includeIrpf', true);
                                                             }
                                                         }}
@@ -2211,7 +2211,7 @@ export function CalculatorForm({
                                     </div>
                                 </div>
                                 
-                                {(!inputs.titularType || inputs.titularType === 'particular') && inputs.aplicarIrpfCae !== false && (
+                                {(!inputs.titularType || inputs.titularType === 'particular') && (inputs.aplicarIrpfCae === true || inputs.aplicarIrpfCae === 'true') && (
                                     <div className="mt-2 text-[10px] text-pink-400/80 italic font-medium px-2 border-l border-pink-500/30">
                                         * El ingreso por CAE puede tributar en IRPF como ganancia patrimonial; este cálculo es estimativo y progresivo por tramos.
                                     </div>
