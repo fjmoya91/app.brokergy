@@ -221,6 +221,23 @@ function buildUploadLink(oportunidadUuid, token) {
 }
 
 /**
+ * Enlace UNIFICADO de subida de documentación/fotos para enviar al cliente.
+ * Garantiza el token (idempotente) y devuelve `/subir-docs/:uuid?token=` — la
+ * MISMA superficie donde admin valida fotos. Sustituye al antiguo `/firma/:uuid`
+ * en todos los avisos al cliente (aceptación, CEE inicial, recordatorios).
+ * Si algo falla, cae al enlace `/firma` para no dejar al cliente sin enlace.
+ */
+async function ensureUploadLink(oportunidadUuid) {
+    try {
+        const { token } = await attachUploadToken(oportunidadUuid);
+        return buildUploadLink(oportunidadUuid, token);
+    } catch (e) {
+        console.warn('[Docs] ensureUploadLink fallback /firma:', e.message);
+        return `${FRONTEND()}/firma/${oportunidadUuid}`;
+    }
+}
+
+/**
  * Genera y persiste el token de subida en datos_calculo (merge no destructivo)
  * e inicializa reforma_uploads. Devuelve { token, datosCalculo }.
  */
@@ -548,6 +565,7 @@ module.exports = {
     notifyRechazo,
     generateUploadToken,
     buildUploadLink,
+    ensureUploadLink,
     attachUploadToken,
     ensureDriveFolder,
     sendReformaUploadNotifications

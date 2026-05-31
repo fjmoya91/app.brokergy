@@ -8,6 +8,7 @@ const { getCoordinatesByRC } = require('../services/catastroService');
 const { normalizeData } = require('../utils/normalization');
 const emailService = require('../services/emailService');
 const whatsappService = require('../services/whatsappService');
+const reformaUploadService = require('../services/reformaUploadService');
 
 
 // ─── Helpers de notificación CEE registrado ───────────────────────────────────
@@ -55,7 +56,10 @@ async function notifyCeeInicialRegistrado(expediente, filters = {}) {
         const clienteName = (cli.nombre_razon_social || 'Cliente').trim();
         const clienteFull = `${cli.nombre_razon_social || ''} ${cli.apellidos || ''}`.trim();
         const ubicacion = `${cli.direccion || ''} - ${cli.codigo_postal || ''} ${cli.municipio || ''} (${cli.provincia || ''})`;
-        const portalLink = `https://app.brokergy.es/firma/${op?.id || expediente.id}`;
+        // Enlace UNIFICADO de subida de fotos/docs (/subir-docs/:uuid?token=)
+        const portalLink = op?.id
+            ? await reformaUploadService.ensureUploadLink(op.id)
+            : `https://app.brokergy.es/firma/${expediente.id}`;
         const expedienteLink = `https://app.brokergy.es/expedientes/${expediente.id}`;
 
         const waState = whatsappService.getStatus?.()?.state || 'unknown';
@@ -311,7 +315,8 @@ router.post('/:id/notify-registration', enforceAuth, async (req, res) => {
         const clienteName = (cli.nombre_razon_social || 'Cliente').trim();
         const clienteFull = `${cli.nombre_razon_social || ''} ${cli.apellidos || ''}`.trim();
         const ubicacion = `${cli.direccion || ''} - ${cli.codigo_postal || ''} ${cli.municipio || ''} (${cli.provincia || ''})`.trim();
-        const uploadLink = `${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/firma/${op.id}`;
+        // Enlace UNIFICADO de subida de fotos/docs (/subir-docs/:uuid?token=)
+        const uploadLink = await reformaUploadService.ensureUploadLink(op.id);
         const labelType = type === 'final' ? 'Final' : 'Inicial';
 
         const photoTextEmail = `📸 Recuerda hacerle fotografías a todo:

@@ -326,7 +326,9 @@ router.post('/aceptar/:id', upload.single('justificante'), async (req, res) => {
 
         // Crear expediente de forma síncrona para devolver el número al cliente
         let numeroExpediente = null;
-        const uploadLink = `${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/firma/${opp.id}`;
+        // Enlace UNIFICADO de subida (mismo que validamos en el popup de fotos):
+        // /subir-docs/:uuid?token=  (antes era /firma/:uuid)
+        const uploadLink = await reformaUploadService.ensureUploadLink(opp.id);
         try {
             console.log(`[Public] Solicitando creación de expediente para OP UUID: ${opp.id}`);
             const newExp = await expedienteService.createExpediente(opp.id, id_cliente);
