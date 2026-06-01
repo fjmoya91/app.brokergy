@@ -1101,11 +1101,12 @@ router.post('/:id/docs/:slot/waive', adminOnly, async (req, res) => {
     }
 });
 
-// POST /api/oportunidades/:id/docs/:slot/rechazar  body { name, motivo }
+// POST /api/oportunidades/:id/docs/:slot/rechazar  body { name, motivo, notifyTarget? }
+// notifyTarget: 'cliente' | 'instalador' | 'ninguno' (si omitido, se deduce de subido_por)
 router.post('/:id/docs/:slot/rechazar', adminOnly, async (req, res) => {
     try {
         const { slot } = req.params;
-        const { name, motivo } = req.body;
+        const { name, motivo, notifyTarget } = req.body;
         if (!name) return res.status(400).json({ error: 'Falta el nombre de la foto' });
         if (!motivo || !motivo.trim()) return res.status(400).json({ error: 'El motivo de rechazo es obligatorio' });
         const opp = await findOppForDocs(req.params.id);
@@ -1115,16 +1116,20 @@ router.post('/:id/docs/:slot/rechazar', adminOnly, async (req, res) => {
 
         res.json({ success: true, slot, name, estado: 'rechazada' });
 
-        // Aviso en background a quien subió la foto
-        setImmediate(() => {
-            const slotDef = reformaUploadService.buildDocChecklist(opp.datos_calculo || {}).find(s => s.key === slot);
-            reformaUploadService.notifyRechazo({
-                opp,
-                slotLabel: slotDef?.label || slot,
-                motivo: motivo.trim(),
-                subidoPor: subido_por
-            }).catch(err => console.warn('[Docs] notifyRechazo:', err.message));
-        });
+        // Aviso en background. notifyTarget sobreescribe la deducción automática por subido_por.
+        // 'ninguno' → silencio explícito (admin decidió no avisar).
+        const target = notifyTarget || subido_por; // 'cliente' | 'instalador' | 'admin' | 'ninguno'
+        if (target !== 'ninguno') {
+            setImmediate(() => {
+                const slotDef = reformaUploadService.buildDocChecklist(opp.datos_calculo || {}).find(s => s.key === slot);
+                reformaUploadService.notifyRechazo({
+                    opp,
+                    slotLabel: slotDef?.label || slot,
+                    motivo: motivo.trim(),
+                    subidoPor: target === 'instalador' ? 'instalador' : 'cliente'
+                }).catch(err => console.warn('[Docs] notifyRechazo:', err.message));
+            });
+        }
     } catch (e) {
         console.error('[Docs] rechazar error:', e);
         res.status(500).json({ error: 'Error interno' });

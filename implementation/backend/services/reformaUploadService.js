@@ -172,6 +172,8 @@ function buildDocChecklist(datosCalculo = {}) {
     if (sel.reforma.paredes)  push({ key: 'FOTO_FACHADA_ANTES', fase: PHASE.ANTES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Fachada a aislar (antes)' });
     if (sel.reforma.suelo)    push({ key: 'FOTO_SUELO_ANTES', fase: PHASE.ANTES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Suelo (antes)' });
     if (sel.changeAcs)        push({ key: 'FOTO_ACS_ANTES', fase: PHASE.ANTES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Sistema de ACS actual', help: 'Termo eléctrico o conexión de ACS de la caldera.' });
+    push({ key: 'OTROS_ANTES', fase: PHASE.ANTES, required: false, multiple: true, accept: 'image/*,application/pdf,video/*',
+           label: 'Otros (antes de la obra)', help: 'PDF, fotos, vídeos u otros archivos que no encajen en las categorías anteriores.' });
 
     // ───────── DESPUÉS DE LA OBRA ─────────
     push({ key: 'FOTO_UNIDAD_EXTERIOR', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Unidad exterior nueva (instalada)' });
@@ -185,6 +187,8 @@ function buildDocChecklist(datosCalculo = {}) {
     push({ key: 'VIDEO_REFORMA', fase: PHASE.DESPUES, required: false, multiple: false, accept: ACCEPT_VIDEO, label: 'Vídeo de la reforma (opcional)', help: 'Recorrido en vídeo de la instalación ya terminada.' });
     push({ key: 'DOC_FACTURAS', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_DOC, label: 'Facturas de la instalación' });
     push({ key: 'DOC_RITE', fase: PHASE.DESPUES, required: false, multiple: false, accept: ACCEPT_DOC, label: 'Certificado RITE' });
+    push({ key: 'OTROS_DESPUES', fase: PHASE.DESPUES, required: false, multiple: true, accept: 'image/*,application/pdf,video/*',
+           label: 'Otros (después de la obra)', help: 'PDF, fotos, vídeos u otros archivos que no encajen en las categorías anteriores.' });
 
     // Tras ACEPTAR (ya es expediente), TODA la documentación de ANTES pasa a ser
     // obligatoria (es imprescindible para emitir el CEE inicial / tramitar el CAE).

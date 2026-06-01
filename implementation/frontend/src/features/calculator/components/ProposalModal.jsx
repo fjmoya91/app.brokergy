@@ -242,6 +242,9 @@ export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }
     const [sendingWhatsapp, setSendingWhatsapp] = useState(false);
     const [confirmConfig, setConfirmConfig] = useState(null);
     const [recipientChoice, setRecipientChoice] = useState(false);
+    const [waStep, setWaStep] = useState(0);          // 0=selección, 1=preview/edición
+    const [waMessages, setWaMessages] = useState({}); // { mode: texto editado }
+    const [waActiveTab, setWaActiveTab] = useState(null);
 
     // -- ANEXOS STATE --
     const [isAnexosOpen, setIsAnexosOpen] = useState(false);
@@ -1130,7 +1133,7 @@ info@brokergy.es · 623 926 179`;
         }
     }, [inputs, result, displayId, urlId]);
 
-    const sendToMultiple = useCallback(async (selectedModes) => {
+    const sendToMultiple = useCallback(async (selectedModes, customMessages = {}) => {
         setRecipientChoice(false);
         setSendingWhatsapp(true);
 
@@ -1238,7 +1241,7 @@ info@brokergy.es · 623 926 179`;
         for (let i = 0; i < recipients.length; i++) {
             const { phone, mode, name } = recipients[i];
             const toPhone = String(phone).replace(/[^0-9]/g, '');
-            const caption = buildCaption(mode, name);
+            const caption = customMessages[mode] || buildCaption(mode, name);
             setConfirmConfig({ title: `Enviando ${i + 1}/${recipients.length}...`, message: `Entregando a ${name} (${toPhone})...`, confirmText: null, cancelText: null });
             try {
                 const r = await axios.post('/api/whatsapp/send-media', { phone: toPhone, caption, media: { base64: pdfBase64, filename, mimetype: 'application/pdf' }, asDocument: true });
@@ -1278,6 +1281,9 @@ info@brokergy.es · 623 926 179`;
     const handleSendByWhatsapp = () => {
         setSendingWhatsapp(false);
         setRecipientSelections(new Set());
+        setWaStep(0);
+        setWaMessages({});
+        setWaActiveTab(null);
         setRecipientChoice(true);
     };
 
@@ -2117,8 +2123,10 @@ info@brokergy.es · 623 926 179`;
                 onCancel={confirmConfig?.onCancel || (() => setConfirmConfig(null))}
             />
 
-            {/* POPUP DE SELECCIÓN DE DESTINATARIOS (multi-select) */}
+            {/* POPUP WHATSAPP — 2 pasos: selección de destinatarios + preview/edición del mensaje */}
             {recipientChoice && (() => {
+                const IcoWA = () => <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51a12.8 12.8 0 0 0-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 0 1-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 0 1-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 0 1 2.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0 0 12.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 0 0 5.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 0 0-3.48-8.413z" /></svg>;
+
                 const toggleMode = (mode) => {
                     setRecipientSelections(prev => {
                         const next = new Set(prev);
@@ -2126,88 +2134,174 @@ info@brokergy.es · 623 926 179`;
                         return next;
                     });
                 };
+
                 const options = [
-                    { mode: 'CLIENTE', label: 'CLIENTE', sublabel: clienteInfo?.name || inputs?.referenciaCliente || null, phone: clienteInfo?.phone || null, color: 'bg-primary-600/20 border-primary-500/40 hover:border-primary-500', checkColor: 'bg-primary-500' },
-                    ...(partnerInfo ? [{ mode: 'PARTNER', label: 'DISTRIBUIDOR', sublabel: partnerInfo.name, phone: partnerInfo.phone, color: 'bg-[#25D366]/10 border-[#25D366]/30 hover:border-[#25D366]', checkColor: 'bg-[#25D366]' }] : []),
-                    ...(instaladorInfo ? [{ mode: 'INSTALADOR', label: 'INSTALADOR', sublabel: instaladorInfo.name, phone: instaladorInfo.phone, color: 'bg-amber-500/10 border-amber-500/30 hover:border-amber-500', checkColor: 'bg-amber-500' }] : []),
-                    { mode: 'OTRO', label: 'OTRO CONTACTO', sublabel: manualContact.name || 'Introducir manualmente', phone: manualContact.phone || null, color: 'bg-slate-700/30 border-white/10 hover:border-white/30', checkColor: 'bg-slate-400' }
+                    { mode: 'CLIENTE',    label: 'Cliente',    sublabel: clienteInfo?.name || inputs?.referenciaCliente || null, phone: clienteInfo?.phone || null },
+                    ...(partnerInfo    ? [{ mode: 'PARTNER',    label: 'Distribuidor', sublabel: partnerInfo.name,    phone: partnerInfo.phone }]    : []),
+                    ...(instaladorInfo ? [{ mode: 'INSTALADOR', label: 'Instalador',   sublabel: instaladorInfo.name, phone: instaladorInfo.phone }] : []),
+                    { mode: 'OTRO', label: 'Otro contacto', sublabel: manualContact.name || 'Introducir manualmente', phone: manualContact.phone || null },
                 ];
 
-
                 const nSelected = recipientSelections.size;
-                return (
-                    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in" onClick={(e) => e.stopPropagation()}>
-                        <div className="glass-card max-w-sm w-full p-7 border border-white/20 shadow-2xl bg-[#1c1e26] animate-scale-in rounded-[20px]">
-                            <div className="flex items-center gap-3 mb-5">
-                                <div className="w-10 h-10 rounded-full bg-[#25D366]/20 flex items-center justify-center text-[#25D366] border border-[#25D366]/30 shrink-0">
-                                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51a12.8 12.8 0 0 0-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 0 1-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 0 1-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 0 1 2.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0 0 12.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 0 0 5.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 0 0-3.48-8.413z" /></svg>
+
+                // --- Paso 0: selección ---
+                if (waStep === 0) {
+                    const goToPreview = () => {
+                        const msgs = {};
+                        for (const mode of recipientSelections) {
+                            const opt = options.find(o => o.mode === mode);
+                            msgs[mode] = buildCaption(mode, opt?.sublabel || '');
+                        }
+                        setWaMessages(msgs);
+                        setWaActiveTab(Array.from(recipientSelections)[0]);
+                        setWaStep(1);
+                    };
+
+                    return (
+                        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-6 bg-black/80 backdrop-blur-sm" onClick={() => setRecipientChoice(false)}>
+                            <div className="w-full max-w-sm sm:max-w-lg bg-[#1c1e26] border border-white/15 rounded-2xl shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
+                                {/* Header */}
+                                <div className="flex items-center gap-3 px-5 py-4 border-b border-white/10">
+                                    <div className="w-9 h-9 rounded-full bg-[#25D366]/20 flex items-center justify-center text-[#25D366] border border-[#25D366]/20 shrink-0"><IcoWA /></div>
+                                    <div className="flex-1 min-w-0">
+                                        <p className="text-white font-black text-sm leading-tight">Enviar propuesta por WhatsApp</p>
+                                        <p className="text-white/40 text-xs mt-0.5">Paso 1 de 2 · Selecciona destinatario(s)</p>
+                                    </div>
+                                    <button onClick={() => setRecipientChoice(false)} className="text-white/30 hover:text-white transition-colors shrink-0">
+                                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
+                                    </button>
                                 </div>
-                                <div>
-                                    <h3 className="text-lg font-bold text-white leading-tight">Enviar Propuesta por WhatsApp</h3>
-                                    <p className="text-white/50 text-xs">Selecciona uno o varios destinatarios</p>
+
+                                {/* Destinatarios */}
+                                <div className="p-5 space-y-2">
+                                    {options.map(opt => {
+                                        const checked = recipientSelections.has(opt.mode);
+                                        return (
+                                            <button key={opt.mode} onClick={() => toggleMode(opt.mode)}
+                                                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 transition-all text-left ${checked ? 'border-[#25D366]/70 bg-[#25D366]/10' : 'border-white/10 bg-white/[0.03] hover:border-white/20'}`}>
+                                                <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 transition-all ${checked ? 'bg-[#25D366] border-[#25D366]' : 'border-white/25'}`}>
+                                                    {checked && <svg className="w-3 h-3 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7"/></svg>}
+                                                </div>
+                                                <div className="flex-1 min-w-0">
+                                                    <p className="text-[10px] font-black uppercase tracking-widest text-white/35">{opt.label}</p>
+                                                    <p className="text-sm font-bold text-white truncate">{opt.sublabel || '—'}</p>
+                                                    {opt.mode !== 'OTRO' && (opt.phone
+                                                        ? <p className="text-[11px] text-white/40 font-mono mt-0.5">{opt.phone}</p>
+                                                        : <p className="text-[11px] text-red-400/70 mt-0.5">Sin teléfono registrado</p>)}
+                                                </div>
+                                            </button>
+                                        );
+                                    })}
+
+                                    {/* Campos manuales para OTRO */}
+                                    {recipientSelections.has('OTRO') && (
+                                        <div className="p-4 bg-white/5 border border-white/10 rounded-xl space-y-3">
+                                            <div>
+                                                <label className="block text-[10px] font-black uppercase tracking-widest text-white/40 mb-1">Nombre</label>
+                                                <input type="text" placeholder="Nombre del contacto…"
+                                                    className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-[#25D366]/50 outline-none"
+                                                    value={manualContact.name}
+                                                    onChange={e => setManualContact(prev => ({ ...prev, name: e.target.value.toUpperCase() }))} />
+                                            </div>
+                                            <div>
+                                                <label className="block text-[10px] font-black uppercase tracking-widest text-white/40 mb-1">Teléfono WhatsApp</label>
+                                                <input type="text" placeholder="600000000"
+                                                    className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-sm text-white font-mono focus:border-[#25D366]/50 outline-none"
+                                                    value={manualContact.phone}
+                                                    onChange={e => setManualContact(prev => ({ ...prev, phone: e.target.value }))} />
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* Footer */}
+                                <div className="px-5 pb-5 flex flex-col gap-2">
+                                    <button onClick={goToPreview} disabled={nSelected === 0}
+                                        className="w-full py-3 rounded-xl font-black text-sm uppercase tracking-wider transition-all bg-[#25D366] hover:bg-[#1eb554] text-black disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg shadow-[#25D366]/15">
+                                        {nSelected === 0 ? 'Selecciona al menos uno' : <>Continuar <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7"/></svg></>}
+                                    </button>
+                                    <button onClick={() => setRecipientChoice(false)} className="w-full py-2 text-white/35 hover:text-white text-xs font-bold uppercase tracking-widest transition-colors">Cancelar</button>
                                 </div>
                             </div>
+                        </div>
+                    );
+                }
 
-                            <div className="flex flex-col gap-2.5 mb-5">
-                                {options.map(opt => {
-                                    const checked = recipientSelections.has(opt.mode);
-                                    return (
-                                        <button
-                                            key={opt.mode}
-                                            onClick={() => toggleMode(opt.mode)}
-                                            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl border transition-all text-left ${opt.color} ${checked ? 'ring-1 ring-white/20' : ''}`}
-                                        >
-                                            <div className={`w-5 h-5 rounded flex items-center justify-center border-2 shrink-0 transition-all ${checked ? `${opt.checkColor} border-transparent` : 'border-white/30 bg-transparent'}`}>
-                                                {checked && <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
-                                            </div>
-                                            <div className="flex-1 min-w-0">
-                                                <div className="text-xs font-black uppercase tracking-widest text-white/50">{opt.label}</div>
-                                                {opt.sublabel && <div className="text-sm font-bold text-white truncate">{opt.sublabel}</div>}
-                                                {opt.mode !== 'OTRO' && (opt.phone
-                                                    ? <div className="text-[11px] text-white/40 font-mono">{opt.phone}</div>
-                                                    : <div className="text-[11px] text-red-400/80">Sin teléfono</div>)}
-                                            </div>
+                // --- Paso 1: preview/edición del mensaje ---
+                const selectedOpts = options.filter(o => recipientSelections.has(o.mode));
+                const activeMsg = waMessages[waActiveTab] ?? '';
+
+                return (
+                    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-6 bg-black/80 backdrop-blur-sm" onClick={() => setRecipientChoice(false)}>
+                        <div className="w-full max-w-sm sm:max-w-xl bg-[#1c1e26] border border-white/15 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh]" onClick={e => e.stopPropagation()}>
+                            {/* Header */}
+                            <div className="flex items-center gap-3 px-5 py-4 border-b border-white/10 shrink-0">
+                                <div className="w-9 h-9 rounded-full bg-[#25D366]/20 flex items-center justify-center text-[#25D366] border border-[#25D366]/20 shrink-0"><IcoWA /></div>
+                                <div className="flex-1 min-w-0">
+                                    <p className="text-white font-black text-sm leading-tight">Previsualización del mensaje</p>
+                                    <p className="text-white/40 text-xs mt-0.5">Paso 2 de 2 · Edita si es necesario y envía</p>
+                                </div>
+                                <button onClick={() => setRecipientChoice(false)} className="text-white/30 hover:text-white transition-colors shrink-0">
+                                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
+                                </button>
+                            </div>
+
+                            {/* Tabs (solo si hay >1 destinatario) */}
+                            {selectedOpts.length > 1 && (
+                                <div className="flex gap-1 px-5 pt-3 pb-0 border-b border-white/10 shrink-0 overflow-x-auto">
+                                    {selectedOpts.map(opt => (
+                                        <button key={opt.mode} onClick={() => setWaActiveTab(opt.mode)}
+                                            className={`px-3 py-2 text-[10px] font-black uppercase tracking-widest rounded-t-lg whitespace-nowrap transition-all border-b-2 ${waActiveTab === opt.mode ? 'border-[#25D366] text-[#25D366] bg-[#25D366]/10' : 'border-transparent text-white/40 hover:text-white/70'}`}>
+                                            {opt.label}
+                                            {opt.phone ? '' : ' ⚠️'}
                                         </button>
-                                    );
-                                })}
+                                    ))}
+                                </div>
+                            )}
 
-                                {recipientSelections.has('OTRO') && (
-                                    <div className="animate-fade-in p-4 bg-white/5 border border-white/10 rounded-xl space-y-3 mt-1">
-                                        <div>
-                                            <label className="block text-[10px] font-black uppercase tracking-widest text-white/40 mb-1">Nombre</label>
-                                            <input 
-                                                type="text" 
-                                                placeholder="Nombre del contacto..."
-                                                className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-brand/50 outline-none"
-                                                value={manualContact.name}
-                                                onChange={e => setManualContact(prev => ({ ...prev, name: e.target.value.toUpperCase() }))}
-                                            />
-                                        </div>
-                                        <div>
-                                            <label className="block text-[10px] font-black uppercase tracking-widest text-white/40 mb-1">Teléfono WhatsApp</label>
-                                            <input 
-                                                type="text" 
-                                                placeholder="600000000"
-                                                className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-sm text-white font-mono focus:border-brand/50 outline-none"
-                                                value={manualContact.phone}
-                                                onChange={e => setManualContact(prev => ({ ...prev, phone: e.target.value }))}
-                                            />
+                            {/* Info del destinatario activo */}
+                            {(() => {
+                                const activeOpt = selectedOpts.find(o => o.mode === waActiveTab);
+                                if (!activeOpt) return null;
+                                return (
+                                    <div className="px-5 pt-3 pb-0 shrink-0">
+                                        <div className="flex items-center gap-2 px-3 py-2 bg-white/[0.04] border border-white/10 rounded-lg">
+                                            <span className="text-[10px] font-black uppercase tracking-widest text-white/35">{activeOpt.label}:</span>
+                                            <span className="text-sm font-bold text-white truncate">{activeOpt.sublabel}</span>
+                                            {activeOpt.phone
+                                                ? <span className="text-xs text-white/40 font-mono ml-auto shrink-0">{activeOpt.phone}</span>
+                                                : <span className="text-xs text-red-400/80 ml-auto shrink-0">Sin teléfono</span>}
                                         </div>
                                     </div>
+                                );
+                            })()}
+
+                            {/* Textarea editable */}
+                            <div className="p-5 flex-1 overflow-y-auto min-h-0">
+                                <label className="block text-[10px] font-black uppercase tracking-widest text-white/35 mb-2">Mensaje (editable)</label>
+                                <textarea
+                                    value={activeMsg}
+                                    onChange={e => setWaMessages(prev => ({ ...prev, [waActiveTab]: e.target.value }))}
+                                    rows={14}
+                                    className="case-sensitive w-full bg-white/[0.04] border border-white/10 focus:border-[#25D366]/50 rounded-xl px-4 py-3 text-white text-sm leading-relaxed outline-none resize-none transition-colors"
+                                />
+                                {selectedOpts.length > 1 && (
+                                    <p className="text-white/30 text-[10px] mt-2">Cada destinatario recibirá su propio mensaje personalizado.</p>
                                 )}
                             </div>
 
-
-                            <button
-                                onClick={() => sendToMultiple(Array.from(recipientSelections))}
-                                disabled={nSelected === 0}
-                                className="w-full py-3 rounded-xl font-black text-sm uppercase tracking-wider transition-all mb-2 bg-[#25D366] hover:bg-[#20bd5a] text-slate-900 disabled:opacity-30 disabled:cursor-not-allowed shadow-lg shadow-[#25D366]/20"
-                            >
-                                {nSelected === 0 ? 'Selecciona al menos uno' : `Enviar a ${nSelected} destinatario${nSelected > 1 ? 's' : ''}`}
-                            </button>
-                            <button onClick={() => setRecipientChoice(false)} className="w-full py-2 text-white/40 hover:text-white text-xs font-semibold tracking-wide transition-colors">
-                                CANCELAR
-                            </button>
+                            {/* Footer */}
+                            <div className="px-5 pb-5 flex flex-col gap-2 shrink-0 border-t border-white/10 pt-4">
+                                <button onClick={() => sendToMultiple(Array.from(recipientSelections), waMessages)}
+                                    className="w-full py-3 rounded-xl font-black text-sm uppercase tracking-wider transition-all bg-[#25D366] hover:bg-[#1eb554] text-black flex items-center justify-center gap-2 shadow-lg shadow-[#25D366]/15">
+                                    <IcoWA />
+                                    {`Enviar a ${nSelected} destinatario${nSelected > 1 ? 's' : ''}`}
+                                </button>
+                                <button onClick={() => setWaStep(0)} className="w-full py-2 text-white/35 hover:text-white text-xs font-bold uppercase tracking-widest transition-colors flex items-center justify-center gap-1">
+                                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7"/></svg>
+                                    Atrás
+                                </button>
+                            </div>
                         </div>
                     </div>
                 );

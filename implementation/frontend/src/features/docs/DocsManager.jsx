@@ -121,7 +121,9 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
     const [acting, setActing] = useState(null); // `${slot}:${name}` en validación
     const [reject, setReject] = useState(null); // { slot, item } cuando se rechaza
     const [rejectMotivo, setRejectMotivo] = useState('');
+    const [rejectNotifyTarget, setRejectNotifyTarget] = useState('cliente'); // 'cliente'|'instalador'|'ninguno'
     const [waiving, setWaiving] = useState(null); // slot.key cuyo "no necesario" se está cambiando
+    const [dragOver, setDragOver] = useState(null); // slot.key sobre el que se arrastra
 
     // Para subir/borrar siempre usamos el canal público con uuid+token reales.
     const uuidRef = useRef(null);
@@ -224,11 +226,11 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
         }
     };
 
-    const reviewItem = async (slot, item, accion, motivo = null) => {
+    const reviewItem = async (slot, item, accion, motivo = null, notifyTarget = undefined) => {
         setActing(`${slot.key}:${item.name}`);
         try {
             await axios.post(`/api/oportunidades/${idOrUuid}/docs/${slot.key}/${accion === 'validar' ? 'validar' : 'rechazar'}`,
-                accion === 'validar' ? { name: item.name } : { name: item.name, motivo });
+                accion === 'validar' ? { name: item.name } : { name: item.name, motivo, notifyTarget });
             patchSlot(slot.key, s => {
                 const items = (s.items || []).map(it => it.name === item.name
                     ? { ...it, estado: accion === 'validar' ? 'validada' : 'rechazada', motivo: accion === 'validar' ? null : motivo }
@@ -261,7 +263,7 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
         if (!rejectMotivo.trim()) return;
         const { slot, item } = reject;
         setReject(null);
-        await reviewItem(slot, item, 'rechazar', rejectMotivo.trim());
+        await reviewItem(slot, item, 'rechazar', rejectMotivo.trim(), rejectNotifyTarget);
         setRejectMotivo('');
     };
 
@@ -275,6 +277,7 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
 
     const slots = info?.slots || [];
     const aceptada = !!info?.aceptada;
+    const canSeeDespues = aceptada || mode === 'admin';
 
     // Orden dentro de cada fase: lo accionable arriba, lo ya resuelto abajo.
     //   0 · rechazada (hay que volver a subir)   1 · pendiente / en revisión
@@ -304,8 +307,29 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
         const busy = busySlot === slot.key;
         const estado = slot.estado || (done ? 'subida' : 'pendiente');
         const ui = ESTADO_UI[estado] || ESTADO_UI.pendiente;
+        const isDragOver = !slot.existing && !busy && dragOver === slot.key;
+
+        const dragHandlers = slot.existing ? {} : {
+            onDragOver: (e) => { e.preventDefault(); e.stopPropagation(); if (dragOver !== slot.key) setDragOver(slot.key); },
+            onDragEnter: (e) => { e.preventDefault(); e.stopPropagation(); setDragOver(slot.key); },
+            onDragLeave: (e) => { if (!e.currentTarget.contains(e.relatedTarget)) setDragOver(null); },
+            onDrop: (e) => {
+                e.preventDefault(); e.stopPropagation();
+                setDragOver(null);
+                if (!busy) { const files = e.dataTransfer.files; if (files?.length) uploadFiles(slot, files); }
+            },
+        };
+
         return (
-            <div key={slot.key} className={`p-4 md:p-5 rounded-2xl border-2 transition-all ${done ? ui.ring : slot.required ? 'border-amber-400/30 bg-amber-400/[0.04]' : 'border-white/10 bg-white/[0.03]'}`}>
+            <div key={slot.key} {...dragHandlers} className={`p-4 md:p-5 rounded-2xl border-2 transition-all relative ${isDragOver ? 'border-amber-400 bg-amber-400/[0.1] shadow-[0_0_28px_rgba(251,191,36,0.28)] scale-[1.006]' : done ? ui.ring : slot.required ? 'border-amber-400/30 bg-amber-400/[0.04]' : 'border-white/10 bg-white/[0.03]'}`}>
+            {isDragOver && (
+                <div className="absolute inset-0 rounded-2xl flex items-center justify-center pointer-events-none z-10">
+                    <div className="flex items-center gap-2 bg-black/70 backdrop-blur-sm px-5 py-2.5 rounded-xl border border-amber-400/60 shadow-xl shadow-amber-500/20">
+                        <span className="text-xl leading-none">📥</span>
+                        <span className="text-amber-300 font-black text-xs uppercase tracking-widest">Suelta para subir</span>
+                    </div>
+                </div>
+            )}
                 <div className="flex items-start justify-between gap-4">
                     <div className="flex-1 min-w-0">
                         <p className={`font-black text-sm md:text-base flex items-center gap-2 flex-wrap ${slot.waived ? 'text-white/50' : 'text-white'}`}>
@@ -366,7 +390,14 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
                                                     <button onClick={() => reviewItem(slot, it, 'validar')} disabled={acting === `${slot.key}:${it.name}`}
                                                         title="Validar"
                                                         className={`w-6 h-6 rounded-md text-xs font-black flex items-center justify-center transition-all ${fEstado === 'validada' ? 'bg-emerald-500 text-white' : 'bg-white/5 text-emerald-400 hover:bg-emerald-500/20'}`}>✓</button>
-                                                    <button onClick={() => { setReject({ slot, item: it }); setRejectMotivo(''); }} disabled={acting === `${slot.key}:${it.name}`}
+                                                    <button onClick={() => {
+                                                        setReject({ slot, item: it });
+                                                        setRejectMotivo('');
+                                                        const sbp = it.subido_por;
+                                                        if (sbp === 'instalador' && info?.recipients?.instalador) setRejectNotifyTarget('instalador');
+                                                        else if (info?.recipients?.cliente) setRejectNotifyTarget('cliente');
+                                                        else setRejectNotifyTarget('ninguno');
+                                                    }} disabled={acting === `${slot.key}:${it.name}`}
                                                         title="Rechazar"
                                                         className={`w-6 h-6 rounded-md text-xs font-black flex items-center justify-center transition-all ${fEstado === 'rechazada' ? 'bg-red-500 text-white' : 'bg-white/5 text-red-400 hover:bg-red-500/20'}`}>✗</button>
                                                 </div>
@@ -415,10 +446,10 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
                     className={`py-3 rounded-xl font-black uppercase tracking-widest text-xs transition-all ${tab === 'ANTES' ? 'bg-gradient-to-r from-amber-500 to-amber-400 text-black shadow-lg shadow-amber-500/20' : 'text-white/50 hover:text-white/80'}`}>
                     📋 Antes de la obra
                 </button>
-                <button onClick={() => aceptada && setTab('DESPUES')} disabled={!aceptada}
-                    title={aceptada ? '' : 'Se activa al aceptar la propuesta'}
-                    className={`py-3 rounded-xl font-black uppercase tracking-widest text-xs transition-all flex items-center justify-center gap-1.5 ${tab === 'DESPUES' ? 'bg-gradient-to-r from-amber-500 to-amber-400 text-black shadow-lg shadow-amber-500/20' : aceptada ? 'text-white/50 hover:text-white/80' : 'text-white/25 cursor-not-allowed'}`}>
-                    {aceptada ? '🔧' : '🔒'} Después de la obra
+                <button onClick={() => canSeeDespues && setTab('DESPUES')} disabled={!canSeeDespues}
+                    title={canSeeDespues ? '' : 'Se activa al aceptar la propuesta'}
+                    className={`py-3 rounded-xl font-black uppercase tracking-widest text-xs transition-all flex items-center justify-center gap-1.5 ${tab === 'DESPUES' ? 'bg-gradient-to-r from-amber-500 to-amber-400 text-black shadow-lg shadow-amber-500/20' : canSeeDespues ? 'text-white/50 hover:text-white/80' : 'text-white/25 cursor-not-allowed'}`}>
+                    {canSeeDespues ? '🔧' : '🔒'} Después de la obra
                 </button>
             </div>
 
@@ -440,42 +471,76 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
                 </section>
             )}
 
-            {tab === 'ANTES' && !aceptada && (
+            {tab === 'ANTES' && !canSeeDespues && (
                 <div className="mt-4 p-4 bg-white/[0.02] border border-white/10 rounded-2xl text-xs text-white/40 leading-relaxed text-center">
                     🔒 La fase <strong className="text-white/60">Después de la obra</strong> se activará cuando se acepte la propuesta.
                 </div>
             )}
 
-            {/* Modal de rechazo (de la app, no del navegador) */}
-            {reject && (
-                <div className="fixed inset-0 z-[450] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4" onClick={() => setReject(null)}>
-                    <div className="bg-[#16181D] border border-white/10 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl" onClick={e => e.stopPropagation()}>
-                        <div className="px-5 py-4 border-b border-white/10">
-                            <h3 className="text-white font-black uppercase tracking-widest text-xs">Rechazar foto</h3>
-                            <p className="text-white/50 text-xs mt-1">{reject.slot.label}</p>
+            {/* Modal de rechazo */}
+            {reject && (() => {
+                const rcp = info?.recipients || {};
+                const clienteRcp = rcp.cliente;
+                const instaladorRcp = rcp.instalador;
+                const rejectTargetCard = (value, title, name, contact, disabled) => (
+                    <button type="button" disabled={disabled}
+                        onClick={() => !disabled && setRejectNotifyTarget(value)}
+                        className={`w-full text-left p-3 rounded-xl border-2 transition-all flex items-center gap-3 ${
+                            disabled ? 'border-white/5 bg-white/[0.02] opacity-35 cursor-not-allowed'
+                                : rejectNotifyTarget === value ? 'border-red-400/80 bg-red-400/[0.08]' : 'border-white/10 bg-white/[0.03] hover:border-white/20'
+                        }`}>
+                        <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${rejectNotifyTarget === value ? 'bg-red-500 border-red-500' : 'border-white/20'}`}>
+                            {rejectNotifyTarget === value && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
                         </div>
-                        <div className="p-5">
-                            <label className="block text-white/60 text-xs font-bold mb-2">¿Por qué se rechaza? (se enviará a quien la subió para que la repita)</label>
-                            <textarea
-                                autoFocus
-                                value={rejectMotivo}
-                                onChange={e => setRejectMotivo(e.target.value)}
-                                onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) confirmReject(); }}
-                                rows={3}
-                                placeholder="Ej: La placa no se lee, hazla más de cerca y con luz."
-                                className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-4 py-3 text-white text-sm placeholder:text-white/20 focus:outline-none focus:border-red-400/50 transition-all resize-none"
-                            />
+                        <div className="min-w-0 flex-1">
+                            <p className="text-[9px] font-black uppercase tracking-widest text-white/35">{title}</p>
+                            <p className={`font-bold text-sm truncate ${disabled ? 'text-white/30' : 'text-white'}`}>{name}</p>
+                            {contact && <p className="text-white/40 text-xs font-mono mt-0.5">{contact}</p>}
                         </div>
-                        <div className="px-5 py-4 bg-black/30 flex justify-end gap-3">
-                            <button onClick={() => setReject(null)} className="px-5 py-2 text-xs font-bold text-white/50 hover:text-white uppercase tracking-widest">Cancelar</button>
-                            <button onClick={confirmReject} disabled={!rejectMotivo.trim()}
-                                className="px-6 py-2 bg-red-500 text-white text-xs font-black rounded-xl uppercase tracking-widest hover:bg-red-600 transition-all disabled:opacity-30 disabled:cursor-not-allowed">
-                                Rechazar y avisar
-                            </button>
+                    </button>
+                );
+                return (
+                    <div className="fixed inset-0 z-[450] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4" onClick={() => setReject(null)}>
+                        <div className="bg-[#16181D] border border-white/10 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl" onClick={e => e.stopPropagation()}>
+                            <div className="px-5 py-4 border-b border-white/10">
+                                <h3 className="text-white font-black uppercase tracking-widest text-xs">Rechazar foto</h3>
+                                <p className="text-white/50 text-xs mt-1">{reject.slot.label}</p>
+                            </div>
+                            <div className="p-5 space-y-4">
+                                {/* Motivo */}
+                                <div>
+                                    <label className="block text-[10px] font-black uppercase tracking-widest text-white/40 mb-2">¿Por qué se rechaza?</label>
+                                    <textarea
+                                        autoFocus
+                                        value={rejectMotivo}
+                                        onChange={e => setRejectMotivo(e.target.value)}
+                                        onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) confirmReject(); }}
+                                        rows={3}
+                                        placeholder="Ej: La placa no se lee, hazla más de cerca y con luz."
+                                        className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-4 py-3 text-white text-sm placeholder:text-white/20 focus:outline-none focus:border-red-400/50 transition-all resize-none"
+                                    />
+                                </div>
+                                {/* Destinatario del aviso */}
+                                <div>
+                                    <label className="block text-[10px] font-black uppercase tracking-widest text-white/40 mb-2">Avisar a</label>
+                                    <div className="space-y-1.5">
+                                        {rejectTargetCard('cliente', 'Cliente', clienteRcp?.name || 'Sin cliente vinculado', clienteRcp?.phone || null, !clienteRcp)}
+                                        {rejectTargetCard('instalador', 'Instalador', instaladorRcp?.name || 'Sin instalador asignado', instaladorRcp?.phone || null, !instaladorRcp)}
+                                        {rejectTargetCard('ninguno', 'Sin aviso', 'Solo rechazar, no enviar mensaje', null, false)}
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="px-5 py-4 bg-black/30 flex justify-end gap-3">
+                                <button onClick={() => setReject(null)} className="px-5 py-2 text-xs font-bold text-white/50 hover:text-white uppercase tracking-widest">Cancelar</button>
+                                <button onClick={confirmReject} disabled={!rejectMotivo.trim()}
+                                    className="px-6 py-2 bg-red-500 text-white text-xs font-black rounded-xl uppercase tracking-widest hover:bg-red-600 transition-all disabled:opacity-30 disabled:cursor-not-allowed">
+                                    {rejectNotifyTarget === 'ninguno' ? 'Rechazar (sin avisar)' : 'Rechazar y avisar'}
+                                </button>
+                            </div>
                         </div>
                     </div>
-                </div>
-            )}
+                );
+            })()}
 
             {/* Lightbox */}
             {lightbox && (
