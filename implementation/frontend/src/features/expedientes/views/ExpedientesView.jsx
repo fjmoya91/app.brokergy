@@ -898,6 +898,9 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
 
     const filtered = expedientes.filter(e => {
         const q = search.toLowerCase();
+        // Dirección/ubicación de la oportunidad (datos_calculo.inputs). En los
+        // expedientes MIGRADOS DESDE XML el cliente no tiene dirección — vive aquí.
+        const opInputsSearch = e.oportunidades?.datos_calculo?.inputs || {};
         const searchableText = [
             e.numero_expediente,
             e.id_oportunidad_ref,
@@ -913,6 +916,13 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
             e.clientes?.provincia,
             e.clientes?.direccion,
             e.clientes?.ccaa,
+            // Ubicación tomada de la oportunidad (cubre expedientes migrados sin dirección en cliente)
+            opInputsSearch.direccion,
+            opInputsSearch.address,
+            opInputsSearch.municipio,
+            opInputsSearch.provincia_nombre,
+            opInputsSearch.cp,
+            opInputsSearch.codigo_postal,
             getCCAA(e) // CCAA calculada
         ].filter(Boolean).join(' ').toLowerCase();
 
