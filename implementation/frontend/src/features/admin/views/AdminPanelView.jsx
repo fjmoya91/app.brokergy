@@ -482,7 +482,17 @@ export function AdminPanelView({
         // 1. Filtros por columna (los que están en la parte superior de la tabla)
         const matchesColFilters = (
             (filters.id_oportunidad === '' || (op.id_oportunidad || '').toLowerCase().includes(filters.id_oportunidad.toLowerCase())) &&
-            (filters.referencia_cliente === '' || (op.referencia_cliente || '').toLowerCase().includes(filters.referencia_cliente.toLowerCase())) &&
+            // La columna "Oportunidad" unifica ID + Ref. Cliente + dirección en un solo input
+            (filters.referencia_cliente === '' || (() => {
+                const inputs = op.datos_calculo?.inputs || {};
+                const haystack = [
+                    op.id_oportunidad,
+                    op.referencia_cliente,
+                    inputs.direccion, inputs.address, inputs.municipio, inputs.provincia_nombre,
+                    inputs.cp, inputs.codigo_postal
+                ].filter(Boolean).join(' ').toLowerCase();
+                return haystack.includes(filters.referencia_cliente.toLowerCase());
+            })()) &&
             (filters.ref_catastral === '' || (op.ref_catastral || '').toLowerCase().includes(filters.ref_catastral.toLowerCase())) &&
             (filters.ficha === '' || (() => {
                 const isReforma = (op.datos_calculo?.isReforma === true) || 
@@ -837,8 +847,7 @@ export function AdminPanelView({
                     <table className="w-full text-left border-collapse">
                         <thead>
                             <tr style={{ background: 'rgba(26,28,34,0.8)' }}>
-                                <th className="p-3.5 text-[10px] font-black uppercase tracking-[0.15em] text-white/25 w-24 border-b border-white/[0.06]">ID</th>
-                                <th className="p-3.5 text-[10px] font-black uppercase tracking-[0.15em] text-white/25 border-b border-white/[0.06]">Ref. Cliente</th>
+                                <th className="p-3.5 text-[10px] font-black uppercase tracking-[0.15em] text-white/25 border-b border-white/[0.06]">Oportunidad</th>
                                 {user?.rol === 'DISTRIBUIDOR' && (
                                     <th className="p-3.5 text-[10px] font-black uppercase tracking-[0.15em] text-amber-400/60 border-b border-white/[0.06]">Nº Cliente</th>
                                 )}
@@ -862,16 +871,7 @@ export function AdminPanelView({
                                 <td className="p-2.5 border-b border-white/[0.06]">
                                     <input
                                         type="text"
-                                        placeholder="ID..."
-                                        className="w-full bg-black/30 border border-white/[0.08] rounded-lg px-2 py-1.5 text-[10px] text-cyan-400 placeholder-white/20 focus:outline-none focus:border-cyan-500/40 focus:bg-black/40 transition-all font-mono"
-                                        value={filters.id_oportunidad}
-                                        onChange={e => setFilters(prev => ({ ...prev, id_oportunidad: e.target.value }))}
-                                    />
-                                </td>
-                                <td className="p-2.5 border-b border-white/[0.06]">
-                                    <input
-                                        type="text"
-                                        placeholder="Buscar cliente..."
+                                        placeholder="ID, cliente o dirección..."
                                         className="w-full bg-bkg-deep border border-white/[0.08] rounded-lg px-2.5 py-1.5 text-[10px] text-white placeholder-white/20 focus:outline-none focus:border-brand/40 focus:bg-bkg-elevated transition-all font-mono"
                                         value={filters.referencia_cliente}
                                         onChange={e => setFilters(prev => ({ ...prev, referencia_cliente: e.target.value }))}
@@ -987,8 +987,32 @@ export function AdminPanelView({
                                             className="hover:bg-white/[0.03] transition-colors duration-150 cursor-pointer group"
                                             onClick={() => onLoadOpportunity && onLoadOpportunity(op)}
                                         >
-                                            <td className="p-3.5 text-xs font-mono text-cyan-400/80 whitespace-nowrap">{op.id_oportunidad}</td>
-                                            <td className="p-3.5 text-sm text-white/90 font-medium max-w-[140px] truncate" title={op.referencia_cliente}>{op.referencia_cliente || '-'}</td>
+                                            <td className="p-3.5">
+                                                <div className="flex flex-col gap-0.5 max-w-[340px]">
+                                                    <span className="text-xs font-bold truncate" title={`${op.id_oportunidad}${op.referencia_cliente ? ' - ' + op.referencia_cliente : ''}`}>
+                                                        <span className="font-mono text-cyan-400/90">{op.id_oportunidad}</span>
+                                                        {op.referencia_cliente && <span className="text-white/90"> - {op.referencia_cliente}</span>}
+                                                    </span>
+                                                    {(() => {
+                                                        const inputs = op.datos_calculo?.inputs || {};
+                                                        const dir = inputs.direccion || inputs.address || '';
+                                                        const cp = inputs.cp || inputs.codigo_postal || '';
+                                                        const mun = inputs.municipio || '';
+                                                        const prov = inputs.provincia_nombre || '';
+                                                        // En oportunidades normales `direccion` ya viene completa (con CP, municipio
+                                                        // y provincia). En las migradas desde XML no trae CP/municipio: se añaden
+                                                        // los campos sueltos que la dirección no contenga ya.
+                                                        const extra = [cp, mun, prov && `(${prov})`]
+                                                            .filter(Boolean)
+                                                            .filter(part => !dir.toUpperCase().includes(String(part).toUpperCase().replace(/[()]/g, '')))
+                                                            .join(' ');
+                                                        const text = [dir, extra].filter(Boolean).join(' ');
+                                                        return text ? (
+                                                            <span className="text-white/30 text-[10px] truncate font-medium uppercase tracking-wider" title={text}>{text}</span>
+                                                        ) : null;
+                                                    })()}
+                                                </div>
+                                            </td>
                                              {user?.rol === 'DISTRIBUIDOR' && (
                                                 <td
                                                     className="p-3.5 text-[10px] text-amber-400 font-bold tracking-tight"
