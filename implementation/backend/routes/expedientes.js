@@ -540,10 +540,71 @@ ${notesStr}
         res.status(201).json(newExp);
     } catch (err) {
         console.error('Error POST expedientes:', err);
-        res.status(500).json({ 
-            error: 'Error al crear el expediente', 
-            details: err.message 
+        res.status(500).json({
+            error: 'Error al crear el expediente',
+            details: err.message
         });
+    }
+});
+
+// ─── POST /api/expedientes/migrate-from-xml ───────────────────────────────────
+// Crea un expediente "ya en curso" a partir de sus XML de CEE, SIN pasar por
+// oportunidades. El servicio crea internamente una oportunidad oculta
+// (datos_calculo.origen = 'migracion_xml') de la que cuelga el expediente.
+// NOTA: no se aplica normalizeData para no corromper los objetos parseados del XML.
+router.post('/migrate-from-xml', enforceAuth, async (req, res) => {
+    try {
+        if (req.user.rol_nombre === 'CERTIFICADOR') {
+            return res.status(403).json({ error: 'No autorizado' });
+        }
+
+        const {
+            ficha,
+            cliente_id,
+            numero_expediente = null,
+            cee_inicial = null,
+            cee_final = null,
+            ref_catastral = '',
+            fechas = {},
+            combustibles = {},
+            xml_inicial_base64 = null,
+            xml_final_base64 = null
+        } = req.body || {};
+
+        if (!['RES060', 'RES080', 'RES093'].includes(ficha)) {
+            return res.status(400).json({ error: 'ficha inválida (debe ser RES060, RES080 o RES093)' });
+        }
+        if (!cliente_id) return res.status(400).json({ error: 'cliente_id es obligatorio' });
+        if (!cee_inicial && !cee_final) {
+            return res.status(400).json({ error: 'Se requiere al menos un XML (inicial o final)' });
+        }
+
+        const newExp = await expedienteService.migrateExpedienteFromXml({
+            ficha,
+            cliente_id,
+            manualNumber: numero_expediente || null,
+            ceeInicial: cee_inicial,
+            ceeFinal: cee_final,
+            refCatastral: ref_catastral,
+            fechas,
+            combustibles,
+            xmlInicialBase64: xml_inicial_base64,
+            xmlFinalBase64: xml_final_base64,
+            usuario: req.user
+        });
+
+        // Devolver con joins para que el front abra el detalle directamente
+        const [{ data: cli }, { data: op }] = await Promise.all([
+            supabase.from('clientes').select('*').eq('id_cliente', newExp.cliente_id).maybeSingle(),
+            supabase.from('oportunidades')
+                .select('id, id_oportunidad, referencia_cliente, ficha, ref_catastral, datos_calculo, prescriptor_id')
+                .eq('id', newExp.oportunidad_id).maybeSingle()
+        ]);
+
+        res.status(201).json({ ...newExp, clientes: cli || null, oportunidades: op || null });
+    } catch (err) {
+        console.error('Error POST expedientes/migrate-from-xml:', err);
+        res.status(500).json({ error: 'Error al migrar el expediente', details: err.message });
     }
 });
 
@@ -1346,6 +1407,10 @@ router.delete('/:id', adminOnly, async (req, res) => {
         if (getErr) throw getErr;
         if (!exp) return res.status(404).json({ error: 'Expediente no encontrado' });
 
+        // ¿Es un expediente migrado desde XML? Su oportunidad es sintética (1:1) y
+        // debe borrarse junto con el expediente para no dejar huérfanos MIG-*.
+        const isSyntheticOp = exp.oportunidades?.datos_calculo?.origen === 'migracion_xml';
+
         // 2. Mover carpeta Drive a papelera si existe (best-effort, no bloqueante)
         const datosCalculo = exp.oportunidades?.datos_calculo || {};
         const driveFolderId = datosCalculo.drive_folder_id || datosCalculo.inputs?.drive_folder_id;
@@ -1371,7 +1436,22 @@ router.delete('/:id', adminOnly, async (req, res) => {
             .eq('id', req.params.id);
         if (error) throw error;
 
-        res.json({ success: true, drive_deleted: driveDeleted, drive_folder_id: driveFolderId || null });
+        // 4. Si la oportunidad era sintética (migración XML), borrarla también
+        let syntheticOpDeleted = false;
+        if (isSyntheticOp && exp.oportunidad_id) {
+            const { error: opDelErr } = await supabase
+                .from('oportunidades')
+                .delete()
+                .eq('id', exp.oportunidad_id);
+            if (opDelErr) {
+                console.warn(`[DELETE expediente ${exp.numero_expediente}] No se pudo borrar la oportunidad sintética:`, opDelErr.message);
+            } else {
+                syntheticOpDeleted = true;
+                console.log(`[DELETE expediente ${exp.numero_expediente}] Oportunidad sintética ${exp.oportunidad_id} borrada`);
+            }
+        }
+
+        res.json({ success: true, drive_deleted: driveDeleted, drive_folder_id: driveFolderId || null, synthetic_op_deleted: syntheticOpDeleted });
     } catch (err) {
         console.error('Error DELETE expedientes/:id:', err);
         res.status(500).json({ error: 'Error al eliminar el expediente' });

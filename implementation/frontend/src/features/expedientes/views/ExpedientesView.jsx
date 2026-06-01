@@ -1,15 +1,59 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import axios from 'axios';
 import { useAuth } from '../../../context/AuthContext';
 import { useModal } from '../../../context/ModalContext';
 import { ExpedienteDetailView, EXPEDIENTE_ESTADOS } from './ExpedienteDetailView';
-import { 
-    calculateSavings, 
+import { parseCeeXml } from '../../calculator/logic/xmlCeeParser';
+import { ClienteFormModal } from '../../clientes/components/ClienteFormModal';
+import {
+    calculateSavings,
     calculateFinancials,
     calculateRes080,
     calculateHybridization,
-    BOILER_EFFICIENCIES 
+    BOILER_EFFICIENCIES
 } from '../../calculator/logic/calculation';
+
+// ─── Dropzone de XML (migración de expedientes desde CE3X) ────────────────────
+function XmlDrop({ label, slot, error, onFile }) {
+    const [drag, setDrag] = useState(false);
+    const inputRef = useRef(null);
+    return (
+        <div
+            onClick={() => inputRef.current?.click()}
+            onDragOver={e => { e.preventDefault(); setDrag(true); }}
+            onDragLeave={() => setDrag(false)}
+            onDrop={e => { e.preventDefault(); setDrag(false); const f = e.dataTransfer.files?.[0]; if (f) onFile(f); }}
+            className={`cursor-pointer rounded-2xl border-2 border-dashed p-5 text-center transition-all ${
+                drag ? 'border-brand bg-brand/5'
+                : slot ? 'border-emerald-500/40 bg-emerald-500/5'
+                : 'border-white/10 hover:border-white/20 bg-white/[0.02]'
+            }`}
+        >
+            <input ref={inputRef} type="file" accept=".xml" className="hidden"
+                onChange={e => { const f = e.target.files?.[0]; if (f) onFile(f); e.target.value = ''; }} />
+            <div className={`w-10 h-10 mx-auto mb-2 rounded-xl flex items-center justify-center ${slot ? 'bg-emerald-500/15 text-emerald-400' : 'bg-white/[0.04] text-white/30'}`}>
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                </svg>
+            </div>
+            <p className="text-[11px] font-black uppercase tracking-widest text-white/50">{label}</p>
+            {slot ? (
+                <div className="mt-1.5 text-emerald-400 text-[11px] font-bold truncate">✓ {slot.fileName}</div>
+            ) : (
+                <p className="text-[10px] text-white/25 mt-1">Arrastra o haz clic</p>
+            )}
+            {error && <p className="text-red-400 text-[10px] mt-2">{error}</p>}
+            {slot?.parsed && (
+                <div className="mt-3 text-[10px] text-white/40 space-y-0.5 text-left bg-black/20 rounded-lg p-2">
+                    {slot.parsed.identificacion?.refCatastral && <div>RC: <span className="text-white/70 font-mono">{slot.parsed.identificacion.refCatastral}</span></div>}
+                    {slot.parsed.superficieHabitable && <div>Superficie: <span className="text-white/70">{slot.parsed.superficieHabitable} m²</span></div>}
+                    {slot.parsed.demandaCalefaccion && <div>Dem. calefacción: <span className="text-white/70">{slot.parsed.demandaCalefaccion} kWh/m²·año</span></div>}
+                    {slot.parsed.fechaFirma && <div>Fecha firma: <span className="text-white/70">{slot.parsed.fechaFirma}</span></div>}
+                </div>
+            )}
+        </div>
+    );
+}
 
 // ─── Modal de creación de expediente ─────────────────────────────────────────
 function NuevoExpedienteModal({ onClose, onCreated, existingOportunidadIds = [] }) {
@@ -22,6 +66,92 @@ function NuevoExpedienteModal({ onClose, onCreated, existingOportunidadIds = [] 
     const [error, setError] = useState(null);
     const [isManualMode, setIsManualMode] = useState(false);
     const [manualExpNumber, setManualExpNumber] = useState('');
+
+    // ─── Modo "Migrar desde XML" ──────────────────────────────────────────────
+    const [mode, setMode] = useState('op'); // 'op' | 'xml'
+    const [xmlFicha, setXmlFicha] = useState('RES060');
+    const [xmlIni, setXmlIni] = useState(null); // { parsed, fileName, base64 }
+    const [xmlFin, setXmlFin] = useState(null);
+    const [xmlIniErr, setXmlIniErr] = useState(null);
+    const [xmlFinErr, setXmlFinErr] = useState(null);
+    const [xmlCliente, setXmlCliente] = useState('');
+    const [clienteQuery, setClienteQuery] = useState('');
+    const [showClienteForm, setShowClienteForm] = useState(false);
+    const [migrating, setMigrating] = useState(false);
+
+    const handleXmlFile = (file, which) => {
+        const setErr = which === 'ini' ? setXmlIniErr : setXmlFinErr;
+        const setSlot = which === 'ini' ? setXmlIni : setXmlFin;
+        if (!file) return;
+        if (!file.name.toLowerCase().endsWith('.xml')) { setErr('Archivo .xml no válido'); return; }
+        setErr(null);
+        const textReader = new FileReader();
+        textReader.onload = (e) => {
+            try {
+                const parsed = parseCeeXml(e.target.result);
+                const b64Reader = new FileReader();
+                b64Reader.onload = (ev) => {
+                    const base64 = String(ev.target.result).split(',')[1] || '';
+                    setSlot({ parsed, fileName: file.name, base64 });
+                };
+                b64Reader.readAsDataURL(file);
+            } catch (err) {
+                setErr(err.message);
+                setSlot(null);
+            }
+        };
+        textReader.readAsText(file, 'UTF-8');
+    };
+
+    // Datos del titular extraídos del XML para prerrellenar el alta de cliente
+    const clientePrefill = (() => {
+        const ident = xmlIni?.parsed?.identificacion || xmlFin?.parsed?.identificacion;
+        if (!ident) return null;
+        const out = {};
+        if (ident.nombre) out.nombre_razon_social = ident.nombre;
+        if (ident.direccion) out.direccion = String(ident.direccion).toUpperCase();
+        if (ident.municipio) out.municipio = ident.municipio;
+        if (ident.provincia) out.provincia = ident.provincia;
+        return Object.keys(out).length ? out : null;
+    })();
+
+    const filteredClientes = clienteQuery.trim()
+        ? clientes.filter(c => `${c.nombre_razon_social} ${c.apellidos || ''} ${c.dni || ''} ${c.municipio || ''}`.toLowerCase().includes(clienteQuery.toLowerCase())).slice(0, 8)
+        : clientes.slice(0, 8);
+    const selectedClienteObj = clientes.find(c => c.id_cliente === xmlCliente);
+
+    const handleMigrate = async (e) => {
+        e.preventDefault();
+        if (!xmlIni && !xmlFin) { setError('Sube al menos un XML (inicial o final).'); return; }
+        if (!xmlCliente) { setError('Selecciona o crea un cliente.'); return; }
+        if (isManualMode && !manualExpNumber.trim()) { setError('Indica el número de expediente.'); return; }
+        const refCat = xmlIni?.parsed?.identificacion?.refCatastral || xmlFin?.parsed?.identificacion?.refCatastral || '';
+        setMigrating(true);
+        setError(null);
+        try {
+            const { data } = await axios.post('/api/expedientes/migrate-from-xml', {
+                ficha: xmlFicha,
+                cliente_id: xmlCliente,
+                numero_expediente: isManualMode ? manualExpNumber.trim() : null,
+                ref_catastral: refCat,
+                cee_inicial: xmlIni?.parsed || null,
+                cee_final: xmlFin?.parsed || null,
+                fechas: {
+                    visita_inicial: xmlIni?.parsed?.fechaVisita || null,
+                    firma_inicial: xmlIni?.parsed?.fechaFirma || null,
+                    visita_final: xmlFin?.parsed?.fechaVisita || null,
+                    firma_final: xmlFin?.parsed?.fechaFirma || null,
+                },
+                xml_inicial_base64: xmlIni?.base64 || null,
+                xml_final_base64: xmlFin?.base64 || null,
+            });
+            onCreated(data);
+        } catch (err) {
+            setError(err.response?.data?.error || err.response?.data?.details || 'Error al migrar el expediente.');
+        } finally {
+            setMigrating(false);
+        }
+    };
 
     useEffect(() => {
         Promise.all([
@@ -76,7 +206,7 @@ function NuevoExpedienteModal({ onClose, onCreated, existingOportunidadIds = [] 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
             <div
-                className="bg-bkg-deep border border-white/10 rounded-2xl w-full max-w-md shadow-2xl"
+                className={`bg-bkg-deep border border-white/10 rounded-2xl w-full shadow-2xl max-h-[90vh] overflow-y-auto ${mode === 'xml' ? 'max-w-2xl' : 'max-w-md'}`}
                 onClick={e => e.stopPropagation()}
             >
                 <div className="flex items-center justify-between p-6 border-b border-white/[0.06]">
@@ -88,9 +218,24 @@ function NuevoExpedienteModal({ onClose, onCreated, existingOportunidadIds = [] 
                     </button>
                 </div>
 
-                {loadingData ? (
+                {/* Toggle de modo de creación */}
+                <div className="px-6 pt-5">
+                    <div className="flex p-1 bg-white/5 rounded-xl border border-white/5">
+                        <button type="button" onClick={() => { setMode('op'); setError(null); }}
+                            className={`flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all ${mode === 'op' ? 'bg-brand text-bkg-deep shadow-lg' : 'text-white/40 hover:text-white'}`}>
+                            Desde Oportunidad
+                        </button>
+                        <button type="button" onClick={() => { setMode('xml'); setError(null); }}
+                            className={`flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all ${mode === 'xml' ? 'bg-brand text-bkg-deep shadow-lg' : 'text-white/40 hover:text-white'}`}>
+                            Migrar desde XML
+                        </button>
+                    </div>
+                </div>
+
+                {mode === 'op' ? (
+                  loadingData ? (
                     <div className="p-8 text-center text-white/40 text-sm">Cargando datos...</div>
-                ) : (
+                  ) : (
                     <form onSubmit={handleSubmit} className="p-6 space-y-4">
                         <div>
                             <label className="block text-xs text-white/50 uppercase tracking-wider mb-1.5 font-bold">
@@ -205,6 +350,135 @@ function NuevoExpedienteModal({ onClose, onCreated, existingOportunidadIds = [] 
                             </button>
                         </div>
                     </form>
+                  )
+                ) : (
+                    <>
+                        <form onSubmit={handleMigrate} className="p-6 space-y-5">
+                            <p className="text-[11px] text-white/40 leading-relaxed">
+                                Migra un expediente <span className="text-white/70 font-bold">ya en curso</span> a partir de sus certificados CE3X. Se extraerán la referencia catastral, coordenadas UTM y demandas automáticamente.
+                            </p>
+
+                            {/* Programa */}
+                            <div>
+                                <label className="block text-xs text-white/50 uppercase tracking-wider mb-1.5 font-bold">Programa</label>
+                                <div className="flex gap-2">
+                                    {['RES060', 'RES080', 'RES093'].map(f => (
+                                        <button key={f} type="button" onClick={() => setXmlFicha(f)}
+                                            className={`flex-1 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest border transition-all ${xmlFicha === f ? 'bg-brand text-bkg-deep border-brand shadow-lg' : 'border-white/10 text-white/40 hover:text-white hover:border-white/20'}`}>
+                                            {f}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Certificados XML */}
+                            <div>
+                                <label className="block text-xs text-white/50 uppercase tracking-wider mb-2 font-bold">Certificados CEE (.xml)</label>
+                                <div className="grid grid-cols-2 gap-3">
+                                    <XmlDrop label="XML Inicial" slot={xmlIni} error={xmlIniErr} onFile={(f) => handleXmlFile(f, 'ini')} />
+                                    <XmlDrop label="XML Final" slot={xmlFin} error={xmlFinErr} onFile={(f) => handleXmlFile(f, 'fin')} />
+                                </div>
+                                {xmlFicha === 'RES080' && (!xmlIni || !xmlFin) && (
+                                    <p className="text-amber-400/80 text-[10px] mt-1.5">RES080 necesita ambos certificados (inicial y final) para calcular el ahorro.</p>
+                                )}
+                            </div>
+
+                            {/* Cliente */}
+                            <div>
+                                <label className="block text-xs text-white/50 uppercase tracking-wider mb-1.5 font-bold">Cliente</label>
+                                {selectedClienteObj ? (
+                                    <div className="flex items-center justify-between bg-emerald-500/5 border border-emerald-500/20 rounded-xl px-4 py-3">
+                                        <div className="text-sm text-white">
+                                            {selectedClienteObj.nombre_razon_social} {selectedClienteObj.apellidos || ''}
+                                            {selectedClienteObj.municipio ? <span className="text-white/40 text-xs"> · {selectedClienteObj.municipio}</span> : null}
+                                        </div>
+                                        <button type="button" onClick={() => setXmlCliente('')} className="text-white/40 hover:text-white text-xs font-bold">Cambiar</button>
+                                    </div>
+                                ) : (
+                                    <>
+                                        <div className="flex gap-2">
+                                            <input type="text" value={clienteQuery} onChange={e => setClienteQuery(e.target.value)}
+                                                placeholder="Buscar por nombre, DNI o municipio…"
+                                                className="flex-1 bg-bkg-surface border border-white/10 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-brand/50" />
+                                            <button type="button" onClick={() => setShowClienteForm(true)}
+                                                className="px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-[10px] font-black uppercase tracking-widest text-white/70 hover:text-white hover:border-white/20 whitespace-nowrap">
+                                                + Nuevo
+                                            </button>
+                                        </div>
+                                        {filteredClientes.length > 0 && (
+                                            <ul className="mt-2 max-h-40 overflow-y-auto rounded-xl border border-white/[0.06] divide-y divide-white/[0.04]">
+                                                {filteredClientes.map(c => (
+                                                    <li key={c.id_cliente}>
+                                                        <button type="button" onClick={() => { setXmlCliente(c.id_cliente); setClienteQuery(''); }}
+                                                            className="w-full text-left px-4 py-2.5 text-sm text-white/70 hover:bg-white/5 hover:text-white transition-colors">
+                                                            {c.nombre_razon_social} {c.apellidos || ''}
+                                                            {c.municipio ? <span className="text-white/30 text-xs"> · {c.municipio}</span> : null}
+                                                        </button>
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        )}
+                                    </>
+                                )}
+                            </div>
+
+                            {/* Numeración */}
+                            <div className="space-y-3">
+                                <label className="block text-xs text-white/50 uppercase tracking-wider font-bold text-center">Numeración del Expediente</label>
+                                <div className="flex p-1 bg-white/5 rounded-xl border border-white/5">
+                                    <button type="button" onClick={() => setIsManualMode(false)}
+                                        className={`flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all ${!isManualMode ? 'bg-emerald-600 text-white shadow-lg' : 'text-white/40 hover:text-white'}`}>
+                                        Auto-Generar
+                                    </button>
+                                    <button type="button" onClick={() => setIsManualMode(true)}
+                                        className={`flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all ${isManualMode ? 'bg-brand text-bkg-deep shadow-lg' : 'text-white/40 hover:text-white'}`}>
+                                        Manual
+                                    </button>
+                                </div>
+                                {isManualMode ? (
+                                    <input type="text" value={manualExpNumber} onChange={e => setManualExpNumber(e.target.value.toUpperCase())}
+                                        placeholder={`EJ: ${new Date().getFullYear().toString().slice(-2)}${xmlFicha}_999`}
+                                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-brand transition-all font-mono text-sm placeholder:text-white/10" />
+                                ) : (
+                                    <div className="bg-emerald-500/5 border border-emerald-500/10 rounded-2xl p-3 text-center">
+                                        <p className="text-[10px] text-emerald-400/80 font-black uppercase tracking-widest">
+                                            Se asignará el correlativo oficial {new Date().getFullYear().toString().slice(-2)}{xmlFicha}_...
+                                        </p>
+                                    </div>
+                                )}
+                            </div>
+
+                            {error && (
+                                <p className="text-red-400 text-xs bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">{error}</p>
+                            )}
+
+                            <div className="flex gap-3 pt-1">
+                                <button type="button" onClick={onClose}
+                                    className="flex-1 py-3 rounded-xl border border-white/10 text-white/60 hover:text-white hover:border-white/20 font-bold text-sm transition-all">
+                                    Cancelar
+                                </button>
+                                <button type="submit" disabled={migrating}
+                                    className="flex-1 py-3 rounded-xl bg-gradient-to-r from-brand to-brand-700 text-bkg-deep font-black text-sm uppercase tracking-wider disabled:opacity-50 transition-all">
+                                    {migrating ? 'Migrando...' : 'Crear Expediente'}
+                                </button>
+                            </div>
+                        </form>
+
+                        {showClienteForm && (
+                            <ClienteFormModal
+                                isOpen={showClienteForm}
+                                onClose={() => setShowClienteForm(false)}
+                                initialData={clientePrefill}
+                                onSuccess={(nuevo) => {
+                                    if (nuevo && nuevo.id_cliente) {
+                                        setClientes(prev => [nuevo, ...prev.filter(c => c.id_cliente !== nuevo.id_cliente)]);
+                                        setXmlCliente(nuevo.id_cliente);
+                                    }
+                                    setShowClienteForm(false);
+                                }}
+                            />
+                        )}
+                    </>
                 )}
             </div>
         </div>

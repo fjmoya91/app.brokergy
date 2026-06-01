@@ -344,11 +344,12 @@ router.get('/', requireAuth, async (req, res) => {
                 }
                 const { data: retryData, error: retryError } = await retryQuery;
                 if (retryError) return res.status(500).json({ error: retryError.message });
-                return res.status(200).json(retryData || []);
+                return res.status(200).json((retryData || []).filter(o => o?.datos_calculo?.origen !== 'migracion_xml'));
             }
             return res.status(200).json([]); // Devolvemos array vacío para evitar crashes en el front
         }
-        res.status(200).json(data || []);
+        // Ocultar oportunidades "fantasma" creadas por la migración de expedientes desde XML
+        res.status(200).json((data || []).filter(o => o?.datos_calculo?.origen !== 'migracion_xml'));
     } catch (error) {
         console.error('Fatal crash in GET /:', error);
         res.status(500).json({ error: 'Error del servidor.' });

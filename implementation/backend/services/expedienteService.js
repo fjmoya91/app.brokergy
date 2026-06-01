@@ -1,6 +1,33 @@
 const supabase = require('./supabaseClient');
 const { getCoordinatesByRC } = require('./catastroService');
 const driveService = require('./driveService');
+const { ALLOWED_PROVINCES } = require('../data/allowedProvinces');
+
+// Mapa inverso "nombre de provincia normalizado" -> código (para migración desde XML).
+// El CEE trae la provincia como texto ("CIUDAD REAL"); la app espera el CÓDIGO de
+// provincia en datos_calculo.inputs.provincia (lo usan getCCAA y los cálculos).
+const _normProv = (s) => String(s || '').toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
+const PROVINCE_NAME_TO_CODE = (() => {
+    const map = {};
+    for (const [code, info] of Object.entries(ALLOWED_PROVINCES)) {
+        if (info && info.provincia) map[_normProv(info.provincia)] = code;
+    }
+    return map;
+})();
+
+// Resuelve el código de provincia (2 dígitos) desde la identificación del XML:
+// 1) por nombre de provincia; 2) por CP embebido en la dirección.
+function resolveProvinceCode(ident) {
+    if (!ident) return null;
+    const byName = PROVINCE_NAME_TO_CODE[_normProv(ident.provincia)];
+    if (byName) return byName;
+    const cpMatch = String(ident.direccion || '').match(/\b(\d{5})\b/);
+    if (cpMatch) {
+        const cpCode = cpMatch[1].substring(0, 2);
+        if (ALLOWED_PROVINCES[cpCode]) return cpCode;
+    }
+    return null;
+}
 
 /**
  * Crea un expediente automáticamente a partir de una oportunidad aceptada.
@@ -9,7 +36,7 @@ const driveService = require('./driveService');
  * @param {string} uuid_oportunidad - El ID (UUID) de la oportunidad en la tabla 'oportunidades'
  * @param {string} id_cliente - El ID del cliente vinculado
  */
-async function createExpediente(uuid_oportunidad, id_cliente, manualNumber = null) {
+async function createExpediente(uuid_oportunidad, id_cliente, manualNumber = null, overrides = {}) {
     try {
         console.log(`[ExpedienteService] Iniciando creación ${manualNumber ? 'MANUAL' : 'AUTOMÁTICA'} para OP UUID: ${uuid_oportunidad}`);
 
@@ -47,7 +74,75 @@ async function createExpediente(uuid_oportunidad, id_cliente, manualNumber = nul
             } catch (e) { console.warn('[ExpedienteService] UTM lookup failed:', e.message); }
         }
 
-        const aerothermiaDbId = opInputs.aerothermiaModel ? Number(opInputs.aerothermiaModel) : null;
+        // ── Resolver aerotermia desde la oportunidad ────────────────────────
+        // La calculadora guarda el ID de la BD (aerothermiaModel) o el literal
+        // 'custom' con customBrandName/customModelName. La marca y el modelo
+        // NO se guardan duplicados en inputs, así que el expediente los lee
+        // desde la tabla `aerotermia` por ID.
+        const resolveAerotermia = async (modelId, customBrand, customModel, scopFallback) => {
+            const empty = { aerotermia_db_id: null, marca: '', modelo: '', numero_serie: '', scop: null, metodo_scop: 'ficha' };
+            if (modelId === null || modelId === undefined || modelId === '') return empty;
+
+            // Caso custom: marca y modelo introducidos a mano en la calculadora
+            if (String(modelId).toLowerCase() === 'custom') {
+                return {
+                    aerotermia_db_id: null,
+                    marca: customBrand || '',
+                    modelo: customModel || '',
+                    numero_serie: '',
+                    scop: scopFallback != null && scopFallback !== '' ? Number(scopFallback) : null,
+                    metodo_scop: 'ficha'
+                };
+            }
+
+            // Caso BD: lookup por id numérico en `aerotermia`
+            const numericId = Number(modelId);
+            if (!Number.isFinite(numericId)) return empty;
+            try {
+                const { data: aero } = await supabase
+                    .from('aerotermia')
+                    .select('id, marca, modelo_comercial, modelo_conjunto, modelo_ud_exterior')
+                    .eq('id', numericId)
+                    .maybeSingle();
+                if (!aero) {
+                    console.warn(`[ExpedienteService] aerotermia id=${numericId} no encontrada en BD`);
+                    return { ...empty, scop: scopFallback != null && scopFallback !== '' ? Number(scopFallback) : null };
+                }
+                return {
+                    aerotermia_db_id: aero.id,
+                    marca: aero.marca || '',
+                    modelo: aero.modelo_comercial || aero.modelo_conjunto || aero.modelo_ud_exterior || '',
+                    numero_serie: '',
+                    scop: scopFallback != null && scopFallback !== '' ? Number(scopFallback) : null,
+                    metodo_scop: 'ficha'
+                };
+            } catch (e) {
+                console.warn(`[ExpedienteService] Lookup aerotermia id=${numericId} falló: ${e.message}`);
+                return { ...empty, scop: scopFallback != null && scopFallback !== '' ? Number(scopFallback) : null };
+            }
+        };
+
+        const cambioAcs = opInputs.changeAcs === true;
+
+        const aerotermiaCal = await resolveAerotermia(
+            opInputs.aerothermiaModel,
+            opInputs.customBrandName,
+            opInputs.customModelName,
+            opInputs.scopHeating
+        );
+
+        // Si el usuario marcó "Incluir ACS" en la calculadora, el bloque ACS es
+        // independiente (puede tener su propio modelo, marca y SCOP). Si no, se
+        // copia el bloque de calefacción tal cual.
+        const aerotermiaAcs = cambioAcs
+            ? await resolveAerotermia(
+                opInputs.aerothermiaModelAcs,
+                opInputs.customBrandAcsName,
+                opInputs.customModelAcsName,
+                opInputs.scopAcs
+            )
+            : { ...aerotermiaCal };
+
         const instalacion = {
             misma_direccion: true,
             ref_catastral: op.ref_catastral || '',
@@ -57,23 +152,20 @@ async function createExpediente(uuid_oportunidad, id_cliente, manualNumber = nul
             caldera_antigua_cal: { marca: '', modelo: '', numero_serie: '', rendimiento_id: opInputs.boilerId || 'default' },
             misma_caldera_acs: true,
             caldera_antigua_acs: { marca: '', modelo: '', numero_serie: '', rendimiento_id: opInputs.boilerId || 'default' },
-            aerotermia_cal: {
-                aerotermia_db_id: aerothermiaDbId,
-                marca: opInputs.aerothermiaMarca || '',
-                modelo: opInputs.aerothermiaModeloNombre || '',
-                numero_serie: '',
-                scop: opInputs.scopHeating || null
-            },
-            misma_aerotermia_acs: true,
-            aerotermia_acs: {
-                aerotermia_db_id: aerothermiaDbId,
-                marca: opInputs.aerothermiaMarca || '',
-                modelo: opInputs.aerothermiaModeloNombre || '',
-                numero_serie: '',
-                scop: opInputs.scopHeating || null
-            },
+            aerotermia_cal: aerotermiaCal,
+            cambio_acs: cambioAcs,
+            misma_aerotermia_acs: !cambioAcs,
+            aerotermia_acs: aerotermiaAcs,
+            hibridacion: opInputs.hibridacion === true,
+            potencia_bomba: opInputs.potenciaBomba != null && opInputs.potenciaBomba !== '' ? Number(opInputs.potenciaBomba) : 0,
             instalador_id: op.prescriptor_id || null
         };
+
+        console.log(`[ExpedienteService] Instalación pre-rellenada desde oportunidad → ` +
+            `cal=${aerotermiaCal.marca}/${aerotermiaCal.modelo}/SCOP=${aerotermiaCal.scop} ` +
+            `cambio_acs=${cambioAcs} ` +
+            (cambioAcs ? `acs=${aerotermiaAcs.marca}/${aerotermiaAcs.modelo}/SCOP=${aerotermiaAcs.scop} ` : '') +
+            `hibridacion=${instalacion.hibridacion} potencia=${instalacion.potencia_bomba}`);
 
         const opCalculationResult = op.datos_calculo?.result || {};
 
@@ -170,6 +262,14 @@ async function createExpediente(uuid_oportunidad, id_cliente, manualNumber = nul
                 anexos: 'PTE_EMITIR'
             }
         };
+
+        // Overrides opcionales (usado por la migración de expedientes desde XML).
+        // Merge superficial por columna JSONB para no perder los defaults de arriba.
+        if (overrides.cee)           payload.cee           = { ...payload.cee,           ...overrides.cee };
+        if (overrides.instalacion)   payload.instalacion   = { ...payload.instalacion,   ...overrides.instalacion };
+        if (overrides.documentacion) payload.documentacion = { ...payload.documentacion, ...overrides.documentacion };
+        if (overrides.seguimiento)   payload.seguimiento   = { ...payload.seguimiento,   ...overrides.seguimiento };
+        if (overrides.estado)        payload.estado        = overrides.estado;
 
         const { data: newExp, error: insertErr } = await supabase
             .from('expedientes')
@@ -398,7 +498,175 @@ async function migrateExpedienteProgram(expedienteId, usuarioName = 'Sistema', t
     }
 }
 
+/**
+ * Migra un expediente "ya en curso" desde sus XML de CEE, SIN pasar por el flujo
+ * de oportunidades. Crea internamente una oportunidad "fantasma" (oculta del
+ * listado, marcada con datos_calculo.origen = 'migracion_xml') de la que cuelga
+ * el expediente, de modo que toda la lógica existente (Drive, cálculos, ciclo de
+ * vida, módulos del detalle) sigue funcionando sin tocar el esquema.
+ *
+ * @param {Object} params
+ * @param {('RES060'|'RES080'|'RES093')} params.ficha
+ * @param {string} params.cliente_id
+ * @param {string|null} [params.manualNumber]
+ * @param {Object|null} params.ceeInicial  - resultado de parseCeeXml (front)
+ * @param {Object|null} [params.ceeFinal]
+ * @param {string} [params.refCatastral]
+ * @param {Object} [params.fechas]         - { visita_inicial, firma_inicial, visita_final, firma_final }
+ * @param {Object} [params.combustibles]   - overrides de comb_* (opcional)
+ * @param {string|null} [params.xmlInicialBase64] - XML crudo para subir a Drive
+ * @param {string|null} [params.xmlFinalBase64]
+ * @param {Object|null} [params.usuario]   - req.user (prescriptor_id / id_usuario)
+ */
+async function migrateExpedienteFromXml({
+    ficha,
+    cliente_id,
+    manualNumber = null,
+    ceeInicial = null,
+    ceeFinal = null,
+    refCatastral = '',
+    fechas = {},
+    combustibles = {},
+    xmlInicialBase64 = null,
+    xmlFinalBase64 = null,
+    usuario = null
+}) {
+    if (!['RES060', 'RES080', 'RES093'].includes(ficha)) {
+        throw new Error('Ficha inválida (debe ser RES060, RES080 o RES093)');
+    }
+    if (!cliente_id) throw new Error('cliente_id es obligatorio');
+    if (!ceeInicial && !ceeFinal) throw new Error('Se requiere al menos un XML (inicial o final)');
+
+    // 1. Cliente (nombre para carpeta y referencia)
+    const { data: cliente } = await supabase
+        .from('clientes').select('*').eq('id_cliente', cliente_id).single();
+    if (!cliente) throw new Error('Cliente no encontrado');
+    const clientFullName = `${cliente.nombre_razon_social} ${cliente.apellidos || ''}`
+        .trim().toUpperCase().replace(/\s+/g, ' ');
+
+    // 2. Datos derivados del XML
+    const ident = (ceeInicial && ceeInicial.identificacion) || (ceeFinal && ceeFinal.identificacion) || {};
+    const rc = refCatastral || ident.refCatastral || '';
+    const idOportunidad = 'MIG-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 7);
+
+    const provCode = resolveProvinceCode(ident);
+    const provInfo = provCode ? ALLOWED_PROVINCES[provCode] : null;
+    const datosCalculo = {
+        origen: 'migracion_xml',
+        estado: 'ACEPTADA',
+        historial: [],
+        zona: (ceeInicial && ceeInicial.zonaClimatica) || (ceeFinal && ceeFinal.zonaClimatica) || null,
+        inputs: {
+            ref_catastral: rc,
+            demandMode: 'real',
+            direccion: ident.direccion || null,
+            municipio: ident.municipio || null,
+            // provincia = CÓDIGO de 2 dígitos (lo que espera getCCAA y los cálculos);
+            // guardamos el nombre y la CCAA aparte como metadato.
+            provincia: provCode || null,
+            provincia_nombre: ident.provincia || null,
+            ccaa: provInfo ? provInfo.ccaa : null
+        }
+    };
+
+    // 3. Carpeta de Drive PRIMERO, para insertarla ya dentro de datos_calculo.
+    //    Así createExpediente la detecta, la renombra a "{numExp} - NOMBRE" y la
+    //    mueve a la carpeta EN CURSO (ACEPTADAS), igual que al aceptar una oportunidad.
+    //    (Antes se actualizaba tras el insert escribiendo una columna top-level
+    //    inexistente en `oportunidades`, lo que hacía fallar el update en silencio
+    //    y la carpeta quedaba como "MIG-… - NOMBRE" en la raíz, sin renombrar/mover.)
+    let driveFolderId = null;
+    try {
+        const drive = await driveService.setupOpportunityFolder(idOportunidad, clientFullName);
+        if (drive && drive.id) {
+            driveFolderId = drive.id;
+            datosCalculo.drive_folder_id = drive.id;
+            datosCalculo.drive_folder_link = drive.link;
+        }
+    } catch (e) {
+        console.warn('[migrateExpedienteFromXml] Drive folder setup falló:', e.message);
+    }
+
+    // 4. Oportunidad sintética (ya con la carpeta de Drive embebida en datos_calculo)
+    const { data: op, error: opErr } = await supabase
+        .from('oportunidades')
+        .insert([{
+            id_oportunidad: idOportunidad,
+            ref_catastral: rc,
+            ficha,
+            referencia_cliente: clientFullName,
+            cliente_id,
+            prescriptor_id: usuario?.prescriptor_id || null,
+            creador_id: usuario?.id_usuario || null,
+            datos_calculo: datosCalculo
+        }])
+        .select()
+        .single();
+    if (opErr) throw new Error('No se pudo crear la oportunidad interna: ' + opErr.message);
+
+    // 5. Overrides de CEE + fechas
+    // Estado de los expedientes migrados: ya están "en curso" con sus CEE, así que
+    // entran como PENDIENTE REVISAR EXPTE (entre DOC. COMPLETA y ENVIADO A VERIFICADOR).
+    const overrides = {
+        estado: 'PENDIENTE REVISAR EXPTE',
+        cee: {
+            tipo: 'xml',
+            is_reforma: ficha === 'RES080',
+            cee_inicial: ceeInicial || null,
+            cee_final: ceeFinal || null,
+            acs_method: 'xml',
+            num_rooms: 4,
+            comb_cal_inicial: combustibles.comb_cal_inicial || (ceeInicial && ceeInicial.combustibleCalefaccion) || 'Gasoleo Calefacción',
+            comb_cal_final:   combustibles.comb_cal_final   || (ceeFinal && ceeFinal.combustibleCalefaccion)   || 'Electricidad peninsular',
+            comb_acs_inicial: combustibles.comb_acs_inicial || (ceeInicial && ceeInicial.combustibleACS)        || 'Gasoleo Calefacción',
+            comb_acs_final:   combustibles.comb_acs_final   || (ceeFinal && ceeFinal.combustibleACS)            || 'Electricidad peninsular',
+            comb_ref_inicial: 'Electricidad peninsular',
+            comb_ref_final: 'Electricidad peninsular',
+            cee_files: { inicial: {}, final: {} }
+        },
+        documentacion: {
+            fecha_visita_cee_inicial: fechas.visita_inicial || (ceeInicial && ceeInicial.fechaVisita) || null,
+            fecha_firma_cee_inicial:  fechas.firma_inicial  || (ceeInicial && ceeInicial.fechaFirma)  || null,
+            fecha_visita_cee_final:   fechas.visita_final   || (ceeFinal && ceeFinal.fechaVisita)     || null,
+            fecha_firma_cee_final:    fechas.firma_final    || (ceeFinal && ceeFinal.fechaFirma)      || null
+        }
+    };
+
+    // 6. Crear el expediente (numeración oficial + Drive rename/move + sync op)
+    const newExp = await createExpediente(op.id, cliente_id, manualNumber, overrides);
+
+    // 7. Subir XMLs crudos a Drive (1. CEE / CEE INICIAL|FINAL) y guardar enlaces
+    if (driveFolderId && (xmlInicialBase64 || xmlFinalBase64)) {
+        try {
+            const ceeRootId = await driveService.getOrCreateSubfolder(driveFolderId, '1. CEE');
+            const ceeFiles = { inicial: {}, final: {} };
+            const numExp = newExp.numero_expediente || idOportunidad;
+
+            if (xmlInicialBase64) {
+                const sub = await driveService.getOrCreateSubfolder(ceeRootId, 'CEE INICIAL');
+                const r = await driveService.saveFileToFolder(sub, `${numExp} - CEE INICIAL.xml`, 'application/xml', Buffer.from(xmlInicialBase64, 'base64'));
+                if (r) ceeFiles.inicial.xml = r.link;
+            }
+            if (xmlFinalBase64) {
+                const sub = await driveService.getOrCreateSubfolder(ceeRootId, 'CEE FINAL');
+                const r = await driveService.saveFileToFolder(sub, `${numExp} - CEE FINAL.xml`, 'application/xml', Buffer.from(xmlFinalBase64, 'base64'));
+                if (r) ceeFiles.final.xml = r.link;
+            }
+
+            const mergedCee = { ...(newExp.cee || {}), cee_files: ceeFiles };
+            const { data: updated } = await supabase.from('expedientes')
+                .update({ cee: mergedCee }).eq('id', newExp.id).select().single();
+            if (updated) Object.assign(newExp, updated);
+        } catch (e) {
+            console.warn('[migrateExpedienteFromXml] Subida de XML a Drive falló:', e.message);
+        }
+    }
+
+    return newExp;
+}
+
 module.exports = {
     createExpediente,
-    migrateExpedienteProgram
+    migrateExpedienteProgram,
+    migrateExpedienteFromXml
 };
