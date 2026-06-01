@@ -869,12 +869,12 @@ export function AdminPanelView({
                                 )}
                                 <th className="p-3.5 text-[10px] font-black uppercase tracking-[0.15em] text-white/25 border-b border-white/[0.06]">CCAA</th>
                                 <th className="p-3.5 text-[10px] font-black uppercase tracking-[0.15em] text-white/25 border-b border-white/[0.06]">Ficha</th>
-                                {user?.rol === 'ADMIN' && (
-                                    <th className="p-3.5 text-[10px] font-black uppercase tracking-[0.15em] text-blue-400/60 text-right border-b border-white/[0.06]">Ahorro (MWh)</th>
-                                )}
-                                <th className="p-3.5 text-[10px] font-black uppercase tracking-[0.15em] text-emerald-400/40 text-right border-b border-white/[0.06]">Bono CAE</th>
-                                <th className="p-3.5 text-[10px] font-black uppercase tracking-[0.15em] text-cyan-400/40 text-right border-b border-white/[0.06]">
-                                    {viewMode === 'brokergy' ? 'Beneficio Brokergy' : 'Presupuesto'}
+                                <th className="p-3.5 text-[10px] font-black uppercase tracking-[0.15em] border-b border-white/[0.06]">
+                                    <div className="flex items-center gap-1.5">
+                                        {user?.rol === 'ADMIN' && <span className="text-blue-400/60">⚡</span>}
+                                        <span className="text-emerald-400/60">€</span>
+                                        <span className="text-cyan-400/60">▲</span>
+                                    </div>
                                 </th>
                                 <th className="p-3.5 text-[10px] font-black uppercase tracking-[0.15em] text-white/25 border-b border-white/[0.06]">Fecha</th>
                                 {user?.rol === 'ADMIN' && (
@@ -931,15 +931,11 @@ export function AdminPanelView({
                                         <option value="RES093" className="bg-slate-800 text-indigo-400">RES093</option>
                                     </select>
                                 </td>
-                                {user?.rol === 'ADMIN' && (
-                                    <td className="p-2.5 border-b border-white/[0.06]"></td>
-                                )}
-                                <td className="p-2.5 border-b border-white/[0.06]"></td>
                                 <td className="p-2.5 border-b border-white/[0.06]"></td>
                                 <td className="p-2.5 border-b border-white/[0.06]"></td>
                                 {user?.rol === 'ADMIN' && (
                                     <td className="p-2.5 border-b border-white/[0.06]">
-                                        <SearchablePartnerSelect 
+                                        <SearchablePartnerSelect
                                             isFilter 
                                             value={filters.prescriptor_id} 
                                             onSelect={val => setFilters(prev => ({ ...prev, prescriptor_id: val }))}
@@ -952,7 +948,7 @@ export function AdminPanelView({
                         <tbody className="divide-y divide-white/[0.04]">
                             {loading && filteredOportunidades.length === 0 ? (
                                 <tr>
-                                    <td colSpan={user?.rol === 'ADMIN' ? 10 : (user?.rol === 'DISTRIBUIDOR' ? 9 : 8)} className="p-12 text-center">
+                                    <td colSpan={user?.rol === 'ADMIN' ? 7 : (user?.rol === 'DISTRIBUIDOR' ? 7 : 6)} className="p-12 text-center">
                                         <div className="flex flex-col items-center gap-3">
                                             <svg className="w-6 h-6 text-white/15 animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
@@ -963,7 +959,7 @@ export function AdminPanelView({
                                 </tr>
                             ) : paginatedOportunidades.length === 0 ? (
                                 <tr>
-                                    <td colSpan={user?.rol === 'ADMIN' ? 10 : (user?.rol === 'DISTRIBUIDOR' ? 9 : 8)} className="p-12 text-center">
+                                    <td colSpan={user?.rol === 'ADMIN' ? 7 : (user?.rol === 'DISTRIBUIDOR' ? 7 : 6)} className="p-12 text-center">
                                         <div className="flex flex-col items-center gap-3">
                                             <svg className="w-8 h-8 text-white/10" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -1075,24 +1071,41 @@ export function AdminPanelView({
                                                     {currentFicha}
                                                 </span>
                                             </td>
-                                            {user?.rol === 'ADMIN' && (
-                                                <td className="p-3.5 text-sm text-blue-400 font-mono text-right font-bold">
-                                                    {(() => {
-                                                        const savingsKwh = isReforma 
-                                                            ? (op.datos_calculo?.result?.res080?.ahorroEnergiaFinalTotal || 0)
-                                                            : (op.datos_calculo?.result?.savings?.savingsKwh || 0);
-                                                        return (savingsKwh / 1000).toFixed(2);
-                                                    })()}
-                                                </td>
-                                            )}
-                                            <td className="p-3.5 text-sm font-bold text-emerald-400 text-right">
-                                                {caeBonus > 0 ? caeBonus.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' }) : '-'}
-                                            </td>
-                                            <td className="p-3.5 text-sm font-bold text-cyan-400 text-right">
-                                                {viewMode === 'brokergy'
-                                                    ? (profitBrokergy > 0 ? profitBrokergy.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' }) : '-')
-                                                    : (presupuesto > 0 ? presupuesto.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' }) : '-')
-                                                }
+                                            {/* Columna financiera combinada (⚡ ahorro / € bono CAE / ▲ beneficio o presupuesto) */}
+                                            <td className="p-3.5">
+                                                {(() => {
+                                                    const savingsKwh = isReforma
+                                                        ? (op.datos_calculo?.result?.res080?.ahorroEnergiaFinalTotal || 0)
+                                                        : (op.datos_calculo?.result?.savings?.savingsKwh || 0);
+                                                    const tercero = viewMode === 'brokergy' ? profitBrokergy : presupuesto;
+                                                    if (!savingsKwh && !caeBonus && !tercero) {
+                                                        return <span className="text-white/20 text-xs">-</span>;
+                                                    }
+                                                    return (
+                                                        <div className="flex flex-col gap-0.5">
+                                                            {user?.rol === 'ADMIN' && (
+                                                                <div className="flex items-center gap-2">
+                                                                    <span className="text-[8px] text-blue-400/50 w-3 text-center shrink-0">⚡</span>
+                                                                    <span className="text-[11px] font-black text-blue-400 font-mono tabular-nums">
+                                                                        {savingsKwh ? `${(savingsKwh / 1000).toLocaleString('es-ES', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} MWh` : '—'}
+                                                                    </span>
+                                                                </div>
+                                                            )}
+                                                            <div className="flex items-center gap-2">
+                                                                <span className="text-[8px] text-emerald-400/50 w-3 text-center shrink-0">€</span>
+                                                                <span className="text-[11px] font-black text-emerald-400 font-mono tabular-nums">
+                                                                    {caeBonus > 0 ? caeBonus.toLocaleString('es-ES', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }) : '—'}
+                                                                </span>
+                                                            </div>
+                                                            <div className="flex items-center gap-2">
+                                                                <span className="text-[8px] text-cyan-400/50 w-3 text-center shrink-0">▲</span>
+                                                                <span className="text-[11px] font-black text-cyan-400 font-mono tabular-nums">
+                                                                    {tercero > 0 ? tercero.toLocaleString('es-ES', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }) : '—'}
+                                                                </span>
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })()}
                                             </td>
                                             <td className="p-3.5 text-[11px] text-white/25 whitespace-nowrap font-mono">
                                                 {new Date(op.created_at).toLocaleDateString('es-ES')}
