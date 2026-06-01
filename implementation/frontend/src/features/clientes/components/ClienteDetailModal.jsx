@@ -151,7 +151,7 @@ function SelectEl({ className = '', children, ...props }) {
 }
 
 // ─── Sección dirección editable ─────────────────────────────────────────────
-function DireccionEdit({ values, onChange, autoMunicipioHint, onParseFromDireccion }) {
+function DireccionEdit({ values, onChange, autoMunicipioHint, onParseFromDireccion, hasCatastroData = false, catastroDireccion = null }) {
     const [provincias, setProvincias] = useState([]);
     const [municipios, setMunicipios] = useState([]);
     const [loadingProv, setLoadingProv] = useState(false);
@@ -279,8 +279,12 @@ function DireccionEdit({ values, onChange, autoMunicipioHint, onParseFromDirecci
                             <button
                                 type="button"
                                 onClick={onParseFromDireccion}
-                                disabled={!values.direccion}
-                                title="Rellenar CCAA / Provincia / Municipio / CP a partir de la dirección catastral"
+                                disabled={!values.direccion && !hasCatastroData}
+                                title={
+                                    hasCatastroData && !values.direccion
+                                        ? (catastroDireccion ? `Usar la dirección del expediente: ${catastroDireccion}` : 'Usar los datos del expediente')
+                                        : 'Rellenar CCAA / Provincia / Municipio / CP a partir de la dirección catastral'
+                                }
                                 className="shrink-0 px-3 py-2.5 rounded-xl border border-brand/30 bg-brand/10 text-brand text-[10px] font-black uppercase tracking-widest hover:bg-brand/20 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
                             >
                                 Usar Catastro
@@ -294,7 +298,7 @@ function DireccionEdit({ values, onChange, autoMunicipioHint, onParseFromDirecci
 }
 
 // ─── Modal principal ────────────────────────────────────────────────────────
-export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clienteId, onUpdated, onOpenOportunidad, onOpenExpediente, expedienteId, oportunidadId, onClienteSwapped }) {
+export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clienteId, onUpdated, onOpenOportunidad, onOpenExpediente, expedienteId, oportunidadId, onClienteSwapped, catastroData = null }) {
     const { user } = useAuth();
     const userRole = (user?.rol || '').toUpperCase();
     const userRoleId = user?.id_rol ? Number(user.id_rol) : null;
@@ -317,6 +321,13 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
     const [saved, setSaved] = useState(false);
     const [showNotas, setShowNotas] = useState(false);
     const [autoMunicipioHint, setAutoMunicipioHint] = useState('');
+
+    // ── Cambiar titular (solo dentro de un expediente/oportunidad) ──
+    const [showSwap, setShowSwap] = useState(false);
+    const [swapList, setSwapList] = useState([]);
+    const [swapQuery, setSwapQuery] = useState('');
+    const [swapLoading, setSwapLoading] = useState(false);
+    const canSwap = !!(expedienteId || oportunidadId) && !isCertificador;
 
     const filteredPrescriptores = prescriptores.filter(p => {
         return normalize(p.acronimo || p.razon_social).includes(normalize(searchTerm));
@@ -391,7 +402,52 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
 
     const updateForm = useCallback((patch) => setForm(f => ({ ...f, ...patch })), []);
 
-    const handleParseDireccion = useCallback(() => {
+    const handleParseDireccion = useCallback(async () => {
+        // 1) Si el expediente trae datos catastrales YA ESTRUCTURADOS (dirección,
+        //    municipio, provincia=código, ccaa — como en la migración desde XML),
+        //    se usan directamente. Es más fiable que re-parsear texto, porque muchas
+        //    direcciones catastrales NO llevan CP y el parser por texto fallaría.
+        if (catastroData && (catastroData.direccion || catastroData.municipio || catastroData.provincia_cod || catastroData.ref_catastral)) {
+            const provCod = catastroData.provincia_cod
+                || getProvCodByNombre(catastroData.provincia_nombre || catastroData.provincia || '')
+                || '';
+            const ccaa = catastroData.ccaa
+                || (provCod ? (CCAA_LIST.find(c => normalize(c) === normalize(PROV_CCAA[provCod] || '')) || PROV_CCAA[provCod]) : '')
+                || '';
+
+            // El XML del CEE no trae CP. Si tenemos la referencia catastral, lo pedimos
+            // al Catastro (que sí lo devuelve en `postalCode`), junto con su dirección
+            // completa por si el XML no traía nada.
+            let cp = catastroData.codigo_postal || '';
+            let direccionCat = catastroData.direccion || '';
+            if (catastroData.ref_catastral) {
+                try {
+                    const { data } = await axios.get('/api/catastro/property-data', { params: { rc: catastroData.ref_catastral } });
+                    if (data?.postalCode) cp = data.postalCode;
+                    if (!direccionCat && data?.address) {
+                        // Quedarnos solo con la parte de calle (antes del CP)
+                        const m = String(data.address).match(/^(.*?)\s+\d{5}\b/);
+                        direccionCat = (m ? m[1] : data.address).trim();
+                    }
+                } catch (e) {
+                    // Sin conexión al Catastro seguimos con lo que haya (estructurado).
+                }
+            }
+
+            setAutoMunicipioHint(catastroData.municipio || '');
+            setForm(f => ({
+                ...f,
+                ccaa: ccaa || f.ccaa,
+                provincia: (provCod ? PROV_NOMBRE[provCod] : '') || catastroData.provincia_nombre || f.provincia,
+                provincia_cod: provCod || f.provincia_cod,
+                municipio: '', // se resolverá tras cargar la lista vía autoMunicipioHint
+                direccion: direccionCat || f.direccion,
+                codigo_postal: cp || f.codigo_postal,
+            }));
+            return;
+        }
+
+        // 2) Fallback: parsear el texto escrito en el campo dirección (requiere CP).
         const parsed = parseCatastroAddressFull(form.direccion);
         if (!parsed) return;
         setAutoMunicipioHint(parsed.municipioHint || '');
@@ -404,7 +460,7 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
             direccion: parsed.direccion || f.direccion,
             codigo_postal: parsed.codigo_postal || f.codigo_postal,
         }));
-    }, [form.direccion]);
+    }, [form.direccion, catastroData]);
 
     const handleSave = async () => {
         setSaveError(null);
@@ -445,6 +501,47 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
             }
         } finally {
             setLoading(false);
+        }
+    };
+
+    // Abrir el selector de "cambiar titular": carga la lista de clientes una vez.
+    const openSwap = async () => {
+        setShowSwap(true);
+        setSwapQuery('');
+        if (swapList.length === 0) {
+            setSwapLoading(true);
+            try {
+                const r = await axios.get('/api/clientes');
+                setSwapList(Array.isArray(r.data) ? r.data : []);
+            } catch {
+                setSwapList([]);
+            } finally {
+                setSwapLoading(false);
+            }
+        }
+    };
+
+    // Cambiar el titular del expediente/oportunidad por otro cliente existente.
+    const handleSwapTo = async (nuevoCliente) => {
+        if (!nuevoCliente?.id_cliente) return;
+        if (nuevoCliente.id_cliente === (cliente?.id_cliente)) { setShowSwap(false); return; }
+        setSwapLoading(true);
+        setSaveError(null);
+        try {
+            if (expedienteId) {
+                await axios.patch(`/api/expedientes/${expedienteId}/vincular-cliente`, { cliente_id: nuevoCliente.id_cliente });
+            } else {
+                await axios.patch(`/api/oportunidades/${oportunidadId}/vincular-cliente`, { cliente_id: nuevoCliente.id_cliente });
+            }
+            setShowSwap(false);
+            // Cargar la ficha del nuevo titular en el propio modal
+            setCliente(nuevoCliente);
+            setEditing(false);
+            if (onClienteSwapped) onClienteSwapped(nuevoCliente);
+        } catch (e) {
+            setSaveError(e.response?.data?.error || 'Error al cambiar el titular.');
+        } finally {
+            setSwapLoading(false);
         }
     };
 
@@ -525,6 +622,55 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
                     </div>
                 )}
 
+                {/* ── Overlay: Cambiar titular ── */}
+                {showSwap && (
+                    <div className="absolute inset-0 z-30 flex items-center justify-center rounded-2xl bg-bkg-deep/95 backdrop-blur-sm p-6">
+                        <div className="w-full max-w-md space-y-4">
+                            <div className="flex items-center justify-between">
+                                <h3 className="text-base font-black text-white uppercase tracking-widest">Cambiar titular</h3>
+                                <button onClick={() => setShowSwap(false)} className="p-1.5 text-white/40 hover:text-white rounded-lg hover:bg-white/5">
+                                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                </button>
+                            </div>
+                            <p className="text-xs text-white/40">Selecciona el nuevo cliente. Se vinculará a este expediente y todos los documentos (Anexos, CIFO…) usarán sus datos.</p>
+                            <input
+                                type="text"
+                                autoFocus
+                                value={swapQuery}
+                                onChange={e => setSwapQuery(e.target.value)}
+                                placeholder="Buscar por nombre, DNI o municipio…"
+                                className="w-full bg-bkg-surface border border-white/10 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-brand/50"
+                            />
+                            <div className="max-h-64 overflow-y-auto rounded-xl border border-white/[0.06] divide-y divide-white/[0.04]">
+                                {swapLoading && swapList.length === 0 ? (
+                                    <p className="px-4 py-3 text-sm text-white/30">Cargando clientes…</p>
+                                ) : (
+                                    (() => {
+                                        const q = normalize(swapQuery);
+                                        const list = swapList
+                                            .filter(c => c.id_cliente !== cliente?.id_cliente)
+                                            .filter(c => !q || normalize(`${c.nombre_razon_social} ${c.apellidos || ''} ${c.dni || ''} ${c.municipio || ''}`).includes(q))
+                                            .slice(0, 30);
+                                        if (list.length === 0) return <p className="px-4 py-3 text-sm text-white/30">Sin resultados.</p>;
+                                        return list.map(c => (
+                                            <button key={c.id_cliente} type="button" disabled={swapLoading}
+                                                onClick={() => handleSwapTo(c)}
+                                                className="w-full text-left px-4 py-2.5 hover:bg-white/5 transition-colors disabled:opacity-50">
+                                                <p className="text-sm text-white font-medium">{c.nombre_razon_social} {c.apellidos || ''}</p>
+                                                <p className="text-[11px] text-white/40">{[c.dni, c.municipio].filter(Boolean).join(' · ')}</p>
+                                            </button>
+                                        ));
+                                    })()
+                                )}
+                            </div>
+                            <button onClick={() => setShowSwap(false)} disabled={swapLoading}
+                                className="w-full py-2.5 rounded-xl border border-white/10 text-white/50 hover:text-white text-sm font-semibold transition-all">
+                                Cancelar
+                            </button>
+                        </div>
+                    </div>
+                )}
+
                 {/* Header */}
                 <div className="flex items-center justify-between p-6 border-b border-white/[0.06]">
                     <div className="flex items-center gap-3">
@@ -545,6 +691,16 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
                             <span className="text-xs text-emerald-400 font-black uppercase tracking-widest animate-fade-in">
                                 ✓ Guardado
                             </span>
+                        )}
+                        {!editing && canSwap && (
+                            <button onClick={openSwap}
+                                title="Cambiar el titular de este expediente por otro cliente"
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white/60 text-xs font-black uppercase tracking-widest hover:text-white hover:border-white/20 transition-all">
+                                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M8 7h12m0 0l-4-4m4 4l-4 4m4 6H4m0 0l4 4m-4-4l4-4" />
+                                </svg>
+                                Cambiar titular
+                            </button>
                         )}
                         {!editing && !isCertificador && (
                             <button onClick={() => setEditing(true)}
@@ -847,6 +1003,8 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
                                     onChange={updateForm}
                                     autoMunicipioHint={autoMunicipioHint}
                                     onParseFromDireccion={handleParseDireccion}
+                                    hasCatastroData={!!(catastroData && (catastroData.direccion || catastroData.municipio || catastroData.provincia_cod))}
+                                    catastroDireccion={catastroData?.direccion || null}
                                 />
                             </div>
 

@@ -19,6 +19,7 @@ import {
 import { SeguimientoModule } from '../components/SeguimientoModule';
 import { HistorialModal } from '../../../components/HistorialModal';
 import { DocsAdminModal } from '../../calculator/components/DocsAdminModal';
+import { ClienteDetailModal } from '../../clientes/components/ClienteDetailModal';
 
 export const EXPEDIENTE_ESTADOS = [
     'PTE. CEE INICIAL',
@@ -110,6 +111,7 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
     const [liveSeguimiento, setLiveSeguimiento] = useState(null);
     const [showQuickNote, setShowQuickNote] = useState(false);
     const [showFotos, setShowFotos] = useState(false);
+    const [showClienteModal, setShowClienteModal] = useState(false);
     const [localPrioridad, setLocalPrioridad] = useState('NORMAL');
 
     // Carga de certificadores (utilizado en Header CEE y CeeModule)
@@ -571,10 +573,10 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
                     <div className="flex flex-col gap-1 mt-2">
                         {/* Nombre del Cliente */}
                         <div className="flex items-center gap-2 flex-wrap">
-                            <button 
-                                onClick={() => !isCertificador && onNavigate?.('clientes', { cliente_id: cliente.id_cliente }, expediente.id)}
+                            <button
+                                onClick={() => !isCertificador && setShowClienteModal(true)}
                                 className={`text-white transition-colors text-base font-black text-left ${isCertificador ? 'cursor-default' : 'hover:text-brand'}`}
-                                title={isCertificador ? '' : 'Ir a ficha de cliente'}
+                                title={isCertificador ? '' : 'Ver / editar ficha de cliente'}
                             >
                                 {cliente.nombre_razon_social}
                                 {cliente.apellidos && ` ${cliente.apellidos}`}
@@ -993,6 +995,26 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
                 onClose={() => setShowFotos(false)}
                 idOportunidad={expediente?.oportunidades?.id_oportunidad}
             />
+
+            {showClienteModal && (
+                <ClienteDetailModal
+                    isOpen={true}
+                    clienteId={cliente.id_cliente}
+                    expedienteId={expediente.id}
+                    catastroData={{
+                        direccion: opInputs.direccion || opInputs.address || null,
+                        municipio: opInputs.municipio || null,
+                        provincia_cod: opInputs.provincia || null,
+                        provincia_nombre: opInputs.provincia_nombre || null,
+                        ccaa: opInputs.ccaa || null,
+                        codigo_postal: opInputs.cp || opInputs.codigo_postal || null,
+                        ref_catastral: op.ref_catastral || opInputs.ref_catastral || opInputs.rc || expediente.instalacion?.ref_catastral || null,
+                    }}
+                    onClose={() => setShowClienteModal(false)}
+                    onUpdated={() => fetchExpediente(true)}
+                    onClienteSwapped={() => { setShowClienteModal(false); fetchExpediente(true); }}
+                />
+            )}
         </div>
     );
 }

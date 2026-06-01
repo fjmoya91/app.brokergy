@@ -299,6 +299,9 @@ async function getByRC(rc) {
             },
             provinceCode: bi.dt?.loine?.cp || '',
             municipalityCode: bi.dt?.loine?.cm || '',
+            // Código postal de la finca (Catastro lo trae en dt.lourb.dp). Sirve para
+            // autocompletar el CP del cliente aunque el XML del CEE no lo incluya.
+            postalCode: String(bi.dt?.locs?.lous?.lourb?.dp || bi.dt?.lourb?.dp || '') || null,
 
             // Enrich with Climate Data
             climateInfo: climateService.getClimateInfo(bi.dt?.loine?.cp, bi.dt?.loine?.cm),
