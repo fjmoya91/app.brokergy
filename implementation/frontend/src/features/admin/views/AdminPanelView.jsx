@@ -93,6 +93,19 @@ export function AdminPanelView({
         return provCode ? (CCAA_MAP[provCode] || '-') : '-';
     };
 
+    // Siglas de CCAA para mostrar compacto en la tabla (el filtro sigue usando el nombre completo).
+    const CCAA_SIGLAS = {
+        'Castilla-La Mancha': 'CLM', 'Castilla y León': 'CYL', 'C. Valenciana': 'CV',
+        'Andalucía': 'AND', 'Cataluña': 'CAT', 'Galicia': 'GAL', 'País Vasco': 'PV',
+        'Madrid': 'MAD', 'Extremadura': 'EXT', 'Aragón': 'ARA', 'Murcia': 'MUR',
+        'Navarra': 'NAV', 'Asturias': 'AST', 'Cantabria': 'CNT', 'La Rioja': 'RIO',
+        'Canarias': 'CAN', 'I. Baleares': 'IB', 'Ceuta': 'CEU', 'Melilla': 'MEL'
+    };
+    const getCCAASigla = (op) => {
+        const full = getCCAA(op);
+        return CCAA_SIGLAS[full] || full;
+    };
+
     const SearchablePartnerSelect = ({ value, onSelect, placeholder = "Seleccionar Partner...", isFilter = false }) => {
         const isOpen = openDropdownId === (isFilter ? 'filter' : value?.id_oportunidad || 'new');
         // El valor seleccionado es el ID del prescriptor
@@ -119,7 +132,7 @@ export function AdminPanelView({
                         isOpen ? 'border-brand ring-1 ring-brand bg-black/40' : 'border-white/[0.08] bg-black/30 hover:border-white/20'
                     }`}
                 >
-                    <div className="flex items-center gap-2 overflow-hidden">
+                    <div className="flex items-center gap-2 min-w-0 flex-1">
                         {selected?.logo_empresa ? (
                             <img src={selected.logo_empresa} alt="" className="w-4 h-4 rounded object-contain shrink-0" />
                         ) : (
@@ -129,11 +142,14 @@ export function AdminPanelView({
                                 </svg>
                             </div>
                         )}
-                        <span className={`text-[10px] font-bold truncate uppercase tracking-tight ${selected ? 'text-white' : 'text-white/20 italic'}`}>
+                        <span
+                            className={`text-[10px] font-bold uppercase tracking-tight leading-tight text-left break-words line-clamp-2 min-w-0 ${selected ? 'text-white' : 'text-white/20 italic'}`}
+                            title={selected ? (selected.acronimo || selected.razon_social) : ''}
+                        >
                             {selected ? (selected.acronimo || selected.razon_social) : (isFilter ? 'TODOS' : 'Sin asignar')}
                         </span>
                     </div>
-                    <svg className={`w-3 h-3 text-white/20 transition-transform ${isOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <svg className={`w-3 h-3 text-white/20 transition-transform shrink-0 ${isOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M19 9l-7 7-7-7" />
                     </svg>
                 </div>
@@ -862,7 +878,7 @@ export function AdminPanelView({
                                 </th>
                                 <th className="p-3.5 text-[10px] font-black uppercase tracking-[0.15em] text-white/25 border-b border-white/[0.06]">Fecha</th>
                                 {user?.rol === 'ADMIN' && (
-                                    <th className="p-3.5 text-[10px] font-black uppercase tracking-[0.15em] text-white/25 border-b border-white/[0.06] text-center w-36">Prescriptor</th>
+                                    <th className="p-3.5 text-[10px] font-black uppercase tracking-[0.15em] text-white/25 border-b border-white/[0.06] text-center w-28">Prescriptor</th>
                                 )}
                                 <th className="p-3.5 text-[10px] font-black uppercase tracking-[0.15em] text-white/25 border-b border-white/[0.06]">Estado</th>
                             </tr>
@@ -1045,8 +1061,8 @@ export function AdminPanelView({
                                                     )}
                                                 </td>
                                              )}
-                                            <td className="p-3.5 text-[10px] text-white/40 uppercase font-bold tracking-tight">
-                                                {getCCAA(op)}
+                                            <td className="p-3.5 text-[10px] text-white/40 uppercase font-bold tracking-tight whitespace-nowrap">
+                                                <span title={getCCAA(op)}>{getCCAASigla(op)}</span>
                                             </td>
                                             <td className="p-3.5 whitespace-nowrap">
                                                 <span className={`px-2 py-0.5 rounded text-[9px] font-black tracking-wider border ${
@@ -1083,7 +1099,7 @@ export function AdminPanelView({
                                             </td>
                                             
                                             {user?.rol === 'ADMIN' && (
-                                                <td className="p-3.5 text-center min-w-[140px]" onClick={e => e.stopPropagation()}>
+                                                <td className="p-3.5 text-center w-28 max-w-[160px]" onClick={e => e.stopPropagation()}>
                                                     {(op.datos_calculo?.origen === 'landing_publica' || op.prescriptor === 'web') ? (
                                                         // LEAD entrado por el formulario web público —
                                                         // mostramos badge WEB y debajo el selector por si
