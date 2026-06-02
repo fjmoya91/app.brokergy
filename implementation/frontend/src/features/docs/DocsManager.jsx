@@ -417,7 +417,6 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
                         <label className={`shrink-0 cursor-pointer px-4 py-2.5 rounded-xl font-black uppercase tracking-widest text-[11px] transition-all ${busy ? 'bg-white/10 text-white/40' : done ? 'bg-white/[0.06] text-white/70 hover:bg-white/[0.1] border border-white/10' : 'bg-gradient-to-r from-amber-500 to-amber-400 text-black shadow-lg shadow-amber-500/20'}`}>
                             {busy ? '…' : done ? (slot.multiple ? '+ Añadir' : 'Cambiar') : 'Subir'}
                             <input type="file" accept={slot.accept}
-                                capture={slot.accept?.startsWith('image/') ? 'environment' : undefined}
                                 {...(slot.multiple ? { multiple: true } : {})}
                                 disabled={busy}
                                 onChange={e => { uploadFiles(slot, e.target.files); e.target.value = ''; }}
