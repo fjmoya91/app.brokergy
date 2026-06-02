@@ -168,7 +168,9 @@ function createMcpServer() {
 // ─── Express ──────────────────────────────────────────────────────────────────
 const app = express();
 app.use(cors({ origin: '*', methods: ['GET', 'POST', 'DELETE', 'OPTIONS'] }));
-app.use(express.json());
+// NO usamos express.json() globalmente — el SDK de MCP lee el body
+// directamente del stream HTTP. Si express.json() consume el stream primero,
+// el SDK recibe un stream vacío y devuelve 400.
 
 // Health check público
 app.get('/health', (_, res) => res.json({ ok: true, service: 'brokergy-mcp', ts: new Date().toISOString() }));
@@ -195,7 +197,7 @@ app.post('/sse', requireApiKey, async (req, res) => {
     // Sesión existente → reenviar al transport correcto
     if (sessionId && sessions.has(sessionId)) {
         const { transport } = sessions.get(sessionId);
-        await transport.handleRequest(req, res, req.body);
+        await transport.handleRequest(req, res);
         return;
     }
 
@@ -217,7 +219,7 @@ app.post('/sse', requireApiKey, async (req, res) => {
     };
 
     await server.connect(transport);
-    await transport.handleRequest(req, res, req.body);
+    await transport.handleRequest(req, res);
 });
 
 // GET /sse — abre stream SSE para notificaciones del servidor al cliente
