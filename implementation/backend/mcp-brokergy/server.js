@@ -185,44 +185,42 @@ function requireApiKey(req, res, next) {
 }
 
 // ─── Sesiones MCP ─────────────────────────────────────────────────────────────
-// Protocolo MCP 2025-03-26: StreamableHTTP usa POST para todo y GET para SSE
+// Protocolo MCP 2025-03-26: StreamableHTTP — POST para RPC, GET para SSE
 const sessions = new Map(); // sessionId → { transport, server }
 
-// POST /sse — inicializar o reanudar sesión (protocolo nuevo)
+// POST /sse — inicializar nueva sesión o reanudar existente
 app.post('/sse', requireApiKey, async (req, res) => {
     const sessionId = req.headers['mcp-session-id'];
 
+    // Sesión existente → reenviar al transport correcto
     if (sessionId && sessions.has(sessionId)) {
-        // Sesión existente: reutilizar transport
         const { transport } = sessions.get(sessionId);
         await transport.handleRequest(req, res, req.body);
         return;
     }
 
-    // Nueva sesión
+    // Nueva sesión: onsessioninitialized guarda la sesión en el momento exacto
+    // en que el SDK asigna el ID (antes de enviar la respuesta HTTP).
+    // Así la siguiente petición siempre la encuentra aunque llegue en ms.
+    let server;
     const transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: () => randomUUID(),
+        onsessioninitialized: (sid) => {
+            sessions.set(sid, { transport, server });
+        }
     });
 
-    const server = createMcpServer();
-    await server.connect(transport);
+    server = createMcpServer();
 
     transport.onclose = () => {
-        const sid = transport.sessionId;
-        if (sid) sessions.delete(sid);
+        if (transport.sessionId) sessions.delete(transport.sessionId);
     };
 
-    // Guardar sesión al asignarle ID
-    const origInit = transport._sessionId;
+    await server.connect(transport);
     await transport.handleRequest(req, res, req.body);
-
-    // Guardar después de que se asigne el sessionId
-    if (transport.sessionId) {
-        sessions.set(transport.sessionId, { transport, server });
-    }
 });
 
-// GET /sse — stream SSE (el cliente escucha mensajes del servidor)
+// GET /sse — abre stream SSE para notificaciones del servidor al cliente
 app.get('/sse', requireApiKey, async (req, res) => {
     const sessionId = req.headers['mcp-session-id'];
     if (!sessionId || !sessions.has(sessionId)) {
