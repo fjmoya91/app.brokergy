@@ -579,7 +579,7 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
     };
 
     return (
-        <div className={`animate-fade-in text-white ${result?.financials?.caeBonus !== undefined ? 'pt-32 md:pt-28' : ''}`}>
+        <div className={`animate-fade-in text-white ${result?.financials?.caeBonus !== undefined ? 'md:pt-28 max-md:pb-28' : ''}`}>
             {/* Sticky Bono Badge */}
             {result?.financials?.caeBonus !== undefined && (() => {
                 const showDual = inputs.isReforma && result.financialsRes080;
@@ -592,7 +592,7 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
                     {/* Gradient border frame */}
                     <div className={`w-full max-w-[940px] pointer-events-auto p-px rounded-2xl shadow-[0_12px_48px_rgba(0,0,0,0.75)] transition-all duration-500 ${showDual ? 'bg-gradient-to-r from-amber-500/20 via-white/[0.06] to-cyan-500/20' : 'bg-gradient-to-r from-white/[0.06] via-white/[0.09] to-white/[0.06]'}`}>
                         <div className="bg-[#06060a]/96 backdrop-blur-3xl rounded-[calc(1rem-1px)] overflow-hidden">
-                            <div className="flex divide-x divide-white/[0.06]">
+                            <div className="flex divide-x divide-white/[0.06] max-md:overflow-x-auto max-md:scrollbar-hide" style={{ WebkitOverflowScrolling: 'touch' }}>
 
                                 {/* Bono Aerotermia (RES060) */}
                                 {!showOnlyReforma && (
@@ -776,8 +776,8 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-stretch">
-                {/* Columna Izquierda: Formulario */}
-                <div className="lg:col-span-7">
+                {/* Columna Izquierda: Formulario (en móvil va DEBAJO de Resultados) */}
+                <div className="lg:col-span-7 order-2 lg:order-1">
                     <CalculatorForm
                         inputs={inputs}
                         onInputChange={setInputs}
@@ -792,9 +792,9 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
                     />
                 </div>
 
-                {/* Columna Derecha: Resultados */}
-                <div className="lg:col-span-5">
-                    <ResultsPanel 
+                {/* Columna Derecha: Resultados (en móvil va ARRIBA — acciones accesibles primero) */}
+                <div className="lg:col-span-5 order-1 lg:order-2">
+                    <ResultsPanel
                         result={result} 
                         inputs={inputs} 
                         onInputChange={setInputs} 

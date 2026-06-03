@@ -281,7 +281,10 @@ export function DashboardLayout({ children, activeTab, onTabChange }) {
             </aside>
 
             {/* ====== MAIN CONTENT ====== */}
-            <main className="flex-1 overflow-y-auto h-full relative">
+            {/* max-md:overflow-x-hidden — en móvil ningún contenido provoca scroll horizontal
+                de página (evita que aparezca la barra y "descoloque" al hacer scroll vertical).
+                Las tablas que necesitan scroll-x tienen su propio contenedor overflow-x-auto. */}
+            <main className="flex-1 overflow-y-auto max-md:overflow-x-hidden h-full relative">
                 {/* ====== TOP BAR MÓVIL (hamburguesa + logo) — solo en móvil ====== */}
                 <div className="md:hidden sticky top-0 z-30 flex items-center gap-3 h-14 px-3 bg-bkg-deep/95 backdrop-blur-md border-b border-white/[0.06]">
                     <button

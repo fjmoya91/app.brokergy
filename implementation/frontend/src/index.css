@@ -369,6 +369,16 @@ body {
   background: rgba(255, 255, 255, 0.3);
 }
 
+/* Scroll deslizable sin barra visible (chips/métricas horizontales).
+   La barra solo aparece al deslizar con el dedo en táctil (overlay). */
+.scrollbar-hide {
+  -ms-overflow-style: none;   /* IE/Edge */
+  scrollbar-width: none;      /* Firefox */
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;              /* Chrome/Safari/Edge */
+}
+
 /* ===================================
    TABLE STYLES
    =================================== */
