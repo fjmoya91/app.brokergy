@@ -699,6 +699,63 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
     const [fichaFilter, setFichaFilter] = useState('ALL');
     const [certificadores, setCertificadores] = useState([]);
     const [showStats, setShowStats] = useState(true);
+    const [showMobileFilters, setShowMobileFilters] = useState(false); // Panel de filtros en móvil
+
+    // ─── Columnas redimensionables (Excel-style) ──────────────────────────────
+    const EXP_COL_DEFAULTS = {
+        expediente: 360, ccaa: 140, estado: 156,
+        ficha: 80, certificador: 140, metricas: 116, anio: 80, acciones: 88,
+    };
+    const EXP_STORAGE_KEY = 'exp_panel_col_widths_v1';
+    const loadExpColWidths = () => {
+        try {
+            const saved = localStorage.getItem(EXP_STORAGE_KEY);
+            return saved ? { ...EXP_COL_DEFAULTS, ...JSON.parse(saved) } : { ...EXP_COL_DEFAULTS };
+        } catch { return { ...EXP_COL_DEFAULTS }; }
+    };
+    const [expColW, setExpColW] = useState(loadExpColWidths);
+    const expResizeRef = useRef(null);
+
+    useEffect(() => {
+        localStorage.setItem(EXP_STORAGE_KEY, JSON.stringify(expColW));
+    }, [expColW]);
+
+    const startExpResize = useCallback((colKey, e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const startX = e.clientX;
+        const startWidth = expColW[colKey];
+        expResizeRef.current = { colKey, startX, startWidth };
+        const onMove = (ev) => {
+            if (!expResizeRef.current) return;
+            const { colKey: k, startX: sx, startWidth: sw } = expResizeRef.current;
+            setExpColW(prev => ({ ...prev, [k]: Math.max(48, sw + (ev.clientX - sx)) }));
+        };
+        const onUp = () => {
+            expResizeRef.current = null;
+            document.removeEventListener('mousemove', onMove);
+            document.removeEventListener('mouseup', onUp);
+        };
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onUp);
+    }, [expColW]);
+
+    const resetExpColWidths = () => {
+        localStorage.removeItem(EXP_STORAGE_KEY);
+        setExpColW({ ...EXP_COL_DEFAULTS });
+    };
+
+    // Handle visual resize
+    const ExpRH = ({ colKey }) => (
+        <div
+            onMouseDown={e => startExpResize(colKey, e)}
+            className="absolute top-0 right-0 h-full w-3 flex items-center justify-center cursor-col-resize group/rh select-none z-10"
+            title="Arrastra para redimensionar"
+        >
+            <div className="w-px h-4 bg-white/10 group-hover/rh:bg-brand/60 group-hover/rh:h-full transition-all" />
+        </div>
+    );
+    // ─────────────────────────────────────────────────────────────────────────
 
     const fetchExpedientes = useCallback(async () => {
         setLoading(true);
@@ -1157,6 +1214,123 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
                 </div>
             )}
 
+            {/* Buscador + Filtros (solo móvil; en desktop están en el header/tabla) */}
+            <div className="md:hidden mb-3 space-y-2">
+                <div className="flex items-center gap-2">
+                    <div className="relative flex-1">
+                        <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
+                            <svg className="w-4 h-4 text-white/25" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                            </svg>
+                        </div>
+                        <input
+                            type="text"
+                            value={search}
+                            onChange={e => setSearch(e.target.value)}
+                            placeholder="Buscar por expediente, cliente, DNI..."
+                            className="w-full bg-black/40 border border-white/[0.06] rounded-xl pl-11 pr-10 py-2.5 text-sm font-medium text-white placeholder-white/25 focus:outline-none focus:border-brand/40 focus:bg-black/60 transition-all"
+                        />
+                        {search && (
+                            <button onClick={() => setSearch('')} className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-white/25 hover:text-white transition-colors">
+                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+                        )}
+                    </div>
+                    {(() => {
+                        const activeCount = [
+                            prioridadFilter, fichaFilter, ccaaFilter, certificadorFilter, yearFilter
+                        ].filter(v => v && v !== 'ALL').length;
+                        return (
+                            <button
+                                onClick={() => setShowMobileFilters(v => !v)}
+                                className={`relative shrink-0 flex items-center gap-1.5 px-3 py-2.5 rounded-xl border text-[11px] font-black uppercase tracking-wider transition-all ${
+                                    showMobileFilters || activeCount > 0
+                                        ? 'bg-brand/10 border-brand/30 text-brand'
+                                        : 'bg-black/40 border-white/[0.06] text-white/50'
+                                }`}
+                            >
+                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2a1 1 0 01-.293.707L14 13.414V19a1 1 0 01-.553.894l-4 2A1 1 0 018 21v-7.586L3.293 6.707A1 1 0 013 6V4z" />
+                                </svg>
+                                Filtros
+                                {activeCount > 0 && (
+                                    <span className="ml-0.5 min-w-[16px] h-4 px-1 inline-flex items-center justify-center rounded-full bg-brand text-bkg-deep text-[9px] font-black">{activeCount}</span>
+                                )}
+                            </button>
+                        );
+                    })()}
+                </div>
+
+                {showMobileFilters && (
+                    <div className="p-3 rounded-xl border border-white/[0.08] bg-bkg-surface/80 grid grid-cols-2 gap-3 animate-in fade-in slide-in-from-top-2 duration-200">
+                        {/* Prioridad */}
+                        <div>
+                            <label className="block text-[9px] font-black uppercase tracking-widest text-white/30 mb-1.5">Prioridad</label>
+                            <select value={prioridadFilter} onChange={e => setPrioridadFilter(e.target.value)}
+                                className="w-full bg-bkg-deep border border-white/[0.08] rounded-lg px-2.5 py-2.5 text-xs text-white focus:outline-none focus:border-brand/40 transition-all uppercase">
+                                <option value="ALL" className="bg-bkg-deep">Todas</option>
+                                <option value="URGENTE" className="bg-bkg-deep">Urgente</option>
+                                <option value="ALTA" className="bg-bkg-deep">Alta</option>
+                                <option value="NORMAL" className="bg-bkg-deep">Normal</option>
+                            </select>
+                        </div>
+                        {/* Ficha */}
+                        <div>
+                            <label className="block text-[9px] font-black uppercase tracking-widest text-white/30 mb-1.5">Ficha</label>
+                            <select value={fichaFilter} onChange={e => setFichaFilter(e.target.value)}
+                                className="w-full bg-bkg-deep border border-white/[0.08] rounded-lg px-2.5 py-2.5 text-xs text-white focus:outline-none focus:border-brand/40 transition-all uppercase">
+                                <option value="ALL" className="bg-bkg-deep">Todas</option>
+                                <option value="RES060" className="bg-bkg-deep">RES060</option>
+                                <option value="RES080" className="bg-bkg-deep">RES080</option>
+                                <option value="RES093" className="bg-bkg-deep">RES093</option>
+                            </select>
+                        </div>
+                        {/* CCAA */}
+                        <div>
+                            <label className="block text-[9px] font-black uppercase tracking-widest text-white/30 mb-1.5">CCAA</label>
+                            <select value={ccaaFilter} onChange={e => setCcaaFilter(e.target.value)}
+                                className="w-full bg-bkg-deep border border-white/[0.08] rounded-lg px-2.5 py-2.5 text-xs text-white focus:outline-none focus:border-brand/40 transition-all uppercase">
+                                <option value="ALL" className="bg-bkg-deep">Todas</option>
+                                {availableCcaa.map(c => <option key={c} value={c} className="bg-bkg-deep">{c}</option>)}
+                            </select>
+                        </div>
+                        {/* Año */}
+                        <div>
+                            <label className="block text-[9px] font-black uppercase tracking-widest text-white/30 mb-1.5">Año Act.</label>
+                            <select value={yearFilter} onChange={e => setYearFilter(e.target.value)}
+                                className="w-full bg-bkg-deep border border-white/[0.08] rounded-lg px-2.5 py-2.5 text-xs text-white focus:outline-none focus:border-brand/40 transition-all uppercase">
+                                <option value="ALL" className="bg-bkg-deep">Todos</option>
+                                {availableYears.map(y => <option key={y} value={y} className="bg-bkg-deep">{y}</option>)}
+                            </select>
+                        </div>
+                        {/* Certificador (solo ADMIN) */}
+                        {user?.rol?.toUpperCase() === 'ADMIN' && (
+                            <div className="col-span-2">
+                                <label className="block text-[9px] font-black uppercase tracking-widest text-white/30 mb-1.5">Certificador</label>
+                                <select value={certificadorFilter} onChange={e => setCertificadorFilter(e.target.value)}
+                                    className="w-full bg-bkg-deep border border-white/[0.08] rounded-lg px-2.5 py-2.5 text-xs text-white focus:outline-none focus:border-brand/40 transition-all uppercase">
+                                    <option value="ALL" className="bg-bkg-deep">Todos los técnicos</option>
+                                    {certificadores.map(c => (
+                                        <option key={c.id_empresa} value={c.id_empresa} className="bg-bkg-deep">{c.razon_social || c.acronimo}</option>
+                                    ))}
+                                </select>
+                            </div>
+                        )}
+                        {/* Limpiar */}
+                        {[prioridadFilter, fichaFilter, ccaaFilter, certificadorFilter, yearFilter].some(v => v && v !== 'ALL') && (
+                            <button
+                                onClick={() => { setPrioridadFilter('ALL'); setFichaFilter('ALL'); setCcaaFilter('ALL'); setCertificadorFilter('ALL'); setYearFilter('ALL'); }}
+                                className="col-span-2 py-2 rounded-lg border border-white/10 text-white/50 hover:text-white text-[10px] font-black uppercase tracking-widest transition-all"
+                            >
+                                Limpiar filtros
+                            </button>
+                        )}
+                    </div>
+                )}
+            </div>
+
             {/* Espaciador */}
             <div className="mb-2"></div>
 
@@ -1173,29 +1347,57 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
                     <p className="text-white/30 text-sm">{search ? 'Sin resultados para tu búsqueda.' : 'Aún no hay expedientes.'}</p>
                 </div>
             ) : (
-                <div className="rounded-2xl border border-white/[0.06] overflow-hidden shadow-2xl" style={{ background: 'rgba(19,21,26,0.6)' }}>
+                <>
+                <div className="hidden md:flex justify-end mb-1.5">
+                    <button
+                        onClick={resetExpColWidths}
+                        title="Restaurar anchos de columna por defecto"
+                        className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest text-white/25 hover:text-white/60 hover:bg-white/5 transition-all border border-transparent hover:border-white/10"
+                    >
+                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                        </svg>
+                        Reset columnas
+                    </button>
+                </div>
+                <div className="hidden md:block rounded-2xl border border-white/[0.06] overflow-hidden shadow-2xl" style={{ background: 'rgba(19,21,26,0.6)' }}>
                     <div className="overflow-x-auto">
-                        <table className="w-full text-left border-collapse">
+                        <table className="w-full text-left border-collapse table-fixed" style={{ minWidth: 680 }}>
                             <thead>
                                 <tr style={{ background: 'rgba(26,28,34,0.8)' }}>
-                                    <th className="px-5 py-4 text-[10px] font-black uppercase tracking-[0.15em] text-white/25 border-b border-white/[0.06]">Número Expediente</th>
-                                    <th className="px-5 py-4 text-[10px] font-black uppercase tracking-[0.15em] text-white/25 border-b border-white/[0.06] hidden md:table-cell">Comunidad Autónoma</th>
-                                    <th className="px-4 py-4 text-[10px] font-black uppercase tracking-[0.15em] text-white/25 border-b border-white/[0.06]">Estado</th>
-                                    <th className="px-4 py-4 text-[10px] font-black uppercase tracking-[0.15em] text-white/25 border-b border-white/[0.06]">Ficha</th>
+                                    <th className="px-5 py-4 text-[10px] font-black uppercase tracking-[0.15em] text-white/25 border-b border-white/[0.06] relative overflow-visible" style={{ width: expColW.expediente }}>
+                                        Número Expediente<ExpRH colKey="expediente" />
+                                    </th>
+                                    <th className="px-5 py-4 text-[10px] font-black uppercase tracking-[0.15em] text-white/25 border-b border-white/[0.06] relative overflow-visible" style={{ width: expColW.ccaa }}>
+                                        Comunidad Autónoma<ExpRH colKey="ccaa" />
+                                    </th>
+                                    <th className="px-4 py-4 text-[10px] font-black uppercase tracking-[0.15em] text-white/25 border-b border-white/[0.06] relative overflow-visible" style={{ width: expColW.estado }}>
+                                        Estado<ExpRH colKey="estado" />
+                                    </th>
+                                    <th className="px-4 py-4 text-[10px] font-black uppercase tracking-[0.15em] text-white/25 border-b border-white/[0.06] relative overflow-visible" style={{ width: expColW.ficha }}>
+                                        Ficha<ExpRH colKey="ficha" />
+                                    </th>
                                     {user?.rol?.toUpperCase() === 'ADMIN' && (
-                                        <th className="px-4 py-4 text-[10px] font-black uppercase tracking-[0.15em] text-white/25 border-b border-white/[0.06] hidden lg:table-cell">Certificador</th>
+                                        <th className="px-4 py-4 text-[10px] font-black uppercase tracking-[0.15em] text-white/25 border-b border-white/[0.06] relative overflow-visible" style={{ width: expColW.certificador }}>
+                                            Certificador<ExpRH colKey="certificador" />
+                                        </th>
                                     )}
                                     {user?.rol?.toUpperCase() !== 'CERTIFICADOR' && (
-                                        <th className="px-4 py-4 text-[10px] font-black uppercase tracking-[0.15em] text-white/25 border-b border-white/[0.06] hidden xl:table-cell">
+                                        <th className="px-4 py-4 text-[10px] font-black uppercase tracking-[0.15em] text-white/25 border-b border-white/[0.06] relative overflow-visible" style={{ width: expColW.metricas }}>
                                             <div className="flex items-center gap-1.5">
                                                 <span className="text-blue-400/60">⚡</span>
                                                 <span className="text-emerald-400/60">€</span>
                                                 <span className="text-cyan-400/60">▲</span>
                                             </div>
+                                            <ExpRH colKey="metricas" />
                                         </th>
                                     )}
-                                    <th className="px-4 py-4 text-[10px] font-black uppercase tracking-[0.15em] text-white/25 border-b border-white/[0.06] hidden lg:table-cell">Año Act.</th>
-                                    <th className="px-4 py-4 text-[10px] font-black uppercase tracking-[0.15em] text-white/25 border-b border-white/[0.06] text-right whitespace-nowrap">Acciones</th>
+                                    <th className="px-4 py-4 text-[10px] font-black uppercase tracking-[0.15em] text-white/25 border-b border-white/[0.06] relative overflow-visible" style={{ width: expColW.anio }}>
+                                        Año Act.<ExpRH colKey="anio" />
+                                    </th>
+                                    <th className="px-4 py-4 text-[10px] font-black uppercase tracking-[0.15em] text-white/25 border-b border-white/[0.06] text-right whitespace-nowrap relative overflow-visible" style={{ width: expColW.acciones }}>
+                                        Acciones
+                                    </th>
                                 </tr>
                                 {/* Fila de Filtros */}
                                 <tr className="bg-white/[0.01]">
@@ -1482,6 +1684,146 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
                     </table>
                 </div>
             </div>
+
+            {/* ─── Lista en tarjetas (solo móvil) ─── */}
+            <div className="md:hidden space-y-3">
+                {sortedFiltered.map((exp) => {
+                    const fin = getExpedienteFinancials(exp);
+                    const estado = exp.estado || 'PTE. CEE INICIAL';
+                    const inputs = exp.oportunidades?.datos_calculo?.inputs || {};
+                    const dir = inputs.direccion || inputs.address || exp.clientes?.direccion || '';
+                    const mun = inputs.municipio || exp.clientes?.municipio || '';
+                    const dirText = [dir, mun].filter(Boolean).join(', ');
+                    const cifoYear = getCifoYear(exp);
+                    const cert = certificadores.find(c => String(c.id_empresa) === String(exp.cee?.certificador_id));
+                    return (
+                        <div
+                            key={exp.id}
+                            onClick={() => setSelectedExpediente(exp)}
+                            className={`rounded-2xl bg-bkg-surface/60 p-4 active:scale-[0.99] transition-transform border ${
+                                exp.prioridad === 'URGENTE' ? 'border-white/[0.06] border-l-2 border-l-red-500/70'
+                                    : exp.prioridad === 'ALTA' ? 'border-white/[0.06] border-l-2 border-l-amber-500/70'
+                                        : 'border-white/[0.06]'
+                            }`}
+                        >
+                            {/* Cabecera: nº expediente + ficha */}
+                            <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0 flex-1">
+                                    {exp.prioridad && exp.prioridad !== 'NORMAL' && (
+                                        <span className={`inline-flex items-center gap-1 text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded border mb-1 ${
+                                            exp.prioridad === 'URGENTE' ? 'bg-red-500/10 border-red-500/30 text-red-400' : 'bg-amber-500/10 border-amber-500/30 text-amber-400'
+                                        }`}>
+                                            {exp.prioridad === 'URGENTE' ? '⚠ ' : '● '}{exp.prioridad}
+                                        </span>
+                                    )}
+                                    <div className="font-mono text-brand text-sm font-bold leading-tight">
+                                        {exp.numero_expediente || exp.id_oportunidad_ref || exp.oportunidades?.id_oportunidad || '—'}
+                                    </div>
+                                    {exp.clientes && (
+                                        <div className="text-white/90 text-xs font-bold mt-0.5 uppercase tracking-wide line-clamp-1">
+                                            {`${exp.clientes.nombre_razon_social} ${exp.clientes.apellidos || ''}`.trim()}
+                                        </div>
+                                    )}
+                                    {dirText && (
+                                        <div className="text-white/30 text-[11px] mt-0.5 uppercase tracking-wide line-clamp-2">{dirText}</div>
+                                    )}
+                                </div>
+                                <span className={`shrink-0 inline-flex items-center px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider border ${
+                                    fin.ficha === 'RES080' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                                        : fin.ficha === 'RES093' ? 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20'
+                                            : 'bg-brand/10 text-brand border-brand/20'
+                                }`}>{fin.ficha}</span>
+                            </div>
+
+                            {/* Métricas (no certificador) */}
+                            {userRole !== 'CERTIFICADOR' && (fin.savingsKwh !== null || fin.cae !== null || fin.profit !== null) && (
+                                <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] font-mono tabular-nums">
+                                    {fin.savingsKwh !== null && (
+                                        <span className="inline-flex items-center gap-1 text-blue-400 font-black">
+                                            <span className="text-blue-400/50 text-[9px]">⚡</span>{(fin.savingsKwh / 1000).toLocaleString('es-ES', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} MWh
+                                        </span>
+                                    )}
+                                    {fin.cae !== null && (
+                                        <span className="inline-flex items-center gap-1 text-emerald-400 font-black">
+                                            <span className="text-emerald-400/50 text-[9px]">€</span>{fin.cae.toLocaleString('es-ES', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 })}
+                                        </span>
+                                    )}
+                                    {fin.profit !== null && (
+                                        <span className="inline-flex items-center gap-1 text-cyan-400 font-black">
+                                            <span className="text-cyan-400/50 text-[9px]">▲</span>{fin.profit.toLocaleString('es-ES', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 })}
+                                        </span>
+                                    )}
+                                </div>
+                            )}
+
+                            {/* Pie: CCAA + certificador + año */}
+                            <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-white/30 uppercase tracking-wider font-bold">
+                                <span>{getCCAA(exp)}</span>
+                                {userRole === 'ADMIN' && cert && (
+                                    <>
+                                        <span className="w-1 h-1 rounded-full bg-white/15"></span>
+                                        <span className="truncate max-w-[120px]">{cert.acronimo || cert.razon_social}</span>
+                                    </>
+                                )}
+                                {cifoYear && (
+                                    <>
+                                        <span className="w-1 h-1 rounded-full bg-white/15"></span>
+                                        <span className="font-mono">{cifoYear}</span>
+                                    </>
+                                )}
+                            </div>
+
+                            {/* Acciones: estado + historial + borrar */}
+                            <div className="mt-3 pt-3 border-t border-white/[0.06] flex items-center gap-2 flex-wrap" onClick={e => e.stopPropagation()}>
+                                <select
+                                    value={estado}
+                                    onChange={e => handleStatusChange(exp.id, e.target.value, e)}
+                                    className={`flex-1 min-w-[150px] text-[10px] font-black uppercase tracking-wider border cursor-pointer focus:outline-none transition-colors appearance-none rounded-lg px-2.5 py-2 leading-tight ${
+                                        estado === 'FINALIZADO' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                                            : estado.includes('REQUERIMIENTO') ? 'bg-red-500/10 text-red-400 border-red-500/20'
+                                                : estado.startsWith('ENVIADO') ? 'bg-blue-500/10 text-blue-400 border-blue-500/20'
+                                                    : 'bg-white/5 text-white/50 border-white/10'
+                                    }`}
+                                >
+                                    {EXPEDIENTE_ESTADOS.map(st => (
+                                        <option key={st} value={st} className="bg-bkg-deep text-white">{st}</option>
+                                    ))}
+                                </select>
+                                <button
+                                    onClick={async (e) => {
+                                        e.stopPropagation();
+                                        setHistoryModalExp(exp);
+                                        try {
+                                            const { data: full } = await axios.get(`/api/expedientes/${exp.id}`);
+                                            if (full) setHistoryModalExp(prev => prev && prev.id === exp.id ? { ...prev, documentacion: full.documentacion } : prev);
+                                        } catch (err) {
+                                            console.error('Error cargando documentacion para historial:', err);
+                                        }
+                                    }}
+                                    className="w-9 h-9 flex items-center justify-center text-white/40 hover:text-brand rounded-lg hover:bg-white/[0.06] transition-all"
+                                    title="Ver historial de estados"
+                                >
+                                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                    </svg>
+                                </button>
+                                {userRole !== 'CERTIFICADOR' && (
+                                    <button
+                                        onClick={e => { e.stopPropagation(); handleDelete(exp.id); }}
+                                        className="w-9 h-9 flex items-center justify-center text-white/30 hover:text-red-400 rounded-lg hover:bg-red-500/10 transition-all"
+                                        title="Eliminar expediente"
+                                    >
+                                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                        </svg>
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+                    );
+                })}
+            </div>
+                </>
         )}
 
         {showModal && (
@@ -1495,7 +1837,7 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
         {/* Modal de Historial Compartido (Oportunidad + Expediente) */}
         {historyModalExp && (
             <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in" onClick={() => setHistoryModalExp(null)}>
-                <div className="bg-bkg-surface border border-white/[0.1] p-6 rounded-2xl w-full max-w-lg shadow-2xl relative" onClick={e => e.stopPropagation()}>
+                <div className="bg-bkg-surface border border-white/[0.1] p-6 rounded-2xl w-full max-w-lg shadow-2xl relative max-md:max-h-[90vh] max-md:overflow-y-auto" onClick={e => e.stopPropagation()}>
                     <div className="absolute top-0 right-0 p-4">
                         <button onClick={() => { setHistoryModalExp(null); setShowHistoryDeleteConfirm(false); setModalError(null); }} className="text-white/40 hover:text-white transition-colors">
                             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1503,15 +1845,15 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
                             </svg>
                         </button>
                     </div>
-                    
-                    <div className="flex justify-between items-center mb-6">
+
+                    <div className="flex max-md:flex-col max-md:items-start max-md:gap-3 justify-between items-center mb-6">
                         <h3 className="text-xl font-bold text-white flex items-center gap-3">
                             <svg className="w-6 h-6 text-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                             </svg>
                             Historial Unificado
                         </h3>
-                        
+
                         <div className="flex items-center gap-2 mr-8">
                             <div className="flex bg-black/40 p-1 rounded-xl border border-white/[0.06] mr-4">
                                 {['all', 'notes', 'status'].map(f => (

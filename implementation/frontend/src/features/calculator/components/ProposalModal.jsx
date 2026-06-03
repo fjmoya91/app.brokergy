@@ -1580,14 +1580,14 @@ info@brokergy.es · 623 926 179`;
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-bkg-deep/60 backdrop-blur-md animate-fade-in" onClick={onClose}>
             <div className="bg-bkg-surface/95 backdrop-blur-2xl rounded-2xl max-w-6xl w-full h-[92vh] flex flex-col overflow-hidden border border-white/10 shadow-3xl relative" onClick={e => e.stopPropagation()}>
 
-                <div className="flex justify-between items-center p-5 bg-white/[0.03] border-b border-white/[0.08] backdrop-blur-md">
-                    <h3 className="text-white font-black text-xl flex items-center gap-3 tracking-tight">
-                        <div className="w-10 h-10 rounded-xl bg-brand/10 flex items-center justify-center border border-brand/20">
+                <div className="flex flex-wrap justify-between items-center gap-3 p-5 max-md:p-4 bg-white/[0.03] border-b border-white/[0.08] backdrop-blur-md">
+                    <h3 className="text-white font-black text-base sm:text-xl flex items-center gap-3 tracking-tight">
+                        <div className="w-10 h-10 rounded-xl bg-brand/10 flex items-center justify-center border border-brand/20 max-md:hidden">
                             <span className="text-brand text-xl">📄</span>
                         </div>
                         Vista Previa de Propuesta
                     </h3>
-                    <div className="flex gap-3">
+                    <div className="flex flex-wrap gap-2 sm:gap-3 justify-end max-md:w-full">
                         {/* Botón AÑADIR ANEXOS */}
                         <button
                             onClick={() => setIsAnexosOpen(true)}
@@ -1675,7 +1675,7 @@ info@brokergy.es · 623 926 179`;
                         <button
                             onClick={handleDownloadPdf}
                             disabled={generating}
-                            className="bg-brand hover:scale-105 active:scale-95 text-black font-black px-8 py-2.5 rounded-xl transition-all flex items-center gap-2 disabled:opacity-50 shadow-lg shadow-brand/20"
+                            className="bg-brand hover:scale-105 active:scale-95 text-black font-black px-5 sm:px-8 py-2.5 rounded-xl transition-all flex items-center gap-2 disabled:opacity-50 shadow-lg shadow-brand/20 max-md:flex-1 max-md:justify-center"
                         >
                             {generating ? 'Generando...' : 'Descargar PDF'}
                             {!generating && (

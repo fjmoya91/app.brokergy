@@ -249,7 +249,7 @@ export function ClientesView({
                                     {isAdmin && (
                                         <button
                                             onClick={(e) => { e.stopPropagation(); setClienteToDelete(cliente); }}
-                                            className="opacity-0 group-hover:opacity-100 p-2 rounded-lg text-white/20 hover:text-red-400 hover:bg-red-500/10 transition-all flex-shrink-0"
+                                            className="max-sm:opacity-100 opacity-0 group-hover:opacity-100 max-sm:self-end p-2 rounded-lg text-white/20 hover:text-red-400 hover:bg-red-500/10 transition-all flex-shrink-0"
                                             title="Eliminar cliente"
                                         >
                                             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">

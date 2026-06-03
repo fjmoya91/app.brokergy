@@ -475,8 +475,8 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
             <div className="bg-bkg-deep border border-white/[0.08] rounded-2xl w-full max-w-2xl my-8 shadow-2xl">
 
                 {/* Header */}
-                <div className="flex items-center justify-between p-6 border-b border-white/[0.06]">
-                    <div className="flex items-center gap-3">
+                <div className="flex items-center justify-between gap-3 flex-wrap p-6 border-b border-white/[0.06]">
+                    <div className="flex items-center gap-3 min-w-0">
                         {/* Logo — clickeable en modo edición */}
                         <div
                             onClick={editing ? () => logoInputRef.current?.click() : undefined}
@@ -579,7 +579,7 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                         <div className="space-y-5">
                             <div className="space-y-2">
                                 <p className="text-[10px] uppercase tracking-[0.2em] font-black text-white/30">Datos de la Empresa</p>
-                                <div className="grid grid-cols-2 gap-x-6 gap-y-4">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
                                     <FV label="Razón Social" value={p.razon_social} />
                                     <FV label="Acrónimo" value={p.acronimo} />
                                     <FV label="CIF / NIF" value={p.cif} mono />
@@ -594,7 +594,7 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                                     )}
 
                                     {p.tipo_empresa === 'DISTRIBUIDOR' && form.instaladores_asociados?.length > 0 && (
-                                        <div className="col-span-2">
+                                        <div className="col-span-1 sm:col-span-2">
                                             <p className="text-[10px] uppercase tracking-widest font-black text-white/30 mb-1.5">Instaladores Asociados</p>
                                             <div className="flex flex-wrap gap-2">
                                                 {form.instaladores_asociados.map(id => {
@@ -617,7 +617,7 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                             {contactName && (
                                 <div className="space-y-2">
                                     <p className="text-[10px] uppercase tracking-[0.2em] font-black text-white/30">Persona de Contacto</p>
-                                    <div className="grid grid-cols-2 gap-x-6 gap-y-4">
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
                                         <FV label="Nombre" value={contactName} />
                                         <FV label="Cargo" value={p.cargo} />
                                         {p.tiene_carnet_rite && <FV label="N.º Empresa RITE" value={p.numero_carnet_rite} mono />}
@@ -634,7 +634,7 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                                             <span className="text-[9px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-1.5 py-0.5 rounded uppercase tracking-tighter">Activo</span>
                                         )}
                                     </p>
-                                    <div className="grid grid-cols-2 gap-x-6 gap-y-4">
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
                                         <FV label="Nombre Contacto" value={p.nombre_contacto} />
                                         <FV label="Teléfono" value={p.tlf_contacto} />
                                         <FV label="Email" value={p.email_contacto} lower />
@@ -645,12 +645,12 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                             {(p.ccaa || p.provincia || p.municipio || p.direccion) && (
                                 <div className="space-y-2">
                                     <p className="text-[10px] uppercase tracking-[0.2em] font-black text-white/30">Dirección</p>
-                                    <div className="p-4 bg-bkg-surface rounded-xl border border-white/[0.06] grid grid-cols-2 gap-x-6 gap-y-3">
+                                    <div className="p-4 bg-bkg-surface rounded-xl border border-white/[0.06] grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3">
                                         <FV label="CCAA" value={p.ccaa} />
                                         <FV label="Provincia" value={p.provincia} />
                                         <FV label="Municipio" value={p.municipio} />
                                         <FV label="CP" value={p.codigo_postal} mono />
-                                        {p.direccion && <div className="col-span-2"><FV label="Dirección" value={p.direccion} /></div>}
+                                        {p.direccion && <div className="col-span-1 sm:col-span-2"><FV label="Dirección" value={p.direccion} /></div>}
                                     </div>
                                 </div>
                             )}

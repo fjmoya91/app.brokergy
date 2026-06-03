@@ -175,8 +175,32 @@ export function PrescriptoresList() {
 
             {error && <div className="p-4 bg-red-500/10 border border-red-500/20 text-red-400 rounded-xl mb-6 text-sm flex items-center gap-2"><svg className="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>{error}</div>}
 
+            {/* Buscador (solo móvil; en desktop está en la cabecera de la tabla) */}
+            <div className="md:hidden mb-3">
+                <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
+                        <svg className="w-4 h-4 text-white/25" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                        </svg>
+                    </div>
+                    <input
+                        type="text"
+                        value={searchTerm}
+                        onChange={e => setSearchTerm(e.target.value)}
+                        placeholder="Buscar por nombre o CIF..."
+                        className="w-full bg-black/40 border border-white/[0.06] rounded-xl pl-11 pr-10 py-2.5 text-sm font-medium text-white placeholder-white/25 focus:outline-none focus:border-brand/40 focus:bg-black/60 transition-all"
+                    />
+                    {searchTerm && (
+                        <button onClick={() => setSearchTerm('')} className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-white/25 hover:text-white transition-colors">
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        </button>
+                    )}
+                </div>
+            </div>
 
-            <div className="rounded-2xl border border-white/[0.06] overflow-hidden bg-white/[0.01] backdrop-blur-sm">
+            <div className="hidden md:block rounded-2xl border border-white/[0.06] overflow-hidden bg-white/[0.01] backdrop-blur-sm">
                  <table className="w-full text-left border-collapse">
                      <thead>
                           <tr className="bg-white/[0.03]">
@@ -305,6 +329,67 @@ export function PrescriptoresList() {
                         ))}
                      </tbody>
                  </table>
+            </div>
+
+            {/* ─── Lista en tarjetas (solo móvil) ─── */}
+            <div className="md:hidden space-y-3">
+                {loading ? (
+                    <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-10 text-center text-white/20 text-sm italic">Sincronizando...</div>
+                ) : filteredPrescriptores.length === 0 ? (
+                    <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-10 text-center text-white/20 text-sm">No se encontraron entidades</div>
+                ) : filteredPrescriptores.map(p => {
+                    const isAdmin = user?.rol?.toUpperCase() === 'ADMIN';
+                    return (
+                        <div
+                            key={p.id_empresa}
+                            onClick={() => setModalPrescriptor(p)}
+                            className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4 active:scale-[0.99] transition-transform"
+                        >
+                            <div className="flex items-start gap-3">
+                                {p.logo_empresa ? (
+                                    <div className="w-10 h-10 rounded-lg border border-white/5 bg-white/5 flex items-center justify-center shrink-0 overflow-hidden"><img src={p.logo_empresa} alt="" className="w-full h-full object-cover" /></div>
+                                ) : (
+                                    <div className="w-10 h-10 rounded-lg border border-white/5 bg-white/5 flex items-center justify-center shrink-0 font-bold text-white/20 text-sm uppercase">{p.razon_social ? p.razon_social.substring(0, 2) : '?'}</div>
+                                )}
+                                <div className="min-w-0 flex-1">
+                                    <div className="font-bold text-sm text-white/90 uppercase line-clamp-1">{p.acronimo || p.razon_social || '-'}</div>
+                                    <div className="text-[11px] font-mono text-cyan-400 mt-0.5">{p.cif || '-'}</div>
+                                    <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                                        {isAdmin && (
+                                            <span className={`text-[8px] uppercase tracking-widest font-black border px-1.5 py-0.5 rounded ${
+                                                p.tipo_empresa === 'DISTRIBUIDOR' ? 'bg-blue-500/10 text-blue-400 border-blue-500/20' :
+                                                p.tipo_empresa === 'INSTALADOR' ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20' :
+                                                p.tipo_empresa === 'CERTIFICADOR' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-400/20' :
+                                                'bg-white/5 text-white/40 border-white/10'
+                                            }`}>{p.tipo_empresa}</span>
+                                        )}
+                                        {p.es_autonomo && <span className="text-[8px] tracking-wider uppercase bg-fuchsia-500/10 text-fuchsia-400 px-1.5 py-0.5 rounded border border-fuchsia-500/20">Autónomo</span>}
+                                        {isAdmin && (p.usuarios ? (
+                                            <span className={`text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded border ${p.usuarios.activo ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-red-500/10 text-red-400/70 border-red-500/20'}`}>
+                                                {p.usuarios.activo ? 'Activo' : 'Inactivo'}
+                                            </span>
+                                        ) : (
+                                            <span className="text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded border bg-white/5 text-white/25 border-white/10">Sin acceso</span>
+                                        ))}
+                                    </div>
+                                    {isAdmin && p.usuarios && (
+                                        <div className="text-[10px] text-white/40 mt-2 truncate">{p.usuarios.nombre} {p.usuarios.apellidos || ''} · {p.usuarios.email}</div>
+                                    )}
+                                </div>
+                                {isAdmin && (
+                                    <button
+                                        onClick={(e) => { e.stopPropagation(); handleDelete(p.id_empresa, e); }}
+                                        className="shrink-0 p-2 bg-red-500/10 hover:bg-red-500/20 text-red-500/50 hover:text-red-500 rounded-lg transition-all"
+                                        disabled={deleting}
+                                        title="Eliminar partner"
+                                    >
+                                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+                    );
+                })}
             </div>
 
             {/* Custom Modal Premium */}

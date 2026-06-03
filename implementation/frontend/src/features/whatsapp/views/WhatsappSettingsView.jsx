@@ -271,7 +271,7 @@ export function WhatsappSettingsView() {
             {status && (
                 <div className="bg-bkg-surface border border-white/5 rounded-2xl p-6">
                     <h2 className="text-sm font-bold uppercase tracking-widest text-white/60 mb-4">Configuración de envío</h2>
-                    <dl className="grid grid-cols-2 gap-4 text-sm">
+                    <dl className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
                         <div>
                             <dt className="text-white/40 text-xs uppercase tracking-wider mb-1">Rate limit</dt>
                             <dd className="text-white font-mono">{status.config.ratePerMin} mensajes / min</dd>

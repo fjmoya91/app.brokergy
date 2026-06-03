@@ -272,9 +272,9 @@ export function SaveOpportunityModal({ isOpen, onClose, onSaveSuccess, onClientL
 
     return (
         <>
-            <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-bkg-deep/80 backdrop-blur-md animate-fade-in" onClick={handleClose}>
-                <div className="w-full max-w-md relative z-10">
-                    <div className="bg-bkg-surface shadow-[0_20px_50px_rgba(0,0,0,0.5)] border border-white/[0.06] rounded-[2rem] p-10 relative backdrop-blur-xl" onClick={e => e.stopPropagation()}>
+            <div className="fixed inset-0 z-[200] flex items-center justify-center max-md:items-start max-md:overflow-y-auto p-4 bg-bkg-deep/80 backdrop-blur-md animate-fade-in" onClick={handleClose}>
+                <div className="w-full max-w-md relative z-10 max-md:my-4">
+                    <div className="bg-bkg-surface shadow-[0_20px_50px_rgba(0,0,0,0.5)] border border-white/[0.06] rounded-[2rem] p-10 max-md:p-6 relative backdrop-blur-xl" onClick={e => e.stopPropagation()}>
                         <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-transparent via-brand/40 to-transparent"></div>
                         <div className="absolute top-0 right-0 w-64 h-64 bg-brand/5 rounded-full blur-[100px] pointer-events-none"></div>
 

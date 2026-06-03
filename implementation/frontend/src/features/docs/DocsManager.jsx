@@ -381,7 +381,7 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
                                                 {/* Borrar: solo ADMIN */}
                                                 {canValidate && (
                                                     <button onClick={() => deleteItem(slot, it)} disabled={busy} title="Eliminar"
-                                                        className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-red-500 text-white text-xs font-black flex items-center justify-center shadow-lg opacity-0 group-hover:opacity-100 transition-all disabled:opacity-50">✕</button>
+                                                        className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-red-500 text-white text-xs font-black flex items-center justify-center shadow-lg max-md:opacity-100 opacity-0 group-hover:opacity-100 transition-all disabled:opacity-50">✕</button>
                                                 )}
                                             </div>
                                             {/* Controles de validación (solo admin) */}

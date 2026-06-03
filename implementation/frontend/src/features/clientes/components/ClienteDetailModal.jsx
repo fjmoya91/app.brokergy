@@ -672,8 +672,8 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
                 )}
 
                 {/* Header */}
-                <div className="flex items-center justify-between p-6 border-b border-white/[0.06]">
-                    <div className="flex items-center gap-3">
+                <div className="flex items-center justify-between gap-3 flex-wrap p-6 border-b border-white/[0.06]">
+                    <div className="flex items-center gap-3 min-w-0">
                         <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-brand/20 to-brand/5 border border-brand/20 flex items-center justify-center">
                             <span className="text-brand font-black text-sm">
                                 {(cliente?.nombre_razon_social || '?').charAt(0).toUpperCase()}
@@ -754,7 +754,7 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
                         <div className="space-y-6">
                             <div className="space-y-3">
                                 <p className="text-[10px] uppercase tracking-[0.2em] font-black text-white/30">Datos personales</p>
-                                <div className="grid grid-cols-2 gap-x-6 gap-y-4 [&_p.text-sm]:uppercase">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4 [&_p.text-sm]:uppercase">
                                     <FieldView label="Nombre / Razón Social" value={`${cliente.nombre_razon_social || ''}${cliente.apellidos ? ` ${cliente.apellidos}` : ''}`} />
                                     <FieldView label="DNI / CIF" value={cliente.dni} />
                                     <FieldView label="Email" value={cliente.email?.toLowerCase()} valueClassName="!lowercase" />
@@ -780,13 +780,13 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
                             {(cliente.ccaa || cliente.provincia || cliente.municipio || cliente.direccion) && (
                                 <div className="space-y-3">
                                     <p className="text-[10px] uppercase tracking-[0.2em] font-black text-white/30">Dirección</p>
-                                    <div className="p-4 bg-bkg-surface rounded-xl border border-white/[0.06] grid grid-cols-2 gap-x-6 gap-y-3 [&_p.text-sm]:uppercase">
+                                    <div className="p-4 bg-bkg-surface rounded-xl border border-white/[0.06] grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3 [&_p.text-sm]:uppercase">
                                         <FieldView label="CCAA" value={cliente.ccaa} />
                                         <FieldView label="Provincia" value={cliente.provincia} />
                                         <FieldView label="Municipio" value={cliente.municipio} />
                                         <FieldView label="CP" value={cliente.codigo_postal} />
                                         {cliente.direccion && (
-                                            <div className="col-span-2">
+                                            <div className="col-span-1 sm:col-span-2">
                                                 <FieldView label="Dirección" value={cliente.direccion} />
                                             </div>
                                         )}

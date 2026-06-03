@@ -117,7 +117,7 @@ export function VincularClienteModal({ isOpen, onClose, oportunidad, onSuccess, 
                                 <button
                                     onClick={() => handleSelect(c)}
                                     disabled={!!linking}
-                                    className="ml-3 flex-shrink-0 px-3 py-1.5 text-xs font-bold uppercase tracking-wider bg-brand/10 hover:bg-brand/20 text-brand rounded-lg transition-all opacity-0 group-hover:opacity-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                                    className="ml-3 flex-shrink-0 px-3 py-1.5 text-xs font-bold uppercase tracking-wider bg-brand/10 hover:bg-brand/20 text-brand rounded-lg transition-all max-md:opacity-100 opacity-0 group-hover:opacity-100 disabled:opacity-40 disabled:cursor-not-allowed"
                                 >
                                     {linking === c.id_cliente ? '...' : 'Seleccionar'}
                                 </button>

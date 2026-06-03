@@ -889,7 +889,7 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                         <div className="bg-bkg-surface/60 rounded-xl p-6 border border-brand/10">
                             <h4 className="text-[11px] font-black text-brand/80 uppercase tracking-widest mb-1">Periodo CIFO</h4>
                             <p className="text-white/20 text-[10px] mb-6 uppercase tracking-wider font-bold">Calculado según el rango de facturas y certificados.</p>
-                            <div className="grid grid-cols-2 gap-6">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                                 <div>
                                     <label className="block text-[10px] font-black text-white/30 uppercase tracking-[0.2em] mb-2 ml-1">Fecha Inicio CIFO</label>
                                     <div className="bg-bkg-elevated border border-white/5 rounded-xl px-4 py-3 text-white/60 text-sm font-bold">

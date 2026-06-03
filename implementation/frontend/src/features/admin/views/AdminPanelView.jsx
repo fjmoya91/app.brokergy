@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import axios from 'axios';
 import { useAuth } from '../../../context/AuthContext';
 import { PrescriptoresList } from './PrescriptoresList';
@@ -14,6 +14,65 @@ export function AdminPanelView({
     onReturnToExpediente
 }) {
     const { user } = useAuth();
+
+    // ─── Columnas redimensionables (Excel-style) ──────────────────────────────
+    const COL_DEFAULTS = {
+        oportunidad: 380, ccaa: 60, ficha: 84,
+        metricas: 132, fecha: 88, prescriptor: 160, estado: 184,
+    };
+    const STORAGE_KEY = 'op_panel_col_widths_v1';
+    const loadColWidths = () => {
+        try {
+            const saved = localStorage.getItem(STORAGE_KEY);
+            return saved ? { ...COL_DEFAULTS, ...JSON.parse(saved) } : { ...COL_DEFAULTS };
+        } catch { return { ...COL_DEFAULTS }; }
+    };
+    const [colW, setColW] = useState(loadColWidths);
+    const resizeRef = useRef(null); // { colKey, startX, startWidth }
+
+    // Persiste en localStorage cada vez que cambian los anchos
+    useEffect(() => {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(colW));
+    }, [colW]);
+
+    const startResize = useCallback((colKey, e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const startX = e.clientX;
+        const startWidth = colW[colKey];
+        resizeRef.current = { colKey, startX, startWidth };
+
+        const onMove = (ev) => {
+            if (!resizeRef.current) return;
+            const { colKey: k, startX: sx, startWidth: sw } = resizeRef.current;
+            const newW = Math.max(48, sw + (ev.clientX - sx));
+            setColW(prev => ({ ...prev, [k]: newW }));
+        };
+        const onUp = () => {
+            resizeRef.current = null;
+            document.removeEventListener('mousemove', onMove);
+            document.removeEventListener('mouseup', onUp);
+        };
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onUp);
+    }, [colW]);
+
+    const resetColWidths = () => {
+        localStorage.removeItem(STORAGE_KEY);
+        setColW({ ...COL_DEFAULTS });
+    };
+
+    // Handle visual: línea en el borde derecho de cada <th>
+    const RH = ({ colKey }) => (
+        <div
+            onMouseDown={e => startResize(colKey, e)}
+            className="absolute top-0 right-0 h-full w-3 flex items-center justify-center cursor-col-resize group/rh select-none z-10"
+            title="Arrastra para redimensionar"
+        >
+            <div className="w-px h-4 bg-white/10 group-hover/rh:bg-brand/60 group-hover/rh:h-full transition-all" />
+        </div>
+    );
+    // ─────────────────────────────────────────────────────────────────────────
 
     const [oportunidades, setOportunidades] = useState([]);
     const [prescriptores, setPrescriptores] = useState([]);
@@ -53,6 +112,7 @@ export function AdminPanelView({
     const [openDropdownId, setOpenDropdownId] = useState(null); // 'filter' or opportunity id
     const [partnerSearch, setPartnerSearch] = useState('');
     const [globalSearch, setGlobalSearch] = useState('');
+    const [showMobileFilters, setShowMobileFilters] = useState(false); // Panel de filtros en móvil
 
     // Inline edit for cod_cliente_interno (DISTRIBUIDOR view)
     const [editingCodClienteId, setEditingCodClienteId] = useState(null);
@@ -104,6 +164,50 @@ export function AdminPanelView({
     const getCCAASigla = (op) => {
         const full = getCCAA(op);
         return CCAA_SIGLAS[full] || full;
+    };
+
+    // Metadatos derivados de una oportunidad (ficha + financieros). Mismo cálculo
+    // que hace la tabla de escritorio inline; se extrae aquí para reutilizarlo en
+    // la lista de tarjetas móvil sin tocar el render de la tabla.
+    const getOpMeta = (op) => {
+        const calcInputs = op.datos_calculo?.inputs || {};
+        const isReforma = calcInputs.isReforma === true || op.datos_calculo?.isReforma === true ||
+            (calcInputs.reformaType && calcInputs.reformaType !== 'none') ||
+            (op.ficha === 'RES080') ||
+            (op.referencia_cliente?.toUpperCase().includes('RES080')) ||
+            (op.id_oportunidad?.toUpperCase().includes('RES080'));
+        const isHybrid = calcInputs.hibridacion === true || op.datos_calculo?.hibridacion === true ||
+            (op.ficha === 'RES093') ||
+            (op.referencia_cliente?.toUpperCase().includes('RES093')) ||
+            (op.id_oportunidad?.toUpperCase().includes('RES093'));
+        const currentFicha = isReforma ? 'RES080' : (isHybrid ? 'RES093' : 'RES060');
+        const financials = (isReforma && op.datos_calculo?.result?.financialsRes080)
+            ? op.datos_calculo.result.financialsRes080
+            : op.datos_calculo?.result?.financials;
+        const savingsKwh = isReforma
+            ? (op.datos_calculo?.result?.res080?.ahorroEnergiaFinalTotal || 0)
+            : (op.datos_calculo?.result?.savings?.savingsKwh || 0);
+        return {
+            isReforma, isHybrid, currentFicha,
+            caeBonus: financials?.caeBonus || 0,
+            profitBrokergy: financials?.profitBrokergy || 0,
+            presupuesto: financials?.presupuesto || 0,
+            savingsKwh,
+        };
+    };
+
+    // Texto de dirección compacto (mismo criterio que la columna Oportunidad).
+    const getOpDireccion = (op) => {
+        const inputs = op.datos_calculo?.inputs || {};
+        const dir = inputs.direccion || inputs.address || '';
+        const cp = inputs.cp || inputs.codigo_postal || '';
+        const mun = inputs.municipio || '';
+        const prov = inputs.provincia_nombre || '';
+        const extra = [cp, mun, prov && `(${prov})`]
+            .filter(Boolean)
+            .filter(part => !dir.toUpperCase().includes(String(part).toUpperCase().replace(/[()]/g, '')))
+            .join(' ');
+        return [dir, extra].filter(Boolean).join(' ');
     };
 
     const SearchablePartnerSelect = ({ value, onSelect, placeholder = "Seleccionar Partner...", isFilter = false }) => {
@@ -857,30 +961,169 @@ export function AdminPanelView({
                 </div>
             )}
 
-            {/* ─── Data Table ─── */}
-            <div className="rounded-2xl border border-white/[0.06] overflow-hidden" style={{ background: 'rgba(19,21,26,0.6)' }}>
+            {/* ─── Buscador + Filtros (solo móvil; en desktop están en el header/tabla) ─── */}
+            <div className="md:hidden mb-3 space-y-2">
+                <div className="flex items-center gap-2">
+                    <div className="relative flex-1">
+                        <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
+                            <svg className="w-4 h-4 text-white/25" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                            </svg>
+                        </div>
+                        <input
+                            type="text"
+                            placeholder="Buscar por nombre, email, DNI..."
+                            className="w-full bg-black/40 border border-white/[0.06] rounded-xl pl-11 pr-10 py-2.5 text-sm font-medium text-white placeholder-white/25 focus:outline-none focus:border-brand/40 focus:bg-black/60 transition-all"
+                            value={globalSearch}
+                            onChange={e => setGlobalSearch(e.target.value)}
+                        />
+                        {globalSearch && (
+                            <button
+                                onClick={() => setGlobalSearch('')}
+                                className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-white/25 hover:text-white transition-colors"
+                            >
+                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+                        )}
+                    </div>
+                    {(() => {
+                        const activeCount = [filters.ficha, filters.ccaa, filters.prescriptor_id].filter(v => v && v !== '').length;
+                        return (
+                            <button
+                                onClick={() => setShowMobileFilters(v => !v)}
+                                className={`relative shrink-0 flex items-center gap-1.5 px-3 py-2.5 rounded-xl border text-[11px] font-black uppercase tracking-wider transition-all ${
+                                    showMobileFilters || activeCount > 0
+                                        ? 'bg-brand/10 border-brand/30 text-brand'
+                                        : 'bg-black/40 border-white/[0.06] text-white/50'
+                                }`}
+                            >
+                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2a1 1 0 01-.293.707L14 13.414V19a1 1 0 01-.553.894l-4 2A1 1 0 018 21v-7.586L3.293 6.707A1 1 0 013 6V4z" />
+                                </svg>
+                                Filtros
+                                {activeCount > 0 && (
+                                    <span className="ml-0.5 min-w-[16px] h-4 px-1 inline-flex items-center justify-center rounded-full bg-brand text-bkg-deep text-[9px] font-black">{activeCount}</span>
+                                )}
+                            </button>
+                        );
+                    })()}
+                </div>
+
+                {showMobileFilters && (
+                    <div className="p-3 rounded-xl border border-white/[0.08] bg-bkg-surface/80 space-y-3 animate-in fade-in slide-in-from-top-2 duration-200">
+                        {/* Ficha */}
+                        <div>
+                            <label className="block text-[9px] font-black uppercase tracking-widest text-white/30 mb-1.5">Ficha</label>
+                            <select
+                                value={filters.ficha}
+                                onChange={e => setFilters(prev => ({ ...prev, ficha: e.target.value }))}
+                                className="w-full bg-bkg-deep border border-white/[0.08] rounded-lg px-3 py-2.5 text-xs text-white focus:outline-none focus:border-brand/40 transition-all uppercase"
+                            >
+                                <option value="" className="bg-slate-800">Todas</option>
+                                <option value="RES060" className="bg-slate-800">RES060</option>
+                                <option value="RES080" className="bg-slate-800">RES080</option>
+                                <option value="RES093" className="bg-slate-800">RES093</option>
+                            </select>
+                        </div>
+                        {/* CCAA */}
+                        <div>
+                            <label className="block text-[9px] font-black uppercase tracking-widest text-white/30 mb-1.5">Comunidad Autónoma</label>
+                            <select
+                                value={filters.ccaa}
+                                onChange={e => setFilters(prev => ({ ...prev, ccaa: e.target.value }))}
+                                className="w-full bg-bkg-deep border border-white/[0.08] rounded-lg px-3 py-2.5 text-xs text-white focus:outline-none focus:border-brand/40 transition-all uppercase"
+                            >
+                                <option value="" className="bg-slate-800">Todas</option>
+                                {Array.from(new Set((oportunidades || []).map(op => getCCAA(op))))
+                                    .filter(ccaa => ccaa && ccaa !== '-')
+                                    .sort()
+                                    .map(ccaa => <option key={ccaa} value={ccaa} className="bg-slate-800">{ccaa}</option>)}
+                            </select>
+                        </div>
+                        {/* Prescriptor (solo ADMIN) */}
+                        {user?.rol === 'ADMIN' && (
+                            <div>
+                                <label className="block text-[9px] font-black uppercase tracking-widest text-white/30 mb-1.5">Prescriptor</label>
+                                <SearchablePartnerSelect
+                                    isFilter
+                                    value={filters.prescriptor_id}
+                                    onSelect={val => setFilters(prev => ({ ...prev, prescriptor_id: val }))}
+                                />
+                            </div>
+                        )}
+                        {/* Limpiar */}
+                        {[filters.ficha, filters.ccaa, filters.prescriptor_id].some(v => v && v !== '') && (
+                            <button
+                                onClick={() => setFilters(prev => ({ ...prev, ficha: '', ccaa: '', prescriptor_id: '' }))}
+                                className="w-full py-2 rounded-lg border border-white/10 text-white/50 hover:text-white text-[10px] font-black uppercase tracking-widest transition-all"
+                            >
+                                Limpiar filtros
+                            </button>
+                        )}
+                    </div>
+                )}
+            </div>
+
+            {/* ─── Data Table (solo desktop) ─── */}
+            <div className="hidden md:flex justify-end mb-1.5">
+                <button
+                    onClick={resetColWidths}
+                    title="Restaurar anchos de columna por defecto"
+                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest text-white/25 hover:text-white/60 hover:bg-white/5 transition-all border border-transparent hover:border-white/10"
+                >
+                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    Reset columnas
+                </button>
+            </div>
+            <div className="hidden md:block rounded-2xl border border-white/[0.06] overflow-hidden" style={{ background: 'rgba(19,21,26,0.6)' }}>
                 <div className="overflow-x-auto">
-                    <table className="w-full text-left border-collapse">
+                    <table className="w-full text-left border-collapse table-fixed" style={{ minWidth: 680 }}>
                         <thead>
                             <tr style={{ background: 'rgba(26,28,34,0.8)' }}>
-                                <th className="p-3.5 text-[10px] font-black uppercase tracking-[0.15em] text-white/25 border-b border-white/[0.06]">Oportunidad</th>
+                                {/* Oportunidad */}
+                                <th className="p-3.5 text-[10px] font-black uppercase tracking-[0.15em] text-white/25 border-b border-white/[0.06] relative overflow-visible" style={{ width: colW.oportunidad }}>
+                                    Oportunidad
+                                    <RH colKey="oportunidad" />
+                                </th>
                                 {user?.rol === 'DISTRIBUIDOR' && (
-                                    <th className="p-3.5 text-[10px] font-black uppercase tracking-[0.15em] text-amber-400/60 border-b border-white/[0.06]">Nº Cliente</th>
+                                    <th className="p-3.5 text-[10px] font-black uppercase tracking-[0.15em] text-amber-400/60 border-b border-white/[0.06] relative overflow-visible" style={{ width: 80 }}>
+                                        Nº
+                                    </th>
                                 )}
-                                <th className="p-3.5 text-[10px] font-black uppercase tracking-[0.15em] text-white/25 border-b border-white/[0.06]">CCAA</th>
-                                <th className="p-3.5 text-[10px] font-black uppercase tracking-[0.15em] text-white/25 border-b border-white/[0.06]">Ficha</th>
-                                <th className="p-3.5 text-[10px] font-black uppercase tracking-[0.15em] border-b border-white/[0.06]">
+                                <th className="p-3.5 text-[10px] font-black uppercase tracking-[0.15em] text-white/25 border-b border-white/[0.06] relative overflow-visible" style={{ width: colW.ccaa }}>
+                                    CCAA
+                                    <RH colKey="ccaa" />
+                                </th>
+                                <th className="p-3.5 text-[10px] font-black uppercase tracking-[0.15em] text-white/25 border-b border-white/[0.06] relative overflow-visible" style={{ width: colW.ficha }}>
+                                    Ficha
+                                    <RH colKey="ficha" />
+                                </th>
+                                <th className="p-3.5 text-[10px] font-black uppercase tracking-[0.15em] border-b border-white/[0.06] relative overflow-visible" style={{ width: colW.metricas }}>
                                     <div className="flex items-center gap-1.5">
                                         {user?.rol === 'ADMIN' && <span className="text-blue-400/60">⚡</span>}
                                         <span className="text-emerald-400/60">€</span>
                                         <span className="text-cyan-400/60">▲</span>
                                     </div>
+                                    <RH colKey="metricas" />
                                 </th>
-                                <th className="p-3.5 text-[10px] font-black uppercase tracking-[0.15em] text-white/25 border-b border-white/[0.06]">Fecha</th>
+                                <th className="p-3.5 text-[10px] font-black uppercase tracking-[0.15em] text-white/25 border-b border-white/[0.06] relative overflow-visible" style={{ width: colW.fecha }}>
+                                    Fecha
+                                    <RH colKey="fecha" />
+                                </th>
                                 {user?.rol === 'ADMIN' && (
-                                    <th className="p-3.5 text-[10px] font-black uppercase tracking-[0.15em] text-white/25 border-b border-white/[0.06] text-center w-28">Prescriptor</th>
+                                    <th className="p-3.5 text-[10px] font-black uppercase tracking-[0.15em] text-white/25 border-b border-white/[0.06] relative overflow-visible" style={{ width: colW.prescriptor }}>
+                                        Prescriptor
+                                        <RH colKey="prescriptor" />
+                                    </th>
                                 )}
-                                <th className="p-3.5 text-[10px] font-black uppercase tracking-[0.15em] text-white/25 border-b border-white/[0.06]">Estado</th>
+                                <th className="p-3.5 text-[10px] font-black uppercase tracking-[0.15em] text-white/25 border-b border-white/[0.06] relative overflow-visible" style={{ width: colW.estado }}>
+                                    Estado
+                                    <RH colKey="estado" />
+                                </th>
                             </tr>
                             {/* Fila de Filtros */}
                             <tr style={{ background: 'rgba(19,21,26,0.5)' }}>
@@ -999,8 +1242,8 @@ export function AdminPanelView({
                                             className="hover:bg-white/[0.03] transition-colors duration-150 cursor-pointer group"
                                             onClick={() => onLoadOpportunity && onLoadOpportunity(op)}
                                         >
-                                            <td className="p-3.5">
-                                                <div className="flex flex-col gap-0.5 max-w-[340px]">
+                                            <td className="p-3.5 overflow-hidden">
+                                                <div className="flex flex-col gap-0.5 min-w-0">
                                                     <span className="text-xs font-bold truncate" title={`${op.id_oportunidad}${op.referencia_cliente ? ' - ' + op.referencia_cliente : ''}`}>
                                                         <span className="font-mono text-cyan-400/90">{op.id_oportunidad}</span>
                                                         {op.referencia_cliente && <span className="text-white/90"> - {op.referencia_cliente}</span>}
@@ -1057,10 +1300,10 @@ export function AdminPanelView({
                                                     )}
                                                 </td>
                                              )}
-                                            <td className="p-3.5 text-[10px] text-white/40 uppercase font-bold tracking-tight whitespace-nowrap">
+                                            <td className="p-3.5 text-[10px] text-white/40 uppercase font-bold tracking-tight whitespace-nowrap align-top">
                                                 <span title={getCCAA(op)}>{getCCAASigla(op)}</span>
                                             </td>
-                                            <td className="p-3.5 whitespace-nowrap">
+                                            <td className="p-3.5 whitespace-nowrap align-top">
                                                 <span className={`px-2 py-0.5 rounded text-[9px] font-black tracking-wider border ${
                                                     currentFicha === 'RES080'
                                                         ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
@@ -1072,7 +1315,7 @@ export function AdminPanelView({
                                                 </span>
                                             </td>
                                             {/* Columna financiera combinada (⚡ ahorro / € bono CAE / ▲ beneficio o presupuesto) */}
-                                            <td className="p-3.5">
+                                            <td className="p-3.5 align-top whitespace-nowrap">
                                                 {(() => {
                                                     const savingsKwh = isReforma
                                                         ? (op.datos_calculo?.result?.res080?.ahorroEnergiaFinalTotal || 0)
@@ -1107,12 +1350,12 @@ export function AdminPanelView({
                                                     );
                                                 })()}
                                             </td>
-                                            <td className="p-3.5 text-[11px] text-white/25 whitespace-nowrap font-mono">
+                                            <td className="p-3.5 text-[11px] text-white/25 whitespace-nowrap font-mono align-top">
                                                 {new Date(op.created_at).toLocaleDateString('es-ES')}
                                             </td>
                                             
                                             {user?.rol === 'ADMIN' && (
-                                                <td className="p-3.5 text-center w-28 max-w-[160px]" onClick={e => e.stopPropagation()}>
+                                                <td className="p-3.5 align-top" onClick={e => e.stopPropagation()}>
                                                     {(op.datos_calculo?.origen === 'landing_publica' || op.prescriptor === 'web') ? (
                                                         // LEAD entrado por el formulario web público —
                                                         // mostramos badge WEB y debajo el selector por si
@@ -1139,8 +1382,8 @@ export function AdminPanelView({
                                                 </td>
                                             )}
 
-                                            <td className="p-3.5" onClick={e => e.stopPropagation()}>
-                                                <div className="flex items-center gap-2">
+                                            <td className="p-3.5 align-top" onClick={e => e.stopPropagation()}>
+                                                <div className="flex items-center gap-1.5 flex-wrap">
                                                     <select
                                                         value={op.datos_calculo?.estado || 'PTE ENVIAR'}
                                                         onChange={(e) => handleStatusChange(e, op)}
@@ -1242,6 +1485,184 @@ export function AdminPanelView({
 
                     </table>
                 </div>
+            </div>
+
+            {/* ─── Lista en tarjetas (solo móvil) ─── */}
+            <div className="md:hidden space-y-3">
+                {loading && filteredOportunidades.length === 0 ? (
+                    <div className="rounded-2xl border border-white/[0.06] bg-bkg-surface/40 p-10 text-center">
+                        <span className="text-white/25 text-sm">Cargando oportunidades...</span>
+                    </div>
+                ) : paginatedOportunidades.length === 0 ? (
+                    <div className="rounded-2xl border border-white/[0.06] bg-bkg-surface/40 p-10 text-center">
+                        <span className="text-white/25 text-sm">No se encontraron oportunidades</span>
+                    </div>
+                ) : (
+                    paginatedOportunidades.map((op) => {
+                        const meta = getOpMeta(op);
+                        const estado = op.datos_calculo?.estado || 'PTE ENVIAR';
+                        const dirText = getOpDireccion(op);
+                        const tercero = viewMode === 'brokergy' ? meta.profitBrokergy : meta.presupuesto;
+                        const fmt = (v) => v.toLocaleString('es-ES', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
+                        return (
+                            <div
+                                key={op.id}
+                                onClick={() => onLoadOpportunity && onLoadOpportunity(op)}
+                                className="rounded-2xl border border-white/[0.06] bg-bkg-surface/60 p-4 active:scale-[0.99] transition-transform"
+                            >
+                                {/* Cabecera: ID + ref + ficha */}
+                                <div className="flex items-start justify-between gap-2">
+                                    <div className="min-w-0 flex-1">
+                                        <div className="text-sm font-bold leading-tight">
+                                            <span className="font-mono text-cyan-400/90">{op.id_oportunidad}</span>
+                                            {op.referencia_cliente && <span className="text-white/90"> · {op.referencia_cliente}</span>}
+                                        </div>
+                                        {dirText && (
+                                            <div className="text-white/35 text-[11px] mt-0.5 uppercase tracking-wide line-clamp-2">{dirText}</div>
+                                        )}
+                                    </div>
+                                    <span className={`shrink-0 px-2 py-0.5 rounded text-[9px] font-black tracking-wider border ${
+                                        meta.currentFicha === 'RES080' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                                            : meta.currentFicha === 'RES093' ? 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30'
+                                                : 'bg-brand/10 text-brand border-brand/20'
+                                    }`}>{meta.currentFicha}</span>
+                                </div>
+
+                                {/* Código interno (DISTRIBUIDOR) */}
+                                {user?.rol === 'DISTRIBUIDOR' && (
+                                    <div className="mt-2" onClick={e => e.stopPropagation()}>
+                                        {editingCodClienteId === op.id_oportunidad ? (
+                                            <input
+                                                autoFocus
+                                                type="text"
+                                                className="w-full bg-slate-800 border border-amber-400/50 rounded-lg px-2 py-1 text-xs text-amber-400 font-bold focus:outline-none focus:border-amber-400 no-uppercase"
+                                                value={editingCodClienteValue}
+                                                onChange={e => setEditingCodClienteValue(e.target.value)}
+                                                onBlur={() => saveCodClienteInterno(op.id_oportunidad, editingCodClienteValue)}
+                                                onKeyDown={e => {
+                                                    if (e.key === 'Enter') saveCodClienteInterno(op.id_oportunidad, editingCodClienteValue);
+                                                    if (e.key === 'Escape') setEditingCodClienteId(null);
+                                                }}
+                                            />
+                                        ) : (
+                                            <button
+                                                onClick={() => { setEditingCodClienteId(op.id_oportunidad); setEditingCodClienteValue(op.datos_calculo?.cod_cliente_interno || ''); }}
+                                                className="text-[11px] text-amber-400 font-bold"
+                                            >
+                                                Nº {op.datos_calculo?.cod_cliente_interno || <span className="text-white/25 italic font-normal">añadir código</span>}
+                                            </button>
+                                        )}
+                                    </div>
+                                )}
+
+                                {/* Métricas */}
+                                <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] font-mono tabular-nums">
+                                    {user?.rol === 'ADMIN' && meta.savingsKwh > 0 && (
+                                        <span className="inline-flex items-center gap-1 text-blue-400 font-black">
+                                            <span className="text-blue-400/50 text-[9px]">⚡</span>{(meta.savingsKwh / 1000).toLocaleString('es-ES', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} MWh
+                                        </span>
+                                    )}
+                                    {meta.caeBonus > 0 && (
+                                        <span className="inline-flex items-center gap-1 text-emerald-400 font-black">
+                                            <span className="text-emerald-400/50 text-[9px]">€</span>{fmt(meta.caeBonus)}
+                                        </span>
+                                    )}
+                                    {tercero > 0 && (
+                                        <span className="inline-flex items-center gap-1 text-cyan-400 font-black">
+                                            <span className="text-cyan-400/50 text-[9px]">▲</span>{fmt(tercero)}
+                                        </span>
+                                    )}
+                                </div>
+
+                                {/* Pie: CCAA + fecha */}
+                                <div className="mt-2 flex items-center gap-2 text-[10px] text-white/30 uppercase tracking-wider font-bold">
+                                    <span title={getCCAA(op)}>{getCCAASigla(op)}</span>
+                                    <span className="w-1 h-1 rounded-full bg-white/15"></span>
+                                    <span className="font-mono">{new Date(op.created_at).toLocaleDateString('es-ES')}</span>
+                                </div>
+
+                                {/* Prescriptor (ADMIN) */}
+                                {user?.rol === 'ADMIN' && (
+                                    <div className="mt-3" onClick={e => e.stopPropagation()}>
+                                        <SearchablePartnerSelect value={op} onSelect={val => handleAssignPrescriptor({ stopPropagation: () => {} }, op, val)} />
+                                    </div>
+                                )}
+
+                                {/* Acciones */}
+                                <div className="mt-3 pt-3 border-t border-white/[0.06] flex items-center gap-2 flex-wrap" onClick={e => e.stopPropagation()}>
+                                    <select
+                                        value={estado}
+                                        onChange={(e) => handleStatusChange(e, op)}
+                                        disabled={updatingStatus === op.id_oportunidad}
+                                        className={`flex-1 min-w-[130px] text-[11px] font-bold uppercase tracking-wider px-2.5 py-2 rounded-lg border outline-none cursor-pointer transition-all appearance-none ${getStatusColor(estado)} ${updatingStatus === op.id_oportunidad ? 'opacity-50' : ''}`}
+                                    >
+                                        {estado === 'LEAD' && <option value="LEAD" className="bg-slate-800 text-violet-400">LEAD</option>}
+                                        <option value="PTE ENVIAR" className="bg-slate-800 text-slate-300">PTE ENVIAR</option>
+                                        <option value="EN CURSO" className="bg-slate-800 text-orange-400">EN CURSO</option>
+                                        <option value="ENVIADA" className="bg-slate-800 text-blue-400">ENVIADA</option>
+                                        <option value="ACEPTADA" className="bg-slate-800 text-emerald-400">ACEPTADA</option>
+                                        <option value="RECHAZADA" className="bg-slate-800 text-red-500">RECHAZADA</option>
+                                    </select>
+                                    <button
+                                        onClick={(e) => { e.stopPropagation(); setHistoryModalOp(op); }}
+                                        className="w-9 h-9 flex items-center justify-center text-white/40 hover:text-white rounded-lg hover:bg-white/[0.06] transition-all"
+                                        title="Ver historial de estados"
+                                    >
+                                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                        </svg>
+                                    </button>
+                                    {user?.rol !== 'DISTRIBUIDOR' && (
+                                        op.cliente_id ? (
+                                            <button
+                                                onClick={(e) => { e.stopPropagation(); setClienteDetailId(op.cliente_id); setClienteDetailOp(op); }}
+                                                className="w-9 h-9 flex items-center justify-center text-brand/70 hover:text-brand rounded-lg hover:bg-brand/10 transition-all"
+                                                title="Ver Cliente vinculado"
+                                            >
+                                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                                                </svg>
+                                            </button>
+                                        ) : (
+                                            <button
+                                                onClick={(e) => { e.stopPropagation(); setVincularClienteOp(op); }}
+                                                className="w-9 h-9 flex items-center justify-center text-white/40 hover:text-brand rounded-lg hover:bg-brand/10 transition-all"
+                                                title="Vincular o crear cliente"
+                                            >
+                                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+                                                </svg>
+                                            </button>
+                                        )
+                                    )}
+                                    {op.datos_calculo?.drive_folder_link && user?.rol === 'ADMIN' && (
+                                        <a
+                                            href={op.datos_calculo.drive_folder_link}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            onClick={(e) => e.stopPropagation()}
+                                            className="w-9 h-9 flex items-center justify-center text-cyan-400/60 hover:text-cyan-400 rounded-lg hover:bg-cyan-500/10 transition-all"
+                                            title="Abrir carpeta en Google Drive"
+                                        >
+                                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                                            </svg>
+                                        </a>
+                                    )}
+                                    <button
+                                        onClick={(e) => { e.stopPropagation(); setOportunidadToDelete(op); }}
+                                        className="w-9 h-9 flex items-center justify-center text-white/30 hover:text-red-400 rounded-lg hover:bg-red-500/10 transition-all"
+                                        title="Eliminar Oportunidad"
+                                    >
+                                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                        </svg>
+                                    </button>
+                                </div>
+                            </div>
+                        );
+                    })
+                )}
             </div>
 
             {/* Pagination Controls */}
@@ -1376,7 +1797,7 @@ export function AdminPanelView({
             {/* Modal de Huella Temporal (Historial) */}
             {historyModalOp && (
                 <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in" onClick={() => setHistoryModalOp(null)}>
-                    <div className="bg-bkg-surface border border-white/[0.1] p-6 rounded-2xl w-full max-w-lg shadow-2xl relative" onClick={e => e.stopPropagation()}>
+                    <div className="bg-bkg-surface border border-white/[0.1] p-6 rounded-2xl w-full max-w-lg shadow-2xl relative max-md:max-h-[90vh] max-md:overflow-y-auto" onClick={e => e.stopPropagation()}>
                         <div className="absolute top-0 right-0 p-4">
                             <button onClick={() => { setHistoryModalOp(null); setShowHistoryDeleteConfirm(false); setModalError(null); }} className="text-white/40 hover:text-white transition-colors">
                                 <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1384,14 +1805,14 @@ export function AdminPanelView({
                                 </svg>
                             </button>
                         </div>
-                        <div className="flex justify-between items-center mb-6">
+                        <div className="flex max-md:flex-col max-md:items-start max-md:gap-3 justify-between items-center mb-6">
                             <h3 className="text-xl font-bold text-white flex items-center gap-3">
                                 <svg className="w-6 h-6 text-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                                 </svg>
                                 Historial de Estados
                             </h3>
-                            
+
                             <div className="flex items-center gap-2 mr-8">
                                 <div className="flex bg-black/40 p-1 rounded-xl border border-white/[0.06] mr-4">
                                     <button

@@ -87,7 +87,7 @@ export function EconomicoModule({ expediente, results, onSave, onLiveUpdate, sav
                             </p>
                         </div>
 
-                        <div className="grid grid-cols-2 gap-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <div>
                                 <Label>Precio CAE Cliente (€/MWh)</Label>
                                 <Input
@@ -199,7 +199,7 @@ export function EconomicoModule({ expediente, results, onSave, onLiveUpdate, sav
 
                         {localData.include_legalization && (
                             <div className="pl-4 border-l-2 border-orange-500/30 space-y-4 animate-fade-in">
-                                <div className="grid grid-cols-2 gap-4">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                     <div>
                                         <Label>Importe (€)</Label>
                                         <Input

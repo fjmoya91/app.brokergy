@@ -834,8 +834,8 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
                         </div>
 
                         {local.hibridacion && hybridizationRes && (
-                             <div className="bg-slate-900/60 p-4 rounded-xl border border-white/5 flex items-center gap-8 pr-8">
-                                <div className="grid grid-cols-4 gap-8">
+                             <div className="bg-slate-900/60 p-4 rounded-xl border border-white/5 flex items-center gap-8 pr-8 max-md:flex-col max-md:items-start max-md:gap-4 max-md:pr-4">
+                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 sm:gap-8 max-md:w-full">
                                     <div className="relative">
                                         <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-1.5">Demanda Anual</p>
                                         <p className="text-sm font-black text-white leading-none tabular-nums font-mono tracking-tighter">

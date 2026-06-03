@@ -13,7 +13,15 @@ export function DashboardLayout({ children, activeTab, onTabChange }) {
     const isPartner = ['DISTRIBUIDOR', 'INSTALADOR', 'PARTNER'].includes(userRole) || [2, 3].includes(userRoleId);
 
     const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+    const [mobileMenuOpen, setMobileMenuOpen] = useState(false); // Drawer off-canvas (solo móvil)
     const [wwaState, setWwaState] = useState('DISCONNECTED'); // DISCONNECTED | READY | QR | INITIALIZING | AUTH_FAILED
+
+    // Navegación en móvil: cambia de pestaña y cierra el drawer.
+    // En desktop el drawer no existe, así que setMobileMenuOpen(false) es inocuo.
+    const go = (tab) => {
+        onTabChange(tab);
+        setMobileMenuOpen(false);
+    };
 
     // Polling del estado de WhatsApp (solo ADMIN).
     // Intervalo reducido de 5s → 30s el 2026-04-29 para recortar el egress de Supabase:
@@ -42,8 +50,19 @@ export function DashboardLayout({ children, activeTab, onTabChange }) {
 
     return (
         <div className="flex h-screen w-full relative bg-bkg-base overflow-hidden">
+            {/* ====== BACKDROP MÓVIL (solo cuando el drawer está abierto) ====== */}
+            {mobileMenuOpen && (
+                <div
+                    className="md:hidden fixed inset-0 z-40 bg-black/60 backdrop-blur-sm animate-fade-in"
+                    onClick={() => setMobileMenuOpen(false)}
+                    aria-hidden="true"
+                />
+            )}
+
             {/* ====== SIDEBAR ====== */}
-            <aside className={`bg-bkg-deep border-r border-white/[0.06] flex flex-col h-full flex-shrink-0 z-20 transition-all duration-300 ease-in-out ${isSidebarCollapsed ? 'w-20' : 'w-[280px]'}`}>
+            {/* Desktop: en el flujo flex, ancho fijo/colapsable (igual que siempre).
+                Móvil (max-md): drawer fijo off-canvas que se desliza con mobileMenuOpen. */}
+            <aside className={`bg-bkg-deep border-r border-white/[0.06] flex flex-col h-full flex-shrink-0 z-20 transition-all duration-300 ease-in-out ${isSidebarCollapsed ? 'w-20' : 'w-[280px]'} max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:z-50 max-md:w-[280px] max-md:shadow-2xl ${mobileMenuOpen ? 'max-md:translate-x-0' : 'max-md:-translate-x-full'}`}>
                 {/* ====== LOGO SECTION ====== */}
                 <div className={`p-4 ${isSidebarCollapsed ? 'sm:p-2' : 'sm:p-6'} flex items-center justify-center relative`}>
                     <div className={`w-full flex items-center justify-center transition-all ${isSidebarCollapsed ? 'h-10 w-10' : 'h-32'} relative`}>
@@ -72,7 +91,7 @@ export function DashboardLayout({ children, activeTab, onTabChange }) {
                     {/* sidebarToggle - Professional SaaS Floating Toggle */}
                     <button 
                         onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-                        className="absolute -right-3 top-8 w-7 h-7 rounded-full bg-bkg-deep border border-white/10 flex items-center justify-center text-white/40 hover:text-brand hover:border-brand/50 transition-all duration-300 z-50 shadow-[0_2px_10px_rgba(0,0,0,0.5)] group active:scale-90"
+                        className="max-md:hidden absolute -right-3 top-8 w-7 h-7 rounded-full bg-bkg-deep border border-white/10 flex items-center justify-center text-white/40 hover:text-brand hover:border-brand/50 transition-all duration-300 z-50 shadow-[0_2px_10px_rgba(0,0,0,0.5)] group active:scale-90"
                         title={isSidebarCollapsed ? "Mostrar menú" : "Ocultar menú"}
                     >
                         <svg 
@@ -97,7 +116,7 @@ export function DashboardLayout({ children, activeTab, onTabChange }) {
                 <nav className="flex-1 px-4 space-y-3">
                     {!isCertificador && (
                         <button
-                            onClick={() => onTabChange('oportunidades')}
+                            onClick={() => go('oportunidades')}
                             className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all ${
                                 activeTab === 'oportunidades'
                                     ? 'bg-gradient-to-r from-brand to-brand-700 text-bkg-deep shadow-lg shadow-brand/20'
@@ -113,7 +132,7 @@ export function DashboardLayout({ children, activeTab, onTabChange }) {
 
                     {!isCertificador && user?.rol !== 'DISTRIBUIDOR' && (
                         <button
-                            onClick={() => onTabChange('clientes')}
+                            onClick={() => go('clientes')}
                             className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all ${
                                 activeTab === 'clientes'
                                     ? 'bg-gradient-to-r from-brand to-brand-700 text-bkg-deep shadow-lg shadow-brand/20'
@@ -129,7 +148,7 @@ export function DashboardLayout({ children, activeTab, onTabChange }) {
 
                     {(user?.rol?.toUpperCase() === 'ADMIN' || user?.rol?.toUpperCase() === 'DISTRIBUIDOR') && (
                         <button
-                            onClick={() => onTabChange('prescriptores')}
+                            onClick={() => go('prescriptores')}
                             className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all ${
                                 activeTab === 'prescriptores'
                                     ? 'bg-gradient-to-r from-brand to-brand-700 text-bkg-deep shadow-lg shadow-brand/20'
@@ -145,7 +164,7 @@ export function DashboardLayout({ children, activeTab, onTabChange }) {
 
                     {user?.rol?.toUpperCase() === 'ADMIN' && (
                         <button
-                            onClick={() => onTabChange('aerotermia')}
+                            onClick={() => go('aerotermia')}
                             className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all ${
                                 activeTab === 'aerotermia'
                                     ? 'bg-gradient-to-r from-brand to-brand-700 text-bkg-deep shadow-lg shadow-brand/20'
@@ -161,7 +180,7 @@ export function DashboardLayout({ children, activeTab, onTabChange }) {
 
                     {(isAdmin || isCertificador) && (
                         <button
-                            onClick={() => onTabChange('expedientes')}
+                            onClick={() => go('expedientes')}
                             className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all ${
                                 activeTab === 'expedientes'
                                     ? 'bg-gradient-to-r from-brand to-brand-700 text-bkg-deep shadow-lg shadow-brand/20'
@@ -180,7 +199,7 @@ export function DashboardLayout({ children, activeTab, onTabChange }) {
                 {user?.rol === 'ADMIN' && (
                     <div className="px-4 pb-2">
                         <button
-                            onClick={() => onTabChange('whatsapp')}
+                            onClick={() => go('whatsapp')}
                             className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all relative ${
                                 activeTab === 'whatsapp'
                                     ? wwaState === 'READY'
@@ -263,6 +282,30 @@ export function DashboardLayout({ children, activeTab, onTabChange }) {
 
             {/* ====== MAIN CONTENT ====== */}
             <main className="flex-1 overflow-y-auto h-full relative">
+                {/* ====== TOP BAR MÓVIL (hamburguesa + logo) — solo en móvil ====== */}
+                <div className="md:hidden sticky top-0 z-30 flex items-center gap-3 h-14 px-3 bg-bkg-deep/95 backdrop-blur-md border-b border-white/[0.06]">
+                    <button
+                        onClick={() => setMobileMenuOpen(true)}
+                        className="w-10 h-10 flex items-center justify-center rounded-xl text-white/70 hover:text-brand hover:bg-white/5 active:scale-90 transition-all"
+                        aria-label="Abrir menú"
+                    >
+                        <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+                        </svg>
+                    </button>
+                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                        {isAdmin ? (
+                            <img src="/logo-brokergy-admin.png" alt="Brokergy" className="h-7 w-auto object-contain" />
+                        ) : user?.logo_empresa ? (
+                            <img src={user.logo_empresa} alt="" className="h-7 w-auto max-w-[140px] object-contain" />
+                        ) : (
+                            <span className="text-sm font-black uppercase tracking-wider text-brand truncate">
+                                {(user?.acronimo || user?.razon_social || 'Brokergy')}
+                            </span>
+                        )}
+                    </div>
+                </div>
+
                 {/* Subtle Background Accent */}
                 <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-brand/[0.03] rounded-full blur-[120px] pointer-events-none"></div>
                 {children}

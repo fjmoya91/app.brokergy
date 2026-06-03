@@ -633,7 +633,7 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
                     </div>
                 </div>
 
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3 flex-wrap max-md:w-full">
                     {/* Indicador de Sincronización (Autosave) */}
                     <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/5 border border-white/5">
                         {saving ? (
@@ -729,7 +729,7 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
 
             {/* Panel de Resumen Económico Sticky (Solo RES060) */}
             {calcResults && !isCertificador && (
-                <div className="sticky top-0 z-[100] -mx-6 sm:-mx-8 lg:-mx-10 px-6 sm:px-8 lg:px-10 py-4 bg-bkg-base/60 backdrop-blur-xl border-b border-white/[0.05] mb-6 shadow-2xl">
+                <div className="sticky top-0 max-md:top-14 z-[100] -mx-6 sm:-mx-8 lg:-mx-10 px-6 sm:px-8 lg:px-10 py-4 bg-bkg-base/60 backdrop-blur-xl border-b border-white/[0.05] mb-6 shadow-2xl">
                     <ResumenEconomicoExpediente 
                         results={calcResults} 
                         onUpdatePrice={(newPrice) => {
