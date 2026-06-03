@@ -82,6 +82,7 @@ export function CalculatorForm({
     };
     const [presupuestoDraft, setPresupuestoDraft] = useState(null);
     const [presupuestoEnvDraft, setPresupuestoEnvDraft] = useState(null);
+    const [presupuestoFvDraft, setPresupuestoFvDraft] = useState(null);
 
     const parseAmount = (str) => {
         if (str === '' || str === null || str === undefined) return 0;
@@ -395,24 +396,18 @@ export function CalculatorForm({
     };
 
     const toggleIVA = (checked) => {
-        onInputChange(prev => {
-            let currentPrice = parseFloat(prev.presupuesto) || 0;
-            let newPrice = currentPrice;
-
-            if (checked) {
-                // Añadir IVA (x 1.21)
-                newPrice = currentPrice * 1.21;
-            } else {
-                // Quitar IVA (/ 1.21)
-                newPrice = currentPrice / 1.21;
-            }
-
-            return {
-                ...prev,
-                includeIVA: checked,
-                presupuesto: parseFloat(newPrice.toFixed(2)) // Redondear a 2 decimales para evitar 1209.999999
-            };
-        });
+        // Aplica/quita IVA (x1.21) tanto al presupuesto de aerotermia como al de fotovoltaica
+        const convert = (val) => {
+            const current = parseFloat(val) || 0;
+            const next = checked ? current * 1.21 : current / 1.21;
+            return parseFloat(next.toFixed(2)); // Redondear a 2 decimales para evitar 1209.999999
+        };
+        onInputChange(prev => ({
+            ...prev,
+            includeIVA: checked,
+            presupuesto: convert(prev.presupuesto),
+            presupuestoFotovoltaica: convert(prev.presupuestoFotovoltaica)
+        }));
     };
 
     // Handler para procesar el archivo XML
@@ -1939,6 +1934,11 @@ export function CalculatorForm({
                                 <span className="px-2 py-0.5 rounded bg-slate-800 text-[11px] text-slate-300 font-medium">
                                     Presupuesto: {formatDisplay(inputs.presupuesto)} €
                                 </span>
+                                {parseFloat(inputs.presupuestoFotovoltaica) > 0 && (
+                                    <span className="px-2 py-0.5 rounded bg-amber-500/15 text-[11px] text-amber-300 font-medium">
+                                        Fotovoltaica: {formatDisplay(inputs.presupuestoFotovoltaica)} €
+                                    </span>
+                                )}
                                 {inputs.includeAnnualSavings && (
                                     <span className="px-2 py-0.5 rounded bg-slate-800 text-[11px] text-slate-300 font-medium whitespace-nowrap overflow-hidden text-ellipsis max-w-full">
                                         Ahorro activado ({FUEL_PRICES[inputs.fuelType]?.label})
@@ -2003,6 +2003,35 @@ export function CalculatorForm({
                                                 className="bg-slate-900/60 border-slate-700/50 focus:border-lime-500/50"
                                             />
                                         </div>
+                                        <div>
+                                            <Label htmlFor="presupuestoFotovoltaica" className="flex items-center gap-1.5 whitespace-nowrap">
+                                                <svg className="w-3 h-3 text-amber-400/80" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+                                                </svg>
+                                                P. Fotovoltaica (€)
+                                            </Label>
+                                            <Input
+                                                id="presupuestoFotovoltaica"
+                                                type="text"
+                                                inputMode="decimal"
+                                                min={0}
+                                                value={presupuestoFvDraft !== null ? presupuestoFvDraft : formatDisplay(inputs.presupuestoFotovoltaica)}
+                                                onFocus={() => setPresupuestoFvDraft(inputs.presupuestoFotovoltaica ? String(inputs.presupuestoFotovoltaica) : '')}
+                                                onChange={e => {
+                                                    const raw = e.target.value;
+                                                    setPresupuestoFvDraft(raw);
+                                                    const num = parseAmount(raw);
+                                                    onInputChange(prev => ({ ...prev, presupuestoFotovoltaica: num }));
+                                                }}
+                                                onBlur={() => {
+                                                    const num = parseAmount(presupuestoFvDraft ?? '');
+                                                    onInputChange(prev => ({ ...prev, presupuestoFotovoltaica: num }));
+                                                    setPresupuestoFvDraft(null);
+                                                }}
+                                                placeholder="0"
+                                                className="bg-slate-900/60 border-slate-700/50 focus:border-amber-400/50"
+                                            />
+                                        </div>
                                         {inputs.isReforma && (
                                             <div className="animate-fade-in">
                                                 <Label htmlFor="presupuestoEnvolvente" className="flex items-center gap-1.5 whitespace-nowrap">
@@ -2052,7 +2081,7 @@ export function CalculatorForm({
                                             />
                                         </div>
                                         {showBrokergy && (
-                                            <div className="animate-fade-in col-span-2 md:col-span-1">
+                                            <div className="animate-fade-in">
                                                 <Label htmlFor="caePriceClient" className="flex items-center gap-1.5">
                                                     <svg className="w-3 h-3 text-lime-500/80" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />

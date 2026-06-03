@@ -1739,6 +1739,9 @@ info@brokergy.es · 623 926 179`;
                                                     <div className="prop-ftable">
                                                         <div className="prop-fth" style={{background: 'var(--dark)'}}><span>Concepto</span><span>Importe</span></div>
                                                         <div className="prop-ftr"><span className="prop-fl">Inversión sustitución de caldera por aerotermia <small>(IVA INC.)</small></span><span className="prop-fv">{formatNumber(f.presupuesto)} €</span></div>
+                                                        {f.presupuestoFotovoltaica > 0 && (
+                                                            <div className="prop-ftr"><span className="prop-fl">Instalación fotovoltaica <small>(IVA INC.)</small></span><span className="prop-fv">{formatNumber(f.presupuestoFotovoltaica)} €</span></div>
+                                                        )}
                                                         <div className="prop-ftr"><span className="prop-fl">Bono Energético CAE <small>(Ingreso Bruto)</small> {!f.isParticular && f.titularType !== 'particular' ? <small>(IVA INC.)</small> : ''}</span><span className="prop-fv grn">– {formatNumber(f.caeBonus)} €</span></div>
                                                         
                                                         {f.irpfCaeAmount > 0 && (
@@ -1792,6 +1795,9 @@ info@brokergy.es · 623 926 179`;
                                                     <div className="prop-ftable">
                                                         <div className="prop-fth" style={{background: 'var(--dark)'}}><span>Concepto</span><span>Importe</span></div>
                                                         <div className="prop-ftr"><span className="prop-fl">Inversión Reforma de Vivienda + Aerotermia <small>(IVA INC.)</small></span><span className="prop-fv">{formatNumber(f80.presupuesto)} €</span></div>
+                                                        {f80.presupuestoFotovoltaica > 0 && (
+                                                            <div className="prop-ftr"><span className="prop-fl">Instalación fotovoltaica <small>(IVA INC.)</small></span><span className="prop-fv">{formatNumber(f80.presupuestoFotovoltaica)} €</span></div>
+                                                        )}
                                                         <div className="prop-ftr"><span className="prop-fl">Bono Energético CAE <small>(Ingreso Bruto)</small> {!f80.isParticular && f80.titularType !== 'particular' ? <small>(IVA INC.)</small> : ''}</span><span className="prop-fv grn">– {formatNumber(f80.caeBonus)} €</span></div>
                                                         
                                                         {f80.irpfCaeAmount > 0 && (

@@ -135,6 +135,10 @@ export const generateBrokergyReport = async (data) => {
                         },
                         { content: formatCurrency(table.fin.presupuesto), styles: { halign: 'right', fontStyle: 'bold' } }
                     ],
+                    ...(table.fin.presupuestoFotovoltaica > 0 ? [[
+                        { content: 'Instalación fotovoltaica (IVA INC.)', styles: { fontStyle: 'bold' } },
+                        { content: formatCurrency(table.fin.presupuestoFotovoltaica), styles: { halign: 'right', fontStyle: 'bold' } }
+                    ]] : []),
                     [
                         { content: 'Bono Energético CAE BROKERGY (Nota 1)', styles: { textColor: COLORS.dark } },
                         { content: '+' + formatCurrency(table.fin.caeBonus), styles: { halign: 'right', textColor: COLORS.green } }

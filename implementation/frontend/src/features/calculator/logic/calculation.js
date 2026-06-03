@@ -745,6 +745,7 @@ export function calcularIrpfGananciaPatrimonial(importeBruto) {
 
 export function calculateFinancials({
     presupuesto = 12000,
+    presupuestoFotovoltaica = 0, // Presupuesto de instalación fotovoltaica (se suma a la base de deducción IRPF)
     savingsKwh,
     caePriceClient = 95,
     caePriceSO = 160,
@@ -828,7 +829,9 @@ export function calculateFinancials({
     let irpfDeductionPerOwner = 0;
     let irpfDeductionTotal = 0;
 
-    const budgetNum = parseFloat(presupuesto) || 0;
+    const budgetMain = parseFloat(presupuesto) || 0; // Aerotermia (o Aerotermia + Reforma en RES080)
+    const budgetFotovoltaica = parseFloat(presupuestoFotovoltaica) || 0;
+    const budgetNum = budgetMain + budgetFotovoltaica; // Base total para IRPF, % cubierto y coste final
     const ownersCount = Math.max(1, parseInt(numOwners) || 1);
 
     if (isParticular && includeIrpf !== false) { 
@@ -866,7 +869,9 @@ export function calculateFinancials({
     const costeFinal = Math.max(0, budgetNum + caeMaintenanceCost - totalBeneficioFiscal);
 
     return {
-        presupuesto: budgetNum,
+        presupuesto: budgetMain, // Importe principal (aerotermia, o aerotermia+reforma en RES080)
+        presupuestoFotovoltaica: budgetFotovoltaica, // Importe de la instalación fotovoltaica
+        presupuestoTotal: budgetNum, // Suma de ambos (base de la deducción IRPF y del coste final)
         caeBonus: caeBonusBruto, // Bruto
         irpfCaeAmount,         // Tributación en IRPF
         caeNeto,               // Ingreso neto del CAE tras IRPF

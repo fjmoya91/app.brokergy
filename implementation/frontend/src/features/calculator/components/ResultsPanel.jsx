@@ -251,6 +251,8 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
     const [showSubirFotos, setShowSubirFotos] = React.useState(false);
     const [lastSavedSnapshot, setLastSavedSnapshot] = React.useState(null);
     const [showHistorial, setShowHistorial] = useState(false);
+    // Plegado del Estudio de Viabilidad SOLO en móvil (en PC siempre visible vía md:block)
+    const [showViability, setShowViability] = useState(false);
     const tableRef = useRef(null);
 
     /** Detección de cambios (Dirty State) para guardar antes de PDF **/
@@ -263,6 +265,7 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
             inputs: {
                 superficie: Number(inp.superficie) || 0,
                 presupuesto: Number(inp.presupuesto) || 0,
+                presupuestoFotovoltaica: Number(inp.presupuestoFotovoltaica) || 0,
                 caePriceClient: Number(inp.caePriceClient) || 0,
                 participation: Number(inp.participation) || 0,
                 referencia: inp.referenciaCliente || ''
@@ -577,13 +580,27 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
                         <div className="mt-3">
                             <Divider />
 
-                            <h3 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
-                                <svg className="w-5 h-5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m.599-1c.51-.598.51-1.402 0-2" />
-                                </svg>
-                                {showBrokergy ? 'Estudio de Viabilidad y Márgenes' : 'Simulación de Inversión y Ayudas'}
-                            </h3>
+                            <button
+                                type="button"
+                                onClick={() => setShowViability(v => !v)}
+                                aria-expanded={showViability}
+                                className="w-full flex items-center justify-between gap-2 mb-4 text-left cursor-pointer md:cursor-default md:pointer-events-none"
+                            >
+                                <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                                    <svg className="w-5 h-5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m.599-1c.51-.598.51-1.402 0-2" />
+                                    </svg>
+                                    {showBrokergy ? 'Estudio de Viabilidad y Márgenes' : 'Simulación de Inversión y Ayudas'}
+                                </h3>
+                                <span className="md:hidden flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-amber-400 shrink-0">
+                                    {showViability ? 'Ocultar' : 'Ver'}
+                                    <svg className={`w-4 h-4 transition-transform duration-300 ${showViability ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                    </svg>
+                                </span>
+                            </button>
 
+                            <div className={`${showViability ? 'block' : 'hidden'} md:block`}>
                             <div className={`grid grid-cols-1 ${result.financialsRes080 && inputs?.comparativaReforma !== false ? 'xl:grid-cols-2' : ''} gap-4`}>
                                 {(inputs?.reformaType !== 'onlyReforma' && (!inputs?.isReforma || inputs?.comparativaReforma !== false)) && (
                                     <div className="glass-card overflow-hidden border-slate-700/50">
@@ -593,9 +610,20 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
                                         </div>
                                         <div className="p-4 space-y-3">
                                             <div className="flex justify-between items-start text-sm py-3 border-b border-white/5 gap-4">
-                                                <span className="text-slate-400">Coste de inversión Total (IVA INCLUIDO)</span>
+                                                <span className="text-slate-400">{result.financials.presupuestoFotovoltaica > 0 ? 'Inversión Aerotermia (IVA INC.)' : 'Coste de inversión Total (IVA INCLUIDO)'}</span>
                                                 <span className="text-white font-mono font-bold whitespace-nowrap flex-shrink-0">{formatNumber(result.financials.presupuesto)} €</span>
                                             </div>
+                                            {result.financials.presupuestoFotovoltaica > 0 && (
+                                                <div className="flex justify-between items-start text-sm py-3 border-b border-white/5 gap-4">
+                                                    <span className="text-slate-400 flex items-center gap-1.5">
+                                                        <svg className="w-3.5 h-3.5 text-amber-400/80" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+                                                        </svg>
+                                                        Inversión Fotovoltaica (IVA INC.)
+                                                    </span>
+                                                    <span className="text-white font-mono font-bold whitespace-nowrap flex-shrink-0">{formatNumber(result.financials.presupuestoFotovoltaica)} €</span>
+                                                </div>
+                                            )}
                                             <div className="flex justify-between items-start text-sm py-3 border-b border-white/5 gap-4">
                                                 <span className="text-slate-400">Ingreso Bruto: BONO ENERGÉTICO CAE {(!result.financials.isParticular && result.financials.titularType !== 'particular') ? '(IVA INC.)' : ''}</span>
                                                 <span className="text-amber-400 font-mono font-bold whitespace-nowrap flex-shrink-0">+{formatNumber(result.financials.caeBonus)} €</span>
@@ -694,10 +722,10 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
                                                 <div className="flex flex-col">
                                                     <span className="text-slate-400">Coste de inversión Total (IVA INCLUIDO)</span>
                                                     <span className="text-[10px] text-slate-500 uppercase tracking-widest mt-0.5">
-                                                        Aero: {formatNumber(inputs.presupuesto)}€ + Ref: {formatNumber(inputs.presupuestoEnvolvente)}€
+                                                        Aero: {formatNumber(inputs.presupuesto)}€ + Ref: {formatNumber(inputs.presupuestoEnvolvente)}€{result.financialsRes080.presupuestoFotovoltaica > 0 ? ` + FV: ${formatNumber(result.financialsRes080.presupuestoFotovoltaica)}€` : ''}
                                                     </span>
                                                 </div>
-                                                <span className="text-white font-mono font-bold whitespace-nowrap flex-shrink-0">{formatNumber(result.financialsRes080.presupuesto)} €</span>
+                                                <span className="text-white font-mono font-bold whitespace-nowrap flex-shrink-0">{formatNumber(result.financialsRes080.presupuestoTotal)} €</span>
                                             </div>
                                             <div className="flex justify-between items-start text-sm py-3 border-b border-white/5 gap-4">
                                                 <span className="text-slate-400">Ingreso Bruto: BONO ENERGÉTICO CAE {(!result.financialsRes080.isParticular && result.financialsRes080.titularType !== 'particular') ? '(IVA INC.)' : ''}</span>
@@ -744,6 +772,7 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
                                         </div>
                                     </div>
                                 )}
+                            </div>
                             </div>
                         </div>
                     )}

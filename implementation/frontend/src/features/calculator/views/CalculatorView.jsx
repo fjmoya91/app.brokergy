@@ -50,6 +50,7 @@ const INITIAL_INPUTS = {
     caePriceClient: 95,
     caePriceSO: 160,
     presupuesto: 12000,
+    presupuestoFotovoltaica: 0,
 
     // Datos Ahorro Anual
     fuelType: 'gas_natural',
@@ -339,6 +340,7 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
             plantas: parseInt(inputs.plantas) || 1,
             altura: parseFloat(inputs.altura) || 2.7,
             presupuesto: parseFloat(inputs.presupuesto) || 0,
+            presupuestoFotovoltaica: parseFloat(inputs.presupuestoFotovoltaica) || 0,
             dacs: 2731.4, // Valor fijo solicitado por el usuario
             boilerEff: parseFloat(inputs.boilerEff) || 0.92,
             scopHeating: parseFloat(inputs.scopHeating) || 3.2,
@@ -432,6 +434,7 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
         // 3. Cálculos Financieros (IRPF + CAE)
         const financialRes = calculateFinancials({
             presupuesto: sanitizedInputs.presupuesto,
+            presupuestoFotovoltaica: sanitizedInputs.presupuestoFotovoltaica,
             savingsKwh: savingsRes.savingsKwh,
             caePriceClient: sanitizedInputs.caePriceClient,
             caePriceSO: sanitizedInputs.caePriceSO,
@@ -474,7 +477,7 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
 
         // 5. Cálculo de Amortización
         const paybackRes = calculatePayback({
-            presupuesto: sanitizedInputs.presupuesto,
+            presupuesto: sanitizedInputs.presupuesto + sanitizedInputs.presupuestoFotovoltaica,
             totalAyuda: financialRes.totalAyuda,
             ahorroAnual: annualSavingsRes.ahorroAnual
         });
@@ -532,6 +535,7 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
         if (res080Data) {
             financialsRes080 = calculateFinancials({
                 presupuesto: sanitizedInputs.presupuesto + (sanitizedInputs.isReforma ? sanitizedInputs.presupuestoEnvolvente : 0),
+                presupuestoFotovoltaica: sanitizedInputs.presupuestoFotovoltaica,
                 savingsKwh: res080Data.ahorroEnergiaFinalTotal,
                 caePriceClient: sanitizedInputs.caePriceClient,
                 caePriceSO: sanitizedInputs.caePriceSO,
@@ -596,29 +600,29 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
 
                                 {/* Bono Aerotermia (RES060) */}
                                 {!showOnlyReforma && (
-                                    <div className="flex-1 relative flex flex-col items-center justify-center px-3 py-3 min-w-[110px] group">
+                                    <div className="flex-1 relative flex flex-col items-center justify-center px-2 md:px-3 py-2.5 md:py-3 min-w-[78px] md:min-w-[110px] group">
                                         <div className="absolute top-0 left-6 right-6 h-px bg-gradient-to-r from-transparent via-amber-400/70 to-transparent" />
                                         <div className="absolute inset-0 bg-gradient-to-b from-amber-500/[0.06] to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
                                         <div className="flex items-baseline gap-0.5 relative">
-                                            <span className={`text-[22px] md:text-[28px] font-black tracking-tight tabular-nums leading-none ${showDual ? 'text-amber-300' : 'text-white'}`}>
+                                            <span className={`text-[19px] md:text-[28px] font-black tracking-tight tabular-nums leading-none ${showDual ? 'text-amber-300' : 'text-white'}`}>
                                                 {fmt(result.financials.caeBonus)}
                                             </span>
                                             <span className={`text-xs font-bold ml-1 ${showDual ? 'text-amber-400/50' : 'text-brand/70'}`}>€</span>
                                         </div>
                                         <span className={`text-[8px] font-bold uppercase tracking-[0.18em] mt-1 relative ${showDual ? 'text-amber-400/45' : 'text-brand/60'}`}>
-                                            {showDual ? 'Bono Aero' : 'Bono Energético CAE'}
+                                            {showDual ? 'Bono Aero' : 'CAE Cliente'}
                                         </span>
                                     </div>
                                 )}
 
                                 {/* Bono Reforma (RES080) */}
                                 {showDual && (
-                                    <div className={`flex-1 relative flex flex-col items-center justify-center px-3 py-3 min-w-[110px] group ${showOnlyReforma ? 'bg-cyan-400/[0.04]' : ''}`}>
+                                    <div className={`flex-1 relative flex flex-col items-center justify-center px-2 md:px-3 py-2.5 md:py-3 min-w-[78px] md:min-w-[110px] group ${showOnlyReforma ? 'bg-cyan-400/[0.04]' : ''}`}>
                                         <div className="absolute top-0 left-6 right-6 h-px bg-gradient-to-r from-transparent via-cyan-400/70 to-transparent" />
                                         <div className="absolute inset-0 bg-gradient-to-b from-cyan-500/[0.06] to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
                                         {showOnlyReforma && <div className="absolute inset-0 bg-gradient-to-b from-cyan-500/[0.05] to-transparent" />}
                                         <div className="flex items-baseline gap-0.5 relative">
-                                            <span className="text-[22px] md:text-[28px] font-black tracking-tight tabular-nums leading-none text-cyan-300">
+                                            <span className="text-[19px] md:text-[28px] font-black tracking-tight tabular-nums leading-none text-cyan-300">
                                                 {fmt(result.financialsRes080.caeBonus)}
                                             </span>
                                             <span className="text-xs font-bold text-cyan-400/50 ml-1">€</span>
@@ -631,58 +635,58 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
 
                                 {/* Beneficio Brokergy (solo ADMIN) */}
                                 {showBrokergy && currentFinancials.profitBrokergy !== undefined && (
-                                    <div className="flex-1 relative flex flex-col items-center justify-center px-3 py-3 min-w-[110px] group">
+                                    <div className="flex-1 relative flex flex-col items-center justify-center px-2 md:px-3 py-2.5 md:py-3 min-w-[78px] md:min-w-[110px] group">
                                         <div className="absolute top-0 left-6 right-6 h-px bg-gradient-to-r from-transparent via-emerald-400/60 to-transparent" />
                                         <div className="absolute inset-0 bg-gradient-to-b from-emerald-500/[0.05] to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
                                         <div className="flex items-baseline gap-0.5 relative">
-                                            <span className="text-[22px] md:text-[28px] font-black tracking-tight tabular-nums leading-none text-emerald-300">
+                                            <span className="text-[19px] md:text-[28px] font-black tracking-tight tabular-nums leading-none text-emerald-300">
                                                 {fmt(currentFinancials.profitBrokergy)}
                                             </span>
                                             <span className="text-xs font-bold text-emerald-400/50 ml-1">€</span>
                                         </div>
-                                        <span className="text-[8px] font-bold text-emerald-400/40 uppercase tracking-[0.18em] mt-1 relative">Beneficio</span>
+                                        <span className="text-[8px] font-bold text-emerald-400/40 uppercase tracking-[0.18em] mt-1 relative">CAE Brokergy</span>
                                     </div>
                                 )}
 
                                 {/* Demanda Calefacción (solo ADMIN) */}
                                 {showBrokergy && (
-                                    <div className="flex-1 relative flex flex-col items-center justify-center px-3 py-3 min-w-[110px] group">
+                                    <div className="flex-1 relative flex flex-col items-center justify-center px-2 md:px-3 py-2.5 md:py-3 min-w-[78px] md:min-w-[110px] group">
                                         <div className="absolute top-0 left-6 right-6 h-px bg-gradient-to-r from-transparent via-indigo-400/50 to-transparent" />
                                         <div className="absolute inset-0 bg-gradient-to-b from-indigo-500/[0.04] to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
                                         <div className="flex items-baseline gap-1 relative">
-                                            <span className="text-[22px] md:text-[28px] font-black tracking-tight tabular-nums leading-none text-indigo-300">
+                                            <span className="text-[19px] md:text-[28px] font-black tracking-tight tabular-nums leading-none text-indigo-300">
                                                 {new Intl.NumberFormat('es-ES', { maximumFractionDigits: 0 }).format(result.q_net)}
                                             </span>
                                             <span className="text-[9px] font-bold text-indigo-400/45 uppercase tracking-tighter self-end mb-1">kWh/m²</span>
                                         </div>
-                                        <span className="text-[8px] font-bold text-indigo-400/35 uppercase tracking-[0.18em] mt-1 relative">Demanda Cal.</span>
+                                        <span className="text-[8px] font-bold text-indigo-400/35 uppercase tracking-[0.18em] mt-1 relative">Demanda</span>
                                     </div>
                                 )}
 
                                 {/* Ahorro Aerotermia (solo ADMIN, oculto si solo reforma) */}
                                 {showBrokergy && !showOnlyReforma && (
-                                    <div className="flex-1 relative flex flex-col items-center justify-center px-3 py-3 min-w-[110px] group">
+                                    <div className="flex-1 relative flex flex-col items-center justify-center px-2 md:px-3 py-2.5 md:py-3 min-w-[78px] md:min-w-[110px] group">
                                         <div className={`absolute top-0 left-6 right-6 h-px bg-gradient-to-r from-transparent ${showDual ? 'via-amber-400/40' : 'via-white/25'} to-transparent`} />
                                         <div className="absolute inset-0 bg-gradient-to-b from-amber-500/[0.03] to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
                                         <div className="flex items-baseline gap-1 relative">
-                                            <span className={`text-[22px] md:text-[28px] font-black tracking-tight tabular-nums leading-none ${showDual ? 'text-amber-200/80' : 'text-white/70'}`}>
+                                            <span className={`text-[19px] md:text-[28px] font-black tracking-tight tabular-nums leading-none ${showDual ? 'text-amber-200/80' : 'text-white/70'}`}>
                                                 {fmtMwh(result.savings.savingsKwh)}
                                             </span>
                                             <span className={`text-[9px] font-bold uppercase tracking-tighter self-end mb-1 ${showDual ? 'text-amber-300/40' : 'text-white/30'}`}>MWh/a</span>
                                         </div>
                                         <span className={`text-[8px] font-bold uppercase tracking-[0.18em] mt-1 relative ${showDual ? 'text-amber-300/35' : 'text-white/25'}`}>
-                                            {showDual ? 'Ahorro Aero' : 'Ahorro Aerotermia'}
+                                            {showDual ? 'Ahorro Aero' : 'Ahorro'}
                                         </span>
                                     </div>
                                 )}
 
                                 {/* Ahorro Energía Final RES080 (solo ADMIN, solo en reforma) */}
                                 {showBrokergy && showDual && result.res080?.ahorroEnergiaFinalTotal !== undefined && (
-                                    <div className={`flex-1 relative flex flex-col items-center justify-center px-3 py-3 min-w-[110px] group ${showOnlyReforma ? 'bg-cyan-400/[0.03]' : ''}`}>
+                                    <div className={`flex-1 relative flex flex-col items-center justify-center px-2 md:px-3 py-2.5 md:py-3 min-w-[78px] md:min-w-[110px] group ${showOnlyReforma ? 'bg-cyan-400/[0.03]' : ''}`}>
                                         <div className="absolute top-0 left-6 right-6 h-px bg-gradient-to-r from-transparent via-cyan-400/40 to-transparent" />
                                         <div className="absolute inset-0 bg-gradient-to-b from-cyan-500/[0.04] to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
                                         <div className="flex items-baseline gap-1 relative">
-                                            <span className="text-[22px] md:text-[28px] font-black tracking-tight tabular-nums leading-none text-cyan-200/80">
+                                            <span className="text-[19px] md:text-[28px] font-black tracking-tight tabular-nums leading-none text-cyan-200/80">
                                                 {fmtMwh(result.res080.ahorroEnergiaFinalTotal)}
                                             </span>
                                             <span className="text-[9px] font-bold text-cyan-300/40 uppercase tracking-tighter self-end mb-1">MWh/a</span>

@@ -68,6 +68,16 @@ export function SummaryTable({ result, isReforma = false }) {
                                 {formatCurrency(financials.presupuesto)}
                             </td>
                         </tr>
+                        {financials.presupuestoFotovoltaica > 0 && (
+                            <tr>
+                                <td className="py-3 sm:py-4 px-3 sm:px-6 border-b border-slate-200 text-slate-900 font-semibold" style={cellStyle}>
+                                    Instalación fotovoltaica (IVA INC.)
+                                </td>
+                                <td className="py-3 sm:py-4 px-3 sm:px-6 border-b border-slate-200 text-right font-black text-slate-900 text-lg sm:text-xl" style={cellStyle}>
+                                    {formatCurrency(financials.presupuestoFotovoltaica)}
+                                </td>
+                            </tr>
+                        )}
                         <tr>
                             <td className="py-3 sm:py-4 px-3 sm:px-6 border-b border-slate-200 text-slate-700" style={cellStyle}>
                                 Bono Energético CAE (Ingreso Bruto) {!financials.isParticular && financials.titularType !== 'particular' ? '(IVA INC.)' : ''}

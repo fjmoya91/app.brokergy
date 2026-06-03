@@ -50,9 +50,15 @@ export const ReportTemplate = ({ result }) => {
                     <table className="w-full border-collapse">
                         <tbody>
                             <tr className="border-b border-slate-100">
-                                <td className="p-4 text-sm font-bold text-slate-700">Coste de inversión Total (IVA INCLUIDO)</td>
+                                <td className="p-4 text-sm font-bold text-slate-700">{financials.presupuestoFotovoltaica > 0 ? 'Inversión Aerotermia (IVA INCLUIDO)' : 'Coste de inversión Total (IVA INCLUIDO)'}</td>
                                 <td className="p-4 text-sm font-bold text-right text-slate-900">{formatCurrency(financials.presupuesto)}</td>
                             </tr>
+                            {financials.presupuestoFotovoltaica > 0 && (
+                                <tr className="border-b border-slate-100">
+                                    <td className="p-4 text-sm font-bold text-slate-700">Instalación fotovoltaica (IVA INCLUIDO)</td>
+                                    <td className="p-4 text-sm font-bold text-right text-slate-900">{formatCurrency(financials.presupuestoFotovoltaica)}</td>
+                                </tr>
+                            )}
                             <tr className="border-b border-slate-100 bg-slate-50/30">
                                 <td className="p-4 text-sm text-slate-600">Ayuda 1: BONO ENERGÉTICO CAE BROKERGY (Nota 1)</td>
                                 <td className="p-4 text-sm font-bold text-right text-green-600">+{formatCurrency(financials.caeBonus)}</td>
