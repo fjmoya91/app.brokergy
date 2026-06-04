@@ -13,7 +13,11 @@ import { StepLayout } from '../components/StepLayout';
  * Auto-avanza de A → B al seleccionar. En B, el botón "Volver" lleva a A.
  * El botón "Atrás" global del funnel (StepHeader) sigue yendo al paso previo.
  */
-export function Step5_ACS({ funnel, updateFunnel, onNext }) {
+export function Step5_ACS({ funnel, updateFunnel, onNext, isInternal = false }) {
+    const ej = funnel.obra_estado === 'ejecutada';
+    // Posesivo neutro en internal (el partner pregunta por su cliente).
+    const pos = isInternal ? 'la' : 'tu';
+
     // Si vuelve a este paso con respuestas, arranca en la sub-pantalla que falta.
     const initialPhase = funnel.boiler_acs_type && (funnel.incluir_acs === null || funnel.incluir_acs === undefined)
         ? 'incluir'
@@ -22,11 +26,12 @@ export function Step5_ACS({ funnel, updateFunnel, onNext }) {
 
     // Copy natural de la primera opción "misma caldera" según combustible.
     const mismaInstalacion = (() => {
+        const daba = isInternal ? (ej ? 'daba' : 'da') : (ej ? 'te daba' : 'te da');
         switch (funnel.combustible_actual) {
-            case 'gas':       return { title: 'La misma caldera de gas',      subtitle: 'Si tu caldera de gas te da calefacción y agua caliente' };
-            case 'gasoleo':   return { title: 'La misma caldera de gasóleo',  subtitle: 'Si tu caldera de gasóleo te da calefacción y agua caliente' };
-            case 'carbon':    return { title: 'La misma caldera de carbón',   subtitle: 'Si tu caldera te da calefacción y agua caliente' };
-            case 'biomasa':   return { title: 'La misma caldera de biomasa',  subtitle: 'Si tu caldera te da calefacción y agua caliente' };
+            case 'gas':       return { title: 'La misma caldera de gas',      subtitle: `Si ${pos} caldera de gas ${daba} calefacción y agua caliente` };
+            case 'gasoleo':   return { title: 'La misma caldera de gasóleo',  subtitle: `Si ${pos} caldera de gasóleo ${daba} calefacción y agua caliente` };
+            case 'carbon':    return { title: 'La misma caldera de carbón',   subtitle: `Si ${pos} caldera ${daba} calefacción y agua caliente` };
+            case 'biomasa':   return { title: 'La misma caldera de biomasa',  subtitle: `Si ${pos} caldera ${daba} calefacción y agua caliente` };
             case 'electrica': return null;
             default:          return null;
         }
@@ -47,8 +52,8 @@ export function Step5_ACS({ funnel, updateFunnel, onNext }) {
     if (phase === 'tipo') {
         return (
             <StepLayout
-                question="¿Cómo calientas el agua caliente HOY?"
-                subtitle="Para calcular tu ahorro exacto. Te tomará un segundo."
+                question={ej ? "¿Cómo calentabas el agua caliente ANTES?" : (isInternal ? "¿Cómo se calienta el agua caliente HOY?" : "¿Cómo calientas el agua caliente HOY?")}
+                subtitle={isInternal ? "Para calcular el ahorro exacto." : "Para calcular tu ahorro exacto. Te tomará un segundo."}
             >
                 {mismaInstalacion && (
                     <IconCard
@@ -94,7 +99,7 @@ export function Step5_ACS({ funnel, updateFunnel, onNext }) {
     // ── Sub-pantalla B: incluir en aerotermia ────────────────────────────────
     return (
         <StepLayout
-            question="¿Quieres que la aerotermia te dé también el agua caliente?"
+            question={isInternal ? "¿La aerotermia dará también el agua caliente?" : "¿Quieres que la aerotermia te dé también el agua caliente?"}
             subtitle="Una sola máquina para todo = más ahorro."
         >
             <button
@@ -118,7 +123,7 @@ export function Step5_ACS({ funnel, updateFunnel, onNext }) {
             <IconCard
                 icon="🔥"
                 title="No, solo calefacción"
-                subtitle="Mantienes tu sistema actual de agua caliente"
+                subtitle={isInternal ? "Se mantiene el sistema actual de agua caliente" : "Mantienes tu sistema actual de agua caliente"}
                 selected={funnel.incluir_acs === false}
                 onClick={() => selectIncluir(false)}
             />

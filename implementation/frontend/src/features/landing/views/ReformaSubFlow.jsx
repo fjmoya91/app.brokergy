@@ -32,10 +32,37 @@ import { computeFullCalculatorResult, computeLandingResult } from '../data/landi
 
 const BOILER_COMBUSTIBLE = ['gas', 'gasoleo', 'carbon', 'biomasa'];
 
-export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding, onNoEmpezada, onRestart }) {
-    // Arranca preguntando el TIPO de proyecto (solo aerotermia vs reforma integral)
-    // como en /calcula-tu-ayuda. Si elige "solo aerotermia" el flujo es más ágil.
-    const [stack, setStack] = useState(['tipo']);
+// Progreso aproximado por pantalla (0–1). Ausente = no mostrar barra (dead ends, result).
+const SCREEN_PROGRESS = {
+    estado: 0.07, tipo: 0.15,
+    ejec_fecha: 0.22, ejec_terminada: 0.3,
+    combustible: 0.3, edad: 0.4, emisores: 0.5, acs: 0.6,
+    elementos: 0.68, aviso_no_cae: 0.68,
+    facturas: 0.68, factura_fecha: 0.73, cee_previo: 0.76,
+    fotos: 0.8, cee_ambos: 0.83,
+    gasto: 0.86, presupuesto: 0.92,
+};
+
+// Hitos de dinero que marcan el recorrido visual del formulario en móvil.
+const MONEY_MILESTONES = [
+    { emoji: '🪙', label: 'Inicio',     threshold: 0    },
+    { emoji: '💵', label: 'Datos',      threshold: 0.28 },
+    { emoji: '💰', label: 'Reforma',    threshold: 0.55 },
+    { emoji: '💸', label: 'Ayudas',     threshold: 0.78 },
+    { emoji: '🤑', label: 'Propuesta',  threshold: 0.92 },
+];
+
+export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding, mode = 'public', onCreated, onNoEmpezada, onRestart }) {
+    // Modo internal (partner/admin "nueva simulación"): mismas pantallas que el
+    // flujo público pero con textos neutros (el partner pregunta por su cliente),
+    // sin elementos comerciales y terminando en la pantalla de identificación de
+    // la oportunidad en lugar de la entrega pública.
+    const isInternal = mode === 'internal';
+    // Helper de copy: t(textoPúblico, textoNeutroInternal)
+    const t = (pub, int) => (isInternal ? int : pub);
+
+    // Arranca preguntando el ESTADO de la obra (primera pregunta del funnel /reforma).
+    const [stack, setStack] = useState(['estado']);
     const [noTieneState, setNoTieneState] = useState(null); // null | 'warning' | 'dead_end'
     const [contacto, setContacto] = useState({
         nombre: '', email: '', tlf: '',
@@ -64,6 +91,10 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
     const back = useCallback(() => { setStack(prev => prev.length > 1 ? prev.slice(0, -1) : prev); window.scrollTo({ top: 0, behavior: 'smooth' }); }, []);
 
     const ej = funnel.obra_estado === 'ejecutada';
+
+    // En modo internal saltamos la pregunta de gasto anual (el partner la afina
+    // luego en la calculadora, igual que el funnel interno clásico).
+    const gastoStep = () => (isInternal ? 'presupuesto' : 'gasto');
 
     // ---------- Elegibilidad (lenguaje claro, sin jerga) ----------
     const calc = () => {
@@ -105,7 +136,7 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
     // - a_medias → facturas
     // - no_empezada → directo a gasto (no hay facturas ni fotos previas relevantes)
     const nextAfterElementos = () => {
-        if (funnel.obra_estado === 'no_empezada') return 'gasto';
+        if (funnel.obra_estado === 'no_empezada') return gastoStep();
         return ej ? 'fotos' : 'facturas';
     };
 
@@ -229,16 +260,113 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
         }
     };
 
+    // ---------- Submit INTERNAL (partner/admin nueva simulación) ----------
+    // Mismo payload que LandingFunnelView.handleSubmit (rama internal): crea la
+    // oportunidad vía /api/oportunidades/internal-simulation y delega en onCreated
+    // (que abre la calculadora con la oportunidad recién creada).
+    const doSubmitInternal = async () => {
+        setSubmitting(true); setSubmitError(null);
+        try {
+            const funnelConContacto = {
+                ...funnel,
+                titular_type: contacto.titular_type || 'particular',
+                num_propietarios: contacto.num_propietarios || 1,
+                timeline: contacto.timeline || 'explorando'
+            };
+            const calculatorInputs = funnelToCalculatorInputs(funnelConContacto, catastro, { mode: 'internal' });
+            let precomputedResult = null;
+            let demandaCalefaccionPorM2 = null;
+            try {
+                precomputedResult = computeFullCalculatorResult(calculatorInputs);
+                demandaCalefaccionPorM2 = precomputedResult?.q_net || null;
+            } catch (e) { /* noop */ }
+
+            const payload = {
+                provinceCode: String(catastro?.provinceCode || '').padStart(2, '0'),
+                partner_slug: partnerBranding?.slug || null,
+                turnstile_token: null,
+                delivery_preference: ['tecnico'],
+                delivery_summary: null,
+                contacto,
+                catastro: {
+                    ref_catastral: catastro?.rc,
+                    address: catastro?.address,
+                    municipio: catastro?.municipality || catastro?.municipio,
+                    codigo_postal: catastro?.postalCode || null
+                },
+                funnel: { ...funnel, timeline: contacto.timeline, titular_type: contacto.titular_type },
+                calculatorInputs,
+                precomputedResult,
+                demandaCalefaccionPorM2
+            };
+
+            const res = await axios.post('/api/oportunidades/internal-simulation', payload);
+            setSubmitting(false);
+            if (onCreated) onCreated(res.data);
+        } catch (err) {
+            setSubmitError(err.response?.data?.error || 'No pudimos crear la simulación. Inténtalo de nuevo.');
+            setSubmitting(false);
+        }
+    };
+
     // ---------- UI helpers ----------
-    const BackBtn = () => (
-        stack.length > 1 ? (
-            <button type="button" onClick={back}
-                className="flex items-center gap-2 text-white/40 hover:text-amber-400 transition-colors text-xs uppercase tracking-widest font-bold py-2 mb-4">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" /></svg>
-                Atrás
-            </button>
-        ) : null
-    );
+    const BackBtn = () => {
+        const progressPct = SCREEN_PROGRESS[screen];
+        return (
+            <>
+                {!isInternal && progressPct != null && (
+                    <div className="w-full max-w-2xl mx-auto mb-5 px-2">
+                        <div className="flex items-center">
+                            {MONEY_MILESTONES.map((m, i) => {
+                                const next = MONEY_MILESTONES[i + 1];
+                                const reached  = progressPct >= m.threshold;
+                                const isActive = reached && (!next || progressPct < next.threshold);
+                                const segPct   = next
+                                    ? progressPct >= next.threshold ? 1
+                                      : progressPct > m.threshold
+                                        ? (progressPct - m.threshold) / (next.threshold - m.threshold)
+                                        : 0
+                                    : 0;
+                                return (
+                                    <React.Fragment key={i}>
+                                        {/* Hito emoji */}
+                                        <div
+                                            className="flex-shrink-0 transition-all duration-500"
+                                            style={{
+                                                transform: isActive ? 'scale(1.75)' : reached ? 'scale(1)' : 'scale(0.7)',
+                                                opacity: reached ? 1 : 0.25,
+                                                filter: isActive
+                                                    ? 'drop-shadow(0 0 7px rgba(251,191,36,0.95))'
+                                                    : 'none',
+                                            }}
+                                        >
+                                            <span className="text-lg leading-none select-none">{m.emoji}</span>
+                                        </div>
+                                        {/* Línea entre hitos */}
+                                        {next && (
+                                            <div className="flex-1 h-[3px] mx-2 bg-white/[0.08] rounded-full overflow-hidden">
+                                                <div
+                                                    className="h-full bg-gradient-to-r from-amber-500 to-amber-300 rounded-full transition-all duration-700 ease-out"
+                                                    style={{ width: `${segPct * 100}%` }}
+                                                />
+                                            </div>
+                                        )}
+                                    </React.Fragment>
+                                );
+                            })}
+                        </div>
+                    </div>
+                )}
+                {stack.length > 1 && (
+                    <button type="button" onClick={back}
+                        className="flex items-center gap-2 text-white/40 hover:text-amber-400 transition-colors text-xs uppercase tracking-widest font-bold py-2 mb-4">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" /></svg>
+                        Atrás
+                    </button>
+                )}
+            </>
+        );
+    };
 
     const DeadEnd = ({ emoji, title, children, cta }) => (
         <div className="text-center max-w-xl mx-auto animate-fade-in">
@@ -270,45 +398,51 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
         );
     }
 
-    // ---- Tipo de proyecto: aerotermia vs reforma integral (como en /calcula-tu-ayuda) ----
+    // ---- Tipo de proyecto: aerotermia vs reforma integral ----
     if (screen === 'tipo') {
         const pickSoloAerotermia = () => {
             updateFunnel({
                 isReforma: false,
-                // Aerotermia implica cambio de caldera de entrada
                 reforma_elementos: { caldera: true, ventanas: false, cubierta: false, suelo: false, paredes: false, placas: false, aires: false },
                 reforma_aires_count: null,
-                // No hay obra previa para casos "solo aerotermia" desde /reforma
-                obra_estado: 'no_empezada',
+                // obra_estado ya está fijado desde la pantalla de estado — no sobreescribir
             });
             push('combustible');
         };
         const pickIntegral = () => {
             updateFunnel({
                 isReforma: true,
-                // Mantenemos elementos vacíos para que el usuario elija en su pantalla
                 reforma_elementos: { caldera: false, ventanas: false, cubierta: false, suelo: false, paredes: false, placas: false, aires: false },
                 reforma_aires_count: null,
             });
-            push('estado');
+            push('combustible');
         };
         return (
             <div className="animate-fade-in">
+                <BackBtn />
                 <div className="text-center mb-8">
-                    <h1 className="text-3xl md:text-5xl font-black text-white tracking-tight leading-tight">¿Qué mejora te <span className="text-amber-400">interesa</span>?</h1>
-                    <p className="text-white/60 text-base md:text-lg mt-4 max-w-2xl mx-auto">Elige la opción que mejor describe lo que quieres hacer en tu vivienda.</p>
+                    <h1 className="text-3xl md:text-5xl font-black text-white tracking-tight leading-tight">
+                        {ej
+                            ? <>¿Qué {t('hiciste', 'se hizo')} en la <span className="text-amber-400">obra</span>?</>
+                            : <>¿Qué mejora {t(<>te <span className="text-amber-400">interesa</span></>, <span className="text-amber-400">interesa</span>)}?</>}
+                    </h1>
+                    <p className="text-white/60 text-base md:text-lg mt-4 max-w-2xl mx-auto">
+                        {ej
+                            ? t('Cuéntanos qué incluiste en la reforma.', 'Indica qué incluyó la reforma.')
+                            : t('Elige la opción que mejor describe lo que quieres hacer en tu vivienda.', 'Elige la opción que mejor describe la obra de la vivienda.')}
+                    </p>
                 </div>
                 <div className="space-y-3 max-w-2xl mx-auto">
                     <IconCard
                         icon="🔄"
-                        title="Solo cambiar mi caldera por aerotermia"
-                        subtitle="Conservas el resto de tu vivienda como está y ganas eficiencia."
+                        title={ej ? "Solo se cambió la caldera por aerotermia" : t("Solo cambiar mi caldera por aerotermia", "Solo cambio de caldera por aerotermia")}
+                        subtitle={ej ? "Solo se sustituyó la caldera, sin más cambios en la vivienda." : t("Conservas el resto de tu vivienda como está y ganas eficiencia.", "Se conserva el resto de la vivienda; solo gana eficiencia.")}
                         onClick={pickSoloAerotermia}
                     />
                     <IconCard
                         icon="🏗️"
-                        title="Reforma integral: aerotermia + mejorar aislamiento"
-                        subtitle="Cambias la caldera y, además, mejoras ventanas, fachada o cubierta."
+                        title={ej ? "Reforma integral: aerotermia + aislamiento" : "Reforma integral: aerotermia + mejorar aislamiento"}
+                        subtitle={ej ? "Se cambió la caldera y además se mejoró aislamiento, ventanas o fachada." : t("Cambias la caldera y, además, mejoras ventanas, fachada o cubierta.", "Cambio de caldera y, además, mejora de ventanas, fachada o cubierta.")}
                         onClick={pickIntegral}
                         badge="Mayor ayuda"
                     />
@@ -322,21 +456,21 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
             <div className="animate-fade-in">
                 <BackBtn />
                 <div className="text-center mb-10">
-                    <h1 className="text-3xl md:text-5xl font-black text-white tracking-tight leading-tight">¿En qué punto está tu <span className="text-amber-400">obra</span>?</h1>
-                    <p className="text-white/60 text-base md:text-lg mt-4 max-w-2xl mx-auto">Cuéntanos cómo está la reforma. Sin compromiso.</p>
+                    <h1 className="text-3xl md:text-5xl font-black text-white tracking-tight leading-tight">¿En qué punto está {t('tu', 'la')} <span className="text-amber-400">obra</span>?</h1>
+                    <p className="text-white/60 text-base md:text-lg mt-4 max-w-2xl mx-auto">{t('Cuéntanos cómo está la reforma. Sin compromiso.', 'Indica el estado de la reforma del cliente.')}</p>
                 </div>
                 <div className="space-y-3 max-w-2xl mx-auto">
                     {/* 'no_empezada' YA NO salta de URL — sigue el mismo flujo interno
                         para que el botón "Atrás" funcione. Las pantallas posteriores
                         (goAfterElementos) se saltan facturas/fotos cuando la obra
                         aún no se ha empezado. */}
-                    <IconCard icon="📐" title="Aún no he empezado la obra" subtitle="Quiero saber qué ayudas tendría antes de empezar"
-                        onClick={() => { updateFunnel({ obra_estado: 'no_empezada' }); push('combustible'); }} />
-                    <IconCard icon="🚧" title="Obra a medias" subtitle="Ya he empezado la reforma pero no está terminada"
-                        onClick={() => { updateFunnel({ obra_estado: 'a_medias' }); push('combustible'); }} />
-                    <IconCard icon="✅" title="Obra ya ejecutada" subtitle="La reforma ya está hecha y quiero ver si puedo conseguir ayudas"
+                    <IconCard icon="📐" title={t('Aún no he empezado la obra', 'Aún no ha empezado la obra')} subtitle={t('Quiero saber qué ayudas tendría antes de empezar', 'Para saber qué ayudas tendría antes de empezar')}
+                        onClick={() => { updateFunnel({ obra_estado: 'no_empezada' }); push('tipo'); }} />
+                    <IconCard icon="🚧" title="Obra a medias" subtitle={t('Ya he empezado la reforma pero no está terminada', 'Reforma empezada pero sin terminar')}
+                        onClick={() => { updateFunnel({ obra_estado: 'a_medias' }); push('tipo'); }} />
+                    <IconCard icon="✅" title="Obra ya ejecutada" subtitle={t('La reforma ya está hecha y quiero ver si puedo conseguir ayudas', 'Reforma ya hecha; comprobar si hay ayudas posibles')}
                         onClick={() => { updateFunnel({ obra_estado: 'ejecutada' }); push('ejec_fecha'); }} />
-                    <IconCard icon="🏗️" title="Obra nueva" subtitle="Construyo una vivienda desde cero"
+                    <IconCard icon="🏗️" title="Obra nueva" subtitle={t('Construyo una vivienda desde cero', 'Vivienda de nueva construcción desde cero')}
                         onClick={() => push('nueva_dead')} />
                 </div>
             </div>
@@ -368,27 +502,30 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
         </DeadEnd>;
     }
     if (screen === 'ejec_terminada') {
-        return (<><BackBtn /><StepLayout question="¿La obra está totalmente terminada?" subtitle="Si sólo tienes una factura parcial, en realidad es una obra a medias y la tratamos de otra forma.">
+        return (<><BackBtn /><StepLayout question="¿La obra está totalmente terminada?" subtitle={t('Si sólo tienes una factura parcial, en realidad es una obra a medias y la tratamos de otra forma.', 'Si solo hay una factura parcial, en realidad es una obra a medias y se trata de otra forma.')}>
             <IconCard icon="🏁" title="Sí, totalmente terminada" subtitle="La reforma está acabada y facturada"
-                onClick={() => push('combustible')} />
-            <IconCard icon="🚧" title="Tengo factura parcial" subtitle="Aún queda obra por hacer"
-                onClick={() => { updateFunnel({ obra_estado: 'a_medias' }); push('combustible'); }} />
+                onClick={() => push('tipo')} />
+            <IconCard icon="🚧" title={t('Tengo factura parcial', 'Hay factura parcial')} subtitle="Aún queda obra por hacer"
+                onClick={() => { updateFunnel({ obra_estado: 'a_medias' }); push('tipo'); }} />
         </StepLayout></>);
     }
 
     // ---- TÉRMICO: combustible (Step2 + opción "sin caldera") ----
     if (screen === 'combustible') {
-        const verbo = ej ? 'calentabas tu vivienda ANTES de la reforma' : 'se calienta hoy tu vivienda';
+        const verbo = ej
+            ? t('calentabas tu vivienda ANTES de la reforma', 'se calentaba la vivienda ANTES de la reforma')
+            : t('se calienta hoy tu vivienda', 'se calienta hoy la vivienda');
         return (
             <>
                 <BackBtn />
-                <StepLayout question={`¿Con qué ${verbo}?`} subtitle="Esto nos ayuda a calcular cuánto puedes ahorrar.">
+                <StepLayout question={`¿Con qué ${verbo}?`} subtitle={t('Esto nos ayuda a calcular cuánto puedes ahorrar.', 'Esto ayuda a calcular cuánto se puede ahorrar.')}>
+
                     <IconCard icon="🔥" title="Gas natural o butano" subtitle="Caldera de gas (la más común en España)" selected={funnel.combustible_actual === 'gas'} onClick={() => pickCombustible('gas')} />
                     <IconCard icon="🛢️" title="Gasóleo / Diésel" subtitle="Caldera con depósito de combustible líquido" selected={funnel.combustible_actual === 'gasoleo'} onClick={() => pickCombustible('gasoleo')} />
                     <IconCard icon="⚡" title="Electricidad" subtitle="Radiadores eléctricos o caldera eléctrica" selected={funnel.combustible_actual === 'electrica'} onClick={() => pickCombustible('electrica')} />
                     <IconCard icon="⚫" title="Carbón" subtitle="Estufa o caldera de carbón" selected={funnel.combustible_actual === 'carbon'} onClick={() => pickCombustible('carbon')} />
                     <IconCard icon="🪵" title="Biomasa" subtitle="Pellets, leña o hueso de aceituna" selected={funnel.combustible_actual === 'biomasa'} onClick={() => pickCombustible('biomasa')} />
-                    <IconCard icon="🚫" title={ej ? 'No tenía caldera de calefacción' : 'No tengo caldera de calefacción'} subtitle="No hay/había sistema central de calefacción" selected={funnel.reforma_sin_caldera} onClick={() => pickCombustible('no_tiene')} />
+                    <IconCard icon="🚫" title={ej ? 'No tenía caldera de calefacción' : t('No tengo caldera de calefacción', 'No tiene caldera de calefacción')} subtitle="No hay/había sistema central de calefacción" selected={funnel.reforma_sin_caldera} onClick={() => pickCombustible('no_tiene')} />
                 </StepLayout>
 
                 {noTieneState && (
@@ -484,17 +621,23 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
 
     // ---- TÉRMICO: edad caldera (Step3 reutilizado) ----
     if (screen === 'edad') {
-        return (<><BackBtn /><Step3_EdadCaldera funnel={funnel} updateFunnel={updateFunnel} onNext={() => push('emisores')} /></>);
+        return (<><BackBtn /><Step3_EdadCaldera funnel={funnel} updateFunnel={updateFunnel} onNext={() => push('emisores')} isInternal={isInternal} /></>);
     }
     // ---- TÉRMICO: emisores (Step4 reutilizado) ----
     if (screen === 'emisores') {
-        return (<><BackBtn /><Step4_Emisores funnel={funnel} updateFunnel={updateFunnel} onNext={() => push('acs')} /></>);
+        return (<><BackBtn /><Step4_Emisores funnel={funnel} updateFunnel={updateFunnel} onNext={() => push('acs')} isInternal={isInternal} /></>);
     }
     // ---- TÉRMICO: ACS (Step5 reutilizado) ----
     if (screen === 'acs') {
-        // Si es "solo aerotermia" no hay envolvente que elegir → saltar elementos → directo a gasto
-        const nextAfterAcs = () => push(funnel.isReforma ? 'elementos' : 'gasto');
-        return (<><BackBtn /><Step5_ACS funnel={funnel} updateFunnel={updateFunnel} onNext={nextAfterAcs} /></>);
+        const nextAfterAcs = () => {
+            if (funnel.isReforma) { push('elementos'); return; }
+            // Obra ejecutada (terminada): SIEMPRE exigimos fotos del ANTES, incluso
+            // para solo cambio de caldera. Sin fotos del estado anterior no hay ayuda
+            // posible — el gasto (gasto_anual_eur) se fija a 0 más adelante en cee_ambos.
+            if (ej) { push('fotos'); return; }
+            push(gastoStep());
+        };
+        return (<><BackBtn /><Step5_ACS funnel={funnel} updateFunnel={updateFunnel} onNext={nextAfterAcs} isInternal={isInternal} /></>);
     }
 
     // ---- Elementos a incluir (multi) ----
@@ -508,8 +651,8 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
 
         return (<><BackBtn />
             <StepLayout
-                question={ej ? '¿Qué incluyó la reforma?' : '¿Qué quieres incluir en la ayuda?'}
-                subtitle="Marca todos los elementos en los que se actúa. Puedes elegir varios."
+                question={ej ? '¿Qué incluyó la reforma?' : t('¿Qué quieres incluir en la ayuda?', '¿Qué incluye la ayuda?')}
+                subtitle={t('Marca todos los elementos en los que se actúa. Puedes elegir varios.', 'Marca todos los elementos en los que se actúa. Se pueden elegir varios.')}
                 onContinue={goAfterElementos}
                 canContinue={canContinue}
             >
@@ -520,7 +663,7 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
                 {els.aires && (
                     <div className="ml-2 -mt-1 mb-1 p-4 rounded-2xl border-2 border-blue-400/30 bg-blue-400/[0.05] animate-fade-in">
                         <p className="text-[10px] font-black uppercase tracking-widest text-blue-300/80 mb-3">
-                            ¿Cuántas unidades vas a instalar?
+                            {t('¿Cuántas unidades vas a instalar?', '¿Cuántas unidades se instalan?')}
                         </p>
                         <div className="grid grid-cols-4 gap-2">
                             {[1, 2, 3, 4].map(n => (
@@ -553,7 +696,7 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
                 <IconCard icon="⬇️" title="Suelo" subtitle="Aislamiento del suelo de la vivienda" selected={!!els.suelo} onClick={() => toggleEl('suelo')} />
                 <IconCard icon="☀️" title="Placas solares" subtitle="Autoconsumo fotovoltaico" selected={!!els.placas} onClick={() => toggleEl('placas')} />
 
-                {!els.caldera && any && (
+                {!isInternal && !els.caldera && any && (
                     <div className="p-5 bg-gradient-to-r from-amber-500/15 to-amber-400/5 border-2 border-amber-400/30 rounded-2xl animate-fade-in">
                         <div className="flex gap-3"><span className="text-2xl shrink-0">💡</span><div>
                             <div className="text-amber-300 font-black text-sm mb-1">¿Y la aerotermia?</div>
@@ -570,7 +713,7 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
         const soloAires = !!els.aires && !els.placas;
         const soloPlacas = !!els.placas && !els.aires;
         const ambos = !!els.aires && !!els.placas;
-        const titulo = 'Tu selección no genera Bono CAE';
+        const titulo = t('Tu selección no genera Bono CAE', 'La selección no genera Bono CAE');
         return (
             <div className="animate-fade-in max-w-2xl mx-auto">
                 <BackBtn />
@@ -581,7 +724,7 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
                     </div>
                     <h2 className="text-2xl md:text-3xl font-black text-white tracking-tight leading-tight">{titulo}</h2>
                     <p className="text-white/55 text-sm md:text-base mt-3 max-w-xl mx-auto">
-                        Lo que has marcado solo da derecho a deducción en el IRPF, no a Bono CAE.
+                        {t('Lo que has marcado solo da derecho a deducción en el IRPF, no a Bono CAE.', 'Lo seleccionado solo da derecho a deducción en el IRPF, no a Bono CAE.')}
                     </p>
                 </div>
 
@@ -600,7 +743,7 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
                             <p className="text-blue-300 font-black text-sm mb-1">❄️ Aires acondicionados por sí solos</p>
                             <p className="text-white/70 text-xs leading-relaxed">
                                 No generan Bono CAE. Solo dan derecho a <strong className="text-white">deducción IRPF</strong> con un mínimo de <strong>2 unidades instaladas</strong>.
-                                {funnel.reforma_aires_count === 1 && <> Y tú has marcado solo 1, así que de momento <strong className="text-amber-300">no podrías acogerte ni siquiera a la deducción</strong>.</>}
+                                {funnel.reforma_aires_count === 1 && <> Y {t('tú has marcado solo 1', 'solo hay 1 marcada')}, así que de momento <strong className="text-amber-300">no {t('podrías', 'se podría')} acoger{t('te', '')} ni siquiera a la deducción</strong>.</>}
                             </p>
                         </div>
                     )}
@@ -645,8 +788,8 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
 
     // ---- A medias: facturas ----
     if (screen === 'facturas') {
-        return (<><BackBtn /><StepLayout question="¿Ya tienes facturas emitidas de la reforma?" subtitle="Es clave: si ya hay facturas, cambia qué ayudas podemos tramitar.">
-            <IconCard icon="📄" title="Sí, ya tengo facturas" subtitle="Hay trabajos ya facturados" onClick={() => { updateFunnel({ reforma_facturas: 'si' }); push('factura_fecha'); }} />
+        return (<><BackBtn /><StepLayout question={t('¿Ya tienes facturas emitidas de la reforma?', '¿Ya hay facturas emitidas de la reforma?')} subtitle={t('Es clave: si ya hay facturas, cambia qué ayudas podemos tramitar.', 'Es clave: si ya hay facturas, cambia qué ayudas se pueden tramitar.')}>
+            <IconCard icon="📄" title={t('Sí, ya tengo facturas', 'Sí, ya hay facturas')} subtitle="Hay trabajos ya facturados" onClick={() => { updateFunnel({ reforma_facturas: 'si' }); push('factura_fecha'); }} />
             <IconCard icon="🆕" title="No, todavía no" subtitle="Aún no se ha facturado nada de la reforma" onClick={() => { updateFunnel({ reforma_facturas: 'no' }); push('fotos'); }} />
         </StepLayout></>);
     }
@@ -657,31 +800,37 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
         </StepLayout></>);
     }
     if (screen === 'cee_previo') {
-        return (<><BackBtn /><StepLayout question="¿Tienes Certificado de Eficiencia Energética previo?" subtitle="Tiene que estar registrado en tu Comunidad Autónoma y ser anterior a la reforma. Es lo que permite tramitar la reforma completa cuando ya hay facturas.">
-            <IconCard icon="📑" title="Sí, lo tengo registrado" subtitle="Lo revisamos para confirmar" onClick={() => { updateFunnel({ reforma_cee_previo: 'si' }); push('fotos'); }} />
-            <IconCard icon="🚫" title="No tengo" subtitle="Aún podríamos ayudarte con el cambio de caldera" onClick={() => { updateFunnel({ reforma_cee_previo: 'no' }); push('fotos'); }} />
-            <IconCard icon="❓" title="No lo sé" subtitle="No estoy seguro de si lo tengo o está registrado" onClick={() => { updateFunnel({ reforma_cee_previo: 'nose' }); push('fotos'); }} />
+        return (<><BackBtn /><StepLayout question={t('¿Tienes Certificado de Eficiencia Energética previo?', '¿Hay Certificado de Eficiencia Energética previo?')} subtitle={t('Tiene que estar registrado en tu Comunidad Autónoma y ser anterior a la reforma. Es lo que permite tramitar la reforma completa cuando ya hay facturas.', 'Tiene que estar registrado en la Comunidad Autónoma y ser anterior a la reforma. Es lo que permite tramitar la reforma completa cuando ya hay facturas.')}>
+            <IconCard icon="📑" title={t('Sí, lo tengo registrado', 'Sí, está registrado')} subtitle="Lo revisamos para confirmar" onClick={() => { updateFunnel({ reforma_cee_previo: 'si' }); push('fotos'); }} />
+            <IconCard icon="🚫" title={t('No tengo', 'No hay')} subtitle={t('Aún podríamos ayudarte con el cambio de caldera', 'Aún se podría tramitar el cambio de caldera')} onClick={() => { updateFunnel({ reforma_cee_previo: 'no' }); push('fotos'); }} />
+            <IconCard icon="❓" title="No lo sé" subtitle={t('No estoy seguro de si lo tengo o está registrado', 'No se sabe si existe o está registrado')} onClick={() => { updateFunnel({ reforma_cee_previo: 'nose' }); push('fotos'); }} />
         </StepLayout></>);
     }
 
     // ---- Fotos (gate) ----
     if (screen === 'fotos') {
-        return (<><BackBtn /><StepLayout question="¿Tienes fotografías de lo que había antes?" subtitle="Necesitamos fotos de la caldera antigua y su placa, ventanas viejas, etc. — de todo lo que quieras meter en la ayuda. Sin fotos no se puede justificar la reforma.">
-            <IconCard icon="📸" title="Sí, tengo fotos" subtitle="Del estado anterior (caldera, placa, ventanas…)" onClick={() => { updateFunnel({ reforma_fotos: 'si' }); push(ej ? 'cee_ambos' : 'gasto'); }} />
-            <IconCard icon="🙈" title="No tengo fotos" subtitle="No hice fotos antes de la reforma" onClick={() => { updateFunnel({ reforma_fotos: 'no' }); push('block_fotos'); }} />
+        return (<><BackBtn /><StepLayout
+            question={t('¿Tienes fotos de ANTES de la reforma?', '¿Hay fotos de ANTES de la reforma?')}
+            subtitle="Imprescindible: hacen falta fotos del estado anterior (caldera antigua y su placa, ventanas viejas, etc.) de todo lo que entre en la ayuda. Sin fotos del ANTES no se puede justificar la reforma y no hay ayuda posible.">
+            <IconCard icon="📸" title="Sí, las tengo" subtitle="Fotos del estado anterior (caldera, placa, ventanas…)" onClick={() => { updateFunnel({ reforma_fotos: 'si' }); push(ej ? 'cee_ambos' : gastoStep()); }} />
+            <IconCard icon="🚫" title="No las tengo y no las puedo conseguir" subtitle="Sin fotos del ANTES no se pueden tramitar las ayudas" onClick={() => { updateFunnel({ reforma_fotos: 'no' }); push('block_fotos'); }} />
         </StepLayout></>);
     }
     if (screen === 'block_fotos') {
         return <DeadEnd emoji="🙈" title="Sin fotos no podemos justificar la reforma"
             cta={<button onClick={onRestart} className={primaryBtn}>Empezar de nuevo</button>}>
-            <p>Sin fotografías del estado anterior <strong className="text-white">no podemos justificar la reforma</strong> y, por tanto, no podrías obtener la ayuda.</p>
-            <p>Te recomendamos <strong className="text-amber-400">encarecidamente que busques</strong> a ver si las encuentras (móvil viejo, álbumes, mensajes…). Si aparecen, vuelve a rellenar el formulario.</p>
+            <p>Sin fotografías del estado anterior <strong className="text-white">no podemos justificar la reforma</strong> y, por tanto, {t('no podrías obtener la ayuda', 'no se podría obtener la ayuda')}.</p>
+            <p>{t(<>Te recomendamos <strong className="text-amber-400">encarecidamente que busques</strong> a ver si las encuentras (móvil viejo, álbumes, mensajes…). Si aparecen, vuelve a rellenar el formulario.</>, <>Conviene <strong className="text-amber-400">revisar a fondo</strong> si existen (móvil viejo, álbumes, mensajes…). Si aparecen, se puede volver a rellenar el formulario.</>)}</p>
         </DeadEnd>;
     }
     if (screen === 'cee_ambos') {
-        return (<><BackBtn /><StepLayout question="¿Tienes certificados de eficiencia energética?" subtitle="Para valorar la reforma completa y la deducción de IRPF necesitamos certificado previo (registrado) y posterior a la reforma.">
-            <IconCard icon="📑" title="Sí, tengo ambos (antes y después)" subtitle="Registrados — los revisamos" onClick={() => { updateFunnel({ reforma_cee_ambos: 'si' }); push('gasto'); }} />
-            <IconCard icon="📄" title="No / sólo uno" subtitle="Valoramos las vías posibles al revisar tu caso" onClick={() => { updateFunnel({ reforma_cee_ambos: 'no' }); push('gasto'); }} />
+        const afterCee = (val) => {
+            updateFunnel({ reforma_cee_ambos: val, ...(ej ? { gasto_anual_eur: 0 } : {}) });
+            push(ej ? 'presupuesto' : gastoStep());
+        };
+        return (<><BackBtn /><StepLayout question={t('¿Tienes certificados de eficiencia energética?', '¿Hay certificados de eficiencia energética?')} subtitle="Para valorar la reforma completa y la deducción de IRPF necesitamos certificado previo (registrado) y posterior a la reforma.">
+            <IconCard icon="📑" title={t('Sí, tengo ambos (antes y después)', 'Sí, ambos (antes y después)')} subtitle="Registrados — los revisamos" onClick={() => afterCee('si')} />
+            <IconCard icon="📄" title="No / sólo uno" subtitle={t('Valoramos las vías posibles al revisar tu caso', 'Se valoran las vías posibles al revisar el caso')} onClick={() => afterCee('no')} />
         </StepLayout></>);
     }
 
@@ -699,7 +848,28 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
 
     // ---- Presupuesto (Step8 reutilizado) ----
     if (screen === 'presupuesto') {
-        return (<><BackBtn /><Step8_Presupuesto funnel={funnel} updateFunnel={updateFunnel} onNext={() => push('delivery')} hideInstalador /></>);
+        // Internal → identificación de la oportunidad. Público → entrega (delivery).
+        const onPresupuestoNext = () => push(isInternal ? 'identificacion' : 'delivery');
+        return (<><BackBtn /><Step8_Presupuesto funnel={funnel} updateFunnel={updateFunnel} onNext={onPresupuestoNext} hideInstalador isInternal={isInternal} /></>);
+    }
+
+    // ---- INTERNAL: identificación de la oportunidad (cierre del flujo del partner) ----
+    // Misma pantalla "¿Cómo identificas esta oportunidad?" del funnel interno clásico.
+    // Al confirmar, crea la oportunidad y abre la calculadora (onCreated).
+    if (screen === 'identificacion') {
+        return (
+            <>
+                <BackBtn />
+                <Step9_Contacto
+                    funnel={funnel} updateFunnel={updateFunnel}
+                    contacto={contacto} setContacto={setContacto}
+                    onSubmit={doSubmitInternal}
+                    submitting={submitting}
+                    submitError={submitError}
+                    mode="internal"
+                />
+            </>
+        );
     }
 
     // ---- Delivery: resultado + 3 CTAs (WhatsApp / email / técnico) ----

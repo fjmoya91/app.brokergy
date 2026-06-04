@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { IconCard } from '../components/IconCard';
 import { StepLayout } from '../components/StepLayout';
 
-export function Step8_Presupuesto({ funnel, updateFunnel, onNext, hideInstalador = false }) {
+export function Step8_Presupuesto({ funnel, updateFunnel, onNext, hideInstalador = false, isInternal = false }) {
     const [showInput, setShowInput] = useState(false);
     const [customValue, setCustomValue] = useState(funnel.presupuesto_eur || '');
 
@@ -32,21 +32,23 @@ export function Step8_Presupuesto({ funnel, updateFunnel, onNext, hideInstalador
 
     return (
         <StepLayout
-            question="¿Tienes un presupuesto orientativo?"
-            subtitle={hideInstalador
-                ? "Si no lo sabes, no te preocupes — usamos una media de referencia."
-                : "Si no lo sabes, no te preocupes — usamos una media o te conectamos con un instalador."}
+            question={isInternal ? "¿Hay un presupuesto orientativo?" : "¿Tienes un presupuesto orientativo?"}
+            subtitle={isInternal
+                ? "Si no se conoce, usamos una media de referencia."
+                : hideInstalador
+                    ? "Si no lo sabes, no te preocupes — usamos una media de referencia."
+                    : "Si no lo sabes, no te preocupes — usamos una media o te conectamos con un instalador."}
         >
             <IconCard
                 icon="💶"
-                title="Sí, tengo un presupuesto en mente"
-                subtitle="Te lo pediremos a continuación"
+                title={isInternal ? "Sí, hay un presupuesto" : "Sí, tengo un presupuesto en mente"}
+                subtitle={isInternal ? "Se pedirá a continuación" : "Te lo pediremos a continuación"}
                 selected={funnel.presupuesto_modo === 'tengo'}
                 onClick={() => selectMode('tengo')}
             />
             <IconCard
                 icon="🤷"
-                title="No, calcúlame uno orientativo"
+                title={isInternal ? "No, calcular uno orientativo" : "No, calcúlame uno orientativo"}
                 subtitle="Usamos 15.000 € como media nacional de vivienda unifamiliar"
                 selected={funnel.presupuesto_modo === 'no_se'}
                 onClick={() => selectMode('no_se')}
@@ -65,7 +67,7 @@ export function Step8_Presupuesto({ funnel, updateFunnel, onNext, hideInstalador
             {showInput && funnel.presupuesto_modo === 'tengo' && (
                 <div className="mt-6 pt-6 border-t border-white/10 animate-fade-in">
                     <label className="block text-amber-300 text-xs font-black uppercase tracking-widest mb-3 text-center">
-                        ¿Cuánto presupuesto tienes?
+                        {isInternal ? '¿Cuánto presupuesto hay?' : '¿Cuánto presupuesto tienes?'}
                     </label>
                     <div className="flex items-center gap-3 max-w-sm mx-auto">
                         <div className="flex-1 relative">

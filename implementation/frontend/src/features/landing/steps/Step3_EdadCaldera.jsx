@@ -11,10 +11,15 @@ import { StepLayout } from '../components/StepLayout';
  * Nota: si combustible es eléctrico, este paso NO se monta (filtrado en
  * LandingFunnelView.activeSteps).
  */
-export function Step3_EdadCaldera({ funnel, updateFunnel, onNext }) {
-    const aplicaCondensacion = funnel.combustible_actual === 'gas' || funnel.combustible_actual === 'gasoleo';
+export function Step3_EdadCaldera({ funnel, updateFunnel, onNext, isInternal = false }) {
+    const ej = funnel.obra_estado === 'ejecutada';
+    // Posesivo: público se dirige al cliente ("tu"); internal es neutro ("la").
+    const pos = isInternal ? 'la' : 'tu';
+    const Pos = isInternal ? 'La' : 'Tu';
+    const isGasOrGasoleo = funnel.combustible_actual === 'gas' || funnel.combustible_actual === 'gasoleo';
 
-    const initialPhase = funnel.edad_caldera && aplicaCondensacion && !funnel.condensacion
+    // Condensación solo aplica para caldera <10 años con gas o gasóleo
+    const initialPhase = funnel.edad_caldera === '<10' && isGasOrGasoleo && !funnel.condensacion
         ? 'condensacion'
         : 'edad';
     const [phase, setPhase] = useState(initialPhase);
@@ -29,21 +34,15 @@ export function Step3_EdadCaldera({ funnel, updateFunnel, onNext }) {
 
     const selectEdad = (edad) => {
         updateFunnel({ edad_caldera: edad });
-        if (!aplicaCondensacion) {
-            // Sin sub-pregunta → avanzar al siguiente paso
-            updateFunnel({ condensacion: 'no_se' });
-            setTimeout(onNext, 200);
+        // Condensación solo se pregunta para gas/gasóleo con caldera <10 años
+        if (isGasOrGasoleo && edad === '<10') {
+            setTimeout(() => setPhase('condensacion'), 200);
             return;
         }
-        // Caldera > 20 años: no tiene sentido preguntar condensación (es convencional,
-        // las de condensación son posteriores). La marcamos como NO y avanzamos.
-        if (edad === '>20') {
-            updateFunnel({ condensacion: 'no' });
-            setTimeout(onNext, 200);
-            return;
-        }
-        // Con sub-pregunta → pasar a la siguiente sub-pantalla
-        setTimeout(() => setPhase('condensacion'), 200);
+        // Para el resto: inferir condensación y avanzar directamente
+        const condensacion = edad === '>20' ? 'no' : 'no_se';
+        updateFunnel({ condensacion });
+        setTimeout(onNext, 200);
     };
 
     const selectCondensacion = (val) => {
@@ -55,8 +54,8 @@ export function Step3_EdadCaldera({ funnel, updateFunnel, onNext }) {
     if (phase === 'edad') {
         return (
             <StepLayout
-                question="¿Cuántos años tiene tu caldera?"
-                subtitle="A más antigua, más probable que esté perdiendo dinero por ineficiencia."
+                question={ej ? `¿Cuántos años tenía ${pos} caldera?` : `¿Cuántos años tiene ${pos} caldera?`}
+                subtitle={ej ? "Nos ayuda a calcular la mejora al haberla sustituido." : "A más antigua, más probable que esté perdiendo dinero por ineficiencia."}
             >
                 <IconCard
                     icon="🆕"
@@ -91,10 +90,10 @@ export function Step3_EdadCaldera({ funnel, updateFunnel, onNext }) {
         );
     }
 
-    // ── Sub-pantalla B: condensación (solo gas / gasóleo) ────────────────────
+    // ── Sub-pantalla B: condensación (gas / gasóleo + <10 años) ────────────────────
     return (
         <StepLayout
-            question="¿Tu caldera es de condensación?"
+            question={ej ? `¿Era de condensación ${pos} caldera?` : `¿${Pos} caldera es de condensación?`}
             subtitle="Tip: las de condensación tienen una manguera fina por debajo que evacúa agua."
         >
             <button
