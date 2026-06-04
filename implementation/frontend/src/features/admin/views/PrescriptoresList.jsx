@@ -5,7 +5,7 @@ import { useAuth } from '../../../context/AuthContext';
 import { PrescriptorDetailModal } from './PrescriptorDetailModal';
 
 
-export function PrescriptoresList() {
+export function PrescriptoresList({ onNavigate }) {
     const { user, refreshProfile } = useAuth();
     const isDistributor = user?.rol?.toUpperCase() === 'DISTRIBUIDOR';
     const [prescriptores, setPrescriptores] = useState([]);
@@ -448,6 +448,7 @@ export function PrescriptoresList() {
             <PrescriptorDetailModal
                 isOpen={!!modalPrescriptor}
                 prescriptor={modalPrescriptor}
+                onNavigate={onNavigate}
                 onClose={() => setModalPrescriptor(null)}
                 onCreated={(newP) => {
                     setPrescriptores(prev => [newP, ...prev]);

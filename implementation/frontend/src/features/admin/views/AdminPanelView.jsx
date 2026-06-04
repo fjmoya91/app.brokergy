@@ -6,10 +6,11 @@ import { ClienteFormModal } from '../../clientes/components/ClienteFormModal';
 import { ClienteDetailModal } from '../../clientes/components/ClienteDetailModal';
 import { VincularClienteModal } from '../../clientes/components/VincularClienteModal';
 
-export function AdminPanelView({ 
-    onLoadOpportunity, 
-    onBackToCalculator, 
+export function AdminPanelView({
+    onLoadOpportunity,
+    onBackToCalculator,
     activeTab,
+    onNavigate,
     returnToExpediente,
     onReturnToExpediente
 }) {
@@ -709,7 +710,7 @@ export function AdminPanelView({
     return (
         <>
             {activeTab === 'prescriptores' ? (
-                <PrescriptoresList />
+                <PrescriptoresList onNavigate={onNavigate} />
             ) : (
                 <div className="animate-fade-in w-full max-w-[1600px] mx-auto px-6 sm:px-10 py-10 relative z-10">
                     {/* ─── Header ─── */}

@@ -768,6 +768,7 @@ function App() {
               <AdminPanelView
                 key={`admin-${navNonce}`}
                 activeTab={activeTab}
+                onNavigate={handleNavigate}
                 onBackToCalculator={() => setShowSearchModal(true)}
                 onLoadOpportunity={loadOpportunity}
                 returnToExpediente={returnToExpediente}
@@ -882,6 +883,7 @@ function App() {
           }>
             <LandingFunnelView
               mode="internal"
+              variant="reforma"
               onCancel={() => setShowSearchModal(false)}
               onCreated={async (opResult) => {
                 setShowSearchModal(false);

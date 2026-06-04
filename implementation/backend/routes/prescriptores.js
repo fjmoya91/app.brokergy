@@ -74,6 +74,56 @@ router.get('/:id/instaladores', enforceAuth, async (req, res) => {
     }
 });
 
+// GET /api/prescriptores/:id/expedientes -> Expedientes donde esta empresa es la instaladora asignada
+// Devuelve la lista de expedientes cuyo instalacion.instalador_id == :id, para trazabilidad.
+router.get('/:id/expedientes', enforceAuth, async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        // Seguridad: ADMIN ve todo; un partner solo puede consultar su propia ficha
+        if (req.user.rol_nombre !== 'ADMIN' && String(req.user.prescriptor_id) !== String(id)) {
+            return res.status(403).json({ error: 'No autorizado' });
+        }
+
+        const { data: exps, error } = await supabase
+            .from('expedientes')
+            .select('id, numero_expediente, estado, created_at, cliente_id')
+            .eq('instalacion->>instalador_id', id)
+            .order('created_at', { ascending: false });
+
+        if (error) throw error;
+
+        // Enriquecer con datos del cliente (nombre + ubicación) en una sola query
+        const cliIds = [...new Set((exps || []).map(e => e.cliente_id).filter(Boolean))];
+        const cliMap = {};
+        if (cliIds.length > 0) {
+            const { data: clis } = await supabase
+                .from('clientes')
+                .select('id_cliente, nombre_razon_social, apellidos, municipio, provincia')
+                .in('id_cliente', cliIds);
+            (clis || []).forEach(c => { cliMap[c.id_cliente] = c; });
+        }
+
+        const result = (exps || []).map(e => {
+            const c = cliMap[e.cliente_id];
+            return {
+                id: e.id,
+                numero_expediente: e.numero_expediente,
+                estado: e.estado,
+                created_at: e.created_at,
+                cliente_nombre: c ? `${c.nombre_razon_social || ''} ${c.apellidos || ''}`.trim() : null,
+                cliente_municipio: c?.municipio || null,
+                cliente_provincia: c?.provincia || null,
+            };
+        });
+
+        res.json(result);
+    } catch (err) {
+        console.error('Error GET prescriptor expedientes:', err);
+        res.status(500).json({ error: 'Error al recuperar los expedientes del instalador' });
+    }
+});
+
 // GET /api/prescriptores/check-internal-number -> Comprobar si un número de cliente ya existe en la red del distribuidor
 router.get('/check-internal-number', enforceAuth, async (req, res) => {
     try {

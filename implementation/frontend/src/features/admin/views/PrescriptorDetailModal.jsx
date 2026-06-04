@@ -58,6 +58,16 @@ const TIPO_BADGE = {
     OTRO:         'bg-white/5 text-white/40 border-white/10',
 };
 
+// Color del badge de estado de expediente (mismo criterio que ExpedientesView)
+function estadoBadgeClass(estado) {
+    const s = (estado || '').toUpperCase();
+    if (s.includes('FINALIZADO')) return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
+    if (s.includes('PTE') || s.includes('PENDIENTE')) return 'bg-amber-500/10 text-amber-400 border-amber-500/20';
+    if (s.includes('CERTIFICADOR')) return 'bg-blue-500/10 text-blue-400 border-blue-500/20';
+    if (s.includes('REVISADO') || s.includes('LISTO')) return 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20';
+    return 'bg-white/5 text-white/40 border-white/10';
+}
+
 // ─── Sub-componentes ─────────────────────────────────────────────────────────
 function FV({ label, value, mono = false, lower = false }) {
     if (!value) return null;
@@ -165,7 +175,7 @@ function DireccionEdit({ values, onChange }) {
 }
 
 // ─── Modal principal ─────────────────────────────────────────────────────────
-export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp, onUpdated, onCreated }) {
+export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp, onUpdated, onCreated, onNavigate }) {
     const { user } = useAuth();
     const isAdmin = user?.rol?.toUpperCase() === 'ADMIN';
 
@@ -199,6 +209,8 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
     const [marcas, setMarcas] = useState([]);
     const [allInstaladores, setAllInstaladores] = useState([]);
     const [loadingInst, setLoadingInst] = useState(false);
+    const [expedientes, setExpedientes] = useState([]);
+    const [loadingExpedientes, setLoadingExpedientes] = useState(false);
     const logoInputRef = useRef(null);
 
     // Cargar marcas disponibles
@@ -230,6 +242,34 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
             })
             .catch(err => console.error('Error cargando asociaciones:', err));
     }, [isOpen, p?.id_empresa]);
+
+    // Cargar expedientes en los que ha participado el instalador (trazabilidad)
+    useEffect(() => {
+        if (!isOpen || !p?.id_empresa || p.tipo_empresa !== 'INSTALADOR') {
+            setExpedientes([]);
+            return;
+        }
+        // El endpoint solo permite ADMIN o el propio instalador
+        if (!isAdmin && user?.prescriptor_id !== p.id_empresa) {
+            setExpedientes([]);
+            return;
+        }
+        setLoadingExpedientes(true);
+        axios.get(`/api/prescriptores/${p.id_empresa}/expedientes`)
+            .then(r => setExpedientes(r.data || []))
+            .catch(err => { console.error('Error cargando expedientes del instalador:', err); setExpedientes([]); })
+            .finally(() => setLoadingExpedientes(false));
+    }, [isOpen, p?.id_empresa, p?.tipo_empresa, isAdmin, user?.prescriptor_id]);
+
+    const handleOpenExpediente = (exp) => {
+        if (onNavigate) {
+            onNavigate('expedientes', { expediente_id: exp.id });
+            onClose();
+        } else {
+            // Fallback: deep link ?exp= (App lo resuelve por id o numero_expediente)
+            window.location.assign(`/?exp=${encodeURIComponent(exp.numero_expediente || exp.id)}`);
+        }
+    };
 
     // Sincronizar al abrir
     useEffect(() => {
@@ -652,6 +692,60 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                                         <FV label="CP" value={p.codigo_postal} mono />
                                         {p.direccion && <div className="col-span-1 sm:col-span-2"><FV label="Dirección" value={p.direccion} /></div>}
                                     </div>
+                                </div>
+                            )}
+
+                            {/* Expedientes en los que ha participado como instaladora asignada */}
+                            {p.tipo_empresa === 'INSTALADOR' && (
+                                <div className="space-y-2">
+                                    <p className="text-[10px] uppercase tracking-[0.2em] font-black text-white/30 flex items-center gap-2">
+                                        Expedientes Asignados
+                                        {expedientes.length > 0 && (
+                                            <span className="text-[9px] bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 px-1.5 py-0.5 rounded tracking-tighter">
+                                                {expedientes.length}
+                                            </span>
+                                        )}
+                                    </p>
+                                    {loadingExpedientes ? (
+                                        <p className="text-xs text-white/30 italic px-1 py-2">Cargando expedientes...</p>
+                                    ) : expedientes.length === 0 ? (
+                                        <p className="text-xs text-white/25 italic px-1 py-2">
+                                            Este instalador aún no está asignado a ningún expediente.
+                                        </p>
+                                    ) : (
+                                        <div className="space-y-2">
+                                            {expedientes.map(exp => (
+                                                <button
+                                                    key={exp.id}
+                                                    type="button"
+                                                    onClick={() => handleOpenExpediente(exp)}
+                                                    className="w-full flex items-center justify-between gap-3 p-3 bg-bkg-surface rounded-xl border border-white/[0.06] hover:border-cyan-500/30 hover:bg-cyan-500/[0.04] transition-all text-left group"
+                                                >
+                                                    <div className="min-w-0">
+                                                        <p className="text-sm font-bold text-white font-mono truncate group-hover:text-cyan-400 transition-colors">
+                                                            {exp.numero_expediente || '—'}
+                                                        </p>
+                                                        {(exp.cliente_nombre || exp.cliente_municipio) && (
+                                                            <p className="text-[11px] text-white/40 truncate mt-0.5">
+                                                                {exp.cliente_nombre || 'Sin cliente'}
+                                                                {exp.cliente_municipio ? ` · ${exp.cliente_municipio}` : ''}
+                                                            </p>
+                                                        )}
+                                                    </div>
+                                                    <div className="flex items-center gap-2 shrink-0">
+                                                        {exp.estado && (
+                                                            <span className={`text-[8px] font-black uppercase tracking-widest px-1.5 py-1 rounded border ${estadoBadgeClass(exp.estado)}`}>
+                                                                {exp.estado}
+                                                            </span>
+                                                        )}
+                                                        <svg className="w-4 h-4 text-white/20 group-hover:text-cyan-400 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
+                                                        </svg>
+                                                    </div>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
                                 </div>
                             )}
 
