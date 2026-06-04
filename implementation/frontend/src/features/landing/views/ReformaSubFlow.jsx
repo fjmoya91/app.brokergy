@@ -19,6 +19,8 @@ import axios from 'axios';
 
 import { IconCard } from '../components/IconCard';
 import { StepLayout } from '../components/StepLayout';
+import { DocsManager } from '../../docs/DocsManager';
+import { useAuth } from '../../../context/AuthContext';
 import { Step3_EdadCaldera } from '../steps/Step3_EdadCaldera';
 import { Step4_Emisores } from '../steps/Step4_Emisores';
 import { Step5_ACS } from '../steps/Step5_ACS';
@@ -60,6 +62,13 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
     const isInternal = mode === 'internal';
     // Helper de copy: t(textoPúblico, textoNeutroInternal)
     const t = (pub, int) => (isInternal ? int : pub);
+
+    // Usuario logueado (solo relevante en internal) — para permitir validar/borrar
+    // fotos si es ADMIN en la pantalla de documentación.
+    const { user } = useAuth();
+    const isAdminUser = (user?.rol || user?.rol_nombre || '').toUpperCase() === 'ADMIN';
+    // Oportunidad recién creada en internal (para abrir su documentación in-situ).
+    const [createdOpp, setCreatedOpp] = useState(null);
 
     // Arranca preguntando el ESTADO de la obra (primera pregunta del funnel /reforma).
     const [stack, setStack] = useState(['estado']);
@@ -302,7 +311,11 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
 
             const res = await axios.post('/api/oportunidades/internal-simulation', payload);
             setSubmitting(false);
-            if (onCreated) onCreated(res.data);
+            // En vez de abrir la calculadora directamente, llevamos al instalador a
+            // la pantalla de documentación (la misma del enlace) para que suba las
+            // fotos del ANTES in-situ. El "Finalizar" de esa pantalla llama a onCreated.
+            setCreatedOpp(res.data);
+            push('docs_upload');
         } catch (err) {
             setSubmitError(err.response?.data?.error || 'No pudimos crear la simulación. Inténtalo de nuevo.');
             setSubmitting(false);
@@ -395,6 +408,40 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
                 calculatorInputs={submittedInputs}
                 deliveryPreference={deliveryPreference}
             />
+        );
+    }
+
+    // ---- INTERNAL: documentación in-situ (subir fotos del ANTES tras crear) ----
+    // Reutiliza el MISMO componente que el enlace público (DocsManager). El
+    // instalador, al terminar la toma de datos, sube aquí las fotos del antes.
+    if (screen === 'docs_upload' && createdOpp) {
+        const oppId = createdOpp.id_oportunidad || createdOpp.oportunidad_uuid;
+        return (
+            <div className="animate-fade-in max-w-2xl mx-auto">
+                <div className="text-center mb-6">
+                    <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 mb-3">
+                        <span className="text-sm">✅</span>
+                        <span className="text-[10px] font-black uppercase tracking-[0.18em] text-emerald-300">Oportunidad creada</span>
+                    </div>
+                    <h1 className="text-2xl md:text-3xl font-black text-white tracking-tight leading-tight">
+                        Sube ahora las <span className="text-amber-400">fotos del antes</span>
+                    </h1>
+                    <p className="text-white/55 text-sm md:text-base mt-3 max-w-xl mx-auto">
+                        Caldera actual y su placa, ventanas, fachada, un vídeo del recorrido… Las marcadas como obligatorias son imprescindibles para empezar el expediente.
+                    </p>
+                </div>
+
+                <DocsManager mode="admin" idOrUuid={oppId} embedded canValidate={isAdminUser} />
+
+                <div className="mt-8 flex flex-col items-center gap-3">
+                    <button onClick={() => { if (onCreated) onCreated(createdOpp); }} className={primaryBtn}>
+                        Finalizar
+                    </button>
+                    <p className="text-white/35 text-xs text-center max-w-sm">
+                        También puedes subir las fotos más tarde desde el enlace de documentación del expediente.
+                    </p>
+                </div>
+            </div>
         );
     }
 
