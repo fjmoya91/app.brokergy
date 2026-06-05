@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+
+const norm = s => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 import axios from 'axios';
 import { Button, Input, Label, Select } from './UIComponents';
 import { ClienteFormModal } from '../../clientes/components/ClienteFormModal';
@@ -27,8 +29,8 @@ export function SaveOpportunityModal({ isOpen, onClose, onSaveSuccess, onClientL
 
     // Filtrar prescriptores por búsqueda
     const filteredPrescriptores = prescriptores.filter(p => {
-        const name = (p.acronimo || p.razon_social || '').toLowerCase();
-        return name.includes(searchTerm.toLowerCase());
+        const name = norm(p.acronimo || p.razon_social);
+        return name.includes(norm(searchTerm));
     });
 
     const selectedPrescriptor = prescriptores.find(p => p.id_empresa === prescriptorId);
@@ -90,8 +92,8 @@ export function SaveOpportunityModal({ isOpen, onClose, onSaveSuccess, onClientL
 
     const selectedInstalador = instaladores.find(i => i.id_empresa === instaladorId);
     const filteredInstaladores = instaladores.filter(i => {
-        const name = (i.acronimo || i.razon_social || '').toLowerCase();
-        return name.includes(instaladorSearchTerm.toLowerCase());
+        const name = norm(i.acronimo || i.razon_social);
+        return name.includes(norm(instaladorSearchTerm));
     });
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);

@@ -6,6 +6,8 @@ import { ClienteFormModal } from '../../clientes/components/ClienteFormModal';
 import { ClienteDetailModal } from '../../clientes/components/ClienteDetailModal';
 import { VincularClienteModal } from '../../clientes/components/VincularClienteModal';
 
+const norm = s => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+
 export function AdminPanelView({
     onLoadOpportunity,
     onBackToCalculator,
@@ -218,8 +220,8 @@ export function AdminPanelView({
         const selected = prescriptores.find(p => p.id_empresa === currentId);
         
         const filtered = prescriptores.filter(p => {
-            const name = (p.acronimo || p.razon_social || '').toLowerCase();
-            return name.includes(partnerSearch.toLowerCase());
+            const name = norm(p.acronimo || p.razon_social);
+            return name.includes(norm(partnerSearch));
         });
 
         return (
@@ -602,19 +604,19 @@ export function AdminPanelView({
 
         // 1. Filtros por columna (los que están en la parte superior de la tabla)
         const matchesColFilters = (
-            (filters.id_oportunidad === '' || (op.id_oportunidad || '').toLowerCase().includes(filters.id_oportunidad.toLowerCase())) &&
+            (filters.id_oportunidad === '' || norm(op.id_oportunidad).includes(norm(filters.id_oportunidad))) &&
             // La columna "Oportunidad" unifica ID + Ref. Cliente + dirección en un solo input
             (filters.referencia_cliente === '' || (() => {
                 const inputs = op.datos_calculo?.inputs || {};
-                const haystack = [
+                const haystack = norm([
                     op.id_oportunidad,
                     op.referencia_cliente,
                     inputs.direccion, inputs.address, inputs.municipio, inputs.provincia_nombre,
                     inputs.cp, inputs.codigo_postal
-                ].filter(Boolean).join(' ').toLowerCase();
-                return haystack.includes(filters.referencia_cliente.toLowerCase());
+                ].filter(Boolean).join(' '));
+                return haystack.includes(norm(filters.referencia_cliente));
             })()) &&
-            (filters.ref_catastral === '' || (op.ref_catastral || '').toLowerCase().includes(filters.ref_catastral.toLowerCase())) &&
+            (filters.ref_catastral === '' || norm(op.ref_catastral).includes(norm(filters.ref_catastral))) &&
             (filters.ficha === '' || (() => {
                 const isReforma = (op.datos_calculo?.isReforma === true) || 
                                 (op.datos_calculo?.reformaType && op.datos_calculo?.reformaType !== 'none') ||
@@ -628,16 +630,16 @@ export function AdminPanelView({
             (filters.ccaa === '' || getCCAA(op) === filters.ccaa) &&
             (filters.prescriptor_id === '' || (filters.prescriptor_id === 'none' ? !op.prescriptor_id : op.prescriptor_id === filters.prescriptor_id)) &&
             (filters.estado === '' || (op.datos_calculo?.estado || 'PTE ENVIAR') === filters.estado) &&
-            (filters.cod_cliente_interno === '' || (op.datos_calculo?.cod_cliente_interno || '').toLowerCase().includes(filters.cod_cliente_interno.toLowerCase()))
+            (filters.cod_cliente_interno === '' || norm(op.datos_calculo?.cod_cliente_interno).includes(norm(filters.cod_cliente_interno)))
         );
 
         if (!matchesColFilters) return false;
 
         // 2. Búsqueda Global (el buscador central)
         if (!globalSearch) return true;
-        const gs = globalSearch.toLowerCase();
+        const gs = norm(globalSearch);
         const inputs = op.datos_calculo?.inputs || {};
-        
+
         const searchFields = [
             op.id_oportunidad,
             op.referencia_cliente,
@@ -658,7 +660,7 @@ export function AdminPanelView({
             user?.rol === 'DISTRIBUIDOR' ? op.datos_calculo?.cod_cliente_interno : null
         ];
 
-        return searchFields.some(field => field && String(field).toLowerCase().includes(gs));
+        return searchFields.some(field => field && norm(String(field)).includes(gs));
     });
 
     // Reset pagination when filters or global search change

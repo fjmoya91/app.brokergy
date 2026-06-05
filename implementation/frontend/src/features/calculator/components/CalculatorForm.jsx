@@ -1,5 +1,7 @@
 // CalculatorForm v2.2 - Dynamic Aerotermia Integration (2026-03-27)
 import React, { useEffect, useState } from 'react';
+
+const norm = s => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 import { SectionCard, Button, Input, Label, Select, Divider } from './UIComponents';
 import {
     getUByYear,
@@ -278,12 +280,12 @@ export function CalculatorForm({
             .sort((a, b) => a.nombre.localeCompare(b.nombre));
     }, [dbModels]);
 
-    const filteredMarcas = marcasDisponibles.filter(m => 
-        m.nombre.toLowerCase().includes(brandSearchTerm.toLowerCase())
+    const filteredMarcas = marcasDisponibles.filter(m =>
+        norm(m.nombre).includes(norm(brandSearchTerm))
     );
 
-    const filteredMarcasAcs = marcasAcsDisponibles.filter(m => 
-        m.nombre.toLowerCase().includes(brandAcsSearchTerm.toLowerCase())
+    const filteredMarcasAcs = marcasAcsDisponibles.filter(m =>
+        norm(m.nombre).includes(norm(brandAcsSearchTerm))
     );
 
     const activeBrandLogo = marcasDisponibles.find(m => m.nombre === selectedMarca)?.logo;

@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+
+const norm = s => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 import axios from 'axios';
 import { useAuth } from '../../../context/AuthContext';
 import { useModal } from '../../../context/ModalContext';
@@ -116,7 +118,7 @@ function NuevoExpedienteModal({ onClose, onCreated, existingOportunidadIds = [] 
     })();
 
     const filteredClientes = clienteQuery.trim()
-        ? clientes.filter(c => `${c.nombre_razon_social} ${c.apellidos || ''} ${c.dni || ''} ${c.municipio || ''}`.toLowerCase().includes(clienteQuery.toLowerCase())).slice(0, 8)
+        ? clientes.filter(c => norm(`${c.nombre_razon_social} ${c.apellidos || ''} ${c.dni || ''} ${c.municipio || ''}`).includes(norm(clienteQuery))).slice(0, 8)
         : clientes.slice(0, 8);
     const selectedClienteObj = clientes.find(c => c.id_cliente === xmlCliente);
 
