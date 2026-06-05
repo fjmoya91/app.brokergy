@@ -101,17 +101,27 @@ def normalizar(raw: dict, fecha_firma: str = None) -> dict:
     # "técnico firmante distinto", el que firma el RITE es el TÉCNICO habilitado
     # (con su propio DNI y Nº de Carné), no el representante legal. El Nº Registro
     # Integrado Industrial de la EMPRESA es siempre `numero_carnet_rite`.
+    # Nº Registro Integrado Industrial de la EMPRESA = numero_carnet_rite.
     num_empresa_rite = instalador.get("numero_carnet_rite", "") or ""
-    if instalador.get("tecnico_firmante_distinto"):
+    _rep_nombre = " ".join(filter(None, [instalador.get("nombre_responsable"),
+                                         instalador.get("apellidos_responsable")]))
+    if instalador.get("es_autonomo"):
+        # El autónomo ES el instalador: su numero_carnet_rite es su carné personal.
+        nombre_firma = _rep_nombre
+        nif_firma = instalador.get("nif_responsable") or instalador.get("tecnico_firmante_dni", "") or ""
+        carnet_personal = num_empresa_rite
+    elif instalador.get("tecnico_firmante_distinto"):
+        # Empresa con técnico firmante distinto: firma el TÉCNICO con su carné.
         nombre_firma = " ".join(filter(None, [instalador.get("tecnico_firmante_nombre"),
                                               instalador.get("tecnico_firmante_apellidos")]))
         nif_firma = instalador.get("tecnico_firmante_dni", "") or ""
-        carnet_personal = instalador.get("tecnico_firmante_carnet_rite", "") or num_empresa_rite
+        carnet_personal = instalador.get("tecnico_firmante_carnet_rite", "") or ""
     else:
-        nombre_firma = " ".join(filter(None, [instalador.get("nombre_responsable"),
-                                              instalador.get("apellidos_responsable")]))
+        # Empresa sin técnico distinto: firma el representante legal; el Nº de Carné
+        # personal NO se rellena (el nº de empresa va solo en Nº Reg. Integrado Industrial).
+        nombre_firma = _rep_nombre
         nif_firma = instalador.get("nif_responsable") or instalador.get("tecnico_firmante_dni", "") or ""
-        carnet_personal = num_empresa_rite
+        carnet_personal = ""
 
     datos = {
         "expediente": exp.get("numero_expediente"),

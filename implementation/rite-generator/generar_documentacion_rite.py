@@ -84,7 +84,7 @@ def _datos_guia(d: dict) -> dict:
         "instalador": {
             "razon_social": inst["razon_social"], "cif": inst["cif"],
             "num_registro_industrial": inst["num_empresa_rite"],
-            "carnet_personal": inst.get("carnet_personal") or inst["num_empresa_rite"],
+            "carnet_personal": inst.get("carnet_personal") or "",
             "instalador_nombre": inst["nombre_firma"], "instalador_nif": inst.get("nif_firma", "")},
         "pruebas_fecha": d.get("pruebas_fecha"),
         "pruebas": [
