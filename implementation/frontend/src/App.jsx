@@ -19,6 +19,7 @@ import { ResetPasswordView } from './features/auth/views/ResetPasswordView';
 import { AceptarPropuestaView } from './features/public/views/AceptarPropuestaView';
 import { CertAckView } from './features/public/views/CertAckView';
 import { SubirCifoView } from './features/public/views/SubirCifoView';
+import { SubirRiteView } from './features/public/views/SubirRiteView';
 import { SubirDocsReformaView } from './features/public/views/SubirDocsReformaView';
 import { WhatsappSettingsView } from './features/whatsapp/views/WhatsappSettingsView';
 
@@ -85,6 +86,12 @@ function App() {
   const [cifoUploadId] = useState(() => {
     const path = window.location.pathname;
     if (path.startsWith('/subir-cifo/')) return path.split('/subir-cifo/')[1] || null;
+    return null;
+  });
+
+  const [riteUploadId] = useState(() => {
+    const path = window.location.pathname;
+    if (path.startsWith('/subir-rite/')) return path.split('/subir-rite/')[1] || null;
     return null;
   });
 
@@ -643,8 +650,8 @@ function App() {
 
   // Rutas públicas con su propio layout full-bleed → sin red decorativa y
   // sin padding del contenedor padre (el componente cubre 100% del viewport).
-  const isPublicRoute = !!(landingRoute || reformaDocsData || firmaOportunidadId || certAckData || cifoUploadId);
-  const isLoggedDashboard = user && !firmaOportunidadId && !resetToken && !certAckData && !cifoUploadId && !reformaDocsData && !landingRoute;
+  const isPublicRoute = !!(landingRoute || reformaDocsData || firmaOportunidadId || certAckData || cifoUploadId || riteUploadId);
+  const isLoggedDashboard = user && !firmaOportunidadId && !resetToken && !certAckData && !cifoUploadId && !riteUploadId && !reformaDocsData && !landingRoute;
   const wrapperPadding = (isLoggedDashboard || isPublicRoute) ? 'p-0' : 'px-4 py-8';
   const wrapperHeight = isLoggedDashboard ? 'h-screen overflow-hidden' : '';
 
@@ -666,6 +673,8 @@ function App() {
           <SubirDocsReformaView uuid={reformaDocsData.uuid} token={reformaDocsData.token} />
         ) : cifoUploadId ? (
           <SubirCifoView expedienteId={cifoUploadId} />
+        ) : riteUploadId ? (
+          <SubirRiteView expedienteId={riteUploadId} />
         ) : certAckData ? (
           <CertAckView expedienteId={certAckData.id} token={certAckData.token} phase={certAckData.phase} />
         ) : firmaOportunidadId ? (

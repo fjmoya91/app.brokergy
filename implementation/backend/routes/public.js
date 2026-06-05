@@ -1141,4 +1141,113 @@ router.post('/cifo-upload/:expedienteId', upload.single('cifo'), async (req, res
     }
 });
 
+// ─── RITE: subida pública por el instalador (memoria firmada + certificado) ───
+// GET  /api/public/rite-upload/:expedienteId  → info del expediente para la página
+// POST /api/public/rite-upload/:expedienteId  → sube memoria firmada y/o certificado RITE
+router.get('/rite-upload/:expedienteId', async (req, res) => {
+    try {
+        const { expedienteId } = req.params;
+        const { data: exp, error } = await supabase
+            .from('expedientes')
+            .select('id, numero_expediente, documentacion, instalacion, clientes!cliente_id(nombre_razon_social, apellidos)')
+            .eq('id', expedienteId)
+            .maybeSingle();
+        if (error || !exp) return res.status(404).json({ error: 'Expediente no encontrado' });
+
+        let instaladorNombre = '—';
+        const instaladorId = exp.instalacion?.instalador_id;
+        if (instaladorId) {
+            const { data: pres } = await supabase.from('prescriptores').select('razon_social').eq('id_empresa', instaladorId).maybeSingle();
+            if (pres?.razon_social) instaladorNombre = pres.razon_social;
+        }
+        res.json({
+            numero_expediente: exp.numero_expediente,
+            cliente: [exp.clientes?.nombre_razon_social, exp.clientes?.apellidos].filter(Boolean).join(' ') || '—',
+            instalador: instaladorNombre,
+            memoria_subida: !!(exp.documentacion?.cert_rite_signed_link),
+            certificado_subido: !!(exp.documentacion?.cert_rite_drive_link),
+        });
+    } catch (e) {
+        console.error('[RITE upload info] Error:', e);
+        res.status(500).json({ error: 'Error interno' });
+    }
+});
+
+router.post('/rite-upload/:expedienteId',
+    upload.fields([{ name: 'memoria', maxCount: 1 }, { name: 'certificado', maxCount: 1 }]),
+    async (req, res) => {
+        try {
+            const { expedienteId } = req.params;
+            const memFile = req.files?.memoria?.[0] || null;
+            const certFile = req.files?.certificado?.[0] || null;
+            if (!memFile && !certFile) return res.status(400).json({ error: 'No se ha recibido ningún archivo' });
+
+            const { data: exp, error } = await supabase
+                .from('expedientes')
+                .select('id, numero_expediente, documentacion, instalacion, clientes!cliente_id(nombre_razon_social, apellidos), oportunidades!oportunidad_id(datos_calculo)')
+                .eq('id', expedienteId)
+                .maybeSingle();
+            if (error || !exp) return res.status(404).json({ error: 'Expediente no encontrado' });
+
+            let instaladorNombre = '—';
+            const instaladorId = exp.instalacion?.instalador_id;
+            if (instaladorId) {
+                const { data: pres } = await supabase.from('prescriptores').select('razon_social').eq('id_empresa', instaladorId).maybeSingle();
+                if (pres?.razon_social) instaladorNombre = pres.razon_social;
+            }
+
+            const driveFolderId = exp.oportunidades?.drive_folder_id || exp.oportunidades?.datos_calculo?.drive_folder_id || exp.oportunidades?.datos_calculo?.inputs?.drive_folder_id;
+            if (!driveFolderId) return res.status(400).json({ error: 'El expediente no tiene carpeta Drive configurada' });
+
+            const numexpte = exp.numero_expediente || expedienteId;
+            const subfolderId = await driveService.getOrCreateSubfolder(driveFolderId, '7. LEGALIZACION RITE');
+
+            const docUpdate = { ...(exp.documentacion || {}) };
+            let memoriaLink = null;
+            let certLink = null;
+            if (memFile) {
+                const r = await driveService.saveFileToFolder(subfolderId, `${numexpte} - RITE_Memoria_Firmada.pdf`, memFile.mimetype, memFile.buffer);
+                memoriaLink = r?.link || null;
+                docUpdate.cert_rite_signed_link = memoriaLink;
+                try { await driveService.setFolderPublic(r.id, 'reader'); } catch (e) {}
+            }
+            if (certFile) {
+                const r = await driveService.saveFileToFolder(subfolderId, `${numexpte} - RITE_Certificado.pdf`, certFile.mimetype, certFile.buffer);
+                certLink = r?.link || null;
+                docUpdate.cert_rite_drive_link = certLink;   // → slot "Certificado RITE" (validación del agente)
+                try { await driveService.setFolderPublic(r.id, 'reader'); } catch (e) {}
+            }
+
+            await supabase.from('expedientes').update({ documentacion: docUpdate }).eq('id', expedienteId);
+
+            res.json({ success: true, memoria_link: memoriaLink, certificado_link: certLink });
+
+            // Notificación al admin (background)
+            setImmediate(async () => {
+                const clienteNombre = [exp.clientes?.nombre_razon_social, exp.clientes?.apellidos].filter(Boolean).join(' ') || '—';
+                const partes = [memFile ? 'Memoria firmada' : null, certFile ? 'Certificado RITE' : null].filter(Boolean).join(' + ');
+                const adminPhone = process.env.WHATSAPP_ADMIN_CHAT;
+                const adminEmail = process.env.ADMIN_EMAIL || 'franciscojavier.moya.s2e2@gmail.com';
+                const msg = `✅ *Documentación RITE recibida*\nExpediente: *${numexpte}*\nInstalador: ${instaladorNombre}\nCliente: ${clienteNombre}\nRecibido: ${partes}`;
+                try { if (adminPhone) await whatsappService.sendText(adminPhone, msg); } catch (e) { console.error('[RITE upload] WA notify:', e.message); }
+                try {
+                    await emailService.sendMail({
+                        to: adminEmail,
+                        subject: `✅ Documentación RITE recibida — ${numexpte}`,
+                        html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
+                            <div style="background:linear-gradient(135deg,#f59e0b,#ea580c);padding:20px 28px;"><h2 style="margin:0;color:#fff;font-size:16px;">BROKERGY · Documentación RITE</h2></div>
+                            <div style="padding:24px;background:#fff;">
+                              <p>El instalador <strong>${instaladorNombre}</strong> ha subido <strong>${partes}</strong> del expediente <strong>${numexpte}</strong> (${clienteNombre}).</p>
+                              ${certLink ? `<p><a href="${certLink}" style="color:#f59e0b;font-weight:bold;">Certificado RITE en Drive</a></p>` : ''}
+                              ${memoriaLink ? `<p><a href="${memoriaLink}" style="color:#f59e0b;font-weight:bold;">Memoria firmada en Drive</a></p>` : ''}
+                            </div></div>`
+                    });
+                } catch (e) { console.error('[RITE upload] Email notify:', e.message); }
+            });
+        } catch (e) {
+            console.error('[RITE upload] Error:', e);
+            res.status(500).json({ error: 'Error al procesar la subida', message: e.message });
+        }
+    });
+
 module.exports = router;

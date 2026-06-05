@@ -641,6 +641,7 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
     const borradorMensajeDefault = (() => {
         const cliR = expediente?.clientes || {};
         const clienteNombre = [cliR.nombre_razon_social, cliR.apellidos].filter(Boolean).join(' ').trim();
+        const uploadLink = `${window.location.origin}/subir-rite/${expediente?.id}`;
         return `¡Hola! 👋\n\n`
             + `Desde *Brokergy* os lo ponemos fácil 🚀\n\n`
             + `Para agilizar la legalización térmica del expediente *${expediente?.numero_expediente || ''}*${clienteNombre ? ` (${clienteNombre})` : ''} os adjuntamos, ya preparados con los datos del proyecto:\n\n`
@@ -648,6 +649,7 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
             + `📕 *Memoria Técnica RITE* (PDF) — por si no necesitáis hacer cambios.\n`
             + `📋 *Borrador del Certificado de Instalación Térmica* (PDF) — listo para *copiar y pegar* directamente en la plataforma de tramitación (JE6).\n\n`
             + `Lo hemos rellenado por vosotros para ahorraros tiempo y evitar errores. Revisad que todo sea correcto antes de presentar.\n\n`
+            + `✅ *Cuando tengáis la Memoria firmada y el Certificado RITE tramitado*, subidlos en 1 clic aquí (arrastrar y soltar):\n${uploadLink}\n\n`
             + `¿Cualquier duda? El equipo de Brokergy está aquí para ayudaros 💪`;
     })();
 
