@@ -188,7 +188,7 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
         razon_social: '', acronimo: '', cif: '', email: '', tlf: '',
         tipo_empresa: 'DISTRIBUIDOR', marca_referencia: '', marca_secundaria: '',
         tiene_carnet_rite: false, numero_carnet_rite: '', cargo: '',
-        nombre_responsable: '', apellidos_responsable: '',
+        nombre_responsable: '', apellidos_responsable: '', nif_responsable: '',
         ccaa: '', provincia: '', provincia_cod: '', municipio: '',
         codigo_postal: '', direccion: '', es_autonomo: false, logo_empresa: '',
         marcas_aerotermia: [],
@@ -199,6 +199,12 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
         tlf_contacto: '',
         email_contacto: '',
         contacto_notificaciones_activas: false,
+        // Técnico habilitado que firma las memorias (si es distinto del representante legal)
+        tecnico_firmante_distinto: false,
+        tecnico_firmante_nombre: '',
+        tecnico_firmante_apellidos: '',
+        tecnico_firmante_dni: '',
+        tecnico_firmante_carnet_rite: '',
     };
     const [form, setForm] = useState(emptyForm);
     const [loading, setLoading] = useState(false);
@@ -314,6 +320,7 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                 cargo:                p.cargo || '',
                 nombre_responsable:   p.nombre_responsable || p.usuarios?.nombre || '',
                 apellidos_responsable:p.apellidos_responsable || p.usuarios?.apellidos || '',
+                nif_responsable:      p.nif_responsable || '',
                 ccaa:                 p.ccaa || '',
                 provincia:            p.provincia || '',
                 provincia_cod:        cod,
@@ -331,6 +338,11 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                 tlf_contacto:         p.tlf_contacto || '',
                 email_contacto:       p.email_contacto || '',
                 contacto_notificaciones_activas: p.contacto_notificaciones_activas || false,
+                tecnico_firmante_distinto:    p.tecnico_firmante_distinto || false,
+                tecnico_firmante_nombre:      p.tecnico_firmante_nombre || '',
+                tecnico_firmante_apellidos:   p.tecnico_firmante_apellidos || '',
+                tecnico_firmante_dni:         p.tecnico_firmante_dni || '',
+                tecnico_firmante_carnet_rite: p.tecnico_firmante_carnet_rite || '',
             };
         });
     }, [p]);
@@ -403,6 +415,7 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                 cargo:                 form.cargo.trim() || null,
                 nombre_responsable:    form.nombre_responsable.trim() || null,
                 apellidos_responsable: form.apellidos_responsable.trim() || null,
+                nif_responsable:       form.nif_responsable.trim().toUpperCase() || null,
                 ccaa:                  form.ccaa || null,
                 provincia:             form.provincia || null,
                 municipio:             form.municipio || null,
@@ -416,6 +429,11 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                 tlf_contacto:         form.tlf_contacto.trim() || null,
                 email_contacto:       form.email_contacto.trim().toLowerCase() || null,
                 contacto_notificaciones_activas: form.contacto_notificaciones_activas,
+                tecnico_firmante_distinto:    form.tecnico_firmante_distinto,
+                tecnico_firmante_nombre:      form.tecnico_firmante_nombre.trim() || null,
+                tecnico_firmante_apellidos:   form.tecnico_firmante_apellidos.trim() || null,
+                tecnico_firmante_dni:         form.tecnico_firmante_dni.trim().toUpperCase() || null,
+                tecnico_firmante_carnet_rite: form.tecnico_firmante_carnet_rite.trim() || null,
 
                 // Campos para el backend (creación/actualización de usuario vinculado)
                 usuario_nombre:    form.nombre_responsable.trim() || null,
@@ -659,8 +677,21 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                                     <p className="text-[10px] uppercase tracking-[0.2em] font-black text-white/30">Persona de Contacto</p>
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
                                         <FV label="Nombre" value={contactName} />
+                                        {p.tipo_empresa === 'INSTALADOR' && <FV label="NIF / DNI" value={p.nif_responsable} mono />}
                                         <FV label="Cargo" value={p.cargo} />
                                         {p.tiene_carnet_rite && <FV label="N.º Empresa RITE" value={p.numero_carnet_rite} mono />}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Técnico Firmante de Memorias (Vista) */}
+                            {p.tecnico_firmante_distinto && (
+                                <div className="space-y-2">
+                                    <p className="text-[10px] uppercase tracking-[0.2em] font-black text-white/30">Técnico Firmante de Memorias</p>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
+                                        <FV label="Nombre" value={[p.tecnico_firmante_nombre, p.tecnico_firmante_apellidos].filter(Boolean).join(' ') || null} />
+                                        <FV label="DNI" value={p.tecnico_firmante_dni} mono />
+                                        <FV label="N.º Carnet RITE" value={p.tecnico_firmante_carnet_rite} mono />
                                     </div>
                                 </div>
                             )}
@@ -952,6 +983,11 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                                     <FI label="Apellidos">
                                         <Inp value={form.apellidos_responsable} uppercase onChange={e => upd({ apellidos_responsable: e.target.value })} />
                                     </FI>
+                                    {form.tipo_empresa === 'INSTALADOR' && (
+                                        <FI label="NIF / DNI del Representante">
+                                            <Inp value={form.nif_responsable} uppercase onChange={e => upd({ nif_responsable: e.target.value })} placeholder="00000000X" />
+                                        </FI>
+                                    )}
                                     <FI label="Cargo">
                                         <Inp value={form.cargo} uppercase onChange={e => upd({ cargo: e.target.value })} placeholder="GERENTE / PROPIETARIO" />
                                     </FI>
@@ -971,6 +1007,50 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                                         </label>
                                     </div>
                                 </div>
+                            </div>
+                            )}
+
+                            {/* Técnico firmante de memorias — solo INSTALADOR empresa */}
+                            {!form.es_autonomo && form.tipo_empresa === 'INSTALADOR' && (
+                            <div className="pt-4 border-t border-white/5 space-y-4">
+                                <div className="flex items-center justify-between gap-3">
+                                    <div>
+                                        <p className="text-[10px] uppercase tracking-[0.2em] font-black text-white/30">Técnico Firmante de Memorias</p>
+                                        <p className="text-[11px] text-white/20 mt-0.5">¿El técnico que firma las memorias es distinto del representante legal?</p>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => upd({ tecnico_firmante_distinto: !form.tecnico_firmante_distinto })}
+                                        style={{ width: '40px', height: '22px' }}
+                                        className="relative shrink-0 rounded-full transition-all"
+                                    >
+                                        <div className={`w-full h-full rounded-full transition-all duration-300 ${form.tecnico_firmante_distinto ? 'bg-brand' : 'bg-white/10 border border-white/10'}`}>
+                                            <div className={`absolute top-[2px] bg-white rounded-full shadow transition-transform duration-300 ${form.tecnico_firmante_distinto ? 'translate-x-[20px]' : 'translate-x-[2px]'}`}
+                                                style={{ width: '16px', height: '16px' }}></div>
+                                        </div>
+                                    </button>
+                                </div>
+
+                                {form.tecnico_firmante_distinto && (
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-4 bg-white/[0.02] border border-white/[0.05] rounded-2xl animate-fade-in-up">
+                                        <FI label="Nombre" required>
+                                            <Inp value={form.tecnico_firmante_nombre} uppercase placeholder="NOMBRE DEL TÉCNICO"
+                                                onChange={e => upd({ tecnico_firmante_nombre: e.target.value })} />
+                                        </FI>
+                                        <FI label="Apellidos" required>
+                                            <Inp value={form.tecnico_firmante_apellidos} uppercase placeholder="APELLIDOS"
+                                                onChange={e => upd({ tecnico_firmante_apellidos: e.target.value })} />
+                                        </FI>
+                                        <FI label="DNI" required>
+                                            <Inp value={form.tecnico_firmante_dni} uppercase placeholder="00000000X"
+                                                onChange={e => upd({ tecnico_firmante_dni: e.target.value })} />
+                                        </FI>
+                                        <FI label="N.º Carnet RITE" required>
+                                            <Inp value={form.tecnico_firmante_carnet_rite} uppercase placeholder="RITE-XXXXX"
+                                                onChange={e => upd({ tecnico_firmante_carnet_rite: e.target.value })} />
+                                        </FI>
+                                    </div>
+                                )}
                             </div>
                             )}
 

@@ -174,7 +174,7 @@ def build(datos, output):
          [86 * mm, 36 * mm, 60 * mm])
     grid([[C("Instalador/a (Nombre y apellidos)", ins['instalador_nombre']),
            C("NIF", ins['instalador_nif']),
-           C("Nº de Carné", ins['num_registro_industrial'])]],
+           C("Nº de Carné", ins.get('carnet_personal') or ins['num_registro_industrial'])]],
          [86 * mm, 36 * mm, 60 * mm])
 
     # ── 7. Pruebas ─────────────────────────────────────────────────────────

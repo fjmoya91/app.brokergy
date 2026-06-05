@@ -81,9 +81,9 @@ def construir_relleno(datos: dict, nombres_campos: list):
         # CONDICIONES INTERIORES
         179: cond.get("temp_verano", "24"),
         180: cond.get("temp_invierno", "21"),
-        # FIRMA INSTALADOR
+        # FIRMA INSTALADOR (carné = del técnico firmante si es distinto, si no el de empresa)
         445: instal.get("nombre_firma", ""),
-        446: instal.get("num_empresa_rite", ""),
+        446: instal.get("carnet_personal") or instal.get("num_empresa_rite", ""),
         450: instal.get("localidad", ""),
         451: instal.get("fecha_firma", ""),
     }

@@ -97,8 +97,21 @@ def normalizar(raw: dict, fecha_firma: str = None) -> dict:
     acs_distinto = bool(_acs_mod) and _acs_mod != _cal_mod
     pot_acs = _f(acs.get("potencia")) if acs_distinto else 0.0
 
-    nombre_firma = " ".join(filter(None, [instalador.get("nombre_responsable"),
-                                          instalador.get("apellidos_responsable")]))
+    # FIRMANTE del RITE (memoria + certificado). Si el instalador (empresa) marca
+    # "técnico firmante distinto", el que firma el RITE es el TÉCNICO habilitado
+    # (con su propio DNI y Nº de Carné), no el representante legal. El Nº Registro
+    # Integrado Industrial de la EMPRESA es siempre `numero_carnet_rite`.
+    num_empresa_rite = instalador.get("numero_carnet_rite", "") or ""
+    if instalador.get("tecnico_firmante_distinto"):
+        nombre_firma = " ".join(filter(None, [instalador.get("tecnico_firmante_nombre"),
+                                              instalador.get("tecnico_firmante_apellidos")]))
+        nif_firma = instalador.get("tecnico_firmante_dni", "") or ""
+        carnet_personal = instalador.get("tecnico_firmante_carnet_rite", "") or num_empresa_rite
+    else:
+        nombre_firma = " ".join(filter(None, [instalador.get("nombre_responsable"),
+                                              instalador.get("apellidos_responsable")]))
+        nif_firma = instalador.get("nif_responsable") or instalador.get("tecnico_firmante_dni", "") or ""
+        carnet_personal = num_empresa_rite
 
     datos = {
         "expediente": exp.get("numero_expediente"),
@@ -146,8 +159,9 @@ def normalizar(raw: dict, fecha_firma: str = None) -> dict:
             "razon_social": instalador.get("razon_social", ""),
             "cif": instalador.get("cif", ""),
             "nombre_firma": nombre_firma,
-            "nif_firma": instalador.get("nif_responsable") or instalador.get("tecnico_firmante_dni", ""),
-            "num_empresa_rite": instalador.get("numero_carnet_rite", ""),
+            "nif_firma": nif_firma,
+            "num_empresa_rite": num_empresa_rite,   # Nº Registro Integrado Industrial (EMPRESA)
+            "carnet_personal": carnet_personal,      # Nº de Carné del instalador/técnico firmante
             "localidad": instalador.get("municipio", ""),
             "fecha_firma": _fmt(fecha_firma) if fecha_firma else _fmt(fecha_factura),
         },

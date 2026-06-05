@@ -1233,6 +1233,10 @@ router.post('/:id/memoria-rite/generate', enforceAuth, async (req, res) => {
             apellidos_responsable: pres.apellidos_responsable || '',
             nif_responsable: pres.nif_responsable || '',
             tecnico_firmante_dni: pres.tecnico_firmante_dni || '',
+            tecnico_firmante_distinto: pres.tecnico_firmante_distinto || false,
+            tecnico_firmante_nombre: pres.tecnico_firmante_nombre || '',
+            tecnico_firmante_apellidos: pres.tecnico_firmante_apellidos || '',
+            tecnico_firmante_carnet_rite: pres.tecnico_firmante_carnet_rite || '',
             cargo: pres.cargo || '',
             municipio: pres.municipio || ''
         } : null;
@@ -1378,6 +1382,9 @@ router.post('/:id/memoria-rite/send', enforceAuth, async (req, res) => {
             razon_social: pres.razon_social || '', cif: pres.cif || '', numero_carnet_rite: pres.numero_carnet_rite || '',
             nombre_responsable: pres.nombre_responsable || '', apellidos_responsable: pres.apellidos_responsable || '',
             nif_responsable: pres.nif_responsable || '', tecnico_firmante_dni: pres.tecnico_firmante_dni || '',
+            tecnico_firmante_distinto: pres.tecnico_firmante_distinto || false,
+            tecnico_firmante_nombre: pres.tecnico_firmante_nombre || '', tecnico_firmante_apellidos: pres.tecnico_firmante_apellidos || '',
+            tecnico_firmante_carnet_rite: pres.tecnico_firmante_carnet_rite || '',
             cargo: pres.cargo || '', municipio: pres.municipio || ''
         };
 

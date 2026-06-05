@@ -429,12 +429,20 @@ router.post('/avanzado', enforceAuth, async (req, res) => {
             tiene_carnet_rite: payload.tiene_carnet_rite || false,
             numero_carnet_rite: payload.numero_carnet_rite,
             cargo: payload.cargo,
+            nombre_responsable: payload.nombre_responsable,
+            apellidos_responsable: payload.apellidos_responsable,
+            nif_responsable: payload.nif_responsable,
             logo_empresa: payload.logo_empresa,
             contacto_alternativo_activo: payload.contacto_alternativo_activo || false,
             nombre_contacto: payload.nombre_contacto,
             tlf_contacto: payload.tlf_contacto,
             email_contacto: payload.email_contacto,
-            contacto_notificaciones_activas: payload.contacto_notificaciones_activas || false
+            contacto_notificaciones_activas: payload.contacto_notificaciones_activas || false,
+            tecnico_firmante_distinto: payload.tecnico_firmante_distinto || false,
+            tecnico_firmante_nombre: payload.tecnico_firmante_nombre,
+            tecnico_firmante_apellidos: payload.tecnico_firmante_apellidos,
+            tecnico_firmante_dni: payload.tecnico_firmante_dni,
+            tecnico_firmante_carnet_rite: payload.tecnico_firmante_carnet_rite
         };
 
         console.log(`[Avanzado] Creando Empresa:`, empresaPayload);
@@ -619,11 +627,17 @@ router.patch('/:id', enforceAuth, async (req, res) => {
             cargo: payload.cargo,
             nombre_responsable: payload.nombre_responsable,
             apellidos_responsable: payload.apellidos_responsable,
+            nif_responsable: payload.nif_responsable,
             contacto_alternativo_activo: payload.contacto_alternativo_activo,
             nombre_contacto: payload.nombre_contacto,
             tlf_contacto: payload.tlf_contacto,
             email_contacto: payload.email_contacto,
-            contacto_notificaciones_activas: payload.contacto_notificaciones_activas
+            contacto_notificaciones_activas: payload.contacto_notificaciones_activas,
+            tecnico_firmante_distinto: payload.tecnico_firmante_distinto,
+            tecnico_firmante_nombre: payload.tecnico_firmante_nombre,
+            tecnico_firmante_apellidos: payload.tecnico_firmante_apellidos,
+            tecnico_firmante_dni: payload.tecnico_firmante_dni,
+            tecnico_firmante_carnet_rite: payload.tecnico_firmante_carnet_rite
         };
 
         if (payload.logo_empresa !== undefined) {
