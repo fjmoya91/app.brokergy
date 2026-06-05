@@ -448,6 +448,17 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
                                 ✓ Aportado en Documentación · Ver PDF
                             </a>
                         )}
+                        {/* Facturas que ya están en el módulo de Documentación del expediente (admin) */}
+                        {slot.externalDocs?.length > 0 && (
+                            <div className="mt-2 flex flex-wrap gap-2">
+                                {slot.externalDocs.map((d, i) => (
+                                    <a key={i} href={d.link} target="_blank" rel="noreferrer"
+                                        className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-lg border border-emerald-400/30 text-emerald-300 hover:bg-emerald-400/10 transition-all">
+                                        ✓ {d.label} (Documentación) · Ver
+                                    </a>
+                                ))}
+                            </div>
+                        )}
                         {/* Admin: marcar obligatorio (o cualquier slot de DESPUÉS) como "no necesario" (o reactivar) */}
                         {canValidate && (slot.required || slot.waived || slot.fase === 'DESPUES') && !slot.existing && (
                             <button

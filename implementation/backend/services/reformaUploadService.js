@@ -454,14 +454,28 @@ async function buildDocsView(opp, opts = {}) {
                 .select('documentacion')
                 .eq('oportunidad_id', opp.id)
                 .maybeSingle();
-            const riteLink = exp?.documentacion?.cert_rite_drive_link || null;
+            const docExp = exp?.documentacion || {};
+            // RITE manual → chip en el slot DOC_RITE
+            const riteLink = docExp.cert_rite_drive_link || null;
             if (riteLink) {
                 const riteSlot = slots.find(s => s.key === 'DOC_RITE');
-                if (riteSlot && !(riteSlot.items?.length)) {
-                    riteSlot.externalRite = { link: riteLink };
+                if (riteSlot && !(riteSlot.items?.length)) riteSlot.externalRite = { link: riteLink };
+            }
+            // FACTURAS del expediente que NO están ya como fichero en el slot del popup
+            // (las añadidas directamente en Documentación, en la carpeta "5.FACTURAS").
+            const facturas = Array.isArray(docExp.facturas) ? docExp.facturas : [];
+            if (facturas.length) {
+                const factSlot = slots.find(s => s.key === 'DOC_FACTURAS');
+                if (factSlot) {
+                    const haveIds = new Set((factSlot.items || []).map(it => it.driveId).filter(Boolean));
+                    const haveLinks = new Set((factSlot.items || []).map(it => it.link).filter(Boolean));
+                    const ext = facturas
+                        .filter(f => f.drive_link && !haveIds.has(f.drive_id) && !haveLinks.has(f.drive_link))
+                        .map((f, i) => ({ link: f.drive_link, label: f.numero_factura ? `Factura ${f.numero_factura}` : `Factura ${i + 1}` }));
+                    if (ext.length) factSlot.externalDocs = ext;
                 }
             }
-        } catch (e) { console.warn('[Docs] reflejo RITE manual:', e.message); }
+        } catch (e) { console.warn('[Docs] reflejo manual RITE/facturas:', e.message); }
     }
 
     // Catálogo de apartados añadibles + su estado actual (para el botón "Añadir apartado").
@@ -501,6 +515,29 @@ async function syncRiteToExpediente(oportunidadId, link) {
         });
         if (error) console.warn('[RITE] sync a expediente:', error.message);
     } catch (e) { console.warn('[RITE] sync a expediente:', e.message); }
+}
+
+/**
+ * Unifica FACTURAS: al subir un PDF en el slot DOC_FACTURAS del popup, crea una
+ * entrada en expedientes.documentacion.facturas[] (Nº/fecha/importe en blanco + PDF
+ * enlazado, origen 'popup', drive_id para dedup). Así Documentación la muestra y el
+ * agente la cuenta (num_facturas). Idempotente por drive_id. Background-safe.
+ */
+async function addFacturaToExpediente(oportunidadId, link, driveId) {
+    try {
+        const factura = { numero_factura: '', fecha_factura: null, importe_sin_iva: 0, drive_link: link, drive_id: driveId, origen: 'popup' };
+        const { error } = await supabase.rpc('append_expediente_factura', { p_oportunidad_id: oportunidadId, p_factura: factura });
+        if (error) console.warn('[Factura] add a expediente:', error.message);
+    } catch (e) { console.warn('[Factura] add a expediente:', e.message); }
+}
+
+/** Quita del expediente la factura (origen popup) con ese drive_id. Background-safe. */
+async function removeFacturaFromExpediente(oportunidadId, driveId) {
+    try {
+        if (!driveId) return;
+        const { error } = await supabase.rpc('remove_expediente_factura_by_driveid', { p_oportunidad_id: oportunidadId, p_drive_id: driveId });
+        if (error) console.warn('[Factura] remove de expediente:', error.message);
+    } catch (e) { console.warn('[Factura] remove de expediente:', e.message); }
 }
 
 /**
@@ -642,6 +679,8 @@ module.exports = {
     buildDocChecklist,
     buildDocsView,
     syncRiteToExpediente,
+    addFacturaToExpediente,
+    removeFacturaFromExpediente,
     deriveSelectors,
     driveThumb,
     notifyRechazo,

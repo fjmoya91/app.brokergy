@@ -757,6 +757,8 @@ router.post('/reforma-docs/:uuid/:slot', requireAuth, uploadDocsSingle, async (r
         // RITE unificado: si es el Certificado RITE, refleja el enlace en el expediente
         // (cert_rite_drive_link) para que Documentación, CIFO y el agente lo vean.
         if (slot === 'DOC_RITE') reformaUploadService.syncRiteToExpediente(uuid, saved.link);
+        // FACTURAS unificadas: crea la entrada en documentacion.facturas del expediente.
+        if (slot === 'DOC_FACTURAS') reformaUploadService.addFacturaToExpediente(uuid, saved.link, saved.id);
 
         return res.json({
             success: true, slot, name: fileName, link: saved.link,
@@ -821,6 +823,11 @@ router.delete('/reforma-docs/:uuid/:slot', async (req, res) => {
         // RITE unificado: al borrar el Certificado RITE, refleja el cambio en el
         // expediente (queda el siguiente si lo hubiera, o se limpia el campo).
         if (slot === 'DOC_RITE') reformaUploadService.syncRiteToExpediente(uuid, remaining[0]?.link || null);
+        // FACTURAS unificadas: al borrar una factura del popup, quítala del expediente.
+        if (slot === 'DOC_FACTURAS') {
+            const rid = driveId || list.find(it => it.name === name)?.driveId;
+            reformaUploadService.removeFacturaFromExpediente(uuid, rid);
+        }
 
         return res.json({ success: true, slot, count: remaining.length, estado: remaining.length ? 'subida' : 'pendiente' });
     } catch (e) {
