@@ -10,6 +10,7 @@ services:
     environment:
       - NODE_ENV=production
       - PUPPETEER_EXECUTABLE_PATH=/usr/bin/google-chrome-stable
+      - RITE_SERVICE_URL=http://rite-generator:8080
     volumes:
       - whatsapp_auth:/app/.wwebjs_auth
       - whatsapp_cache:/app/.wwebjs_cache
@@ -23,6 +24,15 @@ services:
     env_file: ./implementation/backend/.env
     environment:
       - MCP_PORT=3001
+    networks:
+      - brokergy
+
+  rite-generator:
+    build: ./implementation/rite-generator
+    container_name: brokergy-rite
+    restart: unless-stopped
+    environment:
+      - PORT=8080
     networks:
       - brokergy
 

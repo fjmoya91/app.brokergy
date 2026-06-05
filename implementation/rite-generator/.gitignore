@@ -1,0 +1,14 @@
+# Entorno
+.env
+__pycache__/
+*.pyc
+*.pyo
+
+# Salidas generadas
+out/
+*.tmp.zip
+
+# Credenciales (¡nunca subir!)
+*service-account*.json
+*sa*.json
+credentials*.json

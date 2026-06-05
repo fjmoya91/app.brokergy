@@ -30,9 +30,12 @@ cd $APP_DIR
 echo "    OK"
 
 # ── 3. Reconstruir servicios ───────────────────
-echo "[3/4] Reconstruyendo backend y MCP..."
+echo "[3/4] Reconstruyendo backend, MCP y RITE generator..."
 docker compose build --no-cache backend mcp
-docker compose up -d backend mcp
+# rite-generator: build con caché (la capa pesada de pip se reutiliza salvo que
+# cambie requirements.txt; el código se recopia siempre).
+docker compose build rite-generator
+docker compose up -d backend mcp rite-generator
 echo "    OK"
 
 # ── 4. Recargar nginx ──────────────────────────

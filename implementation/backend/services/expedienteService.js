@@ -254,6 +254,9 @@ async function createExpediente(uuid_oportunidad, id_cliente, manualNumber = nul
                 fecha_fin_cifo: null,
                 cert_cifo_drive_link: null,
                 cert_rite_drive_link: null,
+                cert_rite_sent_at: null,
+                cert_rite_signed_link: null,
+                memoria_rite_guia_link: null,
                 photo_attachments: op.datos_calculo?.inputs?.photo_attachments || null
             },
             seguimiento: {

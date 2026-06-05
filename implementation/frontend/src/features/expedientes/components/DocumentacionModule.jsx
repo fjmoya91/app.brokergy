@@ -332,6 +332,9 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
             cert_cifo_sent_at: null,
             cert_cifo_signed_link: null,
             cert_rite_drive_link: null,
+            cert_rite_sent_at: null,
+            cert_rite_signed_link: null,
+            memoria_rite_guia_link: null,
             anexo_i_drive_link: null,
             anexo_i_sent_at: null,
             anexo_i_signed_link: null,
@@ -410,6 +413,9 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                 cert_cifo_sent_at: null,
                 cert_cifo_signed_link: null,
                 cert_rite_drive_link: null,
+                cert_rite_sent_at: null,
+                cert_rite_signed_link: null,
+                memoria_rite_guia_link: null,
                 anexo_i_drive_link: null,
                 anexo_i_sent_at: null,
                 anexo_i_signed_link: null,
@@ -462,6 +468,7 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
     const [showCertificadoRes080, setShowCertificadoRes080] = useState(false);
     const [showAnexoFotografico, setShowAnexoFotografico] = useState(false);
     const [managingSigned, setManagingSigned] = useState(null); // { field, link, label }
+    const [generatingRite, setGeneratingRite] = useState(false);
 
     // ── Validación ───────────────────────────────────────────────────────────
     const [validation, setValidation] = useState({ isOpen: false, fields: [], onConfirm: null, docName: '' });
@@ -532,6 +539,52 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
             if (!isPresent(doc.fecha_fin_cifo)) missing.push('Fecha Fin Actuación');
         }
 
+        if (docType === 'memoria_rite') {
+            const pres = expediente.prescriptores || {};
+            const inputs = op.datos_calculo?.inputs || {};
+            const cal = inst.aerotermia_cal || {};
+            const acs = inst.aerotermia_acs || {};
+
+            // Titular (base ya cubre nombre/dni/dirección/cp/municipio/provincia)
+            if (!isPresent(cli.apellidos)) missing.push('Apellidos Cliente');
+
+            // Ubicación / cálculo
+            if (!isPresent(inputs.superficie)) missing.push('Superficie (Cálculo / Toma de datos)');
+            if (!isPresent(inputs.zona)) missing.push('Zona Climática (Cálculo)');
+            if (!isPresent(inputs.plantas)) missing.push('Nº de Plantas (Cálculo)');
+            if (!isPresent(inst.ref_catastral || op.ref_catastral || inputs.rc)) missing.push('Referencia Catastral (Instalación)');
+
+            // Equipo calefacción
+            if (!isPresent(cal.marca)) missing.push('Marca Aerotermia Calefacción (Instalación)');
+            if (!isPresent(cal.modelo)) missing.push('Modelo Aerotermia Calefacción (Instalación)');
+            if (!isPresent(cal.numero_serie)) missing.push('Nº Serie Aerotermia Calefacción (Instalación)');
+            if (!isPresent(cal.potencia)) missing.push('Potencia Aerotermia Calefacción (Instalación)');
+
+            // Equipo ACS (solo si hay cambio de ACS)
+            const hasAcs = inst.cambio_acs === true || inst.cambio_acs === 'si';
+            if (hasAcs) {
+                if (!isPresent(acs.marca)) missing.push('Marca Aerotermia ACS (Instalación)');
+                if (!isPresent(acs.modelo)) missing.push('Modelo Aerotermia ACS (Instalación)');
+                if (!isPresent(acs.numero_serie)) missing.push('Nº Serie Aerotermia ACS (Instalación)');
+                if (!isPresent(acs.potencia)) missing.push('Potencia Aerotermia ACS (Instalación)');
+            }
+
+            // Emisor
+            if (!isPresent(inst.tipo_emisor)) missing.push('Tipo de Emisor (Instalación)');
+
+            // Instalador (ficha del Partner)
+            if (!isPresent(pres.razon_social)) missing.push('Razón Social Instalador (ficha Partner)');
+            if (!isPresent(pres.cif)) missing.push('CIF Instalador (ficha Partner)');
+            if (!isPresent(pres.nombre_responsable)) missing.push('Nombre Responsable Técnico (ficha Partner)');
+            if (!isPresent(pres.apellidos_responsable)) missing.push('Apellidos Responsable Técnico (ficha Partner)');
+            if (!isPresent(pres.nif_responsable || pres.tecnico_firmante_dni)) missing.push('NIF Responsable Técnico (ficha Partner)');
+            if (!isPresent(pres.numero_carnet_rite)) missing.push('Nº Empresa RITE (ficha Partner)');
+            if (!isPresent(pres.municipio)) missing.push('Municipio Instalador (ficha Partner)');
+
+            // Fecha de factura (= fecha de pruebas en la memoria)
+            if (!doc.facturas?.length || !isPresent(doc.facturas[0]?.fecha_factura)) missing.push('Fecha de Factura (Documentación)');
+        }
+
         return missing;
     };
 
@@ -576,6 +629,42 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
         });
     };
 
+    // Genera la Memoria RITE + Guía JE6 vía el microservicio (lo invoca el backend),
+    // sube ambos a "7. LEGALIZACION RITE" en Drive y persiste los enlaces.
+    const generateMemoriaRite = async () => {
+        if (generatingRite) return;
+        setGeneratingRite(true);
+        try {
+            const { data } = await axios.post(`/api/expedientes/${expediente.id}/memoria-rite/generate`);
+            setLocal(prev => {
+                const next = {
+                    ...prev,
+                    cert_rite_drive_link: data.cert_rite_drive_link || prev.cert_rite_drive_link,
+                    memoria_rite_guia_link: data.memoria_rite_guia_link || prev.memoria_rite_guia_link
+                };
+                onSave({ documentacion: next });
+                return next;
+            });
+            alert('✅ Memoria RITE generada y archivada en Drive (7. LEGALIZACION RITE)');
+        } catch (err) {
+            const resp = err.response?.data;
+            if (err.response?.status === 422 && Array.isArray(resp?.missing)) {
+                // Defensa en profundidad: el backend detectó datos faltantes → mismo popup
+                setValidation({
+                    isOpen: true,
+                    fields: resp.missing,
+                    docName: 'Memoria RITE',
+                    onConfirm: () => setValidation(prev => ({ ...prev, isOpen: false }))
+                });
+            } else {
+                console.error('Error generando Memoria RITE:', err);
+                alert(`Error al generar la Memoria RITE: ${resp?.error || resp?.details || err.message}`);
+            }
+        } finally {
+            setGeneratingRite(false);
+        }
+    };
+
     const handleDeleteSigned = (field) => {
         if (confirm('¿Estás seguro de que deseas eliminar este documento firmado?')) {
             setLocal(prev => {
@@ -595,7 +684,14 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
             anexo_cesion_signed_link: 'Anexo Cesión ahorro',
             cert_cifo_signed_link: isReforma ? 'Certificado Reforma RES080' : 'Certificado CIFO',
             ficha_res060_signed_link: 'Ficha RES060',
-            anexo_fotografico_signed_link: 'Anexo Fotográfico'
+            anexo_fotografico_signed_link: 'Anexo Fotográfico',
+            cert_rite_signed_link: 'Memoria RITE'
+        };
+
+        // Cada documento firmado va a su subcarpeta de Drive. El RITE vive en
+        // "7. LEGALIZACION RITE"; el resto en "6. ANEXOS CAE".
+        const signedSubfolders = {
+            cert_rite_signed_link: ["7. LEGALIZACION RITE"]
         };
 
         const baseName = displayNames[field] || field.replace(/_/g, ' ').toUpperCase();
@@ -610,7 +706,7 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                     base64,
                     fileName,
                     mimeType: file.type,
-                    subfolders: ["6. ANEXOS CAE"]
+                    subfolders: signedSubfolders[field] || ["6. ANEXOS CAE"]
                 });
                 if (data.drive_link) {
                     setLocal(prev => {
@@ -1258,6 +1354,70 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                                             />
                                         </div>
                                     )}
+                                </div>
+
+                                {/* MEMORIA RITE (generación automática) */}
+                                <div className="flex items-center justify-between gap-6 p-4 rounded-2xl bg-white/[0.01] hover:bg-white/[0.03] transition-colors group">
+                                    <div className="flex-1 min-w-0">
+                                        <p className="text-sm font-black text-white uppercase tracking-tight mb-0.5">Memoria RITE</p>
+                                        <p className="text-white/30 text-[9px] font-bold uppercase tracking-widest leading-tight">
+                                            Memoria Técnica + Guía JE6 (automática)
+                                        </p>
+                                        {local.cert_rite_drive_link && user?.rol === 'ADMIN' && (
+                                            <a href={local.cert_rite_drive_link} target="_blank" rel="noopener noreferrer" className="text-[9px] text-emerald-400/60 hover:text-emerald-400 font-black uppercase underline decoration-1 underline-offset-4 tracking-[0.15em] transition-all mt-1.5 inline-block mr-3">Ver Memoria</a>
+                                        )}
+                                        {local.memoria_rite_guia_link && user?.rol === 'ADMIN' && (
+                                            <a href={local.memoria_rite_guia_link} target="_blank" rel="noopener noreferrer" className="text-[9px] text-brand/60 hover:text-brand font-black uppercase underline decoration-1 underline-offset-4 tracking-[0.15em] transition-all mt-1.5 inline-block">Ver Guía JE6</a>
+                                        )}
+                                    </div>
+                                    <div className="flex items-center gap-6">
+                                        {/* 1. BORRADOR */}
+                                        <div className="w-[100px]">
+                                            <button
+                                                disabled={generatingRite}
+                                                onClick={() => handleGenerateClick('memoria_rite', 'Memoria RITE', generateMemoriaRite)}
+                                                className={`w-full py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all active:scale-95 ${
+                                                    generatingRite
+                                                    ? 'bg-white/5 border border-white/10 text-white/40 cursor-wait'
+                                                    : local.cert_rite_drive_link
+                                                        ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 hover:bg-emerald-500 hover:text-bkg-deep shadow-[0_0_15px_rgba(16,185,129,0.1)]'
+                                                        : 'bg-brand/10 border border-brand/20 text-brand hover:bg-brand hover:text-bkg-deep'
+                                                }`}
+                                            >
+                                                {generatingRite ? 'Generando…' : (local.cert_rite_drive_link ? 'Generado' : 'Generar')}
+                                            </button>
+                                        </div>
+
+                                        {/* 2. ENVIADO */}
+                                        <div className="w-11 flex justify-center">
+                                            <button
+                                                disabled={!local.cert_rite_drive_link}
+                                                onClick={() => handleToggleSent('cert_rite_sent_at')}
+                                                title={local.cert_rite_sent_at ? `Enviado el ${new Date(local.cert_rite_sent_at).toLocaleDateString()}` : 'Marcar como enviado'}
+                                                className={`w-11 h-11 rounded-2xl border flex items-center justify-center transition-all ${
+                                                    local.cert_rite_sent_at
+                                                    ? 'bg-blue-500/20 border-blue-500/30 text-blue-400 shadow-lg shadow-blue-500/10 hover:bg-blue-500 hover:text-white'
+                                                    : !local.cert_rite_drive_link
+                                                        ? 'bg-white/5 border-white/5 text-white/5 cursor-not-allowed'
+                                                        : 'bg-orange-500/10 border-orange-500/20 text-orange-500 hover:bg-orange-500 hover:text-white'
+                                                }`}
+                                            >
+                                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                                                </svg>
+                                            </button>
+                                        </div>
+
+                                        {/* 3. PDF FIRMADO */}
+                                        <div className="w-11">
+                                            <SignedSlot
+                                                link={local.cert_rite_signed_link}
+                                                field="cert_rite_signed_link"
+                                                label="Memoria RITE Firmada"
+                                                onUpload={(file) => handleSignedUpload('cert_rite_signed_link', file)}
+                                            />
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>

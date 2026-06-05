@@ -1086,6 +1086,230 @@ router.post('/:id/documents/upload', enforceAuth, async (req, res) => {
     }
 });
 
+// ─── POST /api/expedientes/:id/memoria-rite/generate ──────────────────────────
+// Genera la MEMORIA TÉCNICA RITE (.docx) + la GUÍA DE ALTA JE6 (.pdf) llamando al
+// microservicio `rite-generator`, sube ambos ficheros a la subcarpeta Drive
+// "7. LEGALIZACION RITE" del expediente (con el OAuth propio de la app) y devuelve
+// los enlaces. El frontend persiste cert_rite_drive_link (igual que el CIFO).
+//
+// El microservicio es un generador puro (sin BD ni Drive): este backend le pasa
+// los datos ya resueltos (expediente + cliente + oportunidad + instalador) en la
+// misma forma que espera lib/supabase_client.normalizar.
+const RITE_PRESENCE = (val) => {
+    if (val === 0 || val === false) return true; // 0 / false son valores válidos
+    if (!val) return false;
+    if (typeof val === 'string' && (val.trim() === '' || val.includes('_____') || val === '—')) return false;
+    return true;
+};
+
+function validateMemoriaRite({ exp, cli, op, pres }) {
+    const missing = [];
+    const inst = exp.instalacion || {};
+    const doc = exp.documentacion || {};
+    const inputs = (op?.datos_calculo?.inputs) || {};
+    const cal = inst.aerotermia_cal || {};
+    const acs = inst.aerotermia_acs || {};
+    const P = RITE_PRESENCE;
+
+    // Titular
+    if (!P(exp.numero_expediente)) missing.push('Número de Expediente');
+    if (!P(cli?.nombre_razon_social)) missing.push('Nombre / Razón Social Cliente');
+    if (!P(cli?.apellidos)) missing.push('Apellidos Cliente');
+    if (!P(cli?.dni || cli?.dni_nie)) missing.push('DNI / NIE Cliente');
+    if (!P(cli?.direccion)) missing.push('Dirección Cliente');
+    if (!P(cli?.municipio)) missing.push('Municipio Cliente');
+    if (!P(cli?.provincia)) missing.push('Provincia Cliente');
+    if (!P(cli?.codigo_postal)) missing.push('Código Postal Cliente');
+
+    // Ubicación / cálculo
+    if (!P(inputs.superficie)) missing.push('Superficie (Cálculo / Toma de datos)');
+    if (!P(inputs.zona)) missing.push('Zona Climática (Cálculo)');
+    if (!P(inputs.plantas)) missing.push('Nº de Plantas (Cálculo)');
+    if (!P(inst.ref_catastral || op?.ref_catastral || inputs.rc)) missing.push('Referencia Catastral (Instalación)');
+
+    // Equipo calefacción
+    if (!P(cal.marca)) missing.push('Marca Aerotermia Calefacción (Instalación)');
+    if (!P(cal.modelo)) missing.push('Modelo Aerotermia Calefacción (Instalación)');
+    if (!P(cal.numero_serie)) missing.push('Nº Serie Aerotermia Calefacción (Instalación)');
+    if (!P(cal.potencia)) missing.push('Potencia Aerotermia Calefacción (Instalación)');
+
+    // Equipo ACS (solo si hay cambio de ACS)
+    const hasAcs = inst.cambio_acs === true || inst.cambio_acs === 'si';
+    if (hasAcs) {
+        if (!P(acs.marca)) missing.push('Marca Aerotermia ACS (Instalación)');
+        if (!P(acs.modelo)) missing.push('Modelo Aerotermia ACS (Instalación)');
+        if (!P(acs.numero_serie)) missing.push('Nº Serie Aerotermia ACS (Instalación)');
+        if (!P(acs.potencia)) missing.push('Potencia Aerotermia ACS (Instalación)');
+    }
+
+    // Emisor
+    if (!P(inst.tipo_emisor)) missing.push('Tipo de Emisor (Instalación)');
+
+    // Instalador (prescriptor)
+    if (!pres) {
+        missing.push('Instalador asignado (Instalación)');
+    } else {
+        if (!P(pres.razon_social)) missing.push('Razón Social Instalador (ficha Partner)');
+        if (!P(pres.cif)) missing.push('CIF Instalador (ficha Partner)');
+        if (!P(pres.nombre_responsable)) missing.push('Nombre Responsable Técnico (ficha Partner)');
+        if (!P(pres.apellidos_responsable)) missing.push('Apellidos Responsable Técnico (ficha Partner)');
+        if (!P(pres.nif_responsable || pres.tecnico_firmante_dni)) missing.push('NIF Responsable Técnico (ficha Partner)');
+        if (!P(pres.numero_carnet_rite)) missing.push('Nº Empresa RITE (ficha Partner)');
+        if (!P(pres.municipio)) missing.push('Municipio Instalador (ficha Partner)');
+    }
+
+    // Fecha de factura (= fecha de las pruebas en la memoria)
+    if (!Array.isArray(doc.facturas) || !doc.facturas.length || !P(doc.facturas[0]?.fecha_factura)) {
+        missing.push('Fecha de Factura (Documentación)');
+    }
+
+    return missing;
+}
+
+router.post('/:id/memoria-rite/generate', enforceAuth, async (req, res) => {
+    try {
+        // 1) Cargar expediente
+        let { data: exp } = await supabase
+            .from('expedientes').select('*').eq('id', req.params.id).maybeSingle();
+        if (!exp) {
+            const { data: bySeq } = await supabase
+                .from('expedientes').select('*').eq('numero_expediente', req.params.id).maybeSingle();
+            exp = bySeq;
+        }
+        if (!exp) return res.status(404).json({ error: 'Expediente no encontrado' });
+
+        // 2) Cargar cliente + oportunidad (igual que GET /:id)
+        const [{ data: cli }, { data: op }] = await Promise.all([
+            supabase.from('clientes').select('*').eq('id_cliente', exp.cliente_id).maybeSingle(),
+            supabase.from('oportunidades').select('*').eq('id', exp.oportunidad_id).maybeSingle()
+        ]);
+
+        let normalizedDatos = op?.datos_calculo || {};
+        if (typeof normalizedDatos === 'string') {
+            try { normalizedDatos = JSON.parse(normalizedDatos); } catch (e) { normalizedDatos = {}; }
+        }
+
+        // 3) Resolver instalador (MISMA resolución que GET /:id, para que la
+        //    validación coincida con lo que se genera).
+        let pres = null;
+        const targetInstId = exp.instalacion?.instalador_id || op?.prescriptor_id || exp.instalador_asociado_id;
+        if (targetInstId) {
+            const { data: presInfo } = await supabase
+                .from('prescriptores').select('*').eq('id_empresa', targetInstId).maybeSingle();
+            if (presInfo) pres = presInfo;
+        }
+
+        const opForValidate = { ...op, datos_calculo: normalizedDatos };
+
+        // 4) Validación (defensa en profundidad; el frontend ya valida y abre el popup)
+        const missing = validateMemoriaRite({ exp, cli, op: opForValidate, pres });
+        if (missing.length > 0) {
+            return res.status(422).json({ error: 'Faltan datos para generar la Memoria RITE', missing });
+        }
+
+        // 5) Construir el payload para el microservicio (forma que espera normalizar)
+        const expPayload = {
+            numero_expediente: exp.numero_expediente,
+            instalacion: exp.instalacion || {},
+            cee: exp.cee || {},
+            documentacion: exp.documentacion || {},
+            ref_catastral: op?.ref_catastral || exp.instalacion?.ref_catastral || '',
+            datos_calculo: normalizedDatos,
+            is_reforma: (op?.is_reforma ?? normalizedDatos?.is_reforma ?? exp.cee?.is_reforma ?? false),
+            nombre_razon_social: cli?.nombre_razon_social || '',
+            apellidos: cli?.apellidos || '',
+            dni: cli?.dni || cli?.dni_nie || '',
+            tlf: cli?.tlf || cli?.telefono || '',
+            cli_prov: cli?.provincia || '',
+            cli_muni: cli?.municipio || '',
+            cli_dir: cli?.direccion || '',
+            cli_cp: cli?.codigo_postal || ''
+        };
+        const instaladorPayload = pres ? {
+            razon_social: pres.razon_social || '',
+            cif: pres.cif || '',
+            numero_carnet_rite: pres.numero_carnet_rite || '',
+            nombre_responsable: pres.nombre_responsable || '',
+            apellidos_responsable: pres.apellidos_responsable || '',
+            nif_responsable: pres.nif_responsable || '',
+            tecnico_firmante_dni: pres.tecnico_firmante_dni || '',
+            cargo: pres.cargo || '',
+            municipio: pres.municipio || ''
+        } : null;
+        // fecha_firma=null → el kit usa la fecha de la primera factura (regla del trámite)
+
+        // 6) Llamar al microservicio rite-generator
+        const RITE_SERVICE_URL = process.env.RITE_SERVICE_URL || 'http://localhost:8090';
+        let files;
+        try {
+            const { data } = await axios.post(
+                `${RITE_SERVICE_URL}/generar-rite-json`,
+                { exp: expPayload, instalador: instaladorPayload, fecha_firma: null },
+                { timeout: 90000, maxBodyLength: Infinity, maxContentLength: Infinity }
+            );
+            files = data?.files;
+        } catch (svcErr) {
+            const detail = svcErr.response?.data?.detail || svcErr.message;
+            console.error('[memoria-rite] Error llamando al microservicio RITE:', detail);
+            return res.status(502).json({ error: 'El servicio de generación RITE no está disponible', details: detail });
+        }
+        if (!Array.isArray(files) || files.length === 0) {
+            return res.status(502).json({ error: 'El servicio RITE no devolvió documentos' });
+        }
+
+        // 7) Localizar carpeta Drive del expediente
+        const driveFolderId = op?.drive_folder_id || normalizedDatos?.drive_folder_id
+            || normalizedDatos?.inputs?.drive_folder_id || exp.drive_folder_id;
+        if (!driveFolderId) {
+            return res.status(400).json({ error: 'La oportunidad no tiene carpeta de Drive configurada' });
+        }
+
+        const {
+            getOrCreateSubfolder, saveFileToFolder, setFolderPublic,
+            findFileByName, renameFolder, moveFolder
+        } = require('../services/driveService');
+
+        const riteFolderId = await getOrCreateSubfolder(driveFolderId, '7. LEGALIZACION RITE');
+
+        let memoriaLink = null;
+        let guiaLink = null;
+        for (const f of files) {
+            const buffer = Buffer.from(f.base64, 'base64');
+
+            // Versionado: si ya existe un fichero con ese nombre, moverlo a OLD
+            const existingId = await findFileByName(riteFolderId, f.name);
+            if (existingId) {
+                try {
+                    const oldFolderId = await getOrCreateSubfolder(riteFolderId, 'OLD');
+                    const stamp = new Date().toISOString().replace(/[:T]/g, '-').slice(0, 19);
+                    const dotIdx = f.name.lastIndexOf('.');
+                    const base = dotIdx > 0 ? f.name.substring(0, dotIdx) : f.name;
+                    const ext = dotIdx > 0 ? f.name.substring(dotIdx) : '';
+                    await renameFolder(existingId, `_old_${stamp} ${base}${ext}`);
+                    await moveFolder(existingId, oldFolderId);
+                } catch (vErr) {
+                    console.warn(`[memoria-rite] No se pudo versionar '${f.name}': ${vErr.message}`);
+                }
+            }
+
+            const result = await saveFileToFolder(riteFolderId, f.name, f.mimetype, buffer);
+            if (!result) return res.status(500).json({ error: `Error al subir '${f.name}' a Drive` });
+            try { await setFolderPublic(result.id, 'reader'); } catch (e) { /* no bloqueante */ }
+
+            const lower = (f.name || '').toLowerCase();
+            if (lower.endsWith('.docx')) memoriaLink = result.link;
+            else if (lower.endsWith('.pdf')) guiaLink = result.link;
+        }
+
+        if (!memoriaLink) return res.status(500).json({ error: 'No se obtuvo el enlace de la Memoria RITE' });
+
+        return res.json({ cert_rite_drive_link: memoriaLink, memoria_rite_guia_link: guiaLink });
+    } catch (err) {
+        console.error('Error POST expedientes/:id/memoria-rite/generate:', err);
+        res.status(500).json({ error: 'Error al generar la Memoria RITE', details: err.message });
+    }
+});
+
 // ─── POST /api/expedientes/:id/documents/make-public ──────────────────────────
 // Endpoint utilitario para hacer público un archivo de Drive existente.
 // Útil para archivos ya subidos antes de este cambio que siguen dando 403.
