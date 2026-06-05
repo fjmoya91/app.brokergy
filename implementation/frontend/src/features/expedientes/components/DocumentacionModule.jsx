@@ -474,7 +474,6 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
     const [showAnexoFotografico, setShowAnexoFotografico] = useState(false);
     const [managingSigned, setManagingSigned] = useState(null); // { field, link, label }
     const [generatingRite, setGeneratingRite] = useState(false);
-    const [generatingBorrador, setGeneratingBorrador] = useState(false);
     const [showEnviarBorrador, setShowEnviarBorrador] = useState(false);
 
     // ── Validación ───────────────────────────────────────────────────────────
@@ -673,13 +672,12 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
         }
     };
 
-    // Mensaje "wow" predefinido (editable) para el envío al instalador.
+    // Mensaje predefinido (editable) para el envío al instalador. Genérico, sin
+    // nombre (va al contacto de notificaciones del partner).
     const borradorMensajeDefault = (() => {
         const cliR = expediente?.clientes || {};
-        const presR = expediente?.prescriptores || {};
-        const instNombre = (presR.nombre_responsable || presR.nombre_contacto || presR.razon_social || '').split(/\s+/)[0] || '';
         const clienteNombre = [cliR.nombre_razon_social, cliR.apellidos].filter(Boolean).join(' ').trim();
-        return `Hola ${instNombre} 👋\n\n`
+        return `¡Hola! 👋\n\n`
             + `Desde *Brokergy* os lo ponemos fácil 🚀\n\n`
             + `Para agilizar la legalización térmica del expediente *${expediente?.numero_expediente || ''}*${clienteNombre ? ` (${clienteNombre})` : ''} os adjuntamos, ya preparados con los datos del proyecto:\n\n`
             + `📄 *Memoria Técnica RITE* (Word) — prácticamente rellena: solo revisar y firmar.\n`
@@ -688,40 +686,22 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
             + `¿Cualquier duda? El equipo de Brokergy está aquí para ayudaros 💪`;
     })();
 
-    // Genera (memoria + guía + borrador certificado), persiste enlaces y abre el
-    // modal de envío al instalador.
-    const generateBorradorAndSend = async () => {
-        if (generatingBorrador) return;
-        setGeneratingBorrador(true);
-        try {
-            const { data } = await axios.post(`/api/expedientes/${expediente.id}/memoria-rite/generate`);
-            setLocal(prev => {
-                const next = {
-                    ...prev,
-                    cert_rite_drive_link: data.cert_rite_drive_link || prev.cert_rite_drive_link,
-                    memoria_rite_guia_link: data.memoria_rite_guia_link || prev.memoria_rite_guia_link,
-                    borrador_cert_rite_link: data.borrador_cert_rite_link || prev.borrador_cert_rite_link
-                };
-                onSave({ documentacion: next });
-                return next;
-            });
-            setShowEnviarBorrador(true);
-        } catch (err) {
-            const resp = err.response?.data;
-            if (err.response?.status === 422 && Array.isArray(resp?.missing)) {
-                setValidation({
-                    isOpen: true,
-                    fields: resp.missing,
-                    docName: 'Borrador Certificado RITE',
-                    onConfirm: () => setValidation(prev => ({ ...prev, isOpen: false }))
-                });
-            } else {
-                console.error('Error generando Borrador Certificado RITE:', err);
-                alert(`Error al generar el Borrador del Certificado: ${resp?.error || resp?.details || err.message}`);
-            }
-        } finally {
-            setGeneratingBorrador(false);
-        }
+    // El modal hace todo (descargar / Drive / email / WhatsApp). El botón de la
+    // fila solo valida y abre el modal.
+    const abrirBorradorModal = () => setShowEnviarBorrador(true);
+
+    // Cuando el modal sube a Drive, persistimos los enlaces devueltos.
+    const onBorradorUploaded = (data) => {
+        setLocal(prev => {
+            const next = {
+                ...prev,
+                cert_rite_drive_link: data.cert_rite_drive_link || prev.cert_rite_drive_link,
+                memoria_rite_guia_link: data.memoria_rite_guia_link || prev.memoria_rite_guia_link,
+                borrador_cert_rite_link: data.borrador_cert_rite_link || prev.borrador_cert_rite_link
+            };
+            onSave({ documentacion: next });
+            return next;
+        });
     };
 
     const handleDeleteSigned = (field) => {
@@ -953,6 +933,7 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                     onSave({ documentacion: next });
                     return next;
                 })}
+                onUploaded={onBorradorUploaded}
             />
 
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
@@ -1506,32 +1487,26 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                                         {/* 1. GENERAR + ENVIAR */}
                                         <div className="w-[100px]">
                                             <button
-                                                disabled={generatingBorrador}
-                                                onClick={() => handleGenerateClick('memoria_rite', 'Borrador Certificado RITE', generateBorradorAndSend)}
+                                                onClick={() => handleGenerateClick('memoria_rite', 'Borrador Certificado RITE', abrirBorradorModal)}
                                                 className={`w-full py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all active:scale-95 ${
-                                                    generatingBorrador
-                                                    ? 'bg-white/5 border border-white/10 text-white/40 cursor-wait'
-                                                    : local.borrador_cert_rite_link
+                                                    local.borrador_cert_rite_link
                                                         ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 hover:bg-emerald-500 hover:text-bkg-deep shadow-[0_0_15px_rgba(16,185,129,0.1)]'
                                                         : 'bg-brand/10 border border-brand/20 text-brand hover:bg-brand hover:text-bkg-deep'
                                                 }`}
                                             >
-                                                {generatingBorrador ? 'Generando…' : (local.borrador_cert_rite_link ? 'Generado' : 'Generar')}
+                                                {local.borrador_cert_rite_link ? 'Generado' : 'Generar'}
                                             </button>
                                         </div>
 
                                         {/* 2. ENVIADO (abre modal de envío) */}
                                         <div className="w-11 flex justify-center">
                                             <button
-                                                disabled={!local.borrador_cert_rite_link && !generatingBorrador}
                                                 onClick={() => setShowEnviarBorrador(true)}
                                                 title={local.borrador_cert_sent_at ? `Enviado el ${new Date(local.borrador_cert_sent_at).toLocaleDateString()}` : 'Enviar al instalador'}
                                                 className={`w-11 h-11 rounded-2xl border flex items-center justify-center transition-all ${
                                                     local.borrador_cert_sent_at
                                                     ? 'bg-blue-500/20 border-blue-500/30 text-blue-400 shadow-lg shadow-blue-500/10 hover:bg-blue-500 hover:text-white'
-                                                    : !local.borrador_cert_rite_link
-                                                        ? 'bg-white/5 border-white/5 text-white/5 cursor-not-allowed'
-                                                        : 'bg-orange-500/10 border-orange-500/20 text-orange-500 hover:bg-orange-500 hover:text-white'
+                                                    : 'bg-orange-500/10 border-orange-500/20 text-orange-500 hover:bg-orange-500 hover:text-white'
                                                 }`}
                                             >
                                                 <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">

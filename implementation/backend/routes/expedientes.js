@@ -1166,93 +1166,96 @@ function validateMemoriaRite({ exp, cli, op, pres }) {
     return missing;
 }
 
+// Construye el payload (exp + instalador) que espera el microservicio RITE.
+// Centralizado para que /generate, /send y /files no se desincronicen.
+function buildRitePayloads({ exp, cli, op, normalizedDatos, pres }) {
+    const expPayload = {
+        numero_expediente: exp.numero_expediente,
+        instalacion: exp.instalacion || {},
+        cee: exp.cee || {},
+        documentacion: exp.documentacion || {},
+        ref_catastral: op?.ref_catastral || exp.instalacion?.ref_catastral || '',
+        datos_calculo: normalizedDatos,
+        is_reforma: (op?.is_reforma ?? normalizedDatos?.is_reforma ?? exp.cee?.is_reforma ?? false),
+        nombre_razon_social: cli?.nombre_razon_social || '',
+        apellidos: cli?.apellidos || '',
+        dni: cli?.dni || cli?.dni_nie || '',
+        tlf: cli?.tlf || cli?.telefono || '',
+        cli_prov: cli?.provincia || '',
+        cli_muni: cli?.municipio || '',
+        cli_dir: cli?.direccion || '',
+        cli_cp: cli?.codigo_postal || ''
+    };
+    const instaladorPayload = pres ? {
+        razon_social: pres.razon_social || '',
+        cif: pres.cif || '',
+        numero_carnet_rite: pres.numero_carnet_rite || '',
+        nombre_responsable: pres.nombre_responsable || '',
+        apellidos_responsable: pres.apellidos_responsable || '',
+        nif_responsable: pres.nif_responsable || '',
+        tecnico_firmante_dni: pres.tecnico_firmante_dni || '',
+        tecnico_firmante_distinto: pres.tecnico_firmante_distinto || false,
+        tecnico_firmante_nombre: pres.tecnico_firmante_nombre || '',
+        tecnico_firmante_apellidos: pres.tecnico_firmante_apellidos || '',
+        tecnico_firmante_carnet_rite: pres.tecnico_firmante_carnet_rite || '',
+        es_autonomo: pres.es_autonomo || false,
+        cargo: pres.cargo || '',
+        municipio: pres.municipio || ''
+    } : null;
+    return { expPayload, instaladorPayload };
+}
+
+// Carga expediente + cliente + oportunidad + instalador (misma resolución que GET /:id).
+async function loadRiteContext(idOrNum) {
+    let { data: exp } = await supabase.from('expedientes').select('*').eq('id', idOrNum).maybeSingle();
+    if (!exp) {
+        const { data: bySeq } = await supabase.from('expedientes').select('*').eq('numero_expediente', idOrNum).maybeSingle();
+        exp = bySeq;
+    }
+    if (!exp) return null;
+    const [{ data: cli }, { data: op }] = await Promise.all([
+        supabase.from('clientes').select('*').eq('id_cliente', exp.cliente_id).maybeSingle(),
+        supabase.from('oportunidades').select('*').eq('id', exp.oportunidad_id).maybeSingle()
+    ]);
+    let normalizedDatos = op?.datos_calculo || {};
+    if (typeof normalizedDatos === 'string') { try { normalizedDatos = JSON.parse(normalizedDatos); } catch (e) { normalizedDatos = {}; } }
+    let pres = null;
+    const targetInstId = exp.instalacion?.instalador_id || op?.prescriptor_id || exp.instalador_asociado_id;
+    if (targetInstId) {
+        const { data: p } = await supabase.from('prescriptores').select('*').eq('id_empresa', targetInstId).maybeSingle();
+        pres = p;
+    }
+    return { exp, cli, op, normalizedDatos, pres };
+}
+
+// Llama al microservicio y devuelve los ficheros [{name,mimetype,base64}].
+async function generarRiteFiles(expPayload, instaladorPayload) {
+    const RITE_SERVICE_URL = process.env.RITE_SERVICE_URL || 'http://localhost:8090';
+    const { data } = await axios.post(
+        `${RITE_SERVICE_URL}/generar-rite-json`,
+        { exp: expPayload, instalador: instaladorPayload, fecha_firma: null },
+        { timeout: 90000, maxBodyLength: Infinity, maxContentLength: Infinity });
+    return data?.files;
+}
+
 router.post('/:id/memoria-rite/generate', enforceAuth, async (req, res) => {
     try {
-        // 1) Cargar expediente
-        let { data: exp } = await supabase
-            .from('expedientes').select('*').eq('id', req.params.id).maybeSingle();
-        if (!exp) {
-            const { data: bySeq } = await supabase
-                .from('expedientes').select('*').eq('numero_expediente', req.params.id).maybeSingle();
-            exp = bySeq;
-        }
-        if (!exp) return res.status(404).json({ error: 'Expediente no encontrado' });
+        // 1) Cargar contexto (exp + cliente + oportunidad + instalador)
+        const ctx = await loadRiteContext(req.params.id);
+        if (!ctx) return res.status(404).json({ error: 'Expediente no encontrado' });
+        const { exp, cli, op, normalizedDatos, pres } = ctx;
 
-        // 2) Cargar cliente + oportunidad (igual que GET /:id)
-        const [{ data: cli }, { data: op }] = await Promise.all([
-            supabase.from('clientes').select('*').eq('id_cliente', exp.cliente_id).maybeSingle(),
-            supabase.from('oportunidades').select('*').eq('id', exp.oportunidad_id).maybeSingle()
-        ]);
-
-        let normalizedDatos = op?.datos_calculo || {};
-        if (typeof normalizedDatos === 'string') {
-            try { normalizedDatos = JSON.parse(normalizedDatos); } catch (e) { normalizedDatos = {}; }
-        }
-
-        // 3) Resolver instalador (MISMA resolución que GET /:id, para que la
-        //    validación coincida con lo que se genera).
-        let pres = null;
-        const targetInstId = exp.instalacion?.instalador_id || op?.prescriptor_id || exp.instalador_asociado_id;
-        if (targetInstId) {
-            const { data: presInfo } = await supabase
-                .from('prescriptores').select('*').eq('id_empresa', targetInstId).maybeSingle();
-            if (presInfo) pres = presInfo;
-        }
-
-        const opForValidate = { ...op, datos_calculo: normalizedDatos };
-
-        // 4) Validación (defensa en profundidad; el frontend ya valida y abre el popup)
-        const missing = validateMemoriaRite({ exp, cli, op: opForValidate, pres });
+        // 2) Validación (defensa en profundidad; el frontend ya valida y abre el popup)
+        const missing = validateMemoriaRite({ exp, cli, op: { ...op, datos_calculo: normalizedDatos }, pres });
         if (missing.length > 0) {
             return res.status(422).json({ error: 'Faltan datos para generar la Memoria RITE', missing });
         }
 
-        // 5) Construir el payload para el microservicio (forma que espera normalizar)
-        const expPayload = {
-            numero_expediente: exp.numero_expediente,
-            instalacion: exp.instalacion || {},
-            cee: exp.cee || {},
-            documentacion: exp.documentacion || {},
-            ref_catastral: op?.ref_catastral || exp.instalacion?.ref_catastral || '',
-            datos_calculo: normalizedDatos,
-            is_reforma: (op?.is_reforma ?? normalizedDatos?.is_reforma ?? exp.cee?.is_reforma ?? false),
-            nombre_razon_social: cli?.nombre_razon_social || '',
-            apellidos: cli?.apellidos || '',
-            dni: cli?.dni || cli?.dni_nie || '',
-            tlf: cli?.tlf || cli?.telefono || '',
-            cli_prov: cli?.provincia || '',
-            cli_muni: cli?.municipio || '',
-            cli_dir: cli?.direccion || '',
-            cli_cp: cli?.codigo_postal || ''
-        };
-        const instaladorPayload = pres ? {
-            razon_social: pres.razon_social || '',
-            cif: pres.cif || '',
-            numero_carnet_rite: pres.numero_carnet_rite || '',
-            nombre_responsable: pres.nombre_responsable || '',
-            apellidos_responsable: pres.apellidos_responsable || '',
-            nif_responsable: pres.nif_responsable || '',
-            tecnico_firmante_dni: pres.tecnico_firmante_dni || '',
-            tecnico_firmante_distinto: pres.tecnico_firmante_distinto || false,
-            tecnico_firmante_nombre: pres.tecnico_firmante_nombre || '',
-            tecnico_firmante_apellidos: pres.tecnico_firmante_apellidos || '',
-            tecnico_firmante_carnet_rite: pres.tecnico_firmante_carnet_rite || '',
-            es_autonomo: pres.es_autonomo || false,
-            cargo: pres.cargo || '',
-            municipio: pres.municipio || ''
-        } : null;
-        // fecha_firma=null → el kit usa la fecha de la primera factura (regla del trámite)
-
-        // 6) Llamar al microservicio rite-generator
-        const RITE_SERVICE_URL = process.env.RITE_SERVICE_URL || 'http://localhost:8090';
+        // 3) Generar vía microservicio
+        const { expPayload, instaladorPayload } = buildRitePayloads({ exp, cli, op, normalizedDatos, pres });
         let files;
         try {
-            const { data } = await axios.post(
-                `${RITE_SERVICE_URL}/generar-rite-json`,
-                { exp: expPayload, instalador: instaladorPayload, fecha_firma: null },
-                { timeout: 90000, maxBodyLength: Infinity, maxContentLength: Infinity }
-            );
-            files = data?.files;
+            files = await generarRiteFiles(expPayload, instaladorPayload);
         } catch (svcErr) {
             const detail = svcErr.response?.data?.detail || svcErr.message;
             console.error('[memoria-rite] Error llamando al microservicio RITE:', detail);
@@ -1262,7 +1265,7 @@ router.post('/:id/memoria-rite/generate', enforceAuth, async (req, res) => {
             return res.status(502).json({ error: 'El servicio RITE no devolvió documentos' });
         }
 
-        // 7) Localizar carpeta Drive del expediente
+        // 4) Localizar carpeta Drive del expediente
         const driveFolderId = op?.drive_folder_id || normalizedDatos?.drive_folder_id
             || normalizedDatos?.inputs?.drive_folder_id || exp.drive_folder_id;
         if (!driveFolderId) {
@@ -1334,26 +1337,9 @@ router.post('/:id/memoria-rite/send', enforceAuth, async (req, res) => {
             return res.status(400).json({ error: 'Indica al menos un canal (email/whatsapp)' });
         }
 
-        let { data: exp } = await supabase.from('expedientes').select('*').eq('id', req.params.id).maybeSingle();
-        if (!exp) {
-            const { data: bySeq } = await supabase.from('expedientes').select('*').eq('numero_expediente', req.params.id).maybeSingle();
-            exp = bySeq;
-        }
-        if (!exp) return res.status(404).json({ error: 'Expediente no encontrado' });
-
-        const [{ data: cli }, { data: op }] = await Promise.all([
-            supabase.from('clientes').select('*').eq('id_cliente', exp.cliente_id).maybeSingle(),
-            supabase.from('oportunidades').select('*').eq('id', exp.oportunidad_id).maybeSingle()
-        ]);
-        let normalizedDatos = op?.datos_calculo || {};
-        if (typeof normalizedDatos === 'string') { try { normalizedDatos = JSON.parse(normalizedDatos); } catch (e) { normalizedDatos = {}; } }
-
-        let pres = null;
-        const targetInstId = exp.instalacion?.instalador_id || op?.prescriptor_id || exp.instalador_asociado_id;
-        if (targetInstId) {
-            const { data: p } = await supabase.from('prescriptores').select('*').eq('id_empresa', targetInstId).maybeSingle();
-            pres = p;
-        }
+        const ctx = await loadRiteContext(req.params.id);
+        if (!ctx) return res.status(404).json({ error: 'Expediente no encontrado' });
+        const { exp, cli, op, normalizedDatos, pres } = ctx;
         if (!pres) return res.status(400).json({ error: 'El expediente no tiene instalador asignado' });
 
         // Contacto del instalador (prioriza el contacto de notificaciones si está activo)
@@ -1362,41 +1348,10 @@ router.post('/:id/memoria-rite/send', enforceAuth, async (req, res) => {
         const instTlf = (useContact ? (pres.tlf_contacto || pres.tlf || pres.telefono) : (pres.tlf || pres.telefono)) || '';
 
         // Generar ficheros frescos vía microservicio
-        const expPayload = {
-            numero_expediente: exp.numero_expediente,
-            instalacion: exp.instalacion || {},
-            cee: exp.cee || {},
-            documentacion: exp.documentacion || {},
-            ref_catastral: op?.ref_catastral || exp.instalacion?.ref_catastral || '',
-            datos_calculo: normalizedDatos,
-            is_reforma: (op?.is_reforma ?? normalizedDatos?.is_reforma ?? exp.cee?.is_reforma ?? false),
-            nombre_razon_social: cli?.nombre_razon_social || '',
-            apellidos: cli?.apellidos || '',
-            dni: cli?.dni || cli?.dni_nie || '',
-            tlf: cli?.tlf || cli?.telefono || '',
-            cli_prov: cli?.provincia || '',
-            cli_muni: cli?.municipio || '',
-            cli_dir: cli?.direccion || '',
-            cli_cp: cli?.codigo_postal || ''
-        };
-        const instaladorPayload = {
-            razon_social: pres.razon_social || '', cif: pres.cif || '', numero_carnet_rite: pres.numero_carnet_rite || '',
-            nombre_responsable: pres.nombre_responsable || '', apellidos_responsable: pres.apellidos_responsable || '',
-            nif_responsable: pres.nif_responsable || '', tecnico_firmante_dni: pres.tecnico_firmante_dni || '',
-            tecnico_firmante_distinto: pres.tecnico_firmante_distinto || false,
-            tecnico_firmante_nombre: pres.tecnico_firmante_nombre || '', tecnico_firmante_apellidos: pres.tecnico_firmante_apellidos || '',
-            tecnico_firmante_carnet_rite: pres.tecnico_firmante_carnet_rite || '', es_autonomo: pres.es_autonomo || false,
-            cargo: pres.cargo || '', municipio: pres.municipio || ''
-        };
-
-        const RITE_SERVICE_URL = process.env.RITE_SERVICE_URL || 'http://localhost:8090';
+        const { expPayload, instaladorPayload } = buildRitePayloads({ exp, cli, op, normalizedDatos, pres });
         let files;
         try {
-            const { data } = await axios.post(
-                `${RITE_SERVICE_URL}/generar-rite-json`,
-                { exp: expPayload, instalador: instaladorPayload, fecha_firma: null },
-                { timeout: 90000, maxBodyLength: Infinity, maxContentLength: Infinity });
-            files = data?.files;
+            files = await generarRiteFiles(expPayload, instaladorPayload);
         } catch (svcErr) {
             return res.status(502).json({ error: 'El servicio de generación RITE no está disponible', details: svcErr.response?.data?.detail || svcErr.message });
         }
@@ -1463,13 +1418,36 @@ router.post('/:id/memoria-rite/send', enforceAuth, async (req, res) => {
         return res.status(anyOk ? 200 : 502).json({
             ...result,
             contacto: {
-                nombre: pres.nombre_responsable || pres.nombre_contacto || pres.razon_social || '',
+                nombre: useContact ? (pres.nombre_contacto || pres.razon_social || '') : (pres.nombre_responsable || pres.razon_social || ''),
                 email: instEmail, tlf: instTlf
             }
         });
     } catch (err) {
         console.error('Error POST expedientes/:id/memoria-rite/send:', err);
         res.status(500).json({ error: 'Error al enviar la documentación RITE', details: err.message });
+    }
+});
+
+// ─── POST /api/expedientes/:id/memoria-rite/files ─────────────────────────────
+// Genera y devuelve los ficheros RITE en base64 (memoria + guía + borrador) SIN
+// tocar Drive ni BD. Lo usa el popup para "Descargar".
+router.post('/:id/memoria-rite/files', enforceAuth, async (req, res) => {
+    try {
+        const ctx = await loadRiteContext(req.params.id);
+        if (!ctx) return res.status(404).json({ error: 'Expediente no encontrado' });
+        const { exp, cli, op, normalizedDatos, pres } = ctx;
+        const { expPayload, instaladorPayload } = buildRitePayloads({ exp, cli, op, normalizedDatos, pres });
+        let files;
+        try {
+            files = await generarRiteFiles(expPayload, instaladorPayload);
+        } catch (svcErr) {
+            return res.status(502).json({ error: 'El servicio de generación RITE no está disponible', details: svcErr.response?.data?.detail || svcErr.message });
+        }
+        if (!Array.isArray(files) || !files.length) return res.status(502).json({ error: 'El servicio RITE no devolvió documentos' });
+        return res.json({ files });
+    } catch (err) {
+        console.error('Error POST expedientes/:id/memoria-rite/files:', err);
+        res.status(500).json({ error: 'Error al generar los documentos RITE', details: err.message });
     }
 });
 
