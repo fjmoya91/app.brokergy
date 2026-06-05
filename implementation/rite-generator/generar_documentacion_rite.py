@@ -28,6 +28,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from lib.generar_memoria import generar_memoria, _build_field_index
 from lib.mapeo import construir_relleno
 from lib import generar_guia_je6 as guia
+from lib import generar_borrador_certificado as borrador
 from lib import supabase_client as sc
 
 PLANTILLA = os.path.join(os.path.dirname(__file__), "assets", "plantilla_rite_jccm.docx")
@@ -50,11 +51,13 @@ def generar(datos: dict, salida_dir: str):
     generar_memoria(PLANTILLA, text_by_pos, check_positions, out_docx)
     print(f"  [OK] Memoria: {out_docx}  ({len(text_by_pos)} campos, {len(check_positions)} casillas)")
 
-    # 2) GUÍA JE6 .pdf
+    # 2) GUÍA JE6 .pdf  +  3) BORRADOR CERTIFICADO .pdf (misma data)
     guia_datos = _datos_guia(datos)
     out_pdf = os.path.join(salida_dir, f"GUIA_JE6_{exp}.pdf")
     guia.build(guia_datos, out_pdf)
-    return out_docx, out_pdf
+    out_borrador = os.path.join(salida_dir, f"BORRADOR_CERTIFICADO_RITE_{exp}.pdf")
+    borrador.build(guia_datos, out_borrador)
+    return [out_docx, out_pdf, out_borrador]
 
 
 def _datos_guia(d: dict) -> dict:
@@ -122,8 +125,9 @@ def main():
         ap.error("Indica --expediente o --from-json")
 
     print(f"Generando documentación RITE de {datos['expediente']}...")
-    docx, pdf = generar(datos, a.salida)
-    print(f"  [OK] Guía JE6: {pdf}")
+    rutas = generar(datos, a.salida)
+    for r in rutas:
+        print(f"  [OK] {r}")
     print("Hecho.")
 
 

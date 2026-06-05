@@ -108,7 +108,7 @@ def normalizar(raw: dict, fecha_firma: str = None) -> dict:
             "ape2": " ".join((exp.get("apellidos", "") or "").split(" ")[1:]),
             "nombre_completo": f"{exp.get('nombre_razon_social','')} {exp.get('apellidos','')}".strip(),
             "nif": exp.get("dni", ""),
-            "sexo": "mujer",  # ajustar si se añade el campo a BD
+            "sexo": "",  # no hay campo de sexo en BD → se deja sin marcar
             "calle": exp.get("cli_dir", ""),
             "numero": "",
             "localidad": exp.get("cli_muni", ""),

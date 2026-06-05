@@ -81,16 +81,16 @@ def generar_rite_json(payload: dict = Body(...)):
     except Exception as e:
         raise HTTPException(status_code=422, detail=f"Normalización: {e}")
 
-    # 2) Generar los 2 documentos en un dir temporal
+    # 2) Generar los documentos en un dir temporal (memoria + guía + borrador cert)
     workdir = tempfile.mkdtemp(prefix="rite_json_")
     try:
-        docx, pdf = generar(datos, workdir)
+        rutas = generar(datos, workdir)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Generación: {e}")
 
     # 3) Devolver los ficheros en base64 (el backend los sube a Drive)
     files = []
-    for path in (docx, pdf):
+    for path in rutas:
         with open(path, "rb") as fh:
             content = fh.read()
         ext = os.path.splitext(path)[1].lower()
@@ -116,14 +116,14 @@ def generar_rite(numero_expediente: str,
     # 2) Generar documentos en directorio temporal
     workdir = tempfile.mkdtemp(prefix=f"rite_{numero_expediente}_")
     try:
-        docx, pdf = generar(datos, workdir)
+        rutas = generar(datos, workdir)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Generación: {e}")
 
     # 3a) Subir a Drive (si está configurado y se solicita)
     if subir_drive and os.environ.get("GOOGLE_SA_JSON"):
         try:
-            subidos = drive_uploader.subir(numero_expediente, [docx, pdf])
+            subidos = drive_uploader.subir(numero_expediente, rutas)
             link_pdf = next((f["link"] for f in subidos if f["name"].endswith(".pdf")), None)
             link_docx = next((f["link"] for f in subidos if f["name"].endswith(".docx")), None)
             _guardar_link_supabase(numero_expediente, link_docx or link_pdf)
@@ -134,18 +134,17 @@ def generar_rite(numero_expediente: str,
             })
         except Exception as e:
             # Si falla Drive, no perdemos el trabajo: devolvemos el ZIP
-            return _zip_response(numero_expediente, docx, pdf,
-                                 aviso=f"Drive falló: {e}")
+            return _zip_response(numero_expediente, rutas, aviso=f"Drive falló: {e}")
 
     # 3b) Sin Drive: devolver ZIP descargable
-    return _zip_response(numero_expediente, docx, pdf)
+    return _zip_response(numero_expediente, rutas)
 
 
-def _zip_response(numero, docx, pdf, aviso=None):
+def _zip_response(numero, rutas, aviso=None):
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
-        z.write(docx, os.path.basename(docx))
-        z.write(pdf, os.path.basename(pdf))
+        for ruta in rutas:
+            z.write(ruta, os.path.basename(ruta))
         if aviso:
             z.writestr("AVISO.txt", aviso)
     buf.seek(0)

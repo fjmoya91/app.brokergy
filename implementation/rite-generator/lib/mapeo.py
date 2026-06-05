@@ -89,13 +89,13 @@ def construir_relleno(datos: dict, nombres_campos: list):
     }
 
     checks = [2]  # Persona física (siempre en estos expedientes residenciales)
-    # Sexo
-    if t.get("sexo", "").lower().startswith("m") and "muj" in t.get("sexo", "").lower():
+    # Sexo: no hay dato en BD. Solo se marca si viene explícito; si no, se deja
+    # SIN marcar (ni Hombre ni Mujer) en vez de asumir.
+    sexo = (t.get("sexo") or "").lower()
+    if sexo.startswith("muj"):
         checks.append(5)   # Mujer
-    elif t.get("sexo", "").lower().startswith("h"):
+    elif sexo.startswith("h"):
         checks.append(3)   # Hombre
-    else:
-        checks.append(5 if t.get("sexo", "").lower() == "mujer" else 3)
     checks.append(20)      # VIVIENDA
     if obj.get("calefaccion", True):
         checks.append(26)

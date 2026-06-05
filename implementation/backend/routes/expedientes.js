@@ -1273,6 +1273,7 @@ router.post('/:id/memoria-rite/generate', enforceAuth, async (req, res) => {
 
         let memoriaLink = null;
         let guiaLink = null;
+        let borradorLink = null;
         for (const f of files) {
             const buffer = Buffer.from(f.base64, 'base64');
 
@@ -1296,17 +1297,171 @@ router.post('/:id/memoria-rite/generate', enforceAuth, async (req, res) => {
             if (!result) return res.status(500).json({ error: `Error al subir '${f.name}' a Drive` });
             try { await setFolderPublic(result.id, 'reader'); } catch (e) { /* no bloqueante */ }
 
-            const lower = (f.name || '').toLowerCase();
-            if (lower.endsWith('.docx')) memoriaLink = result.link;
-            else if (lower.endsWith('.pdf')) guiaLink = result.link;
+            // Distinguir por nombre: hay 2 PDFs (guía JE6 + borrador certificado).
+            const name = (f.name || '').toUpperCase();
+            if (name.endsWith('.DOCX')) memoriaLink = result.link;
+            else if (name.includes('BORRADOR_CERTIFICADO')) borradorLink = result.link;
+            else if (name.includes('GUIA_JE6')) guiaLink = result.link;
         }
 
         if (!memoriaLink) return res.status(500).json({ error: 'No se obtuvo el enlace de la Memoria RITE' });
 
-        return res.json({ cert_rite_drive_link: memoriaLink, memoria_rite_guia_link: guiaLink });
+        return res.json({
+            cert_rite_drive_link: memoriaLink,
+            memoria_rite_guia_link: guiaLink,
+            borrador_cert_rite_link: borradorLink
+        });
     } catch (err) {
         console.error('Error POST expedientes/:id/memoria-rite/generate:', err);
         res.status(500).json({ error: 'Error al generar la Memoria RITE', details: err.message });
+    }
+});
+
+// ─── POST /api/expedientes/:id/memoria-rite/send ──────────────────────────────
+// Envía al INSTALADOR (email y/o WhatsApp) la Memoria RITE (.docx) + el Borrador
+// del Certificado (.pdf) con un mensaje. Genera los ficheros frescos vía el
+// microservicio. Body: { channels: ['email','whatsapp'], message }.
+router.post('/:id/memoria-rite/send', enforceAuth, async (req, res) => {
+    try {
+        const { channels = [], message = '' } = req.body || {};
+        const chans = Array.isArray(channels) ? channels : [];
+        if (!chans.includes('email') && !chans.includes('whatsapp')) {
+            return res.status(400).json({ error: 'Indica al menos un canal (email/whatsapp)' });
+        }
+
+        let { data: exp } = await supabase.from('expedientes').select('*').eq('id', req.params.id).maybeSingle();
+        if (!exp) {
+            const { data: bySeq } = await supabase.from('expedientes').select('*').eq('numero_expediente', req.params.id).maybeSingle();
+            exp = bySeq;
+        }
+        if (!exp) return res.status(404).json({ error: 'Expediente no encontrado' });
+
+        const [{ data: cli }, { data: op }] = await Promise.all([
+            supabase.from('clientes').select('*').eq('id_cliente', exp.cliente_id).maybeSingle(),
+            supabase.from('oportunidades').select('*').eq('id', exp.oportunidad_id).maybeSingle()
+        ]);
+        let normalizedDatos = op?.datos_calculo || {};
+        if (typeof normalizedDatos === 'string') { try { normalizedDatos = JSON.parse(normalizedDatos); } catch (e) { normalizedDatos = {}; } }
+
+        let pres = null;
+        const targetInstId = exp.instalacion?.instalador_id || op?.prescriptor_id || exp.instalador_asociado_id;
+        if (targetInstId) {
+            const { data: p } = await supabase.from('prescriptores').select('*').eq('id_empresa', targetInstId).maybeSingle();
+            pres = p;
+        }
+        if (!pres) return res.status(400).json({ error: 'El expediente no tiene instalador asignado' });
+
+        // Contacto del instalador (prioriza el contacto de notificaciones si está activo)
+        const useContact = pres.contacto_notificaciones_activas === true || pres.contacto_notificaciones_activas === 'true';
+        const instEmail = (useContact ? (pres.email_contacto || pres.email) : pres.email) || '';
+        const instTlf = (useContact ? (pres.tlf_contacto || pres.tlf || pres.telefono) : (pres.tlf || pres.telefono)) || '';
+
+        // Generar ficheros frescos vía microservicio
+        const expPayload = {
+            numero_expediente: exp.numero_expediente,
+            instalacion: exp.instalacion || {},
+            cee: exp.cee || {},
+            documentacion: exp.documentacion || {},
+            ref_catastral: op?.ref_catastral || exp.instalacion?.ref_catastral || '',
+            datos_calculo: normalizedDatos,
+            is_reforma: (op?.is_reforma ?? normalizedDatos?.is_reforma ?? exp.cee?.is_reforma ?? false),
+            nombre_razon_social: cli?.nombre_razon_social || '',
+            apellidos: cli?.apellidos || '',
+            dni: cli?.dni || cli?.dni_nie || '',
+            tlf: cli?.tlf || cli?.telefono || '',
+            cli_prov: cli?.provincia || '',
+            cli_muni: cli?.municipio || '',
+            cli_dir: cli?.direccion || '',
+            cli_cp: cli?.codigo_postal || ''
+        };
+        const instaladorPayload = {
+            razon_social: pres.razon_social || '', cif: pres.cif || '', numero_carnet_rite: pres.numero_carnet_rite || '',
+            nombre_responsable: pres.nombre_responsable || '', apellidos_responsable: pres.apellidos_responsable || '',
+            nif_responsable: pres.nif_responsable || '', tecnico_firmante_dni: pres.tecnico_firmante_dni || '',
+            cargo: pres.cargo || '', municipio: pres.municipio || ''
+        };
+
+        const RITE_SERVICE_URL = process.env.RITE_SERVICE_URL || 'http://localhost:8090';
+        let files;
+        try {
+            const { data } = await axios.post(
+                `${RITE_SERVICE_URL}/generar-rite-json`,
+                { exp: expPayload, instalador: instaladorPayload, fecha_firma: null },
+                { timeout: 90000, maxBodyLength: Infinity, maxContentLength: Infinity });
+            files = data?.files;
+        } catch (svcErr) {
+            return res.status(502).json({ error: 'El servicio de generación RITE no está disponible', details: svcErr.response?.data?.detail || svcErr.message });
+        }
+        if (!Array.isArray(files) || !files.length) return res.status(502).json({ error: 'El servicio RITE no devolvió documentos' });
+        const memoria = files.find(f => (f.name || '').toUpperCase().endsWith('.DOCX'));
+        const borrador = files.find(f => (f.name || '').toUpperCase().includes('BORRADOR_CERTIFICADO'));
+        if (!memoria || !borrador) return res.status(500).json({ error: 'Faltan documentos generados (memoria o borrador)' });
+
+        const result = { email: null, whatsapp: null };
+
+        // Email (Memoria + Borrador adjuntos)
+        if (chans.includes('email')) {
+            if (!instEmail) { result.email = { ok: false, error: 'El instalador no tiene email registrado' }; }
+            else {
+                try {
+                    const emailService = require('../services/emailService');
+                    const safeMsg = (message || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                    const html = `
+                      <div style="font-family:Arial,Helvetica,sans-serif;max-width:600px;margin:0 auto;border:1px solid #eee;border-radius:12px;overflow:hidden">
+                        <div style="background:linear-gradient(135deg,#f59e0b,#ea580c);padding:24px 28px;color:#fff">
+                          <h1 style="margin:0;font-size:20px;letter-spacing:.5px">BROKERGY</h1>
+                          <p style="margin:4px 0 0;font-size:12px;opacity:.9">Ingeniería Energética · Documentación RITE</p>
+                        </div>
+                        <div style="padding:24px 28px;color:#222;font-size:14px;line-height:1.6;white-space:pre-wrap">${safeMsg}</div>
+                        <div style="padding:0 28px 24px;color:#555;font-size:12px">
+                          📎 Adjuntos: <b>Memoria Técnica RITE</b> (Word) y <b>Borrador del Certificado de Instalación Térmica</b> (PDF).
+                        </div>
+                      </div>`;
+                    await emailService.sendMail({
+                        to: instEmail,
+                        subject: `Documentación RITE — Expediente ${exp.numero_expediente}`,
+                        html,
+                        text: message || '',
+                        attachments: [
+                            { filename: memoria.name, content: Buffer.from(memoria.base64, 'base64') },
+                            { filename: borrador.name, content: Buffer.from(borrador.base64, 'base64') }
+                        ]
+                    });
+                    result.email = { ok: true, to: instEmail };
+                } catch (e) { result.email = { ok: false, error: e.message }; }
+            }
+        }
+
+        // WhatsApp (Borrador con el mensaje + Memoria a continuación)
+        if (chans.includes('whatsapp')) {
+            if (!instTlf) { result.whatsapp = { ok: false, error: 'El instalador no tiene teléfono registrado' }; }
+            else {
+                try {
+                    const wwa = require('../services/whatsappService');
+                    const st = wwa.getStatus();
+                    if (!st || !st.ready) throw new Error('WhatsApp no está conectado');
+                    await wwa.sendMedia(instTlf,
+                        { base64: borrador.base64, filename: borrador.name, mimetype: borrador.mimetype || 'application/pdf' },
+                        { caption: message || undefined, asDocument: true });
+                    await wwa.sendMedia(instTlf,
+                        { base64: memoria.base64, filename: memoria.name, mimetype: memoria.mimetype || 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' },
+                        { caption: 'Memoria Técnica RITE (Word) — revisar y firmar.', asDocument: true });
+                    result.whatsapp = { ok: true, phone: instTlf };
+                } catch (e) { result.whatsapp = { ok: false, error: e.message }; }
+            }
+        }
+
+        const anyOk = (result.email && result.email.ok) || (result.whatsapp && result.whatsapp.ok);
+        return res.status(anyOk ? 200 : 502).json({
+            ...result,
+            contacto: {
+                nombre: pres.nombre_responsable || pres.nombre_contacto || pres.razon_social || '',
+                email: instEmail, tlf: instTlf
+            }
+        });
+    } catch (err) {
+        console.error('Error POST expedientes/:id/memoria-rite/send:', err);
+        res.status(500).json({ error: 'Error al enviar la documentación RITE', details: err.message });
     }
 });
 

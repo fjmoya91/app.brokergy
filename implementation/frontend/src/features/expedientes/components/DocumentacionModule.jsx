@@ -9,6 +9,7 @@ import { FichaRes093Modal } from './FichaRes093Modal';
 import { CertificadoCifoModal } from './CertificadoCifoModal';
 import { CertificadoRes080Modal } from './CertificadoRes080Modal';
 import { AnexoFotograficoModal } from './AnexoFotograficoModal';
+import { EnviarBorradorRiteModal } from './EnviarBorradorRiteModal';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function ValidationModal({ isOpen, onClose, missingFields, onConfirm, docName }) {
@@ -335,6 +336,8 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
             cert_rite_sent_at: null,
             cert_rite_signed_link: null,
             memoria_rite_guia_link: null,
+            borrador_cert_rite_link: null,
+            borrador_cert_sent_at: null,
             anexo_i_drive_link: null,
             anexo_i_sent_at: null,
             anexo_i_signed_link: null,
@@ -416,6 +419,8 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                 cert_rite_sent_at: null,
                 cert_rite_signed_link: null,
                 memoria_rite_guia_link: null,
+                borrador_cert_rite_link: null,
+                borrador_cert_sent_at: null,
                 anexo_i_drive_link: null,
                 anexo_i_sent_at: null,
                 anexo_i_signed_link: null,
@@ -469,6 +474,8 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
     const [showAnexoFotografico, setShowAnexoFotografico] = useState(false);
     const [managingSigned, setManagingSigned] = useState(null); // { field, link, label }
     const [generatingRite, setGeneratingRite] = useState(false);
+    const [generatingBorrador, setGeneratingBorrador] = useState(false);
+    const [showEnviarBorrador, setShowEnviarBorrador] = useState(false);
 
     // ── Validación ───────────────────────────────────────────────────────────
     const [validation, setValidation] = useState({ isOpen: false, fields: [], onConfirm: null, docName: '' });
@@ -640,7 +647,8 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                 const next = {
                     ...prev,
                     cert_rite_drive_link: data.cert_rite_drive_link || prev.cert_rite_drive_link,
-                    memoria_rite_guia_link: data.memoria_rite_guia_link || prev.memoria_rite_guia_link
+                    memoria_rite_guia_link: data.memoria_rite_guia_link || prev.memoria_rite_guia_link,
+                    borrador_cert_rite_link: data.borrador_cert_rite_link || prev.borrador_cert_rite_link
                 };
                 onSave({ documentacion: next });
                 return next;
@@ -662,6 +670,57 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
             }
         } finally {
             setGeneratingRite(false);
+        }
+    };
+
+    // Mensaje "wow" predefinido (editable) para el envío al instalador.
+    const borradorMensajeDefault = (() => {
+        const cliR = expediente?.clientes || {};
+        const presR = expediente?.prescriptores || {};
+        const instNombre = (presR.nombre_responsable || presR.nombre_contacto || presR.razon_social || '').split(/\s+/)[0] || '';
+        const clienteNombre = [cliR.nombre_razon_social, cliR.apellidos].filter(Boolean).join(' ').trim();
+        return `Hola ${instNombre} 👋\n\n`
+            + `Desde *Brokergy* os lo ponemos fácil 🚀\n\n`
+            + `Para agilizar la legalización térmica del expediente *${expediente?.numero_expediente || ''}*${clienteNombre ? ` (${clienteNombre})` : ''} os adjuntamos, ya preparados con los datos del proyecto:\n\n`
+            + `📄 *Memoria Técnica RITE* (Word) — prácticamente rellena: solo revisar y firmar.\n`
+            + `📋 *Borrador del Certificado de Instalación Térmica* — listo para *copiar y pegar* directamente en la plataforma de tramitación (JE6).\n\n`
+            + `Lo hemos rellenado por vosotros para ahorraros tiempo y evitar errores. Revisad que todo sea correcto antes de presentar.\n\n`
+            + `¿Cualquier duda? El equipo de Brokergy está aquí para ayudaros 💪`;
+    })();
+
+    // Genera (memoria + guía + borrador certificado), persiste enlaces y abre el
+    // modal de envío al instalador.
+    const generateBorradorAndSend = async () => {
+        if (generatingBorrador) return;
+        setGeneratingBorrador(true);
+        try {
+            const { data } = await axios.post(`/api/expedientes/${expediente.id}/memoria-rite/generate`);
+            setLocal(prev => {
+                const next = {
+                    ...prev,
+                    cert_rite_drive_link: data.cert_rite_drive_link || prev.cert_rite_drive_link,
+                    memoria_rite_guia_link: data.memoria_rite_guia_link || prev.memoria_rite_guia_link,
+                    borrador_cert_rite_link: data.borrador_cert_rite_link || prev.borrador_cert_rite_link
+                };
+                onSave({ documentacion: next });
+                return next;
+            });
+            setShowEnviarBorrador(true);
+        } catch (err) {
+            const resp = err.response?.data;
+            if (err.response?.status === 422 && Array.isArray(resp?.missing)) {
+                setValidation({
+                    isOpen: true,
+                    fields: resp.missing,
+                    docName: 'Borrador Certificado RITE',
+                    onConfirm: () => setValidation(prev => ({ ...prev, isOpen: false }))
+                });
+            } else {
+                console.error('Error generando Borrador Certificado RITE:', err);
+                alert(`Error al generar el Borrador del Certificado: ${resp?.error || resp?.details || err.message}`);
+            }
+        } finally {
+            setGeneratingBorrador(false);
         }
     };
 
@@ -882,6 +941,18 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                 photos={local.photo_attachments}
                 onPhotosChange={(newPhotos) => setLocal(p => ({ ...p, photo_attachments: newPhotos }))}
                 onSaveDrive={(link) => handleModalSaveDrive('anexo_fotografico_drive_link', link)}
+            />
+
+            <EnviarBorradorRiteModal
+                isOpen={showEnviarBorrador}
+                onClose={() => setShowEnviarBorrador(false)}
+                expediente={expediente}
+                defaultMessage={borradorMensajeDefault}
+                onSent={() => setLocal(prev => {
+                    const next = { ...prev, borrador_cert_sent_at: new Date().toISOString() };
+                    onSave({ documentacion: next });
+                    return next;
+                })}
             />
 
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
@@ -1417,6 +1488,60 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                                                 onUpload={(file) => handleSignedUpload('cert_rite_signed_link', file)}
                                             />
                                         </div>
+                                    </div>
+                                </div>
+
+                                {/* BORRADOR CERTIFICADO RITE (para el instalador) */}
+                                <div className="flex items-center justify-between gap-6 p-4 rounded-2xl bg-white/[0.01] hover:bg-white/[0.03] transition-colors group">
+                                    <div className="flex-1 min-w-0">
+                                        <p className="text-sm font-black text-white uppercase tracking-tight mb-0.5">Borrador Certificado RITE</p>
+                                        <p className="text-white/30 text-[9px] font-bold uppercase tracking-widest leading-tight">
+                                            Para el instalador · copiar y pegar en JE6
+                                        </p>
+                                        {local.borrador_cert_rite_link && user?.rol === 'ADMIN' && (
+                                            <a href={local.borrador_cert_rite_link} target="_blank" rel="noopener noreferrer" className="text-[9px] text-emerald-400/60 hover:text-emerald-400 font-black uppercase underline decoration-1 underline-offset-4 tracking-[0.15em] transition-all mt-1.5 inline-block">Ver borrador</a>
+                                        )}
+                                    </div>
+                                    <div className="flex items-center gap-6">
+                                        {/* 1. GENERAR + ENVIAR */}
+                                        <div className="w-[100px]">
+                                            <button
+                                                disabled={generatingBorrador}
+                                                onClick={() => handleGenerateClick('memoria_rite', 'Borrador Certificado RITE', generateBorradorAndSend)}
+                                                className={`w-full py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all active:scale-95 ${
+                                                    generatingBorrador
+                                                    ? 'bg-white/5 border border-white/10 text-white/40 cursor-wait'
+                                                    : local.borrador_cert_rite_link
+                                                        ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 hover:bg-emerald-500 hover:text-bkg-deep shadow-[0_0_15px_rgba(16,185,129,0.1)]'
+                                                        : 'bg-brand/10 border border-brand/20 text-brand hover:bg-brand hover:text-bkg-deep'
+                                                }`}
+                                            >
+                                                {generatingBorrador ? 'Generando…' : (local.borrador_cert_rite_link ? 'Generado' : 'Generar')}
+                                            </button>
+                                        </div>
+
+                                        {/* 2. ENVIADO (abre modal de envío) */}
+                                        <div className="w-11 flex justify-center">
+                                            <button
+                                                disabled={!local.borrador_cert_rite_link && !generatingBorrador}
+                                                onClick={() => setShowEnviarBorrador(true)}
+                                                title={local.borrador_cert_sent_at ? `Enviado el ${new Date(local.borrador_cert_sent_at).toLocaleDateString()}` : 'Enviar al instalador'}
+                                                className={`w-11 h-11 rounded-2xl border flex items-center justify-center transition-all ${
+                                                    local.borrador_cert_sent_at
+                                                    ? 'bg-blue-500/20 border-blue-500/30 text-blue-400 shadow-lg shadow-blue-500/10 hover:bg-blue-500 hover:text-white'
+                                                    : !local.borrador_cert_rite_link
+                                                        ? 'bg-white/5 border-white/5 text-white/5 cursor-not-allowed'
+                                                        : 'bg-orange-500/10 border-orange-500/20 text-orange-500 hover:bg-orange-500 hover:text-white'
+                                                }`}
+                                            >
+                                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                                                </svg>
+                                            </button>
+                                        </div>
+
+                                        {/* 3. (sin firmado: es un borrador) */}
+                                        <div className="w-11" />
                                     </div>
                                 </div>
                             </div>
