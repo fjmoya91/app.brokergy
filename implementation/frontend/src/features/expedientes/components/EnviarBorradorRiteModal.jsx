@@ -38,9 +38,12 @@ export function EnviarBorradorRiteModal({ isOpen, onClose, expediente, defaultMe
         setBusy('download'); setStatus(null);
         try {
             const { data } = await axios.post(`/api/expedientes/${expediente.id}/memoria-rite/files`);
+            // 3 ficheros: Memoria (Word) + Memoria (PDF) + Borrador (PDF). La guía JE6 no.
             const files = (data?.files || []).filter(f => {
                 const n = (f.name || '').toUpperCase();
-                return n.endsWith('.DOCX') || n.includes('BORRADOR_CERTIFICADO');
+                return n.endsWith('.DOCX')
+                    || n.includes('BORRADOR_CERTIFICADO')
+                    || (n.includes('MEMORIA_RITE') && n.endsWith('.PDF'));
             });
             files.forEach((f, i) => setTimeout(() => downloadOne(f), i * 250));
             setStatus({ ok: true, text: 'Documentos descargados ✓' });
@@ -105,7 +108,7 @@ export function EnviarBorradorRiteModal({ isOpen, onClose, expediente, defaultMe
                 <div className="px-6 py-5 border-b border-white/[0.07] bg-brand/5 flex items-center justify-between">
                     <div>
                         <h2 className="text-lg font-black uppercase tracking-tight text-white">Documentación RITE</h2>
-                        <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest mt-0.5">Memoria + Borrador certificado</p>
+                        <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest mt-0.5">Memoria (Word + PDF) + Borrador certificado</p>
                     </div>
                     <button onClick={onClose} className="text-white/30 hover:text-white transition-colors">
                         <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
@@ -120,7 +123,7 @@ export function EnviarBorradorRiteModal({ isOpen, onClose, expediente, defaultMe
 
                     {/* 4 acciones */}
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                        <Action id="download" onClick={handleDownload} label="Descargar" sub="Word + PDF"
+                        <Action id="download" onClick={handleDownload} label="Descargar" sub="3 archivos"
                             icon={<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" /></svg>} />
                         <Action id="drive" onClick={handleDrive} label="Subir a Drive" sub="7. LEGALIZACIÓN"
                             icon={<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.9A5 5 0 1115.9 6 4.5 4.5 0 0117 15M12 12v6m0-6l-2 2m2-2l2 2" /></svg>} />

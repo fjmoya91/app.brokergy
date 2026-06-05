@@ -257,6 +257,7 @@ async function createExpediente(uuid_oportunidad, id_cliente, manualNumber = nul
                 cert_rite_sent_at: null,
                 cert_rite_signed_link: null,
                 memoria_rite_guia_link: null,
+                memoria_rite_pdf_link: null,
                 borrador_cert_rite_link: null,
                 borrador_cert_sent_at: null,
                 photo_attachments: op.datos_calculo?.inputs?.photo_attachments || null

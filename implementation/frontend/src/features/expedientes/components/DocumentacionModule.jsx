@@ -336,6 +336,7 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
             cert_rite_sent_at: null,
             cert_rite_signed_link: null,
             memoria_rite_guia_link: null,
+            memoria_rite_pdf_link: null,
             borrador_cert_rite_link: null,
             borrador_cert_sent_at: null,
             anexo_i_drive_link: null,
@@ -419,6 +420,7 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                 cert_rite_sent_at: null,
                 cert_rite_signed_link: null,
                 memoria_rite_guia_link: null,
+                memoria_rite_pdf_link: null,
                 borrador_cert_rite_link: null,
                 borrador_cert_sent_at: null,
                 anexo_i_drive_link: null,
@@ -473,7 +475,6 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
     const [showCertificadoRes080, setShowCertificadoRes080] = useState(false);
     const [showAnexoFotografico, setShowAnexoFotografico] = useState(false);
     const [managingSigned, setManagingSigned] = useState(null); // { field, link, label }
-    const [generatingRite, setGeneratingRite] = useState(false);
     const [showEnviarBorrador, setShowEnviarBorrador] = useState(false);
 
     // ── Validación ───────────────────────────────────────────────────────────
@@ -635,43 +636,6 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
         });
     };
 
-    // Genera la Memoria RITE + Guía JE6 vía el microservicio (lo invoca el backend),
-    // sube ambos a "7. LEGALIZACION RITE" en Drive y persiste los enlaces.
-    const generateMemoriaRite = async () => {
-        if (generatingRite) return;
-        setGeneratingRite(true);
-        try {
-            const { data } = await axios.post(`/api/expedientes/${expediente.id}/memoria-rite/generate`);
-            setLocal(prev => {
-                const next = {
-                    ...prev,
-                    cert_rite_drive_link: data.cert_rite_drive_link || prev.cert_rite_drive_link,
-                    memoria_rite_guia_link: data.memoria_rite_guia_link || prev.memoria_rite_guia_link,
-                    borrador_cert_rite_link: data.borrador_cert_rite_link || prev.borrador_cert_rite_link
-                };
-                onSave({ documentacion: next });
-                return next;
-            });
-            alert('✅ Memoria RITE generada y archivada en Drive (7. LEGALIZACION RITE)');
-        } catch (err) {
-            const resp = err.response?.data;
-            if (err.response?.status === 422 && Array.isArray(resp?.missing)) {
-                // Defensa en profundidad: el backend detectó datos faltantes → mismo popup
-                setValidation({
-                    isOpen: true,
-                    fields: resp.missing,
-                    docName: 'Memoria RITE',
-                    onConfirm: () => setValidation(prev => ({ ...prev, isOpen: false }))
-                });
-            } else {
-                console.error('Error generando Memoria RITE:', err);
-                alert(`Error al generar la Memoria RITE: ${resp?.error || resp?.details || err.message}`);
-            }
-        } finally {
-            setGeneratingRite(false);
-        }
-    };
-
     // Mensaje predefinido (editable) para el envío al instalador. Genérico, sin
     // nombre (va al contacto de notificaciones del partner).
     const borradorMensajeDefault = (() => {
@@ -680,8 +644,9 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
         return `¡Hola! 👋\n\n`
             + `Desde *Brokergy* os lo ponemos fácil 🚀\n\n`
             + `Para agilizar la legalización térmica del expediente *${expediente?.numero_expediente || ''}*${clienteNombre ? ` (${clienteNombre})` : ''} os adjuntamos, ya preparados con los datos del proyecto:\n\n`
-            + `📄 *Memoria Técnica RITE* (Word) — prácticamente rellena: solo revisar y firmar.\n`
-            + `📋 *Borrador del Certificado de Instalación Térmica* — listo para *copiar y pegar* directamente en la plataforma de tramitación (JE6).\n\n`
+            + `📄 *Memoria Técnica RITE* (Word) — prácticamente rellena: revisar y firmar.\n`
+            + `📕 *Memoria Técnica RITE* (PDF) — por si no necesitáis hacer cambios.\n`
+            + `📋 *Borrador del Certificado de Instalación Térmica* (PDF) — listo para *copiar y pegar* directamente en la plataforma de tramitación (JE6).\n\n`
             + `Lo hemos rellenado por vosotros para ahorraros tiempo y evitar errores. Revisad que todo sea correcto antes de presentar.\n\n`
             + `¿Cualquier duda? El equipo de Brokergy está aquí para ayudaros 💪`;
     })();
@@ -696,6 +661,7 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
             const next = {
                 ...prev,
                 cert_rite_drive_link: data.cert_rite_drive_link || prev.cert_rite_drive_link,
+                memoria_rite_pdf_link: data.memoria_rite_pdf_link || prev.memoria_rite_pdf_link,
                 memoria_rite_guia_link: data.memoria_rite_guia_link || prev.memoria_rite_guia_link,
                 borrador_cert_rite_link: data.borrador_cert_rite_link || prev.borrador_cert_rite_link
             };
@@ -1408,93 +1374,34 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                                     )}
                                 </div>
 
-                                {/* MEMORIA RITE (generación automática) */}
+                                {/* MEMORIA RITE + BORRADOR CERTIFICADO RITE (se generan y envían juntos) */}
                                 <div className="flex items-center justify-between gap-6 p-4 rounded-2xl bg-white/[0.01] hover:bg-white/[0.03] transition-colors group">
                                     <div className="flex-1 min-w-0">
-                                        <p className="text-sm font-black text-white uppercase tracking-tight mb-0.5">Memoria RITE</p>
+                                        <p className="text-sm font-black text-white uppercase tracking-tight mb-0.5">Memoria RITE + Borrador Certificado RITE</p>
                                         <p className="text-white/30 text-[9px] font-bold uppercase tracking-widest leading-tight">
-                                            Memoria Técnica + Guía JE6 (automática)
+                                            Word + PDF + Borrador · para el instalador
                                         </p>
-                                        {local.cert_rite_drive_link && user?.rol === 'ADMIN' && (
-                                            <a href={local.cert_rite_drive_link} target="_blank" rel="noopener noreferrer" className="text-[9px] text-emerald-400/60 hover:text-emerald-400 font-black uppercase underline decoration-1 underline-offset-4 tracking-[0.15em] transition-all mt-1.5 inline-block mr-3">Ver Memoria</a>
-                                        )}
-                                        {local.memoria_rite_guia_link && user?.rol === 'ADMIN' && (
-                                            <a href={local.memoria_rite_guia_link} target="_blank" rel="noopener noreferrer" className="text-[9px] text-brand/60 hover:text-brand font-black uppercase underline decoration-1 underline-offset-4 tracking-[0.15em] transition-all mt-1.5 inline-block">Ver Guía JE6</a>
+                                        {user?.rol === 'ADMIN' && (local.cert_rite_drive_link || local.memoria_rite_pdf_link || local.borrador_cert_rite_link || local.memoria_rite_guia_link) && (
+                                            <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1">
+                                                {local.cert_rite_drive_link && <a href={local.cert_rite_drive_link} target="_blank" rel="noopener noreferrer" className="text-[9px] text-emerald-400/60 hover:text-emerald-400 font-black uppercase underline decoration-1 underline-offset-4 tracking-[0.15em] transition-all">Memoria (Word)</a>}
+                                                {local.memoria_rite_pdf_link && <a href={local.memoria_rite_pdf_link} target="_blank" rel="noopener noreferrer" className="text-[9px] text-emerald-400/60 hover:text-emerald-400 font-black uppercase underline decoration-1 underline-offset-4 tracking-[0.15em] transition-all">Memoria (PDF)</a>}
+                                                {local.borrador_cert_rite_link && <a href={local.borrador_cert_rite_link} target="_blank" rel="noopener noreferrer" className="text-[9px] text-emerald-400/60 hover:text-emerald-400 font-black uppercase underline decoration-1 underline-offset-4 tracking-[0.15em] transition-all">Borrador</a>}
+                                                {local.memoria_rite_guia_link && <a href={local.memoria_rite_guia_link} target="_blank" rel="noopener noreferrer" className="text-[9px] text-brand/60 hover:text-brand font-black uppercase underline decoration-1 underline-offset-4 tracking-[0.15em] transition-all">Guía JE6</a>}
+                                            </div>
                                         )}
                                     </div>
                                     <div className="flex items-center gap-6">
-                                        {/* 1. BORRADOR */}
+                                        {/* 1. GENERAR / ACCIONES (abre el modal) */}
                                         <div className="w-[100px]">
                                             <button
-                                                disabled={generatingRite}
-                                                onClick={() => handleGenerateClick('memoria_rite', 'Memoria RITE', generateMemoriaRite)}
+                                                onClick={() => handleGenerateClick('memoria_rite', 'Memoria + Borrador RITE', abrirBorradorModal)}
                                                 className={`w-full py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all active:scale-95 ${
-                                                    generatingRite
-                                                    ? 'bg-white/5 border border-white/10 text-white/40 cursor-wait'
-                                                    : local.cert_rite_drive_link
+                                                    (local.cert_rite_drive_link || local.borrador_cert_rite_link)
                                                         ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 hover:bg-emerald-500 hover:text-bkg-deep shadow-[0_0_15px_rgba(16,185,129,0.1)]'
                                                         : 'bg-brand/10 border border-brand/20 text-brand hover:bg-brand hover:text-bkg-deep'
                                                 }`}
                                             >
-                                                {generatingRite ? 'Generando…' : (local.cert_rite_drive_link ? 'Generado' : 'Generar')}
-                                            </button>
-                                        </div>
-
-                                        {/* 2. ENVIADO */}
-                                        <div className="w-11 flex justify-center">
-                                            <button
-                                                disabled={!local.cert_rite_drive_link}
-                                                onClick={() => handleToggleSent('cert_rite_sent_at')}
-                                                title={local.cert_rite_sent_at ? `Enviado el ${new Date(local.cert_rite_sent_at).toLocaleDateString()}` : 'Marcar como enviado'}
-                                                className={`w-11 h-11 rounded-2xl border flex items-center justify-center transition-all ${
-                                                    local.cert_rite_sent_at
-                                                    ? 'bg-blue-500/20 border-blue-500/30 text-blue-400 shadow-lg shadow-blue-500/10 hover:bg-blue-500 hover:text-white'
-                                                    : !local.cert_rite_drive_link
-                                                        ? 'bg-white/5 border-white/5 text-white/5 cursor-not-allowed'
-                                                        : 'bg-orange-500/10 border-orange-500/20 text-orange-500 hover:bg-orange-500 hover:text-white'
-                                                }`}
-                                            >
-                                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                                                </svg>
-                                            </button>
-                                        </div>
-
-                                        {/* 3. PDF FIRMADO */}
-                                        <div className="w-11">
-                                            <SignedSlot
-                                                link={local.cert_rite_signed_link}
-                                                field="cert_rite_signed_link"
-                                                label="Memoria RITE Firmada"
-                                                onUpload={(file) => handleSignedUpload('cert_rite_signed_link', file)}
-                                            />
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {/* BORRADOR CERTIFICADO RITE (para el instalador) */}
-                                <div className="flex items-center justify-between gap-6 p-4 rounded-2xl bg-white/[0.01] hover:bg-white/[0.03] transition-colors group">
-                                    <div className="flex-1 min-w-0">
-                                        <p className="text-sm font-black text-white uppercase tracking-tight mb-0.5">Borrador Certificado RITE</p>
-                                        <p className="text-white/30 text-[9px] font-bold uppercase tracking-widest leading-tight">
-                                            Para el instalador · copiar y pegar en JE6
-                                        </p>
-                                        {local.borrador_cert_rite_link && user?.rol === 'ADMIN' && (
-                                            <a href={local.borrador_cert_rite_link} target="_blank" rel="noopener noreferrer" className="text-[9px] text-emerald-400/60 hover:text-emerald-400 font-black uppercase underline decoration-1 underline-offset-4 tracking-[0.15em] transition-all mt-1.5 inline-block">Ver borrador</a>
-                                        )}
-                                    </div>
-                                    <div className="flex items-center gap-6">
-                                        {/* 1. GENERAR + ENVIAR */}
-                                        <div className="w-[100px]">
-                                            <button
-                                                onClick={() => handleGenerateClick('memoria_rite', 'Borrador Certificado RITE', abrirBorradorModal)}
-                                                className={`w-full py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all active:scale-95 ${
-                                                    local.borrador_cert_rite_link
-                                                        ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 hover:bg-emerald-500 hover:text-bkg-deep shadow-[0_0_15px_rgba(16,185,129,0.1)]'
-                                                        : 'bg-brand/10 border border-brand/20 text-brand hover:bg-brand hover:text-bkg-deep'
-                                                }`}
-                                            >
-                                                {local.borrador_cert_rite_link ? 'Generado' : 'Generar'}
+                                                {(local.cert_rite_drive_link || local.borrador_cert_rite_link) ? 'Generado' : 'Generar'}
                                             </button>
                                         </div>
 
@@ -1515,8 +1422,15 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                                             </button>
                                         </div>
 
-                                        {/* 3. (sin firmado: es un borrador) */}
-                                        <div className="w-11" />
+                                        {/* 3. PDF FIRMADO (memoria firmada) */}
+                                        <div className="w-11">
+                                            <SignedSlot
+                                                link={local.cert_rite_signed_link}
+                                                field="cert_rite_signed_link"
+                                                label="Memoria RITE Firmada"
+                                                onUpload={(file) => handleSignedUpload('cert_rite_signed_link', file)}
+                                            />
+                                        </div>
                                     </div>
                                 </div>
                             </div>

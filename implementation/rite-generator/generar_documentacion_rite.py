@@ -22,6 +22,8 @@ import json
 import argparse
 import zipfile
 import re
+import shutil
+import subprocess
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -32,6 +34,26 @@ from lib import generar_borrador_certificado as borrador
 from lib import supabase_client as sc
 
 PLANTILLA = os.path.join(os.path.dirname(__file__), "assets", "plantilla_rite_jccm.docx")
+
+
+def _docx_to_pdf(docx_path, salida_dir):
+    """Convierte la Memoria .docx a .pdf con LibreOffice headless (si está
+    disponible). Devuelve la ruta del PDF o None si no se pudo (degrada con
+    elegancia: en local sin LibreOffice simplemente no hay PDF de la memoria)."""
+    soffice = shutil.which("soffice") or shutil.which("libreoffice")
+    if not soffice:
+        print("[WARN] LibreOffice no disponible: no se genera el PDF de la memoria")
+        return None
+    try:
+        env = {**os.environ, "HOME": salida_dir}  # LibreOffice necesita HOME escribible
+        subprocess.run([soffice, "--headless", "--convert-to", "pdf", "--outdir",
+                        salida_dir, docx_path], check=True, timeout=120,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env)
+        pdf_path = os.path.splitext(docx_path)[0] + ".pdf"
+        return pdf_path if os.path.exists(pdf_path) else None
+    except Exception as e:
+        print(f"[WARN] Conversión docx->pdf falló: {e}")
+        return None
 
 
 def _nombres_campos(plantilla_path):
@@ -51,13 +73,21 @@ def generar(datos: dict, salida_dir: str):
     generar_memoria(PLANTILLA, text_by_pos, check_positions, out_docx)
     print(f"  [OK] Memoria: {out_docx}  ({len(text_by_pos)} campos, {len(check_positions)} casillas)")
 
+    # 1b) MEMORIA .pdf (conversión del .docx con LibreOffice; opcional)
+    out_memoria_pdf = _docx_to_pdf(out_docx, salida_dir)
+
     # 2) GUÍA JE6 .pdf  +  3) BORRADOR CERTIFICADO .pdf (misma data)
     guia_datos = _datos_guia(datos)
     out_pdf = os.path.join(salida_dir, f"GUIA_JE6_{exp}.pdf")
     guia.build(guia_datos, out_pdf)
     out_borrador = os.path.join(salida_dir, f"BORRADOR_CERTIFICADO_RITE_{exp}.pdf")
     borrador.build(guia_datos, out_borrador)
-    return [out_docx, out_pdf, out_borrador]
+
+    rutas = [out_docx]
+    if out_memoria_pdf:
+        rutas.append(out_memoria_pdf)
+    rutas += [out_pdf, out_borrador]
+    return rutas
 
 
 def _datos_guia(d: dict) -> dict:

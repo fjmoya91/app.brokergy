@@ -8,7 +8,13 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-# Dependencias (capa cacheable)
+# LibreOffice headless (solo Writer) para convertir la Memoria .docx -> .pdf.
+# Capa cacheable (no cambia salvo que se edite esta línea).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libreoffice-writer fonts-dejavu \
+    && rm -rf /var/lib/apt/lists/*
+
+# Dependencias Python (capa cacheable)
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 

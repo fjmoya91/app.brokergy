@@ -1280,6 +1280,7 @@ router.post('/:id/memoria-rite/generate', enforceAuth, async (req, res) => {
         const riteFolderId = await getOrCreateSubfolder(driveFolderId, '7. LEGALIZACION RITE');
 
         let memoriaLink = null;
+        let memoriaPdfLink = null;
         let guiaLink = null;
         let borradorLink = null;
         for (const f of files) {
@@ -1305,17 +1306,19 @@ router.post('/:id/memoria-rite/generate', enforceAuth, async (req, res) => {
             if (!result) return res.status(500).json({ error: `Error al subir '${f.name}' a Drive` });
             try { await setFolderPublic(result.id, 'reader'); } catch (e) { /* no bloqueante */ }
 
-            // Distinguir por nombre: hay 2 PDFs (guía JE6 + borrador certificado).
+            // Distinguir por nombre: memoria .docx, memoria .pdf, guía JE6, borrador.
             const name = (f.name || '').toUpperCase();
             if (name.endsWith('.DOCX')) memoriaLink = result.link;
             else if (name.includes('BORRADOR_CERTIFICADO')) borradorLink = result.link;
             else if (name.includes('GUIA_JE6')) guiaLink = result.link;
+            else if (name.includes('MEMORIA_RITE') && name.endsWith('.PDF')) memoriaPdfLink = result.link;
         }
 
         if (!memoriaLink) return res.status(500).json({ error: 'No se obtuvo el enlace de la Memoria RITE' });
 
         return res.json({
             cert_rite_drive_link: memoriaLink,
+            memoria_rite_pdf_link: memoriaPdfLink,
             memoria_rite_guia_link: guiaLink,
             borrador_cert_rite_link: borradorLink
         });
@@ -1356,13 +1359,18 @@ router.post('/:id/memoria-rite/send', enforceAuth, async (req, res) => {
             return res.status(502).json({ error: 'El servicio de generación RITE no está disponible', details: svcErr.response?.data?.detail || svcErr.message });
         }
         if (!Array.isArray(files) || !files.length) return res.status(502).json({ error: 'El servicio RITE no devolvió documentos' });
-        const memoria = files.find(f => (f.name || '').toUpperCase().endsWith('.DOCX'));
-        const borrador = files.find(f => (f.name || '').toUpperCase().includes('BORRADOR_CERTIFICADO'));
+        const U = (f) => (f.name || '').toUpperCase();
+        const memoria = files.find(f => U(f).endsWith('.DOCX'));
+        const memoriaPdf = files.find(f => U(f).includes('MEMORIA_RITE') && U(f).endsWith('.PDF'));
+        const borrador = files.find(f => U(f).includes('BORRADOR_CERTIFICADO'));
         if (!memoria || !borrador) return res.status(500).json({ error: 'Faltan documentos generados (memoria o borrador)' });
+
+        // Se envían 3 ficheros: Memoria (Word) + Memoria (PDF) + Borrador del certificado.
+        const docsEnviar = [memoria, memoriaPdf, borrador].filter(Boolean);
 
         const result = { email: null, whatsapp: null };
 
-        // Email (Memoria + Borrador adjuntos)
+        // Email (los 3 documentos adjuntos)
         if (chans.includes('email')) {
             if (!instEmail) { result.email = { ok: false, error: 'El instalador no tiene email registrado' }; }
             else {
@@ -1377,7 +1385,7 @@ router.post('/:id/memoria-rite/send', enforceAuth, async (req, res) => {
                         </div>
                         <div style="padding:24px 28px;color:#222;font-size:14px;line-height:1.6;white-space:pre-wrap">${safeMsg}</div>
                         <div style="padding:0 28px 24px;color:#555;font-size:12px">
-                          📎 Adjuntos: <b>Memoria Técnica RITE</b> (Word) y <b>Borrador del Certificado de Instalación Térmica</b> (PDF).
+                          📎 Adjuntos: <b>Memoria Técnica RITE</b> (Word${memoriaPdf ? ' y PDF' : ''}) y <b>Borrador del Certificado de Instalación Térmica</b> (PDF).
                         </div>
                       </div>`;
                     await emailService.sendMail({
@@ -1385,17 +1393,14 @@ router.post('/:id/memoria-rite/send', enforceAuth, async (req, res) => {
                         subject: `Documentación RITE — Expediente ${exp.numero_expediente}`,
                         html,
                         text: message || '',
-                        attachments: [
-                            { filename: memoria.name, content: Buffer.from(memoria.base64, 'base64') },
-                            { filename: borrador.name, content: Buffer.from(borrador.base64, 'base64') }
-                        ]
+                        attachments: docsEnviar.map(f => ({ filename: f.name, content: Buffer.from(f.base64, 'base64') }))
                     });
                     result.email = { ok: true, to: instEmail };
                 } catch (e) { result.email = { ok: false, error: e.message }; }
             }
         }
 
-        // WhatsApp (Borrador con el mensaje + Memoria a continuación)
+        // WhatsApp (Borrador con el mensaje + memorias a continuación)
         if (chans.includes('whatsapp')) {
             if (!instTlf) { result.whatsapp = { ok: false, error: 'El instalador no tiene teléfono registrado' }; }
             else {
@@ -1403,12 +1408,17 @@ router.post('/:id/memoria-rite/send', enforceAuth, async (req, res) => {
                     const wwa = require('../services/whatsappService');
                     const st = wwa.getStatus();
                     if (!st || !st.ready) throw new Error('WhatsApp no está conectado');
-                    await wwa.sendMedia(instTlf,
-                        { base64: borrador.base64, filename: borrador.name, mimetype: borrador.mimetype || 'application/pdf' },
-                        { caption: message || undefined, asDocument: true });
-                    await wwa.sendMedia(instTlf,
-                        { base64: memoria.base64, filename: memoria.name, mimetype: memoria.mimetype || 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' },
-                        { caption: 'Memoria Técnica RITE (Word) — revisar y firmar.', asDocument: true });
+                    // 1º el borrador con el mensaje; luego memoria Word y PDF.
+                    const orden = [
+                        { f: borrador, caption: message || undefined },
+                        { f: memoria, caption: 'Memoria Técnica RITE (Word) — revisar y firmar.' },
+                        { f: memoriaPdf, caption: 'Memoria Técnica RITE (PDF) — si no hace falta editar.' }
+                    ].filter(x => x.f);
+                    for (const { f, caption } of orden) {
+                        await wwa.sendMedia(instTlf,
+                            { base64: f.base64, filename: f.name, mimetype: f.mimetype || 'application/pdf' },
+                            { caption, asDocument: true });
+                    }
                     result.whatsapp = { ok: true, phone: instTlf };
                 } catch (e) { result.whatsapp = { ok: false, error: e.message }; }
             }
