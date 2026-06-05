@@ -107,6 +107,19 @@ function getSlotDef(funnel, slotKey, origen = 'aerotermia') {
 
 const PHASE = { ANTES: 'ANTES', DESPUES: 'DESPUES' };
 
+// Apartados de foto que el ADMIN puede AÑADIR a un expediente cuando el alcance
+// cambia a posteriori (p.ej. añadir ventanas a un RES060 de aerotermia). Cada
+// concepto habilita uno o varios slots (antes/después) vía docs_overrides[slot].enabled.
+// El backend valida contra esta lista (no se habilita cualquier clave arbitraria).
+const ADDABLE_CONCEPTS = [
+    { id: 'ventanas', label: 'Ventanas (antes y después)', slots: ['FOTO_VENTANAS_ANTES', 'FOTO_VENTANAS_DESPUES'] },
+    { id: 'cubierta', label: 'Cubierta / tejado (antes y después)', slots: ['FOTO_CUBIERTA_ANTES', 'FOTO_CUBIERTA_DESPUES'] },
+    { id: 'fachada',  label: 'Aislamiento de fachada (antes y después)', slots: ['FOTO_FACHADA_ANTES', 'FOTO_FACHADA_DESPUES'] },
+    { id: 'suelo',    label: 'Suelo (antes)', slots: ['FOTO_SUELO_ANTES'] },
+    { id: 'acs',      label: 'ACS: sistema actual + depósito', slots: ['FOTO_ACS_ANTES', 'FOTO_ACS_DEPOSITO'] },
+];
+const ADDABLE_SLOT_KEYS = new Set(ADDABLE_CONCEPTS.flatMap(c => c.slots));
+
 // Formatos admitidos por el selector de archivos. Generosos: cualquier imagen + PDF
 // valen para todas las casillas de foto/documento (el backend no filtra por formato).
 const ACCEPT_FOTO = 'image/*,application/pdf';
@@ -152,6 +165,14 @@ function buildDocChecklist(datosCalculo = {}) {
     const slots = [];
     const push = (s) => slots.push(s);
 
+    // Apartados habilitados a mano por el admin para ESTE expediente (alcance
+    // ampliado a posteriori, p.ej. añadir ventanas a un RES060 de aerotermia).
+    // Viven en datos_calculo.docs_overrides[<slot>].enabled === true.
+    const enabledSet = new Set(Object.entries(datosCalculo.docs_overrides || {})
+        .filter(([, v]) => v && v.enabled === true).map(([k]) => k));
+    // ¿Incluir este slot? Si lo pide la simulación O el admin lo habilitó a mano.
+    const want = (slotKey, selector) => !!selector || enabledSet.has(slotKey);
+
     // ───────── ANTES DE LA OBRA ─────────
     if (sel.hayCaldera) {
         push({ key: 'FOTO_CALDERA_ANTES', fase: PHASE.ANTES, required: true, gating: 'pre_aceptacion', multiple: true, accept: ACCEPT_FOTO,
@@ -167,11 +188,11 @@ function buildDocChecklist(datosCalculo = {}) {
            label: 'Vídeo recorriendo la vivienda', help: 'Un vídeo corto mostrando estancias, ventanas y accesos al exterior.' });
     push({ key: 'DOC_PLANOS', fase: PHASE.ANTES, required: false, multiple: true, accept: ACCEPT_DOC,
            label: 'Planos o croquis', help: 'PDF o foto (.pdf, .png, .jpg…). Si no los tienes, con el vídeo nos vale.' });
-    if (sel.reforma.ventanas) push({ key: 'FOTO_VENTANAS_ANTES', fase: PHASE.ANTES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Ventanas a sustituir (antes)', help: 'Las que vais a cambiar.' });
-    if (sel.reforma.cubierta) push({ key: 'FOTO_CUBIERTA_ANTES', fase: PHASE.ANTES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Cubierta / tejado (antes)' });
-    if (sel.reforma.paredes)  push({ key: 'FOTO_FACHADA_ANTES', fase: PHASE.ANTES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Fachada a aislar (antes)' });
-    if (sel.reforma.suelo)    push({ key: 'FOTO_SUELO_ANTES', fase: PHASE.ANTES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Suelo (antes)' });
-    if (sel.changeAcs)        push({ key: 'FOTO_ACS_ANTES', fase: PHASE.ANTES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Sistema de ACS actual', help: 'Termo eléctrico o conexión de ACS de la caldera.' });
+    if (want('FOTO_VENTANAS_ANTES', sel.reforma.ventanas)) push({ key: 'FOTO_VENTANAS_ANTES', fase: PHASE.ANTES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Ventanas a sustituir (antes)', help: 'Las que vais a cambiar.' });
+    if (want('FOTO_CUBIERTA_ANTES', sel.reforma.cubierta)) push({ key: 'FOTO_CUBIERTA_ANTES', fase: PHASE.ANTES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Cubierta / tejado (antes)' });
+    if (want('FOTO_FACHADA_ANTES', sel.reforma.paredes))  push({ key: 'FOTO_FACHADA_ANTES', fase: PHASE.ANTES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Fachada a aislar (antes)' });
+    if (want('FOTO_SUELO_ANTES', sel.reforma.suelo))    push({ key: 'FOTO_SUELO_ANTES', fase: PHASE.ANTES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Suelo (antes)' });
+    if (want('FOTO_ACS_ANTES', sel.changeAcs))        push({ key: 'FOTO_ACS_ANTES', fase: PHASE.ANTES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Sistema de ACS actual', help: 'Termo eléctrico o conexión de ACS de la caldera.' });
     push({ key: 'OTROS_ANTES', fase: PHASE.ANTES, required: false, multiple: true, accept: 'image/*,application/pdf,video/*',
            label: 'Otros (antes de la obra)', help: 'PDF, fotos, vídeos u otros archivos que no encajen en las categorías anteriores.' });
 
@@ -179,11 +200,11 @@ function buildDocChecklist(datosCalculo = {}) {
     push({ key: 'FOTO_UNIDAD_EXTERIOR', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Unidad exterior nueva (instalada)' });
     push({ key: 'FOTO_UNIDAD_EXTERIOR_PLACA', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Placa de la unidad exterior' });
     push({ key: 'FOTO_UNIDAD_INTERIOR_PLACA', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Placa de la unidad interior / hidrokit' });
-    if (sel.changeAcs) push({ key: 'FOTO_ACS_DEPOSITO', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Depósito de ACS / inercia (con placa)' });
+    if (want('FOTO_ACS_DEPOSITO', sel.changeAcs)) push({ key: 'FOTO_ACS_DEPOSITO', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Depósito de ACS / inercia (con placa)' });
     push({ key: 'FOTO_CALDERA_DESMONTADA', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Caldera antigua desmontada / hueco' });
-    if (sel.reforma.ventanas) push({ key: 'FOTO_VENTANAS_DESPUES', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Ventanas nuevas (después)' });
-    if (sel.reforma.cubierta) push({ key: 'FOTO_CUBIERTA_DESPUES', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Cubierta terminada' });
-    if (sel.reforma.paredes)  push({ key: 'FOTO_FACHADA_DESPUES', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Aislamiento de fachada terminado' });
+    if (want('FOTO_VENTANAS_DESPUES', sel.reforma.ventanas)) push({ key: 'FOTO_VENTANAS_DESPUES', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Ventanas nuevas (después)' });
+    if (want('FOTO_CUBIERTA_DESPUES', sel.reforma.cubierta)) push({ key: 'FOTO_CUBIERTA_DESPUES', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Cubierta terminada' });
+    if (want('FOTO_FACHADA_DESPUES', sel.reforma.paredes))  push({ key: 'FOTO_FACHADA_DESPUES', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Aislamiento de fachada terminado' });
     push({ key: 'VIDEO_REFORMA', fase: PHASE.DESPUES, required: false, multiple: false, accept: ACCEPT_VIDEO, label: 'Vídeo de la reforma (opcional)', help: 'Recorrido en vídeo de la instalación ya terminada.' });
     push({ key: 'DOC_FACTURAS', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_DOC, label: 'Facturas de la instalación' });
     push({ key: 'DOC_RITE', fase: PHASE.DESPUES, required: false, multiple: false, accept: ACCEPT_DOC, label: 'Certificado RITE' });
@@ -421,11 +442,25 @@ async function buildDocsView(opp) {
         });
     }
 
+    // Catálogo de apartados añadibles + su estado actual (para el botón "Añadir apartado").
+    //  - shown: ya está en el checklist (visible para subir)
+    //  - enabled: habilitado a mano por override
+    //  - hasPhotos: tiene alguna foto subida (no permitir quitarlo si las tiene)
+    const addableConcepts = ADDABLE_CONCEPTS.map(c => ({
+        id: c.id,
+        label: c.label,
+        slots: c.slots,
+        shown: c.slots.some(k => checklist.some(s => s.key === k)),
+        enabled: c.slots.some(k => overrides[k]?.enabled === true),
+        hasPhotos: c.slots.some(k => (slots.find(s => s.key === k)?.items?.length > 0)),
+    }));
+
     return {
         id_oportunidad: opp.id_oportunidad,
         cliente: opp.referencia_cliente || '',
         aceptada: dc.estado === 'ACEPTADA',
-        slots
+        slots,
+        addableConcepts
     };
 }
 
@@ -557,11 +592,14 @@ ${uploadLink}
 module.exports = {
     SUBCARPETA_DOCS,
     PHASE,
+    ADDABLE_CONCEPTS,
+    ADDABLE_SLOT_KEYS,
     getReformaSlots,
     getAerotermiaSlots,
     getLeadSlots,
     getSlotDef,
     isValidSlot,
+    fileBelongsToSlot,
     buildDocChecklist,
     buildDocsView,
     deriveSelectors,

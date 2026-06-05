@@ -1101,6 +1101,29 @@ router.post('/:id/docs/:slot/waive', adminOnly, async (req, res) => {
     }
 });
 
+// POST /api/oportunidades/:id/docs/concept  body { conceptId, enabled }
+// Habilita/quita un APARTADO de foto extra (ventanas, cubierta, fachada, suelo, ACS)
+// para este expediente cuando el alcance cambió a posteriori. Marca
+// docs_overrides[slot].enabled en cada slot del concepto (sin tocar el cálculo). Admin.
+router.post('/:id/docs/concept', adminOnly, async (req, res) => {
+    try {
+        const { conceptId } = req.body;
+        const enabled = req.body?.enabled !== false; // default: true
+        const concept = reformaUploadService.ADDABLE_CONCEPTS.find(c => c.id === conceptId);
+        if (!concept) return res.status(400).json({ error: 'Apartado no válido' });
+        const opp = await findOppForDocs(req.params.id);
+        if (!opp) return res.status(404).json({ error: 'Oportunidad no encontrada' });
+        for (const slot of concept.slots) {
+            const { error } = await supabase.rpc('set_doc_concept_enabled', { p_id: opp.id, p_slot: slot, p_enabled: enabled });
+            if (error) { console.error('[Docs] rpc set_doc_concept_enabled:', error.message); return res.status(500).json({ error: 'No se pudo guardar el apartado' }); }
+        }
+        return res.json({ success: true, conceptId, enabled, slots: concept.slots });
+    } catch (e) {
+        console.error('[Docs] concept enable error:', e);
+        res.status(500).json({ error: 'Error interno' });
+    }
+});
+
 // POST /api/oportunidades/:id/docs/:slot/rechazar  body { name, motivo, notifyTarget? }
 // notifyTarget: 'cliente' | 'instalador' | 'ninguno' (si omitido, se deduce de subido_por)
 router.post('/:id/docs/:slot/rechazar', adminOnly, async (req, res) => {

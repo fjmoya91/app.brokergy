@@ -825,13 +825,13 @@ router.delete('/reforma-docs/:uuid/:slot', async (req, res) => {
  * Escanea la carpeta "12. DOCUMENTOS PARA CEE" buscando las fotos pre-cargadas
  * y devuelve su contenido en base64 para el Anexo Fotográfico.
  *
- * Búsqueda por PREFIJO (case-insensitive). Resuelve correctamente:
+ * Matching por slot EXACTO o con sufijo numérico `_N` (vía fileBelongsToSlot), NO por
+ * prefijo suelto. Así `FOTO_UNIDAD_EXTERIOR` no captura `FOTO_UNIDAD_EXTERIOR_PLACA*`.
+ * Devuelve TODAS las fotos de cada slot: `photos[slot] = [{ name, data(base64) }, ...]`.
  *  - Nombres canónicos exactos: `FOTO_CALDERA_ANTES.jpeg`
- *  - Variantes con sufijo: `FOTO_CALDERA_ANTES_v2.jpeg`, `FOTO_CALDERA_ANTES.compressed.jpg`
- *  - Nombres legacy mantienen su clave de respuesta (compat con SubirFotosModal y AnexoFotograficoModal)
+ *  - Variantes con sufijo numérico: `FOTO_UNIDAD_EXTERIOR_1.jpg`, `FOTO_UNIDAD_EXTERIOR_2.jpg`
  *
  * Param opcional `?slots=KEY1,KEY2,...` para añadir/restringir slots a escanear.
- * Cada slot debe coincidir con el prefijo del archivo (sin extensión).
  */
 router.get('/scan-photos/:id', async (req, res) => {
     const { id: paramId } = req.params;
@@ -876,32 +876,122 @@ router.get('/scan-photos/:id', async (req, res) => {
             return map[ext] || 'image/jpeg';
         };
 
-        // Búsqueda paralela por prefijo. Cada slot toma el más reciente.
+        // Búsqueda paralela por slot. Por cada slot devolvemos TODAS sus fotos como ARRAY.
+        // Filtramos con fileBelongsToSlot (nombre exacto o sufijo _N) para evitar el cruce
+        // por prefijo: FOTO_UNIDAD_EXTERIOR NO debe capturar FOTO_UNIDAD_EXTERIOR_PLACA*.
         await Promise.all(targetSlots.map(async (slot) => {
             try {
-                const matches = await driveService.listFilesByPrefix(subfolderId, slot);
+                const candidates = await driveService.listFilesByPrefix(subfolderId, slot);
+                const matches = (candidates || [])
+                    .filter(f => reformaUploadService.fileBelongsToSlot(f.name, slot))
+                    .sort((a, b) => String(a.name).localeCompare(String(b.name), 'es', { numeric: true }));
                 if (!matches.length) return;
-                // listFilesByPrefix devuelve ordenado por createdTime desc
-                const file = matches[0];
-                console.log(`[ScanPhotos] Slot ${slot} -> ${file.name} (${file.id})`);
-                const buffer = await driveService.getFileContent(file.id);
-                if (!buffer) return;
-                let mimeType = file.mimeType;
-                if (!mimeType || !mimeType.startsWith('image/')) {
-                    mimeType = extToMime(file.name);
+                const photos = [];
+                for (const file of matches) {
+                    // eslint-disable-next-line no-await-in-loop
+                    const buffer = await driveService.getFileContent(file.id);
+                    if (!buffer) continue;
+                    let mimeType = file.mimeType;
+                    if (!mimeType || !mimeType.startsWith('image/')) mimeType = extToMime(file.name);
+                    photos.push({ name: file.name, data: `data:${mimeType};base64,${buffer.toString('base64')}` });
                 }
-                const b64 = `data:${mimeType};base64,${buffer.toString('base64')}`;
-                foundPhotos[slot] = { name: file.name, data: b64 };
+                if (photos.length) {
+                    console.log(`[ScanPhotos] Slot ${slot} -> ${photos.length} foto(s): ${matches.map(m => m.name).join(', ')}`);
+                    foundPhotos[slot] = photos;
+                }
             } catch (slotErr) {
                 console.warn(`[ScanPhotos] Error procesando slot ${slot}:`, slotErr.message);
             }
         }));
 
+        // Respuesta: photos[slot] = [{ name, data }, ...] (array; antes era un único objeto).
         res.json({ success: true, photos: foundPhotos });
 
     } catch (e) {
         console.error('Error scanning photos from Drive:', e);
         res.status(500).json({ error: 'Error al escanear fotos en Drive' });
+    }
+});
+
+/**
+ * GET /api/public/anexo-photos/:id
+ * Fotos del Anexo Fotográfico, DINÁMICAS: una entrada por concepto que REALMENTE
+ * tiene imagen en Drive (un concepto sin foto no aparece). En orden antes→después.
+ *
+ * Fuente única: los conceptos salen de buildDocChecklist(datos_calculo) (mismas
+ * etiquetas/orden que el popup). Se incluyen los de la fase DESPUÉS (las actuaciones:
+ * unidad exterior, placas, depósito ACS, caldera desmontada…) + el equipo de ANTES
+ * (caldera, placa de caldera, ACS previo) para documentar el estado inicial. Se
+ * omiten vídeos, documentos y catch-alls "otros". Imágenes en base64 listas para PDF.
+ *
+ * Respuesta: { success, groups: [{ key, label, fase, photos: [{ name, data }] }] }
+ */
+router.get('/anexo-photos/:id', async (req, res) => {
+    try {
+        const id = await resolveOportunidadId(req.params.id);
+        const { data: opp, error } = await supabase
+            .from('oportunidades')
+            .select('datos_calculo')
+            .eq('id_oportunidad', id)
+            .maybeSingle();
+        if (error || !opp) return res.status(404).json({ error: 'Oportunidad no encontrada' });
+
+        const dc = opp.datos_calculo || {};
+        const driveFolderId = dc.drive_folder_id || dc.inputs?.drive_folder_id;
+        if (!driveFolderId) return res.json({ success: true, groups: [] });
+        const subfolderId = await driveService.findSubfolderByName(driveFolderId, '12. DOCUMENTOS PARA CEE');
+        if (!subfolderId) return res.json({ success: true, groups: [] });
+
+        const driveFiles = await driveService.listFiles(subfolderId);
+        const IMG_EXT = /\.(jpe?g|png|gif|webp|heic|heif|bmp|tiff?)$/i;
+        const isImg = (f) => (f.mimeType || '').startsWith('image/') || IMG_EXT.test(f.name || '');
+
+        // Conceptos: todas las actuaciones (DESPUÉS) + el estado inicial de cada una
+        // (ANTES). En ANTES se excluyen solo las fotos de CONTEXTO (no son actuación):
+        // fachada de la calle y patios. Así, las ventanas/cubierta/etc. de ANTES
+        // habilitadas a posteriori sí entran. Sin vídeos/docs/otros.
+        const ANTES_CONTEXTO = new Set(['FOTO_FACHADA_PRINCIPAL', 'FOTO_PATIOS_INTERIORES']);
+        const concepts = reformaUploadService.buildDocChecklist(dc)
+            .filter(s => !/^(VIDEO_|DOC_|OTROS_)/.test(s.key) && (s.fase === 'DESPUES' || !ANTES_CONTEXTO.has(s.key)))
+            .map(s => ({ key: s.key, label: s.label, fase: s.fase }));
+        // Legacy: "unidad interior / ACS" suelto (expedientes antiguos del anexo previo).
+        if (!concepts.some(c => c.key === 'FOTO_UNIDAD_INTERIOR')) {
+            concepts.push({ key: 'FOTO_UNIDAD_INTERIOR', label: 'Unidad interior / ACS', fase: 'DESPUES' });
+        }
+
+        const extToMime = (filename) => {
+            const ext = (String(filename).split('.').pop() || '').toLowerCase();
+            const map = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', heic: 'image/heic', heif: 'image/heif', gif: 'image/gif', bmp: 'image/bmp' };
+            return map[ext] || 'image/jpeg';
+        };
+        const toB64 = async (file) => {
+            const buffer = await driveService.getFileContent(file.id);
+            if (!buffer) return null;
+            let mt = file.mimeType;
+            if (!mt || !mt.startsWith('image/')) mt = extToMime(file.name);
+            return { name: file.name, data: `data:${mt};base64,${buffer.toString('base64')}` };
+        };
+
+        const groups = [];
+        for (const c of concepts) {
+            const matches = driveFiles
+                .filter(f => isImg(f) && reformaUploadService.fileBelongsToSlot(f.name, c.key))
+                .sort((a, b) => String(a.name).localeCompare(String(b.name), 'es', { numeric: true }));
+            if (!matches.length) continue;
+            const photos = [];
+            for (const f of matches) {
+                // eslint-disable-next-line no-await-in-loop
+                const p = await toB64(f);
+                if (p) photos.push(p);
+            }
+            if (photos.length) groups.push({ key: c.key, label: c.label, fase: c.fase, photos });
+        }
+
+        console.log(`[AnexoPhotos] ${id}: ${groups.length} concepto(s) con foto`);
+        res.json({ success: true, groups });
+    } catch (e) {
+        console.error('[AnexoPhotos] error:', e);
+        res.status(500).json({ error: 'Error al recopilar fotos del anexo' });
     }
 });
 

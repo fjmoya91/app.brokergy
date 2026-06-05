@@ -349,18 +349,10 @@ const Spinner = () => (
     </svg>
 );
 
-// Default photo slots matching the user's requirements
-const DEFAULT_PHOTO_SLOTS = [
-    { id: 'caldera_anterior', label: 'Foto Caldera Anterior', file: null, required: true },
-    { id: 'placa_caldera_anterior', label: 'Foto Placa de la Caldera Anterior', file: null, required: true },
-    { id: 'unidad_exterior', label: 'Foto Unidad Exterior', file: null, required: true },
-    { id: 'placa_unidad_exterior', label: 'Foto Placa de la Unidad Exterior', file: null, required: true },
-    { id: 'unidad_interior', label: 'Foto Unidad Interior / ACS', file: null, required: true },
-    { id: 'placa_unidad_interior', label: 'Foto Placa Unidad Interior / ACS', file: null, required: true },
-];
-
 // Mapa slot legacy ↔ nombre canónico en Drive (carpeta "12. DOCUMENTOS PARA CEE").
-// `FOTO_CALDERA_ANTES` y `FOTO_PLACA_CALDERA_ANTES` se mantienen por compat con expedientes históricos.
+// Se mantiene para que una subida manual desde el Anexo (campos legacy) siga
+// guardándose en Drive con su nombre canónico. El Anexo es DINÁMICO: la lista de
+// fotos se construye desde Drive vía /api/public/anexo-photos (no hay huecos fijos).
 const SLOT_TO_CANONICAL = {
     caldera_anterior:        'FOTO_CALDERA_ANTES',
     placa_caldera_anterior:  'FOTO_PLACA_CALDERA_ANTES',
@@ -410,49 +402,49 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
         }
     }, [isOpen]);
 
-    // ─── Scaneo de Drive para Pre-carga ──────────────────────────────────────────
+    // ─── Carga DINÁMICA de fotos desde Drive ─────────────────────────────────────
     const [scanningDrive, setScanningDrive] = useState(false);
 
+    // Pide al backend los conceptos que REALMENTE tienen foto (orden antes→después) y
+    // reconstruye la lista. Conserva el recorte/tamaño de filas drive_ ya guardadas y
+    // las filas manuales (custom_). Un concepto sin foto no aparece.
     useEffect(() => {
-        const scanDrivePhotos = async () => {
-            // Hace falta escanear si algún slot mapeado a canónico está vacío
-            const needsAny = Object.keys(SLOT_TO_CANONICAL)
-                .some(slotId => !photos.find(p => p.id === slotId)?.file);
-
+        const loadDynamic = async () => {
             const oppId = expediente?.id_oportunidad_ref || expediente?.oportunidades?.id_oportunidad;
-            if (isOpen && needsAny && oppId) {
-                setScanningDrive(true);
-                try {
-                    console.log(`[AnexoFotografico] Escaneando Drive para Opportunity: ${oppId}...`);
-                    const response = await axios.get(`/api/public/scan-photos/${oppId}`);
-
-                    if (response.data?.success && response.data?.photos) {
-                        const drivePhotos = response.data.photos;
-                        const hasAnyMatch = Object.values(SLOT_TO_CANONICAL)
-                            .some(canonical => drivePhotos[canonical]);
-
-                        if (hasAnyMatch) {
-                            setPhotos(prev => prev.map(p => {
-                                const canonical = SLOT_TO_CANONICAL[p.id];
-                                if (canonical && !p.file && drivePhotos[canonical]) {
-                                    return { ...p, file: drivePhotos[canonical] };
-                                }
-                                return p;
-                            }));
-                            console.log('[AnexoFotografico] Fotos de Drive sincronizadas con éxito.');
-                        }
+            if (!isOpen || !oppId) return;
+            setScanningDrive(true);
+            try {
+                const { data } = await axios.get(`/api/public/anexo-photos/${oppId}`);
+                const groups = data?.groups || [];
+                setPhotos(prev => {
+                    const prevById = new Map((prev || []).map(p => [p.id, p]));
+                    const rows = [];
+                    for (const g of groups) {
+                        (g.photos || []).forEach((ph, i) => {
+                            const id = `drive_${ph.name}`;
+                            const label = i === 0 ? g.label : `${g.label} (${i + 1})`;
+                            const existing = prevById.get(id);
+                            // Conserva la fila previa (recorte/tamaño) si ya existía con foto.
+                            rows.push(existing?.file
+                                ? { ...existing, label }
+                                : { id, label, file: { name: ph.name, data: ph.data }, required: false });
+                        });
                     }
-                } catch (error) {
-                    console.error('Error scanning preloaded photos:', error);
-                } finally {
-                    setScanningDrive(false);
-                }
+                    // Mantener las filas añadidas a mano (no provienen de Drive).
+                    for (const p of prev || []) {
+                        if (String(p.id).startsWith('custom_') && !rows.some(r => r.id === p.id)) rows.push(p);
+                    }
+                    return rows;
+                });
+                console.log(`[AnexoFotografico] Fotos dinámicas cargadas: ${groups.length} concepto(s).`);
+            } catch (error) {
+                console.error('[AnexoFotografico] Error cargando fotos dinámicas:', error);
+            } finally {
+                setScanningDrive(false);
             }
         };
-
-        if (isOpen) {
-            scanDrivePhotos();
-        }
+        loadDynamic();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isOpen, expediente?.id_oportunidad_ref]);
 
     // photo sizing controls
@@ -463,10 +455,11 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
     const [completedCrop, setCompletedCrop] = useState();
     const imgRef = useRef(null);
 
-    const photosRaw = externalPhotos || DEFAULT_PHOTO_SLOTS;
-    // ensure all default slots appear even if the saved data is older
-    const missingDefaults = DEFAULT_PHOTO_SLOTS.filter(d => !photosRaw.some(p => p.id === d.id));
-    const photos = missingDefaults.length > 0 ? [...photosRaw, ...missingDefaults] : photosRaw;
+    // Anexo DINÁMICO: la lista de fotos se construye desde lo que REALMENTE hay en
+    // Drive (ver efecto de carga dinámica abajo). No se fuerzan huecos fijos: un
+    // concepto sin foto no aparece. Del estado guardado solo se conservan las filas
+    // con foto (recortes/tamaños y campos manuales), que el efecto re-fusiona.
+    const photos = externalPhotos || [];
 
     const setPhotos = (newVal) => {
         if (typeof newVal === 'function') {
@@ -665,7 +658,7 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
 
     // ── COVER PAGE HTML ────────────────────────────────────────────────
     const buildCoverHtml = () => {
-        const coverPhoto = photos.find(p => p.id === 'unidad_exterior' && p.file) || photos.find(p => p.file);
+        const coverPhoto = photos.find(p => /unidad exterior/i.test(p.label || '') && p.file) || photos.find(p => p.file);
         const coverImgHtml = coverPhoto
             ? `<img src="${coverPhoto.file.data}" alt="Vista instalación" />`
             : '<div style="width:200px;height:200px;background:#f0f0f0;border-radius:12px;display:flex;align-items:center;justify-content:center;color:#ccc;font-size:12pt;">Sin imagen</div>';
@@ -884,7 +877,6 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
     };
 
     const loadedCount = photos.filter(p => p.file).length;
-    const totalCount = photos.length;
     const aeKwh = Math.round(results?.savingsKwh || results?.ahorroEnergiaFinalTotal || 0).toLocaleString('es-ES');
     const beneficioStr = Math.round((results?.savingsKwh || results?.ahorroEnergiaFinalTotal || 0) * (results?.price_kwh || 0.102)).toLocaleString('es-ES');
 
@@ -899,7 +891,7 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
                         <button onClick={onClose} className="text-white/30 hover:text-white transition-colors p-1"><svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg></button>
                         <div className="border-l border-white/10 pl-3">
                             <h2 className="text-sm font-black text-white tracking-wider uppercase">Anexo Fotográfico</h2>
-                            <p className="text-white/30 text-xs mt-0.5">{numexpte} · {loadedCount}/{totalCount} fotos cargadas</p>
+                            <p className="text-white/30 text-xs mt-0.5">{numexpte} · {loadedCount} foto{loadedCount === 1 ? '' : 's'} en el anexo</p>
                         </div>
                     </div>
                     <div className="flex items-center gap-3">
@@ -1078,16 +1070,18 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
             {editingPhoto && (
                 <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/98 backdrop-blur-2xl p-4 md:p-8" onClick={() => setEditingPhoto(null)}>
                     <div className="bg-[#16181D] border border-white/10 rounded-3xl w-full max-w-4xl max-h-[92vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
-                        <div className="px-6 py-4 border-b border-white/10 flex justify-between items-center bg-white/[0.02]">
+                        <div className="shrink-0 px-6 py-4 border-b border-white/10 flex justify-between items-center bg-white/[0.02]">
                             <h3 className="text-white font-bold uppercase tracking-widest text-xs">Editor de Imagen · {editingPhoto.label}</h3>
                             <button onClick={() => setEditingPhoto(null)} className="text-white/20 hover:text-white transition-colors"><svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg></button>
                         </div>
-                        <div className="flex-1 overflow-auto p-4 md:p-6 flex items-center justify-center bg-black/40">
-                            <ReactCrop crop={crop} onChange={c => setCrop(c)} onComplete={c => setCompletedCrop(c)}>
-                                <img ref={imgRef} src={editingPhoto.data} alt="Edit" className="max-w-full max-h-[55vh] object-contain shadow-2xl" onLoad={e => { const { width, height } = e.currentTarget; setCrop(centerCrop(makeAspectCrop({ unit: '%', width: 90 }, undefined, width, height), width, height)); }} />
+                        {/* min-h-0 deja que el área de imagen encoja; la imagen se acota a la altura real
+                            del modal (92vh) menos cabecera/pie → siempre cabe y el botón Aplicar queda visible. */}
+                        <div className="flex-1 min-h-0 overflow-hidden p-4 md:p-6 flex items-center justify-center bg-black/40">
+                            <ReactCrop crop={crop} onChange={c => setCrop(c)} onComplete={c => setCompletedCrop(c)} className="max-w-full max-h-full">
+                                <img ref={imgRef} src={editingPhoto.data} alt="Edit" className="max-w-full object-contain shadow-2xl" style={{ maxHeight: 'calc(92vh - 210px)' }} onLoad={e => { const { width, height } = e.currentTarget; setCrop(centerCrop(makeAspectCrop({ unit: '%', width: 90 }, undefined, width, height), width, height)); }} />
                             </ReactCrop>
                         </div>
-                        <div className="p-4 md:p-6 bg-black/60 flex flex-col md:flex-row gap-4 justify-between items-center px-8 border-t border-white/10">
+                        <div className="shrink-0 p-4 md:p-6 bg-black/60 flex flex-col md:flex-row gap-4 justify-between items-center px-8 border-t border-white/10">
                             <span className="text-[10px] uppercase font-black text-white/20 tracking-widest">Arrastra las esquinas para seleccionar el recorte</span>
                             <div className="flex gap-3">
                                 <button onClick={() => setEditingPhoto(null)} className="px-8 py-2 bg-white/5 text-white/50 text-[11px] font-black rounded-xl uppercase tracking-widest hover:bg-white/10 transition-all">Cancelar</button>

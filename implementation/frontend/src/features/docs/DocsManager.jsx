@@ -118,12 +118,20 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
     const [slotError, setSlotError] = useState({});
     const [lightbox, setLightbox] = useState(null);
     const [lbConfirmDelete, setLbConfirmDelete] = useState(false); // confirmación de borrado en lightbox
+    const [lbReplacing, setLbReplacing] = useState(false); // sustituyendo la foto del visor
+    const [lbZoom, setLbZoom] = useState(1);               // zoom con la rueda en el visor
+    const [lbOrigin, setLbOrigin] = useState('50% 50%');   // origen del zoom (sigue al cursor)
+    const lbImgRef = useRef(null);                          // contenedor de imagen del visor (wheel no-pasivo)
     const [acting, setActing] = useState(null); // `${slot}:${name}` en validación
     const [reject, setReject] = useState(null); // { slot, item } cuando se rechaza
     const [rejectMotivo, setRejectMotivo] = useState('');
     const [rejectNotifyTarget, setRejectNotifyTarget] = useState('cliente'); // 'cliente'|'instalador'|'ninguno'
     const [waiving, setWaiving] = useState(null); // slot.key cuyo "no necesario" se está cambiando
     const [dragOver, setDragOver] = useState(null); // slot.key sobre el que se arrastra
+    const [bulkValidating, setBulkValidating] = useState(null); // slot.key | '__antes__' | '__despues__' en validación masiva
+    const [conceptPanel, setConceptPanel] = useState(false); // panel "Añadir apartado" abierto
+    const [conceptBusy, setConceptBusy] = useState(null);    // concept.id en proceso de habilitar/quitar
+    const [conceptError, setConceptError] = useState(null);  // error al cambiar un apartado
 
     // Para subir/borrar siempre usamos el canal público con uuid+token reales.
     const uuidRef = useRef(null);
@@ -168,6 +176,25 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
         /* eslint-disable-next-line */
     }, [mode, idOrUuid, tokenProp]);
 
+    // Visor: reset del zoom al abrir/cambiar de foto.
+    useEffect(() => { setLbZoom(1); setLbOrigin('50% 50%'); }, [lightbox]);
+    // Visor: rueda del ratón para hacer zoom hacia el cursor. Listener NO pasivo
+    // (con preventDefault) para que no scrollee el fondo al usar la rueda.
+    useEffect(() => {
+        const el = lbImgRef.current;
+        if (!el || !lightbox) return;
+        const onWheel = (e) => {
+            e.preventDefault();
+            const rect = el.getBoundingClientRect();
+            const ox = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
+            const oy = Math.max(0, Math.min(100, ((e.clientY - rect.top) / rect.height) * 100));
+            setLbOrigin(`${ox}% ${oy}%`);
+            setLbZoom(z => Math.min(6, Math.max(1, +(z * (e.deltaY < 0 ? 1.15 : 1 / 1.15)).toFixed(3))));
+        };
+        el.addEventListener('wheel', onWheel, { passive: false });
+        return () => el.removeEventListener('wheel', onWheel);
+    }, [lightbox]);
+
     const patchSlot = (key, fn) => setInfo(prev => ({ ...prev, slots: prev.slots.map(s => (s.key === key ? fn(s) : s)) }));
 
     const rollup = (items) => {
@@ -182,9 +209,12 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
         ? `/api/public/reforma-thumb/${uuidRef.current}/${driveId}?token=${tokenRef.current}&sz=${size}`
         : null;
 
+    // Devuelve true si todas las subidas fueron OK (lo usa "Cambiar foto" para no
+    // borrar la antigua si la nueva falló).
     const uploadFiles = async (slot, fileList) => {
         const files = Array.from(fileList || []);
-        if (!files.length) return;
+        if (!files.length) return false;
+        let ok = true;
         setBusySlot(slot.key);
         setSlotError(prev => ({ ...prev, [slot.key]: null }));
         try {
@@ -205,10 +235,12 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
                 if (!slot.multiple) break;
             }
         } catch (err) {
+            ok = false;
             setSlotError(prev => ({ ...prev, [slot.key]: err.response?.data?.error || 'No se pudo subir. Inténtalo de nuevo.' }));
         } finally {
             setBusySlot(null);
         }
+        return ok;
     };
 
     const deleteItem = async (slot, item) => {
@@ -223,6 +255,23 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
             setSlotError(prev => ({ ...prev, [slot.key]: err.response?.data?.error || 'No se pudo borrar.' }));
         } finally {
             setBusySlot(null);
+        }
+    };
+
+    // Cambiar (sustituir) una foto desde el visor: sube la nueva primero y, solo si
+    // va bien, borra la antigua (sin ventana de pérdida de datos).
+    const replaceItem = async (slot, item, file) => {
+        if (!file) return;
+        setLbReplacing(true);
+        try {
+            const ok = await uploadFiles(slot, [file]);
+            if (ok) {
+                await deleteItem(slot, item);
+                setLightbox(null);
+                setLbConfirmDelete(false);
+            }
+        } finally {
+            setLbReplacing(false);
         }
     };
 
@@ -259,12 +308,56 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
         }
     };
 
+    // Admin: habilita (o quita) un APARTADO de foto extra para este expediente
+    // (ventanas, cubierta, fachada…) cuando el alcance cambió a posteriori.
+    // Tras guardar, recarga para que aparezcan/desaparezcan los slots.
+    const enableConcept = async (concept, enabled) => {
+        setConceptBusy(concept.id);
+        setConceptError(null);
+        try {
+            await axios.post(`/api/oportunidades/${idOrUuid}/docs/concept`, { conceptId: concept.id, enabled });
+            await load(true);
+        } catch (err) {
+            setConceptError(err.response?.data?.error || 'No se pudo cambiar el apartado.');
+        } finally {
+            setConceptBusy(null);
+        }
+    };
+
     const confirmReject = async () => {
         if (!rejectMotivo.trim()) return;
         const { slot, item } = reject;
         setReject(null);
         await reviewItem(slot, item, 'rechazar', rejectMotivo.trim(), rejectNotifyTarget);
         setRejectMotivo('');
+    };
+
+    // Valida en serie una lista de { slot, item } (solo las que están en 'subida').
+    // busyKey identifica el origen (slot.key, '__antes__' o '__despues__') para el spinner.
+    const validateMany = async (targets, busyKey) => {
+        const pend = (targets || []).filter(({ item }) => (item.estado || 'subida') === 'subida');
+        if (!pend.length) return;
+        setBulkValidating(busyKey);
+        try {
+            for (const { slot, item } of pend) {
+                // reviewItem ya parchea el estado local foto a foto
+                // eslint-disable-next-line no-await-in-loop
+                await reviewItem(slot, item, 'validar');
+            }
+        } finally {
+            setBulkValidating(null);
+        }
+    };
+
+    // Recolecta los { slot, item } pendientes de revisión (estado 'subida') de una lista de slots.
+    const pendingItemsOf = (slotList) => {
+        const out = [];
+        for (const s of slotList || []) {
+            for (const it of (s.items || [])) {
+                if ((it.estado || 'subida') === 'subida') out.push({ slot: s, item: it });
+            }
+        }
+        return out;
     };
 
     if (loading) return <div className="py-16 text-center text-amber-500 font-bold tracking-widest text-sm uppercase animate-pulse">Cargando…</div>;
@@ -280,15 +373,16 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
     const canSeeDespues = aceptada || mode === 'admin';
 
     // Orden dentro de cada fase: lo accionable arriba, lo ya resuelto abajo.
-    //   0 · rechazada (hay que volver a subir)   1 · pendiente / en revisión
-    //   2 · validada (✓, baja a la parte inferior)   3 · catch-all "ya aportados"
+    //   0 · rechazada (hay que volver a subir)   1 · pendiente (aún sin foto)
+    //   2 · subida / en revisión   3 · validada (✓)   4 · "no necesario"   5 · catch-all "ya aportados"
     const tierOf = (s) => {
-        if (s.existing) return 4;       // catch-all "ya aportados" → siempre al final del todo
-        if (s.waived) return 3;         // marcado "no necesario" → por debajo de los validados
+        if (s.existing) return 5;       // catch-all "ya aportados" → siempre al final del todo
+        if (s.waived) return 4;         // marcado "no necesario" → por debajo de los validados
         const e = s.estado || (s.items?.length ? 'subida' : 'pendiente');
-        if (e === 'rechazada') return 0; // acción urgente → arriba
-        if (e === 'validada') return 2;  // validadas → debajo de lo pendiente
-        return 1;                        // pendiente / en revisión
+        if (e === 'rechazada') return 0; // acción urgente (volver a subir) → arriba del todo
+        if (e === 'pendiente') return 1; // aún sin foto → acción pendiente, sube arriba
+        if (e === 'validada') return 3;  // validadas → al fondo (ya resueltas)
+        return 2;                        // subida / en revisión
     };
     const byTier = (arr) => arr
         .map((s, i) => ({ s, i }))
@@ -300,6 +394,14 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
     const reqAntes = antes.filter(s => s.required);
     const reqDone = reqAntes.filter(s => s.items?.length).length;
     const allReqDone = reqAntes.length > 0 && reqDone === reqAntes.length;
+
+    // Progreso de la fase DESPUÉS (todas opcionales): apartados con al menos una foto.
+    const despuesSlots = despues.filter(s => !s.existing);
+    const despuesDone = despuesSlots.filter(s => s.items?.length).length;
+
+    // Pendientes de revisión (estado 'subida') por fase, para los botones de "validar todo".
+    const antesPending = canValidate ? pendingItemsOf(antes) : [];
+    const despuesPending = canValidate ? pendingItemsOf(despues) : [];
 
     const renderSlot = (slot) => {
         const items = slot.items || [];
@@ -339,16 +441,30 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
                             {ui.chip && <span className={`text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full ${ui.chip.cls}`}>{ui.chip.txt}</span>}
                         </p>
                         {slot.help && <p className="text-white/45 text-xs mt-1 leading-snug">{slot.help}</p>}
-                        {/* Admin: marcar obligatorio como "no necesario" (o reactivar) */}
-                        {canValidate && (slot.required || slot.waived) && (
+                        {/* Admin: marcar obligatorio (o cualquier slot de DESPUÉS) como "no necesario" (o reactivar) */}
+                        {canValidate && (slot.required || slot.waived || slot.fase === 'DESPUES') && !slot.existing && (
                             <button
                                 onClick={() => toggleWaive(slot)}
                                 disabled={waiving === slot.key}
-                                className={`mt-2 inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-lg border transition-all disabled:opacity-40 ${slot.waived ? 'border-amber-400/30 text-amber-300 hover:bg-amber-400/10' : 'border-white/15 text-white/50 hover:bg-white/[0.06] hover:text-white/80'}`}
+                                className={`mt-2 mr-2 inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-lg border transition-all disabled:opacity-40 ${slot.waived ? 'border-amber-400/30 text-amber-300 hover:bg-amber-400/10' : 'border-white/15 text-white/50 hover:bg-white/[0.06] hover:text-white/80'}`}
                             >
                                 {waiving === slot.key ? '…' : slot.waived ? '↺ Volver a pedir' : '🚫 Marcar “no necesario”'}
                             </button>
                         )}
+                        {/* Admin: validar de golpe todas las fotos pendientes de este slot (si hay varias) */}
+                        {canValidate && (() => {
+                            const pend = items.filter(it => (it.estado || 'subida') === 'subida');
+                            if (items.length < 2 || pend.length === 0) return null;
+                            return (
+                                <button
+                                    onClick={() => validateMany(pend.map(item => ({ slot, item })), slot.key)}
+                                    disabled={bulkValidating !== null}
+                                    className="mt-2 inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-lg border border-emerald-400/30 text-emerald-300 hover:bg-emerald-400/10 transition-all disabled:opacity-40"
+                                >
+                                    {bulkValidating === slot.key ? '…' : `✓ Validar todas (${pend.length})`}
+                                </button>
+                            );
+                        })()}
 
                         {items.length > 0 && (
                             <div className="mt-3 flex flex-wrap gap-3">
@@ -386,10 +502,10 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
                                             </div>
                                             {/* Controles de validación (solo admin) */}
                                             {canValidate && (
-                                                <div className="flex items-center gap-1">
-                                                    <button onClick={() => reviewItem(slot, it, 'validar')} disabled={acting === `${slot.key}:${it.name}`}
-                                                        title="Validar"
-                                                        className={`w-6 h-6 rounded-md text-xs font-black flex items-center justify-center transition-all ${fEstado === 'validada' ? 'bg-emerald-500 text-white' : 'bg-white/5 text-emerald-400 hover:bg-emerald-500/20'}`}>✓</button>
+                                                <div className="flex items-center gap-1.5">
+                                                    <button onClick={() => reviewItem(slot, it, 'validar')} disabled={acting === `${slot.key}:${it.name}` || bulkValidating !== null}
+                                                        title="Validar foto" aria-label="Validar foto"
+                                                        className={`w-7 h-7 rounded-lg text-sm font-black flex items-center justify-center transition-all disabled:opacity-50 ${fEstado === 'validada' ? 'bg-emerald-500 text-white shadow-sm shadow-emerald-500/30' : 'bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/30'}`}>✓</button>
                                                     <button onClick={() => {
                                                         setReject({ slot, item: it });
                                                         setRejectMotivo('');
@@ -397,9 +513,9 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
                                                         if (sbp === 'instalador' && info?.recipients?.instalador) setRejectNotifyTarget('instalador');
                                                         else if (info?.recipients?.cliente) setRejectNotifyTarget('cliente');
                                                         else setRejectNotifyTarget('ninguno');
-                                                    }} disabled={acting === `${slot.key}:${it.name}`}
-                                                        title="Rechazar"
-                                                        className={`w-6 h-6 rounded-md text-xs font-black flex items-center justify-center transition-all ${fEstado === 'rechazada' ? 'bg-red-500 text-white' : 'bg-white/5 text-red-400 hover:bg-red-500/20'}`}>✗</button>
+                                                    }} disabled={acting === `${slot.key}:${it.name}` || bulkValidating !== null}
+                                                        title="Rechazar foto" aria-label="Rechazar foto"
+                                                        className={`w-7 h-7 rounded-lg text-sm font-black flex items-center justify-center transition-all disabled:opacity-50 ${fEstado === 'rechazada' ? 'bg-red-500 text-white shadow-sm shadow-red-500/30' : 'bg-red-500/15 text-red-300 hover:bg-red-500/30'}`}>✗</button>
                                                 </div>
                                             )}
                                             {fEstado === 'rechazada' && it.motivo && (
@@ -452,6 +568,15 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
                 </button>
             </div>
 
+            {/* Añadir apartado de obra (solo admin): habilita conceptos extra —ventanas,
+                cubierta, fachada…— cuando el alcance del expediente cambió a posteriori. */}
+            {canValidate && (info.addableConcepts?.length > 0) && (
+                <button onClick={() => { setConceptError(null); setConceptPanel(true); }}
+                    className="mb-6 w-full py-2.5 rounded-xl border border-dashed border-white/20 text-white/55 text-xs font-black uppercase tracking-widest hover:border-amber-400/50 hover:text-amber-300 transition-all">
+                    ➕ Añadir apartado de obra
+                </button>
+            )}
+
             {tab === 'ANTES' ? (
                 <section>
                     <div className="mb-4 p-4 bg-amber-400/[0.06] border border-amber-400/20 rounded-2xl text-sm text-white/70 leading-relaxed">
@@ -459,13 +584,26 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
                         {reqAntes.length > 0 && <span className="block mt-2 text-xs font-black uppercase tracking-widest text-white/50">Obligatorias: {reqDone}/{reqAntes.length}</span>}
                     </div>
                     {allReqDone && <div className="mb-4 p-3 bg-emerald-400/[0.08] border border-emerald-400/30 rounded-xl text-sm text-emerald-300 font-bold text-center">✓ ¡Listo! Ya tenemos lo imprescindible.</div>}
+                    {canValidate && antesPending.length > 0 && (
+                        <button onClick={() => validateMany(antesPending, '__antes__')} disabled={bulkValidating !== null}
+                            className="mb-4 w-full py-2.5 rounded-xl bg-emerald-500/10 border border-emerald-400/30 text-emerald-300 text-xs font-black uppercase tracking-widest hover:bg-emerald-500/20 transition-all disabled:opacity-40">
+                            {bulkValidating === '__antes__' ? 'Validando…' : `✓ Validar todo lo pendiente (${antesPending.length})`}
+                        </button>
+                    )}
                     <div className="space-y-3">{antes.map(renderSlot)}</div>
                 </section>
             ) : (
                 <section>
                     <div className="mb-4 p-4 bg-white/[0.04] border border-white/10 rounded-2xl text-sm text-white/70 leading-relaxed">
                         🔧 Sube las fotos de la instalación <strong className="text-white">ya terminada</strong>. Puedes ir añadiéndolas según avance la obra.
+                        {despuesSlots.length > 0 && <span className="block mt-2 text-xs font-black uppercase tracking-widest text-white/50">Subidas: {despuesDone}/{despuesSlots.length}</span>}
                     </div>
+                    {canValidate && despuesPending.length > 0 && (
+                        <button onClick={() => validateMany(despuesPending, '__despues__')} disabled={bulkValidating !== null}
+                            className="mb-4 w-full py-2.5 rounded-xl bg-emerald-500/10 border border-emerald-400/30 text-emerald-300 text-xs font-black uppercase tracking-widest hover:bg-emerald-500/20 transition-all disabled:opacity-40">
+                            {bulkValidating === '__despues__' ? 'Validando…' : `✓ Validar todo lo pendiente (${despuesPending.length})`}
+                        </button>
+                    )}
                     <div className="space-y-3">{despues.map(renderSlot)}</div>
                 </section>
             )}
@@ -541,16 +679,74 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
                 );
             })()}
 
+            {/* Panel "Añadir apartado de obra" */}
+            {conceptPanel && (
+                <div className="fixed inset-0 z-[450] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4" onClick={() => setConceptPanel(false)}>
+                    <div className="bg-[#16181D] border border-white/10 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl flex flex-col max-h-[88vh]" onClick={e => e.stopPropagation()}>
+                        <div className="px-5 py-4 border-b border-white/10">
+                            <h3 className="text-white font-black uppercase tracking-widest text-xs">Añadir apartado de obra</h3>
+                            <p className="text-white/50 text-xs mt-1">Habilita fotos de actuaciones extra para este expediente (no afecta al cálculo).</p>
+                        </div>
+                        <div className="p-4 space-y-2 overflow-y-auto">
+                            {(info.addableConcepts || []).map(c => {
+                                const busy = conceptBusy === c.id;
+                                const canRemove = c.shown && c.enabled && !c.hasPhotos;
+                                return (
+                                    <div key={c.id} className="flex items-center justify-between gap-3 p-3 rounded-xl border border-white/10 bg-white/[0.03]">
+                                        <div className="min-w-0">
+                                            <p className="text-white font-bold text-sm truncate">{c.label}</p>
+                                            {c.shown && <p className="text-[10px] font-black uppercase tracking-wider text-emerald-300/70 mt-0.5">{c.hasPhotos ? 'Incluido · con fotos' : 'Incluido'}</p>}
+                                        </div>
+                                        {!c.shown ? (
+                                            <button onClick={() => enableConcept(c, true)} disabled={busy}
+                                                className="shrink-0 px-4 py-2 rounded-lg bg-gradient-to-r from-amber-500 to-amber-400 text-black text-[11px] font-black uppercase tracking-widest transition-all disabled:opacity-40">
+                                                {busy ? '…' : 'Añadir'}
+                                            </button>
+                                        ) : canRemove ? (
+                                            <button onClick={() => enableConcept(c, false)} disabled={busy}
+                                                className="shrink-0 px-4 py-2 rounded-lg border border-white/15 text-white/55 text-[11px] font-black uppercase tracking-widest hover:bg-white/[0.06] transition-all disabled:opacity-40">
+                                                {busy ? '…' : 'Quitar'}
+                                            </button>
+                                        ) : (
+                                            <span className="shrink-0 text-emerald-400 text-lg">✓</span>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                            {conceptError && <p className="text-red-400 text-xs">{conceptError}</p>}
+                        </div>
+                        <div className="px-5 py-4 bg-black/30 flex justify-end">
+                            <button onClick={() => setConceptPanel(false)} className="px-6 py-2 text-xs font-bold text-white/60 hover:text-white uppercase tracking-widest">Cerrar</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* Lightbox */}
             {lightbox && (
                 <div className="fixed inset-0 z-[400] flex items-center justify-center bg-black/95 backdrop-blur-sm p-4 cursor-zoom-out" onClick={() => setLightbox(null)}>
                     <div className="relative w-[88vw] max-w-3xl" onClick={e => e.stopPropagation()}>
-                        <div className="relative w-full h-[78vh] rounded-xl overflow-hidden bg-black/40 shadow-2xl flex items-center justify-center">
-                            <DriveImg localUrl={lightbox.localUrl} proxySrc={thumbProxy(lightbox.driveId, 1200)} driveId={lightbox.driveId} thumb={lightbox.thumb} lowSrc={lightbox.localUrl || thumbProxy(lightbox.driveId, 400)} size={1200} fit="contain" alt={lightbox.label} />
+                        <div ref={lbImgRef}
+                            onDoubleClick={() => { setLbZoom(1); setLbOrigin('50% 50%'); }}
+                            className={`relative w-full h-[78vh] rounded-xl overflow-hidden bg-black/40 shadow-2xl flex items-center justify-center ${lbZoom > 1 ? 'cursor-zoom-out' : 'cursor-zoom-in'}`}>
+                            <div className="relative w-full h-full transition-transform duration-75" style={{ transform: `scale(${lbZoom})`, transformOrigin: lbOrigin }}>
+                                <DriveImg localUrl={lightbox.localUrl} proxySrc={thumbProxy(lightbox.driveId, 1200)} driveId={lightbox.driveId} thumb={lightbox.thumb} lowSrc={lightbox.localUrl || thumbProxy(lightbox.driveId, 400)} size={1200} fit="contain" alt={lightbox.label} />
+                            </div>
+                            {lbZoom > 1
+                                ? <div className="absolute top-2 right-2 bg-black/60 text-white/80 text-[10px] font-black px-2 py-1 rounded-md pointer-events-none">{Math.round(lbZoom * 100)}%</div>
+                                : <div className="absolute bottom-2 left-1/2 -translate-x-1/2 bg-black/50 text-white/45 text-[9px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-md pointer-events-none">Rueda para zoom · doble clic para reiniciar</div>}
                         </div>
                         <div className="mt-3 flex items-center justify-between gap-4">
                             <span className="text-white/70 text-sm font-bold">{lightbox.label}</span>
                             <div className="flex items-center gap-3">
+                                {/* Cambiar (sustituir) la foto: sube la nueva y borra la antigua. */}
+                                {lightbox.item && !lightbox.slot?.existing && !lbConfirmDelete && (
+                                    <label className={`flex items-center gap-1.5 px-4 py-2 bg-white/10 border border-white/15 text-white/80 text-xs font-black rounded-lg uppercase tracking-widest hover:bg-white/15 transition-all cursor-pointer ${lbReplacing ? 'opacity-50 pointer-events-none' : ''}`}>
+                                        {lbReplacing ? 'Cambiando…' : '🔄 Cambiar foto'}
+                                        <input type="file" accept={lightbox.slot?.accept} className="hidden"
+                                            onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) replaceItem(lightbox.slot, lightbox.item, f); }} />
+                                    </label>
+                                )}
                                 {/* Eliminar foto: SOLO ADMIN. Confirmación inline (borra de Drive). */}
                                 {canValidate && lightbox.item && (
                                     lbConfirmDelete ? (
