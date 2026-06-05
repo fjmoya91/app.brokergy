@@ -112,6 +112,7 @@ const PHASE = { ANTES: 'ANTES', DESPUES: 'DESPUES' };
 // concepto habilita uno o varios slots (antes/después) vía docs_overrides[slot].enabled.
 // El backend valida contra esta lista (no se habilita cualquier clave arbitraria).
 const ADDABLE_CONCEPTS = [
+    { id: 'caldera',  label: 'Caldera actual + su placa (antes)', slots: ['FOTO_CALDERA_ANTES', 'FOTO_PLACA_CALDERA_ANTES'] },
     { id: 'ventanas', label: 'Ventanas (antes y después)', slots: ['FOTO_VENTANAS_ANTES', 'FOTO_VENTANAS_DESPUES'] },
     { id: 'cubierta', label: 'Cubierta / tejado (antes y después)', slots: ['FOTO_CUBIERTA_ANTES', 'FOTO_CUBIERTA_DESPUES'] },
     { id: 'fachada',  label: 'Aislamiento de fachada (antes y después)', slots: ['FOTO_FACHADA_ANTES', 'FOTO_FACHADA_DESPUES'] },
@@ -152,7 +153,13 @@ function deriveSelectors(datosCalculo = {}) {
     } else {
         hayCaldera = true; // caso típico CAE: cambio de caldera por aerotermia
     }
-    return { reforma, changeAcs, hayCaldera };
+
+    // Hibridación (RES093): la caldera antigua NO se desmonta, se conserva y
+    // trabaja en paralelo con la bomba de calor. Cambia el apartado "caldera
+    // desmontada" del DESPUÉS por "depósito de ACS junto a la caldera antigua".
+    const hibridacion = inputs.hibridacion === true || datosCalculo.hibridacion === true;
+
+    return { reforma, changeAcs, hayCaldera, hibridacion };
 }
 
 /**
@@ -174,7 +181,10 @@ function buildDocChecklist(datosCalculo = {}) {
     const want = (slotKey, selector) => !!selector || enabledSet.has(slotKey);
 
     // ───────── ANTES DE LA OBRA ─────────
-    if (sel.hayCaldera) {
+    // La caldera sale por la simulación (hayCaldera) O porque el admin la activó a mano
+    // ("Añadir apartado de obra" → Caldera), útil en expedientes migrados/eléctricos
+    // donde no se dedujo caldera pero sí hace falta documentarla para el Anexo Fotográfico.
+    if (sel.hayCaldera || enabledSet.has('FOTO_CALDERA_ANTES') || enabledSet.has('FOTO_PLACA_CALDERA_ANTES')) {
         push({ key: 'FOTO_CALDERA_ANTES', fase: PHASE.ANTES, required: true, gating: 'pre_aceptacion', multiple: true, accept: ACCEPT_FOTO,
                label: 'Caldera actual (instalada)', help: 'Vista general de la caldera en su sala. Puedes añadir varias perspectivas.' });
         push({ key: 'FOTO_PLACA_CALDERA_ANTES', fase: PHASE.ANTES, required: true, gating: 'pre_aceptacion', multiple: true, accept: ACCEPT_FOTO,
@@ -197,17 +207,25 @@ function buildDocChecklist(datosCalculo = {}) {
            label: 'Otros (antes de la obra)', help: 'PDF, fotos, vídeos u otros archivos que no encajen en las categorías anteriores.' });
 
     // ───────── DESPUÉS DE LA OBRA ─────────
-    push({ key: 'FOTO_UNIDAD_EXTERIOR', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Unidad exterior nueva (instalada)' });
-    push({ key: 'FOTO_UNIDAD_EXTERIOR_PLACA', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Placa de la unidad exterior' });
-    push({ key: 'FOTO_UNIDAD_INTERIOR_PLACA', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Placa de la unidad interior / hidrokit' });
-    if (want('FOTO_ACS_DEPOSITO', sel.changeAcs)) push({ key: 'FOTO_ACS_DEPOSITO', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Depósito de ACS / inercia (con placa)' });
-    push({ key: 'FOTO_CALDERA_DESMONTADA', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Caldera antigua desmontada / hueco' });
-    if (want('FOTO_VENTANAS_DESPUES', sel.reforma.ventanas)) push({ key: 'FOTO_VENTANAS_DESPUES', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Ventanas nuevas (después)' });
-    if (want('FOTO_CUBIERTA_DESPUES', sel.reforma.cubierta)) push({ key: 'FOTO_CUBIERTA_DESPUES', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Cubierta terminada' });
-    if (want('FOTO_FACHADA_DESPUES', sel.reforma.paredes))  push({ key: 'FOTO_FACHADA_DESPUES', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Aislamiento de fachada terminado' });
+    push({ key: 'FOTO_UNIDAD_EXTERIOR', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO,
+           label: 'Unidad exterior nueva (instalada)', help: 'La máquina nueva que va fuera (en fachada, terraza o patio), ya colocada y conectada.' });
+    push({ key: 'FOTO_UNIDAD_EXTERIOR_PLACA', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO,
+           label: 'Placa de la unidad exterior', help: 'La etiqueta de datos de la máquina de fuera. Acércate hasta que se lean marca, modelo y número de serie.' });
+    push({ key: 'FOTO_UNIDAD_INTERIOR_PLACA', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO,
+           label: 'Placa de la unidad interior / DEPOSITO ACS', help: 'La etiqueta de datos de la unidad de dentro o del depósito de agua caliente. Que se lean marca, modelo y número de serie.' });
+    if (want('FOTO_ACS_DEPOSITO', sel.changeAcs)) push({ key: 'FOTO_ACS_DEPOSITO', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO,
+           label: 'Depósito de ACS / inercia', help: 'El depósito del agua caliente ya instalado. Incluye una foto donde se vea su etiqueta de datos.' });
+    push({ key: 'FOTO_CALDERA_DESMONTADA', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO,
+           label: sel.hibridacion ? 'Depósito de ACS junto a la caldera antigua' : 'Caldera antigua desmontada / hueco',
+           help: sel.hibridacion
+               ? 'En una hibridación la caldera antigua se conserva. Haz una foto del nuevo depósito de agua caliente junto a la caldera que se mantiene.'
+               : 'La caldera vieja ya retirada, o el hueco que ha quedado en la pared tras quitarla.' });
+    if (want('FOTO_VENTANAS_DESPUES', sel.reforma.ventanas)) push({ key: 'FOTO_VENTANAS_DESPUES', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Ventanas nuevas (después)', help: 'Las ventanas nuevas ya instaladas.' });
+    if (want('FOTO_CUBIERTA_DESPUES', sel.reforma.cubierta)) push({ key: 'FOTO_CUBIERTA_DESPUES', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Cubierta terminada', help: 'La cubierta o tejado ya terminado tras la obra.' });
+    if (want('FOTO_FACHADA_DESPUES', sel.reforma.paredes))  push({ key: 'FOTO_FACHADA_DESPUES', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Aislamiento de fachada terminado', help: 'La fachada ya aislada y terminada.' });
     push({ key: 'VIDEO_REFORMA', fase: PHASE.DESPUES, required: false, multiple: false, accept: ACCEPT_VIDEO, label: 'Vídeo de la reforma (opcional)', help: 'Recorrido en vídeo de la instalación ya terminada.' });
-    push({ key: 'DOC_FACTURAS', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_DOC, label: 'Facturas de la instalación' });
-    push({ key: 'DOC_RITE', fase: PHASE.DESPUES, required: false, multiple: false, accept: ACCEPT_DOC, label: 'Certificado RITE' });
+    push({ key: 'DOC_FACTURAS', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_DOC, label: 'Facturas de la instalación', help: 'Las facturas de los materiales y de la instalación (en PDF o foto).' });
+    push({ key: 'DOC_RITE', fase: PHASE.DESPUES, required: false, multiple: false, accept: ACCEPT_DOC, label: 'Certificado RITE', help: 'Lo emite el instalador: es el certificado de la instalación térmica (RITE) que debe entregar al terminar la obra.' });
     push({ key: 'OTROS_DESPUES', fase: PHASE.DESPUES, required: false, multiple: true, accept: 'image/*,application/pdf,video/*',
            label: 'Otros (después de la obra)', help: 'PDF, fotos, vídeos u otros archivos que no encajen en las categorías anteriores.' });
 
@@ -491,8 +509,24 @@ async function buildDocsView(opp, opts = {}) {
         hasPhotos: c.slots.some(k => (slots.find(s => s.key === k)?.items?.length > 0)),
     }));
 
+    // Si la oportunidad ya ha sido ACEPTADA es un expediente: en la cabecera
+    // mostramos su número de expediente oficial (26RESxxx_NN) en vez del id de
+    // oportunidad (..._OPxx). El nombre del cliente ya viaja en `cliente`.
+    let numeroExpediente = null;
+    if (dc.estado === 'ACEPTADA') {
+        try {
+            const { data: exp } = await supabase
+                .from('expedientes')
+                .select('numero_expediente')
+                .eq('oportunidad_id', opp.id)
+                .maybeSingle();
+            numeroExpediente = exp?.numero_expediente || null;
+        } catch (e) { console.warn('[Docs] numero_expediente cabecera:', e.message); }
+    }
+
     return {
         id_oportunidad: opp.id_oportunidad,
+        numero_expediente: numeroExpediente,
         cliente: opp.referencia_cliente || '',
         aceptada: dc.estado === 'ACEPTADA',
         slots,

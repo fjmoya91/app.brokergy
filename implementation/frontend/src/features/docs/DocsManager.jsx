@@ -568,7 +568,7 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
             <div className={`text-center ${embedded ? 'mb-4' : 'mb-6'}`}>
                 {!embedded && <h1 className="text-2xl md:text-4xl font-black text-white tracking-tight leading-tight">Documentación del expediente</h1>}
                 <p className="text-white/60 text-sm mt-2">
-                    Expediente <span className="font-mono text-amber-400 font-bold">{info.id_oportunidad}</span>
+                    Expediente <span className="font-mono text-amber-400 font-bold">{info.numero_expediente || info.id_oportunidad}</span>
                     {info.cliente ? <> · {info.cliente}</> : null}
                 </p>
             </div>
