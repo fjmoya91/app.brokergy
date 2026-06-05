@@ -344,7 +344,7 @@ function fileBelongsToSlot(fileName, slotKey) {
  * en BD se perdiera, la foto sigue apareciendo). El estado por foto vive en la
  * BD; el estado del slot es un resumen derivado.
  */
-async function buildDocsView(opp) {
+async function buildDocsView(opp, opts = {}) {
     const dc = opp.datos_calculo || {};
     const checklist = buildDocChecklist(dc);
     const uploads = dc.reforma_uploads || {};
@@ -442,6 +442,28 @@ async function buildDocsView(opp) {
         });
     }
 
+    // RITE unificado (reflejo inverso, SOLO admin): si el Certificado RITE está
+    // como enlace manual en el expediente (documentacion.cert_rite_drive_link) y el
+    // slot DOC_RITE del popup no tiene fichero, marcarlo como "aportado en
+    // Documentación" para que también aquí se vea que lo tenemos. No se expone al
+    // cliente/instalador (enlace Drive = solo admin, regla RBAC).
+    if (opts.includeManualRite) {
+        try {
+            const { data: exp } = await supabase
+                .from('expedientes')
+                .select('documentacion')
+                .eq('oportunidad_id', opp.id)
+                .maybeSingle();
+            const riteLink = exp?.documentacion?.cert_rite_drive_link || null;
+            if (riteLink) {
+                const riteSlot = slots.find(s => s.key === 'DOC_RITE');
+                if (riteSlot && !(riteSlot.items?.length)) {
+                    riteSlot.externalRite = { link: riteLink };
+                }
+            }
+        } catch (e) { console.warn('[Docs] reflejo RITE manual:', e.message); }
+    }
+
     // Catálogo de apartados añadibles + su estado actual (para el botón "Añadir apartado").
     //  - shown: ya está en el checklist (visible para subir)
     //  - enabled: habilitado a mano por override
@@ -462,6 +484,23 @@ async function buildDocsView(opp) {
         slots,
         addableConcepts
     };
+}
+
+/**
+ * Unifica el Certificado RITE: cuando se sube/borra el slot DOC_RITE en el popup,
+ * refleja el enlace en expedientes.documentacion.cert_rite_drive_link — el campo que
+ * leen el módulo de Documentación, el CIFO y las vistas del lifecycle (el "agente").
+ * Background-safe: no lanza, solo loguea. p_value=null limpia el campo.
+ */
+async function syncRiteToExpediente(oportunidadId, link) {
+    try {
+        const { error } = await supabase.rpc('set_expediente_doc_field', {
+            p_oportunidad_id: oportunidadId,
+            p_field: 'cert_rite_drive_link',
+            p_value: link || null
+        });
+        if (error) console.warn('[RITE] sync a expediente:', error.message);
+    } catch (e) { console.warn('[RITE] sync a expediente:', e.message); }
 }
 
 /**
@@ -602,6 +641,7 @@ module.exports = {
     fileBelongsToSlot,
     buildDocChecklist,
     buildDocsView,
+    syncRiteToExpediente,
     deriveSelectors,
     driveThumb,
     notifyRechazo,

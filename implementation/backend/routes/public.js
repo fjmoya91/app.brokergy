@@ -754,6 +754,10 @@ router.post('/reforma-docs/:uuid/:slot', requireAuth, uploadDocsSingle, async (r
             return res.status(500).json({ error: 'No se pudo registrar la foto. Inténtalo de nuevo.' });
         }
 
+        // RITE unificado: si es el Certificado RITE, refleja el enlace en el expediente
+        // (cert_rite_drive_link) para que Documentación, CIFO y el agente lo vean.
+        if (slot === 'DOC_RITE') reformaUploadService.syncRiteToExpediente(uuid, saved.link);
+
         return res.json({
             success: true, slot, name: fileName, link: saved.link,
             driveId: saved.id,
@@ -813,6 +817,10 @@ router.delete('/reforma-docs/:uuid/:slot', async (req, res) => {
             console.error('[Reforma] rpc reforma_replace_slot (delete):', rpcErr.message);
             return res.status(500).json({ error: 'No se pudo borrar el archivo.' });
         }
+
+        // RITE unificado: al borrar el Certificado RITE, refleja el cambio en el
+        // expediente (queda el siguiente si lo hubiera, o se limpia el campo).
+        if (slot === 'DOC_RITE') reformaUploadService.syncRiteToExpediente(uuid, remaining[0]?.link || null);
 
         return res.json({ success: true, slot, count: remaining.length, estado: remaining.length ? 'subida' : 'pendiente' });
     } catch (e) {

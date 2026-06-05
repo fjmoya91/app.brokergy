@@ -441,6 +441,13 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
                             {ui.chip && <span className={`text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full ${ui.chip.cls}`}>{ui.chip.txt}</span>}
                         </p>
                         {slot.help && <p className="text-white/45 text-xs mt-1 leading-snug">{slot.help}</p>}
+                        {/* RITE unificado: ya aportado como enlace en el módulo de Documentación (admin) */}
+                        {slot.externalRite && (
+                            <a href={slot.externalRite.link} target="_blank" rel="noreferrer"
+                                className="mt-2 inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-lg border border-emerald-400/30 text-emerald-300 hover:bg-emerald-400/10 transition-all">
+                                ✓ Aportado en Documentación · Ver PDF
+                            </a>
+                        )}
                         {/* Admin: marcar obligatorio (o cualquier slot de DESPUÉS) como "no necesario" (o reactivar) */}
                         {canValidate && (slot.required || slot.waived || slot.fase === 'DESPUES') && !slot.existing && (
                             <button

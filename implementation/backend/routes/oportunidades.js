@@ -1037,7 +1037,7 @@ router.get('/:id/docs', enforceAuth, async (req, res) => {
         }
 
         // Devolvemos también el token para que el modal admin pueda subir por el mismo canal
-        const view = await reformaUploadService.buildDocsView(opp);
+        const view = await reformaUploadService.buildDocsView(opp, { includeManualRite: true });
         view.upload_token = uploadToken;
         view.uuid = opp.id;
         view.upload_link = uploadToken ? reformaUploadService.buildUploadLink(opp.id, uploadToken) : null;
