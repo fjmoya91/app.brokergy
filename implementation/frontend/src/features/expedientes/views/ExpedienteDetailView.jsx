@@ -449,6 +449,21 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
     const opCalcResult = op.datos_calculo?.result || {};
     const driveLink = op.datos_calculo?.drive_folder_link;
 
+    // Propuesta económica original que se presentó al cliente en la oportunidad.
+    // Estructura canónica: result.savings.* + result.financials.* (con fallback a campos planos).
+    // Se pasa al resumen económico para compararla de un vistazo con los datos vivos del expediente.
+    const proposalResults = (() => {
+        const fin = opCalcResult.financials || {};
+        const sav = opCalcResult.savings || {};
+        if (!opCalcResult.financials && !opCalcResult.savings && opCalcResult.caeBonus === undefined) return null;
+        return {
+            savingsKwh: sav.savingsKwh ?? opCalcResult.savingsKwh ?? 0,
+            caeBonus: fin.caeBonus ?? opCalcResult.caeBonus ?? 0,
+            finalPriceClient: fin.finalPriceClient ?? opCalcResult.finalPriceClient ?? 0,
+            profitBrokergy: fin.profitBrokergy ?? opCalcResult.profitBrokergy ?? 0,
+        };
+    })();
+
     return (
         <div className="p-6 sm:p-8 lg:p-10 min-h-full">
             {/* Header / breadcrumb */}
@@ -730,8 +745,9 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
             {/* Panel de Resumen Económico Sticky (Solo RES060) */}
             {calcResults && !isCertificador && (
                 <div className="sticky top-0 max-md:top-14 z-[100] -mx-6 sm:-mx-8 lg:-mx-10 px-6 sm:px-8 lg:px-10 py-4 bg-bkg-base/60 backdrop-blur-xl border-b border-white/[0.05] mb-6 shadow-2xl">
-                    <ResumenEconomicoExpediente 
-                        results={calcResults} 
+                    <ResumenEconomicoExpediente
+                        results={calcResults}
+                        proposal={proposalResults}
                         onUpdatePrice={(newPrice) => {
                             const newInst = { 
                                 ...liveInst, 

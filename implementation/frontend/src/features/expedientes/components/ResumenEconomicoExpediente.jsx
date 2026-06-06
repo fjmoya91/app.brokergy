@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 
 // Movido fuera para evitar que React desmonte el componente en cada renderizado de ResumenEconomicoExpediente
-const Metric = ({ label, value, sub, icon, color = 'text-white', onDoubleClick, isEditingVal, editValue, setEditValue, handleKeyDown, handleSaveLocal, setIsEditing, inputRef }) => (
+const Metric = ({ label, value, sub, icon, color = 'text-white', proposalValue, proposalDiff, onDoubleClick, isEditingVal, editValue, setEditValue, handleKeyDown, handleSaveLocal, setIsEditing, inputRef }) => (
     <div 
         className={`flex-1 min-w-[200px] p-4 border-r border-white/5 last:border-0 group hover:bg-white/[0.02] transition-colors relative ${onDoubleClick && !isEditingVal ? 'cursor-pointer' : ''}`}
         onDoubleClick={isEditingVal ? null : onDoubleClick}
@@ -63,7 +63,21 @@ const Metric = ({ label, value, sub, icon, color = 'text-white', onDoubleClick, 
         )}
         
         {sub && <div className="text-[10px] font-bold text-white/20 uppercase tracking-tighter mt-0.5">{sub}</div>}
-        
+
+        {proposalValue != null && (
+            <div className="flex items-center gap-1.5 mt-1.5 pt-1.5 border-t border-white/[0.04]" title="Valor que se presentó al cliente en la oportunidad">
+                <span className="text-[8px] font-black uppercase tracking-widest text-white/25">Propuesta</span>
+                <span className={`text-[11px] font-bold tracking-tight ${proposalDiff ? 'text-amber-400/80' : 'text-white/45'}`}>
+                    {proposalValue}
+                </span>
+                {proposalDiff && (
+                    <svg className="w-3 h-3 text-amber-400/70" fill="none" viewBox="0 0 24 24" stroke="currentColor" title="Difiere del dato actual del expediente">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 9v2m0 4h.01M5.07 19h13.86c1.54 0 2.5-1.67 1.73-3L13.73 4a2 2 0 00-3.46 0L3.34 16c-.77 1.33.19 3 1.73 3z" />
+                    </svg>
+                )}
+            </div>
+        )}
+
         {onDoubleClick && !isEditingVal && (
             <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity bg-brand/10 text-brand text-[8px] font-black uppercase px-2 py-0.5 rounded-full border border-brand/20 backdrop-blur-sm">
                 Doble clic para editar
@@ -72,7 +86,7 @@ const Metric = ({ label, value, sub, icon, color = 'text-white', onDoubleClick, 
     </div>
 );
 
-export function ResumenEconomicoExpediente({ results, onUpdatePrice }) {
+export function ResumenEconomicoExpediente({ results, proposal, onUpdatePrice }) {
     const [isEditing, setIsEditing] = useState(false);
     const [editValue, setEditValue] = useState('');
     const inputRef = useRef(null);
@@ -88,6 +102,13 @@ export function ResumenEconomicoExpediente({ results, onUpdatePrice }) {
         profitBrokergy = 0,
         finalPriceClient = 0
     } = results;
+
+    // ─── Propuesta original presentada al cliente en la oportunidad ──────────────
+    // Se muestra bajo cada métrica para comparar de un vistazo sin abrir la oportunidad.
+    const fmtMwh = (n) => `${((n || 0) / 1000).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MWh`;
+    const fmtEur = (n) => `${Math.round(n || 0).toLocaleString('es-ES')} €`;
+    const fmtPrice = (n) => `${Math.round(n || 0).toLocaleString('es-ES')} €/MWh`;
+    const prop = proposal || null;
 
     const handleDoubleClick = (e) => {
         e.stopPropagation();
@@ -128,6 +149,8 @@ export function ResumenEconomicoExpediente({ results, onUpdatePrice }) {
                     label="Volumen CAEs"
                     value={`${(savingsKwh / 1000).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MWh`}
                     sub={`${Math.round(savingsKwh).toLocaleString('es-ES')} CAEs (1 kWh = 1 CAE)`}
+                    proposalValue={prop ? fmtMwh(prop.savingsKwh) : null}
+                    proposalDiff={prop ? fmtMwh(prop.savingsKwh) !== fmtMwh(savingsKwh) : false}
                     icon={
                         <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 10V3L4 14h7v7l9-11h-7z" />
@@ -139,6 +162,8 @@ export function ResumenEconomicoExpediente({ results, onUpdatePrice }) {
                     label="Ayuda Cliente"
                     value={`${Math.round(caeBonus).toLocaleString('es-ES')} €`}
                     sub="Bono CAE Directo"
+                    proposalValue={prop ? fmtEur(prop.caeBonus) : null}
+                    proposalDiff={prop ? fmtEur(prop.caeBonus) !== fmtEur(caeBonus) : false}
                     icon={
                         <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -150,6 +175,8 @@ export function ResumenEconomicoExpediente({ results, onUpdatePrice }) {
                     label="Precio CAE"
                     value={`${Math.round(finalPriceClient).toLocaleString('es-ES')} €/MWh`}
                     sub="Precio pagado al cliente"
+                    proposalValue={prop ? fmtPrice(prop.finalPriceClient) : null}
+                    proposalDiff={prop ? fmtPrice(prop.finalPriceClient) !== fmtPrice(finalPriceClient) : false}
                     icon={
                         <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
@@ -168,6 +195,8 @@ export function ResumenEconomicoExpediente({ results, onUpdatePrice }) {
                     label="Ganancia BRKRGY"
                     value={`${Math.round(profitBrokergy).toLocaleString('es-ES')} €`}
                     sub="Margen tras ajuste"
+                    proposalValue={prop ? fmtEur(prop.profitBrokergy) : null}
+                    proposalDiff={prop ? fmtEur(prop.profitBrokergy) !== fmtEur(profitBrokergy) : false}
                     icon={
                         <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
