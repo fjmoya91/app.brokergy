@@ -10,28 +10,22 @@ function DropZone({ title, desc, file, onPick, alreadyUploaded }) {
     const ref = useRef();
     const [dragging, setDragging] = useState(false);
 
-    const onDrop = (e) => {
-        e.preventDefault();
-        setDragging(false);
-        const f = e.dataTransfer.files?.[0];
-        if (f) onPick(f);
-    };
-
     const replaced = alreadyUploaded && !file;
     return (
         <div>
             <p className="text-[11px] font-black text-white uppercase tracking-wide mb-1">{title}</p>
             <p className="text-white/35 text-[11px] mb-2 leading-snug">{desc}</p>
-            <div className="relative group">
-                <input ref={ref} type="file" accept="application/pdf"
-                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
-                    onChange={e => onPick(e.target.files?.[0])} />
+            {/* input OCULTO (sin superponer): así la zona recibe los eventos de arrastre */}
+            <input ref={ref} type="file" accept="application/pdf" className="hidden"
+                onChange={e => onPick(e.target.files?.[0])} />
+            <div className="group">
                 <div
+                    onClick={() => ref.current?.click()}
                     onDragEnter={e => { e.preventDefault(); setDragging(true); }}
-                    onDragOver={e => { e.preventDefault(); setDragging(true); }}
-                    onDragLeave={e => { e.preventDefault(); setDragging(false); }}
-                    onDrop={onDrop}
-                    className={`border-2 border-dashed rounded-xl p-5 text-center transition-all duration-150 ${
+                    onDragOver={e => { e.preventDefault(); if (!dragging) setDragging(true); }}
+                    onDragLeave={e => { e.preventDefault(); if (!e.currentTarget.contains(e.relatedTarget)) setDragging(false); }}
+                    onDrop={e => { e.preventDefault(); setDragging(false); const f = e.dataTransfer.files?.[0]; if (f) onPick(f); }}
+                    className={`cursor-pointer border-2 border-dashed rounded-xl p-5 text-center transition-all duration-150 ${
                         dragging
                             ? 'border-brand bg-brand/20 scale-[1.02] shadow-[0_0_25px_rgba(232,115,28,0.25)]'
                             : file
@@ -42,7 +36,7 @@ function DropZone({ title, desc, file, onPick, alreadyUploaded }) {
                     }`}
                 >
                     {dragging ? (
-                        <div className="space-y-1 py-1">
+                        <div className="space-y-1 py-1 pointer-events-none">
                             <svg className="w-7 h-7 text-brand mx-auto animate-bounce" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
                             <p className="text-brand font-black text-xs uppercase tracking-widest">Suelta aquí</p>
                         </div>
