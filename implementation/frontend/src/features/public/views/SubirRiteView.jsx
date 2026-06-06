@@ -183,9 +183,11 @@ export function SubirRiteView({ expedienteId }) {
                                 </p>
 
                                 {yaSubido && (
-                                    <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-emerald-300/90 text-[11px] font-medium flex gap-2 items-center">
-                                        <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
-                                        Ya hay documentación subida en este expediente. Si subes de nuevo, se <strong>reemplazará</strong> el archivo anterior (no se duplica).
+                                    <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl flex items-start gap-2.5">
+                                        <svg className="w-4 h-4 shrink-0 mt-0.5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>
+                                        <p className="text-emerald-300/90 text-[11px] font-medium leading-relaxed">
+                                            Ya hay documentación subida en este expediente. Si subes de nuevo, se <strong className="font-bold text-emerald-200">reemplazará</strong> el archivo anterior (no se duplica).
+                                        </p>
                                     </div>
                                 )}
 
