@@ -65,7 +65,7 @@ function NumRow({ label, value }) {
 const EMPTY = {
     marca: '', modelo_comercial: '', tipo: 'BIBLOCK',
     potencia_calefaccion: '', modelo_conjunto: '', modelo_ud_exterior: '',
-    modelo_ud_interior: '', deposito_acs_incluido: false,
+    modelo_ud_interior: '', deposito_acs_incluido: false, litros_acs: '',
     scop_cal_calido_35: '', scop_cal_calido_55: '',
     scop_cal_medio_35: '', scop_cal_medio_55: '',
     scop_dhw_calido: '', scop_dhw_medio: '',
@@ -116,6 +116,7 @@ export function AerotermiaDetailModal({ isOpen, equipo: equipoProp, isNew = fals
             modelo_ud_exterior:    s(e.modelo_ud_exterior),
             modelo_ud_interior:    s(e.modelo_ud_interior),
             deposito_acs_incluido: !!e.deposito_acs_incluido,
+            litros_acs:            s(e.litros_acs),
             scop_cal_calido_35:    s(e.scop_cal_calido_35),
             scop_cal_calido_55:    s(e.scop_cal_calido_55),
             scop_cal_medio_35:     s(e.scop_cal_medio_35),
@@ -194,6 +195,7 @@ export function AerotermiaDetailModal({ isOpen, equipo: equipoProp, isNew = fals
             modelo_ud_exterior:    s(f.modelo_ud_exterior),
             modelo_ud_interior:    s(f.modelo_ud_interior),
             deposito_acs_incluido: !!f.deposito_acs_incluido,
+            litros_acs:            n(f.litros_acs),
             scop_cal_calido_35:    n(f.scop_cal_calido_35),
             scop_cal_calido_55:    n(f.scop_cal_calido_55),
             scop_cal_medio_35:     n(f.scop_cal_medio_35),
@@ -353,6 +355,9 @@ export function AerotermiaDetailModal({ isOpen, equipo: equipoProp, isNew = fals
                                     <DataRow label="Tipo"              value={equipo.tipo || '—'} />
                                     <DataRow label="Potencia (kW)"     value={fmt(equipo.potencia_calefaccion)} highlight />
                                     <DataRow label="Depósito ACS"      value={equipo.deposito_acs_incluido ? 'Sí' : 'No'} />
+                                    {equipo.deposito_acs_incluido && (
+                                        <DataRow label="Acumulación ACS (L)" value={fmt(equipo.litros_acs)} />
+                                    )}
                                     <DataRow label="Modelo Conjunto"   value={equipo.modelo_conjunto || '—'} />
                                     <DataRow label="Ud. Exterior"      value={equipo.modelo_ud_exterior || '—'} />
                                     <DataRow label="Ud. Interior"      value={equipo.modelo_ud_interior || '—'} />
@@ -487,6 +492,11 @@ export function AerotermiaDetailModal({ isOpen, equipo: equipoProp, isNew = fals
                                             </label>
                                         </div>
                                     </FI>
+                                    {form.deposito_acs_incluido && (
+                                        <FI label="Acumulación ACS (litros)">
+                                            <Inp type="number" min="0" step="1" value={form.litros_acs} onChange={e => upd({ litros_acs: e.target.value })} placeholder="200" />
+                                        </FI>
+                                    )}
                                     <div className="sm:col-span-2">
                                         <FI label="Modelo Conjunto">
                                             <Inp value={form.modelo_conjunto} onChange={e => upd({ modelo_conjunto: e.target.value })} placeholder="KIT-ADC12HE5C-CL con Radiadores..." />

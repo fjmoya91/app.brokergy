@@ -1,5 +1,6 @@
 import React, { useRef, useState, useCallback, useEffect } from 'react';
 import axios from 'axios';
+import confetti from 'canvas-confetti';
 import { useAuth } from '../../../context/AuthContext';
 import { BOILER_EFFICIENCIES, calculateHybridization } from '../../calculator/logic/calculation';
 
@@ -182,15 +183,26 @@ function getEmitterTemp(val) {
     return 35;
 }
 
-export function CertificadoCifoModal({ isOpen, onClose, expediente, results, attachments: externalAttachments, onAttachmentsChange, onSaveDrive, onSaveFichaLink, onSaveExtraAnnexes }) {
+export function CertificadoCifoModal({ isOpen, onClose, expediente, results, attachments: externalAttachments, onAttachmentsChange, onSaveDrive, onSaveFichaLink, onSaveExtraAnnexes, onMarkSent }) {
     const { user } = useAuth();
     const containerRef = useRef(null);
     const [generating, setGenerating] = useState(false);
     const [savingDrive, setSavingDrive] = useState(false);
     const [sendingEmail, setSendingEmail] = useState(false);
     const [sendingWhatsapp, setSendingWhatsapp] = useState(false);
-    const [confirmSend, setConfirmSend] = useState(null);
     const [scale, setScale] = useState(1);
+
+    // ── Envío del CIFO al instalador (contacto + plantilla + Email/WhatsApp) ──
+    const [sendOpen, setSendOpen] = useState(false);
+    const [waReady, setWaReady] = useState(null);                 // null = sin comprobar
+    const [selectedContactId, setSelectedContactId] = useState(null);
+    const [manualContact, setManualContact] = useState({ name: '', phone: '', email: '' });
+    const [templateKey, setTemplateKey] = useState('primera');   // 'primera' | 'requerimiento'
+    const [sendMessage, setSendMessage] = useState('');
+    const [sendStatus, setSendStatus] = useState(null);          // { ok, text }
+    const [channels, setChannels] = useState({ email: true, whatsapp: true }); // canales elegidos en el popup
+    const [sendPhase, setSendPhase] = useState(null);            // null | 'sending' | 'done' → overlay de envío
+    const [sendResults, setSendResults] = useState([]);          // [{ channel, status: 'ok'|'fail'|'unavailable', text }]
 
     // El padre ahora pasa siempre los attachments fijos en su state efímero;
     // mantenemos el fallback por si llegan vacíos.
@@ -1251,93 +1263,197 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
         finally { setSavingDrive(false); }
     };
 
-    const handleSendByEmail = () => {
-        if (!empEmail) {
-            alert("❌ El instalador no tiene email registrado.");
-            return;
+    // ── ENVÍO AL INSTALADOR ──────────────────────────────────────────────────
+    // Dirección de la instalación y enlace único de subida del CIFO firmado.
+    const instDireccion = inst.direccion || loc.direccion || cli.direccion || '';
+    const instCp        = inst.codigo_postal || loc.cp || cli.codigo_postal || '';
+    const instMun       = inst.municipio || loc.municipio || cli.municipio || '';
+    const instAddr      = [instDireccion, instCp, instMun].filter(Boolean).join(', ');
+    const uploadLink    = `${APP_BASE_URL}/subir-cifo/${expediente.id}`;
+
+    // Contactos disponibles del perfil del instalador (puede haber varios):
+    // representante/empresa + persona de contacto de notificaciones.
+    const instContacts = [];
+    {
+        const repName = (empResponsable && empResponsable !== '—') ? empResponsable : empNombre;
+        if (empTlf || empEmail) {
+            instContacts.push({ id: 'rep', label: repName, sublabel: pres.es_autonomo ? 'Autónomo' : 'Representante legal', phone: empTlf || '', email: empEmail || '' });
         }
-        setConfirmSend('email');
+        if (pres.nombre_contacto && (pres.tlf_contacto || pres.email_contacto)) {
+            instContacts.push({ id: 'contacto', label: pres.nombre_contacto, sublabel: 'Persona de contacto', phone: pres.tlf_contacto || '', email: pres.email_contacto || '' });
+        }
+    }
+
+    const resolveContact = (id) => {
+        if (id === 'otro') return { id: 'otro', label: (manualContact.name || '').trim() || 'Otro contacto', phone: (manualContact.phone || '').trim(), email: (manualContact.email || '').trim() };
+        return instContacts.find(c => c.id === id) || instContacts[0] || { id: 'rep', label: empResponsable, phone: empTlf || '', email: empEmail || '' };
+    };
+    const selectedContact = resolveContact(selectedContactId);
+
+    // Dos plantillas: primera solicitud de firma vs. reenvío por requerimiento.
+    const buildCifoMessage = (tplKey, contactName) => {
+        const firstName = (contactName || '').trim().split(/\s+/)[0] || 'instalador';
+        const expteB = `*${numexpte}*`;
+        if (tplKey === 'requerimiento') {
+            return `Hola ${firstName},\n\nHemos recibido un *requerimiento* sobre el expediente ${expteB} de ${cliNombre}${instAddr ? ` (instalación en ${instAddr})` : ''} y necesitamos que el *Certificado CIFO* se vuelva a firmar.\n\nTe adjunto de nuevo el documento. Por favor, fírmalo *digitalmente* (representante legal de la empresa instaladora) y vuelve a subirlo en este enlace:\n\n${uploadLink}\n\nDisculpa las molestias y gracias por tu colaboración.\n*BROKERGY · Ingeniería Energética*`;
+        }
+        return `Hola ${firstName},\n\nTe adjunto el *Certificado CIFO* correspondiente al expediente ${expteB} de ${cliNombre}${instAddr ? `, de la instalación realizada en ${instAddr}` : ''}.\n\nEs necesario que nos lo devuelvas *firmado digitalmente* por el representante legal de la empresa instaladora para poder continuar con la tramitación.\n\nPuedes subirlo directamente, ya firmado, en este enlace:\n\n${uploadLink}\n\nUn saludo,\n*BROKERGY · Ingeniería Energética*`;
     };
 
-    const doSendByEmail = async () => {
-        setConfirmSend(null);
-        setSendingEmail(true);
-        try {
-            const uploadLink = `${APP_BASE_URL}/subir-cifo/${expediente.id}`;
-            const instDireccion = inst.direccion || loc.direccion || cli.direccion || '';
-            const instCp        = inst.codigo_postal || loc.cp || cli.codigo_postal || '';
-            const instMun       = inst.municipio || loc.municipio || cli.municipio || '';
-            const instAddr      = [instDireccion, instCp, instMun].filter(Boolean).join(', ');
-
-            const response = await axios.post('/api/pdf/send-cifo', {
-                html: buildHtml(),
-                to: empEmail,
-                instaladorNombre: empResponsable,
-                numExpediente: numexpte,
-                clienteNombre: cliNombre,
-                direccionInstalacion: instAddr,
-                uploadLink,
-                annexDriveFileIds: getAnnexDriveFileIds(),
-            });
-            if (response.data.success) {
-                alert(`✅ Certificado CIFO enviado correctamente a ${empEmail}`);
-            }
-        } catch (error) {
-            console.error('Error sending email:', error);
-            alert("❌ Error al enviar el correo: " + (error.response?.data?.message || error.message));
-        } finally {
-            setSendingEmail(false);
-        }
-    };
-
-    const handleSendByWhatsapp = () => {
-        if (!empTlf) {
-            alert("❌ El instalador no tiene teléfono registrado.");
-            return;
-        }
-        setConfirmSend('whatsapp');
-    };
-
-    const doSendByWhatsapp = async () => {
-        setConfirmSend(null);
-        setSendingWhatsapp(true);
+    const openSendModal = async () => {
+        const defaultId = (pres.contacto_notificaciones_activas && instContacts.some(c => c.id === 'contacto'))
+            ? 'contacto'
+            : (instContacts[0]?.id || 'otro');
+        // Si ya hubo un firmado previo, lo más probable es que sea un requerimiento.
+        const defaultTpl = doc.cert_cifo_signed_link ? 'requerimiento' : 'primera';
+        const initContact = resolveContact(defaultId);
+        setSelectedContactId(defaultId);
+        setTemplateKey(defaultTpl);
+        setSendMessage(buildCifoMessage(defaultTpl, initContact.label));
+        setChannels({
+            email: !!initContact.email,
+            whatsapp: (initContact.phone || '').replace(/[^0-9]/g, '').length >= 9,
+        });
+        setSendStatus(null);
+        setSendPhase(null);
+        setSendResults([]);
+        setWaReady(null);
+        setSendOpen(true);
         try {
             const st = await axios.get('/api/whatsapp/status');
-            if (!st.data?.ready) {
-                alert("❌ WhatsApp no está conectado.");
-                return;
-            }
+            setWaReady(!!st.data?.ready);
+        } catch { setWaReady(false); }
+    };
 
-            const pdfResp = await axios.post('/api/pdf/generate', { html: buildHtml(), annexDriveFileIds: getAnnexDriveFileIds() });
-            const pdfBase64 = pdfResp.data?.pdf;
+    // Al cambiar de contacto o plantilla regeneramos el mensaje (saludo + texto).
+    const pickContact = (id) => {
+        setSelectedContactId(id);
+        setSendMessage(buildCifoMessage(templateKey, resolveContact(id).label));
+    };
+    const pickTemplate = (key) => {
+        setTemplateKey(key);
+        setSendMessage(buildCifoMessage(key, selectedContact.label));
+    };
 
-            const firstName = (empResponsable || empNombre || '').split(/\s+/)[0];
+    const toggleChannel = (ch) => setChannels(prev => ({ ...prev, [ch]: !prev[ch] }));
 
-            // Dirección de la instalación
-            const instDireccion = inst.direccion || loc.direccion || cli.direccion || '';
-            const instCp        = inst.codigo_postal || loc.cp || cli.codigo_postal || '';
-            const instMun       = inst.municipio || loc.municipio || cli.municipio || '';
-            const instAddr      = [instDireccion, instCp, instMun].filter(Boolean).join(', ');
+    // Disponibilidad de cada canal para el contacto seleccionado.
+    const contactPhoneValid = (selectedContact.phone || '').replace(/[^0-9]/g, '').length >= 9;
+    const canEmail = !!selectedContact.email;
+    const canWhatsapp = contactPhoneValid && waReady !== false;
+    const willEmail = channels.email && canEmail;
+    const willWhatsapp = channels.whatsapp && canWhatsapp;
+    const sending = sendingEmail || sendingWhatsapp;
 
-            // Link único de subida del CIFO firmado
-            const uploadLink = `${APP_BASE_URL}/subir-cifo/${expediente.id}`;
+    // Envíos individuales (devuelven { ok, text } y NO tocan el status global).
+    const sendEmailOnce = async () => {
+        const c = selectedContact;
+        const subject = templateKey === 'requerimiento'
+            ? `${numexpte} - Requerimiento: firmar de nuevo Certificado CIFO`
+            : `${numexpte} - Firmar Certificado CIFO de ${cliNombre}`;
+        const { data } = await axios.post('/api/pdf/send-cifo', {
+            html: buildHtml(),
+            to: c.email,
+            subject,
+            message: sendMessage,
+            instaladorNombre: c.label,
+            numExpediente: numexpte,
+            clienteNombre: cliNombre,
+            direccionInstalacion: instAddr,
+            uploadLink,
+            annexDriveFileIds: getAnnexDriveFileIds(),
+        });
+        if (data.success) return { ok: true, text: `Email → ${c.email}` };
+        return { ok: false, text: 'Email no enviado' };
+    };
 
-            const caption = `Hola ${firstName},\n\nTe adjunto el *Certificado CIFO* que me debes devolver *firmado digitalmente* que corresponde al expediente *${numexpte}* de ${cliNombre} de la instalación realizada en ${instAddr}\n\nQuedamos a la espera de recibirlo para continuar con el trámite o puedes subirlo directamente aquí:\n\n${uploadLink}\n\nUn saludo,\n*BROKERGY · Ingeniería Energética*`;
+    const sendWhatsappOnce = async () => {
+        const c = selectedContact;
+        const st = await axios.get('/api/whatsapp/status');
+        if (!st.data?.ready) { setWaReady(false); return { ok: false, text: 'WhatsApp no conectado' }; }
+        const pdfResp = await axios.post('/api/pdf/generate', { html: buildHtml(), annexDriveFileIds: getAnnexDriveFileIds() });
+        await axios.post('/api/whatsapp/send-media', {
+            phone: c.phone,
+            caption: sendMessage,
+            media: { base64: pdfResp.data?.pdf, filename: `${numexpte}_Certificado_CIFO.pdf`, mimetype: 'application/pdf' },
+            asDocument: true,
+        });
+        return { ok: true, text: `WhatsApp → ${c.phone}` };
+    };
 
-            await axios.post('/api/whatsapp/send-media', {
-                phone: empTlf,
-                caption,
-                media: { base64: pdfBase64, filename: `${numexpte}_Certificado_CIFO.pdf`, mimetype: 'application/pdf' },
-                asDocument: true,
+    // Lluvia de "papeles/documentos" al completar el envío: usamos emojis de
+    // documento como formas de confeti (shapeFromText). Caída suave tipo papel.
+    // Respeta prefers-reduced-motion (mismo patrón que LandingResultView).
+    const fireSuccessConfetti = () => {
+        if (typeof window === 'undefined') return;
+        if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+        const scalar = 3.6;
+        let shapes;
+        try {
+            shapes = ['📄', '📃', '📑', '📋'].map(text => confetti.shapeFromText({ text, scalar }));
+        } catch { shapes = undefined; } // fallback a confeti clásico si la versión no soporta shapeFromText
+        const burst = (x, delay = 0) => setTimeout(() => {
+            confetti({
+                particleCount: 22,
+                spread: 65,
+                startVelocity: 34,
+                gravity: 0.8,
+                decay: 0.92,
+                ticks: 220,
+                scalar,
+                origin: { x, y: 0.5 },
+                zIndex: 10000,
+                disableForReducedMotion: true,
+                ...(shapes ? { shapes, flat: true } : { colors: ['#f2a640', '#34d399', '#fcd34d', '#ffffff'] }),
             });
+        }, delay);
+        burst(0.2, 0); burst(0.8, 140); burst(0.5, 300);
+    };
 
-            alert(`✅ Certificado CIFO enviado por WhatsApp correctamente.`);
-        } catch (error) {
-            console.error('Error sending WhatsApp:', error);
-            alert("❌ Error al enviar por WhatsApp: " + (error.response?.data?.message || error.message));
-        } finally {
-            setSendingWhatsapp(false);
+    // Cierra el overlay + el popup de envío + el modal del CIFO → vuelve al expediente.
+    const exitToExpediente = () => {
+        setSendPhase(null);
+        setSendOpen(false);
+        if (onClose) onClose();
+    };
+
+    // Orquestador único: envía por los canales seleccionados (email, whatsapp o ambos).
+    const doSend = async () => {
+        const doEmail = willEmail;
+        const doWa = willWhatsapp;
+        if (!doEmail && !doWa) { setSendStatus({ ok: false, text: 'Selecciona al menos un canal disponible.' }); return; }
+        setSendStatus(null);
+        setSendResults([]);
+        setSendPhase('sending');
+        const results = [];
+
+        if (doEmail) {
+            setSendingEmail(true);
+            try { const r = await sendEmailOnce(); results.push({ channel: 'email', status: r.ok ? 'ok' : 'fail', text: r.text }); }
+            catch (e) { results.push({ channel: 'email', status: 'fail', text: 'Email: ' + (e.response?.data?.message || e.message) }); }
+            finally { setSendingEmail(false); }
+        } else if (channels.email) {
+            // El usuario quería email pero no es posible: lo dejamos indicado.
+            results.push({ channel: 'email', status: 'unavailable', text: 'No disponible — sin dirección de correo' });
         }
+        if (doWa) {
+            setSendingWhatsapp(true);
+            try { const r = await sendWhatsappOnce(); results.push({ channel: 'whatsapp', status: r.ok ? 'ok' : 'fail', text: r.text }); }
+            catch (e) { results.push({ channel: 'whatsapp', status: 'fail', text: 'WhatsApp: ' + (e.response?.data?.message || e.message) }); }
+            finally { setSendingWhatsapp(false); }
+        } else if (channels.whatsapp) {
+            results.push({ channel: 'whatsapp', status: 'unavailable', text: !contactPhoneValid ? 'No disponible — sin teléfono' : 'No disponible — WhatsApp no conectado' });
+        }
+
+        // Si el CIFO llegó al instalador por al menos un canal, registramos la
+        // fecha de envío (documentacion.cert_cifo_sent_at). El módulo de lifecycle
+        // cuenta este campo en v_expedientes_pendientes.docs_enviados_total.
+        const anyOk = results.some(r => r.status === 'ok');
+        if (anyOk && onMarkSent) onMarkSent();
+        setSendResults(results);
+        setSendStatus({ ok: anyOk, text: results.map(r => `${r.status === 'ok' ? '✓' : '✕'} ${r.text}`).join('   ') });
+        setSendPhase('done');
+        if (anyOk) fireSuccessConfetti();
     };
 
     const Spinner = () => (
@@ -1396,36 +1512,21 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
                             </button>
                         )}
 
-                        {/* Botón ENVIAR POR EMAIL */}
+                        {/* Botón ENVIAR (Email / WhatsApp / ambos — se elige en el popup) */}
                         <button
-                            onClick={handleSendByEmail}
-                            disabled={sendingEmail || generating || savingDrive || sendingWhatsapp}
-                            title="Enviar por Correo"
-                            className="text-white/40 hover:text-brand w-10 h-10 flex items-center justify-center transition-all hover:bg-white/5 rounded-xl border border-transparent hover:border-white/10 shrink-0 active:scale-95 disabled:opacity-20"
+                            onClick={openSendModal}
+                            disabled={sendingEmail || sendingWhatsapp || generating || savingDrive}
+                            title="Enviar al instalador"
+                            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white/[0.03] border border-white/10 text-white/50 text-xs font-bold hover:text-brand hover:border-brand/30 transition-all disabled:opacity-30"
                         >
-                            {sendingEmail ? (
-                                <div className="w-5 h-5 border-2 border-brand/20 border-t-brand rounded-full animate-spin" />
+                            {(sendingEmail || sendingWhatsapp) ? (
+                                <div className="w-4 h-4 border-2 border-brand/20 border-t-brand rounded-full animate-spin" />
                             ) : (
-                                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" />
+                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
                                 </svg>
                             )}
-                        </button>
-
-                        {/* Botón ENVIAR POR WHATSAPP */}
-                        <button
-                            onClick={handleSendByWhatsapp}
-                            disabled={sendingWhatsapp || generating || savingDrive || sendingEmail}
-                            title="Enviar por WhatsApp"
-                            className="text-white/40 hover:text-emerald-400 w-10 h-10 flex items-center justify-center transition-all hover:bg-white/5 rounded-xl border border-transparent hover:border-white/10 shrink-0 active:scale-95 disabled:opacity-20"
-                        >
-                            {sendingWhatsapp ? (
-                                <div className="w-5 h-5 border-2 border-emerald-400/20 border-t-emerald-400 rounded-full animate-spin" />
-                            ) : (
-                                <svg className="w-6 h-6" viewBox="0 0 24 24" fill="currentColor">
-                                    <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51l-.57-.01c-.198 0-.52.074-.792.372s-1.04 1.016-1.04 2.479 1.065 2.876 1.213 3.074c.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.999-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
-                                </svg>
-                            )}
+                            Enviar
                         </button>
 
                         <button onClick={handleDownloadPdf} disabled={generating || savingDrive || sendingEmail || sendingWhatsapp} 
@@ -1447,68 +1548,226 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
 
                 {isAnexosOpen && <AnexosModal />}
 
-                {/* ── MODAL CONFIRMACIÓN ENVÍO AL INSTALADOR ── */}
-                {confirmSend && (
-                    <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/80 backdrop-blur-sm" onClick={() => setConfirmSend(null)}>
-                        <div className="bg-[#16181D] border border-white/10 rounded-2xl shadow-2xl w-full max-w-sm mx-4 overflow-hidden" onClick={e => e.stopPropagation()}>
-                            <div className="px-6 py-4 border-b border-white/[0.07] flex items-center gap-3">
-                                <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-amber-500/10">
-                                    {confirmSend === 'email'
-                                        ? <svg className="w-4 h-4 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" /></svg>
-                                        : <svg className="w-4 h-4 text-emerald-400" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51l-.57-.01c-.198 0-.52.074-.792.372s-1.04 1.016-1.04 2.479 1.065 2.876 1.213 3.074c.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.999-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
-                                    }
-                                </div>
+                {/* ── MODAL ENVÍO AL INSTALADOR (contacto + plantilla + canal) ── */}
+                {sendOpen && (
+                    <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4" onClick={() => setSendOpen(false)}>
+                        <div className="bg-[#0F1013] border border-white/[0.07] rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden" onClick={e => e.stopPropagation()}>
+                            {/* Header */}
+                            <div className="px-6 py-5 border-b border-white/[0.07] bg-brand/5 flex items-center justify-between">
                                 <div>
-                                    <h3 className="text-sm font-black text-white uppercase tracking-wider">
-                                        {confirmSend === 'email' ? 'Enviar por Email' : 'Enviar por WhatsApp'}
-                                    </h3>
-                                    <p className="text-white/30 text-[10px] mt-0.5">Certificado CIFO · {numexpte}</p>
+                                    <h2 className="text-lg font-black uppercase tracking-tight text-white">Enviar CIFO al instalador</h2>
+                                    <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest mt-0.5">Documento a firmar · {numexpte}</p>
                                 </div>
-                            </div>
-
-                            <div className="px-6 py-5 space-y-4">
-                                <p className="text-white/60 text-sm">
-                                    ¿Enviar el CIFO al instalador <span className="text-white font-bold">{empNombre}</span>?
-                                </p>
-                                <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4 space-y-2">
-                                    {empResponsable && empResponsable !== empNombre && (
-                                        <div className="flex items-center gap-2 text-xs text-white/50">
-                                            <svg className="w-3.5 h-3.5 shrink-0 text-white/20" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
-                                            <span className="text-white/70">{empResponsable}</span>
-                                        </div>
-                                    )}
-                                    {confirmSend === 'email' && (
-                                        <div className="flex items-center gap-2 text-xs">
-                                            <svg className="w-3.5 h-3.5 shrink-0 text-brand/50" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" /></svg>
-                                            <span className="text-brand font-mono">{empEmail}</span>
-                                        </div>
-                                    )}
-                                    {confirmSend === 'whatsapp' && (
-                                        <div className="flex items-center gap-2 text-xs">
-                                            <svg className="w-3.5 h-3.5 shrink-0 text-emerald-500/50" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg>
-                                            <span className="text-emerald-400 font-mono">{empTlf}</span>
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-
-                            <div className="px-6 pb-6 flex gap-3">
-                                <button
-                                    onClick={() => setConfirmSend(null)}
-                                    className="flex-1 py-2.5 rounded-xl border border-white/10 text-white/40 text-xs font-bold hover:text-white hover:border-white/20 transition-all"
-                                >
-                                    Cancelar
+                                <button onClick={() => setSendOpen(false)} className="text-white/30 hover:text-white transition-colors">
+                                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                                 </button>
-                                <button
-                                    onClick={confirmSend === 'email' ? doSendByEmail : doSendByWhatsapp}
-                                    className="flex-1 py-2.5 rounded-xl bg-brand text-black text-xs font-black uppercase tracking-wider hover:brightness-110 active:scale-95 transition-all"
-                                >
-                                    Confirmar envío
+                            </div>
+
+                            <div className="px-6 py-5 space-y-5 max-h-[74vh] overflow-y-auto custom-scrollbar">
+                                {/* Destinatario */}
+                                <div>
+                                    <label className="block text-[9px] font-black text-white/30 uppercase tracking-[0.2em] mb-2">Destinatario</label>
+                                    <div className="space-y-2">
+                                        {instContacts.map(c => (
+                                            <button key={c.id} type="button" onClick={() => pickContact(c.id)}
+                                                className={`w-full flex items-center gap-3 p-3 rounded-xl border text-left transition-all ${selectedContactId === c.id ? 'border-brand/50 bg-brand/5' : 'border-white/10 bg-white/[0.02] hover:border-white/20'}`}>
+                                                <span className={`w-4 h-4 rounded-full border-2 shrink-0 ${selectedContactId === c.id ? 'border-brand bg-brand' : 'border-white/20'}`} />
+                                                <div className="min-w-0 flex-1">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="text-sm font-bold text-white truncate">{c.label}</span>
+                                                        <span className="text-[9px] uppercase tracking-wider text-white/30 font-bold shrink-0">{c.sublabel}</span>
+                                                    </div>
+                                                    <div className="text-[11px] text-white/40 truncate">
+                                                        {c.phone || 'sin teléfono'}{c.email ? ` · ${c.email}` : ''}
+                                                    </div>
+                                                </div>
+                                            </button>
+                                        ))}
+                                        {/* Otro contacto manual */}
+                                        <button type="button" onClick={() => pickContact('otro')}
+                                            className={`w-full flex items-center gap-3 p-3 rounded-xl border text-left transition-all ${selectedContactId === 'otro' ? 'border-brand/50 bg-brand/5' : 'border-white/10 bg-white/[0.02] hover:border-white/20'}`}>
+                                            <span className={`w-4 h-4 rounded-full border-2 shrink-0 ${selectedContactId === 'otro' ? 'border-brand bg-brand' : 'border-white/20'}`} />
+                                            <span className="text-sm font-bold text-white">Otro contacto…</span>
+                                        </button>
+                                        {selectedContactId === 'otro' && (
+                                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pl-7">
+                                                <input value={manualContact.name} onChange={e => { const v = e.target.value; setManualContact(m => ({ ...m, name: v })); setSendMessage(buildCifoMessage(templateKey, v)); }} placeholder="Nombre" className="w-full min-w-0 bg-bkg-elevated border border-white/5 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-brand/40 transition-all" />
+                                                <input value={manualContact.phone} onChange={e => setManualContact(m => ({ ...m, phone: e.target.value }))} placeholder="Teléfono" className="w-full min-w-0 bg-bkg-elevated border border-white/5 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-brand/40 transition-all" />
+                                                <input type="email" value={manualContact.email} onChange={e => setManualContact(m => ({ ...m, email: e.target.value }))} placeholder="Email" className="w-full min-w-0 no-uppercase bg-bkg-elevated border border-white/5 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-brand/40 transition-all" />
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* Plantilla + mensaje */}
+                                <div>
+                                    <label className="block text-[9px] font-black text-white/30 uppercase tracking-[0.2em] mb-2">Mensaje (email / WhatsApp)</label>
+                                    <div className="flex gap-2 mb-3">
+                                        <button type="button" onClick={() => pickTemplate('primera')}
+                                            className={`flex-1 py-2 rounded-lg text-[10px] font-black uppercase tracking-wider border transition-all ${templateKey === 'primera' ? 'border-brand/50 bg-brand/10 text-brand' : 'border-white/10 text-white/40 hover:text-white'}`}>
+                                            Primera firma
+                                        </button>
+                                        <button type="button" onClick={() => pickTemplate('requerimiento')}
+                                            className={`flex-1 py-2 rounded-lg text-[10px] font-black uppercase tracking-wider border transition-all ${templateKey === 'requerimiento' ? 'border-amber-400/50 bg-amber-400/10 text-amber-400' : 'border-white/10 text-white/40 hover:text-white'}`}>
+                                            Requerimiento
+                                        </button>
+                                    </div>
+                                    <textarea
+                                        value={sendMessage}
+                                        onChange={e => setSendMessage(e.target.value)}
+                                        rows={10}
+                                        className="w-full no-uppercase bg-bkg-elevated border border-white/5 rounded-xl px-4 py-3 text-white text-[12px] leading-relaxed focus:outline-none focus:border-brand/40 transition-all resize-y"
+                                    />
+                                    <p className="text-[10px] text-white/30 mt-2">🔗 El mensaje incluye el enlace único para subir el CIFO firmado.</p>
+                                </div>
+
+                                {/* Canal de envío (email / whatsapp / ambos) */}
+                                <div>
+                                    <label className="block text-[9px] font-black text-white/30 uppercase tracking-[0.2em] mb-2">Enviar por</label>
+                                    <div className="grid grid-cols-2 gap-2">
+                                        {/* Email */}
+                                        <button type="button" disabled={!canEmail} onClick={() => toggleChannel('email')}
+                                            className={`flex items-center gap-2.5 p-3 rounded-xl border text-left transition-all ${!canEmail ? 'opacity-40 cursor-not-allowed border-white/10 bg-white/[0.02]' : (channels.email ? 'border-brand/50 bg-brand/10' : 'border-white/10 bg-white/[0.02] hover:border-white/20')}`}>
+                                            <span className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 ${willEmail ? 'border-brand bg-brand' : 'border-white/20'}`}>
+                                                {willEmail && <svg className="w-3 h-3 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
+                                            </span>
+                                            <div className="min-w-0">
+                                                <div className="text-[11px] font-black uppercase tracking-wider text-white">Email</div>
+                                                <div className="text-[10px] text-white/40 truncate">{selectedContact.email || 'sin email'}</div>
+                                            </div>
+                                        </button>
+                                        {/* WhatsApp */}
+                                        <button type="button" disabled={!contactPhoneValid || waReady === false} onClick={() => toggleChannel('whatsapp')}
+                                            className={`flex items-center gap-2.5 p-3 rounded-xl border text-left transition-all ${(!contactPhoneValid || waReady === false) ? 'opacity-40 cursor-not-allowed border-white/10 bg-white/[0.02]' : (channels.whatsapp ? 'border-emerald-400/50 bg-emerald-400/10' : 'border-white/10 bg-white/[0.02] hover:border-white/20')}`}>
+                                            <span className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 ${willWhatsapp ? 'border-emerald-400 bg-emerald-400' : 'border-white/20'}`}>
+                                                {willWhatsapp && <svg className="w-3 h-3 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
+                                            </span>
+                                            <div className="min-w-0">
+                                                <div className="text-[11px] font-black uppercase tracking-wider text-white">WhatsApp</div>
+                                                <div className="text-[10px] text-white/40 truncate">{!contactPhoneValid ? 'sin teléfono' : (waReady === false ? 'no conectado' : selectedContact.phone)}</div>
+                                            </div>
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {sendStatus && (
+                                    <p className={`text-[11px] ${sendStatus.ok ? 'text-emerald-400' : 'text-red-400'}`}>
+                                        {sendStatus.ok ? '✅' : '❌'} {sendStatus.text}
+                                    </p>
+                                )}
+                            </div>
+
+                            {/* Footer */}
+                            <div className="px-6 py-4 bg-white/[0.02] border-t border-white/[0.07] flex items-center justify-end gap-3">
+                                <button onClick={() => setSendOpen(false)} className="px-4 py-2.5 rounded-xl border border-white/10 text-white/50 text-[10px] font-black uppercase tracking-widest hover:text-white hover:border-white/30 transition-all">
+                                    Cerrar
+                                </button>
+                                <button onClick={doSend} disabled={sending || (!willEmail && !willWhatsapp)}
+                                    title={(!willEmail && !willWhatsapp) ? 'Selecciona al menos un canal disponible' : 'Enviar'}
+                                    className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-brand text-black text-[11px] font-black uppercase tracking-widest hover:brightness-110 active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed transition-all">
+                                    {sending
+                                        ? <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.4 0 0 5.4 0 12h4z" /></svg>
+                                        : <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>}
+                                    {sending ? 'Enviando…' : 'Enviar'}
                                 </button>
                             </div>
                         </div>
                     </div>
                 )}
+
+                {/* ── OVERLAY DE ENVÍO (wow): enviando → enviado, estado por canal ── */}
+                {sendPhase && (() => {
+                    const anyOk = sendResults.some(r => r.status === 'ok');
+                    const hasFail = sendResults.some(r => r.status === 'fail');
+                    const hasUnavail = sendResults.some(r => r.status === 'unavailable');
+                    const allGood = anyOk && !hasFail && !hasUnavail;
+                    const done = sendPhase === 'done';
+                    const tone = !done ? 'brand' : (allGood ? 'emerald' : (anyOk ? 'amber' : 'red'));
+                    const glow = { brand: 'bg-brand/20', emerald: 'bg-emerald-500/25', amber: 'bg-amber-500/20', red: 'bg-red-500/20' }[tone];
+                    const chMeta = {
+                        email:    { name: 'Email',    path: 'M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z' },
+                        whatsapp: { name: 'WhatsApp', path: 'M12 2a10 10 0 00-8.94 14.46L2 22l5.7-1.5A10 10 0 1012 2z' },
+                    };
+                    const statusMeta = {
+                        ok:          { color: 'emerald', label: 'Enviado',       icon: 'M5 13l4 4L19 7' },
+                        fail:        { color: 'red',     label: 'Error',         icon: 'M6 18L18 6M6 6l12 12' },
+                        unavailable: { color: 'amber',   label: 'No disponible', icon: 'M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z' },
+                    };
+                    return (
+                        <div className="fixed inset-0 z-[400] flex items-center justify-center bg-black/85 backdrop-blur-md p-4 animate-fade-in">
+                            <div className="relative w-full max-w-md bg-[#0F1013] border border-white/10 rounded-3xl shadow-2xl overflow-hidden animate-scale-in">
+                                <div className={`absolute -top-28 left-1/2 -translate-x-1/2 w-80 h-80 rounded-full blur-3xl pointer-events-none ${glow}`} />
+                                <div className="relative px-8 py-9 flex flex-col items-center text-center">
+                                    {!done ? (
+                                        <>
+                                            <div className="relative w-24 h-24 mb-6 flex items-center justify-center">
+                                                <span className="absolute inset-0 rounded-full bg-brand/20 animate-ping" />
+                                                <span className="absolute inset-4 rounded-full bg-brand/20 animate-ping" style={{ animationDelay: '0.5s' }} />
+                                                <div className="relative w-16 h-16 rounded-full bg-brand/15 border border-brand/40 flex items-center justify-center">
+                                                    <svg className="w-8 h-8 text-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8} style={{ animation: 'float 1.8s ease-in-out infinite' }}><path strokeLinecap="round" strokeLinejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>
+                                                </div>
+                                            </div>
+                                            <h3 className="text-xl font-black uppercase tracking-tight text-white">Enviando CIFO…</h3>
+                                            <p className="text-white/40 text-[10px] font-bold uppercase tracking-[0.2em] mt-1">{numexpte}</p>
+                                            <div className="mt-6 w-full space-y-2">
+                                                {willEmail && (
+                                                    <div className="flex items-center gap-3 px-4 py-2.5 rounded-xl bg-white/[0.03] border border-white/10">
+                                                        <svg className="w-4 h-4 animate-spin text-brand shrink-0" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.4 0 0 5.4 0 12h4z" /></svg>
+                                                        <span className="text-[11px] font-bold text-white/70 uppercase tracking-wider">Enviando email…</span>
+                                                    </div>
+                                                )}
+                                                {willWhatsapp && (
+                                                    <div className="flex items-center gap-3 px-4 py-2.5 rounded-xl bg-white/[0.03] border border-white/10">
+                                                        <svg className="w-4 h-4 animate-spin text-emerald-400 shrink-0" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.4 0 0 5.4 0 12h4z" /></svg>
+                                                        <span className="text-[11px] font-bold text-white/70 uppercase tracking-wider">Enviando WhatsApp…</span>
+                                                    </div>
+                                                )}
+                                            </div>
+                                            <p className="mt-6 text-[10px] text-white/25 uppercase tracking-widest font-bold">No cierres esta ventana</p>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <div className="relative w-24 h-24 mb-6 flex items-center justify-center">
+                                                <span className={`absolute inset-0 rounded-full animate-ping ${tone === 'emerald' ? 'bg-emerald-500/20' : tone === 'amber' ? 'bg-amber-500/20' : 'bg-red-500/20'}`} />
+                                                <div className={`relative w-20 h-20 rounded-full flex items-center justify-center border-2 ${tone === 'emerald' ? 'bg-emerald-500/15 border-emerald-400/50 text-emerald-400' : tone === 'amber' ? 'bg-amber-500/15 border-amber-400/50 text-amber-400' : 'bg-red-500/15 border-red-400/50 text-red-400'}`}>
+                                                    <svg className="w-10 h-10 animate-scale-in" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d={anyOk ? 'M5 13l4 4L19 7' : 'M6 18L18 6M6 6l12 12'} /></svg>
+                                                </div>
+                                            </div>
+                                            <h3 className="text-xl font-black uppercase tracking-tight text-white">{allGood ? '¡CIFO enviado!' : anyOk ? 'Enviado parcialmente' : 'No se pudo enviar'}</h3>
+                                            <p className="text-white/40 text-[10px] font-bold uppercase tracking-[0.2em] mt-1">{numexpte}</p>
+                                            <div className="mt-6 w-full space-y-2">
+                                                {sendResults.map((r, i) => {
+                                                    const cm = chMeta[r.channel]; const sm = statusMeta[r.status];
+                                                    return (
+                                                        <div key={i} className={`flex items-center gap-3 px-4 py-3 rounded-xl border ${sm.color === 'emerald' ? 'bg-emerald-500/[0.06] border-emerald-400/25' : sm.color === 'amber' ? 'bg-amber-500/[0.06] border-amber-400/25' : 'bg-red-500/[0.06] border-red-400/25'}`}>
+                                                            <svg className="w-5 h-5 text-white/50 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.7}><path strokeLinecap="round" strokeLinejoin="round" d={cm.path} /></svg>
+                                                            <div className="min-w-0 flex-1 text-left">
+                                                                <div className="text-[11px] font-black uppercase tracking-wider text-white">{cm.name}</div>
+                                                                <div className="text-[10px] text-white/45 truncate">{r.text}</div>
+                                                            </div>
+                                                            <span className={`flex items-center gap-1 text-[9px] font-black uppercase tracking-wider shrink-0 ${sm.color === 'emerald' ? 'text-emerald-400' : sm.color === 'amber' ? 'text-amber-400' : 'text-red-400'}`}>
+                                                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d={sm.icon} /></svg>
+                                                                {sm.label}
+                                                            </span>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                            <div className="mt-7 w-full flex flex-col gap-2">
+                                                <button onClick={exitToExpediente} className="w-full py-3 rounded-xl bg-brand text-black text-[11px] font-black uppercase tracking-widest hover:brightness-110 active:scale-95 transition-all">
+                                                    Volver al expediente
+                                                </button>
+                                                <button onClick={() => setSendPhase(null)} className="w-full py-2.5 rounded-xl border border-white/10 text-white/40 text-[10px] font-black uppercase tracking-widest hover:text-white hover:border-white/30 transition-all">
+                                                    Seguir aquí
+                                                </button>
+                                            </div>
+                                        </>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    );
+                })()}
             </div>
         </div>
     );

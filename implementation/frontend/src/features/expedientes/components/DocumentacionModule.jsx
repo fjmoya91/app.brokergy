@@ -147,7 +147,6 @@ function formatDateDisplay(dateStr) {
 function calcCifo(doc) {
     const allDates = [
         doc.fecha_pruebas_cert_instalacion,
-        doc.fecha_firma_cert_instalacion,
         ...(doc.facturas || []).map(f => f.fecha_factura)
     ].filter(Boolean);
 
@@ -845,6 +844,7 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                 attachments={cifoAttachments}
                 onAttachmentsChange={setCifoAttachments}
                 onSaveDrive={(link) => handleModalSaveDrive('cert_cifo_drive_link', link)}
+                onMarkSent={() => handleModalSaveDrive('cert_cifo_sent_at', new Date().toISOString())}
                 onSaveFichaLink={(type, link, driveId) => {
                     const linkField = type === 'cal' ? 'ft_aerotermia_cal_link' : 'ft_aerotermia_acs_link';
                     const idField   = type === 'cal' ? 'ft_aerotermia_cal_id'   : 'ft_aerotermia_acs_id';

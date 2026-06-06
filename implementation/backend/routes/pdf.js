@@ -355,7 +355,7 @@ router.post('/send-annex', async (req, res) => {
  * Body: { html, to, instaladorNombre, numExpediente }
  */
 router.post('/send-cifo', async (req, res) => {
-    const { html, to, instaladorNombre, numExpediente, clienteNombre, direccionInstalacion, uploadLink, annexDriveFileIds } = req.body;
+    const { html, to, instaladorNombre, numExpediente, clienteNombre, direccionInstalacion, uploadLink, annexDriveFileIds, subject, message } = req.body;
     const emailService = require('../services/emailService');
 
     if (!html || !to) {
@@ -391,16 +391,21 @@ router.post('/send-cifo', async (req, res) => {
         const dir     = direccionInstalacion || '';
         const link    = uploadLink          || '';
 
-        await emailService.sendMail({
-            to,
-            subject: `${expte} - Firmar Certificado CIFO de ${cliente}`,
-            html: `
-                <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#fff;border-radius:8px;overflow:hidden;">
-                    <div style="background:linear-gradient(135deg,#f59e0b,#ea580c);padding:24px 32px;">
-                        <h1 style="margin:0;color:#fff;font-size:20px;letter-spacing:1px;">BROKERGY</h1>
-                        <p style="margin:4px 0 0;color:rgba(255,255,255,0.8);font-size:12px;">Ingeniería Energética</p>
-                    </div>
-                    <div style="padding:32px;">
+        const emailSubject = subject || `${expte} - Firmar Certificado CIFO de ${cliente}`;
+
+        // Si el frontend manda un `message` editable, lo renderizamos como cuerpo
+        // (escapando HTML, *negritas* → <strong>, URLs → enlaces, saltos → <br>).
+        // Si no, se usa la plantilla por defecto con botón de subida.
+        const esc = (s) => String(s == null ? '' : s)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        const messageToHtml = (msg) => esc(msg)
+            .replace(/\*([^*\n]+)\*/g, '<strong>$1</strong>')
+            .replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" style="color:#f59e0b;font-weight:bold;">$1</a>')
+            .replace(/\n/g, '<br>');
+
+        const bodyInner = message
+            ? `<div style="color:#444;line-height:1.6;font-size:14px;">${messageToHtml(message)}</div>`
+            : `
                         <p style="font-size:16px;color:#111;">Hola, <strong>${nombre}</strong>:</p>
                         <p style="color:#444;line-height:1.6;">
                             Te adjuntamos el <strong>Certificado CIFO</strong> que nos debes devolver <strong>firmado digitalmente</strong>,
@@ -415,7 +420,19 @@ router.post('/send-cifo', async (req, res) => {
                                 📤 Subir CIFO firmado
                             </a>
                         </div>
-                        ` : ''}
+                        ` : ''}`;
+
+        await emailService.sendMail({
+            to,
+            subject: emailSubject,
+            html: `
+                <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#fff;border-radius:8px;overflow:hidden;">
+                    <div style="background:linear-gradient(135deg,#f59e0b,#ea580c);padding:24px 32px;">
+                        <h1 style="margin:0;color:#fff;font-size:20px;letter-spacing:1px;">BROKERGY</h1>
+                        <p style="margin:4px 0 0;color:rgba(255,255,255,0.8);font-size:12px;">Ingeniería Energética</p>
+                    </div>
+                    <div style="padding:32px;">
+                        ${bodyInner}
                         <hr style="border:none;border-top:1px solid #eee;margin:24px 0;">
                         <p style="color:#888;font-size:12px;margin:0;">
                             BROKERGY · Ingeniería Energética<br>

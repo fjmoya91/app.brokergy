@@ -1334,7 +1334,7 @@ router.post('/:id/memoria-rite/generate', enforceAuth, async (req, res) => {
 // microservicio. Body: { channels: ['email','whatsapp'], message }.
 router.post('/:id/memoria-rite/send', enforceAuth, async (req, res) => {
     try {
-        const { channels = [], message = '' } = req.body || {};
+        const { channels = [], message = '', to, phone } = req.body || {};
         const chans = Array.isArray(channels) ? channels : [];
         if (!chans.includes('email') && !chans.includes('whatsapp')) {
             return res.status(400).json({ error: 'Indica al menos un canal (email/whatsapp)' });
@@ -1345,10 +1345,12 @@ router.post('/:id/memoria-rite/send', enforceAuth, async (req, res) => {
         const { exp, cli, op, normalizedDatos, pres } = ctx;
         if (!pres) return res.status(400).json({ error: 'El expediente no tiene instalador asignado' });
 
-        // Contacto del instalador (prioriza el contacto de notificaciones si está activo)
+        // Contacto del instalador. Si el frontend manda `to`/`phone` (contacto
+        // elegido en el popup), se usan; si no, fallback al contacto del prescriptor
+        // (prioriza el contacto de notificaciones si está activo).
         const useContact = pres.contacto_notificaciones_activas === true || pres.contacto_notificaciones_activas === 'true';
-        const instEmail = (useContact ? (pres.email_contacto || pres.email) : pres.email) || '';
-        const instTlf = (useContact ? (pres.tlf_contacto || pres.tlf || pres.telefono) : (pres.tlf || pres.telefono)) || '';
+        const instEmail = ((to || (useContact ? (pres.email_contacto || pres.email) : pres.email)) || '').trim();
+        const instTlf = ((phone || (useContact ? (pres.tlf_contacto || pres.tlf || pres.telefono) : (pres.tlf || pres.telefono))) || '').trim();
 
         // Generar ficheros frescos vía microservicio
         const { expPayload, instaladorPayload } = buildRitePayloads({ exp, cli, op, normalizedDatos, pres });

@@ -11,34 +11,38 @@ import axios from 'axios';
 import confetti from 'canvas-confetti';
 import { computeLandingResult } from '../data/landingCalculation';
 
-/**
- * Dispara confeti naranja-amarillo al montar la pantalla de resultado.
- * 3 ráfagas escalonadas desde dos lados para dar sensación de celebración
- * sin pasarse. Respeta `prefers-reduced-motion` (no dispara si el usuario
- * tiene reducción de movimiento activada).
- */
-function fireOrangeConfetti() {
+function fireMoneyAnimation() {
     if (typeof window === 'undefined') return;
     const prefersReduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
     if (prefersReduced) return;
 
-    const colors = ['#f59e0b', '#fb923c', '#fcd34d', '#fbbf24', '#ea580c', '#fde68a'];
+    const moneyEmojis = ['💵', '💰', '💸', '🤑', '🪙', '💶'];
+    const shapes = moneyEmojis.map((emoji) =>
+        confetti.shapeFromText({ text: emoji, scalar: 3 })
+    );
+
     const burst = (originX, delay = 0) => {
         setTimeout(() => {
             confetti({
-                particleCount: 80,
-                spread: 70,
-                startVelocity: 45,
+                particleCount: 40,
+                spread: 80,
+                startVelocity: 40,
                 origin: { x: originX, y: 0.65 },
-                colors,
+                shapes,
+                scalar: 3,
+                flat: true,
                 zIndex: 9999,
                 disableForReducedMotion: true,
+                colors: ['#f59e0b', '#fbbf24', '#fde68a', '#22c55e', '#4ade80'],
             });
         }, delay);
     };
+
     burst(0.15, 0);
-    burst(0.85, 150);
-    burst(0.5, 350);
+    burst(0.85, 200);
+    burst(0.5, 450);
+    burst(0.3, 700);
+    burst(0.7, 900);
 }
 
 const fmtEur = (n) => `${new Intl.NumberFormat('es-ES', { maximumFractionDigits: 0 }).format(Math.abs(n || 0))} €`;
@@ -69,7 +73,7 @@ export function LandingResultView({ leadResult, funnel, contacto, partnerBrandin
     // Confeti naranja al montar — solo una vez. Pequeño retardo para que el
     // usuario tenga tiempo de ver la pantalla antes del efecto.
     useEffect(() => {
-        const t = setTimeout(() => fireOrangeConfetti(), 250);
+        const t = setTimeout(() => fireMoneyAnimation(), 250);
         return () => clearTimeout(t);
     }, []);
 

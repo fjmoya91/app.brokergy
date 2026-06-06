@@ -182,6 +182,11 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
         label: `${m.modelo_comercial || m.modelo_conjunto || ''} ${m.potencia_calefaccion ? `(${m.potencia_calefaccion}kW)` : ''}`
     }));
 
+    // El input de litros de acumulación ACS solo aplica si el modelo de ACS
+    // seleccionado lleva depósito incluido (deposito_acs_incluido = true).
+    const selectedModel = availableModels.find(m => String(m.id) === String(data?.aerotermia_db_id));
+    const showLitros = isAcs && !!selectedModel?.deposito_acs_incluido;
+
     const handleMarcaChange = (brand) => {
         onChange({ ...data, marca: brand, aerotermia_db_id: null, modelo: '', scop: null, metodo_scop: 'ficha' });
     };
@@ -209,7 +214,10 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
                 metodo_scop: method,
                 url_eprel: found.eprel,
                 url_keymark: found.url_keymark,
-                url_ficha: found.ficha_tecnica
+                url_ficha: found.ficha_tecnica,
+                // Solo en ACS: precargar litros desde el catálogo del modelo (litros_acs)
+                // si lleva depósito; si no, limpiarlo. Editable como override en el expediente.
+                ...(isAcs ? { litros: found.deposito_acs_incluido ? (found.litros_acs ?? '') : null } : {})
             });
         } else {
             onChange({ ...data, aerotermia_db_id: null, modelo: '', scop: null });
@@ -351,6 +359,29 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
                     />
                 </div>
             </div>
+
+            {showLitros && (
+                <div className="space-y-1">
+                    <label className="flex items-center gap-1.5 text-xs text-brand/40 uppercase tracking-wider font-bold">
+                        <svg className="w-3.5 h-3.5 text-brand/50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12a7 7 0 1014 0c0-3-2.5-6-7-10-4.5 4-7 7-7 10z" />
+                        </svg>
+                        Litros de acumulación ACS
+                    </label>
+                    <input
+                        type="number"
+                        min="0"
+                        step="1"
+                        value={data?.litros ?? ''}
+                        onChange={e => onChange({ ...data, litros: e.target.value })}
+                        readOnly={readOnly}
+                        placeholder="Ej: 200"
+                        className={`w-full bg-bkg-elevated border rounded-lg px-3 py-2 text-white text-sm focus:outline-none ${
+                            readOnly ? 'border-white/5 text-white/60 cursor-not-allowed' : 'border-white/10 focus:border-brand/50'
+                        }`}
+                    />
+                </div>
+            )}
         </div>
     );
 }
