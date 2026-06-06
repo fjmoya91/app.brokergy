@@ -1202,20 +1202,29 @@ router.post('/rite-upload/:expedienteId',
             const numexpte = exp.numero_expediente || expedienteId;
             const subfolderId = await driveService.getOrCreateSubfolder(driveFolderId, '7. LEGALIZACION RITE');
 
+            // Reemplaza el fichero si ya existía con ese nombre (evita duplicados al re-subir).
+            const saveReplacing = async (name, mime, buffer) => {
+                try {
+                    const existing = await driveService.findFileByName(subfolderId, name);
+                    if (existing) await driveService.deleteFile(existing);
+                } catch (e) { console.warn('[RITE upload] no se pudo reemplazar previo:', e.message); }
+                return driveService.saveFileToFolder(subfolderId, name, mime, buffer);
+            };
+
             const docUpdate = { ...(exp.documentacion || {}) };
             let memoriaLink = null;
             let certLink = null;
             if (memFile) {
-                const r = await driveService.saveFileToFolder(subfolderId, `${numexpte} - RITE_Memoria_Firmada.pdf`, memFile.mimetype, memFile.buffer);
+                const r = await saveReplacing(`${numexpte} - RITE_Memoria_Firmada.pdf`, memFile.mimetype, memFile.buffer);
                 memoriaLink = r?.link || null;
                 docUpdate.cert_rite_signed_link = memoriaLink;
-                try { await driveService.setFolderPublic(r.id, 'reader'); } catch (e) {}
+                if (r?.id) try { await driveService.setFolderPublic(r.id, 'reader'); } catch (e) {}
             }
             if (certFile) {
-                const r = await driveService.saveFileToFolder(subfolderId, `${numexpte} - RITE_Certificado.pdf`, certFile.mimetype, certFile.buffer);
+                const r = await saveReplacing(`${numexpte} - RITE_Certificado.pdf`, certFile.mimetype, certFile.buffer);
                 certLink = r?.link || null;
                 docUpdate.cert_rite_drive_link = certLink;   // → slot "Certificado RITE" (validación del agente)
-                try { await driveService.setFolderPublic(r.id, 'reader'); } catch (e) {}
+                if (r?.id) try { await driveService.setFolderPublic(r.id, 'reader'); } catch (e) {}
             }
 
             await supabase.from('expedientes').update({ documentacion: docUpdate }).eq('id', expedienteId);

@@ -5,9 +5,71 @@ import { DynamicNetworkBackground } from '../../../components/DynamicNetworkBack
 const isProd = import.meta.env.PROD;
 const API_URL = isProd ? '/api/public' : 'http://localhost:3000/api/public';
 
-// Página pública para que el instalador suba, tras firmar/tramitar:
-//  - la MEMORIA firmada  → cert_rite_signed_link
-//  - el CERTIFICADO RITE → cert_rite_drive_link (slot "Certificado RITE")
+// Zona de arrastrar y soltar con feedback visual + estado "ya subido".
+function DropZone({ title, desc, file, onPick, alreadyUploaded }) {
+    const ref = useRef();
+    const [dragging, setDragging] = useState(false);
+
+    const onDrop = (e) => {
+        e.preventDefault();
+        setDragging(false);
+        const f = e.dataTransfer.files?.[0];
+        if (f) onPick(f);
+    };
+
+    const replaced = alreadyUploaded && !file;
+    return (
+        <div>
+            <p className="text-[11px] font-black text-white uppercase tracking-wide mb-1">{title}</p>
+            <p className="text-white/35 text-[11px] mb-2 leading-snug">{desc}</p>
+            <div className="relative group">
+                <input ref={ref} type="file" accept="application/pdf"
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                    onChange={e => onPick(e.target.files?.[0])} />
+                <div
+                    onDragEnter={e => { e.preventDefault(); setDragging(true); }}
+                    onDragOver={e => { e.preventDefault(); setDragging(true); }}
+                    onDragLeave={e => { e.preventDefault(); setDragging(false); }}
+                    onDrop={onDrop}
+                    className={`border-2 border-dashed rounded-xl p-5 text-center transition-all duration-150 ${
+                        dragging
+                            ? 'border-brand bg-brand/20 scale-[1.02] shadow-[0_0_25px_rgba(232,115,28,0.25)]'
+                            : file
+                                ? 'border-brand/40 bg-brand/5'
+                                : replaced
+                                    ? 'border-emerald-500/30 bg-emerald-500/5'
+                                    : 'border-white/10 group-hover:border-brand/40 group-hover:bg-brand/5'
+                    }`}
+                >
+                    {dragging ? (
+                        <div className="space-y-1 py-1">
+                            <svg className="w-7 h-7 text-brand mx-auto animate-bounce" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
+                            <p className="text-brand font-black text-xs uppercase tracking-widest">Suelta aquí</p>
+                        </div>
+                    ) : file ? (
+                        <div className="space-y-1">
+                            <svg className="w-7 h-7 text-brand mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                            <p className="text-brand font-bold text-xs truncate px-2">{file.name}</p>
+                            <p className="text-white/30 text-[10px]">{(file.size / 1024).toFixed(0)} KB · pulsa para cambiar</p>
+                        </div>
+                    ) : replaced ? (
+                        <div className="space-y-1">
+                            <svg className="w-7 h-7 text-emerald-400 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>
+                            <p className="text-emerald-400 font-bold text-xs">Ya subido ✓</p>
+                            <p className="text-white/30 text-[10px]">Pulsa o arrastra para reemplazarlo</p>
+                        </div>
+                    ) : (
+                        <div className="space-y-1">
+                            <svg className="w-7 h-7 text-white/20 group-hover:text-brand mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+                            <p className="text-xs text-white/40 font-medium">Pulsa o arrastra el PDF</p>
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+}
+
 export function SubirRiteView({ expedienteId }) {
     const [info, setInfo] = useState(null);
     const [loadError, setLoadError] = useState(null);
@@ -17,11 +79,11 @@ export function SubirRiteView({ expedienteId }) {
     const [done, setDone] = useState(false);
     const [uploadError, setUploadError] = useState(null);
 
-    useEffect(() => {
-        axios.get(`${API_URL}/rite-upload/${expedienteId}`)
-            .then(r => setInfo(r.data))
-            .catch(() => setLoadError('No se ha encontrado el expediente o el enlace no es válido.'));
-    }, [expedienteId]);
+    const loadInfo = () => axios.get(`${API_URL}/rite-upload/${expedienteId}`)
+        .then(r => setInfo(r.data))
+        .catch(() => setLoadError('No se ha encontrado el expediente o el enlace no es válido.'));
+
+    useEffect(() => { loadInfo(); }, [expedienteId]);
 
     const pickPdf = (f, setter) => {
         if (!f) return;
@@ -77,38 +139,7 @@ export function SubirRiteView({ expedienteId }) {
         );
     }
 
-    const DropZone = ({ file, setter, title, desc }) => {
-        const ref = useRef();
-        return (
-            <div>
-                <p className="text-[11px] font-black text-white uppercase tracking-wide mb-1">{title}</p>
-                <p className="text-white/35 text-[11px] mb-2 leading-snug">{desc}</p>
-                <div className="relative group">
-                    <input ref={ref} type="file" accept="application/pdf"
-                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
-                        onChange={e => pickPdf(e.target.files?.[0], setter)} />
-                    <div
-                        onDragOver={e => e.preventDefault()}
-                        onDrop={e => { e.preventDefault(); pickPdf(e.dataTransfer.files?.[0], setter); }}
-                        className={`border-2 border-dashed rounded-xl p-5 text-center transition-all ${file ? 'border-brand/40 bg-brand/5' : 'border-white/10 group-hover:border-brand/40 group-hover:bg-brand/5'}`}
-                    >
-                        {file ? (
-                            <div className="space-y-1">
-                                <svg className="w-7 h-7 text-brand mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-                                <p className="text-brand font-bold text-xs truncate px-2">{file.name}</p>
-                                <p className="text-white/30 text-[10px]">{(file.size / 1024).toFixed(0)} KB · cambiar</p>
-                            </div>
-                        ) : (
-                            <div className="space-y-1">
-                                <svg className="w-7 h-7 text-white/20 group-hover:text-brand mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
-                                <p className="text-xs text-white/40 font-medium">Pulsa o arrastra el PDF</p>
-                            </div>
-                        )}
-                    </div>
-                </div>
-            </div>
-        );
-    };
+    const yaSubido = info.memoria_subida || info.certificado_subido;
 
     return (
         <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4 relative overflow-hidden selection:bg-brand selection:text-black">
@@ -143,7 +174,7 @@ export function SubirRiteView({ expedienteId }) {
                                 </div>
                                 <h2 className="text-xl font-black text-emerald-400 uppercase tracking-widest mb-3">¡Documentación recibida!</h2>
                                 <p className="text-white/50 text-sm leading-relaxed">Gracias. El equipo de Brokergy continuará con la tramitación del expediente <strong className="text-brand">{info.numero_expediente}</strong>.</p>
-                                <p className="text-white/20 text-xs mt-6">Puedes cerrar esta ventana.</p>
+                                <button onClick={() => { setDone(false); setMemoria(null); setCertificado(null); loadInfo(); }} className="mt-6 text-[11px] text-brand/70 hover:text-brand font-black uppercase tracking-widest underline underline-offset-4">Subir o reemplazar otro documento</button>
                             </div>
                         ) : (
                             <>
@@ -151,8 +182,15 @@ export function SubirRiteView({ expedienteId }) {
                                     Una vez <strong className="text-white">firmada la memoria</strong> y <strong className="text-white">tramitado el certificado</strong>, súbelos aquí. Se guardarán directamente en el expediente.
                                 </p>
 
-                                <DropZone file={memoria} setter={setMemoria} title="1 · Memoria Técnica firmada" desc="La memoria que os enviamos, ya firmada por vosotros (PDF)." />
-                                <DropZone file={certificado} setter={setCertificado} title="2 · Certificado RITE tramitado" desc="El certificado descargado de la plataforma de tramitación (PDF)." />
+                                {yaSubido && (
+                                    <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-emerald-300/90 text-[11px] font-medium flex gap-2 items-center">
+                                        <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                                        Ya hay documentación subida en este expediente. Si subes de nuevo, se <strong>reemplazará</strong> el archivo anterior (no se duplica).
+                                    </div>
+                                )}
+
+                                <DropZone file={memoria} onPick={f => pickPdf(f, setMemoria)} alreadyUploaded={info.memoria_subida} title="1 · Memoria Técnica firmada" desc="La memoria que os enviamos, ya firmada por vosotros (PDF)." />
+                                <DropZone file={certificado} onPick={f => pickPdf(f, setCertificado)} alreadyUploaded={info.certificado_subido} title="2 · Certificado RITE tramitado" desc="El certificado descargado de la plataforma de tramitación (PDF)." />
 
                                 {uploadError && (
                                     <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-[11px] font-medium flex gap-2 items-center">
