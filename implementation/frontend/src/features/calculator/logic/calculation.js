@@ -764,7 +764,8 @@ export function calculateFinancials({
     includeItp = false, // Determina si se resta el ITP del beneficio de Brokergy
     includeIrpf = true, // Si se aplica la deducción al IRPF
     titularType = 'particular', // 'particular', 'autonomo', 'empresa'
-    aplicarIrpfCae = true // Si se aplica tributación de ganancia patrimonial al CAE
+    aplicarIrpfCae = true, // Si se aplica tributación de ganancia patrimonial al CAE
+    includeIVA = false // Si las cifras se presentan con IVA incluido (toggle "IVA Incluido / Sin IVA")
 }) {
     const savingsMwh = savingsKwh / 1000;
     const priceClientBase = parseFloat(caePriceClient) || 0;
@@ -787,9 +788,11 @@ export function calculateFinancials({
     const priceClientDiscounted = Math.max(0, priceClientBase - discountClient);
     let caeBonus = savingsMwh * priceClientDiscounted;
 
-    // Aplicar IVA si es Empresa o Autónomo
+    // Aplicar IVA al bono CAE si es Empresa o Autónomo Y se presenta con IVA incluido.
+    // Si el titular trabaja en neto ("Sin IVA"), el CAE se calcula/muestra SIN el 21%,
+    // para que sea coherente con el presupuesto (también neto) y con el coste final.
     const isParticular = titularType === 'particular';
-    if (!isParticular) {
+    if (!isParticular && includeIVA) {
         caeBonus = caeBonus * 1.21;
     }
 
@@ -895,7 +898,8 @@ export function calculateFinancials({
         itpPercent: includeItp ? itpPercent : 0,
         includeItp,
         titularType,
-        isParticular
+        isParticular,
+        includeIVA
     };
 }
 

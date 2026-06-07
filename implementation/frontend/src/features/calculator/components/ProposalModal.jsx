@@ -1384,6 +1384,20 @@ info@brokergy.es · 623 926 179`;
     const isReforma = !!inputs?.isReforma;
     const isBoth = isReforma && inputs?.comparativaReforma !== false;
     const isOnlyReforma = isReforma && inputs?.comparativaReforma === false;
+
+    // Etiquetas de IVA. Para empresa/autónomo en modo "Sin IVA" las cifras van en neto,
+    // así que el presupuesto y el CAE deben rotularse como "(IVA NO INCLUIDO)".
+    const ivaSuffix = (fin) => {
+        const esEmpresa = fin && !fin.isParticular && fin.titularType !== 'particular';
+        if (esEmpresa && !fin.includeIVA) return <small>(IVA NO INCLUIDO)</small>;
+        return <small>(IVA INC.)</small>;
+    };
+    // El CAE solo lleva etiqueta cuando hay IVA en juego (empresa/autónomo).
+    const ivaSuffixCae = (fin) => {
+        const esEmpresa = fin && !fin.isParticular && fin.titularType !== 'particular';
+        if (!esEmpresa) return '';
+        return fin.includeIVA ? <small>(IVA INC.)</small> : <small>(IVA NO INCLUIDO)</small>;
+    };
     // Annual savings data
     const annualSavings = result.annualSavings;
     const payback = result.payback;
@@ -1738,11 +1752,11 @@ info@brokergy.es · 623 926 179`;
                                                 {isBoth && <div className="prop-ftable-title"><i style={{background:'var(--orange)'}}></i> OPCIÓN 1: AEROTERMIA</div>}
                                                     <div className="prop-ftable">
                                                         <div className="prop-fth" style={{background: 'var(--dark)'}}><span>Concepto</span><span>Importe</span></div>
-                                                        <div className="prop-ftr"><span className="prop-fl">Inversión sustitución de caldera por aerotermia <small>(IVA INC.)</small></span><span className="prop-fv">{formatNumber(f.presupuesto)} €</span></div>
+                                                        <div className="prop-ftr"><span className="prop-fl">Inversión sustitución de caldera por aerotermia {ivaSuffix(f)}</span><span className="prop-fv">{formatNumber(f.presupuesto)} €</span></div>
                                                         {f.presupuestoFotovoltaica > 0 && (
-                                                            <div className="prop-ftr"><span className="prop-fl">Instalación fotovoltaica <small>(IVA INC.)</small></span><span className="prop-fv">{formatNumber(f.presupuestoFotovoltaica)} €</span></div>
+                                                            <div className="prop-ftr"><span className="prop-fl">Instalación fotovoltaica {ivaSuffix(f)}</span><span className="prop-fv">{formatNumber(f.presupuestoFotovoltaica)} €</span></div>
                                                         )}
-                                                        <div className="prop-ftr"><span className="prop-fl">Bono Energético CAE <small>(Ingreso Bruto)</small> {!f.isParticular && f.titularType !== 'particular' ? <small>(IVA INC.)</small> : ''}</span><span className="prop-fv grn">– {formatNumber(f.caeBonus)} €</span></div>
+                                                        <div className="prop-ftr"><span className="prop-fl">Bono Energético CAE <small>(Ingreso Bruto)</small> {ivaSuffixCae(f)}</span><span className="prop-fv grn">– {formatNumber(f.caeBonus)} €</span></div>
                                                         
                                                         {f.irpfCaeAmount > 0 && (
                                                             <div className="prop-ftr">
@@ -1794,11 +1808,11 @@ info@brokergy.es · 623 926 179`;
                                                 {isBoth && <div className="prop-ftable-title"><i style={{background:'var(--green)'}}></i> OPCIÓN 2: AEROTERMIA + REFORMA</div>}
                                                     <div className="prop-ftable">
                                                         <div className="prop-fth" style={{background: 'var(--dark)'}}><span>Concepto</span><span>Importe</span></div>
-                                                        <div className="prop-ftr"><span className="prop-fl">Inversión Reforma de Vivienda + Aerotermia <small>(IVA INC.)</small></span><span className="prop-fv">{formatNumber(f80.presupuesto)} €</span></div>
+                                                        <div className="prop-ftr"><span className="prop-fl">Inversión Reforma de Vivienda + Aerotermia {ivaSuffix(f80)}</span><span className="prop-fv">{formatNumber(f80.presupuesto)} €</span></div>
                                                         {f80.presupuestoFotovoltaica > 0 && (
-                                                            <div className="prop-ftr"><span className="prop-fl">Instalación fotovoltaica <small>(IVA INC.)</small></span><span className="prop-fv">{formatNumber(f80.presupuestoFotovoltaica)} €</span></div>
+                                                            <div className="prop-ftr"><span className="prop-fl">Instalación fotovoltaica {ivaSuffix(f80)}</span><span className="prop-fv">{formatNumber(f80.presupuestoFotovoltaica)} €</span></div>
                                                         )}
-                                                        <div className="prop-ftr"><span className="prop-fl">Bono Energético CAE <small>(Ingreso Bruto)</small> {!f80.isParticular && f80.titularType !== 'particular' ? <small>(IVA INC.)</small> : ''}</span><span className="prop-fv grn">– {formatNumber(f80.caeBonus)} €</span></div>
+                                                        <div className="prop-ftr"><span className="prop-fl">Bono Energético CAE <small>(Ingreso Bruto)</small> {ivaSuffixCae(f80)}</span><span className="prop-fv grn">– {formatNumber(f80.caeBonus)} €</span></div>
                                                         
                                                         {f80.irpfCaeAmount > 0 && (
                                                             <div className="prop-ftr">

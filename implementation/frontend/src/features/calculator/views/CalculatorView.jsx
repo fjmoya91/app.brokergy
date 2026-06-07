@@ -450,7 +450,8 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
             itpPercent: sanitizedInputs.itpPercent,
             includeIrpf: inputs.includeIrpf,
             titularType: inputs.titularType || 'particular',
-            aplicarIrpfCae: inputs.aplicarIrpfCae === true || inputs.aplicarIrpfCae === 'true'
+            aplicarIrpfCae: inputs.aplicarIrpfCae === true || inputs.aplicarIrpfCae === 'true',
+            includeIVA: inputs.includeIVA === true || inputs.includeIVA === 'true'
         });
 
         // 4. Cálculos de Ahorro Anual (€)
@@ -551,7 +552,8 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
                 itpPercent: sanitizedInputs.itpPercent,
                 includeIrpf: inputs.includeIrpf,
                 titularType: inputs.titularType || 'particular',
-                aplicarIrpfCae: inputs.aplicarIrpfCae === true || inputs.aplicarIrpfCae === 'true'
+                aplicarIrpfCae: inputs.aplicarIrpfCae === true || inputs.aplicarIrpfCae === 'true',
+                includeIVA: inputs.includeIVA === true || inputs.includeIVA === 'true'
             });
         }
 

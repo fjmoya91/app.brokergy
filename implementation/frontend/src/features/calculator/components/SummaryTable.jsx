@@ -5,6 +5,11 @@ export function SummaryTable({ result, isReforma = false }) {
 
     const { financials, annualSavings, payback } = result;
 
+    // Etiquetas de IVA. Empresa/autónomo en modo "Sin IVA" => cifras en neto => "(IVA NO INCLUIDO)".
+    const esEmpresa = !financials.isParticular && financials.titularType !== 'particular';
+    const ivaTag = (esEmpresa && !financials.includeIVA) ? '(IVA NO INCLUIDO)' : '(IVA INC.)';
+    const ivaTagCae = esEmpresa ? (financials.includeIVA ? '(IVA INC.)' : '(IVA NO INCLUIDO)') : '';
+
     // Formateador robusto para moneda (7.474 €)
     const formatCurrency = (value) => {
         const num = typeof value === 'number' ? value : parseFloat(value) || 0;
@@ -62,7 +67,7 @@ export function SummaryTable({ result, isReforma = false }) {
                     <tbody className="text-sm sm:text-base">
                         <tr>
                             <td className="py-3 sm:py-4 px-3 sm:px-6 border-b border-slate-200 text-slate-900 font-semibold" style={cellStyle}>
-                                {isReforma ? 'Inversión Reforma de Vivienda + Aerotermia (IVA INC.)' : 'Inversión sustitución de caldera por aerotermia (IVA INC.)'}
+                                {isReforma ? `Inversión Reforma de Vivienda + Aerotermia ${ivaTag}` : `Inversión sustitución de caldera por aerotermia ${ivaTag}`}
                             </td>
                             <td className="py-3 sm:py-4 px-3 sm:px-6 border-b border-slate-200 text-right font-black text-slate-900 text-lg sm:text-xl" style={cellStyle}>
                                 {formatCurrency(financials.presupuesto)}
@@ -71,7 +76,7 @@ export function SummaryTable({ result, isReforma = false }) {
                         {financials.presupuestoFotovoltaica > 0 && (
                             <tr>
                                 <td className="py-3 sm:py-4 px-3 sm:px-6 border-b border-slate-200 text-slate-900 font-semibold" style={cellStyle}>
-                                    Instalación fotovoltaica (IVA INC.)
+                                    Instalación fotovoltaica {ivaTag}
                                 </td>
                                 <td className="py-3 sm:py-4 px-3 sm:px-6 border-b border-slate-200 text-right font-black text-slate-900 text-lg sm:text-xl" style={cellStyle}>
                                     {formatCurrency(financials.presupuestoFotovoltaica)}
@@ -80,7 +85,7 @@ export function SummaryTable({ result, isReforma = false }) {
                         )}
                         <tr>
                             <td className="py-3 sm:py-4 px-3 sm:px-6 border-b border-slate-200 text-slate-700" style={cellStyle}>
-                                Bono Energético CAE (Ingreso Bruto) {!financials.isParticular && financials.titularType !== 'particular' ? '(IVA INC.)' : ''}
+                                Bono Energético CAE (Ingreso Bruto) {ivaTagCae}
                             </td>
                             <td className="py-3 sm:py-4 px-3 sm:px-6 border-b border-slate-200 text-right text-slate-900 font-bold text-lg sm:text-xl" style={cellStyle}>
                                 - {formatCurrency(financials.caeBonus)}

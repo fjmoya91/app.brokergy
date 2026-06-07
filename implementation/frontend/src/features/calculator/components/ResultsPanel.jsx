@@ -255,6 +255,17 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
     const [showViability, setShowViability] = useState(false);
     const tableRef = useRef(null);
 
+    // Etiquetas de IVA. Empresa/autónomo en modo "Sin IVA" => cifras netas => "(IVA NO INCLUIDO)".
+    const ivaTag = (fin) => {
+        const esEmpresa = fin && !fin.isParticular && fin.titularType !== 'particular';
+        return (esEmpresa && !fin.includeIVA) ? '(IVA NO INCLUIDO)' : '(IVA INC.)';
+    };
+    // El CAE solo se rotula cuando hay IVA en juego (empresa/autónomo); en particular, sin etiqueta.
+    const ivaTagCae = (fin) => {
+        const esEmpresa = fin && !fin.isParticular && fin.titularType !== 'particular';
+        return esEmpresa ? (fin.includeIVA ? '(IVA INC.)' : '(IVA NO INCLUIDO)') : '';
+    };
+
     /** Detección de cambios (Dirty State) para guardar antes de PDF **/
     const getSnapshot = (inp, res) => {
         if (!inp || !res) return null;
@@ -610,7 +621,7 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
                                         </div>
                                         <div className="p-4 space-y-3">
                                             <div className="flex justify-between items-start text-sm py-3 border-b border-white/5 gap-4">
-                                                <span className="text-slate-400">{result.financials.presupuestoFotovoltaica > 0 ? 'Inversión Aerotermia (IVA INC.)' : 'Coste de inversión Total (IVA INCLUIDO)'}</span>
+                                                <span className="text-slate-400">{result.financials.presupuestoFotovoltaica > 0 ? `Inversión Aerotermia ${ivaTag(result.financials)}` : `Coste de inversión Total ${ivaTag(result.financials)}`}</span>
                                                 <span className="text-white font-mono font-bold whitespace-nowrap flex-shrink-0">{formatNumber(result.financials.presupuesto)} €</span>
                                             </div>
                                             {result.financials.presupuestoFotovoltaica > 0 && (
@@ -619,13 +630,13 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
                                                         <svg className="w-3.5 h-3.5 text-amber-400/80" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
                                                         </svg>
-                                                        Inversión Fotovoltaica (IVA INC.)
+                                                        Inversión Fotovoltaica {ivaTag(result.financials)}
                                                     </span>
                                                     <span className="text-white font-mono font-bold whitespace-nowrap flex-shrink-0">{formatNumber(result.financials.presupuestoFotovoltaica)} €</span>
                                                 </div>
                                             )}
                                             <div className="flex justify-between items-start text-sm py-3 border-b border-white/5 gap-4">
-                                                <span className="text-slate-400">Ingreso Bruto: BONO ENERGÉTICO CAE {(!result.financials.isParticular && result.financials.titularType !== 'particular') ? '(IVA INC.)' : ''}</span>
+                                                <span className="text-slate-400">Ingreso Bruto: BONO ENERGÉTICO CAE {ivaTagCae(result.financials)}</span>
                                                 <span className="text-amber-400 font-mono font-bold whitespace-nowrap flex-shrink-0">+{formatNumber(result.financials.caeBonus)} €</span>
                                             </div>
                                             {result.financials.irpfCaeAmount > 0 && (
@@ -720,7 +731,7 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
                                         <div className="p-4 space-y-3">
                                             <div className="flex justify-between items-start text-sm py-3 border-b border-white/5 gap-4">
                                                 <div className="flex flex-col">
-                                                    <span className="text-slate-400">Coste de inversión Total (IVA INCLUIDO)</span>
+                                                    <span className="text-slate-400">Coste de inversión Total {ivaTag(result.financialsRes080)}</span>
                                                     <span className="text-[10px] text-slate-500 uppercase tracking-widest mt-0.5">
                                                         Aero: {formatNumber(inputs.presupuesto)}€ + Ref: {formatNumber(inputs.presupuestoEnvolvente)}€{result.financialsRes080.presupuestoFotovoltaica > 0 ? ` + FV: ${formatNumber(result.financialsRes080.presupuestoFotovoltaica)}€` : ''}
                                                     </span>
@@ -728,7 +739,7 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
                                                 <span className="text-white font-mono font-bold whitespace-nowrap flex-shrink-0">{formatNumber(result.financialsRes080.presupuestoTotal)} €</span>
                                             </div>
                                             <div className="flex justify-between items-start text-sm py-3 border-b border-white/5 gap-4">
-                                                <span className="text-slate-400">Ingreso Bruto: BONO ENERGÉTICO CAE {(!result.financialsRes080.isParticular && result.financialsRes080.titularType !== 'particular') ? '(IVA INC.)' : ''}</span>
+                                                <span className="text-slate-400">Ingreso Bruto: BONO ENERGÉTICO CAE {ivaTagCae(result.financialsRes080)}</span>
                                                 <span className="text-amber-400 font-mono font-bold whitespace-nowrap flex-shrink-0">+{formatNumber(result.financialsRes080.caeBonus)} €</span>
                                             </div>
                                             {result.financialsRes080.irpfCaeAmount > 0 && (
