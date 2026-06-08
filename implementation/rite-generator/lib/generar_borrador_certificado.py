@@ -23,6 +23,10 @@ GRIS_CAB = colors.HexColor("#2C3E50")
 BORDE = colors.HexColor("#BFC9D4")
 VERDE = colors.HexColor("#1E8449")
 
+# Plataforma de tramitación del certificado térmico (JE6, JCCM). El enlace del
+# subtítulo apunta directo aquí para presentar con un clic.
+URL_TRAMITE = "https://edice.castillalamancha.es/eDice-Termicas/etdformu.jsp"
+
 ANCHO = 182 * mm
 
 
@@ -101,7 +105,10 @@ def build(datos, output):
     story.append(Spacer(1, 2))
     story.append(Paragraph(
         f"Reglamento de Instalaciones Térmicas en los Edificios (RD 1027/2007) · "
-        f"www.jccm.es → Trámite JE6 · Expediente {datos.get('expediente','')}", h_sub))
+        f"Expediente {datos.get('expediente','')}", h_sub))
+    story.append(Paragraph(
+        f'<a href="{URL_TRAMITE}" color="#E8731C"><b><u>'
+        f'Presentar aquí · eDICE (Trámite JE6) →</u></b></a>', h_sub))
     story.append(Paragraph(
         "Borrador para revisar y copiar en la plataforma de tramitación. Carece de validez legal.", warn))
     story.append(Spacer(1, 5))
