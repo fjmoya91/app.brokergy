@@ -145,7 +145,7 @@ router.post('/', enforceAuth, async (req, res) => {
     try {
         const body = normalizeData(req.body);
         const {
-            nombre_razon_social, apellidos, email, tlf, dni,
+            nombre_razon_social, apellidos, email, tlf, dni, sexo,
             ccaa, provincia, municipio, direccion, codigo_postal,
             numero_cuenta, prescriptor_id, oportunidad_id,
             persona_contacto_nombre, persona_contacto_tlf, notificaciones_contacto_activas, notas
@@ -176,6 +176,7 @@ router.post('/', enforceAuth, async (req, res) => {
             email: email || null,
             tlf: tlf || null,
             dni: dni || null,
+            sexo: sexo || null,
             ccaa: ccaa || null,
             provincia: provincia || null,
             municipio: municipio || null,
@@ -281,7 +282,7 @@ router.put('/:id', enforceAuth, async (req, res) => {
         }
 
         const {
-            nombre_razon_social, apellidos, email, tlf, dni,
+            nombre_razon_social, apellidos, email, tlf, dni, sexo,
             ccaa, provincia, municipio, direccion, codigo_postal,
             numero_cuenta, prescriptor_id,
             persona_contacto_nombre, persona_contacto_tlf, notificaciones_contacto_activas, notas
@@ -294,6 +295,7 @@ router.put('/:id', enforceAuth, async (req, res) => {
         if (email !== undefined) updates.email = email;
         if (tlf !== undefined) updates.tlf = tlf;
         if (dni !== undefined) updates.dni = dni;
+        if (sexo !== undefined) updates.sexo = sexo || null;
         if (ccaa !== undefined) updates.ccaa = ccaa;
         if (provincia !== undefined) updates.provincia = provincia;
         if (municipio !== undefined) updates.municipio = municipio;

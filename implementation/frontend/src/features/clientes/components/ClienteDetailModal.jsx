@@ -382,6 +382,7 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
             email: cliente.email || '',
             tlf: cliente.tlf || '',
             dni: cliente.dni || '',
+            sexo: cliente.sexo || '',
             numero_cuenta: cliente.numero_cuenta || '',
             ccaa: (cliente.ccaa || '').toUpperCase(),
             provincia: (cliente.provincia || '').toUpperCase(),
@@ -473,6 +474,7 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
                 email: form.email.trim() || null,
                 tlf: form.tlf.trim() || null,
                 dni: form.dni.trim() || null,
+                sexo: form.sexo || null,
                 ccaa: form.ccaa || null,
                 provincia: form.provincia || null,
                 municipio: form.municipio || null,
@@ -757,6 +759,7 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4 [&_p.text-sm]:uppercase">
                                     <FieldView label="Nombre / Razón Social" value={`${cliente.nombre_razon_social || ''}${cliente.apellidos ? ` ${cliente.apellidos}` : ''}`} />
                                     <FieldView label="DNI / CIF" value={cliente.dni} />
+                                    <FieldView label="Sexo" value={cliente.sexo === 'HOMBRE' ? 'Hombre' : cliente.sexo === 'MUJER' ? 'Mujer' : null} />
                                     <FieldView label="Email" value={cliente.email?.toLowerCase()} valueClassName="!lowercase" />
                                     <FieldView label="Teléfono" value={cliente.tlf} />
                                     {cliente.numero_cuenta && isAdmin && <FieldView label="Cuenta (IBAN)" value={cliente.numero_cuenta} />}
@@ -886,6 +889,18 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
                                     </FieldInput>
                                     <FieldInput label="DNI / CIF">
                                         <Input value={form.dni} uppercase onChange={e => updateForm({ dni: e.target.value })} />
+                                    </FieldInput>
+                                    <FieldInput label="Sexo (para Memoria RITE)">
+                                        <div className="flex gap-2">
+                                            <button type="button" onClick={() => updateForm({ sexo: form.sexo === 'HOMBRE' ? '' : 'HOMBRE' })}
+                                                className={`flex-1 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all border ${form.sexo === 'HOMBRE' ? 'bg-brand text-bkg-deep border-brand' : 'border-white/10 text-white/40 hover:text-white hover:border-white/20'}`}>
+                                                Hombre
+                                            </button>
+                                            <button type="button" onClick={() => updateForm({ sexo: form.sexo === 'MUJER' ? '' : 'MUJER' })}
+                                                className={`flex-1 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all border ${form.sexo === 'MUJER' ? 'bg-brand text-bkg-deep border-brand' : 'border-white/10 text-white/40 hover:text-white hover:border-white/20'}`}>
+                                                Mujer
+                                            </button>
+                                        </div>
                                     </FieldInput>
                                     <FieldInput label="Email">
                                         <Input type="email" value={form.email} onChange={e => updateForm({ email: e.target.value.toLowerCase() })} />

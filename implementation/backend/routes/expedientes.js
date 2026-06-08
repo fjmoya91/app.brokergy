@@ -1181,6 +1181,8 @@ function buildRitePayloads({ exp, cli, op, normalizedDatos, pres }) {
         apellidos: cli?.apellidos || '',
         dni: cli?.dni || cli?.dni_nie || '',
         tlf: cli?.tlf || cli?.telefono || '',
+        // Sexo del titular → marca la casilla Hombre/Mujer en la Memoria RITE.
+        sexo: cli?.sexo || '',
         cli_prov: cli?.provincia || '',
         cli_muni: cli?.municipio || '',
         cli_dir: cli?.direccion || '',

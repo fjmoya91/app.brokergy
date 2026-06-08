@@ -318,6 +318,7 @@ export function ClienteFormModal({ isOpen, onClose, onSuccess, oportunidad, init
         email: '',
         tlf: '',
         dni: '',
+        sexo: '',
         numero_cuenta: '',
         prescriptor_id: '',
         instalador_asociado_id: '',
@@ -370,6 +371,7 @@ export function ClienteFormModal({ isOpen, onClose, onSuccess, oportunidad, init
             email: '',
             tlf: '',
             dni: '',
+            sexo: '',
             numero_cuenta: '',
             prescriptor_id: initialData?.prescriptor_id || oportunidad?.prescriptor_id || '',
             instalador_asociado_id: initialData?.instalador_asociado_id || oportunidad?.instalador_asociado_id || '',
@@ -471,6 +473,7 @@ export function ClienteFormModal({ isOpen, onClose, onSuccess, oportunidad, init
                 email: form.email.trim() || null,
                 tlf: form.tlf.trim() || null,
                 dni: form.dni.trim() || null,
+                sexo: esEmpresa ? null : (form.sexo || null),
                 ccaa: form.ccaa || null,
                 provincia: form.provincia || null,
                 municipio: form.municipio || null,
@@ -651,6 +654,20 @@ export function ClienteFormModal({ isOpen, onClose, onSuccess, oportunidad, init
                                         <Field label="Apellidos">
                                             <Input placeholder="GARCÍA LÓPEZ" uppercase value={form.apellidos}
                                                 onChange={e => updateForm({ apellidos: e.target.value })} />
+                                        </Field>
+                                    )}
+                                    {!esEmpresa && (
+                                        <Field label="Sexo (para Memoria RITE)">
+                                            <div className="flex gap-2">
+                                                <button type="button" onClick={() => updateForm({ sexo: form.sexo === 'HOMBRE' ? '' : 'HOMBRE' })}
+                                                    className={`flex-1 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all border ${form.sexo === 'HOMBRE' ? 'bg-brand text-bkg-deep border-brand' : 'border-white/10 text-white/40 hover:text-white hover:border-white/20'}`}>
+                                                    Hombre
+                                                </button>
+                                                <button type="button" onClick={() => updateForm({ sexo: form.sexo === 'MUJER' ? '' : 'MUJER' })}
+                                                    className={`flex-1 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all border ${form.sexo === 'MUJER' ? 'bg-brand text-bkg-deep border-brand' : 'border-white/10 text-white/40 hover:text-white hover:border-white/20'}`}>
+                                                    Mujer
+                                                </button>
+                                            </div>
                                         </Field>
                                     )}
                                     <Field label={esEmpresa ? 'CIF' : 'DNI/NIF'}>

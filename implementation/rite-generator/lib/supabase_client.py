@@ -31,7 +31,7 @@ def _conn():
 SQL_EXPEDIENTE = """
 SELECT e.numero_expediente, e.instalacion, e.cee, e.documentacion,
        o.id_oportunidad, o.ref_catastral, o.datos_calculo, o.is_reforma,
-       c.nombre_razon_social, c.apellidos, c.dni, c.tlf,
+       c.nombre_razon_social, c.apellidos, c.dni, c.tlf, c.sexo,
        c.provincia AS cli_prov, c.municipio AS cli_muni,
        c.direccion AS cli_dir, c.codigo_postal AS cli_cp,
        e.instalador_asociado_id
@@ -131,7 +131,10 @@ def normalizar(raw: dict, fecha_firma: str = None) -> dict:
             "ape2": " ".join((exp.get("apellidos", "") or "").split(" ")[1:]),
             "nombre_completo": f"{exp.get('nombre_razon_social','')} {exp.get('apellidos','')}".strip(),
             "nif": exp.get("dni", ""),
-            "sexo": "",  # no hay campo de sexo en BD → se deja sin marcar
+            # Sexo del titular (HOMBRE/MUJER). Viene de clientes.sexo (lo elige el
+            # usuario al crear el cliente o en el popup al generar la Memoria RITE).
+            # mapeo.py marca la casilla 3=Hombre / 5=Mujer; vacío → sin marcar.
+            "sexo": exp.get("sexo", "") or "",
             "calle": exp.get("cli_dir", ""),
             "numero": "",
             "localidad": exp.get("cli_muni", ""),

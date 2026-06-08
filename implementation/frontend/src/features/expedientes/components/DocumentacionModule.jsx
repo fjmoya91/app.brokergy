@@ -656,6 +656,32 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
     // fila solo valida y abre el modal.
     const abrirBorradorModal = () => setShowEnviarBorrador(true);
 
+    // ── Sexo del titular (Hombre/Mujer) para la Memoria RITE ──────────────────
+    // Antes de abrir el modal de generación se pregunta el sexo del titular. La
+    // elección se PERSISTE en el cliente (clientes.sexo) y marca la casilla
+    // correspondiente en la Memoria RITE (el backend la lee al generar).
+    const cliId = expediente?.clientes?.id_cliente || expediente?.cliente_id || null;
+    const [sexoPopup, setSexoPopup] = useState({ isOpen: false, saving: null, error: null });
+
+    // Llamado tras pasar la validación: abre el popup de sexo (no genera directo).
+    const abrirSexoThenBorrador = () => setSexoPopup({ isOpen: true, saving: null, error: null });
+
+    // Elige sexo (o lo omite), lo persiste en el cliente y abre el modal de generación.
+    const elegirSexoYGenerar = async (value) => {
+        setSexoPopup(p => ({ ...p, saving: value || 'omitir', error: null }));
+        try {
+            if (value && cliId) {
+                await axios.put(`/api/clientes/${cliId}`, { sexo: value });
+                // Reflejo local para coherencia si se reabre el modal en esta sesión.
+                if (expediente?.clientes) expediente.clientes.sexo = value;
+            }
+            setSexoPopup({ isOpen: false, saving: null, error: null });
+            setShowEnviarBorrador(true);
+        } catch (e) {
+            setSexoPopup(p => ({ ...p, saving: null, error: e.response?.data?.error || 'No se pudo guardar el sexo del titular' }));
+        }
+    };
+
     // Cuando el modal sube a Drive, persistimos los enlaces devueltos.
     const onBorradorUploaded = (data) => {
         setLocal(prev => {
@@ -890,6 +916,61 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                 onPhotosChange={(newPhotos) => setLocal(p => ({ ...p, photo_attachments: newPhotos }))}
                 onSaveDrive={(link) => handleModalSaveDrive('anexo_fotografico_drive_link', link)}
             />
+
+            {/* Popup: sexo del titular antes de generar la Memoria RITE */}
+            {sexoPopup.isOpen && (() => {
+                const current = (expediente?.clientes?.sexo || '').toUpperCase();
+                const cliNombre = [expediente?.clientes?.nombre_razon_social, expediente?.clientes?.apellidos].filter(Boolean).join(' ').trim();
+                const busy = !!sexoPopup.saving;
+                const SexBtn = ({ value, label, path }) => {
+                    const active = current === value;
+                    const loading = sexoPopup.saving === value;
+                    return (
+                        <button type="button" disabled={busy} onClick={() => elegirSexoYGenerar(value)}
+                            className={`flex-1 flex flex-col items-center justify-center gap-2 py-6 rounded-2xl border transition-all active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed ${active ? 'bg-brand/15 border-brand/50 text-brand shadow-[0_0_20px_rgba(242,166,64,0.12)]' : 'bg-white/[0.02] border-white/10 text-white/70 hover:border-brand/40 hover:bg-brand/5'}`}>
+                            {loading ? (
+                                <svg className="w-8 h-8 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.4 0 0 5.4 0 12h4z" /></svg>
+                            ) : (
+                                <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d={path} /></svg>
+                            )}
+                            <span className="text-sm font-black uppercase tracking-widest">{label}</span>
+                            {active && <span className="text-[8px] font-black uppercase tracking-[0.2em] text-brand/70">Actual</span>}
+                        </button>
+                    );
+                };
+                return (
+                    <div className="fixed inset-0 z-[320] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4" onClick={() => !busy && setSexoPopup({ isOpen: false, saving: null, error: null })}>
+                        <div className="bg-[#0F1013] border border-white/[0.07] rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-200" onClick={e => e.stopPropagation()}>
+                            <div className="px-6 py-5 border-b border-white/[0.07] bg-brand/5">
+                                <h2 className="text-lg font-black uppercase tracking-tight text-white">Sexo del titular</h2>
+                                <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest mt-0.5">
+                                    Se marcará en la Memoria RITE{cliNombre ? ` · ${cliNombre}` : ''}
+                                </p>
+                            </div>
+                            <div className="px-6 py-6 space-y-4">
+                                <p className="text-sm text-white/60 leading-relaxed">Indica el sexo del titular para marcar la casilla correspondiente del documento. Se guardará en la ficha del cliente.</p>
+                                <div className="flex gap-3">
+                                    <SexBtn value="HOMBRE" label="Hombre" path="M10 14a5 5 0 105-5m0 0V4m0 5h-4m4-5h5" />
+                                    <SexBtn value="MUJER" label="Mujer" path="M12 14a5 5 0 100-10 5 5 0 000 10zm0 0v6m-3-3h6" />
+                                </div>
+                                {sexoPopup.error && (
+                                    <p className="text-[11px] text-red-400">❌ {sexoPopup.error}</p>
+                                )}
+                            </div>
+                            <div className="px-6 py-4 bg-white/[0.02] border-t border-white/[0.07] flex items-center justify-between gap-3">
+                                <button type="button" disabled={busy} onClick={() => setSexoPopup({ isOpen: false, saving: null, error: null })}
+                                    className="px-4 py-2.5 rounded-xl border border-white/10 text-white/50 text-[10px] font-black uppercase tracking-widest hover:text-white hover:border-white/30 transition-all disabled:opacity-40">
+                                    Cancelar
+                                </button>
+                                <button type="button" disabled={busy} onClick={() => elegirSexoYGenerar(null)}
+                                    className="text-[10px] font-black uppercase tracking-widest text-white/40 hover:text-white/70 transition-all disabled:opacity-40">
+                                    Omitir y continuar →
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                );
+            })()}
 
             <EnviarBorradorRiteModal
                 isOpen={showEnviarBorrador}
@@ -1396,7 +1477,7 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                                         {/* 1. GENERAR / ACCIONES (abre el modal) */}
                                         <div className="w-[100px]">
                                             <button
-                                                onClick={() => handleGenerateClick('memoria_rite', 'Memoria + Borrador RITE', abrirBorradorModal)}
+                                                onClick={() => handleGenerateClick('memoria_rite', 'Memoria + Borrador RITE', abrirSexoThenBorrador)}
                                                 className={`w-full py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all active:scale-95 ${
                                                     (local.cert_rite_drive_link || local.borrador_cert_rite_link)
                                                         ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 hover:bg-emerald-500 hover:text-bkg-deep shadow-[0_0_15px_rgba(16,185,129,0.1)]'
