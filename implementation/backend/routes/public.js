@@ -50,6 +50,36 @@ async function imageToPdf(imageBuffer, mimeType) {
     return Buffer.from(await pdfDoc.save());
 }
 
+// Concatena un PDF principal con varios PDF anexo, normalizando cada página
+// anexada a A4 (escalada y centrada). Réplica del helper de routes/pdf.js para
+// no acoplar este módulo al router de PDF. Se usa para anexar el DNI (delante +
+// detrás) al final del Anexo de Cesión firmado a mano.
+const A4_WIDTH_PT = 595.276;
+const A4_HEIGHT_PT = 841.890;
+async function mergePdfs(mainBuffer, annexBuffers) {
+    if (!annexBuffers || annexBuffers.length === 0) return mainBuffer;
+    const merged = await PDFDocument.load(mainBuffer);
+    for (const buf of annexBuffers) {
+        if (!buf || buf.length === 0) continue;
+        try {
+            const annexDoc = await PDFDocument.load(buf, { ignoreEncryption: true });
+            const indices = annexDoc.getPageIndices();
+            const embedded = await merged.embedPdf(annexDoc, indices);
+            for (const ep of embedded) {
+                const page = merged.addPage([A4_WIDTH_PT, A4_HEIGHT_PT]);
+                const { width: w, height: h } = ep;
+                const scale = Math.min(A4_WIDTH_PT / w, A4_HEIGHT_PT / h);
+                const drawW = w * scale;
+                const drawH = h * scale;
+                page.drawPage(ep, { x: (A4_WIDTH_PT - drawW) / 2, y: (A4_HEIGHT_PT - drawH) / 2, width: drawW, height: drawH });
+            }
+        } catch (e) {
+            console.warn('[mergePdfs/public] Skip anexo no parseable:', e.message);
+        }
+    }
+    return Buffer.from(await merged.save());
+}
+
 
 
 // Helper para que el link público pueda usar tanto id_oportunidad (inicial) como numero_expediente (trazabilidad) o el ID único (UUID)
@@ -1258,5 +1288,333 @@ router.post('/rite-upload/:expedienteId',
             res.status(500).json({ error: 'Error al procesar la subida', message: e.message });
         }
     });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FIRMA DE ANEXOS (cliente): el cliente sube el Anexo I firmado, el Anexo de
+// Cesión de Ahorros firmado y la foto del DNI por ambas caras.
+// Regla clave: si el Anexo de Cesión NO va firmado electrónicamente (es decir,
+// firmado a mano y escaneado), el DNI (delantera + trasera) se ANEXA directamente
+// al final del PDF de la Cesión. Si va firmado electrónicamente, el DNI se guarda
+// aparte (la firma electrónica ya acredita la identidad).
+// ─────────────────────────────────────────────────────────────────────────────
+// Construye el bloque de datos del cliente + qué falta (mismo set que la propuesta:
+// email, DNI/CIF, IBAN/nº de cuenta y justificante de titularidad bancaria).
+function buildDatosCliente(cli, doc) {
+    cli = cli || {}; doc = doc || {};
+    const notif = cli.notificaciones_contacto_activas === true;
+    const emailEfectivo = (notif ? cli.persona_contacto_email : cli.email) || '';
+    const tlfEfectivo = (notif ? cli.persona_contacto_tlf : cli.tlf) || '';
+    const dni = cli.dni || '';
+    const iban = cli.numero_cuenta || '';
+    const justificante = doc.justificante_titularidad_link || '';
+    const ibanIncompleto = !iban || String(iban).includes('_');
+    return {
+        nombre_razon_social: cli.nombre_razon_social || '',
+        apellidos: cli.apellidos || '',
+        email: emailEfectivo,
+        telefono: tlfEfectivo,
+        dni,
+        iban,
+        notificaciones_contacto_activas: notif,
+        falta_email: !emailEfectivo,
+        falta_dni: !dni,
+        falta_iban: ibanIncompleto,
+        justificante_subido: !!justificante,
+        falta_justificante: !justificante,
+    };
+}
+
+router.get('/anexos-upload/:expedienteId', async (req, res) => {
+    try {
+        const { expedienteId } = req.params;
+        const { data: exp, error } = await supabase
+            .from('expedientes')
+            .select('id, numero_expediente, documentacion, clientes!cliente_id(nombre_razon_social, apellidos, email, tlf, dni, numero_cuenta, notificaciones_contacto_activas, persona_contacto_email, persona_contacto_tlf)')
+            .eq('id', expedienteId)
+            .maybeSingle();
+        if (error || !exp) return res.status(404).json({ error: 'Expediente no encontrado' });
+        const doc = exp.documentacion || {};
+        res.json({
+            numero_expediente: exp.numero_expediente,
+            cliente: [exp.clientes?.nombre_razon_social, exp.clientes?.apellidos].filter(Boolean).join(' ') || '—',
+            // qué documentos se enviaron / esperamos de vuelta
+            anexo_i_pedido: !!(doc.anexo_i_drive_link || doc.anexo_i_sent_at),
+            anexo_cesion_pedido: !!(doc.anexo_cesion_drive_link || doc.anexo_cesion_sent_at),
+            // anexos YA generados (borrador en Drive) → descargables + habilitan la firma
+            anexo_i_disponible: !!doc.anexo_i_drive_link,
+            anexo_cesion_disponible: !!doc.anexo_cesion_drive_link,
+            // qué ya hemos recibido firmado
+            anexo_i_firmado: !!doc.anexo_i_signed_link,
+            anexo_cesion_firmado: !!doc.anexo_cesion_signed_link,
+            dni_subido: !!(doc.dni_frontal_link && doc.dni_trasero_link),
+            // datos del cliente + qué falta por completar
+            datos_cliente: buildDatosCliente(exp.clientes, doc),
+        });
+    } catch (e) {
+        console.error('[anexos-upload info] Error:', e);
+        res.status(500).json({ error: 'Error interno' });
+    }
+});
+
+// El cliente completa sus datos (email, DNI/CIF, IBAN) y sube el justificante de
+// titularidad bancaria. Misma información que se pide al aceptar la propuesta,
+// para los casos en que no se rellenó entonces.
+router.post('/anexos-datos/:expedienteId',
+    upload.single('justificante'),
+    async (req, res) => {
+        try {
+            const { expedienteId } = req.params;
+            const b = req.body || {};
+            const { data: exp, error } = await supabase
+                .from('expedientes')
+                .select('id, numero_expediente, cliente_id, documentacion, clientes!cliente_id(id_cliente, notificaciones_contacto_activas), oportunidades!oportunidad_id(datos_calculo)')
+                .eq('id', expedienteId)
+                .maybeSingle();
+            if (error) console.error('[anexos-datos] select error:', error.message);
+            if (error || !exp) return res.status(404).json({ error: 'Expediente no encontrado' });
+            const idCliente = exp.clientes?.id_cliente || exp.cliente_id;
+            if (!idCliente) return res.status(400).json({ error: 'El expediente no tiene cliente asociado.' });
+
+            // Email/teléfono van a los campos principales o a los de "persona de
+            // contacto" según la preferencia del cliente (igual que la propuesta).
+            const notif = exp.clientes?.notificaciones_contacto_activas === true;
+            const clienteUpdate = {};
+            if (b.nombre_razon_social != null && b.nombre_razon_social !== '') clienteUpdate.nombre_razon_social = b.nombre_razon_social.trim();
+            if (b.apellidos != null) clienteUpdate.apellidos = b.apellidos.trim() || null;
+            if (b.dni_cif != null && b.dni_cif !== '') clienteUpdate.dni = b.dni_cif.trim().toUpperCase();
+            if (b.iban != null && b.iban !== '') clienteUpdate.numero_cuenta = b.iban.replace(/\s+/g, '').toUpperCase();
+            if (b.email != null && b.email !== '') {
+                if (notif) clienteUpdate.persona_contacto_email = b.email.trim().toLowerCase();
+                else clienteUpdate.email = b.email.trim().toLowerCase();
+            }
+            if (b.telefono != null && b.telefono !== '') {
+                if (notif) clienteUpdate.persona_contacto_tlf = b.telefono.trim();
+                else clienteUpdate.tlf = b.telefono.trim();
+            }
+
+            if (Object.keys(clienteUpdate).length) {
+                const { error: upErr } = await supabase.from('clientes').update(clienteUpdate).eq('id_cliente', idCliente);
+                if (upErr) {
+                    if (upErr.code === '23505') return res.status(409).json({ error: 'Ese DNI/CIF ya está registrado con otro cliente.' });
+                    console.error('[anexos-datos] update cliente:', upErr.message);
+                    return res.status(500).json({ error: 'No se pudieron guardar los datos.' });
+                }
+            }
+
+            // Justificante de titularidad bancaria → carpeta raíz del expediente en Drive.
+            const docUpdate = { ...(exp.documentacion || {}) };
+            if (req.file) {
+                const driveFolderId = exp.oportunidades?.drive_folder_id || exp.oportunidades?.datos_calculo?.drive_folder_id || exp.oportunidades?.datos_calculo?.inputs?.drive_folder_id;
+                if (driveFolderId) {
+                    let buf = req.file.buffer;
+                    if (req.file.mimetype !== 'application/pdf') buf = await imageToPdf(buf, req.file.mimetype);
+                    try {
+                        const existing = await driveService.findFileByName(driveFolderId, 'justificante de titularidad bancaria.pdf');
+                        if (existing) await driveService.deleteFile(existing);
+                    } catch (e) {}
+                    const r = await driveService.saveFileToFolder(driveFolderId, 'justificante de titularidad bancaria.pdf', 'application/pdf', buf);
+                    if (r?.link) {
+                        docUpdate.justificante_titularidad_link = r.link;
+                        if (r?.id) { try { await driveService.setFolderPublic(r.id, 'reader'); } catch (e) {} }
+                    }
+                }
+            }
+            if (docUpdate.justificante_titularidad_link !== (exp.documentacion || {}).justificante_titularidad_link) {
+                await supabase.from('expedientes').update({ documentacion: docUpdate }).eq('id', expedienteId);
+            }
+
+            // Releer cliente para devolver el estado actualizado de "qué falta".
+            const { data: cliFresh } = await supabase
+                .from('clientes')
+                .select('nombre_razon_social, apellidos, email, tlf, dni, numero_cuenta, notificaciones_contacto_activas, persona_contacto_email, persona_contacto_tlf')
+                .eq('id_cliente', idCliente)
+                .maybeSingle();
+            res.json({ success: true, datos_cliente: buildDatosCliente(cliFresh, docUpdate) });
+
+            // Notificación al admin (background)
+            setImmediate(async () => {
+                const numexpte = exp.numero_expediente || expedienteId;
+                const adminPhone = process.env.WHATSAPP_ADMIN_CHAT;
+                const adminEmail = process.env.ADMIN_EMAIL || 'franciscojavier.moya.s2e2@gmail.com';
+                const partes = [
+                    clienteUpdate.email || clienteUpdate.persona_contacto_email ? 'email' : null,
+                    clienteUpdate.tlf || clienteUpdate.persona_contacto_tlf ? 'teléfono' : null,
+                    clienteUpdate.dni ? 'DNI/CIF' : null,
+                    clienteUpdate.numero_cuenta ? 'IBAN' : null,
+                    req.file ? 'justificante bancario' : null,
+                ].filter(Boolean).join(' + ') || 'datos';
+                const msg = `📝 *Datos del cliente completados*\nExpediente: *${numexpte}*\nActualizado: ${partes}\n\n👉 Ya puedes *generar y enviar los anexos* al cliente para que los firme.`;
+                try { if (adminPhone) await whatsappService.sendText(adminPhone, msg); } catch (e) {}
+                try {
+                    await emailService.sendMail({
+                        to: adminEmail,
+                        subject: `📝 Datos completados — ${numexpte} · listo para enviar anexos`,
+                        html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;"><div style="background:linear-gradient(135deg,#f59e0b,#ea580c);padding:20px 28px;"><h2 style="margin:0;color:#fff;font-size:16px;">BROKERGY · Datos del cliente</h2></div><div style="padding:24px;background:#fff;"><p>El cliente ha completado sus datos del expediente <strong>${numexpte}</strong>: <strong>${partes}</strong>.</p><p style="margin-top:12px;"><strong>👉 Ya puedes generar y enviar los anexos</strong> al cliente para que los firme.</p></div></div>`,
+                    });
+                } catch (e) {}
+            });
+        } catch (e) {
+            console.error('[anexos-datos] Error:', e);
+            res.status(500).json({ error: 'Error al guardar los datos', message: e.message });
+        }
+    });
+
+router.post('/anexos-upload/:expedienteId',
+    upload.fields([
+        { name: 'anexo_i', maxCount: 1 },
+        { name: 'anexo_cesion', maxCount: 1 },
+        { name: 'dni_frontal', maxCount: 1 },
+        { name: 'dni_trasero', maxCount: 1 },
+    ]),
+    async (req, res) => {
+        try {
+            const { expedienteId } = req.params;
+            const cesionFirma = (req.body?.cesion_firma || '').toLowerCase() === 'electronica' ? 'electronica' : 'manuscrita';
+            const anexoIFile   = req.files?.anexo_i?.[0] || null;
+            const cesionFile   = req.files?.anexo_cesion?.[0] || null;
+            const dniFrontFile = req.files?.dni_frontal?.[0] || null;
+            const dniBackFile  = req.files?.dni_trasero?.[0] || null;
+
+            if (!anexoIFile && !cesionFile && !dniFrontFile && !dniBackFile) {
+                return res.status(400).json({ error: 'No se ha recibido ningún archivo' });
+            }
+            // Si la Cesión es manuscrita, necesitamos el DNI por ambas caras para anexarlo.
+            if (cesionFile && cesionFirma === 'manuscrita' && (!dniFrontFile || !dniBackFile)) {
+                return res.status(400).json({ error: 'Para una firma manuscrita del Anexo de Cesión necesitamos la foto del DNI por la cara delantera y la trasera.' });
+            }
+
+            const { data: exp, error } = await supabase
+                .from('expedientes')
+                .select('id, numero_expediente, documentacion, clientes!cliente_id(nombre_razon_social, apellidos), oportunidades!oportunidad_id(datos_calculo)')
+                .eq('id', expedienteId)
+                .maybeSingle();
+            if (error) console.error('[anexos-upload] select error:', error.message);
+            if (error || !exp) return res.status(404).json({ error: 'Expediente no encontrado' });
+
+            const driveFolderId = exp.oportunidades?.datos_calculo?.drive_folder_id || exp.oportunidades?.datos_calculo?.inputs?.drive_folder_id;
+            if (!driveFolderId) return res.status(400).json({ error: 'El expediente no tiene carpeta Drive configurada' });
+
+            const numexpte = exp.numero_expediente || expedienteId;
+            const subfolderId = await driveService.getOrCreateSubfolder(driveFolderId, '6. ANEXOS CAE');
+
+            // PDF de un fichero subido (los anexos/DNI pueden venir como imagen o PDF).
+            const toPdfBuffer = async (file) => {
+                if (!file) return null;
+                if (file.mimetype === 'application/pdf') return file.buffer;
+                if ((file.mimetype || '').startsWith('image/')) return imageToPdf(file.buffer, file.mimetype);
+                // Desconocido: intentamos tratarlo como PDF.
+                return file.buffer;
+            };
+            const saveReplacing = async (name, buffer) => {
+                try {
+                    const existing = await driveService.findFileByName(subfolderId, name);
+                    if (existing) await driveService.deleteFile(existing);
+                } catch (e) { console.warn('[anexos-upload] no se pudo reemplazar previo:', e.message); }
+                const r = await driveService.saveFileToFolder(subfolderId, name, 'application/pdf', buffer);
+                if (r?.id) { try { await driveService.setFolderPublic(r.id, 'reader'); } catch (e) {} }
+                return r;
+            };
+
+            const docUpdate = { ...(exp.documentacion || {}) };
+            const recibido = [];
+
+            // Anexo I firmado
+            if (anexoIFile) {
+                const buf = await toPdfBuffer(anexoIFile);
+                const r = await saveReplacing(`${numexpte} - Anexo_I_Firmado.pdf`, buf);
+                if (r?.link) { docUpdate.anexo_i_signed_link = r.link; recibido.push('Anexo I firmado'); }
+            }
+
+            // DNI (delantera + trasera) → siempre se guardan aparte como PDF
+            let dniFrontPdf = null, dniBackPdf = null;
+            if (dniFrontFile) {
+                dniFrontPdf = await toPdfBuffer(dniFrontFile);
+                const r = await saveReplacing(`${numexpte} - DNI_frontal.pdf`, dniFrontPdf);
+                if (r?.link) { docUpdate.dni_frontal_link = r.link; }
+            }
+            if (dniBackFile) {
+                dniBackPdf = await toPdfBuffer(dniBackFile);
+                const r = await saveReplacing(`${numexpte} - DNI_trasero.pdf`, dniBackPdf);
+                if (r?.link) { docUpdate.dni_trasero_link = r.link; }
+            }
+            if (dniFrontFile || dniBackFile) recibido.push('Foto del DNI');
+
+            // Anexo de Cesión firmado
+            if (cesionFile) {
+                let cesionPdf = await toPdfBuffer(cesionFile);
+                docUpdate.anexo_cesion_firma_tipo = cesionFirma;
+                if (cesionFirma === 'manuscrita') {
+                    // Anexar el DNI (delante + detrás) al final de la Cesión.
+                    const annexes = [dniFrontPdf, dniBackPdf].filter(Boolean);
+                    if (annexes.length) cesionPdf = await mergePdfs(cesionPdf, annexes);
+                }
+                const r = await saveReplacing(`${numexpte} - Anexo_Cesion_Firmado.pdf`, cesionPdf);
+                if (r?.link) {
+                    docUpdate.anexo_cesion_signed_link = r.link;
+                    recibido.push(cesionFirma === 'manuscrita' ? 'Anexo de Cesión firmado (con DNI anexado)' : 'Anexo de Cesión firmado (firma electrónica)');
+                }
+            }
+
+            await supabase.from('expedientes').update({ documentacion: docUpdate }).eq('id', expedienteId);
+
+            res.json({ success: true, recibido });
+
+            // Notificación al admin (background)
+            setImmediate(async () => {
+                const clienteNombre = [exp.clientes?.nombre_razon_social, exp.clientes?.apellidos].filter(Boolean).join(' ') || '—';
+                const partes = recibido.join(' + ') || 'documentación';
+                const adminPhone = process.env.WHATSAPP_ADMIN_CHAT;
+                const adminEmail = process.env.ADMIN_EMAIL || 'franciscojavier.moya.s2e2@gmail.com';
+                const msg = `✅ *Anexos firmados recibidos*\nExpediente: *${numexpte}*\nCliente: ${clienteNombre}\nRecibido: ${partes}`;
+                try { if (adminPhone) await whatsappService.sendText(adminPhone, msg); } catch (e) { console.error('[anexos-upload] WA notify:', e.message); }
+                try {
+                    await emailService.sendMail({
+                        to: adminEmail,
+                        subject: `✅ Anexos firmados recibidos — ${numexpte}`,
+                        html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
+                            <div style="background:linear-gradient(135deg,#f59e0b,#ea580c);padding:20px 28px;"><h2 style="margin:0;color:#fff;font-size:16px;">BROKERGY · Anexos firmados</h2></div>
+                            <div style="padding:24px;background:#fff;">
+                              <p>El cliente <strong>${clienteNombre}</strong> ha subido <strong>${partes}</strong> del expediente <strong>${numexpte}</strong>.</p>
+                              ${docUpdate.anexo_cesion_signed_link ? `<p><a href="${docUpdate.anexo_cesion_signed_link}" style="color:#f59e0b;font-weight:bold;">Anexo de Cesión firmado en Drive</a></p>` : ''}
+                              ${docUpdate.anexo_i_signed_link ? `<p><a href="${docUpdate.anexo_i_signed_link}" style="color:#f59e0b;font-weight:bold;">Anexo I firmado en Drive</a></p>` : ''}
+                            </div></div>`
+                    });
+                } catch (e) { console.error('[anexos-upload] Email notify:', e.message); }
+            });
+        } catch (e) {
+            console.error('[anexos-upload] Error:', e);
+            res.status(500).json({ error: 'Error al procesar la subida', message: e.message });
+        }
+    });
+
+// Descarga (proxy) del PDF del anexo generado para que el cliente lo firme.
+// Sirve el contenido desde Drive vía la cuenta de servicio (no depende de que el
+// fichero sea público). doc ∈ anexo_i | cesion.
+router.get('/anexos-upload/:expedienteId/descargar/:doc', async (req, res) => {
+    try {
+        const { expedienteId, doc } = req.params;
+        const { data: exp, error } = await supabase
+            .from('expedientes')
+            .select('numero_expediente, documentacion')
+            .eq('id', expedienteId)
+            .maybeSingle();
+        if (error || !exp) return res.status(404).json({ error: 'Expediente no encontrado' });
+        const d = exp.documentacion || {};
+        const link = doc === 'anexo_i' ? d.anexo_i_drive_link : doc === 'cesion' ? d.anexo_cesion_drive_link : null;
+        if (!link) return res.status(404).json({ error: 'Documento no disponible' });
+        const fileId = (String(link).match(/[-\w]{25,}/) || [])[0];
+        if (!fileId) return res.status(400).json({ error: 'Enlace no válido' });
+        const { getFileContent } = require('../services/driveService');
+        const buf = await getFileContent(fileId);
+        if (!buf || !buf.length) return res.status(404).json({ error: 'No se pudo obtener el documento' });
+        const fname = doc === 'anexo_i' ? `${exp.numero_expediente} - Anexo I.pdf` : `${exp.numero_expediente} - Anexo Cesion.pdf`;
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `attachment; filename="${fname}"`);
+        res.send(buf);
+    } catch (e) {
+        console.error('[anexos descargar] Error:', e.message);
+        res.status(500).json({ error: 'Error al descargar el documento' });
+    }
+});
 
 module.exports = router;

@@ -10,6 +10,7 @@ import { CertificadoCifoModal } from './CertificadoCifoModal';
 import { CertificadoRes080Modal } from './CertificadoRes080Modal';
 import { AnexoFotograficoModal } from './AnexoFotograficoModal';
 import { EnviarBorradorRiteModal } from './EnviarBorradorRiteModal';
+import { EnviarAnexosModal } from './EnviarAnexosModal';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function ValidationModal({ isOpen, onClose, missingFields, onConfirm, docName }) {
@@ -310,7 +311,7 @@ function FacturasSection({ expedienteId, facturas, onChange, readOnly }) {
 }
 
 // ─── Componente Principal ─────────────────────────────────────────────────────
-export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, results }) {
+export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, results, onEditCliente }) {
     const { user } = useAuth();
     const isReforma = expediente?.oportunidades?.ficha === 'RES080' || expediente?.numero_expediente?.includes('RES080');
     const isHybrid  = expediente?.oportunidades?.ficha === 'RES093' || expediente?.numero_expediente?.includes('RES093');
@@ -475,6 +476,7 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
     const [showAnexoFotografico, setShowAnexoFotografico] = useState(false);
     const [managingSigned, setManagingSigned] = useState(null); // { field, link, label }
     const [showEnviarBorrador, setShowEnviarBorrador] = useState(false);
+    const [enviarAnexos, setEnviarAnexos] = useState({ open: false, docs: [], overrides: null });
 
     // ── Validación ───────────────────────────────────────────────────────────
     const [validation, setValidation] = useState({ isOpen: false, fields: [], onConfirm: null, docName: '' });
@@ -630,6 +632,20 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
     const handleModalSaveDrive = (field, link) => {
         setLocal(prev => {
             const next = { ...prev, [field]: link };
+            onSave({ documentacion: next });
+            return next;
+        });
+    };
+
+    // Marca como enviados los anexos que se enviaron correctamente desde el modal
+    // unificado (EnviarAnexosModal) → enciende los indicadores "Enviado" de la fila.
+    const markAnexosSent = (keys) => {
+        if (!Array.isArray(keys) || !keys.length) return;
+        setLocal(prev => {
+            const now = new Date().toISOString();
+            const next = { ...prev };
+            if (keys.includes('anexo1')) next.anexo_i_sent_at = now;
+            if (keys.includes('cesion')) next.anexo_cesion_sent_at = now;
             onSave({ documentacion: next });
             return next;
         });
@@ -827,12 +843,13 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                 onConfirm={validation.onConfirm}
             />
 
-            <AnexoIModal 
-                isOpen={showAnexoI} 
-                onClose={() => setShowAnexoI(false)} 
+            <AnexoIModal
+                isOpen={showAnexoI}
+                onClose={() => setShowAnexoI(false)}
                 expediente={expediente}
                 results={results}
                 onSaveDrive={(link) => handleModalSaveDrive('anexo_i_drive_link', link)}
+                onRequestSend={({ docs, overrides }) => setEnviarAnexos({ open: true, docs, overrides: overrides || null })}
             />
             <AnexoCesionModal
                 isOpen={showAnexoCesion}
@@ -840,6 +857,18 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                 expediente={expediente}
                 results={results}
                 onSaveDrive={(link) => handleModalSaveDrive('anexo_cesion_drive_link', link)}
+                onRequestSend={({ docs, overrides }) => setEnviarAnexos({ open: true, docs, overrides: overrides || null })}
+            />
+            <EnviarAnexosModal
+                isOpen={enviarAnexos.open}
+                onClose={() => setEnviarAnexos(s => ({ ...s, open: false }))}
+                onExit={() => { setEnviarAnexos(s => ({ ...s, open: false })); setShowAnexoI(false); setShowAnexoCesion(false); }}
+                expediente={expediente}
+                results={results}
+                initialDocs={enviarAnexos.docs}
+                overrides={enviarAnexos.overrides}
+                onMarkSent={markAnexosSent}
+                onEditCliente={onEditCliente}
             />
             <FichaRes060Modal
                 isOpen={showFichaRes060}

@@ -952,6 +952,7 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
                             onLiveUpdate={setLiveDoc}
                             saving={saving}
                             results={calcResults}
+                            onEditCliente={() => setShowClienteModal(true)}
                         />
                     </ModuleSection>
                 )}

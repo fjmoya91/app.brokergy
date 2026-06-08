@@ -20,6 +20,7 @@ import { AceptarPropuestaView } from './features/public/views/AceptarPropuestaVi
 import { CertAckView } from './features/public/views/CertAckView';
 import { SubirCifoView } from './features/public/views/SubirCifoView';
 import { SubirRiteView } from './features/public/views/SubirRiteView';
+import { FirmarAnexosView } from './features/public/views/FirmarAnexosView';
 import { SubirDocsReformaView } from './features/public/views/SubirDocsReformaView';
 import { WhatsappSettingsView } from './features/whatsapp/views/WhatsappSettingsView';
 
@@ -92,6 +93,13 @@ function App() {
   const [riteUploadId] = useState(() => {
     const path = window.location.pathname;
     if (path.startsWith('/subir-rite/')) return path.split('/subir-rite/')[1] || null;
+    return null;
+  });
+
+  // Firma de anexos por el cliente: /firmar-anexos/:expedienteId
+  const [firmarAnexosId] = useState(() => {
+    const path = window.location.pathname;
+    if (path.startsWith('/firmar-anexos/')) return path.split('/firmar-anexos/')[1] || null;
     return null;
   });
 
@@ -650,8 +658,8 @@ function App() {
 
   // Rutas públicas con su propio layout full-bleed → sin red decorativa y
   // sin padding del contenedor padre (el componente cubre 100% del viewport).
-  const isPublicRoute = !!(landingRoute || reformaDocsData || firmaOportunidadId || certAckData || cifoUploadId || riteUploadId);
-  const isLoggedDashboard = user && !firmaOportunidadId && !resetToken && !certAckData && !cifoUploadId && !riteUploadId && !reformaDocsData && !landingRoute;
+  const isPublicRoute = !!(landingRoute || reformaDocsData || firmaOportunidadId || certAckData || cifoUploadId || riteUploadId || firmarAnexosId);
+  const isLoggedDashboard = user && !firmaOportunidadId && !resetToken && !certAckData && !cifoUploadId && !riteUploadId && !firmarAnexosId && !reformaDocsData && !landingRoute;
   const wrapperPadding = (isLoggedDashboard || isPublicRoute) ? 'p-0' : 'px-4 py-8';
   const wrapperHeight = isLoggedDashboard ? 'h-screen overflow-hidden' : '';
 
@@ -675,6 +683,8 @@ function App() {
           <SubirCifoView expedienteId={cifoUploadId} />
         ) : riteUploadId ? (
           <SubirRiteView expedienteId={riteUploadId} />
+        ) : firmarAnexosId ? (
+          <FirmarAnexosView expedienteId={firmarAnexosId} />
         ) : certAckData ? (
           <CertAckView expedienteId={certAckData.id} token={certAckData.token} phase={certAckData.phase} />
         ) : firmaOportunidadId ? (
