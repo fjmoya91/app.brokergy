@@ -153,8 +153,10 @@ def normalizar(raw: dict, fecha_firma: str = None) -> dict:
             "coord_x": inst.get("coord_x"), "coord_y": inst.get("coord_y"),
             "superficie": superficie, "zona": zona, "plantas": plantas,
         },
+        # Climatización: el suelo radiante puede dar refrescamiento en verano, así
+        # que cuando el emisor es suelo radiante se marca CLIMATIZACIÓN.
         "objeto": {"calefaccion": True, "acs": bool(inst.get("cambio_acs")),
-                   "climatizacion": "suelo" not in emisor_raw and bool(acs and False)},
+                   "climatizacion": es_suelo},
         "tipo": {"nueva": not exp.get("is_reforma"), "reforma": bool(exp.get("is_reforma")) or bool(inst.get("caldera_antigua_cal"))},
         "generador_calor": {
             "marca": cal.get("marca", ""), "modelo": cal.get("modelo", ""),
@@ -165,8 +167,9 @@ def normalizar(raw: dict, fecha_firma: str = None) -> dict:
             "refrigerante": _refrigerante(cal.get("modelo", "")),
         },
         "aislamiento": {},  # usa valores por defecto del mapeo
+        # Suelo radiante usa tubería de mayor diámetro (colectores PEX) → 32 mm.
         "distribucion": {"sistema": "conductos" if es_suelo else "bitubo",
-                         "material": "COBRE", "d_max": "28", "d_min": "16"},
+                         "material": "COBRE", "d_max": "32" if es_suelo else "28", "d_min": "16"},
         "condiciones": {"temp_verano": "24", "temp_invierno": "21"},
         "instalador": {
             "razon_social": instalador.get("razon_social", ""),

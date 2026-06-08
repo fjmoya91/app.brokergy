@@ -44,6 +44,12 @@ def construir_relleno(datos: dict, nombres_campos: list):
     cond = datos.get("condiciones", {})
     instal = datos.get("instalador", {})
 
+    # ¿El emisor es suelo radiante? Cambia varias casillas de la memoria:
+    # climatización ON, refrigeración en regulación/control, emisor "suelo
+    # radiante" con material PEX (en vez de radiadores de aluminio) y Ø máx 32.
+    _emisor = (datos.get("_meta", {}) or {}).get("emisor", "")
+    es_suelo = "SUELO" in (_emisor or "").upper() or bool(obj.get("climatizacion"))
+
     text = {
         # TITULAR
         0: t.get("nombre_completo") or f"{t.get('nombre','')} {t.get('ape1','')} {t.get('ape2','')}".strip(),
@@ -89,6 +95,15 @@ def construir_relleno(datos: dict, nombres_campos: list):
         451: instal.get("fecha_firma", ""),
     }
 
+    if es_suelo:
+        # REGULACIÓN Y CONTROL — columna REFRIGERACIÓN (= calefacción): el suelo
+        # radiante también refresca. Cada fila tiene 3 campos consecutivos
+        # (calefacción, ACS, refrigeración) → refrigeración = calefacción + 2.
+        text[160] = text[166] = text[172] = text[175] = "SI"
+        # TERMINALES — SUELO RADIANTE (indicar el material). No hay casilla propia
+        # en la plantilla: se identifica rellenando el material del emisor.
+        text[153] = "POLIETILENO RETICULADO PEX"
+
     checks = [2]  # Persona física (siempre en estos expedientes residenciales)
     # Sexo: no hay dato en BD. Solo se marca si viene explícito; si no, se deja
     # SIN marcar (ni Hombre ni Mujer) en vez de asumir.
@@ -111,7 +126,9 @@ def construir_relleno(datos: dict, nombres_campos: list):
         checks.append(32)  # NUEVA
     checks.append(37)      # ELECTRICIDAD
     checks.append(40)      # OTRO (aerotermia)
-    checks.append(48)      # EXTERIOR (emplazamiento)
+    # ALMACENAMIENTO / EMPLAZAMIENTO del depósito de combustible: NO aplica a una
+    # instalación de aerotermia (eléctrica, sin depósito). No se marca nada
+    # (antes se marcaba TERRAZA por error en la posición 48).
     checks.append(69)      # CALEFACCION-ACS
     checks.append(70)      # BOMBA DE CALOR
     # Distribución por defecto para radiadores: bitubo + cobre
@@ -121,7 +138,11 @@ def construir_relleno(datos: dict, nombres_campos: list):
     else:
         checks.append(132)  # BITUBO
     checks.append(137)      # COBRE
-    checks.append(151)      # RADIADORES ALUMINIO
+    # TERMINALES: radiadores de aluminio SOLO si NO es suelo radiante. Con suelo
+    # radiante no se marca radiador; el emisor se indica con su material (PEX) en
+    # el campo de texto 153 (ver arriba).
+    if not es_suelo:
+        checks.append(151)  # RADIADORES ALUMINIO
 
     # TABLA DE CARGAS TÉRMICAS (filas que empiezan en Texto147).
     # OJO: la 1ª fila tiene un campo extra (Texto145) que descuadra el offset por
