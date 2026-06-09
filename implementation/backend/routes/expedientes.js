@@ -287,7 +287,7 @@ router.get('/:id', enforceAuth, async (req, res) => {
 // Solo lectura. Las fotos salen de los slots REALES de la app (buildDocChecklist).
 // Cómputo reutilizable del barrido. Devuelve { numero_expediente, grupos, objetivos }.
 // Lo usan GET /:id/checklist y la lógica de "solicitar lo que falta".
-function buildChecklistData(exp, cli, op) {
+async function buildChecklistData(exp, cli, op) {
     const c = cli || {};
     const doc = exp.documentacion || {};
     const datos = op?.datos_calculo || {};
@@ -309,13 +309,45 @@ function buildChecklistData(exp, cli, op) {
     const faltanPers = camposPers.filter(([, v]) => !present(v)).map(([l]) => l);
     const datosPersOk = faltanPers.length === 0;
     const ibanOk = present(c.numero_cuenta);
-    const justifOk = present(doc.justificante_titularidad_link);
+
+    // Justificante bancario: el campo puede estar vacío aunque el PDF YA esté en Drive
+    // (p.ej. lo adjuntó el cliente al aceptar y el flujo /aceptar no rellenó el link).
+    // Reconciliamos con Drive: si existe el fichero "justificante de titularidad bancaria",
+    // lo damos por presente, persistimos el enlace (para poder abrirlo) y no se vuelve a pedir.
+    let justifLink = doc.justificante_titularidad_link || null;
+    let justifOk = present(justifLink);
+    if (!justifOk) {
+        const driveFolderId = datos.drive_folder_id || datos.inputs?.drive_folder_id;
+        if (driveFolderId) {
+            try {
+                const driveService = require('../services/driveService');
+                const files = await driveService.listFiles(driveFolderId);
+                const match = (files || []).find(f => {
+                    const n = (f.name || '').toLowerCase();
+                    return n.includes('justificante') && n.includes('titularidad');
+                });
+                if (match) {
+                    justifLink = match.webViewLink || match.link || null;
+                    justifOk = !!justifLink;
+                    // Backfill atómico del campo (self-healing): la próxima vez ya no se escanea Drive.
+                    if (justifLink && exp.oportunidad_id) {
+                        supabase.rpc('set_expediente_doc_field', {
+                            p_oportunidad_id: exp.oportunidad_id,
+                            p_field: 'justificante_titularidad_link',
+                            p_value: justifLink,
+                        }).then(({ error }) => { if (error) console.warn('[checklist] backfill justificante:', error.message); }, () => {});
+                    }
+                }
+            } catch (e) { console.warn('[checklist] reconciliación justificante Drive:', e.message); }
+        }
+    }
+
     const anexoIFirmado = present(doc.anexo_i_signed_link);
     const cesionFirmado = present(doc.anexo_cesion_signed_link);
     const grupoCliente = [
         mk('datos_personales', 'Datos personales', 'CLIENTE', datosPersOk, ['anexos', 'final'], datosPersOk ? null : 'Faltan: ' + faltanPers.join(', ')),
         mk('numero_cuenta', 'Nº de cuenta (IBAN)', 'CLIENTE', ibanOk, ['anexos', 'final'], ibanOk ? c.numero_cuenta : 'Sin IBAN'),
-        mk('justificante', 'Justificante titularidad bancaria', 'CLIENTE', justifOk, ['final'], null, doc.justificante_titularidad_link),
+        mk('justificante', 'Justificante titularidad bancaria', 'CLIENTE', justifOk, ['final'], null, justifLink),
         mk('anexo_i_firmado', 'Anexo I firmado', 'CLIENTE', anexoIFirmado, ['final'], present(doc.anexo_i_drive_link) && !anexoIFirmado ? 'Generado, pendiente de firma' : null, doc.anexo_i_signed_link),
         mk('cesion_firmado', 'Anexo Cesión firmado', 'CLIENTE', cesionFirmado, ['final'], present(doc.anexo_cesion_drive_link) && !cesionFirmado ? 'Generado, pendiente de firma' : null, doc.anexo_cesion_signed_link),
     ];
@@ -380,7 +412,7 @@ router.get('/:id/checklist', enforceAuth, async (req, res) => {
             supabase.from('clientes').select('*').eq('id_cliente', exp.cliente_id).single(),
             supabase.from('oportunidades').select('id, ficha, datos_calculo').eq('id', exp.oportunidad_id).single(),
         ]);
-        return res.json(buildChecklistData(exp, cli, op));
+        return res.json(await buildChecklistData(exp, cli, op));
     } catch (err) {
         console.error('[checklist] Error:', err);
         res.status(500).json({ error: 'Error al construir el checklist' });
@@ -501,7 +533,7 @@ router.get('/:id/solicitud-info', enforceAuth, async (req, res) => {
             catch (e) { console.warn('[solicitud-info] ensureUploadLink:', e.message); }
         }
 
-        const checklist = buildChecklistData(exp, cli, op);
+        const checklist = await buildChecklistData(exp, cli, op);
         const acciones = buildSolicitudAcciones(checklist, { expId: exp.id, uploadBase });
 
         // Datos de la OBRA (cliente + dirección) para personalizar el mensaje al
