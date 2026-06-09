@@ -988,7 +988,8 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
         const matchesSearch = searchableText.includes(q);
 
         const matchesStatus = statusFilter === 'ALL' || (e.estado || 'PTE. CEE INICIAL') === statusFilter;
-        const matchesCert = certificadorFilter === 'ALL' || String(e.cee?.certificador_id) === String(certificadorFilter);
+        const matchesCert = certificadorFilter === 'ALL'
+            || (certificadorFilter === 'NONE' ? !e.cee?.certificador_id : String(e.cee?.certificador_id) === String(certificadorFilter));
         const matchesCCAA = ccaaFilter === 'ALL' || getCCAA(e) === ccaaFilter;
         const matchesPrioridad = prioridadFilter === 'ALL' || (e.prioridad || 'NORMAL') === prioridadFilter;
         const matchesYear = yearFilter === 'ALL' || getCifoYear(e) === parseInt(yearFilter);
@@ -1314,6 +1315,7 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
                                 <select value={certificadorFilter} onChange={e => setCertificadorFilter(e.target.value)}
                                     className="w-full bg-bkg-deep border border-white/[0.08] rounded-lg px-2.5 py-2.5 text-xs text-white focus:outline-none focus:border-brand/40 transition-all uppercase">
                                     <option value="ALL" className="bg-bkg-deep">Todos los técnicos</option>
+                                    <option value="NONE" className="bg-bkg-deep">Sin asignar</option>
                                     {certificadores.map(c => (
                                         <option key={c.id_empresa} value={c.id_empresa} className="bg-bkg-deep">{c.razon_social || c.acronimo}</option>
                                     ))}
@@ -1475,6 +1477,7 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
                                                 className="bg-transparent text-[10px] font-black text-white/40 uppercase tracking-wider focus:outline-none focus:text-brand transition-colors cursor-pointer w-full p-0 appearance-none"
                                             >
                                                 <option value="ALL" className="bg-bkg-deep text-white">TODOS LOS TÉCNICOS</option>
+                                                <option value="NONE" className="bg-bkg-deep text-white">SIN ASIGNAR</option>
                                                 {certificadores.map(c => (
                                                     <option key={c.id_empresa} value={c.id_empresa} className="bg-bkg-deep text-white">
                                                         {c.razon_social || c.acronimo}
