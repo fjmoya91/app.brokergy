@@ -1,6 +1,8 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import axios from 'axios';
 import { JustificanteUploader } from './JustificanteUploader';
+import { SolicitarFaltantesModal } from './SolicitarFaltantesModal';
+import { useAuth } from '../../../context/AuthContext';
 
 // Barrido del expediente (Fase 1, solo lectura): SOLO lo que falta para poder
 // (a) generar los anexos para firma y (b) cerrar el expediente final.
@@ -53,9 +55,12 @@ function PendingRow({ it, action }) {
 }
 
 export function ChecklistModule({ expediente, onChanged }) {
+    const { user } = useAuth();
+    const isAdmin = (user?.rol || '').toUpperCase() === 'ADMIN' || (user?.rol_nombre || '').toUpperCase() === 'ADMIN' || Number(user?.id_rol) === 1;
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
+    const [showSolicitar, setShowSolicitar] = useState(false);
 
     const load = useCallback(async () => {
         if (!expediente?.id) return;
@@ -110,6 +115,7 @@ export function ChecklistModule({ expediente, onChanged }) {
         .map(g => ({ ...g, pend: g.items.filter(i => !i.presente) }))
         .filter(g => g.pend.length > 0);
     const todoListo = gruposPend.length === 0;
+    const hayContactables = gruposPend.some(g => g.responsable === 'CLIENTE' || g.responsable === 'INSTALADOR');
 
     return (
         <div className="space-y-5">
@@ -118,6 +124,17 @@ export function ChecklistModule({ expediente, onChanged }) {
                 <GoalPill titulo="Generar anexos" sub="Para que el cliente los firme" total={anexos.total} done={anexos.done} />
                 <GoalPill titulo="Expediente final" sub="Para cerrar el expediente" total={final.total} done={final.done} />
             </div>
+
+            {/* Solicitar lo que falta (admin) — mensaje + enlace de subida por destinatario */}
+            {isAdmin && hayContactables && (
+                <button
+                    onClick={() => setShowSolicitar(true)}
+                    className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-brand/10 border border-brand/30 text-brand text-[11px] font-black uppercase tracking-widest hover:bg-brand/20 transition-all active:scale-[0.99]"
+                >
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
+                    Solicitar lo que falta a cliente / instalador
+                </button>
+            )}
 
             {/* Solo lo pendiente */}
             {todoListo ? (
@@ -167,6 +184,16 @@ export function ChecklistModule({ expediente, onChanged }) {
                     Actualizar
                 </button>
             </div>
+
+            {showSolicitar && (
+                <SolicitarFaltantesModal
+                    isOpen={showSolicitar}
+                    onClose={() => setShowSolicitar(false)}
+                    expedienteId={expediente.id}
+                    grupos={data.grupos}
+                    numeroExpediente={data.numero_expediente}
+                />
+            )}
         </div>
     );
 }

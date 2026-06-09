@@ -109,11 +109,17 @@ function DriveImg({ localUrl, proxySrc = null, driveId, thumb, lowSrc = null, si
     );
 }
 
-export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedded = false, canValidate = false }) {
+export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedded = false, canValidate = false, rol = null, need = null }) {
+    // Enlace scoped por rol: cliente sube el ANTES de la obra; instalador, el DESPUÉS
+    // (instalación terminada + facturas + RITE). Restringe la vista a esa fase.
+    const roleFase = rol === 'cliente' ? 'ANTES' : rol === 'instalador' ? 'DESPUES' : null;
+    // `need` = lista de slots concretos que faltan (los marcados al "solicitar lo que
+    // falta"). Si viene, mostramos ÚNICAMENTE esos slots.
+    const needSet = need ? new Set(String(need).split(',').map(s => s.trim()).filter(Boolean)) : null;
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [info, setInfo] = useState(null);
-    const [tab, setTab] = useState('ANTES');
+    const [tab, setTab] = useState(roleFase || 'ANTES');
     const [busySlot, setBusySlot] = useState(null);
     const [slotError, setSlotError] = useState({});
     const [lightbox, setLightbox] = useState(null);
@@ -370,7 +376,7 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
 
     const slots = info?.slots || [];
     const aceptada = !!info?.aceptada;
-    const canSeeDespues = aceptada || mode === 'admin';
+    const canSeeDespues = aceptada || mode === 'admin' || roleFase === 'DESPUES';
 
     // Orden dentro de cada fase: lo accionable arriba, lo ya resuelto abajo.
     //   0 · rechazada (hay que volver a subir)   1 · pendiente (aún sin foto)
@@ -389,8 +395,9 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
         .sort((a, b) => (tierOf(a.s) - tierOf(b.s)) || (a.i - b.i))
         .map(x => x.s);
 
-    const antes = byTier(slots.filter(s => s.fase === 'ANTES'));
-    const despues = byTier(slots.filter(s => s.fase === 'DESPUES'));
+    const matchesNeed = (s) => !needSet || needSet.has(s.key);
+    const antes = byTier(slots.filter(s => s.fase === 'ANTES' && matchesNeed(s)));
+    const despues = byTier(slots.filter(s => s.fase === 'DESPUES' && matchesNeed(s)));
     const reqAntes = antes.filter(s => s.required);
     const reqDone = reqAntes.filter(s => s.items?.length).length;
     const allReqDone = reqAntes.length > 0 && reqDone === reqAntes.length;
@@ -573,18 +580,20 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
                 </p>
             </div>
 
-            {/* Tabs */}
-            <div className="grid grid-cols-2 gap-2 mb-6 p-1 bg-white/[0.03] rounded-2xl border border-white/10">
-                <button onClick={() => setTab('ANTES')}
-                    className={`py-3 rounded-xl font-black uppercase tracking-widest text-xs transition-all ${tab === 'ANTES' ? 'bg-gradient-to-r from-amber-500 to-amber-400 text-black shadow-lg shadow-amber-500/20' : 'text-white/50 hover:text-white/80'}`}>
-                    📋 Antes de la obra
-                </button>
-                <button onClick={() => canSeeDespues && setTab('DESPUES')} disabled={!canSeeDespues}
-                    title={canSeeDespues ? '' : 'Se activa al aceptar la propuesta'}
-                    className={`py-3 rounded-xl font-black uppercase tracking-widest text-xs transition-all flex items-center justify-center gap-1.5 ${tab === 'DESPUES' ? 'bg-gradient-to-r from-amber-500 to-amber-400 text-black shadow-lg shadow-amber-500/20' : canSeeDespues ? 'text-white/50 hover:text-white/80' : 'text-white/25 cursor-not-allowed'}`}>
-                    {canSeeDespues ? '🔧' : '🔒'} Después de la obra
-                </button>
-            </div>
+            {/* Tabs — ocultas cuando el enlace está scoped por rol (solo una fase) */}
+            {!roleFase && (
+                <div className="grid grid-cols-2 gap-2 mb-6 p-1 bg-white/[0.03] rounded-2xl border border-white/10">
+                    <button onClick={() => setTab('ANTES')}
+                        className={`py-3 rounded-xl font-black uppercase tracking-widest text-xs transition-all ${tab === 'ANTES' ? 'bg-gradient-to-r from-amber-500 to-amber-400 text-black shadow-lg shadow-amber-500/20' : 'text-white/50 hover:text-white/80'}`}>
+                        📋 Antes de la obra
+                    </button>
+                    <button onClick={() => canSeeDespues && setTab('DESPUES')} disabled={!canSeeDespues}
+                        title={canSeeDespues ? '' : 'Se activa al aceptar la propuesta'}
+                        className={`py-3 rounded-xl font-black uppercase tracking-widest text-xs transition-all flex items-center justify-center gap-1.5 ${tab === 'DESPUES' ? 'bg-gradient-to-r from-amber-500 to-amber-400 text-black shadow-lg shadow-amber-500/20' : canSeeDespues ? 'text-white/50 hover:text-white/80' : 'text-white/25 cursor-not-allowed'}`}>
+                        {canSeeDespues ? '🔧' : '🔒'} Después de la obra
+                    </button>
+                </div>
+            )}
 
             {/* Añadir apartado de obra (solo admin): habilita conceptos extra —ventanas,
                 cubierta, fachada…— cuando el alcance del expediente cambió a posteriori. */}
@@ -598,8 +607,10 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
             {tab === 'ANTES' ? (
                 <section>
                     <div className="mb-4 p-4 bg-amber-400/[0.06] border border-amber-400/20 rounded-2xl text-sm text-white/70 leading-relaxed">
-                        📸 Haz estas fotos durante la visita. Las marcadas como <strong className="text-amber-300">obligatorias</strong> son imprescindibles para empezar el expediente.
-                        {reqAntes.length > 0 && <span className="block mt-2 text-xs font-black uppercase tracking-widest text-white/50">Obligatorias: {reqDone}/{reqAntes.length}</span>}
+                        {needSet
+                            ? <>📋 Sube <strong className="text-amber-300">solo lo que te pedimos</strong> aquí abajo. Puedes hacerlo desde el móvil, archivo a archivo.</>
+                            : <>📸 Haz estas fotos durante la visita. Las marcadas como <strong className="text-amber-300">obligatorias</strong> son imprescindibles para empezar el expediente.</>}
+                        {!needSet && reqAntes.length > 0 && <span className="block mt-2 text-xs font-black uppercase tracking-widest text-white/50">Obligatorias: {reqDone}/{reqAntes.length}</span>}
                     </div>
                     {allReqDone && <div className="mb-4 p-3 bg-emerald-400/[0.08] border border-emerald-400/30 rounded-xl text-sm text-emerald-300 font-bold text-center">✓ ¡Listo! Ya tenemos lo imprescindible.</div>}
                     {canValidate && antesPending.length > 0 && (
@@ -613,8 +624,10 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
             ) : (
                 <section>
                     <div className="mb-4 p-4 bg-white/[0.04] border border-white/10 rounded-2xl text-sm text-white/70 leading-relaxed">
-                        🔧 Sube las fotos de la instalación <strong className="text-white">ya terminada</strong>. Puedes ir añadiéndolas según avance la obra.
-                        {despuesSlots.length > 0 && <span className="block mt-2 text-xs font-black uppercase tracking-widest text-white/50">Subidas: {despuesDone}/{despuesSlots.length}</span>}
+                        {needSet
+                            ? <>📎 Sube <strong className="text-white">solo lo que te pedimos</strong> aquí abajo (factura, RITE o las fotos indicadas).</>
+                            : <>🔧 Sube las fotos de la instalación <strong className="text-white">ya terminada</strong>. Puedes ir añadiéndolas según avance la obra.</>}
+                        {!needSet && despuesSlots.length > 0 && <span className="block mt-2 text-xs font-black uppercase tracking-widest text-white/50">Subidas: {despuesDone}/{despuesSlots.length}</span>}
                     </div>
                     {canValidate && despuesPending.length > 0 && (
                         <button onClick={() => validateMany(despuesPending, '__despues__')} disabled={bulkValidating !== null}
@@ -626,7 +639,7 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
                 </section>
             )}
 
-            {tab === 'ANTES' && !canSeeDespues && (
+            {!roleFase && tab === 'ANTES' && !canSeeDespues && (
                 <div className="mt-4 p-4 bg-white/[0.02] border border-white/10 rounded-2xl text-xs text-white/40 leading-relaxed text-center">
                     🔒 La fase <strong className="text-white/60">Después de la obra</strong> se activará cuando se acepte la propuesta.
                 </div>

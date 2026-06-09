@@ -17,10 +17,10 @@ const COMM_TIPO_LABELS = {
     confirmacion_certificador: '← Confirmación del certificador',
     notificacion_tecnica: '← Revisión solicitada (técnico)',
     aprobacion_tecnica: '→ Visto bueno de Brokergy',
+    solicitud_docs: '→ Solicitud de documentación',
     informativo: 'Informativo',
 };
 const normTipo = (t) => (typeof t === 'string' ? t.toLowerCase() : t);
-const isCommTipo = (t) => Object.prototype.hasOwnProperty.call(COMM_TIPO_LABELS, normTipo(t));
 
 export function HistorialModal({ isOpen, onClose, idOportunidad, referenciaCliente, expediente }) {
     const { user } = useAuth();
@@ -319,7 +319,9 @@ export function HistorialModal({ isOpen, onClose, idOportunidad, referenciaClien
                             ) : (
                                 filtered.map((registro, idx, arr) => {
                                     const isComment = normTipo(registro.tipo) === 'comentario';
-                                    const isCommEntry = !isComment && isCommTipo(registro.tipo) && !!registro.texto;
+                                    // Cualquier entrada del expediente con texto y sin `estado` (avisos al cert.,
+                                    // confirmaciones, solicitudes de documentación, informativos…).
+                                    const isCommEntry = !isComment && !!registro.texto && !registro.estado;
                                     const isEditing = editingEntryId === registro.id;
                                     return (
                                         <div key={idx} className="relative pl-6 pb-4 last:pb-0">

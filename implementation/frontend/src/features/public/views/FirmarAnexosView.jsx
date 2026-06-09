@@ -64,12 +64,12 @@ function DropZone({ title, desc, file, onPick, alreadyUploaded, accept = PDF_AND
 }
 
 // Campo de texto reutilizable (a nivel de módulo para no remontar y perder foco).
-function Campo({ label, value, onChange, type = 'text', placeholder, uppercase }) {
+function Campo({ label, value, onChange, type = 'text', placeholder, uppercase, full, mono, center }) {
     return (
-        <div>
+        <div className={full ? 'sm:col-span-2' : ''}>
             <label className="block text-[10px] font-black uppercase tracking-widest text-white/40 mb-1">{label}</label>
             <input type={type} value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder}
-                className={`w-full bg-bkg-elevated border border-white/10 rounded-xl px-3.5 py-2.5 text-white text-sm focus:outline-none focus:border-brand/50 transition-all ${uppercase ? '' : 'no-uppercase'}`} />
+                className={`w-full bg-bkg-elevated border border-white/10 rounded-xl px-3.5 py-2.5 text-white text-sm focus:outline-none focus:border-brand/50 transition-all ${mono ? 'font-mono text-base tracking-[0.15em]' : ''} ${center ? 'text-center' : ''} ${uppercase ? '' : 'no-uppercase'}`} />
         </div>
     );
 }
@@ -219,10 +219,19 @@ export function FirmarAnexosView({ expedienteId }) {
             <div className="w-full max-w-lg relative z-10 px-4 py-10">
                 <div className="text-center mb-8 relative">
                     <h1 className="flex items-baseline justify-center gap-x-2 md:gap-x-4 mb-2 relative z-10">
-                        <span className="text-white text-2xl md:text-3xl font-medium tracking-tight">Firma de</span>
-                        <span className="text-3xl md:text-5xl font-black tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-brand via-brand to-brand-700 uppercase">Anexos</span>
+                        {faltanDatos ? (
+                            <>
+                                <span className="text-white text-2xl md:text-3xl font-medium tracking-tight">Completa tus</span>
+                                <span className="text-3xl md:text-5xl font-black tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-brand via-brand to-brand-700 uppercase">Datos</span>
+                            </>
+                        ) : (
+                            <>
+                                <span className="text-white text-2xl md:text-3xl font-medium tracking-tight">Firma de</span>
+                                <span className="text-3xl md:text-5xl font-black tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-brand via-brand to-brand-700 uppercase">Anexos</span>
+                            </>
+                        )}
                     </h1>
-                    <p className="text-white/60 text-sm">Sube los anexos firmados y la foto de tu DNI por ambas caras.</p>
+                    <p className="text-white/60 text-sm">{faltanDatos ? 'Solo necesitamos un par de datos para preparar tus anexos.' : 'Sube los anexos firmados y la foto de tu DNI por ambas caras.'}</p>
                 </div>
 
                 <div className="bg-bkg-surface shadow-[0_20px_50px_rgba(0,0,0,0.5)] border border-white/[0.06] rounded-[2rem] overflow-hidden backdrop-blur-xl relative">
@@ -263,7 +272,7 @@ export function FirmarAnexosView({ expedienteId }) {
                                         {dc.falta_email && <Campo label="Email *" type="email" value={datos.email} onChange={v => setDato('email', v)} placeholder="tucorreo@email.com" />}
                                         {!dc.telefono && <Campo label="Teléfono *" type="tel" value={datos.telefono} onChange={v => setDato('telefono', v)} placeholder="600 000 000" />}
                                         {dc.falta_dni && <Campo label="DNI / CIF *" value={datos.dni_cif} onChange={v => setDato('dni_cif', v)} placeholder="00000000A" uppercase />}
-                                        {dc.falta_iban && <Campo label="IBAN (nº de cuenta) *" value={datos.iban} onChange={v => setDato('iban', v)} placeholder="ESXX XXXX XXXX XXXX XXXX XXXX" uppercase />}
+                                        {dc.falta_iban && <Campo label="IBAN (nº de cuenta) *" value={datos.iban} onChange={v => setDato('iban', v)} placeholder="ES00 0000 0000 0000 0000 0000" uppercase full mono center />}
                                     </div>
                                     {dc.falta_iban && (
                                         <DropZone file={justificante} onPick={f => pickFile(f, setJustificante)} alreadyUploaded={dc.justificante_subido} accept="image/*,application/pdf"

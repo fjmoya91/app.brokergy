@@ -108,8 +108,11 @@ function App() {
     const path = window.location.pathname;
     if (path.startsWith('/subir-docs/')) {
       const uuid = path.split('/subir-docs/')[1]?.split('/')[0] || null;
-      const token = new URLSearchParams(window.location.search).get('token');
-      if (uuid && token) return { uuid, token };
+      const sp = new URLSearchParams(window.location.search);
+      const token = sp.get('token');
+      const rol = sp.get('rol') || null; // 'cliente' | 'instalador' → enlace scoped por rol
+      const need = sp.get('need') || null; // lista de slots concretos a mostrar (lo que falta)
+      if (uuid && token) return { uuid, token, rol, need };
     }
     return null;
   });
@@ -678,7 +681,7 @@ function App() {
             <LandingFunnelView route={landingRoute} variant={landingRoute.variant || 'default'} />
           </Suspense>
         ) : reformaDocsData ? (
-          <SubirDocsReformaView uuid={reformaDocsData.uuid} token={reformaDocsData.token} />
+          <SubirDocsReformaView uuid={reformaDocsData.uuid} token={reformaDocsData.token} rol={reformaDocsData.rol} need={reformaDocsData.need} />
         ) : cifoUploadId ? (
           <SubirCifoView expedienteId={cifoUploadId} />
         ) : riteUploadId ? (

@@ -285,6 +285,93 @@ router.get('/:id', enforceAuth, async (req, res) => {
 // "Barrido" del expediente: qué falta y quién lo aporta (CLIENTE / INSTALADOR /
 // CUALQUIERA), más dos objetivos: poder generar los anexos y el expediente final.
 // Solo lectura. Las fotos salen de los slots REALES de la app (buildDocChecklist).
+// Cómputo reutilizable del barrido. Devuelve { numero_expediente, grupos, objetivos }.
+// Lo usan GET /:id/checklist y la lógica de "solicitar lo que falta".
+function buildChecklistData(exp, cli, op) {
+    const c = cli || {};
+    const doc = exp.documentacion || {};
+    const datos = op?.datos_calculo || {};
+    const uploads = datos.reforma_uploads || {};
+    const overrides = datos.docs_overrides || {}; // { <slot>: { waived, enabled } }
+
+    const present = (v) => {
+        if (v == null) return false;
+        if (typeof v === 'string') { const t = v.trim(); return !!t && !t.includes('___') && t !== '—'; }
+        if (Array.isArray(v)) return v.length > 0;
+        return true;
+    };
+    const mk = (key, label, responsable, presente, obj, detalle, link, extra) => ({
+        key, label, responsable, presente: !!presente, objetivos: obj || [], detalle: detalle || null, link: link || null, ...(extra || {}),
+    });
+
+    // ── CLIENTE ──
+    const camposPers = [['Nombre', c.nombre_razon_social], ['DNI', c.dni || c.dni_nie], ['Dirección', c.direccion], ['CP', c.codigo_postal], ['Municipio', c.municipio], ['Provincia', c.provincia]];
+    const faltanPers = camposPers.filter(([, v]) => !present(v)).map(([l]) => l);
+    const datosPersOk = faltanPers.length === 0;
+    const ibanOk = present(c.numero_cuenta);
+    const justifOk = present(doc.justificante_titularidad_link);
+    const anexoIFirmado = present(doc.anexo_i_signed_link);
+    const cesionFirmado = present(doc.anexo_cesion_signed_link);
+    const grupoCliente = [
+        mk('datos_personales', 'Datos personales', 'CLIENTE', datosPersOk, ['anexos', 'final'], datosPersOk ? null : 'Faltan: ' + faltanPers.join(', ')),
+        mk('numero_cuenta', 'Nº de cuenta (IBAN)', 'CLIENTE', ibanOk, ['anexos', 'final'], ibanOk ? c.numero_cuenta : 'Sin IBAN'),
+        mk('justificante', 'Justificante titularidad bancaria', 'CLIENTE', justifOk, ['final'], null, doc.justificante_titularidad_link),
+        mk('anexo_i_firmado', 'Anexo I firmado', 'CLIENTE', anexoIFirmado, ['final'], present(doc.anexo_i_drive_link) && !anexoIFirmado ? 'Generado, pendiente de firma' : null, doc.anexo_i_signed_link),
+        mk('cesion_firmado', 'Anexo Cesión firmado', 'CLIENTE', cesionFirmado, ['final'], present(doc.anexo_cesion_drive_link) && !cesionFirmado ? 'Generado, pendiente de firma' : null, doc.anexo_cesion_signed_link),
+    ];
+
+    // ── INSTALADOR ──
+    const facturasDoc = (Array.isArray(doc.facturas) ? doc.facturas : []).filter(f => f && f.drive_link).length;
+    const facturasSlot = Array.isArray(uploads.DOC_FACTURAS) ? uploads.DOC_FACTURAS.length : 0;
+    const nFacturas = facturasDoc + facturasSlot;
+    const cifoOk = present(doc.cert_cifo_signed_link);
+    const riteOk = present(doc.cert_rite_drive_link) || present(doc.cert_rite_signed_link) || (Array.isArray(uploads.DOC_RITE) && uploads.DOC_RITE.length > 0);
+    const facturaOk = nFacturas > 0;
+    const grupoInstalador = [
+        mk('cifo', 'Certificado CIFO (firmado)', 'INSTALADOR', cifoOk, ['final'], present(doc.cert_cifo_drive_link) && !cifoOk ? 'Generado, pendiente de firma' : null, doc.cert_cifo_signed_link),
+        mk('rite', 'Certificado RITE', 'INSTALADOR', riteOk, ['final'], null, doc.cert_rite_drive_link || doc.cert_rite_signed_link),
+        mk('factura', 'Factura de obra', 'INSTALADOR', facturaOk, ['final'], facturaOk ? `${nFacturas} factura(s)` : 'Sin facturas'),
+    ];
+
+    // ── CERTIFICADOR ──
+    const ceeFinalOk = present(doc.fecha_registro_cee_final) || (exp.seguimiento?.cee_final === 'REGISTRADO');
+    const grupoCertificador = [
+        mk('cee_final', 'CEE Final registrado', 'CERTIFICADOR', ceeFinalOk, ['final'], ceeFinalOk ? (doc.fecha_registro_cee_final ? `Registrado ${doc.fecha_registro_cee_final}` : 'Registrado') : 'Pendiente de registrar'),
+    ];
+
+    // ── CUALQUIERA (fotos) — slots REALES de la app, excluyendo RITE/Facturas (ya en Instalador).
+    let slots = [];
+    try { slots = reformaUploadService.buildDocChecklist(datos) || []; } catch (e) { console.warn('[checklist] buildDocChecklist:', e.message); }
+    const grupoFotos = slots
+        .filter(s => s.key !== 'DOC_RITE' && s.key !== 'DOC_FACTURAS')
+        .map(s => {
+            const waived = !!overrides[s.key]?.waived;
+            const arr = uploads[s.key] || [];
+            const subida = Array.isArray(arr) && arr.length > 0;
+            const requerida = !waived && !!s.required;
+            const obj = requerida ? ['final'] : [];
+            const detalle = waived ? 'No necesario' : (subida ? `${arr.length} archivo(s)` : (requerida ? 'Requerida — sin subir' : 'Opcional'));
+            // `fase` y `required` se exponen para el scoping por rol de "solicitar lo que falta".
+            return mk(s.key, s.label || s.key, 'CUALQUIERA', subida || waived, obj, detalle, null, { waived, fase: s.fase, required: !!s.required });
+        });
+
+    const todos = [...grupoCliente, ...grupoInstalador, ...grupoCertificador, ...grupoFotos];
+    const faltanPara = (objetivo) => todos.filter(i => i.objetivos.includes(objetivo) && !i.presente).map(i => i.label);
+    return {
+        numero_expediente: exp.numero_expediente,
+        grupos: [
+            { responsable: 'CLIENTE', label: 'Cliente', items: grupoCliente },
+            { responsable: 'INSTALADOR', label: 'Instalador', items: grupoInstalador },
+            { responsable: 'CERTIFICADOR', label: 'Certificador', items: grupoCertificador },
+            { responsable: 'CUALQUIERA', label: 'Cualquiera (fotos)', items: grupoFotos },
+        ],
+        objetivos: {
+            anexos: { listo: faltanPara('anexos').length === 0, faltan: faltanPara('anexos') },
+            expediente_final: { listo: faltanPara('final').length === 0, faltan: faltanPara('final') },
+        },
+    };
+}
+
 router.get('/:id/checklist', enforceAuth, async (req, res) => {
     try {
         const { data: exp, error } = await supabase.from('expedientes').select('*').eq('id', req.params.id).single();
@@ -293,101 +380,253 @@ router.get('/:id/checklist', enforceAuth, async (req, res) => {
             supabase.from('clientes').select('*').eq('id_cliente', exp.cliente_id).single(),
             supabase.from('oportunidades').select('id, ficha, datos_calculo').eq('id', exp.oportunidad_id).single(),
         ]);
-        const c = cli || {};
-        const doc = exp.documentacion || {};
-        const datos = op?.datos_calculo || {};
-        const uploads = datos.reforma_uploads || {};
-        const overrides = datos.docs_overrides || {}; // { <slot>: { waived, enabled } }
-
-        const present = (v) => {
-            if (v == null) return false;
-            if (typeof v === 'string') { const t = v.trim(); return !!t && !t.includes('___') && t !== '—'; }
-            if (Array.isArray(v)) return v.length > 0;
-            return true;
-        };
-        // obj: a qué objetivo(s) contribuye este ítem → 'anexos' | 'final'
-        const mk = (key, label, responsable, presente, obj, detalle, link, extra) => ({
-            key, label, responsable, presente: !!presente, objetivos: obj || [], detalle: detalle || null, link: link || null, ...(extra || {}),
-        });
-
-        // ── CLIENTE ──
-        const camposPers = [['Nombre', c.nombre_razon_social], ['DNI', c.dni || c.dni_nie], ['Dirección', c.direccion], ['CP', c.codigo_postal], ['Municipio', c.municipio], ['Provincia', c.provincia]];
-        const faltanPers = camposPers.filter(([, v]) => !present(v)).map(([l]) => l);
-        const datosPersOk = faltanPers.length === 0;
-        const ibanOk = present(c.numero_cuenta);
-        const justifOk = present(doc.justificante_titularidad_link);
-        const anexoIFirmado = present(doc.anexo_i_signed_link);
-        const cesionFirmado = present(doc.anexo_cesion_signed_link);
-        const grupoCliente = [
-            mk('datos_personales', 'Datos personales', 'CLIENTE', datosPersOk, ['anexos', 'final'], datosPersOk ? null : 'Faltan: ' + faltanPers.join(', ')),
-            mk('numero_cuenta', 'Nº de cuenta (IBAN)', 'CLIENTE', ibanOk, ['anexos', 'final'], ibanOk ? c.numero_cuenta : 'Sin IBAN'),
-            mk('justificante', 'Justificante titularidad bancaria', 'CLIENTE', justifOk, ['final'], null, doc.justificante_titularidad_link),
-            mk('anexo_i_firmado', 'Anexo I firmado', 'CLIENTE', anexoIFirmado, ['final'], present(doc.anexo_i_drive_link) && !anexoIFirmado ? 'Generado, pendiente de firma' : null, doc.anexo_i_signed_link),
-            mk('cesion_firmado', 'Anexo Cesión firmado', 'CLIENTE', cesionFirmado, ['final'], present(doc.anexo_cesion_drive_link) && !cesionFirmado ? 'Generado, pendiente de firma' : null, doc.anexo_cesion_signed_link),
-        ];
-
-        // ── INSTALADOR ── (la factura y el RITE pueden venir por Documentación o por
-        // el slot de la app — los detectamos por las dos vías).
-        // OJO: en documentacion.facturas puede haber filas "stub" sin fichero
-        // (drive_link null, número vacío, importe 0). Solo cuenta si hay fichero real.
-        const facturasDoc = (Array.isArray(doc.facturas) ? doc.facturas : []).filter(f => f && f.drive_link).length;
-        const facturasSlot = Array.isArray(uploads.DOC_FACTURAS) ? uploads.DOC_FACTURAS.length : 0;
-        const nFacturas = facturasDoc + facturasSlot;
-        const cifoOk = present(doc.cert_cifo_signed_link);
-        const riteOk = present(doc.cert_rite_drive_link) || present(doc.cert_rite_signed_link) || (Array.isArray(uploads.DOC_RITE) && uploads.DOC_RITE.length > 0);
-        const facturaOk = nFacturas > 0;
-        const grupoInstalador = [
-            mk('cifo', 'Certificado CIFO (firmado)', 'INSTALADOR', cifoOk, ['final'], present(doc.cert_cifo_drive_link) && !cifoOk ? 'Generado, pendiente de firma' : null, doc.cert_cifo_signed_link),
-            mk('rite', 'Certificado RITE', 'INSTALADOR', riteOk, ['final'], null, doc.cert_rite_drive_link || doc.cert_rite_signed_link),
-            mk('factura', 'Factura de obra', 'INSTALADOR', facturaOk, ['final'], facturaOk ? `${nFacturas} factura(s)` : 'Sin facturas'),
-        ];
-
-        // ── CERTIFICADOR ── CEE Final registrado = obra hecha y certificada.
-        const ceeFinalOk = present(doc.fecha_registro_cee_final) || (exp.seguimiento?.cee_final === 'REGISTRADO');
-        const grupoCertificador = [
-            mk('cee_final', 'CEE Final registrado', 'CERTIFICADOR', ceeFinalOk, ['final'], ceeFinalOk ? (doc.fecha_registro_cee_final ? `Registrado ${doc.fecha_registro_cee_final}` : 'Registrado') : 'Pendiente de registrar'),
-        ];
-
-        // ── CUALQUIERA (fotos) — slots REALES de la app, excluyendo RITE/Facturas (ya en Instalador).
-        // Las fotos NO bloquean "generar anexos" (Anexo I/Cesión salen con los datos, no con fotos);
-        // solo cuentan para el expediente final (Anexo Fotográfico). Respetamos "no necesario" (waived).
-        let slots = [];
-        try { slots = reformaUploadService.buildDocChecklist(datos) || []; } catch (e) { console.warn('[checklist] buildDocChecklist:', e.message); }
-        const grupoFotos = slots
-            .filter(s => s.key !== 'DOC_RITE' && s.key !== 'DOC_FACTURAS')
-            .map(s => {
-                const waived = !!overrides[s.key]?.waived;
-                const arr = uploads[s.key] || [];
-                const subida = Array.isArray(arr) && arr.length > 0;
-                const requerida = !waived && !!s.required;
-                // "no necesario" cuenta como resuelto y no bloquea nada.
-                const obj = requerida ? ['final'] : [];
-                const detalle = waived ? 'No necesario' : (subida ? `${arr.length} archivo(s)` : (requerida ? 'Requerida — sin subir' : 'Opcional'));
-                return mk(s.key, s.label || s.key, 'CUALQUIERA', subida || waived, obj, detalle, null, { waived });
-            });
-
-        // ── Objetivos (semáforos) ──
-        const todos = [...grupoCliente, ...grupoInstalador, ...grupoCertificador, ...grupoFotos];
-        const faltanPara = (objetivo) => todos.filter(i => i.objetivos.includes(objetivo) && !i.presente).map(i => i.label);
-        const faltanAnexos = faltanPara('anexos');
-        const faltanFinal = faltanPara('final');
-
-        return res.json({
-            numero_expediente: exp.numero_expediente,
-            grupos: [
-                { responsable: 'CLIENTE', label: 'Cliente', items: grupoCliente },
-                { responsable: 'INSTALADOR', label: 'Instalador', items: grupoInstalador },
-                { responsable: 'CERTIFICADOR', label: 'Certificador', items: grupoCertificador },
-                { responsable: 'CUALQUIERA', label: 'Cualquiera (fotos)', items: grupoFotos },
-            ],
-            objetivos: {
-                anexos: { listo: faltanAnexos.length === 0, faltan: faltanAnexos },
-                expediente_final: { listo: faltanFinal.length === 0, faltan: faltanFinal },
-            },
-        });
+        return res.json(buildChecklistData(exp, cli, op));
     } catch (err) {
         console.error('[checklist] Error:', err);
         res.status(500).json({ error: 'Error al construir el checklist' });
+    }
+});
+
+// Construye las ACCIONES a solicitar por destinatario, mapeando cada ítem que falta
+// a su flujo público correcto (firma anexos, subir RITE/CIFO, subir fotos/facturas).
+// Solo incluye lo que realmente falta. Los enlaces de /subir-docs llevan ?rol=&need=
+// para que el destinatario vea ÚNICAMENTE los slots pendientes.
+function buildSolicitudAcciones(checklist, { expId, uploadBase }) {
+    const FRONTEND = process.env.FRONTEND_URL || 'https://app.brokergy.es';
+    const items = (r) => (checklist.grupos.find(g => g.responsable === r)?.items || []);
+    const fotos = items('CUALQUIERA');
+    const cliPend = items('CLIENTE').filter(i => !i.presente);
+    const insPend = items('INSTALADOR').filter(i => !i.presente);
+    const fotosAntes = fotos.filter(i => !i.presente && !i.waived && i.fase === 'ANTES' && i.required);
+    const fotosDespues = fotos.filter(i => !i.presente && !i.waived && i.fase === 'DESPUES');
+
+    // ── CLIENTE ── (owner=CLIENTE; tituloRelay/notaRelay = 3ª persona para cuando
+    // se le pide al instalador en nombre del cliente).
+    //
+    // SECUENCIA: los anexos (Anexo I / Cesión) se GENERAN con el nº de cuenta y el
+    // justificante; no existen hasta tenerlos. Por eso:
+    //   · Si faltan datos (IBAN / justificante) → se piden SOLO los datos (no se
+    //     menciona la firma todavía: carece de sentido).
+    //   · Cuando los datos están → se pide la firma del Anexo I y la Cesión.
+    const cliente = [];
+    const ibanFalta = cliPend.find(i => i.key === 'numero_cuenta');
+    const justifFalta = cliPend.find(i => i.key === 'justificante');
+    const anexoIFalta = cliPend.find(i => i.key === 'anexo_i_firmado');
+    const cesionFalta = cliPend.find(i => i.key === 'cesion_firmado');
+    const datosFaltan = ibanFalta || justifFalta;
+
+    if (datosFaltan) {
+        // FASE A — solo los datos que alimentan los anexos.
+        const dataItems = [ibanFalta, justifFalta].filter(Boolean).map(i => i.label);
+        cliente.push({
+            owner: 'CLIENTE',
+            titulo: 'Completa los datos que faltan',
+            tituloRelay: 'El cliente debe aportar los datos que faltan',
+            url: `${FRONTEND}/firmar-anexos/${expId}`,
+            items: dataItems,
+            nota: 'Con estos datos preparamos tus anexos; después te llegará el enlace para firmarlos.',
+            notaRelay: 'Con estos datos se preparan los anexos; después le llegará al cliente el enlace para firmarlos.',
+        });
+    } else if (anexoIFalta || cesionFalta) {
+        // FASE B — ya hay datos: a firmar.
+        cliente.push({
+            owner: 'CLIENTE',
+            titulo: 'Firma los anexos',
+            tituloRelay: 'El cliente debe firmar los anexos',
+            url: `${FRONTEND}/firmar-anexos/${expId}`,
+            items: [anexoIFalta, cesionFalta].filter(Boolean).map(i => i.label),
+            nota: null,
+            notaRelay: null,
+        });
+    }
+    if (fotosAntes.length && uploadBase) {
+        cliente.push({
+            owner: 'CLIENTE',
+            titulo: 'Sube las fotos del estado ANTES de la obra',
+            tituloRelay: 'Fotos del estado ANTES de la obra',
+            url: `${uploadBase}&rol=cliente&need=${fotosAntes.map(i => i.key).join(',')}`,
+            items: fotosAntes.map(i => i.label),
+            nota: null,
+            notaRelay: null,
+        });
+    }
+
+    // ── INSTALADOR ──
+    const instalador = [];
+    const riteFalta = !!insPend.find(i => i.key === 'rite');
+    const facturaFalta = !!insPend.find(i => i.key === 'factura');
+    const cifoFalta = !!insPend.find(i => i.key === 'cifo');
+    if (riteFalta) instalador.push({ owner: 'INSTALADOR', titulo: 'Sube el Certificado RITE', url: `${FRONTEND}/subir-rite/${expId}`, items: ['Certificado RITE (y memoria firmada)'], nota: null });
+    // El CIFO se GENERA con los datos del RITE y de las facturas: no se pide hasta
+    // tenerlos. Si aún faltan, el CIFO llegará después en otro mensaje.
+    if (cifoFalta && !riteFalta && !facturaFalta) {
+        instalador.push({ owner: 'INSTALADOR', titulo: 'Sube el Certificado CIFO firmado', url: `${FRONTEND}/subir-cifo/${expId}`, items: ['Certificado CIFO firmado'], nota: null });
+    }
+    const subidaIns = [];
+    if (insPend.find(i => i.key === 'factura')) subidaIns.push({ key: 'DOC_FACTURAS', label: 'Factura(s) de la obra' });
+    fotosDespues.forEach(i => subidaIns.push({ key: i.key, label: i.label }));
+    if (subidaIns.length && uploadBase) {
+        instalador.push({
+            owner: 'INSTALADOR',
+            titulo: 'Sube la factura y las fotos de la instalación terminada',
+            url: `${uploadBase}&rol=instalador&need=${subidaIns.map(s => s.key).join(',')}`,
+            items: subidaIns.map(s => s.label),
+            nota: null,
+        });
+    }
+
+    // Ítems sin enlace público (los completa Brokergy internamente): se informan aparte.
+    const adminCliente = cliPend.filter(i => i.key === 'datos_personales').map(i => i.label);
+    return { cliente, instalador, adminCliente };
+}
+
+// ─── GET /api/expedientes/:id/solicitud-info ──────────────────────────────────
+// Contactos (cliente/instalador) + ACCIONES a solicitar (solo lo que falta), cada
+// una con su enlace público correcto. Asegura el token de subida (idempotente).
+router.get('/:id/solicitud-info', enforceAuth, async (req, res) => {
+    try {
+        const { data: exp, error } = await supabase.from('expedientes').select('*').eq('id', req.params.id).single();
+        if (error || !exp) return res.status(404).json({ error: 'Expediente no encontrado' });
+
+        const [{ data: cli }, { data: op }, cliente, instalador] = await Promise.all([
+            exp.cliente_id ? supabase.from('clientes').select('*').eq('id_cliente', exp.cliente_id).maybeSingle() : Promise.resolve({ data: null }),
+            exp.oportunidad_id ? supabase.from('oportunidades').select('id, ficha, datos_calculo').eq('id', exp.oportunidad_id).maybeSingle() : Promise.resolve({ data: null }),
+            resolveSolicitudContacto(exp, 'CLIENTE'),
+            resolveSolicitudContacto(exp, 'INSTALADOR'),
+        ]);
+
+        let uploadBase = null;
+        if (exp.oportunidad_id) {
+            try { uploadBase = await reformaUploadService.ensureUploadLink(exp.oportunidad_id); }
+            catch (e) { console.warn('[solicitud-info] ensureUploadLink:', e.message); }
+        }
+
+        const checklist = buildChecklistData(exp, cli, op);
+        const acciones = buildSolicitudAcciones(checklist, { expId: exp.id, uploadBase });
+
+        // Datos de la OBRA (cliente + dirección) para personalizar el mensaje al
+        // instalador, que puede llevar varias obras a la vez.
+        const obra = {
+            cliente: cli ? `${cli.nombre_razon_social || ''} ${cli.apellidos || ''}`.trim() : null,
+            direccion: cli
+                ? [cli.direccion, [cli.codigo_postal, cli.municipio].filter(Boolean).join(' '), cli.provincia ? `(${cli.provincia})` : null].filter(Boolean).join(', ')
+                : null,
+        };
+
+        res.json({
+            numero_expediente: exp.numero_expediente,
+            obra,
+            cliente: { ...cliente, acciones: acciones.cliente, adminPendiente: acciones.adminCliente },
+            instalador: { ...instalador, acciones: acciones.instalador },
+        });
+    } catch (err) {
+        console.error('[solicitud-info]', err.message);
+        res.status(500).json({ error: 'Error obteniendo datos de solicitud' });
+    }
+});
+
+// ─── Helper: resuelve el contacto (cliente/instalador) de un expediente ───────
+// Resuelve el contacto al que dirigir la solicitud, RESPETANDO la persona de
+// notificaciones (mismo criterio que el resto de avisos del sistema):
+//   · Cliente: si notificaciones_contacto_activas → persona_contacto_* (nombre/tlf/email)
+//   · Instalador: si contacto_notificaciones_activas → nombre_contacto / tlf_contacto / email_contacto
+async function resolveSolicitudContacto(exp, target) {
+    if (target === 'INSTALADOR') {
+        const { data: op } = await supabase
+            .from('oportunidades')
+            .select('instalador_asociado_id, prescriptor_id')
+            .eq('id', exp.oportunidad_id).maybeSingle();
+        const insId = op?.instalador_asociado_id || op?.prescriptor_id || null;
+        if (!insId) return { nombre: null, tlf: null, email: null };
+        // OJO: prescriptores NO tiene columnas telefono/movil.
+        const { data: p, error: pErr } = await supabase.from('prescriptores')
+            .select('razon_social, acronimo, tlf, tlf_contacto, landing_telefono_contacto, email, email_contacto, nombre_contacto, contacto_notificaciones_activas')
+            .eq('id_empresa', insId).maybeSingle();
+        if (pErr) console.warn('[solicitud contacto INSTALADOR]', pErr.message);
+        const useContact = p?.contacto_notificaciones_activas === true || p?.contacto_notificaciones_activas === 'true';
+        return {
+            nombre: (useContact ? (p?.nombre_contacto || p?.razon_social) : (p?.razon_social || p?.acronimo)) || null,
+            tlf: (useContact ? (p?.tlf_contacto || p?.tlf) : (p?.tlf || p?.tlf_contacto || p?.landing_telefono_contacto)) || null,
+            email: (useContact ? (p?.email_contacto || p?.email) : (p?.email || p?.email_contacto)) || null,
+        };
+    }
+    // CLIENTE — la tabla clientes NO tiene columna `telefono`, solo `tlf`.
+    if (!exp.cliente_id) return { nombre: null, tlf: null, email: null };
+    const { data: cli, error: cErr } = await supabase.from('clientes')
+        .select('nombre_razon_social, apellidos, tlf, persona_contacto_tlf, persona_contacto_nombre, email, persona_contacto_email, notificaciones_contacto_activas')
+        .eq('id_cliente', exp.cliente_id).maybeSingle();
+    if (cErr) console.warn('[solicitud contacto CLIENTE]', cErr.message);
+    const notif = cli?.notificaciones_contacto_activas === true || cli?.notificaciones_contacto_activas === 'true';
+    const nombreCli = cli ? `${cli.nombre_razon_social || ''} ${cli.apellidos || ''}`.trim() : null;
+    return {
+        nombre: (notif ? (cli?.persona_contacto_nombre || nombreCli) : nombreCli) || null,
+        tlf: (notif ? (cli?.persona_contacto_tlf || cli?.tlf) : (cli?.tlf || cli?.persona_contacto_tlf)) || null,
+        email: (notif ? (cli?.persona_contacto_email || cli?.email) : (cli?.email || cli?.persona_contacto_email)) || null,
+    };
+}
+
+// ─── POST /api/expedientes/:id/solicitar-faltantes ────────────────────────────
+// Envía (WhatsApp / Email) la solicitud de documentación al cliente o instalador
+// y registra la comunicación en el historial del expediente.
+// Body: { target: 'CLIENTE'|'INSTALADOR', channels: ['whatsapp','email'], mensaje, asunto? }
+router.post('/:id/solicitar-faltantes', enforceAuth, async (req, res) => {
+    try {
+        const target = String(req.body?.target || '').toUpperCase();
+        const channels = Array.isArray(req.body?.channels) ? req.body.channels : [];
+        const mensaje = String(req.body?.mensaje || '').trim();
+        const asunto = String(req.body?.asunto || '').trim() || 'Documentación pendiente de tu expediente';
+        if (!['CLIENTE', 'INSTALADOR'].includes(target)) return res.status(400).json({ error: 'target inválido' });
+        if (!mensaje) return res.status(400).json({ error: 'El mensaje no puede estar vacío' });
+        if (!channels.length) return res.status(400).json({ error: 'Selecciona al menos un canal' });
+
+        const { data: exp, error } = await supabase.from('expedientes').select('*').eq('id', req.params.id).single();
+        if (error || !exp) return res.status(404).json({ error: 'Expediente no encontrado' });
+
+        const contacto = await resolveSolicitudContacto(exp, target);
+        // Overrides del admin: puede dirigir el mensaje a otro teléfono/email/persona.
+        const tlf = (String(req.body?.tlf || '').trim()) || contacto.tlf;
+        const email = (String(req.body?.email || '').trim()) || contacto.email;
+        const nombreDest = (String(req.body?.nombre || '').trim()) || contacto.nombre;
+        const sent = [];
+
+        if (channels.includes('whatsapp')) {
+            if (!tlf) return res.status(400).json({ error: 'No hay teléfono para enviar el WhatsApp. Indica uno.' });
+            try { await whatsappService.sendText(tlf, mensaje); sent.push('WhatsApp'); }
+            catch (e) { console.warn('[solicitar-faltantes] WA:', e.message); sent.push('WhatsApp (encolado)'); }
+        }
+        if (channels.includes('email')) {
+            if (!email) return res.status(400).json({ error: 'No hay email para enviar. Indica uno.' });
+            const html = `<div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;color:#222;white-space:pre-wrap;line-height:1.5">${mensaje.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>`;
+            await emailService.sendMail({ to: email, subject: asunto, text: mensaje, html });
+            sent.push('Email');
+        }
+        if (!sent.length) return res.status(400).json({ error: 'No se pudo enviar por los canales elegidos' });
+
+        // Registro en el historial del expediente (trazabilidad)
+        const docObj = exp.documentacion || {};
+        const historial = docObj.historial || [];
+        const userName = req.user?.rol_nombre === 'ADMIN' ? 'ADMINISTRADOR' : (req.user?.acronimo || req.user?.razon_social || 'SISTEMA');
+        const destLabel = nombreDest ? ` (${nombreDest}${tlf ? ` · ${tlf}` : ''})` : (tlf ? ` (${tlf})` : '');
+        // Lista concreta de lo solicitado (para que el agente sepa QUÉ se pidió, no solo a quién).
+        const solicitado = Array.isArray(req.body?.solicitado) ? req.body.solicitado.filter(Boolean).map(String) : [];
+        const solicitadoTxt = solicitado.length ? `. Pedido: ${solicitado.join('; ')}` : '';
+        historial.push({
+            id: Date.now().toString() + '_solicitud',
+            tipo: 'solicitud_docs',
+            texto: `Solicitud de documentación enviada a ${target === 'CLIENTE' ? 'Cliente' : 'Instalador'}${destLabel} vía ${sent.join(' + ')}${solicitadoTxt}`,
+            solicitado,
+            target,
+            fecha: new Date().toISOString(),
+            usuario: userName,
+        });
+        await supabase.from('expedientes')
+            .update({ documentacion: { ...docObj, historial }, updated_at: new Date().toISOString() })
+            .eq('id', req.params.id);
+
+        res.json({ ok: true, channels: sent, sentTo: email || tlf || null });
+    } catch (err) {
+        console.error('[solicitar-faltantes]', err.message);
+        res.status(500).json({ error: 'Error enviando la solicitud' });
     }
 });
 

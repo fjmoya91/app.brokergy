@@ -10,7 +10,10 @@ import React from 'react';
 import { DynamicNetworkBackground } from '../../../components/DynamicNetworkBackground';
 import { DocsManager } from '../../docs/DocsManager';
 
-export function SubirDocsReformaView({ uuid, token }) {
+export function SubirDocsReformaView({ uuid, token, rol = null, need = null }) {
+    const rolLabel = rol === 'cliente' ? 'Documentación del estado ANTES de la obra'
+        : rol === 'instalador' ? 'Documentación de la instalación (facturas, RITE y fotos)'
+        : null;
     return (
         <div className="min-h-screen bg-slate-950 text-white relative overflow-x-hidden px-4 py-6 md:py-10">
             <DynamicNetworkBackground />
@@ -19,10 +22,13 @@ export function SubirDocsReformaView({ uuid, token }) {
                     <div className="text-2xl md:text-3xl font-black tracking-tight">
                         <span className="text-white">BROKER</span><span className="text-amber-400">GY</span>
                     </div>
+                    {rolLabel && (
+                        <p className="text-amber-300/80 text-[11px] font-black uppercase tracking-widest mt-3">{rolLabel}</p>
+                    )}
                     <p className="text-white/45 text-xs mt-3">Sube tu documentación desde el móvil: al pulsar te dejará usar la <strong className="text-white/70">cámara</strong> o elegir de la <strong className="text-white/70">galería</strong>.</p>
                 </header>
 
-                <DocsManager mode="token" idOrUuid={uuid} token={token} />
+                <DocsManager mode="token" idOrUuid={uuid} token={token} rol={rol} need={need} />
 
                 <div className="mt-6 p-4 bg-white/[0.02] border border-white/10 rounded-2xl text-xs text-white/45 leading-relaxed text-center">
                     Puedes volver a este enlace cuando quieras. Un técnico de Brokergy revisará cada foto: si alguna no se ve bien, te avisaremos para repetirla.
