@@ -2,6 +2,39 @@ import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { useAuth } from '../../../context/AuthContext';
 import { useModal } from '../../../context/ModalContext';
+import { readPhaseTime, SUBESTADO_LABELS, STALE_CLASSES, fmtDate, humanDays, daysSince } from '../logic/seguimientoTime';
+
+// Pill compacto de estado por fase CEE: subestado actual + días-en-estado + última comunicación.
+function CeeStatusPill({ expediente, section }) {
+    const key = section === 'final' ? 'cee_final' : 'cee_inicial';
+    const status = expediente?.seguimiento?.[key];
+    if (!status) return null;
+    const pt = readPhaseTime(expediente?.seguimiento, key);
+    const isRegistrado = status === 'REGISTRADO';
+    const label = SUBESTADO_LABELS[status] || status;
+    const lastDays = pt.lastContacto != null ? daysSince(pt.lastContacto) : null;
+
+    return (
+        <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+            <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md border text-[8px] font-black uppercase tracking-widest ${
+                isRegistrado ? 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10' : STALE_CLASSES[pt.nivel]
+            }`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${isRegistrado ? 'bg-emerald-400' : pt.nivel === 'late' ? 'bg-red-400' : pt.nivel === 'warn' ? 'bg-amber-400' : 'bg-emerald-400'}`} />
+                {label}
+            </span>
+            {!isRegistrado && pt.diasEnEstado != null && (
+                <span className={`text-[8px] font-bold uppercase tracking-widest ${pt.nivel === 'late' ? 'text-red-400' : pt.nivel === 'warn' ? 'text-amber-400' : 'text-white/30'}`}>
+                    {pt.diasEnEstado === 0 ? 'hoy' : `${pt.diasEnEstado}d en estado`}
+                </span>
+            )}
+            {lastDays != null && (
+                <span className="text-[8px] font-bold uppercase tracking-widest text-white/25" title={`Último aviso al certificador: ${fmtDate(pt.lastContacto)}`}>
+                    · aviso {humanDays(lastDays)}
+                </span>
+            )}
+        </div>
+    );
+}
 
 const DOCUMENT_SLOTS = [
     { id: 'xml', label: '.XML', suffix: '.xml', accept: '.xml' },
@@ -695,6 +728,7 @@ export function CeeDocumentsGrid({
                                     <p className="text-[9px] text-white/20 font-bold uppercase tracking-widest leading-none">
                                         Gestión técnica del activo
                                     </p>
+                                    <CeeStatusPill expediente={expediente} section={section} />
                                 </div>
                                 <div className="ml-auto">
                                     {showSlot('xml')}

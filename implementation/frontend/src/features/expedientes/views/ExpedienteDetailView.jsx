@@ -18,6 +18,7 @@ import {
     BOILER_EFFICIENCIES 
 } from '../../calculator/logic/calculation';
 import { SeguimientoModule } from '../components/SeguimientoModule';
+import { ComunicacionesCertificador } from '../components/ComunicacionesCertificador';
 import { HistorialModal } from '../../../components/HistorialModal';
 import { DocsAdminModal } from '../../calculator/components/DocsAdminModal';
 import { ClienteDetailModal } from '../../clientes/components/ClienteDetailModal';
@@ -791,7 +792,7 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
                         onToggle={setActiveSection}
                         badge="Pendientes"
                     >
-                        <ChecklistModule expediente={expediente} />
+                        <ChecklistModule expediente={expediente} onChanged={() => fetchExpediente(true)} />
                     </ModuleSection>
                 )}
 
@@ -848,6 +849,18 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
                         certificadores={certificadores}
                         onAutoStatus={handleCeeAutoStatus}
                     />
+
+                    {/* Comunicaciones con el certificador — dentro del bloque CEE,
+                        ya que todo el flujo de notificación/revisión vive aquí. */}
+                    <div className="mt-10 pt-8 border-t border-white/[0.06]">
+                        <h3 className="text-xs font-black text-white uppercase tracking-widest border-l-2 border-brand pl-4 mb-5 flex items-center gap-2">
+                            <svg className="w-4 h-4 text-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                            </svg>
+                            Comunicaciones con el certificador
+                        </h3>
+                        <ComunicacionesCertificador expediente={expediente} />
+                    </div>
                 </ModuleSection>
 
                 <ModuleSection
@@ -1021,6 +1034,7 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
                 onClose={() => setShowQuickNote(false)}
                 idOportunidad={expediente?.oportunidades?.id_oportunidad}
                 referenciaCliente={expediente?.oportunidades?.referencia_cliente}
+                expediente={expediente}
             />
 
             <DocsAdminModal
@@ -1034,6 +1048,7 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
                     isOpen={true}
                     clienteId={cliente.id_cliente}
                     expedienteId={expediente.id}
+                    justificanteLink={expediente?.documentacion?.justificante_titularidad_link || null}
                     catastroData={{
                         direccion: opInputs.direccion || opInputs.address || null,
                         municipio: opInputs.municipio || null,

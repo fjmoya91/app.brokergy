@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { useAuth } from '../../../context/AuthContext';
+import { JustificanteUploader } from '../../expedientes/components/JustificanteUploader';
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 function normalize(s) {
@@ -298,7 +299,7 @@ function DireccionEdit({ values, onChange, autoMunicipioHint, onParseFromDirecci
 }
 
 // ─── Modal principal ────────────────────────────────────────────────────────
-export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clienteId, onUpdated, onOpenOportunidad, onOpenExpediente, expedienteId, oportunidadId, onClienteSwapped, catastroData = null }) {
+export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clienteId, onUpdated, onOpenOportunidad, onOpenExpediente, expedienteId, oportunidadId, onClienteSwapped, catastroData = null, justificanteLink = null }) {
     const { user } = useAuth();
     const userRole = (user?.rol || '').toUpperCase();
     const userRoleId = user?.id_rol ? Number(user.id_rol) : null;
@@ -912,6 +913,13 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
                                         <FieldInput label="Número de Cuenta (IBAN)">
                                             <Input value={form.numero_cuenta} uppercase onChange={e => updateForm({ numero_cuenta: e.target.value })} />
                                         </FieldInput>
+                                    )}
+                                    {isAdmin && expedienteId && (
+                                        <div className="sm:col-span-2">
+                                            <label className="block text-[10px] font-black uppercase tracking-widest text-white/40 mb-1.5">Justificante de titularidad bancaria</label>
+                                            <JustificanteUploader variant="box" expedienteId={expedienteId} currentLink={justificanteLink} onUploaded={() => { if (onUpdated) onUpdated(); }} />
+                                            <p className="text-[10px] text-white/25 mt-1.5">Se guarda en la carpeta del expediente, igual que si lo sube el cliente por el enlace.</p>
+                                        </div>
                                     )}
                                     <div className="sm:col-span-2 pt-2">
                                         <label className="flex items-center gap-3 cursor-pointer group w-fit">

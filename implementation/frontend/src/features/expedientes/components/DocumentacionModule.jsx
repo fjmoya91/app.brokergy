@@ -639,13 +639,13 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
 
     // Marca como enviados los anexos que se enviaron correctamente desde el modal
     // unificado (EnviarAnexosModal) → enciende los indicadores "Enviado" de la fila.
-    const markAnexosSent = (keys) => {
+    const markAnexosSent = (keys, driveLinks) => {
         if (!Array.isArray(keys) || !keys.length) return;
         setLocal(prev => {
             const now = new Date().toISOString();
             const next = { ...prev };
-            if (keys.includes('anexo1')) next.anexo_i_sent_at = now;
-            if (keys.includes('cesion')) next.anexo_cesion_sent_at = now;
+            if (keys.includes('anexo1')) { next.anexo_i_sent_at = now; if (driveLinks?.anexo1) next.anexo_i_drive_link = driveLinks.anexo1; }
+            if (keys.includes('cesion')) { next.anexo_cesion_sent_at = now; if (driveLinks?.cesion) next.anexo_cesion_drive_link = driveLinks.cesion; }
             onSave({ documentacion: next });
             return next;
         });

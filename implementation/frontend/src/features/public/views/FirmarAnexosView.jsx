@@ -118,8 +118,9 @@ export function FirmarAnexosView({ expedienteId }) {
     // El justificante va junto con el IBAN (igual que la propuesta); no bloquea por sí solo.
     const faltanDatos = !!(dc.falta_email || dc.falta_dni || dc.falta_iban || !dc.telefono);
     const setDato = (k, v) => setDatos(prev => ({ ...prev, [k]: v }));
-    // Fase 3 (firma) solo cuando ya hay anexos generados que firmar.
-    const anexosListos = !!(info?.anexo_i_disponible || info?.anexo_cesion_disponible);
+    // Fase 3 (firma): en cuanto los anexos se han ENVIADO al cliente (o generado en Drive).
+    const anexosListos = !!(info?.anexo_i_enviado || info?.anexo_cesion_enviado || info?.anexo_i_disponible || info?.anexo_cesion_disponible);
+    const hayDescarga = !!(info?.anexo_i_disponible || info?.anexo_cesion_disponible);
     const descargarUrl = (which) => `${API_URL}/anexos-upload/${expedienteId}/descargar/${which}`;
 
     const handleGuardarDatos = async () => {
@@ -293,23 +294,29 @@ export function FirmarAnexosView({ expedienteId }) {
                                 {/* Paso 1 · Descargar para firmar */}
                                 <div className="rounded-2xl border border-brand/15 bg-brand/[0.04] p-4 space-y-3">
                                     <div>
-                                        <p className="text-[11px] font-black uppercase tracking-[0.15em] text-brand">1 · Descarga y firma</p>
-                                        <p className="text-white/40 text-[11px] mt-1 leading-snug">Descarga tus anexos, fírmalos (con certificado digital o a mano) y vuelve aquí para subirlos.</p>
+                                        <p className="text-[11px] font-black uppercase tracking-[0.15em] text-brand">1 · Firma tus anexos</p>
+                                        <p className="text-white/40 text-[11px] mt-1 leading-snug">
+                                            {hayDescarga
+                                                ? 'Descarga tus anexos, fírmalos (con certificado digital o a mano) y vuelve aquí para subirlos.'
+                                                : 'Firma el anexo que te enviamos por WhatsApp/email (con certificado digital o a mano) y súbelo aquí abajo.'}
+                                        </p>
                                     </div>
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                        {info.anexo_i_disponible && (
-                                            <a href={descargarUrl('anexo_i')} className="flex items-center justify-center gap-2 py-3 rounded-xl border border-white/10 bg-white/[0.02] text-white/80 text-[11px] font-black uppercase tracking-wider hover:border-brand/40 hover:bg-brand/5 transition-all">
-                                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" /></svg>
-                                                Anexo I
-                                            </a>
-                                        )}
-                                        {info.anexo_cesion_disponible && (
-                                            <a href={descargarUrl('cesion')} className="flex items-center justify-center gap-2 py-3 rounded-xl border border-white/10 bg-white/[0.02] text-white/80 text-[11px] font-black uppercase tracking-wider hover:border-brand/40 hover:bg-brand/5 transition-all">
-                                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" /></svg>
-                                                Anexo Cesión
-                                            </a>
-                                        )}
-                                    </div>
+                                    {hayDescarga && (
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                            {info.anexo_i_disponible && (
+                                                <a href={descargarUrl('anexo_i')} className="flex items-center justify-center gap-2 py-3 rounded-xl border border-white/10 bg-white/[0.02] text-white/80 text-[11px] font-black uppercase tracking-wider hover:border-brand/40 hover:bg-brand/5 transition-all">
+                                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" /></svg>
+                                                    Anexo I
+                                                </a>
+                                            )}
+                                            {info.anexo_cesion_disponible && (
+                                                <a href={descargarUrl('cesion')} className="flex items-center justify-center gap-2 py-3 rounded-xl border border-white/10 bg-white/[0.02] text-white/80 text-[11px] font-black uppercase tracking-wider hover:border-brand/40 hover:bg-brand/5 transition-all">
+                                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" /></svg>
+                                                    Anexo Cesión
+                                                </a>
+                                            )}
+                                        </div>
+                                    )}
                                 </div>
 
                                 <p className="text-white/40 text-sm leading-relaxed">

@@ -317,7 +317,25 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
         else if (channels.whatsapp) out.push({ channel: 'whatsapp', status: 'unavailable', text: !contactPhoneValid ? 'No disponible — sin teléfono' : 'No disponible — WhatsApp no conectado' });
 
         const anyOk = out.some(r => r.status === 'ok');
-        if (anyOk && onMarkSent) onMarkSent([...docs]);
+
+        // Al enviar, guardamos también el borrador en Drive ("6. ANEXOS CAE") para que
+        // la página de firma pueda OFRECER la descarga y el expediente refleje "Generado".
+        // Best-effort: si Drive falla, el envío sigue siendo válido (la fase de firma se
+        // habilita igual por "enviado", y el cliente firma el PDF que recibió).
+        const driveLinks = {};
+        if (anyOk) {
+            const folderId = expediente?.oportunidades?.datos_calculo?.drive_folder_id || expediente?.oportunidades?.datos_calculo?.inputs?.drive_folder_id;
+            if (folderId) {
+                for (const d of docDefs) {
+                    try {
+                        const fileName = d.key === 'anexo1' ? `${numexpte} - Anexo I` : `${numexpte} - Anexo Cesion ahorro`;
+                        const r = await axios.post('/api/pdf/save-to-drive', { html: d.html, folderId, fileName, subfolderName: '6. ANEXOS CAE' });
+                        if (r.data?.driveLink) driveLinks[d.key] = r.data.driveLink;
+                    } catch (e) { /* no romper el envío si Drive falla */ }
+                }
+            }
+        }
+        if (anyOk && onMarkSent) onMarkSent([...docs], driveLinks);
         setSendResults(out);
         setStatus({ ok: anyOk, text: out.map(r => `${r.status === 'ok' ? '✓' : '✕'} ${r.text}`).join('   ') });
         setSendPhase('done');

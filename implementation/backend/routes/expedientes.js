@@ -9,6 +9,7 @@ const { normalizeData } = require('../utils/normalization');
 const emailService = require('../services/emailService');
 const whatsappService = require('../services/whatsappService');
 const reformaUploadService = require('../services/reformaUploadService');
+const { applyStatus, stampSeguimientoTimestamps, markCertContact } = require('../services/seguimientoTracking');
 
 
 // ─── Helpers de notificación CEE registrado ───────────────────────────────────
@@ -341,6 +342,12 @@ router.get('/:id/checklist', enforceAuth, async (req, res) => {
             mk('factura', 'Factura de obra', 'INSTALADOR', facturaOk, ['final'], facturaOk ? `${nFacturas} factura(s)` : 'Sin facturas'),
         ];
 
+        // ── CERTIFICADOR ── CEE Final registrado = obra hecha y certificada.
+        const ceeFinalOk = present(doc.fecha_registro_cee_final) || (exp.seguimiento?.cee_final === 'REGISTRADO');
+        const grupoCertificador = [
+            mk('cee_final', 'CEE Final registrado', 'CERTIFICADOR', ceeFinalOk, ['final'], ceeFinalOk ? (doc.fecha_registro_cee_final ? `Registrado ${doc.fecha_registro_cee_final}` : 'Registrado') : 'Pendiente de registrar'),
+        ];
+
         // ── CUALQUIERA (fotos) — slots REALES de la app, excluyendo RITE/Facturas (ya en Instalador).
         // Las fotos NO bloquean "generar anexos" (Anexo I/Cesión salen con los datos, no con fotos);
         // solo cuentan para el expediente final (Anexo Fotográfico). Respetamos "no necesario" (waived).
@@ -360,7 +367,7 @@ router.get('/:id/checklist', enforceAuth, async (req, res) => {
             });
 
         // ── Objetivos (semáforos) ──
-        const todos = [...grupoCliente, ...grupoInstalador, ...grupoFotos];
+        const todos = [...grupoCliente, ...grupoInstalador, ...grupoCertificador, ...grupoFotos];
         const faltanPara = (objetivo) => todos.filter(i => i.objetivos.includes(objetivo) && !i.presente).map(i => i.label);
         const faltanAnexos = faltanPara('anexos');
         const faltanFinal = faltanPara('final');
@@ -370,6 +377,7 @@ router.get('/:id/checklist', enforceAuth, async (req, res) => {
             grupos: [
                 { responsable: 'CLIENTE', label: 'Cliente', items: grupoCliente },
                 { responsable: 'INSTALADOR', label: 'Instalador', items: grupoInstalador },
+                { responsable: 'CERTIFICADOR', label: 'Certificador', items: grupoCertificador },
                 { responsable: 'CUALQUIERA', label: 'Cualquiera (fotos)', items: grupoFotos },
             ],
             objetivos: {
@@ -380,6 +388,48 @@ router.get('/:id/checklist', enforceAuth, async (req, res) => {
     } catch (err) {
         console.error('[checklist] Error:', err);
         res.status(500).json({ error: 'Error al construir el checklist' });
+    }
+});
+
+// ─── POST /api/expedientes/:id/justificante ───────────────────────────────────
+// Sube el justificante de titularidad bancaria desde admin (barrido o ficha de
+// cliente). Escribe EXACTAMENTE donde la subida pública del cliente: carpeta raíz
+// del expediente en Drive (justificante de titularidad bancaria.pdf) y el campo
+// documentacion.justificante_titularidad_link. Acepta PDF o imagen (base64).
+router.post('/:id/justificante', enforceAuth, async (req, res) => {
+    try {
+        const { base64, mimeType } = req.body;
+        if (!base64 || String(base64).trim() === '') return res.status(400).json({ error: 'Archivo requerido' });
+        const { data: exp, error } = await supabase.from('expedientes').select('id, documentacion, oportunidad_id').eq('id', req.params.id).maybeSingle();
+        if (error || !exp) return res.status(404).json({ error: 'Expediente no encontrado' });
+        const { data: op } = await supabase.from('oportunidades').select('datos_calculo').eq('id', exp.oportunidad_id).single();
+        const driveFolderId = op?.datos_calculo?.drive_folder_id || op?.datos_calculo?.inputs?.drive_folder_id;
+        if (!driveFolderId) return res.status(400).json({ error: 'El expediente no tiene carpeta Drive configurada' });
+
+        const driveService = require('../services/driveService');
+        let buf = Buffer.from(base64, 'base64');
+        const mime = mimeType || 'application/pdf';
+        if (mime !== 'application/pdf' && mime.startsWith('image/')) {
+            const { PDFDocument } = require('pdf-lib');
+            const pdfDoc = await PDFDocument.create();
+            const img = mime === 'image/png' ? await pdfDoc.embedPng(buf) : await pdfDoc.embedJpg(buf);
+            const { width, height } = img.scale(1);
+            const page = pdfDoc.addPage([width, height]);
+            page.drawImage(img, { x: 0, y: 0, width, height });
+            buf = Buffer.from(await pdfDoc.save());
+        }
+        const name = 'justificante de titularidad bancaria.pdf';
+        try { const existing = await driveService.findFileByName(driveFolderId, name); if (existing) await driveService.deleteFile(existing); } catch (e) {}
+        const r = await driveService.saveFileToFolder(driveFolderId, name, 'application/pdf', buf);
+        if (!r?.link) return res.status(500).json({ error: 'No se pudo guardar en Drive' });
+        try { if (r.id) await driveService.setFolderPublic(r.id, 'reader'); } catch (e) {}
+
+        const docUpdate = { ...(exp.documentacion || {}), justificante_titularidad_link: r.link };
+        await supabase.from('expedientes').update({ documentacion: docUpdate }).eq('id', req.params.id);
+        res.json({ success: true, link: r.link });
+    } catch (e) {
+        console.error('[justificante upload] Error:', e);
+        res.status(500).json({ error: 'Error al subir el justificante', message: e.message });
     }
 });
 
@@ -729,7 +779,13 @@ router.put('/:id', enforceAuth, async (req, res) => {
         const updates = { updated_at: new Date().toISOString() };
         if (cee !== undefined)           updates.cee           = { ...existing.cee,           ...cee };
         if (instalacion !== undefined)   updates.instalacion   = { ...existing.instalacion,   ...instalacion };
-        if (seguimiento !== undefined)   updates.seguimiento   = { ...existing.seguimiento,   ...seguimiento };
+        if (seguimiento !== undefined) {
+            updates.seguimiento = { ...existing.seguimiento, ...seguimiento };
+            // Sellar timestamps de transición de subestado (cee_inicial/cee_final/anexos).
+            // Es el chokepoint por el que pasan los auto-status de subida de .CEX/registro
+            // y los cambios manuales del módulo de Seguimiento.
+            stampSeguimientoTimestamps(existing.seguimiento, updates.seguimiento);
+        }
         
         // ─── AUTOMATIZACIÓN REGISTRO CEE INICIAL ────────────────────────────────
         // Cuando el CEE Inicial pasa a REGISTRADO:
@@ -2147,15 +2203,19 @@ router.post('/:id/notify-certificador', enforceAuth, async (req, res) => {
         // Persistir cee actualizado (cert_id + folder ids + ack_token)
         const seguimiento = exp.seguimiento || { cee_inicial: 'PTE_EMITIR', cee_final: 'PTE_EMITIR', anexos: 'PTE_EMITIR' };
         
-        // Solo actualizamos el Roadmap a ASIGNADO si es un nuevo encargo (standard). 
+        // Solo actualizamos el Roadmap a ASIGNADO si es un nuevo encargo (standard).
         // Si es un recordatorio (reminder) o aviso urgente (urgent), no tocamos el Roadmap para no perder la trazabilidad.
         if (template === 'standard') {
             if (phase === 'final') {
-                seguimiento.cee_final = 'ASIGNADO';
+                applyStatus(seguimiento, 'cee_final', 'ASIGNADO');
             } else {
-                seguimiento.cee_inicial = 'ASIGNADO';
+                applyStatus(seguimiento, 'cee_inicial', 'ASIGNADO');
             }
         }
+        // Constancia de la última comunicación al certificador (incluye recordatorios/urgentes,
+        // que no cambian de subestado pero sí cuentan como "se lo he enviado"). Solo si se
+        // va a enviar algo por algún canal — "solo asignar" no cuenta como contacto.
+        if (sendEmail || sendWhatsApp) markCertContact(seguimiento, phase);
 
         const { error: updErr } = await supabase
             .from('expedientes')
@@ -2326,9 +2386,9 @@ router.post('/:id/cert-ack', async (req, res) => {
 
         const seguimiento = exp.seguimiento || { cee_inicial: 'ASIGNADO', cee_final: 'ASIGNADO', anexos: 'PTE_EMITIR' };
         if (phase === 'final') {
-            seguimiento.cee_final = 'EN_TRABAJO';
+            applyStatus(seguimiento, 'cee_final', 'EN_TRABAJO');
         } else {
-            seguimiento.cee_inicial = 'EN_TRABAJO';
+            applyStatus(seguimiento, 'cee_inicial', 'EN_TRABAJO');
         }
 
         // Persistimos cee + seguimiento + estado global + historial en una sola escritura
@@ -2520,9 +2580,9 @@ router.post('/:id/notify-review', enforceAuth, async (req, res) => {
 
         const seguimiento = exp.seguimiento || { cee_inicial: 'ASIGNADO', cee_final: 'ASIGNADO', anexos: 'PTE_EMITIR' };
         if (phase === 'final') {
-            seguimiento.cee_final = 'PTE_REVISION';
+            applyStatus(seguimiento, 'cee_final', 'PTE_REVISION');
         } else {
-            seguimiento.cee_inicial = 'PTE_REVISION';
+            applyStatus(seguimiento, 'cee_inicial', 'PTE_REVISION');
         }
 
         const { error: updErr } = await supabase.from('expedientes')
@@ -2622,9 +2682,9 @@ router.post('/:id/approve-cee', adminOnly, async (req, res) => {
 
         const seguimiento = exp.seguimiento || { cee_inicial: 'ASIGNADO', cee_final: 'ASIGNADO', anexos: 'PTE_EMITIR' };
         if (phase === 'final') {
-            seguimiento.cee_final = 'REVISADO';
+            applyStatus(seguimiento, 'cee_final', 'REVISADO');
         } else {
-            seguimiento.cee_inicial = 'REVISADO';
+            applyStatus(seguimiento, 'cee_inicial', 'REVISADO');
         }
 
         const docObj = exp.documentacion || {};

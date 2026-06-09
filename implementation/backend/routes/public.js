@@ -1342,9 +1342,12 @@ router.get('/anexos-upload/:expedienteId', async (req, res) => {
             // qué documentos se enviaron / esperamos de vuelta
             anexo_i_pedido: !!(doc.anexo_i_drive_link || doc.anexo_i_sent_at),
             anexo_cesion_pedido: !!(doc.anexo_cesion_drive_link || doc.anexo_cesion_sent_at),
-            // anexos YA generados (borrador en Drive) → descargables + habilitan la firma
+            // anexos YA generados (borrador en Drive) → descargables
             anexo_i_disponible: !!doc.anexo_i_drive_link,
             anexo_cesion_disponible: !!doc.anexo_cesion_drive_link,
+            // anexos ENVIADOS al cliente → habilitan la fase de firma (aunque no estén en Drive)
+            anexo_i_enviado: !!doc.anexo_i_sent_at,
+            anexo_cesion_enviado: !!doc.anexo_cesion_sent_at,
             // qué ya hemos recibido firmado
             anexo_i_firmado: !!doc.anexo_i_signed_link,
             anexo_cesion_firmado: !!doc.anexo_cesion_signed_link,

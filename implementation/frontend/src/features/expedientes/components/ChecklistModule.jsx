@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import axios from 'axios';
+import { JustificanteUploader } from './JustificanteUploader';
 
 // Barrido del expediente (Fase 1, solo lectura): SOLO lo que falta para poder
 // (a) generar los anexos para firma y (b) cerrar el expediente final.
@@ -7,9 +8,10 @@ import axios from 'axios';
 // listan (solo se cuentan al pie), para evitar scroll y ruido.
 
 const RESP = {
-    CLIENTE:    { label: 'Cliente',     dot: 'bg-brand',        text: 'text-brand' },
-    INSTALADOR: { label: 'Instalador',  dot: 'bg-sky-400',      text: 'text-sky-400' },
-    CUALQUIERA: { label: 'Fotos',       dot: 'bg-violet-400',   text: 'text-violet-400' },
+    CLIENTE:      { label: 'Cliente',      dot: 'bg-brand',       text: 'text-brand' },
+    INSTALADOR:   { label: 'Instalador',   dot: 'bg-sky-400',     text: 'text-sky-400' },
+    CERTIFICADOR: { label: 'Certificador', dot: 'bg-teal-400',    text: 'text-teal-400' },
+    CUALQUIERA:   { label: 'Fotos',        dot: 'bg-violet-400',  text: 'text-violet-400' },
 };
 
 // Pastilla-resumen de un objetivo (con barra de progreso done/total).
@@ -36,20 +38,21 @@ function GoalPill({ titulo, sub, total, done }) {
     );
 }
 
-// Fila compacta de un ítem PENDIENTE.
-function PendingRow({ it }) {
+// Fila compacta de un ítem PENDIENTE. `action` = botón opcional a la derecha.
+function PendingRow({ it, action }) {
     const bloqueaAnexos = it.objetivos?.includes('anexos');
     return (
         <div className="flex items-center gap-2.5 px-3 py-2 rounded-lg bg-white/[0.02] border border-white/[0.05]">
             <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${bloqueaAnexos ? 'bg-amber-400' : 'bg-white/30'}`} />
             <span className="text-[13px] font-medium text-white/85 truncate flex-1">{it.label}</span>
             {bloqueaAnexos && <span className="text-[8px] font-black uppercase tracking-wider text-amber-300/80 border border-amber-400/20 rounded px-1 py-0.5 shrink-0">anexos</span>}
-            {it.detalle && it.detalle !== 'Requerida — sin subir' && <span className="text-[10px] text-white/30 truncate max-w-[40%]">{it.detalle}</span>}
+            {!action && it.detalle && it.detalle !== 'Requerida — sin subir' && <span className="text-[10px] text-white/30 truncate max-w-[40%]">{it.detalle}</span>}
+            {action}
         </div>
     );
 }
 
-export function ChecklistModule({ expediente }) {
+export function ChecklistModule({ expediente, onChanged }) {
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
@@ -68,6 +71,9 @@ export function ChecklistModule({ expediente }) {
     }, [expediente?.id]);
 
     useEffect(() => { load(); }, [load]);
+    // Re-sincroniza si el justificante cambia (p.ej. subido desde la ficha del cliente).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    useEffect(() => { load(); }, [expediente?.documentacion?.justificante_titularidad_link]);
 
     if (loading) {
         return (
@@ -135,7 +141,15 @@ export function ChecklistModule({ expediente }) {
                                     <div className="flex-1 h-px bg-white/5" />
                                 </div>
                                 <div className="space-y-1.5">
-                                    {g.pend.map(it => <PendingRow key={it.key} it={it} />)}
+                                    {g.pend.map(it => (
+                                        it.key === 'justificante' && expediente?.id ? (
+                                            <JustificanteUploader key={it.key} variant="row" label={it.label}
+                                                expedienteId={expediente.id}
+                                                onUploaded={() => { load(); if (onChanged) onChanged(); }} />
+                                        ) : (
+                                            <PendingRow key={it.key} it={it} />
+                                        )
+                                    ))}
                                 </div>
                             </div>
                         );

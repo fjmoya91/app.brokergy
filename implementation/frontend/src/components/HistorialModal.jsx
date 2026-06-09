@@ -10,7 +10,19 @@ const STATUS_COLORS = {
 };
 const getStatusColor = (estado) => STATUS_COLORS[estado] || 'bg-slate-500/20 text-slate-300 border-slate-500/40';
 
-export function HistorialModal({ isOpen, onClose, idOportunidad, referenciaCliente }) {
+// Etiquetas de las entradas de comunicación con el certificador (historial del EXPEDIENTE).
+// El `tipo` puede venir en MAYÚSCULAS (normalizeData), por eso se normaliza a minúsculas.
+const COMM_TIPO_LABELS = {
+    notificacion_certificador: '→ Aviso al certificador',
+    confirmacion_certificador: '← Confirmación del certificador',
+    notificacion_tecnica: '← Revisión solicitada (técnico)',
+    aprobacion_tecnica: '→ Visto bueno de Brokergy',
+    informativo: 'Informativo',
+};
+const normTipo = (t) => (typeof t === 'string' ? t.toLowerCase() : t);
+const isCommTipo = (t) => Object.prototype.hasOwnProperty.call(COMM_TIPO_LABELS, normTipo(t));
+
+export function HistorialModal({ isOpen, onClose, idOportunidad, referenciaCliente, expediente }) {
     const { user } = useAuth();
 
     const [historial, setHistorial]                 = useState([]);
@@ -113,13 +125,22 @@ export function HistorialModal({ isOpen, onClose, idOportunidad, referenciaClien
 
     if (!isOpen) return null;
 
-    const filtered = [...historial]
+    // Fusionamos el historial de la OPORTUNIDAD (notas + estados comerciales) con el del
+    // EXPEDIENTE (estados del ciclo CEE + comunicaciones con el certificador). Excluimos los
+    // comentarios del expediente para no chocar con los endpoints de edición/borrado de notas,
+    // que son los de la oportunidad.
+    const opHistorial = historial.map(h => ({ ...h, _src: 'op' }));
+    const expHistorial = (expediente?.documentacion?.historial || [])
+        .filter(h => normTipo(h.tipo) !== 'comentario')
+        .map(h => ({ ...h, _src: 'exp' }));
+
+    const filtered = [...opHistorial, ...expHistorial]
         .filter(h => {
-            if (filter === 'notes') return h.tipo === 'comentario';
-            if (filter === 'status') return h.tipo !== 'comentario';
+            if (filter === 'notes') return normTipo(h.tipo) === 'comentario';
+            if (filter === 'status') return normTipo(h.tipo) !== 'comentario';
             return true;
         })
-        .reverse();
+        .sort((a, b) => new Date(b.fecha || 0) - new Date(a.fecha || 0));
 
     return (
         <div
@@ -297,7 +318,8 @@ export function HistorialModal({ isOpen, onClose, idOportunidad, referenciaClien
                                 </div>
                             ) : (
                                 filtered.map((registro, idx, arr) => {
-                                    const isComment = registro.tipo === 'comentario';
+                                    const isComment = normTipo(registro.tipo) === 'comentario';
+                                    const isCommEntry = !isComment && isCommTipo(registro.tipo) && !!registro.texto;
                                     const isEditing = editingEntryId === registro.id;
                                     return (
                                         <div key={idx} className="relative pl-6 pb-4 last:pb-0">
@@ -317,6 +339,13 @@ export function HistorialModal({ isOpen, onClose, idOportunidad, referenciaClien
                                                             </svg>
                                                             Nota Manual
                                                         </span>
+                                                    ) : isCommEntry ? (
+                                                        <span className="text-[10px] font-black uppercase tracking-widest text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20 flex items-center gap-1.5">
+                                                            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                                                            </svg>
+                                                            {COMM_TIPO_LABELS[normTipo(registro.tipo)] || 'Comunicación'}
+                                                        </span>
                                                     ) : (
                                                         <span className={`text-xs font-bold uppercase tracking-wider px-2 py-1 rounded-md border ${getStatusColor(registro.estado)}`}>
                                                             {registro.estado}
@@ -331,7 +360,9 @@ export function HistorialModal({ isOpen, onClose, idOportunidad, referenciaClien
                                                 </div>
 
                                                 <div className={`text-sm ${isComment ? 'text-indigo-100/90 italic' : 'text-slate-300'}`}>
-                                                    {isComment ? (
+                                                    {isCommEntry ? (
+                                                        <span className="whitespace-pre-line">{registro.texto}</span>
+                                                    ) : isComment ? (
                                                         isEditing ? (
                                                             <div className="flex flex-col gap-2">
                                                                 <textarea

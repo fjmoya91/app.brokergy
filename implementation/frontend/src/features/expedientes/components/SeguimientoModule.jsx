@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { readPhaseTime, fmtDate, humanDays, STALE_CLASSES } from '../logic/seguimientoTime';
 
 const STATUS_CONFIG = {
     cee_inicial: {
@@ -76,13 +77,15 @@ export function SeguimientoModule({ expediente, onSave, saving }) {
                 {Object.entries(STATUS_CONFIG).map(([key, config]) => {
                     const currentId = local[key];
                     const currentIndex = config.options.findIndex(o => o.id === currentId);
-                    
+                    const phaseTime = readPhaseTime(local, key);
+                    const isFinalState = currentIndex === config.options.length - 1;
+
                     return (
                         <div key={key} className="bg-white/[0.02] border border-white/[0.06] rounded-2xl p-6 flex flex-col h-full group hover:border-white/10 transition-all">
-                            <div className="flex items-center gap-3 mb-6">
+                            <div className="flex items-center gap-3 mb-3">
                                 <div className={`w-2 h-2 rounded-full ${
-                                    config.color === 'amber' ? 'bg-amber-500 shadow-[0_0_10px_rgba(245,158,11,0.5)]' : 
-                                    config.color === 'emerald' ? 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)]' : 
+                                    config.color === 'amber' ? 'bg-amber-500 shadow-[0_0_10px_rgba(245,158,11,0.5)]' :
+                                    config.color === 'emerald' ? 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)]' :
                                     'bg-brand shadow-[0_0_10px_rgba(0,183,255,0.5)]'
                                 }`} />
                                 <h3 className="text-[11px] font-black text-white uppercase tracking-widest leading-none mt-1">
@@ -90,25 +93,43 @@ export function SeguimientoModule({ expediente, onSave, saving }) {
                                 </h3>
                             </div>
 
+                            {/* Tiempo en el estado actual (color por antigüedad) */}
+                            <div className="mb-5 min-h-[24px]">
+                                {phaseTime.diasEnEstado != null && !isFinalState ? (
+                                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[9px] font-black uppercase tracking-widest ${STALE_CLASSES[phaseTime.nivel]}`}>
+                                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                        {phaseTime.diasEnEstado === 0 ? 'Hoy' : `${phaseTime.diasEnEstado} día${phaseTime.diasEnEstado !== 1 ? 's' : ''} en este estado`}
+                                    </span>
+                                ) : isFinalState ? (
+                                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[9px] font-black uppercase tracking-widest text-emerald-400 border-emerald-500/30 bg-emerald-500/10">
+                                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
+                                        Completado
+                                    </span>
+                                ) : (
+                                    <span className="text-[9px] text-white/20 font-bold uppercase tracking-widest">Sin registro de fecha</span>
+                                )}
+                            </div>
+
                             <div className="flex-1 space-y-3">
                                 {config.options.map((opt, idx) => {
                                     const isDone = idx < currentIndex;
                                     const isCurrent = idx === currentIndex;
-                                    
+                                    const tsIso = phaseTime.ts?.[opt.id];
+
                                     return (
                                         <button
                                             key={opt.id}
                                             onClick={() => updateStatus(key, opt.id)}
                                             className={`w-full flex items-center gap-3 p-3 rounded-xl border text-left transition-all ${
-                                                isCurrent 
-                                                    ? 'bg-white/10 border-white/20 text-white shadow-lg' 
-                                                    : isDone 
-                                                        ? 'bg-transparent border-transparent text-white/40' 
+                                                isCurrent
+                                                    ? 'bg-white/10 border-white/20 text-white shadow-lg'
+                                                    : isDone
+                                                        ? 'bg-transparent border-transparent text-white/40'
                                                         : 'bg-transparent border-transparent text-white/10 hover:text-white/30'
                                             }`}
                                         >
                                             <div className={`w-5 h-5 rounded-full flex items-center justify-center border-2 shrink-0 transition-all ${
-                                                isCurrent ? 'border-brand bg-brand text-bkg-deep' : 
+                                                isCurrent ? 'border-brand bg-brand text-bkg-deep' :
                                                 isDone ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-500' :
                                                 'border-white/10 text-transparent'
                                             }`}>
@@ -118,13 +139,26 @@ export function SeguimientoModule({ expediente, onSave, saving }) {
                                                     </svg>
                                                 )}
                                             </div>
-                                            <span className={`text-[11px] font-black uppercase tracking-wider ${isCurrent ? 'text-white' : ''}`}>
+                                            <span className={`flex-1 text-[11px] font-black uppercase tracking-wider ${isCurrent ? 'text-white' : ''}`}>
                                                 {opt.label}
                                             </span>
+                                            {tsIso && (isDone || isCurrent) && (
+                                                <span className="text-[9px] font-mono text-white/30 shrink-0">{fmtDate(tsIso)}</span>
+                                            )}
                                         </button>
                                     );
                                 })}
                             </div>
+
+                            {/* Última comunicación al certificador (solo fases CEE) */}
+                            {(key === 'cee_inicial' || key === 'cee_final') && phaseTime.lastContacto && (
+                                <div className="mt-4 pt-3 border-t border-white/[0.04] flex items-center gap-2">
+                                    <svg className="w-3 h-3 text-white/20 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
+                                    <span className="text-[9px] text-white/30 font-bold uppercase tracking-wider">
+                                        Último aviso al cert.: <span className="text-white/50">{fmtDate(phaseTime.lastContacto)}</span>
+                                    </span>
+                                </div>
+                            )}
                         </div>
                     );
                 })}
