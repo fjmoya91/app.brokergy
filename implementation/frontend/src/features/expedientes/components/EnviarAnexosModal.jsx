@@ -43,12 +43,10 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
     // El mismo enlace permite al cliente completar sus datos si faltan.
     const firmaUrl = expediente?.id ? `${window.location.origin}/firmar-anexos/${expediente.id}` : '';
 
-    // Datos del cliente que faltan (mismos que pide la propuesta): email, DNI/CIF,
-    // IBAN y justificante de titularidad bancaria.
-    const docu = expediente?.documentacion || {};
-    const cliNotif = cli.notificaciones_contacto_activas === true;
-    const cliEmailEfectivo = (cliNotif ? cli.persona_contacto_email : cli.email) || '';
-    const faltaEmail = !cliEmailEfectivo;
+    // Datos del cliente que faltan (mismos que pide la propuesta): email, DNI/CIF e
+    // IBAN. Un dato falta solo si NO está en ninguno de sus posibles campos (p.ej.
+    // el email puede estar en el titular o en la persona de contacto).
+    const faltaEmail = !(cli.email || cli.persona_contacto_email);
     const faltaDni = !(cli.dni || cli.dni_nie);
     const faltaIban = !cli.numero_cuenta || String(cli.numero_cuenta).includes('_');
     // El justificante va junto al IBAN (no se trata como dato suelto que falta).

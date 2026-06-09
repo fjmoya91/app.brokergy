@@ -280,6 +280,109 @@ router.get('/:id', enforceAuth, async (req, res) => {
     }
 });
 
+// ─── GET /api/expedientes/:id/checklist ───────────────────────────────────────
+// "Barrido" del expediente: qué falta y quién lo aporta (CLIENTE / INSTALADOR /
+// CUALQUIERA), más dos objetivos: poder generar los anexos y el expediente final.
+// Solo lectura. Las fotos salen de los slots REALES de la app (buildDocChecklist).
+router.get('/:id/checklist', enforceAuth, async (req, res) => {
+    try {
+        const { data: exp, error } = await supabase.from('expedientes').select('*').eq('id', req.params.id).single();
+        if (error || !exp) return res.status(404).json({ error: 'Expediente no encontrado' });
+        const [{ data: cli }, { data: op }] = await Promise.all([
+            supabase.from('clientes').select('*').eq('id_cliente', exp.cliente_id).single(),
+            supabase.from('oportunidades').select('id, ficha, datos_calculo').eq('id', exp.oportunidad_id).single(),
+        ]);
+        const c = cli || {};
+        const doc = exp.documentacion || {};
+        const datos = op?.datos_calculo || {};
+        const uploads = datos.reforma_uploads || {};
+        const overrides = datos.docs_overrides || {}; // { <slot>: { waived, enabled } }
+
+        const present = (v) => {
+            if (v == null) return false;
+            if (typeof v === 'string') { const t = v.trim(); return !!t && !t.includes('___') && t !== '—'; }
+            if (Array.isArray(v)) return v.length > 0;
+            return true;
+        };
+        // obj: a qué objetivo(s) contribuye este ítem → 'anexos' | 'final'
+        const mk = (key, label, responsable, presente, obj, detalle, link, extra) => ({
+            key, label, responsable, presente: !!presente, objetivos: obj || [], detalle: detalle || null, link: link || null, ...(extra || {}),
+        });
+
+        // ── CLIENTE ──
+        const camposPers = [['Nombre', c.nombre_razon_social], ['DNI', c.dni || c.dni_nie], ['Dirección', c.direccion], ['CP', c.codigo_postal], ['Municipio', c.municipio], ['Provincia', c.provincia]];
+        const faltanPers = camposPers.filter(([, v]) => !present(v)).map(([l]) => l);
+        const datosPersOk = faltanPers.length === 0;
+        const ibanOk = present(c.numero_cuenta);
+        const justifOk = present(doc.justificante_titularidad_link);
+        const anexoIFirmado = present(doc.anexo_i_signed_link);
+        const cesionFirmado = present(doc.anexo_cesion_signed_link);
+        const grupoCliente = [
+            mk('datos_personales', 'Datos personales', 'CLIENTE', datosPersOk, ['anexos', 'final'], datosPersOk ? null : 'Faltan: ' + faltanPers.join(', ')),
+            mk('numero_cuenta', 'Nº de cuenta (IBAN)', 'CLIENTE', ibanOk, ['anexos', 'final'], ibanOk ? c.numero_cuenta : 'Sin IBAN'),
+            mk('justificante', 'Justificante titularidad bancaria', 'CLIENTE', justifOk, ['final'], null, doc.justificante_titularidad_link),
+            mk('anexo_i_firmado', 'Anexo I firmado', 'CLIENTE', anexoIFirmado, ['final'], present(doc.anexo_i_drive_link) && !anexoIFirmado ? 'Generado, pendiente de firma' : null, doc.anexo_i_signed_link),
+            mk('cesion_firmado', 'Anexo Cesión firmado', 'CLIENTE', cesionFirmado, ['final'], present(doc.anexo_cesion_drive_link) && !cesionFirmado ? 'Generado, pendiente de firma' : null, doc.anexo_cesion_signed_link),
+        ];
+
+        // ── INSTALADOR ── (la factura y el RITE pueden venir por Documentación o por
+        // el slot de la app — los detectamos por las dos vías).
+        // OJO: en documentacion.facturas puede haber filas "stub" sin fichero
+        // (drive_link null, número vacío, importe 0). Solo cuenta si hay fichero real.
+        const facturasDoc = (Array.isArray(doc.facturas) ? doc.facturas : []).filter(f => f && f.drive_link).length;
+        const facturasSlot = Array.isArray(uploads.DOC_FACTURAS) ? uploads.DOC_FACTURAS.length : 0;
+        const nFacturas = facturasDoc + facturasSlot;
+        const cifoOk = present(doc.cert_cifo_signed_link);
+        const riteOk = present(doc.cert_rite_drive_link) || present(doc.cert_rite_signed_link) || (Array.isArray(uploads.DOC_RITE) && uploads.DOC_RITE.length > 0);
+        const facturaOk = nFacturas > 0;
+        const grupoInstalador = [
+            mk('cifo', 'Certificado CIFO (firmado)', 'INSTALADOR', cifoOk, ['final'], present(doc.cert_cifo_drive_link) && !cifoOk ? 'Generado, pendiente de firma' : null, doc.cert_cifo_signed_link),
+            mk('rite', 'Certificado RITE', 'INSTALADOR', riteOk, ['final'], null, doc.cert_rite_drive_link || doc.cert_rite_signed_link),
+            mk('factura', 'Factura de obra', 'INSTALADOR', facturaOk, ['final'], facturaOk ? `${nFacturas} factura(s)` : 'Sin facturas'),
+        ];
+
+        // ── CUALQUIERA (fotos) — slots REALES de la app, excluyendo RITE/Facturas (ya en Instalador).
+        // Las fotos NO bloquean "generar anexos" (Anexo I/Cesión salen con los datos, no con fotos);
+        // solo cuentan para el expediente final (Anexo Fotográfico). Respetamos "no necesario" (waived).
+        let slots = [];
+        try { slots = reformaUploadService.buildDocChecklist(datos) || []; } catch (e) { console.warn('[checklist] buildDocChecklist:', e.message); }
+        const grupoFotos = slots
+            .filter(s => s.key !== 'DOC_RITE' && s.key !== 'DOC_FACTURAS')
+            .map(s => {
+                const waived = !!overrides[s.key]?.waived;
+                const arr = uploads[s.key] || [];
+                const subida = Array.isArray(arr) && arr.length > 0;
+                const requerida = !waived && !!s.required;
+                // "no necesario" cuenta como resuelto y no bloquea nada.
+                const obj = requerida ? ['final'] : [];
+                const detalle = waived ? 'No necesario' : (subida ? `${arr.length} archivo(s)` : (requerida ? 'Requerida — sin subir' : 'Opcional'));
+                return mk(s.key, s.label || s.key, 'CUALQUIERA', subida || waived, obj, detalle, null, { waived });
+            });
+
+        // ── Objetivos (semáforos) ──
+        const todos = [...grupoCliente, ...grupoInstalador, ...grupoFotos];
+        const faltanPara = (objetivo) => todos.filter(i => i.objetivos.includes(objetivo) && !i.presente).map(i => i.label);
+        const faltanAnexos = faltanPara('anexos');
+        const faltanFinal = faltanPara('final');
+
+        return res.json({
+            numero_expediente: exp.numero_expediente,
+            grupos: [
+                { responsable: 'CLIENTE', label: 'Cliente', items: grupoCliente },
+                { responsable: 'INSTALADOR', label: 'Instalador', items: grupoInstalador },
+                { responsable: 'CUALQUIERA', label: 'Cualquiera (fotos)', items: grupoFotos },
+            ],
+            objetivos: {
+                anexos: { listo: faltanAnexos.length === 0, faltan: faltanAnexos },
+                expediente_final: { listo: faltanFinal.length === 0, faltan: faltanFinal },
+            },
+        });
+    } catch (err) {
+        console.error('[checklist] Error:', err);
+        res.status(500).json({ error: 'Error al construir el checklist' });
+    }
+});
+
 const expedienteService = require('../services/expedienteService');
 
 // ─── POST /api/expedientes/:id/comunicar-cee-inicial ──────────────────────────

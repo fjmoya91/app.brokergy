@@ -1302,8 +1302,9 @@ router.post('/rite-upload/:expedienteId',
 function buildDatosCliente(cli, doc) {
     cli = cli || {}; doc = doc || {};
     const notif = cli.notificaciones_contacto_activas === true;
-    const emailEfectivo = (notif ? cli.persona_contacto_email : cli.email) || '';
-    const tlfEfectivo = (notif ? cli.persona_contacto_tlf : cli.tlf) || '';
+    // Prefill: el campo "efectivo" según preferencia, con fallback al otro.
+    const email = (notif ? cli.persona_contacto_email : cli.email) || cli.email || cli.persona_contacto_email || '';
+    const tlf = (notif ? cli.persona_contacto_tlf : cli.tlf) || cli.tlf || cli.persona_contacto_tlf || '';
     const dni = cli.dni || '';
     const iban = cli.numero_cuenta || '';
     const justificante = doc.justificante_titularidad_link || '';
@@ -1311,12 +1312,13 @@ function buildDatosCliente(cli, doc) {
     return {
         nombre_razon_social: cli.nombre_razon_social || '',
         apellidos: cli.apellidos || '',
-        email: emailEfectivo,
-        telefono: tlfEfectivo,
+        email,
+        telefono: tlf,
         dni,
         iban,
         notificaciones_contacto_activas: notif,
-        falta_email: !emailEfectivo,
+        // Falta solo si NO hay dato en ninguno de los campos posibles.
+        falta_email: !(cli.email || cli.persona_contacto_email),
         falta_dni: !dni,
         falta_iban: ibanIncompleto,
         justificante_subido: !!justificante,
