@@ -165,7 +165,43 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
             }, 2000);
         }
     }, [expedienteId, fetchExpediente]);
- 
+
+    // ─── Abrir la carpeta LOCAL de Windows (solo ADMIN) ───────────────────────
+    // Los navegadores bloquean abrir rutas file:// directamente desde una web, así
+    // que: el backend reconstruye la ruta local (espejo de Drive para escritorio) y
+    // lanzamos el protocolo personalizado "brokergylocal:" (registrado una vez con
+    // brokergylocal_setup.reg → handler .vbs vía wscript, SIN consola). Abre el
+    // Explorador directamente, sin modal. La ruta se copia al portapapeles en
+    // silencio como respaldo. El path va en base64url (con padding '=') para evitar
+    // problemas de espacios/acentos/barras en la URL del protocolo.
+    const [localPathLoading, setLocalPathLoading] = useState(false);
+    const handleOpenLocalFolder = useCallback(async () => {
+        try {
+            setLocalPathLoading(true);
+            const { data } = await axios.get(`/api/expedientes/${expedienteId}/local-path`);
+            const path = data?.path;
+            if (!path) { showAlert('No se pudo obtener la ruta local del expediente.', 'Carpeta local', 'error'); return; }
+
+            // Respaldo silencioso: copiar la ruta al portapapeles
+            try { await navigator.clipboard.writeText(path); } catch (e) { /* contexto no seguro */ }
+
+            // Abrir el Explorador vía protocolo brokergylocal: (directo, sin modal)
+            const b64url = btoa(unescape(encodeURIComponent(path)))
+                .replace(/\+/g, '-').replace(/\//g, '_');
+            const a = document.createElement('a');
+            a.href = `brokergylocal:${b64url}`;
+            a.style.display = 'none';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+        } catch (err) {
+            const msg = err?.response?.data?.error || 'No se pudo resolver la ruta local.';
+            showAlert(msg, 'Carpeta local', 'error');
+        } finally {
+            setLocalPathLoading(false);
+        }
+    }, [expedienteId, showAlert]);
+
     const handlePrioridadChange = async (newPrio) => {
         setLocalPrioridad(newPrio);
         try {
@@ -711,6 +747,23 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
                             </svg>
                             Drive
                         </a>
+                    )}
+
+                    {/* Acceso a la carpeta LOCAL de Windows (solo ADMIN) */}
+                    {driveLink && isAdmin && (
+                        <button
+                            type="button"
+                            onClick={handleOpenLocalFolder}
+                            disabled={localPathLoading}
+                            title="Abrir la carpeta del expediente en el Explorador de Windows (requiere instalar una vez brokergylocal_setup.reg)"
+                            className="flex items-center gap-2 px-4 py-2 rounded-xl border border-emerald-500/30 text-emerald-400 text-xs font-bold hover:bg-emerald-500/10 transition-all disabled:opacity-50 disabled:cursor-wait"
+                        >
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" />
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 13l2 2 4-4" />
+                            </svg>
+                            {localPathLoading ? 'Abriendo…' : 'Carpeta Local'}
+                        </button>
                     )}
 
                     {/* Acceso a la subcarpeta CEE (ADMIN + CERTIFICADOR) */}

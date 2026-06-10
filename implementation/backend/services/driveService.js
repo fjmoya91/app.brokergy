@@ -442,6 +442,46 @@ async function getFileMetadata(fileId) {
 }
 
 /**
+ * Devuelve los segmentos de carpeta desde la raíz "Mi unidad" (My Drive) hasta la
+ * carpeta indicada, subiendo por la cadena de carpetas padre en Drive.
+ *
+ * Se usa para reconstruir la ruta LOCAL de Windows (espejo de Google Drive para
+ * escritorio) de un expediente: la ruta local es exactamente la misma jerarquía
+ * bajo "C:\Users\...\Mi unidad". Así la ruta es siempre correcta aunque la carpeta
+ * se haya movido de subcarpeta de estado (2. ACEPTADO → 3. EN CURSO, etc.).
+ *
+ * @param {string} fileId  ID de la carpeta del expediente en Drive.
+ * @returns {Promise<string[]>}  Segmentos de arriba (justo bajo "Mi unidad") hacia abajo.
+ */
+async function getFolderPathSegments(fileId) {
+    if (!process.env.GOOGLE_OAUTH_REFRESH_TOKEN) return [];
+
+    let rootId = null;
+    try {
+        const r = await drive.files.get({ fileId: 'root', fields: 'id', supportsAllDrives: true });
+        rootId = r.data.id;
+    } catch (e) {
+        console.warn('[DriveService] No se pudo resolver el root de Drive:', e.message);
+    }
+
+    const segments = [];
+    let currentId = fileId;
+    let guard = 0; // tope anti-bucle (jerarquías de Drive nunca son tan profundas)
+    while (currentId && currentId !== rootId && guard < 30) {
+        const { data } = await drive.files.get({
+            fileId: currentId,
+            fields: 'id, name, parents',
+            supportsAllDrives: true,
+        });
+        if (!data) break;
+        segments.unshift(data.name);
+        currentId = (data.parents && data.parents.length) ? data.parents[0] : null;
+        guard++;
+    }
+    return segments;
+}
+
+/**
  * Elimina un archivo de Drive (lo mueve a la papelera)
  */
 async function deleteFile(fileId) {
@@ -473,6 +513,7 @@ module.exports = {
     getFileContent,
     copyFile,
     getFileMetadata,
+    getFolderPathSegments,
     listFiles,
     listFilesByPrefix,
     deleteFile

@@ -1,0 +1,6 @@
+Windows Registry Editor Version 5.00
+
+; Desinstala el protocolo "brokergylocal:" (doble clic → "Sí").
+; El signo "-" delante de la ruta de la clave indica a regedit que la elimine.
+
+[-HKEY_CURRENT_USER\Software\Classes\brokergylocal]

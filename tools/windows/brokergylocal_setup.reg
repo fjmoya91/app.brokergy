@@ -1,0 +1,34 @@
+Windows Registry Editor Version 5.00
+
+; ─────────────────────────────────────────────────────────────────────────────
+; Protocolo personalizado "brokergylocal:" para Brokergy-App.
+;
+; Permite que el botón "Carpeta Local" del detalle de expediente abra la carpeta
+; del expediente en el Explorador de Windows. Sin esto, los navegadores bloquean
+; abrir rutas locales (file://) desde la web.
+;
+; Se instala SOLO para el usuario actual (HKEY_CURRENT_USER), NO requiere admin.
+;
+; INSTALACIÓN: doble clic en este archivo → "Sí" para confirmar.
+; La primera vez que pulses "Carpeta Local", el navegador preguntará si abrir
+; "brokergylocal": acepta y marca "Permitir siempre".
+;
+; Cómo funciona: la app pasa la ruta local en base64url dentro de la URL
+; (brokergylocal:<base64url>). El handler es un script .vbs lanzado con WSCRIPT,
+; que NO crea ventana de consola (a diferencia de PowerShell, que parpadeaba una
+; pantalla negra). El .vbs decodifica la ruta y abre el Explorador directamente.
+;
+; IMPORTANTE: la ruta de abajo apunta a brokergylocal_handler.vbs dentro del repo.
+; Si mueves el repositorio de sitio, edita esta ruta y vuelve a importar el .reg.
+; ─────────────────────────────────────────────────────────────────────────────
+
+[HKEY_CURRENT_USER\Software\Classes\brokergylocal]
+@="URL:Brokergy Local Folder"
+"URL Protocol"=""
+
+[HKEY_CURRENT_USER\Software\Classes\brokergylocal\shell]
+
+[HKEY_CURRENT_USER\Software\Classes\brokergylocal\shell\open]
+
+[HKEY_CURRENT_USER\Software\Classes\brokergylocal\shell\open\command]
+@="wscript.exe \"C:\\Proyectos\\app.brokergy\\tools\\windows\\brokergylocal_handler.vbs\" \"%1\""

@@ -2016,6 +2016,60 @@ router.get('/:id/documents/scan-cee', enforceAuth, async (req, res) => {
     }
 });
 
+// ─── GET /api/expedientes/:id/local-path ──────────────────────────────────────
+// Solo ADMIN. Reconstruye la ruta LOCAL de Windows (espejo de Google Drive para
+// escritorio) de la carpeta del expediente, subiendo por la cadena de carpetas
+// padre en Drive. El frontend la usa para abrir la carpeta con el protocolo
+// brokergylocal: y/o copiarla al portapapeles. Configurable con LOCAL_DRIVE_BASE.
+router.get('/:id/local-path', adminOnly, async (req, res) => {
+    try {
+        let { data: exp } = await supabase
+            .from('expedientes').select('*').eq('id', req.params.id).maybeSingle();
+        if (!exp) {
+            const { data: expSeq } = await supabase
+                .from('expedientes').select('*').eq('numero_expediente', req.params.id).maybeSingle();
+            exp = expSeq;
+        }
+        if (!exp) return res.status(404).json({ error: 'Expediente no encontrado' });
+
+        // OJO: ni oportunidades ni expedientes tienen columna drive_folder_id;
+        // la carpeta vive SIEMPRE dentro de datos_calculo (JSONB).
+        const { data: op } = await supabase
+            .from('oportunidades')
+            .select('id, datos_calculo')
+            .eq('id', exp.oportunidad_id)
+            .maybeSingle();
+
+        let normalizedDatos = op?.datos_calculo || {};
+        if (typeof normalizedDatos === 'string') {
+            try { normalizedDatos = JSON.parse(normalizedDatos); } catch (e) { normalizedDatos = {}; }
+        }
+        let driveFolderId = normalizedDatos?.drive_folder_id || normalizedDatos?.inputs?.drive_folder_id;
+        // Fallback robusto: si solo hay enlace, extraer el id de la carpeta del propio link.
+        if (!driveFolderId && normalizedDatos?.drive_folder_link) {
+            const m = String(normalizedDatos.drive_folder_link).match(/folders\/([A-Za-z0-9_-]+)/);
+            if (m) driveFolderId = m[1];
+        }
+        if (!driveFolderId) {
+            return res.status(404).json({ error: 'El expediente no tiene carpeta de Drive asociada' });
+        }
+
+        const { getFolderPathSegments } = require('../services/driveService');
+        const segments = await getFolderPathSegments(driveFolderId);
+        if (!segments.length) {
+            return res.status(502).json({ error: 'No se pudo resolver la ruta de la carpeta en Drive' });
+        }
+
+        const base = (process.env.LOCAL_DRIVE_BASE || 'C:\\Users\\Usuario\\Mi unidad').replace(/[\\/]+$/, '');
+        const localPath = [base, ...segments].join('\\');
+
+        res.json({ path: localPath, folderName: segments[segments.length - 1], segments });
+    } catch (err) {
+        console.error('Error GET expedientes/:id/local-path:', err);
+        res.status(500).json({ error: 'Error al resolver la ruta local', details: err.message });
+    }
+});
+
 // ─── POST /api/expedientes/:id/documents/repair-cee-links ─────────────────────
 // Repara los webViewLink rotos en cee.cee_files (todos en mayúsculas por bug histórico).
 // Escanea la carpeta CEE en Drive y sustituye cada slot por el link real del archivo.
