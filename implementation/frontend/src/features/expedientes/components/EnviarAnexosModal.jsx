@@ -70,15 +70,21 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
         if (repPhone || pres.email) {
             instContacts.push({ id: 'rep', label: repName, sublabel: pres.es_autonomo ? 'Autónomo' : 'Representante legal', phone: repPhone, email: pres.email || '' });
         }
-        if (pres.nombre_contacto && (pres.tlf_contacto || pres.email_contacto)) {
+        const arr = Array.isArray(pres.contactos_notificacion) ? pres.contactos_notificacion : [];
+        if (arr.length) {
+            arr.forEach((c, i) => {
+                if (c && (c.tlf || c.email)) instContacts.push({ id: `c${i}`, label: c.nombre || 'Contacto', sublabel: 'Persona de contacto', phone: c.tlf || '', email: c.email || '' });
+            });
+        } else if (pres.nombre_contacto && (pres.tlf_contacto || pres.email_contacto)) {
             instContacts.push({ id: 'contacto', label: pres.nombre_contacto, sublabel: 'Persona de contacto', phone: pres.tlf_contacto || '', email: pres.email_contacto || '' });
         }
     }
+    const phoneValid = (ph) => (ph || '').replace(/[^0-9]/g, '').length >= 9;
 
     // ── Estado ───────────────────────────────────────────────────────────────
     const [docs, setDocs]               = useState(['anexo1', 'cesion']);
     const [target, setTarget]           = useState('cliente'); // 'cliente' | 'instalador'
-    const [selectedContactId, setSelectedContactId] = useState(null);
+    const [selectedIds, setSelectedIds] = useState([]);          // varios destinatarios del grupo activo
     const [manualContact, setManualContact] = useState({ name: '', phone: '', email: '' });
     const [channels, setChannels]       = useState({ email: true, whatsapp: true });
     const [message, setMessage]         = useState('');
@@ -133,12 +139,13 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
             + footerInstalador;
     };
 
-    const pickDefaultContact = (tgt) => {
+    const pickDefaultIds = (tgt) => {
         if (tgt === 'instalador') {
-            const def = (pres.contacto_notificaciones_activas && instContacts.some(c => c.id === 'contacto')) ? 'contacto' : (instContacts[0]?.id || 'otro');
-            return def;
+            const alt = instContacts.filter(c => c.id !== 'rep').map(c => c.id);
+            if (pres.contacto_notificaciones_activas && alt.length) return alt;   // todos los contactos de notificación
+            return instContacts[0] ? [instContacts[0].id] : [];
         }
-        return cliContacts[0]?.id || 'otro';
+        return cliContacts[0] ? [cliContacts[0].id] : [];
     };
 
     // Inicialización al abrir
@@ -146,14 +153,14 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
         if (!isOpen) return;
         const startDocs = (Array.isArray(initialDocs) && initialDocs.length) ? initialDocs.filter(k => DOC_DEFS[k]) : ['anexo1', 'cesion'];
         const startTarget = 'cliente';
-        const defId = pickDefaultContact(startTarget);
-        const init = defId === 'otro' ? { email: '', phone: '' } : ((startTarget === 'cliente' ? cliContacts : instContacts).find(c => c.id === defId) || {});
+        const defIds = pickDefaultIds(startTarget);
+        const sel = cliContacts.filter(c => defIds.includes(c.id));
         userEditedRef.current = false;
         setDocs(startDocs);
         setTarget(startTarget);
-        setSelectedContactId(defId);
+        setSelectedIds(defIds);
         setManualContact({ name: '', phone: '', email: '' });
-        setChannels({ email: !!init.email, whatsapp: (init.phone || '').replace(/[^0-9]/g, '').length >= 9 });
+        setChannels({ email: sel.some(c => c.email), whatsapp: sel.some(c => phoneValid(c.phone)) });
         setMessage(buildDefaultMessage(startTarget, startDocs));
         setStatus(null);
         setSendPhase(null);
@@ -172,13 +179,15 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
 
     const resolveContact = (id) => {
         if (id === 'otro') return { id: 'otro', label: (manualContact.name || '').trim() || 'Otro contacto', phone: (manualContact.phone || '').trim(), email: (manualContact.email || '').trim() };
-        return groupContacts.find(c => c.id === id) || groupContacts[0] || { id: 'otro', label: 'Otro contacto', phone: '', email: '' };
+        return groupContacts.find(c => c.id === id) || { id, label: 'Contacto', phone: '', email: '' };
     };
-    const selectedContact = resolveContact(selectedContactId);
-    const contactPhoneValid = (selectedContact.phone || '').replace(/[^0-9]/g, '').length >= 9;
-    const canEmail = !!selectedContact.email;
+    const selectedContacts = selectedIds.map(resolveContact);
+    const contactPhoneValid = selectedContacts.some(c => phoneValid(c.phone));
+    const canEmail = selectedContacts.some(c => c.email);
     const willEmail = channels.email && canEmail;
     const willWhatsapp = channels.whatsapp && contactPhoneValid && waReady !== false;
+    const nEmail = selectedContacts.filter(c => c.email).length;
+    const nPhone = selectedContacts.filter(c => phoneValid(c.phone)).length;
 
     // ── Validación blanda (datos incompletos) ────────────────────────────────
     const rc = opInputs.rc || cli.referencia_catastral || inst.ref_catastral;
@@ -205,19 +214,15 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
     };
     const switchTarget = (tgt) => {
         if (tgt === target) return;
-        const defId = pickDefaultContact(tgt);
+        const defIds = pickDefaultIds(tgt);
         const list = tgt === 'cliente' ? cliContacts : instContacts;
-        const init = defId === 'otro' ? { email: '', phone: '' } : (list.find(c => c.id === defId) || {});
+        const sel = list.filter(c => defIds.includes(c.id));
         setTarget(tgt);
-        setSelectedContactId(defId);
-        setChannels({ email: !!init.email, whatsapp: (init.phone || '').replace(/[^0-9]/g, '').length >= 9 });
+        setSelectedIds(defIds);
+        setChannels({ email: sel.some(c => c.email), whatsapp: sel.some(c => phoneValid(c.phone)) });
         applyMessage(tgt, docs);
     };
-    const selectContact = (id) => {
-        setSelectedContactId(id);
-        const c = id === 'otro' ? { email: manualContact.email, phone: manualContact.phone } : (groupContacts.find(x => x.id === id) || {});
-        setChannels({ email: !!c.email, whatsapp: (c.phone || '').replace(/[^0-9]/g, '').length >= 9 });
-    };
+    const toggleContact = (id) => setSelectedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
     const toggleChannel = (ch) => setChannels(prev => ({ ...prev, [ch]: !prev[ch] }));
 
     const exitToExpediente = () => {
@@ -259,10 +264,10 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
 
     // ── Orquestador de envío ─────────────────────────────────────────────────
     const handleSend = async () => {
-        const c = selectedContact;
         const doEmail = willEmail;
         const doWa = willWhatsapp;
         if (!docs.length) { setStatus({ ok: false, text: 'Selecciona al menos un documento.' }); return; }
+        if (!selectedContacts.length) { setStatus({ ok: false, text: 'Selecciona al menos un destinatario.' }); return; }
         if (!doEmail && !doWa) { setStatus({ ok: false, text: 'Selecciona al menos un canal disponible.' }); return; }
 
         setStatus(null);
@@ -272,49 +277,60 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
 
         const docDefs = buildDocDefs();
         const docTypeLabel = docDefs.map(d => d.label).join(' y ');
-        let emailRes = null, waRes = null;
 
-        // EMAIL — una sola llamada con todos los adjuntos
-        if (doEmail) {
-            try {
-                await axios.post('/api/pdf/send-annex', {
-                    to: c.email,
-                    userName: target === 'cliente' ? (clienteNombre || c.label) : c.label,
-                    customMessage: message,
-                    summaryData: { id: numexpte, docType: docTypeLabel, userName: clienteNombre || c.label },
-                    docs: docDefs.map(d => ({ html: d.html, fileName: d.fileName })),
-                });
-                emailRes = { ok: true, to: c.email };
-            } catch (err) {
-                emailRes = { ok: false, error: err.response?.data?.message || err.response?.data?.error || err.message };
-            }
-        }
-
-        // WHATSAPP — un PDF por documento; el primero lleva el mensaje completo
+        // WhatsApp: generar el PDF de cada documento UNA sola vez (se reutiliza para
+        // todos los destinatarios marcados).
+        let waPdfs = null, waGenError = null;
         if (doWa) {
             try {
-                for (let i = 0; i < docDefs.length; i++) {
-                    const d = docDefs[i];
+                waPdfs = [];
+                for (const d of docDefs) {
                     const gen = await axios.post('/api/pdf/generate', { html: d.html });
                     if (!gen.data?.pdf) throw new Error('No se pudo generar el PDF');
-                    await axios.post('/api/whatsapp/send-media', {
-                        phone: c.phone,
-                        caption: i === 0 ? message : d.label,
-                        media: { base64: gen.data.pdf, filename: d.fileName, mimetype: 'application/pdf' },
-                        asDocument: true,
-                    });
+                    waPdfs.push({ ...d, base64: gen.data.pdf });
                 }
-                waRes = { ok: true, phone: c.phone };
-            } catch (err) {
-                waRes = { ok: false, error: err.response?.data?.message || err.response?.data?.error || err.message };
-            }
+            } catch (err) { waPdfs = null; waGenError = err.response?.data?.message || err.response?.data?.error || err.message; }
         }
 
         const out = [];
-        if (doEmail) out.push({ channel: 'email', status: emailRes?.ok ? 'ok' : 'fail', text: emailRes?.ok ? `Email → ${emailRes.to}` : (emailRes?.error || 'Email no enviado') });
-        else if (channels.email) out.push({ channel: 'email', status: 'unavailable', text: 'No disponible — sin dirección de correo' });
-        if (doWa) out.push({ channel: 'whatsapp', status: waRes?.ok ? 'ok' : 'fail', text: waRes?.ok ? `WhatsApp → ${waRes.phone}` : (waRes?.error || 'WhatsApp no enviado') });
-        else if (channels.whatsapp) out.push({ channel: 'whatsapp', status: 'unavailable', text: !contactPhoneValid ? 'No disponible — sin teléfono' : 'No disponible — WhatsApp no conectado' });
+        for (const c of selectedContacts) {
+            // EMAIL — una llamada con todos los adjuntos
+            if (doEmail && c.email) {
+                try {
+                    await axios.post('/api/pdf/send-annex', {
+                        to: c.email,
+                        userName: target === 'cliente' ? (clienteNombre || c.label) : c.label,
+                        customMessage: message,
+                        summaryData: { id: numexpte, docType: docTypeLabel, userName: clienteNombre || c.label },
+                        docs: docDefs.map(d => ({ html: d.html, fileName: d.fileName })),
+                    });
+                    out.push({ channel: 'email', status: 'ok', text: `${c.label} → ${c.email}` });
+                } catch (err) {
+                    out.push({ channel: 'email', status: 'fail', text: `${c.label}: ${err.response?.data?.message || err.response?.data?.error || err.message}` });
+                }
+            }
+            // WHATSAPP — el primer documento lleva el mensaje completo
+            if (doWa && phoneValid(c.phone)) {
+                if (!waPdfs) {
+                    out.push({ channel: 'whatsapp', status: 'fail', text: `${c.label}: ${waGenError || 'No se pudo generar el PDF'}` });
+                } else {
+                    try {
+                        for (let i = 0; i < waPdfs.length; i++) {
+                            const d = waPdfs[i];
+                            await axios.post('/api/whatsapp/send-media', {
+                                phone: c.phone,
+                                caption: i === 0 ? message : d.label,
+                                media: { base64: d.base64, filename: d.fileName, mimetype: 'application/pdf' },
+                                asDocument: true,
+                            });
+                        }
+                        out.push({ channel: 'whatsapp', status: 'ok', text: `${c.label} → ${c.phone}` });
+                    } catch (err) {
+                        out.push({ channel: 'whatsapp', status: 'fail', text: `${c.label}: ${err.response?.data?.message || err.response?.data?.error || err.message}` });
+                    }
+                }
+            }
+        }
 
         const anyOk = out.some(r => r.status === 'ok');
 
@@ -421,14 +437,19 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
                         </div>
 
                         <div className="space-y-2">
+                            <p className="text-[9px] text-white/25 px-1 -mt-1">Puedes marcar varios destinatarios.</p>
                             {groupContacts.length === 0 && (
                                 <p className="text-[10px] text-white/30 italic px-1">Sin contactos guardados para {target === 'cliente' ? 'el cliente' : 'el instalador'}. Usa "Otro contacto…".</p>
                             )}
-                            {groupContacts.map(c => (
+                            {groupContacts.map(c => {
+                                const on = selectedIds.includes(c.id);
+                                return (
                                 <div key={c.id} className="flex items-center gap-2">
-                                    <button type="button" onClick={() => selectContact(c.id)}
-                                        className={`flex-1 min-w-0 flex items-center gap-3 p-3 rounded-xl border text-left transition-all ${selectedContactId === c.id ? 'border-brand/50 bg-brand/5' : 'border-white/10 bg-white/[0.02] hover:border-white/20'}`}>
-                                        <span className={`w-4 h-4 rounded-full border-2 shrink-0 ${selectedContactId === c.id ? 'border-brand bg-brand' : 'border-white/20'}`} />
+                                    <button type="button" onClick={() => toggleContact(c.id)}
+                                        className={`flex-1 min-w-0 flex items-center gap-3 p-3 rounded-xl border text-left transition-all ${on ? 'border-brand/50 bg-brand/5' : 'border-white/10 bg-white/[0.02] hover:border-white/20'}`}>
+                                        <span className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 ${on ? 'border-brand bg-brand' : 'border-white/20'}`}>
+                                            {on && <svg className="w-3 h-3 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
+                                        </span>
                                         <div className="min-w-0 flex-1">
                                             <div className="flex items-center gap-2">
                                                 <span className="text-sm font-bold text-white truncate">{c.label}</span>
@@ -444,13 +465,16 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
                                         </button>
                                     )}
                                 </div>
-                            ))}
-                            <button type="button" onClick={() => selectContact('otro')}
-                                className={`w-full flex items-center gap-3 p-3 rounded-xl border text-left transition-all ${selectedContactId === 'otro' ? 'border-brand/50 bg-brand/5' : 'border-white/10 bg-white/[0.02] hover:border-white/20'}`}>
-                                <span className={`w-4 h-4 rounded-full border-2 shrink-0 ${selectedContactId === 'otro' ? 'border-brand bg-brand' : 'border-white/20'}`} />
+                                );
+                            })}
+                            <button type="button" onClick={() => toggleContact('otro')}
+                                className={`w-full flex items-center gap-3 p-3 rounded-xl border text-left transition-all ${selectedIds.includes('otro') ? 'border-brand/50 bg-brand/5' : 'border-white/10 bg-white/[0.02] hover:border-white/20'}`}>
+                                <span className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 ${selectedIds.includes('otro') ? 'border-brand bg-brand' : 'border-white/20'}`}>
+                                    {selectedIds.includes('otro') && <svg className="w-3 h-3 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
+                                </span>
                                 <span className="text-sm font-bold text-white">Otro contacto…</span>
                             </button>
-                            {selectedContactId === 'otro' && (
+                            {selectedIds.includes('otro') && (
                                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pl-7">
                                     <input value={manualContact.name} onChange={e => setManualContact(m => ({ ...m, name: e.target.value }))} placeholder="Nombre" className="w-full min-w-0 bg-bkg-elevated border border-white/5 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-brand/40 transition-all" />
                                     <input value={manualContact.phone} onChange={e => setManualContact(m => ({ ...m, phone: e.target.value }))} placeholder="Teléfono" className="w-full min-w-0 bg-bkg-elevated border border-white/5 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-brand/40 transition-all" />
@@ -520,7 +544,7 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
                                 </span>
                                 <div className="min-w-0">
                                     <div className="text-[11px] font-black uppercase tracking-wider text-white">Email</div>
-                                    <div className="text-[10px] text-white/40 truncate">{selectedContact.email || 'sin email'}</div>
+                                    <div className="text-[10px] text-white/40 truncate">{canEmail ? `${nEmail} con email` : 'sin email'}</div>
                                 </div>
                             </button>
                             <button type="button" disabled={!contactPhoneValid || waReady === false} onClick={() => toggleChannel('whatsapp')}
@@ -530,7 +554,7 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
                                 </span>
                                 <div className="min-w-0">
                                     <div className="text-[11px] font-black uppercase tracking-wider text-white">WhatsApp</div>
-                                    <div className="text-[10px] text-white/40 truncate">{!contactPhoneValid ? 'sin teléfono' : (waReady === false ? 'no conectado' : selectedContact.phone)}</div>
+                                    <div className="text-[10px] text-white/40 truncate">{!contactPhoneValid ? 'sin teléfono' : (waReady === false ? 'no conectado' : `${nPhone} con teléfono`)}</div>
                                 </div>
                             </button>
                         </div>

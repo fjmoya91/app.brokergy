@@ -51,6 +51,8 @@ export function SolicitarFaltantesModal({ isOpen, onClose, expedienteId, numeroE
     // Destinatario editable (tlf/email): por defecto la persona de notificaciones,
     // pero el admin puede dirigirlo a otro número/correo.
     const [dest, setDest] = useState({ CLIENTE: { nombre: '', tlf: '', email: '' }, INSTALADOR: { nombre: '', tlf: '', email: '' } });
+    // Contactos del instalador marcados como destinatarios (puede haber varios).
+    const [selectedInstIds, setSelectedInstIds] = useState([]);
     const [sending, setSending] = useState(false);
     const [result, setResult] = useState({ CLIENTE: null, INSTALADOR: null });
     // "Trato todo con el instalador": al instalador se le piden también las cosas del cliente.
@@ -73,6 +75,12 @@ export function SolicitarFaltantesModal({ isOpen, onClose, expedienteId, numeroE
                 setMessages(msgs);
                 setChannels(chs);
                 setDest(dst);
+                // Preseleccionar el contacto del instalador que coincide con el
+                // destinatario por defecto (respeta el toggle de notificaciones); el
+                // admin puede marcar más contactos manualmente.
+                const insContacts = data.instalador?.contactos || [];
+                const def = insContacts.find(c => (c.tlf && c.tlf === data.instalador?.tlf) || (c.email && c.email === data.instalador?.email)) || insContacts[0];
+                setSelectedInstIds(def ? [def.id] : []);
                 // Empezar en el destinatario que tenga pendientes.
                 const cliN = (data.cliente?.acciones || []).length;
                 setActive(cliN > 0 ? 'CLIENTE' : ((data.instalador?.acciones || []).length > 0 ? 'INSTALADOR' : 'CLIENTE'));
@@ -93,6 +101,22 @@ export function SolicitarFaltantesModal({ isOpen, onClose, expedienteId, numeroE
     const actChannels = channels[active] || [];
     const sinPendientes = !loading && acciones.length === 0;
     const puedeTodoInstalador = cliAcciones.length > 0;
+
+    // Destinatarios efectivos del tab activo. Para el INSTALADOR, si tiene contactos
+    // configurados, se usan los marcados (varios); para el CLIENTE, el contacto único editable.
+    const insContacts = info?.instalador?.contactos || [];
+    const useInstChecklist = active === 'INSTALADOR' && insContacts.length > 0;
+    const recipientsActive = useInstChecklist
+        ? insContacts.filter(c => selectedInstIds.includes(c.id))
+        : [{ nombre: dst.nombre, tlf: dst.tlf, email: dst.email }];
+    const anyTlf = recipientsActive.some(r => r.tlf);
+    const anyEmail = recipientsActive.some(r => r.email);
+    const toggleInstContact = (id) => setSelectedInstIds(prev => {
+        const next = prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id];
+        const first = insContacts.find(x => x.id === next[0]);
+        if (first) setDest(p => ({ ...p, INSTALADOR: { ...p.INSTALADOR, nombre: first.nombre || p.INSTALADOR.nombre } }));
+        return next;
+    });
 
     const toggleChannel = (ch) => setChannels(prev => ({
         ...prev,
@@ -121,23 +145,37 @@ export function SolicitarFaltantesModal({ isOpen, onClose, expedienteId, numeroE
     };
 
     const handleSend = async () => {
-        // Solo canales con dato disponible (tlf para WhatsApp, email para Email).
-        const eff = actChannels.filter(ch => ch === 'whatsapp' ? !!dst.tlf : !!dst.email);
+        // Canales marcados que tienen al menos un destinatario con ese dato.
+        const eff = actChannels.filter(ch => ch === 'whatsapp' ? anyTlf : anyEmail);
+        if (!recipientsActive.length) { setResult(p => ({ ...p, [active]: { type: 'error', text: 'Selecciona al menos un destinatario.' } })); return; }
         if (!eff.length) { setResult(p => ({ ...p, [active]: { type: 'error', text: 'Indica un teléfono o email y selecciona el canal.' } })); return; }
         setSending(true);
         setResult(p => ({ ...p, [active]: null }));
         try {
-            const { data } = await axios.post(`/api/expedientes/${expedienteId}/solicitar-faltantes`, {
-                target: active,
-                channels: eff,
-                mensaje: messages[active],
-                tlf: dst.tlf || null,
-                email: dst.email || null,
-                nombre: dst.nombre || null,
-                solicitado: acciones.flatMap(a => a.items || []),
-                asunto: `Documentación pendiente · Expediente ${info?.numero_expediente || numeroExpediente || ''}`.trim(),
-            });
-            setResult(p => ({ ...p, [active]: { type: 'ok', text: `Enviado vía ${(data.channels || []).join(' + ')}${data.sentTo ? ` (${data.sentTo})` : ''}.` } }));
+            const asunto = `Documentación pendiente · Expediente ${info?.numero_expediente || numeroExpediente || ''}`.trim();
+            const solicitado = acciones.flatMap(a => a.items || []);
+            // Enviar a cada destinatario marcado, por los canales que soporte.
+            const sentTo = [];
+            for (const r of recipientsActive) {
+                const chans = eff.filter(ch => ch === 'whatsapp' ? !!r.tlf : !!r.email);
+                if (!chans.length) continue;
+                await axios.post(`/api/expedientes/${expedienteId}/solicitar-faltantes`, {
+                    target: active,
+                    channels: chans,
+                    mensaje: messages[active],
+                    tlf: r.tlf || null,
+                    email: r.email || null,
+                    nombre: r.nombre || null,
+                    solicitado,
+                    asunto,
+                });
+                sentTo.push(r.nombre || r.tlf || r.email);
+            }
+            if (!sentTo.length) {
+                setResult(p => ({ ...p, [active]: { type: 'error', text: 'Ningún destinatario tiene el dato del canal elegido.' } }));
+            } else {
+                setResult(p => ({ ...p, [active]: { type: 'ok', text: `Enviado a ${sentTo.length} destinatario(s): ${sentTo.join(', ')}.` } }));
+            }
         } catch (e) {
             setResult(p => ({ ...p, [active]: { type: 'error', text: e.response?.data?.error || 'Error al enviar.' } }));
         } finally {
@@ -195,23 +233,47 @@ export function SolicitarFaltantesModal({ isOpen, onClose, expedienteId, numeroE
                                     Regenerar mensaje
                                 </button>
                             </div>
-                            <div className="space-y-2 mb-4">
-                                <input value={dst.nombre}
-                                    onChange={e => setDest(p => ({ ...p, [active]: { ...p[active], nombre: e.target.value } }))}
-                                    placeholder="Nombre de a quién te diriges"
-                                    className="w-full bg-black/30 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder:text-white/25 focus:outline-none focus:border-brand/40" />
-                                <div className="grid grid-cols-2 gap-2">
-                                    <input value={dst.tlf}
-                                        onChange={e => setDest(p => ({ ...p, [active]: { ...p[active], tlf: e.target.value } }))}
-                                        placeholder="Teléfono"
-                                        className="bg-black/30 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder:text-white/25 focus:outline-none focus:border-brand/40" />
-                                    <input value={dst.email}
-                                        onChange={e => setDest(p => ({ ...p, [active]: { ...p[active], email: e.target.value } }))}
-                                        placeholder="Email"
-                                        className="bg-black/30 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder:text-white/25 focus:outline-none focus:border-brand/40" />
+                            {useInstChecklist ? (
+                                <div className="space-y-2 mb-4">
+                                    {insContacts.map(c => {
+                                        const on = selectedInstIds.includes(c.id);
+                                        return (
+                                            <button key={c.id} type="button" onClick={() => toggleInstContact(c.id)}
+                                                className={`w-full flex items-center gap-3 p-3 rounded-xl border text-left transition-all ${on ? 'border-brand/50 bg-brand/5' : 'border-white/10 bg-white/[0.02] hover:border-white/20'}`}>
+                                                <span className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 ${on ? 'border-brand bg-brand' : 'border-white/20'}`}>
+                                                    {on && <svg className="w-3 h-3 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
+                                                </span>
+                                                <div className="min-w-0 flex-1">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="text-sm font-bold text-white truncate">{c.nombre || 'Contacto'}</span>
+                                                        {c.tipo && <span className="text-[9px] uppercase tracking-wider text-white/30 font-bold shrink-0">{c.tipo}</span>}
+                                                    </div>
+                                                    <div className="text-[11px] text-white/40 truncate">{c.tlf || 'sin teléfono'}{c.email ? ` · ${c.email}` : ''}</div>
+                                                </div>
+                                            </button>
+                                        );
+                                    })}
+                                    <p className="text-[9px] text-white/25">Puedes marcar varios contactos del instalador.</p>
                                 </div>
-                                <p className="text-[9px] text-white/25">Cambia el nombre/teléfono para dirigirlo a otra persona y pulsa "Regenerar mensaje".</p>
-                            </div>
+                            ) : (
+                                <div className="space-y-2 mb-4">
+                                    <input value={dst.nombre}
+                                        onChange={e => setDest(p => ({ ...p, [active]: { ...p[active], nombre: e.target.value } }))}
+                                        placeholder="Nombre de a quién te diriges"
+                                        className="w-full bg-black/30 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder:text-white/25 focus:outline-none focus:border-brand/40" />
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <input value={dst.tlf}
+                                            onChange={e => setDest(p => ({ ...p, [active]: { ...p[active], tlf: e.target.value } }))}
+                                            placeholder="Teléfono"
+                                            className="bg-black/30 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder:text-white/25 focus:outline-none focus:border-brand/40" />
+                                        <input value={dst.email}
+                                            onChange={e => setDest(p => ({ ...p, [active]: { ...p[active], email: e.target.value } }))}
+                                            placeholder="Email"
+                                            className="bg-black/30 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder:text-white/25 focus:outline-none focus:border-brand/40" />
+                                    </div>
+                                    <p className="text-[9px] text-white/25">Cambia el nombre/teléfono para dirigirlo a otra persona y pulsa "Regenerar mensaje".</p>
+                                </div>
+                            )}
 
                             {/* Trato todo con el instalador → incluir lo del cliente */}
                             {active === 'INSTALADOR' && puedeTodoInstalador && (
@@ -250,11 +312,11 @@ export function SolicitarFaltantesModal({ isOpen, onClose, expedienteId, numeroE
                             {/* Canales */}
                             <p className="text-[9px] font-black text-white/30 uppercase tracking-widest mb-2">Enviar por</p>
                             <div className="flex gap-2 mb-4">
-                                <button type="button" disabled={!dst.tlf || sinPendientes} onClick={() => toggleChannel('whatsapp')}
+                                <button type="button" disabled={!anyTlf || sinPendientes} onClick={() => toggleChannel('whatsapp')}
                                     className={`flex-1 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all border disabled:opacity-30 disabled:cursor-not-allowed ${actChannels.includes('whatsapp') ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'border-white/5 text-white/30 hover:text-white/50'}`}>
                                     💬 WhatsApp
                                 </button>
-                                <button type="button" disabled={!dst.email || sinPendientes} onClick={() => toggleChannel('email')}
+                                <button type="button" disabled={!anyEmail || sinPendientes} onClick={() => toggleChannel('email')}
                                     className={`flex-1 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all border disabled:opacity-30 disabled:cursor-not-allowed ${actChannels.includes('email') ? 'bg-brand/10 border-brand/30 text-brand' : 'border-white/5 text-white/30 hover:text-white/50'}`}>
                                     ✉️ Email
                                 </button>

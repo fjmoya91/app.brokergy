@@ -195,7 +195,7 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
     // ── Envío del CIFO al instalador (contacto + plantilla + Email/WhatsApp) ──
     const [sendOpen, setSendOpen] = useState(false);
     const [waReady, setWaReady] = useState(null);                 // null = sin comprobar
-    const [selectedContactId, setSelectedContactId] = useState(null);
+    const [selectedIds, setSelectedIds] = useState([]);          // varios destinatarios
     const [manualContact, setManualContact] = useState({ name: '', phone: '', email: '' });
     const [templateKey, setTemplateKey] = useState('primera');   // 'primera' | 'requerimiento'
     const [sendMessage, setSendMessage] = useState('');
@@ -1279,16 +1279,23 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
         if (empTlf || empEmail) {
             instContacts.push({ id: 'rep', label: repName, sublabel: pres.es_autonomo ? 'Autónomo' : 'Representante legal', phone: empTlf || '', email: empEmail || '' });
         }
-        if (pres.nombre_contacto && (pres.tlf_contacto || pres.email_contacto)) {
+        const arr = Array.isArray(pres.contactos_notificacion) ? pres.contactos_notificacion : [];
+        if (arr.length) {
+            arr.forEach((c, i) => {
+                if (c && (c.tlf || c.email)) instContacts.push({ id: `c${i}`, label: c.nombre || 'Contacto', sublabel: 'Persona de contacto', phone: c.tlf || '', email: c.email || '' });
+            });
+        } else if (pres.nombre_contacto && (pres.tlf_contacto || pres.email_contacto)) {
             instContacts.push({ id: 'contacto', label: pres.nombre_contacto, sublabel: 'Persona de contacto', phone: pres.tlf_contacto || '', email: pres.email_contacto || '' });
         }
     }
+    const altIds = instContacts.filter(c => c.id !== 'rep').map(c => c.id);
+    const phoneValid = (ph) => (ph || '').replace(/[^0-9]/g, '').length >= 9;
 
     const resolveContact = (id) => {
         if (id === 'otro') return { id: 'otro', label: (manualContact.name || '').trim() || 'Otro contacto', phone: (manualContact.phone || '').trim(), email: (manualContact.email || '').trim() };
-        return instContacts.find(c => c.id === id) || instContacts[0] || { id: 'rep', label: empResponsable, phone: empTlf || '', email: empEmail || '' };
+        return instContacts.find(c => c.id === id) || { id, label: 'Contacto', phone: '', email: '' };
     };
-    const selectedContact = resolveContact(selectedContactId);
+    const selectedContacts = selectedIds.map(resolveContact);
 
     // Dos plantillas: primera solicitud de firma vs. reenvío por requerimiento.
     const buildCifoMessage = (tplKey, contactName) => {
@@ -1301,18 +1308,18 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
     };
 
     const openSendModal = async () => {
-        const defaultId = (pres.contacto_notificaciones_activas && instContacts.some(c => c.id === 'contacto'))
-            ? 'contacto'
-            : (instContacts[0]?.id || 'otro');
+        // Por defecto: si la redirección está activa, todos los contactos de
+        // notificación; si no, el representante (o el primero disponible).
+        const defIds = (pres.contacto_notificaciones_activas && altIds.length) ? altIds : (instContacts[0] ? [instContacts[0].id] : []);
+        const sel = instContacts.filter(c => defIds.includes(c.id));
         // Si ya hubo un firmado previo, lo más probable es que sea un requerimiento.
         const defaultTpl = doc.cert_cifo_signed_link ? 'requerimiento' : 'primera';
-        const initContact = resolveContact(defaultId);
-        setSelectedContactId(defaultId);
+        setSelectedIds(defIds);
         setTemplateKey(defaultTpl);
-        setSendMessage(buildCifoMessage(defaultTpl, initContact.label));
+        setSendMessage(buildCifoMessage(defaultTpl, sel[0]?.label || empResponsable));
         setChannels({
-            email: !!initContact.email,
-            whatsapp: (initContact.phone || '').replace(/[^0-9]/g, '').length >= 9,
+            email: sel.some(c => c.email),
+            whatsapp: sel.some(c => phoneValid(c.phone)),
         });
         setSendStatus(null);
         setSendPhase(null);
@@ -1325,29 +1332,35 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
         } catch { setWaReady(false); }
     };
 
-    // Al cambiar de contacto o plantilla regeneramos el mensaje (saludo + texto).
+    // Al marcar/desmarcar un contacto o cambiar de plantilla regeneramos el mensaje
+    // (el saludo usa el nombre del PRIMER destinatario marcado).
     const pickContact = (id) => {
-        setSelectedContactId(id);
-        setSendMessage(buildCifoMessage(templateKey, resolveContact(id).label));
+        setSelectedIds(prev => {
+            const next = prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id];
+            const firstLabel = next.length ? resolveContact(next[0]).label : empResponsable;
+            setSendMessage(buildCifoMessage(templateKey, firstLabel));
+            return next;
+        });
     };
     const pickTemplate = (key) => {
         setTemplateKey(key);
-        setSendMessage(buildCifoMessage(key, selectedContact.label));
+        setSendMessage(buildCifoMessage(key, selectedContacts[0]?.label || empResponsable));
     };
 
     const toggleChannel = (ch) => setChannels(prev => ({ ...prev, [ch]: !prev[ch] }));
 
-    // Disponibilidad de cada canal para el contacto seleccionado.
-    const contactPhoneValid = (selectedContact.phone || '').replace(/[^0-9]/g, '').length >= 9;
-    const canEmail = !!selectedContact.email;
+    // Disponibilidad de cada canal entre los contactos seleccionados.
+    const contactPhoneValid = selectedContacts.some(c => phoneValid(c.phone));
+    const canEmail = selectedContacts.some(c => c.email);
     const canWhatsapp = contactPhoneValid && waReady !== false;
     const willEmail = channels.email && canEmail;
     const willWhatsapp = channels.whatsapp && canWhatsapp;
+    const nEmail = selectedContacts.filter(c => c.email).length;
+    const nPhone = selectedContacts.filter(c => phoneValid(c.phone)).length;
     const sending = sendingEmail || sendingWhatsapp;
 
     // Envíos individuales (devuelven { ok, text } y NO tocan el status global).
-    const sendEmailOnce = async () => {
-        const c = selectedContact;
+    const sendEmailOnce = async (c) => {
         const subject = templateKey === 'requerimiento'
             ? `${numexpte} - Requerimiento: firmar de nuevo Certificado CIFO`
             : `${numexpte} - Firmar Certificado CIFO de ${cliNombre}`;
@@ -1363,22 +1376,19 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
             uploadLink,
             annexDriveFileIds: getAnnexDriveFileIds(),
         });
-        if (data.success) return { ok: true, text: `Email → ${c.email}` };
-        return { ok: false, text: 'Email no enviado' };
+        if (data.success) return { ok: true, text: `${c.label} → ${c.email}` };
+        return { ok: false, text: `${c.label}: email no enviado` };
     };
 
-    const sendWhatsappOnce = async () => {
-        const c = selectedContact;
-        const st = await axios.get('/api/whatsapp/status');
-        if (!st.data?.ready) { setWaReady(false); return { ok: false, text: 'WhatsApp no conectado' }; }
-        const pdfResp = await axios.post('/api/pdf/generate', { html: buildHtml(), annexDriveFileIds: getAnnexDriveFileIds() });
+    // Recibe el PDF ya generado (base64) para reutilizarlo entre varios destinatarios.
+    const sendWhatsappOnce = async (c, pdfBase64) => {
         await axios.post('/api/whatsapp/send-media', {
             phone: c.phone,
             caption: sendMessage,
-            media: { base64: pdfResp.data?.pdf, filename: `${numexpte}_Certificado_CIFO.pdf`, mimetype: 'application/pdf' },
+            media: { base64: pdfBase64, filename: `${numexpte}_Certificado_CIFO.pdf`, mimetype: 'application/pdf' },
             asDocument: true,
         });
-        return { ok: true, text: `WhatsApp → ${c.phone}` };
+        return { ok: true, text: `${c.label} → ${c.phone}` };
     };
 
     // Lluvia de "papeles/documentos" al completar el envío: usamos emojis de
@@ -1417,33 +1427,47 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
         if (onClose) onClose();
     };
 
-    // Orquestador único: envía por los canales seleccionados (email, whatsapp o ambos).
+    // Orquestador único: envía a TODOS los destinatarios marcados por los canales
+    // seleccionados (email, whatsapp o ambos). El PDF para WhatsApp se genera una vez.
     const doSend = async () => {
         const doEmail = willEmail;
         const doWa = willWhatsapp;
+        if (!selectedContacts.length) { setSendStatus({ ok: false, text: 'Selecciona al menos un destinatario.' }); return; }
         if (!doEmail && !doWa) { setSendStatus({ ok: false, text: 'Selecciona al menos un canal disponible.' }); return; }
         setSendStatus(null);
         setSendResults([]);
         setSendPhase('sending');
         const results = [];
 
-        if (doEmail) {
-            setSendingEmail(true);
-            try { const r = await sendEmailOnce(); results.push({ channel: 'email', status: r.ok ? 'ok' : 'fail', text: r.text }); }
-            catch (e) { results.push({ channel: 'email', status: 'fail', text: 'Email: ' + (e.response?.data?.message || e.message) }); }
-            finally { setSendingEmail(false); }
-        } else if (channels.email) {
-            // El usuario quería email pero no es posible: lo dejamos indicado.
-            results.push({ channel: 'email', status: 'unavailable', text: 'No disponible — sin dirección de correo' });
-        }
+        // WhatsApp: comprobar conexión y generar el PDF UNA sola vez (se reutiliza).
+        let pdfBase64 = null, waOk = doWa;
         if (doWa) {
-            setSendingWhatsapp(true);
-            try { const r = await sendWhatsappOnce(); results.push({ channel: 'whatsapp', status: r.ok ? 'ok' : 'fail', text: r.text }); }
-            catch (e) { results.push({ channel: 'whatsapp', status: 'fail', text: 'WhatsApp: ' + (e.response?.data?.message || e.message) }); }
-            finally { setSendingWhatsapp(false); }
-        } else if (channels.whatsapp) {
-            results.push({ channel: 'whatsapp', status: 'unavailable', text: !contactPhoneValid ? 'No disponible — sin teléfono' : 'No disponible — WhatsApp no conectado' });
+            try {
+                const st = await axios.get('/api/whatsapp/status');
+                if (!st.data?.ready) { setWaReady(false); waOk = false; results.push({ channel: 'whatsapp', status: 'fail', text: 'WhatsApp no conectado' }); }
+                else {
+                    const pdfResp = await axios.post('/api/pdf/generate', { html: buildHtml(), annexDriveFileIds: getAnnexDriveFileIds() });
+                    pdfBase64 = pdfResp.data?.pdf;
+                }
+            } catch (e) { waOk = false; results.push({ channel: 'whatsapp', status: 'fail', text: 'WhatsApp: ' + (e.response?.data?.message || e.message) }); }
         }
+
+        if (doEmail) setSendingEmail(true);
+        if (waOk) setSendingWhatsapp(true);
+
+        // Envío secuencial por destinatario (cada uno por los canales con dato).
+        for (const c of selectedContacts) {
+            if (doEmail && c.email) {
+                try { const r = await sendEmailOnce(c); results.push({ channel: 'email', status: r.ok ? 'ok' : 'fail', text: r.text }); }
+                catch (e) { results.push({ channel: 'email', status: 'fail', text: `${c.label}: ` + (e.response?.data?.message || e.message) }); }
+            }
+            if (waOk && pdfBase64 && phoneValid(c.phone)) {
+                try { const r = await sendWhatsappOnce(c, pdfBase64); results.push({ channel: 'whatsapp', status: r.ok ? 'ok' : 'fail', text: r.text }); }
+                catch (e) { results.push({ channel: 'whatsapp', status: 'fail', text: `${c.label}: ` + (e.response?.data?.message || e.message) }); }
+            }
+        }
+        setSendingEmail(false);
+        setSendingWhatsapp(false);
 
         // Si el CIFO llegó al instalador por al menos un canal, registramos la
         // fecha de envío (documentacion.cert_cifo_sent_at). El módulo de lifecycle
@@ -1564,14 +1588,18 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
                             </div>
 
                             <div className="px-6 py-5 space-y-5 max-h-[74vh] overflow-y-auto custom-scrollbar">
-                                {/* Destinatario */}
+                                {/* Destinatario(s) — se puede marcar más de uno */}
                                 <div>
-                                    <label className="block text-[9px] font-black text-white/30 uppercase tracking-[0.2em] mb-2">Destinatario</label>
+                                    <label className="block text-[9px] font-black text-white/30 uppercase tracking-[0.2em] mb-2">Destinatarios <span className="text-white/20 normal-case tracking-normal font-bold">· puedes marcar varios</span></label>
                                     <div className="space-y-2">
-                                        {instContacts.map(c => (
+                                        {instContacts.map(c => {
+                                            const on = selectedIds.includes(c.id);
+                                            return (
                                             <button key={c.id} type="button" onClick={() => pickContact(c.id)}
-                                                className={`w-full flex items-center gap-3 p-3 rounded-xl border text-left transition-all ${selectedContactId === c.id ? 'border-brand/50 bg-brand/5' : 'border-white/10 bg-white/[0.02] hover:border-white/20'}`}>
-                                                <span className={`w-4 h-4 rounded-full border-2 shrink-0 ${selectedContactId === c.id ? 'border-brand bg-brand' : 'border-white/20'}`} />
+                                                className={`w-full flex items-center gap-3 p-3 rounded-xl border text-left transition-all ${on ? 'border-brand/50 bg-brand/5' : 'border-white/10 bg-white/[0.02] hover:border-white/20'}`}>
+                                                <span className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 ${on ? 'border-brand bg-brand' : 'border-white/20'}`}>
+                                                    {on && <svg className="w-3 h-3 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
+                                                </span>
                                                 <div className="min-w-0 flex-1">
                                                     <div className="flex items-center gap-2">
                                                         <span className="text-sm font-bold text-white truncate">{c.label}</span>
@@ -1582,14 +1610,17 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
                                                     </div>
                                                 </div>
                                             </button>
-                                        ))}
+                                            );
+                                        })}
                                         {/* Otro contacto manual */}
                                         <button type="button" onClick={() => pickContact('otro')}
-                                            className={`w-full flex items-center gap-3 p-3 rounded-xl border text-left transition-all ${selectedContactId === 'otro' ? 'border-brand/50 bg-brand/5' : 'border-white/10 bg-white/[0.02] hover:border-white/20'}`}>
-                                            <span className={`w-4 h-4 rounded-full border-2 shrink-0 ${selectedContactId === 'otro' ? 'border-brand bg-brand' : 'border-white/20'}`} />
+                                            className={`w-full flex items-center gap-3 p-3 rounded-xl border text-left transition-all ${selectedIds.includes('otro') ? 'border-brand/50 bg-brand/5' : 'border-white/10 bg-white/[0.02] hover:border-white/20'}`}>
+                                            <span className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 ${selectedIds.includes('otro') ? 'border-brand bg-brand' : 'border-white/20'}`}>
+                                                {selectedIds.includes('otro') && <svg className="w-3 h-3 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
+                                            </span>
                                             <span className="text-sm font-bold text-white">Otro contacto…</span>
                                         </button>
-                                        {selectedContactId === 'otro' && (
+                                        {selectedIds.includes('otro') && (
                                             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pl-7">
                                                 <input value={manualContact.name} onChange={e => { const v = e.target.value; setManualContact(m => ({ ...m, name: v })); setSendMessage(buildCifoMessage(templateKey, v)); }} placeholder="Nombre" className="w-full min-w-0 bg-bkg-elevated border border-white/5 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-brand/40 transition-all" />
                                                 <input value={manualContact.phone} onChange={e => setManualContact(m => ({ ...m, phone: e.target.value }))} placeholder="Teléfono" className="w-full min-w-0 bg-bkg-elevated border border-white/5 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-brand/40 transition-all" />
@@ -1633,7 +1664,7 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
                                             </span>
                                             <div className="min-w-0">
                                                 <div className="text-[11px] font-black uppercase tracking-wider text-white">Email</div>
-                                                <div className="text-[10px] text-white/40 truncate">{selectedContact.email || 'sin email'}</div>
+                                                <div className="text-[10px] text-white/40 truncate">{canEmail ? `${nEmail} con email` : 'sin email'}</div>
                                             </div>
                                         </button>
                                         {/* WhatsApp */}
@@ -1644,7 +1675,7 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
                                             </span>
                                             <div className="min-w-0">
                                                 <div className="text-[11px] font-black uppercase tracking-wider text-white">WhatsApp</div>
-                                                <div className="text-[10px] text-white/40 truncate">{!contactPhoneValid ? 'sin teléfono' : (waReady === false ? 'no conectado' : selectedContact.phone)}</div>
+                                                <div className="text-[10px] text-white/40 truncate">{!contactPhoneValid ? 'sin teléfono' : (waReady === false ? 'no conectado' : `${nPhone} con teléfono`)}</div>
                                             </div>
                                         </button>
                                     </div>

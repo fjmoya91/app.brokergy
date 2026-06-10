@@ -28,6 +28,7 @@ const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 const fs = require('fs');
 const xml2js = require('xml2js');
+const { execFileSync } = require('child_process');
 const supabase = require('../services/supabaseClient');
 const driveService = require('../services/driveService');
 
@@ -357,6 +358,46 @@ async function getOpDriveFolderId(opId) {
   return data?.datos_calculo?.drive_folder_id || null;
 }
 
+// ── TITULAR del cliente desde el CEE inicial REGISTRADO (PDF) ──
+// El XML del CEE NO trae al titular (solo certificador + edificio). El propietario está en el
+// PDF de registro/solicitud, sección "01 Solicitante" (NIF, Nombre y apellidos, dirección, contacto).
+// El PDF no siempre se llama *_REG.pdf (a veces nombre numérico) → se escanea cualquier PDF con "Solicitante".
+function extractTitularCee(expFolder) {
+  try {
+    const cand = [];
+    for (const d of [path.join(expFolder, '1. CEE', 'CEE INICIAL'), path.join(expFolder, '1. CEE')]) {
+      for (const e of listDirSafe(d)) if (!e.isDirectory() && /\.pdf$/i.test(e.name)) cand.push(path.join(d, e.name));
+    }
+    cand.sort((a, b) => (/_REG\.pdf$/i.test(b) ? 1 : 0) - (/_REG\.pdf$/i.test(a) ? 1 : 0)); // _REG primero
+    for (const pdf of cand) {
+      let txt = '';
+      try { txt = execFileSync('pdftotext', ['-enc', 'UTF-8', '-f', '1', '-l', '1', pdf, '-'], { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 }); }
+      catch { continue; }
+      if (!/Solicitante/i.test(txt)) continue;
+      const i = txt.search(/Solicitante/i), j = txt.search(/0?2\s*Representante/i);
+      const block = txt.slice(i >= 0 ? i : 0, j > i ? j : txt.length);
+      const g = (re) => { const m = block.match(re); return m ? m[1].replace(/\s+/g, ' ').trim() : ''; };
+      const dni = g(/NIF:\s*([0-9A-Za-z]+)/);
+      const full = g(/Nombre y apellidos:\s*(.+?)\s+(?:Sexo:|Tipo v)/i);
+      if (!dni || !full) continue;
+      const toks = full.split(/\s+/).filter(Boolean);
+      let nombre = full, apellidos = '';
+      if (toks.length >= 3) { apellidos = toks.slice(-2).join(' '); nombre = toks.slice(0, -2).join(' '); }
+      else if (toks.length === 2) { nombre = toks[0]; apellidos = toks[1]; }
+      return {
+        dni: dni.toUpperCase(), full, nombre, apellidos,
+        tlf: g(/Tel[eé]fono m[oó]vil:\s*(\d{6,})/i) || g(/Tel[eé]fono:\s*(\d{6,})/i),
+        email: g(/e-?mail:\s*([^\s]+@[^\s]+)/i),
+        municipio: g(/Poblaci[oó]n:\s*(.+?)\s+C[oó]digo Postal:/i),
+        provincia: g(/Provincia:\s*(.+?)\s+Poblaci[oó]n:/i),
+        cp: g(/C[oó]digo Postal:\s*(\d{5})/),
+        pdf: path.basename(pdf),
+      };
+    }
+  } catch (e) { /* pdftotext ausente u otro error → fallback */ }
+  return null;
+}
+
 // Construye una entrada de expediente desde una ruta absoluta (modo --path), sin discovery.
 function buildExpFromPath(abs) {
   const name = path.basename(abs);
@@ -388,6 +429,15 @@ async function getClientes() {
     return { ...c, _norm: norm(full), _tokset: new Set(tokens(full)), _label: norm(full) };
   });
   return _clientesCache;
+}
+
+// Busca un cliente por DNI/NIF (normalizado). Devuelve id_cliente o null.
+async function getClienteByDni(dni) {
+  const d = String(dni || '').toUpperCase().replace(/[^0-9A-Z]/g, '');
+  if (!d) return null;
+  const cs = await getClientes();
+  const hit = cs.find((c) => String(c.dni || '').toUpperCase().replace(/[^0-9A-Z]/g, '') === d);
+  return hit ? hit.id_cliente : null;
 }
 
 // Match por nombre de carpeta (corto/apodo) contra clientes (nombre+apellidos completos):
@@ -555,15 +605,19 @@ async function main() {
 
         if (OPTS.execute) {
           await unificar(existing, { ceeInicial, ceeFinal, ident, exp, flags });
+          // copia de contenido también para expedientes YA migrados (carpeta existente)
+          if (OPTS.copiarOrigen && OPTS.path && drive_folder_id) {
+            try {
+              const sourceId = await resolveDriveFolderIdFromLocalPath(OPTS.path);
+              log(`Copiando contenido origen (${sourceId}) → carpeta existente (${drive_folder_id})...`);
+              const r = await mergeCopyDrive(sourceId, drive_folder_id);
+              log(`Contenido copiado: ${r.files} ficheros / ${r.folders} subcarpetas (merge).`);
+              flags.push(`contenido_copiado(${r.files}f/${r.folders}c)`);
+            } catch (e) { console.error('    !! copia de contenido falló:', e.message); flags.push('copia_contenido_error:' + e.message.slice(0, 60)); }
+          }
         }
       } else {
         // ── CREAR ──
-        if (cm.status === 'ambiguo') {
-          flags.push('cliente_ambiguo');
-          accion = 'saltado';
-          log(`→ cliente ambiguo (${cm.matches.length}) ⇒ SALTADO (revisión manual)`);
-          throw { soft: true, msg: 'cliente ambiguo' };
-        }
         if (!ceeInicial && !ceeFinal) {
           // la rutina exige ≥1 XML — no se puede crear vía migrateExpedienteFromXml
           accion = 'saltado';
@@ -584,12 +638,25 @@ async function main() {
         accion = 'creado';
         const fichaToUse = OPTS.ficha || meta.ficha;
         const manualNum = meta.isPlaceholder ? null : numero;   // placeholder → autonúmero
-        let cliente_id = cm.cliente_id || null;
-        if (cm.status === 'nuevo') flags.push('cliente_nuevo_sin_dni');
-        if (cm.status === 'unico' && !cm.exact) flags.push(`cliente_match_parcial(${cm.matches[0]._label})`);
+
+        // CLIENTE: fuente autoritativa = TITULAR del CEE inicial registrado (no el nombre de carpeta).
+        const titular = extractTitularCee(exp.full);
+        let cliente_id = null;
+        if (titular && titular.dni) {
+          cliente_id = await getClienteByDni(titular.dni);
+          log(`titular CEE [${titular.pdf}]: ${titular.full} (${titular.dni}) → ${cliente_id ? 'ya existe' : 'nuevo'}`);
+          flags.push(cliente_id ? `cliente_por_dni(${titular.dni})` : `cliente_nuevo_titular(${titular.full}/${titular.dni})`);
+        } else {
+          // fallback: nombre de carpeta (cuando el CEE no tiene registro con titular)
+          flags.push('titular_cee_no_encontrado');
+          if (cm.status === 'ambiguo') { flags.push('cliente_ambiguo'); accion = 'saltado'; log('→ sin titular CEE y cliente de carpeta ambiguo ⇒ SALTADO'); throw { soft: true, msg: 'cliente ambiguo' }; }
+          cliente_id = cm.cliente_id || null;
+          if (cm.status === 'nuevo') flags.push('cliente_nuevo_sin_dni');
+          if (cm.status === 'unico' && !cm.exact) flags.push(`cliente_match_parcial(${cm.matches[0]._label})`);
+        }
 
         if (OPTS.execute) {
-          if (!cliente_id) cliente_id = await crearCliente(clienteLabel);
+          if (!cliente_id) cliente_id = titular ? await crearClienteTitular(titular, ident) : await crearCliente(clienteLabel);
           const created = await crearExpediente({ ficha: fichaToUse, manualNumber: manualNum, cliente_id, ceeInicial, ceeFinal, ident, exp, flags });
           numero = created?.numero_expediente || numero;   // captura el nº real (autonúmero)
           if (rcN.length >= 14 && _rcMap) _rcMap.set(rcN, numero); // reserva la RC para el resto del lote
@@ -610,7 +677,8 @@ async function main() {
           }
           await sleep(OPTS.sleep); // rate-limit Drive
         } else {
-          log(`→ CREARÍA expediente ${manualNum || '(nº AUTO)'} ficha=${fichaToUse} (cliente=${cm.cliente_id || 'NUEVO'}, drive=${OPTS.drive})`);
+          const cliDesc = cliente_id ? `EXISTE(${cliente_id})` : (titular ? `NUEVO titular ${titular.full}` : 'NUEVO (nombre carpeta)');
+          log(`→ CREARÍA expediente ${manualNum || '(nº AUTO)'} ficha=${fichaToUse} (cliente=${cliDesc}, drive=${OPTS.drive})`);
         }
       }
     } catch (err) {
@@ -671,6 +739,25 @@ async function crearCliente(nombre) {
     .single();
   if (error) throw new Error('No se pudo crear cliente: ' + error.message);
   _clientesCache = null; // invalidar cache
+  return data.id_cliente;
+}
+
+// Crea un cliente con los datos del TITULAR del CEE (dirección preferida del XML, ya limpia).
+async function crearClienteTitular(t, ident) {
+  const ins = {
+    nombre_razon_social: t.nombre || t.full,
+    apellidos: t.apellidos || null,
+    dni: t.dni || null,
+    direccion: (ident && ident.direccion) || null,
+    municipio: t.municipio || (ident && ident.municipio) || null,
+    provincia: t.provincia || null,
+    codigo_postal: t.cp || null,
+    tlf: t.tlf || null,
+    email: t.email || null,
+  };
+  const { data, error } = await supabase.from('clientes').insert([ins]).select('id_cliente').single();
+  if (error) throw new Error('No se pudo crear cliente titular: ' + error.message);
+  _clientesCache = null;
   return data.id_cliente;
 }
 

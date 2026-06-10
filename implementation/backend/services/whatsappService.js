@@ -724,7 +724,7 @@ function withTimeout(promise, ms, label) {
  * Envío de media (PDF, imagen...). Solo funciona con cliente activo.
  * Si no está listo, lanza error (media no se puede persistir fácilmente en BD).
  */
-async function sendMedia(phone, media, { caption, asDocument = true } = {}) {
+async function sendMedia(phone, media, { caption, asDocument = true, splitCaption } = {}) {
     if (!CONFIG.enabled) throw new Error('WhatsApp deshabilitado (WHATSAPP_ENABLED=false)');
     if (!media || (!media.url && !media.base64)) throw new Error('media requiere url o base64');
     if (!isReady()) throw new Error(`Cliente WhatsApp no listo (estado: ${state}). Conecta WhatsApp primero.`);
@@ -732,9 +732,9 @@ async function sendMedia(phone, media, { caption, asDocument = true } = {}) {
     const chatId = resolveTarget(phone);
     const isGroup = chatId.endsWith('@g.us');
     console.log(`[wwa] sendMedia → ${chatId}, archivo: ${media.filename || 'sin nombre'}`);
-    await waitForRateSlot();
 
-    if (!isGroup) {
+    const sendTypingThenWait = async () => {
+        if (isGroup) return;
         try {
             const chat = await withTimeout(client.getChatById(chatId), 10_000, 'getChatById');
             await chat.sendStateTyping();
@@ -742,7 +742,35 @@ async function sendMedia(phone, media, { caption, asDocument = true } = {}) {
         } catch (e) {
             console.warn('[wwa] typing indicator fallido (no bloqueante):', e.message);
         }
+    };
+
+    await waitForRateSlot();
+
+    // Si el "caption" es en realidad un MENSAJE (varias líneas o texto largo), lo
+    // enviamos como mensaje de texto APARTE *antes* del adjunto y el PDF va sin
+    // caption. Motivo: cuando el mensaje es largo, mucha gente no abre el PDF que
+    // viaja en el mismo bubble. Las etiquetas cortas (p.ej. "Anexo I") se quedan
+    // en el caption del fichero. `splitCaption` permite forzar (true) o evitar (false).
+    let mediaCaption = caption;
+    const cap = (caption || '').trim();
+    const shouldSplit = !!cap && (splitCaption === true || (splitCaption !== false && (cap.includes('\n') || cap.length > 100)));
+    if (shouldSplit) {
+        await sendTypingThenWait();
+        try {
+            await withTimeout(client.sendMessage(chatId, cap), 60_000, 'sendMessage(text-previo)');
+            sentTimestamps.push(Date.now());
+            mediaCaption = undefined;              // el adjunto ya no lleva el mensaje
+            await sleep(randomDelay());            // pausa humana entre el texto y el PDF
+            await waitForRateSlot();               // slot para el adjunto
+            console.log(`[wwa] Texto previo enviado a ${chatId}; el adjunto irá sin caption.`);
+        } catch (err) {
+            // Si falla el texto previo, seguimos e intentamos el media con el caption original.
+            console.warn('[wwa] No se pudo enviar el texto previo al media:', err.message);
+            mediaCaption = caption;
+        }
     }
+
+    await sendTypingThenWait();
 
     const wweb = loadWwebModule();
     const { MessageMedia } = wweb;
@@ -762,7 +790,7 @@ async function sendMedia(phone, media, { caption, asDocument = true } = {}) {
     try {
         result = await withTimeout(
             client.sendMessage(chatId, mediaObj, {
-                caption: caption || undefined,
+                caption: mediaCaption || undefined,
                 sendMediaAsDocument: asDocument !== false,
             }),
             60_000,

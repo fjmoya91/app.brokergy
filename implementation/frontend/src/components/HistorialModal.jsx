@@ -22,7 +22,7 @@ const COMM_TIPO_LABELS = {
 };
 const normTipo = (t) => (typeof t === 'string' ? t.toLowerCase() : t);
 
-export function HistorialModal({ isOpen, onClose, idOportunidad, referenciaCliente, expediente }) {
+export function HistorialModal({ isOpen, onClose, idOportunidad, referenciaCliente, expediente, onOpenIncidencias, incidenciasAbiertas = 0 }) {
     const { user } = useAuth();
 
     const [historial, setHistorial]                 = useState([]);
@@ -161,15 +161,31 @@ export function HistorialModal({ isOpen, onClose, idOportunidad, referenciaClien
                 </div>
 
                 {/* Header */}
-                <div className="flex justify-between items-center mb-6">
-                    <h3 className="text-xl font-bold text-white flex items-center gap-3">
-                        <svg className="w-6 h-6 text-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <div className="mb-6 pr-8">
+                    <h3 className="text-xl font-bold text-white flex items-center gap-3 mb-3">
+                        <svg className="w-6 h-6 text-brand shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                         </svg>
                         Historial de Estados
                     </h3>
-                    <div className="flex items-center gap-2 mr-8">
-                        <div className="flex bg-black/40 p-1 rounded-xl border border-white/[0.06] mr-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                        {expediente && onOpenIncidencias && (
+                            <button
+                                onClick={onOpenIncidencias}
+                                title="Incidencias del expediente"
+                                className={`flex items-center gap-1.5 text-[10px] font-black uppercase tracking-tighter px-3 py-1.5 rounded-lg border transition-all ${
+                                    incidenciasAbiertas > 0
+                                        ? 'bg-red-500/15 text-red-400 border-red-500/40 drop-shadow-[0_0_6px_rgba(239,68,68,0.7)] hover:bg-red-500/25'
+                                        : 'bg-white/5 text-white/40 border-white/10 hover:text-red-400 hover:border-red-500/30'
+                                }`}
+                            >
+                                <svg className="w-3.5 h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                                </svg>
+                                Incidencias{incidenciasAbiertas > 0 ? ` (${incidenciasAbiertas})` : ''}
+                            </button>
+                        )}
+                        <div className="flex bg-black/40 p-1 rounded-xl border border-white/[0.06]">
                             {['all', 'notes', 'status'].map(f => (
                                 <button
                                     key={f}
@@ -186,7 +202,7 @@ export function HistorialModal({ isOpen, onClose, idOportunidad, referenciaClien
                                 disabled={deletingHistory}
                                 className="text-[10px] font-black uppercase tracking-tighter px-3 py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 rounded-lg transition-all flex items-center gap-2"
                             >
-                                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <svg className="w-3.5 h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                                 </svg>
                                 BORRAR

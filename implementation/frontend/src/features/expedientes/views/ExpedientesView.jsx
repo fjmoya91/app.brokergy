@@ -7,6 +7,7 @@ import { useModal } from '../../../context/ModalContext';
 import { ExpedienteDetailView, EXPEDIENTE_ESTADOS } from './ExpedienteDetailView';
 import { parseCeeXml } from '../../calculator/logic/xmlCeeParser';
 import { ClienteFormModal } from '../../clientes/components/ClienteFormModal';
+import { IncidenciasModal } from '../components/IncidenciasModal';
 import {
     calculateSavings,
     calculateFinancials,
@@ -663,6 +664,7 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
 
     // CRM / History States
     const [historyModalExp, setHistoryModalExp] = useState(null);
+    const [incidenciasExp, setIncidenciasExp] = useState(null); // expediente para el modal de incidencias
     const [historyFilter, setHistoryFilter] = useState('all');
     const [showHistoryDeleteConfirm, setShowHistoryDeleteConfirm] = useState(false);
     const [deletingHistory, setDeletingHistory] = useState(false);
@@ -987,7 +989,10 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
 
         const matchesSearch = searchableText.includes(q);
 
-        const matchesStatus = statusFilter === 'ALL' || (e.estado || 'PTE. CEE INICIAL') === statusFilter;
+        const matchesStatus =
+            statusFilter === 'ALL' ? true
+            : statusFilter === 'CON_INCIDENCIAS' ? (e.incidencias_abiertas > 0)
+            : (e.estado || 'PTE. CEE INICIAL') === statusFilter;
         const matchesCert = certificadorFilter === 'ALL'
             || (certificadorFilter === 'NONE' ? !e.cee?.certificador_id : String(e.cee?.certificador_id) === String(certificadorFilter));
         const matchesCCAA = ccaaFilter === 'ALL' || getCCAA(e) === ccaaFilter;
@@ -1186,6 +1191,34 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
                                 {expedientes.length}
                             </div>
                         </button>
+
+                        {(() => {
+                            const incCount = expedientes.filter(e => e.incidencias_abiertas > 0).length;
+                            if (incCount === 0 && statusFilter !== 'CON_INCIDENCIAS') return null;
+                            const active = statusFilter === 'CON_INCIDENCIAS';
+                            const hayGraves = expedientes.some(e => e.incidencias_graves_abiertas > 0);
+                            const c = hayGraves
+                                ? { dot: 'bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.9)]', text: active ? 'text-red-300' : 'text-red-400/80', num: 'text-red-400',
+                                    box: active ? 'border-red-500 bg-red-500/10 shadow-lg shadow-red-500/20' : 'border-red-500/40 hover:border-red-500/60 bg-red-500/5 drop-shadow-[0_0_6px_rgba(239,68,68,0.45)]' }
+                                : { dot: 'bg-amber-500 shadow-[0_0_6px_rgba(245,158,11,0.9)]', text: active ? 'text-amber-300' : 'text-amber-400/80', num: 'text-amber-400',
+                                    box: active ? 'border-amber-500 bg-amber-500/10 shadow-lg shadow-amber-500/20' : 'border-amber-500/40 hover:border-amber-500/60 bg-amber-500/5 drop-shadow-[0_0_6px_rgba(245,158,11,0.4)]' };
+                            return (
+                                <button
+                                    onClick={() => setStatusFilter('CON_INCIDENCIAS')}
+                                    className={`relative py-2.5 px-4 rounded-xl border flex items-center justify-between transition-all duration-200 min-w-[140px] snap-start shrink-0 ${c.box}`}
+                                >
+                                    <div className="flex items-center gap-2">
+                                        <span className={`w-1.5 h-1.5 rounded-full ${c.dot} ${active ? 'animate-pulse' : ''}`}></span>
+                                        <span className={`text-[9px] uppercase tracking-wider font-bold transition-colors truncate max-w-[120px] ${c.text}`}>
+                                            Con Incidencias
+                                        </span>
+                                    </div>
+                                    <div className={`text-sm font-black tracking-tight ${c.num}`}>
+                                        {incCount}
+                                    </div>
+                                </button>
+                            );
+                        })()}
 
                         {EXPEDIENTE_ESTADOS.map((st, i) => {
                             const count = expedientes.filter(e => (e.estado || 'PTE. CEE INICIAL') === st).length;
@@ -1507,15 +1540,19 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
                             <tbody className="divide-y divide-white/[0.04]">
                                 {sortedFiltered.map((exp) => {
                                     const fin = getExpedienteFinancials(exp);
+                                    const rowAccent =
+                                        exp.incidencias_graves_abiertas > 0
+                                            ? 'bg-red-500/[0.06] ring-1 ring-inset ring-red-500/70 shadow-[0_0_14px_rgba(239,68,68,0.35)] hover:bg-red-500/[0.1]'
+                                        : exp.incidencias_abiertas > 0
+                                            ? 'bg-amber-500/[0.05] ring-1 ring-inset ring-amber-500/60 shadow-[0_0_12px_rgba(245,158,11,0.25)] hover:bg-amber-500/[0.08]'
+                                        : exp.prioridad === 'URGENTE' ? 'border-l-2 border-l-red-500/70 hover:bg-red-500/[0.03]'
+                                        : exp.prioridad === 'ALTA' ? 'border-l-2 border-l-amber-500/70 hover:bg-amber-500/[0.03]'
+                                        : 'hover:bg-white/[0.03]';
                                     return (
                                     <tr
                                         key={exp.id}
                                         onClick={() => setSelectedExpediente(exp)}
-                                        className={`border-b border-white/[0.04] cursor-pointer transition-colors group ${
-                                            exp.prioridad === 'URGENTE' ? 'border-l-2 border-l-red-500/70 hover:bg-red-500/[0.03]' :
-                                            exp.prioridad === 'ALTA' ? 'border-l-2 border-l-amber-500/70 hover:bg-amber-500/[0.03]' :
-                                            'hover:bg-white/[0.03]'
-                                        }`}
+                                        className={`border-b border-white/[0.04] cursor-pointer transition-all group ${rowAccent}`}
                                     >
                                         {/* Número Expediente */}
                                         <td className="px-5 py-3">
@@ -1662,12 +1699,27 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
                                                             console.error('Error cargando documentacion para historial:', err);
                                                         }
                                                     }}
-                                                    className="text-white/40 hover:text-brand transition-colors"
-                                                    title="Ver historial de estados"
+                                                    className={`relative transition-colors ${
+                                                        exp.incidencias_graves_abiertas > 0
+                                                            ? 'text-red-500 drop-shadow-[0_0_6px_rgba(239,68,68,0.85)]'
+                                                            : exp.incidencias_abiertas > 0
+                                                                ? 'text-amber-400 drop-shadow-[0_0_6px_rgba(245,158,11,0.7)]'
+                                                                : 'text-white/40 hover:text-brand'
+                                                    }`}
+                                                    title={exp.incidencias_abiertas > 0 ? `${exp.incidencias_abiertas} incidencia(s) abierta(s)${exp.incidencias_graves_abiertas > 0 ? ` · ${exp.incidencias_graves_abiertas} grave(s)` : ''} · Ver historial` : 'Ver historial de estados'}
                                                 >
                                                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                                                     </svg>
+                                                    {exp.incidencias_abiertas > 0 && (
+                                                        <span className={`absolute -top-1.5 -right-1.5 min-w-[15px] h-[15px] px-1 flex items-center justify-center rounded-full text-white text-[9px] font-black ${
+                                                            exp.incidencias_graves_abiertas > 0
+                                                                ? 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.9)]'
+                                                                : 'bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.85)]'
+                                                        }`}>
+                                                            {exp.incidencias_abiertas}
+                                                        </span>
+                                                    )}
                                                 </button>
                                                 {user?.rol?.toUpperCase() !== 'CERTIFICADOR' && (
                                                     <button
@@ -1705,10 +1757,12 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
                         <div
                             key={exp.id}
                             onClick={() => setSelectedExpediente(exp)}
-                            className={`rounded-2xl bg-bkg-surface/60 p-4 active:scale-[0.99] transition-transform border ${
-                                exp.prioridad === 'URGENTE' ? 'border-white/[0.06] border-l-2 border-l-red-500/70'
-                                    : exp.prioridad === 'ALTA' ? 'border-white/[0.06] border-l-2 border-l-amber-500/70'
-                                        : 'border-white/[0.06]'
+                            className={`rounded-2xl p-4 active:scale-[0.99] transition-transform border ${
+                                exp.incidencias_graves_abiertas > 0 ? 'bg-red-500/[0.07] border-red-500/70 shadow-[0_0_14px_rgba(239,68,68,0.35)]'
+                                    : exp.incidencias_abiertas > 0 ? 'bg-amber-500/[0.06] border-amber-500/60 shadow-[0_0_12px_rgba(245,158,11,0.25)]'
+                                    : exp.prioridad === 'URGENTE' ? 'bg-bkg-surface/60 border-white/[0.06] border-l-2 border-l-red-500/70'
+                                    : exp.prioridad === 'ALTA' ? 'bg-bkg-surface/60 border-white/[0.06] border-l-2 border-l-amber-500/70'
+                                    : 'bg-bkg-surface/60 border-white/[0.06]'
                             }`}
                         >
                             {/* Cabecera: nº expediente + ficha */}
@@ -1805,12 +1859,27 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
                                             console.error('Error cargando documentacion para historial:', err);
                                         }
                                     }}
-                                    className="w-9 h-9 flex items-center justify-center text-white/40 hover:text-brand rounded-lg hover:bg-white/[0.06] transition-all"
-                                    title="Ver historial de estados"
+                                    className={`relative w-9 h-9 flex items-center justify-center rounded-lg transition-all ${
+                                        exp.incidencias_graves_abiertas > 0
+                                            ? 'text-red-500 drop-shadow-[0_0_6px_rgba(239,68,68,0.85)] hover:bg-red-500/10'
+                                            : exp.incidencias_abiertas > 0
+                                                ? 'text-amber-400 drop-shadow-[0_0_6px_rgba(245,158,11,0.7)] hover:bg-amber-500/10'
+                                                : 'text-white/40 hover:text-brand hover:bg-white/[0.06]'
+                                    }`}
+                                    title={exp.incidencias_abiertas > 0 ? `${exp.incidencias_abiertas} incidencia(s) abierta(s)${exp.incidencias_graves_abiertas > 0 ? ` · ${exp.incidencias_graves_abiertas} grave(s)` : ''} · Ver historial` : 'Ver historial de estados'}
                                 >
                                     <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                                     </svg>
+                                    {exp.incidencias_abiertas > 0 && (
+                                        <span className={`absolute -top-1 -right-1 min-w-[16px] h-[16px] px-1 flex items-center justify-center rounded-full text-white text-[9px] font-black ${
+                                            exp.incidencias_graves_abiertas > 0
+                                                ? 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.9)]'
+                                                : 'bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.85)]'
+                                        }`}>
+                                            {exp.incidencias_abiertas}
+                                        </span>
+                                    )}
                                 </button>
                                 {userRole !== 'CERTIFICADOR' && (
                                     <button
@@ -1851,16 +1920,35 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
                         </button>
                     </div>
 
-                    <div className="flex max-md:flex-col max-md:items-start max-md:gap-3 justify-between items-center mb-6">
-                        <h3 className="text-xl font-bold text-white flex items-center gap-3">
-                            <svg className="w-6 h-6 text-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <div className="mb-6 pr-8">
+                        <h3 className="text-xl font-bold text-white flex items-center gap-3 mb-3">
+                            <svg className="w-6 h-6 text-brand shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                             </svg>
                             Historial Unificado
                         </h3>
 
-                        <div className="flex items-center gap-2 mr-8">
-                            <div className="flex bg-black/40 p-1 rounded-xl border border-white/[0.06] mr-4">
+                        <div className="flex flex-wrap items-center gap-2">
+                            {user?.rol === 'ADMIN' && (() => {
+                                const incAbiertas = (historyModalExp.documentacion?.incidencias || []).filter(i => i.estado !== 'SUBSANADA').length;
+                                return (
+                                    <button
+                                        onClick={() => setIncidenciasExp(historyModalExp)}
+                                        title="Incidencias del expediente"
+                                        className={`flex items-center gap-1.5 text-[10px] font-black uppercase tracking-tighter px-3 py-1.5 rounded-lg border transition-all ${
+                                            incAbiertas > 0
+                                                ? 'bg-red-500/15 text-red-400 border-red-500/40 drop-shadow-[0_0_6px_rgba(239,68,68,0.7)] hover:bg-red-500/25'
+                                                : 'bg-white/5 text-white/40 border-white/10 hover:text-red-400 hover:border-red-500/30'
+                                        }`}
+                                    >
+                                        <svg className="w-3.5 h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                                        </svg>
+                                        Incidencias{incAbiertas > 0 ? ` (${incAbiertas})` : ''}
+                                    </button>
+                                );
+                            })()}
+                            <div className="flex bg-black/40 p-1 rounded-xl border border-white/[0.06]">
                                 {['all', 'notes', 'status'].map(f => (
                                     <button
                                         key={f}
@@ -2049,6 +2137,16 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
                     )}
                 </div>
             </div>
+        )}
+
+        {/* Modal de Incidencias (solo ADMIN) — abierto desde el historial del listado */}
+        {user?.rol === 'ADMIN' && incidenciasExp && (
+            <IncidenciasModal
+                isOpen={true}
+                onClose={() => setIncidenciasExp(null)}
+                expedienteId={incidenciasExp.id}
+                onChanged={() => fetchExpedientes()}
+            />
         )}
         </div>
     );

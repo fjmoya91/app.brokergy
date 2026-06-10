@@ -40,7 +40,7 @@ export function EnviarBorradorRiteModal({ isOpen, onClose, expediente, defaultMe
     };
 
     // Contactos disponibles del perfil del instalador (puede haber varios):
-    // representante/empresa + persona de contacto de notificaciones.
+    // representante/empresa + cada persona de contacto de notificaciones.
     const instContacts = [];
     {
         const repName = [pres.nombre_responsable, pres.apellidos_responsable].filter(Boolean).join(' ') || pres.razon_social || 'Instalador';
@@ -48,16 +48,22 @@ export function EnviarBorradorRiteModal({ isOpen, onClose, expediente, defaultMe
         if (repPhone || pres.email) {
             instContacts.push({ id: 'rep', label: repName, sublabel: pres.es_autonomo ? 'Autónomo' : 'Representante legal', phone: repPhone, email: pres.email || '' });
         }
-        if (pres.nombre_contacto && (pres.tlf_contacto || pres.email_contacto)) {
+        const arr = Array.isArray(pres.contactos_notificacion) ? pres.contactos_notificacion : [];
+        if (arr.length) {
+            arr.forEach((c, i) => {
+                if (c && (c.tlf || c.email)) instContacts.push({ id: `c${i}`, label: c.nombre || 'Contacto', sublabel: 'Persona de contacto', phone: c.tlf || '', email: c.email || '' });
+            });
+        } else if (pres.nombre_contacto && (pres.tlf_contacto || pres.email_contacto)) {
             instContacts.push({ id: 'contacto', label: pres.nombre_contacto, sublabel: 'Persona de contacto', phone: pres.tlf_contacto || '', email: pres.email_contacto || '' });
         }
     }
+    const altIds = instContacts.filter(c => c.id !== 'rep').map(c => c.id);
 
     const [message, setMessage] = useState(defaultMessage || '');
     const [waReady, setWaReady] = useState(null);
     const [busy, setBusy] = useState(null);       // 'download' | 'drive' | 'send'
     const [status, setStatus] = useState(null);    // { ok, text }
-    const [selectedContactId, setSelectedContactId] = useState(null);
+    const [selectedIds, setSelectedIds] = useState([]);   // varios destinatarios
     const [manualContact, setManualContact] = useState({ name: '', phone: '', email: '' });
     const [channels, setChannels] = useState({ email: true, whatsapp: true });
     const [sendPhase, setSendPhase] = useState(null);       // null | 'sending' | 'done' → overlay de envío
@@ -70,13 +76,13 @@ export function EnviarBorradorRiteModal({ isOpen, onClose, expediente, defaultMe
         setBusy(null);
         setSendPhase(null);
         setSendResults([]);
-        const defId = (pres.contacto_notificaciones_activas && instContacts.some(c => c.id === 'contacto'))
-            ? 'contacto'
-            : (instContacts[0]?.id || 'otro');
-        const init = defId === 'otro' ? { email: '', phone: '' } : (instContacts.find(c => c.id === defId) || {});
-        setSelectedContactId(defId);
+        // Por defecto: si la redirección está activa, preseleccionar TODOS los contactos
+        // de notificación; si no, el representante (o el primero disponible).
+        const defIds = (pres.contacto_notificaciones_activas && altIds.length) ? altIds : (instContacts[0] ? [instContacts[0].id] : []);
+        const sel = instContacts.filter(c => defIds.includes(c.id));
+        setSelectedIds(defIds);
         setManualContact({ name: '', phone: '', email: '' });
-        setChannels({ email: !!init.email, whatsapp: (init.phone || '').replace(/[^0-9]/g, '').length >= 9 });
+        setChannels({ email: sel.some(c => c.email), whatsapp: sel.some(c => (c.phone || '').replace(/[^0-9]/g, '').length >= 9) });
         setWaReady(null);
         axios.get('/api/whatsapp/status').then(r => setWaReady(!!r.data?.ready)).catch(() => setWaReady(false));
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -84,15 +90,20 @@ export function EnviarBorradorRiteModal({ isOpen, onClose, expediente, defaultMe
 
     if (!isOpen) return null;
 
+    const phoneValid = (ph) => (ph || '').replace(/[^0-9]/g, '').length >= 9;
     const resolveContact = (id) => {
         if (id === 'otro') return { id: 'otro', label: (manualContact.name || '').trim() || 'Otro contacto', phone: (manualContact.phone || '').trim(), email: (manualContact.email || '').trim() };
-        return instContacts.find(c => c.id === id) || instContacts[0] || { id: 'rep', label: pres.razon_social || 'Instalador', phone: '', email: '' };
+        return instContacts.find(c => c.id === id) || { id, label: 'Contacto', phone: '', email: '' };
     };
-    const selectedContact = resolveContact(selectedContactId);
-    const contactPhoneValid = (selectedContact.phone || '').replace(/[^0-9]/g, '').length >= 9;
-    const canEmail = !!selectedContact.email;
+    const selectedContacts = selectedIds.map(resolveContact);
+    const toggleSelected = (id) => setSelectedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+
+    const canEmail = selectedContacts.some(c => c.email);
+    const contactPhoneValid = selectedContacts.some(c => phoneValid(c.phone));
     const willEmail = channels.email && canEmail;
     const willWhatsapp = channels.whatsapp && contactPhoneValid && waReady !== false;
+    const nEmail = selectedContacts.filter(c => c.email).length;
+    const nPhone = selectedContacts.filter(c => phoneValid(c.phone)).length;
     const sending = busy === 'send';
 
     const toggleChannel = (ch) => setChannels(prev => ({ ...prev, [ch]: !prev[ch] }));
@@ -144,23 +155,26 @@ export function EnviarBorradorRiteModal({ isOpen, onClose, expediente, defaultMe
     // Orquestador único: envía por los canales seleccionados (email, whatsapp o ambos)
     // al contacto elegido. El backend genera los ficheros frescos y los adjunta.
     const handleSend = async () => {
-        const c = selectedContact;
         const doEmail = willEmail;
         const doWa = willWhatsapp;
+        if (!selectedContacts.length) { setStatus({ ok: false, text: 'Selecciona al menos un destinatario.' }); return; }
         if (!doEmail && !doWa) { setStatus({ ok: false, text: 'Selecciona al menos un canal disponible.' }); return; }
         setStatus(null);
         setSendResults([]);
         setSendPhase('sending');
         setBusy('send');
 
+        const recipients = selectedContacts.map(c => ({
+            nombre: c.label,
+            email: doEmail ? (c.email || '') : '',
+            phone: doWa ? (c.phone || '') : '',
+        }));
+        const chans = [doEmail && 'email', doWa && 'whatsapp'].filter(Boolean);
+
         let data = null, reqError = null;
         try {
-            const chans = [doEmail && 'email', doWa && 'whatsapp'].filter(Boolean);
             const resp = await axios.post(`/api/expedientes/${expediente.id}/memoria-rite/send`, {
-                channels: chans,
-                message,
-                to: c.email || undefined,
-                phone: c.phone || undefined,
+                channels: chans, message, recipients,
             });
             data = resp.data;
         } catch (err) {
@@ -169,21 +183,21 @@ export function EnviarBorradorRiteModal({ isOpen, onClose, expediente, defaultMe
             setBusy(null);
         }
 
-        // Resultado por canal, en orden fijo (email, whatsapp), marcando los
-        // canales deseados pero no disponibles.
+        // Aplanar a filas (destinatario × canal). El backend devuelve `results`
+        // en el mismo orden que `recipients`.
         const results = [];
-        if (doEmail) {
-            if (reqError) results.push({ channel: 'email', status: 'fail', text: 'Email: ' + reqError });
-            else results.push({ channel: 'email', status: data?.email?.ok ? 'ok' : 'fail', text: data?.email?.ok ? `Email → ${data.email.to}` : (data?.email?.error || 'Email no enviado') });
-        } else if (channels.email) {
-            results.push({ channel: 'email', status: 'unavailable', text: 'No disponible — sin dirección de correo' });
-        }
-        if (doWa) {
-            if (reqError) results.push({ channel: 'whatsapp', status: 'fail', text: 'WhatsApp: ' + reqError });
-            else results.push({ channel: 'whatsapp', status: data?.whatsapp?.ok ? 'ok' : 'fail', text: data?.whatsapp?.ok ? `WhatsApp → ${data.whatsapp.phone}` : (data?.whatsapp?.error || 'WhatsApp no enviado') });
-        } else if (channels.whatsapp) {
-            results.push({ channel: 'whatsapp', status: 'unavailable', text: !contactPhoneValid ? 'No disponible — sin teléfono' : 'No disponible — WhatsApp no conectado' });
-        }
+        const byIdx = data?.results || [];
+        selectedContacts.forEach((c, idx) => {
+            const r = byIdx[idx] || {};
+            if (doEmail && c.email) {
+                if (reqError) results.push({ channel: 'email', status: 'fail', text: `${c.label}: ${reqError}` });
+                else results.push({ channel: 'email', status: r.email?.ok ? 'ok' : 'fail', text: r.email?.ok ? `${c.label} → ${r.email.to}` : `${c.label}: ${r.email?.error || 'no enviado'}` });
+            }
+            if (doWa && phoneValid(c.phone)) {
+                if (reqError) results.push({ channel: 'whatsapp', status: 'fail', text: `${c.label}: ${reqError}` });
+                else results.push({ channel: 'whatsapp', status: r.whatsapp?.ok ? 'ok' : 'fail', text: r.whatsapp?.ok ? `${c.label} → ${r.whatsapp.phone}` : `${c.label}: ${r.whatsapp?.error || 'no enviado'}` });
+            }
+        });
 
         // Si la documentación RITE llegó al instalador por al menos un canal,
         // registramos la fecha de envío (documentacion.borrador_cert_sent_at).
@@ -242,32 +256,39 @@ export function EnviarBorradorRiteModal({ isOpen, onClose, expediente, defaultMe
                         </div>
                     </div>
 
-                    {/* Destinatario */}
+                    {/* Destinatario(s) — se puede marcar más de uno */}
                     <div>
-                        <label className="block text-[9px] font-black text-white/30 uppercase tracking-[0.2em] mb-2">Destinatario</label>
+                        <label className="block text-[9px] font-black text-white/30 uppercase tracking-[0.2em] mb-2">Destinatarios <span className="text-white/20 normal-case tracking-normal font-bold">· puedes marcar varios</span></label>
                         <div className="space-y-2">
-                            {instContacts.map(c => (
-                                <button key={c.id} type="button" onClick={() => setSelectedContactId(c.id)}
-                                    className={`w-full flex items-center gap-3 p-3 rounded-xl border text-left transition-all ${selectedContactId === c.id ? 'border-brand/50 bg-brand/5' : 'border-white/10 bg-white/[0.02] hover:border-white/20'}`}>
-                                    <span className={`w-4 h-4 rounded-full border-2 shrink-0 ${selectedContactId === c.id ? 'border-brand bg-brand' : 'border-white/20'}`} />
-                                    <div className="min-w-0 flex-1">
-                                        <div className="flex items-center gap-2">
-                                            <span className="text-sm font-bold text-white truncate">{c.label}</span>
-                                            <span className="text-[9px] uppercase tracking-wider text-white/30 font-bold shrink-0">{c.sublabel}</span>
+                            {instContacts.map(c => {
+                                const on = selectedIds.includes(c.id);
+                                return (
+                                    <button key={c.id} type="button" onClick={() => toggleSelected(c.id)}
+                                        className={`w-full flex items-center gap-3 p-3 rounded-xl border text-left transition-all ${on ? 'border-brand/50 bg-brand/5' : 'border-white/10 bg-white/[0.02] hover:border-white/20'}`}>
+                                        <span className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 ${on ? 'border-brand bg-brand' : 'border-white/20'}`}>
+                                            {on && <svg className="w-3 h-3 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
+                                        </span>
+                                        <div className="min-w-0 flex-1">
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-sm font-bold text-white truncate">{c.label}</span>
+                                                <span className="text-[9px] uppercase tracking-wider text-white/30 font-bold shrink-0">{c.sublabel}</span>
+                                            </div>
+                                            <div className="text-[11px] text-white/40 truncate">
+                                                {c.phone || 'sin teléfono'}{c.email ? ` · ${c.email}` : ''}
+                                            </div>
                                         </div>
-                                        <div className="text-[11px] text-white/40 truncate">
-                                            {c.phone || 'sin teléfono'}{c.email ? ` · ${c.email}` : ''}
-                                        </div>
-                                    </div>
-                                </button>
-                            ))}
+                                    </button>
+                                );
+                            })}
                             {/* Otro contacto manual */}
-                            <button type="button" onClick={() => setSelectedContactId('otro')}
-                                className={`w-full flex items-center gap-3 p-3 rounded-xl border text-left transition-all ${selectedContactId === 'otro' ? 'border-brand/50 bg-brand/5' : 'border-white/10 bg-white/[0.02] hover:border-white/20'}`}>
-                                <span className={`w-4 h-4 rounded-full border-2 shrink-0 ${selectedContactId === 'otro' ? 'border-brand bg-brand' : 'border-white/20'}`} />
+                            <button type="button" onClick={() => toggleSelected('otro')}
+                                className={`w-full flex items-center gap-3 p-3 rounded-xl border text-left transition-all ${selectedIds.includes('otro') ? 'border-brand/50 bg-brand/5' : 'border-white/10 bg-white/[0.02] hover:border-white/20'}`}>
+                                <span className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 ${selectedIds.includes('otro') ? 'border-brand bg-brand' : 'border-white/20'}`}>
+                                    {selectedIds.includes('otro') && <svg className="w-3 h-3 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
+                                </span>
                                 <span className="text-sm font-bold text-white">Otro contacto…</span>
                             </button>
-                            {selectedContactId === 'otro' && (
+                            {selectedIds.includes('otro') && (
                                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pl-7">
                                     <input value={manualContact.name} onChange={e => setManualContact(m => ({ ...m, name: e.target.value }))} placeholder="Nombre" className="w-full min-w-0 bg-bkg-elevated border border-white/5 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-brand/40 transition-all" />
                                     <input value={manualContact.phone} onChange={e => setManualContact(m => ({ ...m, phone: e.target.value }))} placeholder="Teléfono" className="w-full min-w-0 bg-bkg-elevated border border-white/5 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-brand/40 transition-all" />
@@ -300,7 +321,7 @@ export function EnviarBorradorRiteModal({ isOpen, onClose, expediente, defaultMe
                                 </span>
                                 <div className="min-w-0">
                                     <div className="text-[11px] font-black uppercase tracking-wider text-white">Email</div>
-                                    <div className="text-[10px] text-white/40 truncate">{selectedContact.email || 'sin email'}</div>
+                                    <div className="text-[10px] text-white/40 truncate">{canEmail ? `${nEmail} con email` : 'sin email'}</div>
                                 </div>
                             </button>
                             {/* WhatsApp */}
@@ -311,7 +332,7 @@ export function EnviarBorradorRiteModal({ isOpen, onClose, expediente, defaultMe
                                 </span>
                                 <div className="min-w-0">
                                     <div className="text-[11px] font-black uppercase tracking-wider text-white">WhatsApp</div>
-                                    <div className="text-[10px] text-white/40 truncate">{!contactPhoneValid ? 'sin teléfono' : (waReady === false ? 'no conectado' : selectedContact.phone)}</div>
+                                    <div className="text-[10px] text-white/40 truncate">{!contactPhoneValid ? 'sin teléfono' : (waReady === false ? 'no conectado' : `${nPhone} con teléfono`)}</div>
                                 </div>
                             </button>
                         </div>

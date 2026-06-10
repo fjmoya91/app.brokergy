@@ -195,9 +195,7 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
         instaladores_asociados: [],
         usuario_password: '', usuario_confirm_password: '',
         contacto_alternativo_activo: false,
-        nombre_contacto: '',
-        tlf_contacto: '',
-        email_contacto: '',
+        contactos_notificacion: [{ nombre: '', tlf: '', email: '' }],
         contacto_notificaciones_activas: false,
         // Técnico habilitado que firma las memorias (si es distinto del representante legal)
         tecnico_firmante_distinto: false,
@@ -334,9 +332,15 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                 usuario_password:     '',
                 usuario_confirm_password: '',
                 contacto_alternativo_activo: p.contacto_alternativo_activo || false,
-                nombre_contacto:      p.nombre_contacto || '',
-                tlf_contacto:         p.tlf_contacto || '',
-                email_contacto:       p.email_contacto || '',
+                contactos_notificacion: (() => {
+                    const arr = Array.isArray(p.contactos_notificacion) ? p.contactos_notificacion : [];
+                    if (arr.length) return arr.map(c => ({ nombre: c.nombre || '', tlf: c.tlf || '', email: c.email || '' }));
+                    // Migración: si solo hay el contacto plano antiguo, sembrar el array con él.
+                    if (p.nombre_contacto || p.tlf_contacto || p.email_contacto) {
+                        return [{ nombre: p.nombre_contacto || '', tlf: p.tlf_contacto || '', email: p.email_contacto || '' }];
+                    }
+                    return [{ nombre: '', tlf: '', email: '' }];
+                })(),
                 contacto_notificaciones_activas: p.contacto_notificaciones_activas || false,
                 tecnico_firmante_distinto:    p.tecnico_firmante_distinto || false,
                 tecnico_firmante_nombre:      p.tecnico_firmante_nombre || '',
@@ -348,6 +352,20 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
     }, [p]);
 
     const upd = useCallback((patch) => setForm(f => ({ ...f, ...patch })), []);
+
+    // ─── Gestión de la lista de contactos de notificación ──────────────────────
+    const updContacto = (i, patch) => setForm(f => ({
+        ...f,
+        contactos_notificacion: (f.contactos_notificacion || []).map((c, idx) => idx === i ? { ...c, ...patch } : c),
+    }));
+    const addContacto = () => setForm(f => ({
+        ...f,
+        contactos_notificacion: [...(f.contactos_notificacion || []), { nombre: '', tlf: '', email: '' }],
+    }));
+    const removeContacto = (i) => setForm(f => {
+        const next = (f.contactos_notificacion || []).filter((_, idx) => idx !== i);
+        return { ...f, contactos_notificacion: next.length ? next : [{ nombre: '', tlf: '', email: '' }] };
+    });
 
     // ─── Logo upload ─────────────────────────────────────────────────────────
     const handleLogoChange = (e) => {
@@ -425,9 +443,9 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                 logo_empresa:          form.logo_empresa || null,
                 instaladores_asociados: form.tipo_empresa === 'DISTRIBUIDOR' ? form.instaladores_asociados : [],
                 contacto_alternativo_activo: form.contacto_alternativo_activo,
-                nombre_contacto:      form.nombre_contacto.trim() || null,
-                tlf_contacto:         form.tlf_contacto.trim() || null,
-                email_contacto:       form.email_contacto.trim().toLowerCase() || null,
+                contactos_notificacion: (form.contactos_notificacion || [])
+                    .map(c => ({ nombre: (c.nombre || '').trim(), tlf: (c.tlf || '').trim(), email: (c.email || '').trim().toLowerCase() }))
+                    .filter(c => c.nombre || c.tlf || c.email),
                 contacto_notificaciones_activas: form.contacto_notificaciones_activas,
                 tecnico_firmante_distinto:    form.tecnico_firmante_distinto,
                 tecnico_firmante_nombre:      form.tecnico_firmante_nombre.trim() || null,
@@ -696,22 +714,34 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                                 </div>
                             )}
 
-                            {/* Persona de Contacto Alternativa (Vista) */}
-                            {p.contacto_alternativo_activo && (
-                                <div className="space-y-2">
-                                    <p className="text-[10px] uppercase tracking-[0.2em] font-black text-white/30 flex items-center gap-2">
-                                        Contacto para Notificaciones
-                                        {p.contacto_notificaciones_activas && (
-                                            <span className="text-[9px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-1.5 py-0.5 rounded uppercase tracking-tighter">Activo</span>
-                                        )}
-                                    </p>
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
-                                        <FV label="Nombre Contacto" value={p.nombre_contacto} />
-                                        <FV label="Teléfono" value={p.tlf_contacto} />
-                                        <FV label="Email" value={p.email_contacto} lower />
+                            {/* Contactos para Notificaciones (Vista) */}
+                            {p.contacto_alternativo_activo && (() => {
+                                const lista = (Array.isArray(p.contactos_notificacion) && p.contactos_notificacion.length)
+                                    ? p.contactos_notificacion
+                                    : ((p.nombre_contacto || p.tlf_contacto || p.email_contacto)
+                                        ? [{ nombre: p.nombre_contacto, tlf: p.tlf_contacto, email: p.email_contacto }]
+                                        : []);
+                                if (!lista.length) return null;
+                                return (
+                                    <div className="space-y-2">
+                                        <p className="text-[10px] uppercase tracking-[0.2em] font-black text-white/30 flex items-center gap-2">
+                                            {lista.length > 1 ? 'Contactos para Notificaciones' : 'Contacto para Notificaciones'}
+                                            {p.contacto_notificaciones_activas && (
+                                                <span className="text-[9px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-1.5 py-0.5 rounded uppercase tracking-tighter">Activo</span>
+                                            )}
+                                        </p>
+                                        <div className="space-y-2">
+                                            {lista.map((c, i) => (
+                                                <div key={i} className="p-3 bg-bkg-surface rounded-xl border border-white/[0.06] grid grid-cols-1 sm:grid-cols-3 gap-x-4 gap-y-2">
+                                                    <FV label="Nombre" value={c.nombre} />
+                                                    <FV label="Teléfono" value={c.tlf} />
+                                                    <FV label="Email" value={c.email} lower />
+                                                </div>
+                                            ))}
+                                        </div>
                                     </div>
-                                </div>
-                            )}
+                                );
+                            })()}
 
                             {(p.ccaa || p.provincia || p.municipio || p.direccion) && (
                                 <div className="space-y-2">
@@ -1101,21 +1131,43 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                                 </div>
 
                                 {form.contacto_alternativo_activo && (
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-4 bg-white/[0.02] border border-white/[0.05] rounded-2xl animate-fade-in-up">
-                                        <FI label="Nombre de Contacto" required>
-                                            <Inp value={form.nombre_contacto} uppercase required placeholder="Ej: ISA, SU MUJER"
-                                                onChange={e => upd({ nombre_contacto: e.target.value })} />
-                                        </FI>
-                                        <FI label="Teléfono de Contacto">
-                                            <Inp value={form.tlf_contacto} placeholder="600 000 000"
-                                                onChange={e => upd({ tlf_contacto: e.target.value })} />
-                                        </FI>
-                                        <FI label="Email de Contacto">
-                                            <Inp type="email" value={form.email_contacto} placeholder="contacto@ejemplo.com"
-                                                onChange={e => upd({ email_contacto: e.target.value.toLowerCase() })} />
-                                        </FI>
+                                    <div className="space-y-3 animate-fade-in-up">
+                                        {(form.contactos_notificacion || []).map((c, i) => (
+                                            <div key={i} className="relative p-4 bg-white/[0.02] border border-white/[0.05] rounded-2xl">
+                                                {(form.contactos_notificacion.length > 1) && (
+                                                    <button type="button" onClick={() => removeContacto(i)} title="Eliminar contacto"
+                                                        className="absolute top-2.5 right-2.5 p-1.5 rounded-lg text-white/30 hover:text-red-400 hover:bg-red-500/10 transition-all">
+                                                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" /></svg>
+                                                    </button>
+                                                )}
+                                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                                    <FI label="Nombre de Contacto" required={i === 0}>
+                                                        <Inp value={c.nombre} uppercase placeholder="Ej: VICTORIA"
+                                                            onChange={e => updContacto(i, { nombre: e.target.value })} />
+                                                    </FI>
+                                                    <FI label="Teléfono de Contacto">
+                                                        <Inp value={c.tlf} placeholder="600 000 000"
+                                                            onChange={e => updContacto(i, { tlf: e.target.value })} />
+                                                    </FI>
+                                                    <div className="sm:col-span-2">
+                                                        <FI label="Email de Contacto">
+                                                            <Inp type="email" value={c.email} placeholder="contacto@ejemplo.com"
+                                                                onChange={e => updContacto(i, { email: e.target.value.toLowerCase() })} />
+                                                        </FI>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ))}
 
-                                        <div className="sm:col-span-2 pt-2">
+                                        {/* Añadir otro contacto */}
+                                        <button type="button" onClick={addContacto}
+                                            className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border border-dashed border-white/15 text-white/40 hover:text-brand hover:border-brand/40 hover:bg-brand/5 transition-all text-[11px] font-black uppercase tracking-widest">
+                                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" /></svg>
+                                            Añadir otro contacto
+                                        </button>
+
+                                        {/* Toggle global: dirigir las notificaciones a estos contactos */}
+                                        <div className="pt-1">
                                             <label className="flex items-center gap-3 cursor-pointer group">
                                                 <div className="relative h-5 w-9 shrink-0">
                                                     <input type="checkbox" checked={form.contacto_notificaciones_activas}
@@ -1124,8 +1176,8 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                                                     <div className="w-full h-full bg-white/10 border border-white/10 rounded-full peer peer-checked:bg-emerald-500 peer-checked:after:translate-x-[16px] after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all"></div>
                                                 </div>
                                                 <div>
-                                                    <span className="text-[10px] font-black uppercase tracking-widest text-white/40 group-hover:text-white/60 transition-colors">Enviar notificaciones a este contacto</span>
-                                                    <p className="text-[9px] text-white/20 -mt-0.5">Si se activa, el partner recibirá WhatsApp/Emails en estos datos en lugar de los principales.</p>
+                                                    <span className="text-[10px] font-black uppercase tracking-widest text-white/40 group-hover:text-white/60 transition-colors">Enviar notificaciones a estos contactos</span>
+                                                    <p className="text-[9px] text-white/20 -mt-0.5">Si se activa, las notificaciones (WhatsApp/Email) se dirigirán a estos contactos en lugar de a los principales. Al enviar podrás elegir a cuáles.</p>
                                                 </div>
                                             </label>
                                         </div>

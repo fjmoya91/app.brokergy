@@ -2,6 +2,37 @@ const express = require('express');
 const router = express.Router();
 const supabase = require('../services/supabaseClient');
 const { requireAuth, enforceAuth } = require('../middleware/auth');
+const { normalizeContactos } = require('../services/notifyContacts');
+
+// Construye los campos de contacto a persistir a partir del payload:
+//  · contactos_notificacion: array normalizado de { nombre, tlf, email } (fuente preferente)
+//  · espejo del PRIMER contacto en nombre_contacto/tlf_contacto/email_contacto (compatibilidad
+//    con el código que aún lee el contacto único).
+// Si el payload no trae ni el array ni los campos planos, devuelve {} (no pisa nada en PATCH).
+function buildContactosFields(payload) {
+    const hasArray = payload.contactos_notificacion !== undefined;
+    const hasFlat = payload.nombre_contacto !== undefined
+        || payload.tlf_contacto !== undefined
+        || payload.email_contacto !== undefined;
+    if (!hasArray && !hasFlat) return {};
+
+    let contactos = normalizeContactos(payload.contactos_notificacion);
+    // Si no vino el array pero sí los campos planos (otros callers antiguos), reconstituirlo.
+    if (!hasArray && hasFlat) {
+        contactos = normalizeContactos([{
+            nombre: payload.nombre_contacto,
+            tlf: payload.tlf_contacto,
+            email: payload.email_contacto,
+        }]);
+    }
+    const first = contactos[0] || { nombre: '', tlf: '', email: '' };
+    return {
+        contactos_notificacion: contactos,
+        nombre_contacto: first.nombre || null,
+        tlf_contacto: first.tlf || null,
+        email_contacto: first.email || null,
+    };
+}
 
 // GET /api/prescriptores -> Listar prescriptores
 router.get('/', enforceAuth, async (req, res) => {
@@ -434,9 +465,7 @@ router.post('/avanzado', enforceAuth, async (req, res) => {
             nif_responsable: payload.nif_responsable,
             logo_empresa: payload.logo_empresa,
             contacto_alternativo_activo: payload.contacto_alternativo_activo || false,
-            nombre_contacto: payload.nombre_contacto,
-            tlf_contacto: payload.tlf_contacto,
-            email_contacto: payload.email_contacto,
+            ...buildContactosFields(payload),
             contacto_notificaciones_activas: payload.contacto_notificaciones_activas || false,
             tecnico_firmante_distinto: payload.tecnico_firmante_distinto || false,
             tecnico_firmante_nombre: payload.tecnico_firmante_nombre,
@@ -629,9 +658,7 @@ router.patch('/:id', enforceAuth, async (req, res) => {
             apellidos_responsable: payload.apellidos_responsable,
             nif_responsable: payload.nif_responsable,
             contacto_alternativo_activo: payload.contacto_alternativo_activo,
-            nombre_contacto: payload.nombre_contacto,
-            tlf_contacto: payload.tlf_contacto,
-            email_contacto: payload.email_contacto,
+            ...buildContactosFields(payload),
             contacto_notificaciones_activas: payload.contacto_notificaciones_activas,
             tecnico_firmante_distinto: payload.tecnico_firmante_distinto,
             tecnico_firmante_nombre: payload.tecnico_firmante_nombre,

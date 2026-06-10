@@ -10,6 +10,7 @@ const emailService = require('../services/emailService');
 const whatsappService = require('../services/whatsappService');
 const reformaUploadService = require('../services/reformaUploadService');
 const { applyStatus, stampSeguimientoTimestamps, markCertContact } = require('../services/seguimientoTracking');
+const { partnerNotifyTargets, normalizeContactos } = require('../services/notifyContacts');
 
 
 // ─── Helpers de notificación CEE registrado ───────────────────────────────────
@@ -229,6 +230,27 @@ router.get('/', enforceAuth, async (req, res) => {
         if (isCertificador) {
             if (!req.user.prescriptor_id) return res.json([]);
             data = data.filter(r => String(r.cee?.certificador_id) === String(req.user.prescriptor_id));
+        }
+
+        // Contador ligero de incidencias ABIERTAS por expediente (solo ADMIN gestiona
+        // incidencias; el badge rojo neón del listado se alimenta de aquí). Seleccionamos
+        // solo el subarray JSON `incidencias`, no el `documentacion` pesado que motivó la RPC.
+        if (canViewAll) {
+            const { data: incRows } = await supabase
+                .from('expedientes')
+                .select('id, inc:documentacion->incidencias');
+            const openByExp = new Map();
+            const gravesByExp = new Map();
+            (incRows || []).forEach(r => {
+                const abiertas = (r.inc || []).filter(i => i.estado !== 'SUBSANADA');
+                openByExp.set(r.id, abiertas.length);
+                gravesByExp.set(r.id, abiertas.filter(i => i.severidad === 'GRAVE').length);
+            });
+            data = data.map(r => ({
+                ...r,
+                incidencias_abiertas: openByExp.get(r.id) || 0,
+                incidencias_graves_abiertas: gravesByExp.get(r.id) || 0
+            }));
         }
 
         res.json(data);
@@ -569,17 +591,32 @@ async function resolveSolicitudContacto(exp, target) {
             .select('instalador_asociado_id, prescriptor_id')
             .eq('id', exp.oportunidad_id).maybeSingle();
         const insId = op?.instalador_asociado_id || op?.prescriptor_id || null;
-        if (!insId) return { nombre: null, tlf: null, email: null };
+        if (!insId) return { nombre: null, tlf: null, email: null, contactos: [] };
         // OJO: prescriptores NO tiene columnas telefono/movil.
         const { data: p, error: pErr } = await supabase.from('prescriptores')
-            .select('razon_social, acronimo, tlf, tlf_contacto, landing_telefono_contacto, email, email_contacto, nombre_contacto, contacto_notificaciones_activas')
+            .select('razon_social, acronimo, es_autonomo, nombre_responsable, apellidos_responsable, tlf, tlf_contacto, landing_telefono_contacto, email, email_contacto, nombre_contacto, contacto_notificaciones_activas, contactos_notificacion')
             .eq('id_empresa', insId).maybeSingle();
         if (pErr) console.warn('[solicitud contacto INSTALADOR]', pErr.message);
         const useContact = p?.contacto_notificaciones_activas === true || p?.contacto_notificaciones_activas === 'true';
+
+        // Lista de TODOS los contactos disponibles del instalador para el selector:
+        // representante/empresa + cada persona de contacto de notificaciones.
+        const contactos = [];
+        const repNombre = [p?.nombre_responsable, p?.apellidos_responsable].filter(Boolean).join(' ').trim()
+            || p?.razon_social || p?.acronimo || 'Instalador';
+        const repTlf = p?.tlf || p?.landing_telefono_contacto || '';
+        if (repTlf || p?.email) {
+            contactos.push({ id: 'rep', nombre: repNombre, tlf: repTlf || '', email: p?.email || '', tipo: p?.es_autonomo ? 'Autónomo' : 'Representante' });
+        }
+        normalizeContactos(p?.contactos_notificacion).forEach((c, i) => {
+            if (c.tlf || c.email) contactos.push({ id: `c${i}`, nombre: c.nombre || repNombre, tlf: c.tlf || '', email: c.email || '', tipo: 'Persona de contacto' });
+        });
+
         return {
             nombre: (useContact ? (p?.nombre_contacto || p?.razon_social) : (p?.razon_social || p?.acronimo)) || null,
             tlf: (useContact ? (p?.tlf_contacto || p?.tlf) : (p?.tlf || p?.tlf_contacto || p?.landing_telefono_contacto)) || null,
             email: (useContact ? (p?.email_contacto || p?.email) : (p?.email || p?.email_contacto)) || null,
+            contactos,
         };
     }
     // CLIENTE — la tabla clientes NO tiene columna `telefono`, solo `tlf`.
@@ -797,49 +834,37 @@ Puedes subirlas directamente al expediente a través de este enlace:
             if (op.prescriptor_id) {
                 const { data: partner } = await supabase.from('prescriptores').select('*').eq('id_empresa', op.prescriptor_id).maybeSingle();
                 if (partner) {
-                    let partnerName = (partner.acronimo || partner.razon_social || 'Partner').trim();
-                    let targetEmail = partner.email;
-                    let targetPhone = partner.tlf;
-
-                    console.log(`[Notify] Partner config:`, { 
-                        id: partner.id_empresa, 
-                        redirection: partner.contacto_notificaciones_activas, 
-                        contactPhone: partner.tlf_contacto, 
-                        mainPhone: partner.tlf 
-                    });
-
-                    // Redirección a persona de contacto si está activo
-                    const isRedirectionActive = partner.contacto_notificaciones_activas === true || partner.contacto_notificaciones_activas === 'true' || partner.contacto_notificaciones_activas === 1;
-                    
-                    if (isRedirectionActive) {
-                        if (partner.nombre_contacto) partnerName = partner.nombre_contacto;
-                        if (partner.email_contacto) targetEmail = partner.email_contacto;
-                        if (partner.tlf_contacto) targetPhone = partner.tlf_contacto;
-                        console.log(`[Notify] Redirección ACTIVADA -> Usando: ${targetPhone} / ${targetEmail}`);
-                    } else {
-                        console.log(`[Notify] Redirección DESACTIVADA -> Usando principal: ${targetPhone} / ${targetEmail}`);
-                    }
+                    // Lista de destinatarios (varios interlocutores posibles). Si la
+                    // redirección de notificaciones está activa, se avisa a TODOS los
+                    // contactos configurados; si no, al contacto principal del partner.
+                    const targets = partnerNotifyTargets(partner);
+                    console.log(`[Notify] Partner ${partner.id_empresa} → ${targets.length} destinatario(s)`,
+                        targets.map(t => ({ email: t.email, tlf: t.tlf })));
 
                     const partnerSubject = `${numExp} - ${clienteFull} · CEE ${labelType.toUpperCase()} Presentado`;
-                    
-                    // Email (Normal)
-                    if (sendEmail && targetEmail) {
-                        const intro = `¡Hola ${partnerName}! 👋\n\nTe informamos que ya se ha presentado el Certificado de Eficiencia Energética ${labelType} de tu cliente:`;
-                        const info = `Cliente: ${clienteFull}\nDirección: ${ubicacion}\nExpediente: ${numExp}`;
-                        const body = type === 'inicial'
-                            ? `${intro}\n\n${info}\n\n${photoTextEmail}\n\n${closingTextEmail}`
-                            : `${intro}\n\n${info}\n\nEl proceso continúa según lo previsto.\n\n¡Muchas gracias!\nBROKERGY — Ingeniería Energética`;
-                        await emailService.sendMail({ to: targetEmail, subject: partnerSubject, text: body }).catch(e => console.error('Error Email Partner:', e.message));
-                    }
 
-                    // WhatsApp (Negritas)
-                    if (sendWA && targetPhone && whatsappService) {
-                        const waIntro = `¡Hola *${partnerName}*! 👋\n\nTe informamos que ya se ha presentado el *Certificado de Eficiencia Energética ${labelType.toUpperCase()}* de tu cliente:`;
-                        const waInfo = `*Cliente:* *${clienteFull}*\n*Dirección:* ${ubicacion}\n*Expediente:* ${numExp}`;
-                        const waBody = type === 'inicial'
-                            ? `${waIntro}\n\n${waInfo}\n\n${photoTextWA}\n\n${closingTextWA}`
-                            : `${waIntro}\n\n${waInfo}\n\nEl proceso continúa según lo previsto.\n\n¡Muchas gracias!\n*BROKERGY — Ingeniería Energética*`;
-                        await whatsappService.sendText(targetPhone, waBody).catch(e => console.error('Error WA Partner:', e.message));
+                    for (const c of targets) {
+                        const partnerName = (c.nombre || partner.acronimo || partner.razon_social || 'Partner').trim();
+
+                        // Email (Normal)
+                        if (sendEmail && c.email) {
+                            const intro = `¡Hola ${partnerName}! 👋\n\nTe informamos que ya se ha presentado el Certificado de Eficiencia Energética ${labelType} de tu cliente:`;
+                            const info = `Cliente: ${clienteFull}\nDirección: ${ubicacion}\nExpediente: ${numExp}`;
+                            const body = type === 'inicial'
+                                ? `${intro}\n\n${info}\n\n${photoTextEmail}\n\n${closingTextEmail}`
+                                : `${intro}\n\n${info}\n\nEl proceso continúa según lo previsto.\n\n¡Muchas gracias!\nBROKERGY — Ingeniería Energética`;
+                            await emailService.sendMail({ to: c.email, subject: partnerSubject, text: body }).catch(e => console.error('Error Email Partner:', e.message));
+                        }
+
+                        // WhatsApp (Negritas)
+                        if (sendWA && c.tlf && whatsappService) {
+                            const waIntro = `¡Hola *${partnerName}*! 👋\n\nTe informamos que ya se ha presentado el *Certificado de Eficiencia Energética ${labelType.toUpperCase()}* de tu cliente:`;
+                            const waInfo = `*Cliente:* *${clienteFull}*\n*Dirección:* ${ubicacion}\n*Expediente:* ${numExp}`;
+                            const waBody = type === 'inicial'
+                                ? `${waIntro}\n\n${waInfo}\n\n${photoTextWA}\n\n${closingTextWA}`
+                                : `${waIntro}\n\n${waInfo}\n\nEl proceso continúa según lo previsto.\n\n¡Muchas gracias!\n*BROKERGY — Ingeniería Energética*`;
+                            await whatsappService.sendText(c.tlf, waBody).catch(e => console.error('Error WA Partner:', e.message));
+                        }
                     }
                 }
             }
@@ -1368,6 +1393,170 @@ router.put('/:id/historial/:entryId', adminOnly, async (req, res) => {
     }
 });
 
+// ─── Incidencias del expediente (control de calidad — SOLO ADMIN) ─────────────
+// Viven en documentacion.incidencias[] (mismo patrón JSONB read-modify-write que
+// el historial). Cada incidencia:
+//   { id, texto, estado:'ABIERTA'|'SUBSANADA', fecha, usuario, resuelta_at, resuelta_por }
+
+const incidenciaUsuario = (req) =>
+    req.user?.rol_nombre === 'ADMIN'
+        ? 'ADMINISTRADOR'
+        : (req.user?.acronimo || req.user?.razon_social || 'PARTNER');
+
+// Procedencia (origen) de la incidencia. Valor desconocido → REVISION_INTERNA.
+const PROCEDENCIAS_VALIDAS = ['REVISION_INTERNA', 'VERIFICACION', 'GESTOR_AUTONOMICO', 'AGENTE_IA'];
+const normProcedencia = (p) => PROCEDENCIAS_VALIDAS.includes(p) ? p : 'REVISION_INTERNA';
+
+// Severidad: GRAVE (hay que tomar acción sí o sí) | LEVE (pasable, solo observación).
+// Valor desconocido → GRAVE (más seguro: no dejar pasar algo como leve por error).
+const SEVERIDADES_VALIDAS = ['LEVE', 'GRAVE'];
+const normSeveridad = (s) => SEVERIDADES_VALIDAS.includes(s) ? s : 'GRAVE';
+
+// Lee documentacion + array de incidencias de un expediente (o null si no existe).
+async function loadIncidencias(id) {
+    const { data: exp, error } = await supabase
+        .from('expedientes').select('documentacion').eq('id', id).single();
+    if (error || !exp) return null;
+    const docObj = exp.documentacion || {};
+    return { docObj, incidencias: docObj.incidencias || [] };
+}
+
+// Persiste el array de incidencias y devuelve la lista actualizada.
+async function saveIncidencias(id, docObj, incidencias) {
+    docObj.incidencias = incidencias;
+    const { data: upData, error } = await supabase
+        .from('expedientes')
+        .update({ documentacion: docObj, updated_at: new Date().toISOString() })
+        .eq('id', id)
+        .select('documentacion')
+        .single();
+    if (error) return null;
+    return upData.documentacion?.incidencias || [];
+}
+
+// GET lista de incidencias (ligero — lo usa el modal para refrescar)
+router.get('/:id/incidencias', adminOnly, async (req, res) => {
+    try {
+        const loaded = await loadIncidencias(req.params.id);
+        if (!loaded) return res.status(404).json({ error: 'No encontrado.' });
+        res.status(200).json(loaded.incidencias);
+    } catch (error) {
+        res.status(500).json({ error: 'Error del servidor.' });
+    }
+});
+
+// Crear incidencia
+router.post('/:id/incidencias', adminOnly, async (req, res) => {
+    try {
+        // Sin normalizeData: el texto de la incidencia debe conservar mayúsculas/minúsculas tal cual.
+        const body = req.body || {};
+        const texto = (body.texto || '').trim();
+        if (!texto) return res.status(400).json({ error: 'El texto de la incidencia es obligatorio.' });
+
+        const loaded = await loadIncidencias(req.params.id);
+        if (!loaded) return res.status(404).json({ error: 'No encontrado.' });
+
+        loaded.incidencias.push({
+            id: Date.now().toString() + '_inc',
+            texto,
+            procedencia: normProcedencia(body.procedencia),
+            severidad: normSeveridad(body.severidad),
+            estado: 'ABIERTA',
+            fecha: new Date().toISOString(),
+            usuario: incidenciaUsuario(req),
+            resuelta_at: null,
+            resuelta_por: null
+        });
+
+        const saved = await saveIncidencias(req.params.id, loaded.docObj, loaded.incidencias);
+        if (!saved) return res.status(500).json({ error: 'Error al registrar la incidencia.' });
+        res.status(200).json(saved);
+    } catch (error) {
+        res.status(500).json({ error: 'Error del servidor.' });
+    }
+});
+
+// Marcar como SUBSANADA (botón OK)
+router.patch('/:id/incidencias/:incId/resolver', adminOnly, async (req, res) => {
+    try {
+        const loaded = await loadIncidencias(req.params.id);
+        if (!loaded) return res.status(404).json({ error: 'No encontrado.' });
+        const inc = loaded.incidencias.find(i => i.id === req.params.incId);
+        if (!inc) return res.status(404).json({ error: 'Incidencia no encontrada.' });
+
+        inc.estado = 'SUBSANADA';
+        inc.resuelta_at = new Date().toISOString();
+        inc.resuelta_por = incidenciaUsuario(req);
+
+        const saved = await saveIncidencias(req.params.id, loaded.docObj, loaded.incidencias);
+        if (!saved) return res.status(500).json({ error: 'Error al actualizar la incidencia.' });
+        res.status(200).json(saved);
+    } catch (error) {
+        res.status(500).json({ error: 'Error del servidor.' });
+    }
+});
+
+// Reabrir (volver a ABIERTA)
+router.patch('/:id/incidencias/:incId/reabrir', adminOnly, async (req, res) => {
+    try {
+        const loaded = await loadIncidencias(req.params.id);
+        if (!loaded) return res.status(404).json({ error: 'No encontrado.' });
+        const inc = loaded.incidencias.find(i => i.id === req.params.incId);
+        if (!inc) return res.status(404).json({ error: 'Incidencia no encontrada.' });
+
+        inc.estado = 'ABIERTA';
+        inc.resuelta_at = null;
+        inc.resuelta_por = null;
+
+        const saved = await saveIncidencias(req.params.id, loaded.docObj, loaded.incidencias);
+        if (!saved) return res.status(500).json({ error: 'Error al reabrir la incidencia.' });
+        res.status(200).json(saved);
+    } catch (error) {
+        res.status(500).json({ error: 'Error del servidor.' });
+    }
+});
+
+// Editar texto de una incidencia
+router.put('/:id/incidencias/:incId', adminOnly, async (req, res) => {
+    try {
+        // Sin normalizeData: el texto de la incidencia debe conservar mayúsculas/minúsculas tal cual.
+        const body = req.body || {};
+        const texto = (body.texto || '').trim();
+        if (!texto) return res.status(400).json({ error: 'El texto es obligatorio.' });
+
+        const loaded = await loadIncidencias(req.params.id);
+        if (!loaded) return res.status(404).json({ error: 'No encontrado.' });
+        const inc = loaded.incidencias.find(i => i.id === req.params.incId);
+        if (!inc) return res.status(404).json({ error: 'Incidencia no encontrada.' });
+
+        inc.texto = texto;
+        if (body.procedencia !== undefined) inc.procedencia = normProcedencia(body.procedencia);
+        if (body.severidad !== undefined) inc.severidad = normSeveridad(body.severidad);
+        inc.updated_at = new Date().toISOString();
+
+        const saved = await saveIncidencias(req.params.id, loaded.docObj, loaded.incidencias);
+        if (!saved) return res.status(500).json({ error: 'Error al actualizar la incidencia.' });
+        res.status(200).json(saved);
+    } catch (error) {
+        res.status(500).json({ error: 'Error del servidor.' });
+    }
+});
+
+// Borrar incidencia
+router.delete('/:id/incidencias/:incId', adminOnly, async (req, res) => {
+    try {
+        const loaded = await loadIncidencias(req.params.id);
+        if (!loaded) return res.status(404).json({ error: 'No encontrado.' });
+
+        const next = loaded.incidencias.filter(i => i.id !== req.params.incId);
+        const saved = await saveIncidencias(req.params.id, loaded.docObj, next);
+        if (!saved) return res.status(500).json({ error: 'Error al borrar la incidencia.' });
+        res.status(200).json(saved);
+    } catch (error) {
+        res.status(500).json({ error: 'Error del servidor.' });
+    }
+});
+
 // ─── POST /api/expedientes/:id/facturas/upload ────────────────────────────────
 // Sube una factura PDF a la carpeta "5.FACTURAS" de la oportunidad en Drive.
 // Body JSON: { base64, fileName, mimeType? }
@@ -1766,7 +1955,7 @@ router.post('/:id/memoria-rite/generate', enforceAuth, async (req, res) => {
 // microservicio. Body: { channels: ['email','whatsapp'], message }.
 router.post('/:id/memoria-rite/send', enforceAuth, async (req, res) => {
     try {
-        const { channels = [], message = '', to, phone } = req.body || {};
+        const { channels = [], message = '', to, phone, recipients } = req.body || {};
         const chans = Array.isArray(channels) ? channels : [];
         if (!chans.includes('email') && !chans.includes('whatsapp')) {
             return res.status(400).json({ error: 'Indica al menos un canal (email/whatsapp)' });
@@ -1777,12 +1966,25 @@ router.post('/:id/memoria-rite/send', enforceAuth, async (req, res) => {
         const { exp, cli, op, normalizedDatos, pres } = ctx;
         if (!pres) return res.status(400).json({ error: 'El expediente no tiene instalador asignado' });
 
-        // Contacto del instalador. Si el frontend manda `to`/`phone` (contacto
-        // elegido en el popup), se usan; si no, fallback al contacto del prescriptor
-        // (prioriza el contacto de notificaciones si está activo).
+        // Destinatarios. Si el frontend manda `recipients` (varios contactos elegidos
+        // en el popup), se envía a todos. Compatibilidad: `to`/`phone` = un solo
+        // destinatario; si no llega nada, fallback al contacto del prescriptor.
         const useContact = pres.contacto_notificaciones_activas === true || pres.contacto_notificaciones_activas === 'true';
-        const instEmail = ((to || (useContact ? (pres.email_contacto || pres.email) : pres.email)) || '').trim();
-        const instTlf = ((phone || (useContact ? (pres.tlf_contacto || pres.tlf || pres.telefono) : (pres.tlf || pres.telefono))) || '').trim();
+        let destinatarios;
+        if (Array.isArray(recipients) && recipients.length) {
+            destinatarios = recipients.map(r => ({
+                nombre: (r?.nombre || '').toString().trim(),
+                email: (r?.email || '').toString().trim(),
+                tlf: (r?.phone || r?.tlf || '').toString().trim(),
+            }));
+        } else {
+            const instEmail = ((to || (useContact ? (pres.email_contacto || pres.email) : pres.email)) || '').trim();
+            const instTlf = ((phone || (useContact ? (pres.tlf_contacto || pres.tlf || pres.telefono) : (pres.tlf || pres.telefono))) || '').trim();
+            destinatarios = [{
+                nombre: useContact ? (pres.nombre_contacto || pres.razon_social || '') : (pres.nombre_responsable || pres.razon_social || ''),
+                email: instEmail, tlf: instTlf,
+            }];
+        }
 
         // Generar ficheros frescos vía microservicio
         const { expPayload, instaladorPayload } = buildRitePayloads({ exp, cli, op, normalizedDatos, pres });
@@ -1802,69 +2004,76 @@ router.post('/:id/memoria-rite/send', enforceAuth, async (req, res) => {
         // Se envían 3 ficheros: Memoria (Word) + Memoria (PDF) + Borrador del certificado.
         const docsEnviar = [memoria, memoriaPdf, borrador].filter(Boolean);
 
-        const result = { email: null, whatsapp: null };
+        // Envía a UN destinatario por los canales seleccionados. Devuelve el detalle por canal.
+        async function sendToOne(dest) {
+            const out = { nombre: dest.nombre || '', email: null, whatsapp: null };
+            const destEmail = (dest.email || '').trim();
+            const destTlf = (dest.tlf || '').trim();
 
-        // Email (los 3 documentos adjuntos)
-        if (chans.includes('email')) {
-            if (!instEmail) { result.email = { ok: false, error: 'El instalador no tiene email registrado' }; }
-            else {
-                try {
-                    const emailService = require('../services/emailService');
-                    const safeMsg = (message || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-                    const html = `
-                      <div style="font-family:Arial,Helvetica,sans-serif;max-width:600px;margin:0 auto;border:1px solid #eee;border-radius:12px;overflow:hidden">
-                        <div style="background:linear-gradient(135deg,#f59e0b,#ea580c);padding:24px 28px;color:#fff">
-                          <h1 style="margin:0;font-size:20px;letter-spacing:.5px">BROKERGY</h1>
-                          <p style="margin:4px 0 0;font-size:12px;opacity:.9">Ingeniería Energética · Documentación RITE</p>
-                        </div>
-                        <div style="padding:24px 28px;color:#222;font-size:14px;line-height:1.6;white-space:pre-wrap">${safeMsg}</div>
-                        <div style="padding:0 28px 24px;color:#555;font-size:12px">
-                          📎 Adjuntos: <b>Memoria Técnica RITE</b> (Word${memoriaPdf ? ' y PDF' : ''}) y <b>Borrador del Certificado de Instalación Térmica</b> (PDF).
-                        </div>
-                      </div>`;
-                    await emailService.sendMail({
-                        to: instEmail,
-                        subject: `Documentación RITE — Expediente ${exp.numero_expediente}`,
-                        html,
-                        text: message || '',
-                        attachments: docsEnviar.map(f => ({ filename: f.name, content: Buffer.from(f.base64, 'base64') }))
-                    });
-                    result.email = { ok: true, to: instEmail };
-                } catch (e) { result.email = { ok: false, error: e.message }; }
+            if (chans.includes('email')) {
+                if (!destEmail) { out.email = { ok: false, error: 'Sin email' }; }
+                else {
+                    try {
+                        const safeMsg = (message || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                        const html = `
+                          <div style="font-family:Arial,Helvetica,sans-serif;max-width:600px;margin:0 auto;border:1px solid #eee;border-radius:12px;overflow:hidden">
+                            <div style="background:linear-gradient(135deg,#f59e0b,#ea580c);padding:24px 28px;color:#fff">
+                              <h1 style="margin:0;font-size:20px;letter-spacing:.5px">BROKERGY</h1>
+                              <p style="margin:4px 0 0;font-size:12px;opacity:.9">Ingeniería Energética · Documentación RITE</p>
+                            </div>
+                            <div style="padding:24px 28px;color:#222;font-size:14px;line-height:1.6;white-space:pre-wrap">${safeMsg}</div>
+                            <div style="padding:0 28px 24px;color:#555;font-size:12px">
+                              📎 Adjuntos: <b>Memoria Técnica RITE</b> (Word${memoriaPdf ? ' y PDF' : ''}) y <b>Borrador del Certificado de Instalación Térmica</b> (PDF).
+                            </div>
+                          </div>`;
+                        await emailService.sendMail({
+                            to: destEmail,
+                            subject: `Documentación RITE — Expediente ${exp.numero_expediente}`,
+                            html,
+                            text: message || '',
+                            attachments: docsEnviar.map(f => ({ filename: f.name, content: Buffer.from(f.base64, 'base64') }))
+                        });
+                        out.email = { ok: true, to: destEmail };
+                    } catch (e) { out.email = { ok: false, error: e.message }; }
+                }
             }
+
+            if (chans.includes('whatsapp')) {
+                if (!destTlf) { out.whatsapp = { ok: false, error: 'Sin teléfono' }; }
+                else {
+                    try {
+                        const st = whatsappService.getStatus();
+                        if (!st || !st.ready) throw new Error('WhatsApp no está conectado');
+                        // 1º el borrador con el mensaje; luego memoria Word y PDF.
+                        const orden = [
+                            { f: borrador, caption: message || undefined },
+                            { f: memoria, caption: 'Memoria Técnica RITE (Word) — revisar y firmar.' },
+                            { f: memoriaPdf, caption: 'Memoria Técnica RITE (PDF) — si no hace falta editar.' }
+                        ].filter(x => x.f);
+                        for (const { f, caption } of orden) {
+                            await whatsappService.sendMedia(destTlf,
+                                { base64: f.base64, filename: f.name, mimetype: f.mimetype || 'application/pdf' },
+                                { caption, asDocument: true });
+                        }
+                        out.whatsapp = { ok: true, phone: destTlf };
+                    } catch (e) { out.whatsapp = { ok: false, error: e.message }; }
+                }
+            }
+            return out;
         }
 
-        // WhatsApp (Borrador con el mensaje + memorias a continuación)
-        if (chans.includes('whatsapp')) {
-            if (!instTlf) { result.whatsapp = { ok: false, error: 'El instalador no tiene teléfono registrado' }; }
-            else {
-                try {
-                    const wwa = require('../services/whatsappService');
-                    const st = wwa.getStatus();
-                    if (!st || !st.ready) throw new Error('WhatsApp no está conectado');
-                    // 1º el borrador con el mensaje; luego memoria Word y PDF.
-                    const orden = [
-                        { f: borrador, caption: message || undefined },
-                        { f: memoria, caption: 'Memoria Técnica RITE (Word) — revisar y firmar.' },
-                        { f: memoriaPdf, caption: 'Memoria Técnica RITE (PDF) — si no hace falta editar.' }
-                    ].filter(x => x.f);
-                    for (const { f, caption } of orden) {
-                        await wwa.sendMedia(instTlf,
-                            { base64: f.base64, filename: f.name, mimetype: f.mimetype || 'application/pdf' },
-                            { caption, asDocument: true });
-                    }
-                    result.whatsapp = { ok: true, phone: instTlf };
-                } catch (e) { result.whatsapp = { ok: false, error: e.message }; }
-            }
-        }
+        // Envío secuencial (WhatsApp tiene rate-limit propio; evitamos ráfagas).
+        const results = [];
+        for (const dest of destinatarios) results.push(await sendToOne(dest));
 
-        const anyOk = (result.email && result.email.ok) || (result.whatsapp && result.whatsapp.ok);
+        const anyOk = results.some(r => (r.email && r.email.ok) || (r.whatsapp && r.whatsapp.ok));
+        // Compatibilidad: top-level email/whatsapp del primer destinatario.
+        const first = results[0] || {};
         return res.status(anyOk ? 200 : 502).json({
-            ...result,
-            contacto: {
-                nombre: useContact ? (pres.nombre_contacto || pres.razon_social || '') : (pres.nombre_responsable || pres.razon_social || ''),
-                email: instEmail, tlf: instTlf
-            }
+            results,
+            email: first.email,
+            whatsapp: first.whatsapp,
+            contacto: { nombre: first.nombre || '', email: (destinatarios[0] || {}).email || '', tlf: (destinatarios[0] || {}).tlf || '' },
         });
     } catch (err) {
         console.error('Error POST expedientes/:id/memoria-rite/send:', err);

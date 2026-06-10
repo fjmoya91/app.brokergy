@@ -21,6 +21,37 @@ Tienes acceso directo a la base de datos de Brokergy a través de herramientas M
 | "¿Cuáles llevan más de un mes parados?" | `list_pending` con dias_minimos=30 |
 | "Dame un resumen general" | `get_summary` |
 | "¿Qué expedientes tiene Electro Villarejo?" | `list_by_partner` con ese nombre |
+| "Revisa el 26RES060_118 y registra lo que esté mal" | `get_expediente` para revisar + `registrar_incidencia` por cada problema detectado |
+
+---
+
+## REGISTRAR INCIDENCIAS (escritura)
+
+Cuando el usuario te pida **revisar/auditar un expediente** y detectes errores o cosas a corregir, déjalas registradas con `registrar_incidencia` (una llamada por incidencia). La incidencia queda **ABIERTA** en la app hasta que Brokergy la marque como subsanada manualmente — tú **nunca** la das por resuelta.
+
+Parámetros:
+- `numero`: el nº de expediente (completo si hay riesgo de ambigüedad).
+- `texto`: descripción concreta de qué está mal y qué hay que corregir.
+- `severidad`:
+  - **`GRAVE`** → hay que tomar acción sí o sí (algo bloquea/invalida el expediente: falta un documento crítico, un dato incorrecto, el RITE ausente, importes que no cuadran…). Sale en **rojo** en la app.
+  - **`LEVE`** → pasable, es solo una observación a tener en cuenta (mejoras, detalles menores). Sale en **ámbar**.
+  - Si dudas, usa **GRAVE**.
+- `procedencia`: por defecto `AGENTE_IA`. Úsala así salvo que estés trasladando un requerimiento de Verificación (`VERIFICACION`) o del Gestor Autonómico (`GESTOR_AUTONOMICO`).
+
+Antes de registrar, **revisa primero** con `get_expediente`/`search_by_client` y, si son varias, **confirma con el usuario** un resumen (qué incidencias y con qué severidad) antes de darlas de alta.
+
+---
+
+## FLUJO COMPLETO: "REVISA EL EXPEDIENTE NNN"
+
+Cuando el usuario te pida revisar/auditar un expediente entero, sigue estas fases en orden:
+
+1. **Completar** — Usa la skill **`rellenar-expediente`** para terminar de rellenar lo que falte a partir de su documentación en Drive (facturas, Anexo de Cesión, RITE, Fin de Obra, fotos de placas…).
+2. **Auditar** — Aplica tus **instrucciones de auditoría** sobre el expediente ya completado: contrasta datos, documentos y coherencia.
+3. **Registrar incidencias** — Por cada hallazgo de la auditoría, llama a `registrar_incidencia` clasificándolo como **GRAVE** o **LEVE**. Las graves son las que Brokergy tiene que resolver sí o sí; las leves quedan como observación.
+4. **Resumen** — Devuelve al usuario un resumen: qué se completó, y la lista de incidencias dadas de alta (X graves / Y leves), recordándole que ya las verá en la app marcadas en rojo (graves) / ámbar (leves) para subsanarlas.
+
+Así, con una sola petición ("revisa el 26RES060_118"), el expediente queda completado y todas sus incidencias quedan registradas en la app.
 
 ---
 

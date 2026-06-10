@@ -162,6 +162,81 @@ function createMcpServer() {
         }
     );
 
+    // ── Tool 6: Registrar una incidencia (ESCRITURA) ──────────────────────────
+    // Permite que el agente, tras revisar un expediente, deje registrada una
+    // incidencia detectada. Se guarda en documentacion.incidencias[] del
+    // expediente (mismo formato que la app), en estado ABIERTA, hasta que
+    // Brokergy la marque OK/subsanada desde la aplicación.
+    mcp.tool(
+        'registrar_incidencia',
+        'Registra una incidencia detectada en un expediente (control de calidad). Úsalo cuando, tras revisar un expediente, detectes un error o algo que haya que corregir. Queda ABIERTA hasta que Brokergy la marque como subsanada en la app. NO marca nada como resuelto, solo da de alta el problema.',
+        {
+            numero: z.string().describe('Número del expediente, ej: 26RES060_118'),
+            texto: z.string().describe('Descripción de la incidencia detectada (qué está mal y qué hay que corregir)'),
+            severidad: z.enum(['LEVE', 'GRAVE'])
+                .optional()
+                .describe('GRAVE = hay que tomar acción sí o sí (bloquea/invalida el expediente). LEVE = pasable, solo una observación a tener en cuenta. Si dudas, usa GRAVE. Por defecto GRAVE.'),
+            procedencia: z.enum(['REVISION_INTERNA', 'VERIFICACION', 'GESTOR_AUTONOMICO', 'AGENTE_IA'])
+                .optional()
+                .describe('Origen de la incidencia. Por defecto AGENTE_IA (la detectó el agente). Usa GESTOR_AUTONOMICO o VERIFICACION solo si trasladas un requerimiento de esos organismos.')
+        },
+        async ({ numero, texto, severidad = 'GRAVE', procedencia = 'AGENTE_IA' }) => {
+            const clean = (texto || '').trim();
+            if (!clean) return err('El texto de la incidencia es obligatorio.');
+            const sev = ['LEVE', 'GRAVE'].includes(severidad) ? severidad : 'GRAVE';
+
+            // Buscar en la TABLA base (no en la vista) para poder leer/escribir documentacion.
+            const { data: matches, error: findErr } = await supabase
+                .from('expedientes')
+                .select('id, numero_expediente, documentacion')
+                .ilike('numero_expediente', `%${numero.replace(/\s/g, '')}%`);
+            if (findErr) return err(findErr.message);
+            if (!matches || matches.length === 0) {
+                return ok({ ok: false, message: `No se encontró ningún expediente que coincida con "${numero}".` });
+            }
+            if (matches.length > 1) {
+                return ok({
+                    ok: false,
+                    message: `Hay ${matches.length} expedientes que coinciden con "${numero}". Indica el número completo.`,
+                    coincidencias: matches.map(m => m.numero_expediente)
+                });
+            }
+
+            const exp = matches[0];
+            const docObj = exp.documentacion || {};
+            const incidencias = docObj.incidencias || [];
+            const incidencia = {
+                id: `${Date.now()}_inc`,
+                texto: clean,
+                procedencia,
+                severidad: sev,
+                estado: 'ABIERTA',
+                fecha: new Date().toISOString(),
+                usuario: 'AGENTE IA',
+                resuelta_at: null,
+                resuelta_por: null
+            };
+            incidencias.push(incidencia);
+            docObj.incidencias = incidencias;
+
+            const { error: upErr } = await supabase
+                .from('expedientes')
+                .update({ documentacion: docObj, updated_at: new Date().toISOString() })
+                .eq('id', exp.id);
+            if (upErr) return err(upErr.message);
+
+            const abiertas = incidencias.filter(i => i.estado !== 'SUBSANADA');
+            return ok({
+                ok: true,
+                expediente: exp.numero_expediente,
+                incidencia_registrada: incidencia,
+                total_incidencias_abiertas: abiertas.length,
+                total_graves_abiertas: abiertas.filter(i => i.severidad === 'GRAVE').length,
+                message: `Incidencia ${sev} registrada en ${exp.numero_expediente}. Quedará marcada en la app (rojo si GRAVE, ámbar si LEVE) hasta que se subsane.`
+            });
+        }
+    );
+
     return mcp;
 }
 

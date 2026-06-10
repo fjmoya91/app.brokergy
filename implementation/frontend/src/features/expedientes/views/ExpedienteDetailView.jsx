@@ -20,6 +20,7 @@ import {
 import { SeguimientoModule } from '../components/SeguimientoModule';
 import { ComunicacionesCertificador } from '../components/ComunicacionesCertificador';
 import { HistorialModal } from '../../../components/HistorialModal';
+import { IncidenciasModal } from '../components/IncidenciasModal';
 import { DocsAdminModal } from '../../calculator/components/DocsAdminModal';
 import { ClienteDetailModal } from '../../clientes/components/ClienteDetailModal';
 
@@ -112,6 +113,7 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
     const [liveDoc, setLiveDoc] = useState(null);
     const [liveSeguimiento, setLiveSeguimiento] = useState(null);
     const [showQuickNote, setShowQuickNote] = useState(false);
+    const [showIncidencias, setShowIncidencias] = useState(false);
     const [showFotos, setShowFotos] = useState(false);
     const [showClienteModal, setShowClienteModal] = useState(false);
     const [localPrioridad, setLocalPrioridad] = useState('NORMAL');
@@ -476,7 +478,12 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
 
     const op = expediente.oportunidades || {};
     const cliente = expediente.clientes || {};
-    
+
+    // Incidencias detectadas (control de calidad — solo ADMIN). Viven en documentacion.incidencias[].
+    const incidenciasList = expediente.documentacion?.incidencias || [];
+    const incidenciasAbiertas = incidenciasList.filter(i => i.estado !== 'SUBSANADA').length;
+    const incidenciasGraves = incidenciasList.filter(i => i.estado !== 'SUBSANADA' && i.severidad === 'GRAVE').length;
+
     // Detección robusta de programa basada en el Nº DE EXPEDIENTE (La verdad absoluta del programa)
     const numero = expediente.numero_expediente || '';
     const isHybrid = numero.includes('RES093');
@@ -504,6 +511,33 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
 
     return (
         <div className="p-6 sm:p-8 lg:p-10 min-h-full">
+            {/* Aviso de incidencias abiertas (solo ADMIN) */}
+            {isAdmin && incidenciasAbiertas > 0 && (
+                <button
+                    onClick={() => setShowIncidencias(true)}
+                    className={`w-full mb-4 flex items-center justify-between gap-3 px-4 py-3 rounded-xl border text-left transition-all ${
+                        incidenciasGraves > 0
+                            ? 'bg-red-500/10 border-red-500/40 shadow-[0_0_14px_rgba(239,68,68,0.25)] hover:bg-red-500/15'
+                            : 'bg-amber-500/10 border-amber-500/40 shadow-[0_0_14px_rgba(245,158,11,0.18)] hover:bg-amber-500/15'
+                    }`}
+                >
+                    <span className="flex items-center gap-3">
+                        <svg className={`w-5 h-5 shrink-0 ${incidenciasGraves > 0 ? 'text-red-500 drop-shadow-[0_0_6px_rgba(239,68,68,0.85)]' : 'text-amber-400 drop-shadow-[0_0_6px_rgba(245,158,11,0.7)]'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                        </svg>
+                        <span className={`text-sm font-bold ${incidenciasGraves > 0 ? 'text-red-300' : 'text-amber-300'}`}>
+                            {incidenciasGraves > 0
+                                ? `${incidenciasGraves} incidencia${incidenciasGraves === 1 ? '' : 's'} GRAVE${incidenciasGraves === 1 ? '' : 'S'} sin subsanar`
+                                : `${incidenciasAbiertas} incidencia${incidenciasAbiertas === 1 ? '' : 's'} leve${incidenciasAbiertas === 1 ? '' : 's'} pendiente${incidenciasAbiertas === 1 ? '' : 's'}`}
+                            {incidenciasGraves > 0 && incidenciasAbiertas - incidenciasGraves > 0 && ` (+${incidenciasAbiertas - incidenciasGraves} leve${incidenciasAbiertas - incidenciasGraves === 1 ? '' : 's'})`}
+                        </span>
+                    </span>
+                    <span className={`text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-lg border ${incidenciasGraves > 0 ? 'text-red-400 bg-red-500/15 border-red-500/40' : 'text-amber-400 bg-amber-500/15 border-amber-500/40'}`}>
+                        Ver / Corregir
+                    </span>
+                </button>
+            )}
+
             {/* Header / breadcrumb */}
             <div className="flex items-start justify-between gap-4 mb-4 flex-wrap">
                 <div>
@@ -559,6 +593,34 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
                             </svg>
                          </button>
+
+                         {/* Botón de Incidencias (solo ADMIN). Rojo neón + badge si hay abiertas. */}
+                         {isAdmin && (
+                            <button
+                               onClick={() => setShowIncidencias(true)}
+                               className={`relative p-2.5 rounded-xl border transition-all shadow-lg group ${
+                                   incidenciasGraves > 0
+                                       ? 'bg-red-500/10 border-red-500/40 text-red-500 drop-shadow-[0_0_6px_rgba(239,68,68,0.85)] hover:bg-red-500/20'
+                                       : incidenciasAbiertas > 0
+                                           ? 'bg-amber-500/10 border-amber-500/40 text-amber-400 drop-shadow-[0_0_6px_rgba(245,158,11,0.7)] hover:bg-amber-500/20'
+                                           : 'bg-white/[0.03] border-white/[0.06] text-white/30 hover:text-red-400 hover:border-red-500/30 hover:bg-red-500/5'
+                               }`}
+                               title={incidenciasAbiertas > 0 ? `${incidenciasAbiertas} incidencia(s) abierta(s)${incidenciasGraves > 0 ? ` · ${incidenciasGraves} grave(s)` : ''}` : 'Incidencias del expediente'}
+                            >
+                               <svg className="w-4 h-4 transition-transform group-hover:scale-110" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                               </svg>
+                               {incidenciasAbiertas > 0 && (
+                                   <span className={`absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full text-white text-[10px] font-black ${
+                                       incidenciasGraves > 0
+                                           ? 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.9)]'
+                                           : 'bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.85)]'
+                                   }`}>
+                                       {incidenciasAbiertas}
+                                   </span>
+                               )}
+                            </button>
+                         )}
 
                         <div className="relative">
                             <button 
@@ -1088,7 +1150,18 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
                 idOportunidad={expediente?.oportunidades?.id_oportunidad}
                 referenciaCliente={expediente?.oportunidades?.referencia_cliente}
                 expediente={expediente}
+                incidenciasAbiertas={isAdmin ? incidenciasAbiertas : 0}
+                onOpenIncidencias={isAdmin ? () => { setShowQuickNote(false); setShowIncidencias(true); } : undefined}
             />
+
+            {isAdmin && (
+                <IncidenciasModal
+                    isOpen={showIncidencias}
+                    onClose={() => setShowIncidencias(false)}
+                    expedienteId={expediente?.id}
+                    onChanged={() => fetchExpediente(true)}
+                />
+            )}
 
             <DocsAdminModal
                 isOpen={showFotos}

@@ -17,6 +17,7 @@ const supabase = require('./supabaseClient');
 const driveService = require('./driveService');
 const emailService = require('./emailService');
 const whatsappService = require('./whatsappService');
+const { partnerNotifyTargets } = require('./notifyContacts');
 
 const SUBCARPETA_DOCS = '12. DOCUMENTOS PARA CEE'; // misma que usa /firma y scan-photos
 const BOILER_COMBUSTIBLE = ['gas', 'gasoleo', 'carbon', 'biomasa'];
@@ -582,16 +583,18 @@ async function removeFacturaFromExpediente(oportunidadId, driveId) {
 async function notifyRechazo({ opp, slotLabel, motivo, subidoPor }) {
     const dc = opp.datos_calculo || {};
     const link = buildUploadLink(opp.id, dc.upload_token || '');
-    let phone = null, email = null, nombre = '';
+    // Lista de destinatarios. Para el instalador puede haber VARIOS interlocutores
+    // (partnerNotifyTargets respeta el toggle de notificaciones). Para el cliente, uno.
+    let targets = [];
 
     try {
         if (subidoPor === 'instalador') {
             const insId = opp.instalador_asociado_id || opp.prescriptor_id;
             if (insId) {
                 const { data: p } = await supabase.from('prescriptores')
-                    .select('razon_social, tlf, tlf_contacto, email, email_contacto')
+                    .select('razon_social, acronimo, tlf, tlf_contacto, email, email_contacto, nombre_contacto, contacto_notificaciones_activas, contactos_notificacion')
                     .eq('id_empresa', insId).maybeSingle();
-                if (p) { phone = p.tlf || p.tlf_contacto; email = p.email || p.email_contacto; nombre = p.razon_social || ''; }
+                if (p) targets = partnerNotifyTargets(p);
             }
         } else {
             // cliente (también para 'admin'/desconocido: avisamos al cliente por defecto)
@@ -599,12 +602,20 @@ async function notifyRechazo({ opp, slotLabel, motivo, subidoPor }) {
                 const { data: c } = await supabase.from('clientes')
                     .select('nombre_razon_social, tlf, persona_contacto_tlf, email, persona_contacto_email')
                     .eq('id_cliente', opp.cliente_id).maybeSingle();
-                if (c) { phone = c.tlf || c.persona_contacto_tlf; email = c.email || c.persona_contacto_email; nombre = c.nombre_razon_social || ''; }
+                if (c) targets = [{
+                    nombre: c.nombre_razon_social || '',
+                    tlf: c.tlf || c.persona_contacto_tlf || null,
+                    email: c.email || c.persona_contacto_email || null,
+                }];
             }
         }
     } catch (e) { console.warn('[Reforma] resolviendo contacto rechazo:', e.message); }
 
-    const msg =
+    for (const t of targets) {
+        const nombre = t.nombre || '';
+        const phone = t.tlf, email = t.email;
+
+        const msg =
 `Hola${nombre ? ` *${nombre}*` : ''} 👋
 
 Revisando la documentación del expediente *${opp.id_oportunidad}* hemos visto que una foto no nos sirve y necesitamos que la repitas:
@@ -618,21 +629,22 @@ ${link}
 ¡Gracias!
 *BROKERGY — Ingeniería Energética*`;
 
-    if (phone) whatsappService.sendText(phone, msg).catch(err => console.warn('[Reforma] WA rechazo:', err.message));
-    if (email) {
-        emailService.sendMail({
-            to: email,
-            subject: `Foto a repetir · Expediente ${opp.id_oportunidad}`,
-            html: `<div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;color:#222">
-                <h2 style="color:#FF6D00">Hola ${nombre || ''},</h2>
-                <p>Revisando la documentación del expediente <strong>${opp.id_oportunidad}</strong> hemos visto que una foto no nos sirve:</p>
-                <p style="background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:12px"><strong>📷 ${slotLabel}</strong><br/>⚠️ Motivo: ${motivo}</p>
-                <p style="margin:24px 0"><a href="${link}" style="background:#FF6D00;color:#fff;padding:14px 24px;border-radius:10px;text-decoration:none;font-weight:bold">Volver a subir la foto</a></p>
-                <p style="color:#888;font-size:12px">Si el botón no funciona, copia este enlace:<br>${link}</p>
-                <p style="color:#888;font-size:12px">BROKERGY — Ingeniería Energética</p>
-            </div>`,
-            text: `Hola ${nombre || ''}, necesitamos que repitas la foto "${slotLabel}" del expediente ${opp.id_oportunidad}. Motivo: ${motivo}. Súbela aquí: ${link}`
-        }).catch(err => console.warn('[Reforma] email rechazo:', err.message));
+        if (phone) whatsappService.sendText(phone, msg).catch(err => console.warn('[Reforma] WA rechazo:', err.message));
+        if (email) {
+            emailService.sendMail({
+                to: email,
+                subject: `Foto a repetir · Expediente ${opp.id_oportunidad}`,
+                html: `<div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;color:#222">
+                    <h2 style="color:#FF6D00">Hola ${nombre || ''},</h2>
+                    <p>Revisando la documentación del expediente <strong>${opp.id_oportunidad}</strong> hemos visto que una foto no nos sirve:</p>
+                    <p style="background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:12px"><strong>📷 ${slotLabel}</strong><br/>⚠️ Motivo: ${motivo}</p>
+                    <p style="margin:24px 0"><a href="${link}" style="background:#FF6D00;color:#fff;padding:14px 24px;border-radius:10px;text-decoration:none;font-weight:bold">Volver a subir la foto</a></p>
+                    <p style="color:#888;font-size:12px">Si el botón no funciona, copia este enlace:<br>${link}</p>
+                    <p style="color:#888;font-size:12px">BROKERGY — Ingeniería Energética</p>
+                </div>`,
+                text: `Hola ${nombre || ''}, necesitamos que repitas la foto "${slotLabel}" del expediente ${opp.id_oportunidad}. Motivo: ${motivo}. Súbela aquí: ${link}`
+            }).catch(err => console.warn('[Reforma] email rechazo:', err.message));
+        }
     }
 }
 
