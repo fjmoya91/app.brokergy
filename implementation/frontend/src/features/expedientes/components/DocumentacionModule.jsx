@@ -932,9 +932,34 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                 onClose={() => setShowCertificadoRes080(false)}
                 expediente={expediente}
                 results={results}
-                attachments={local.res080_attachments}
-                onAttachmentsChange={(newAnexos) => setLocal(p => ({ ...p, res080_attachments: newAnexos }))}
+                attachments={cifoAttachments}
+                onAttachmentsChange={setCifoAttachments}
                 onSaveDrive={(link) => handleModalSaveDrive('cert_cifo_drive_link', link)}
+                onMarkSent={() => handleModalSaveDrive('cert_cifo_sent_at', new Date().toISOString())}
+                onSaveFichaLink={(type, link, driveId) => {
+                    const linkField = type === 'cal' ? 'ft_aerotermia_cal_link' : 'ft_aerotermia_acs_link';
+                    const idField   = type === 'cal' ? 'ft_aerotermia_cal_id'   : 'ft_aerotermia_acs_id';
+                    setLocal(prev => {
+                        const next = { ...prev, [linkField]: link, [idField]: driveId };
+                        onSave({ documentacion: next });
+                        return next;
+                    });
+                }}
+                onSaveExtraAnnexes={(action, annex) => {
+                    setLocal(prev => {
+                        const list = Array.isArray(prev.cifo_extra_annexes) ? prev.cifo_extra_annexes : [];
+                        let next;
+                        if (action === 'add') {
+                            next = { ...prev, cifo_extra_annexes: [...list, annex] };
+                        } else if (action === 'remove') {
+                            next = { ...prev, cifo_extra_annexes: list.filter(a => a.driveId !== annex.driveId) };
+                        } else {
+                            return prev;
+                        }
+                        onSave({ documentacion: next });
+                        return next;
+                    });
+                }}
             />
             <AnexoFotograficoModal
                 isOpen={showAnexoFotografico}

@@ -1,5 +1,6 @@
 import React, { useRef, useState, useCallback, useEffect } from 'react';
 import axios from 'axios';
+import confetti from 'canvas-confetti';
 import { useAuth } from '../../../context/AuthContext';
 import { BOILER_EFFICIENCIES } from '../../calculator/logic/calculation';
 
@@ -94,8 +95,10 @@ const DOC_CSS = `
     .text-center { text-align: center; }
     .font-bold { font-weight: bold; }
     .bg-gray { background-color: #f9f9f9; }
+    .doc-page ul { margin: 0 0 10px 20px; padding: 0; }
+    .doc-page li { margin-bottom: 4px; font-size: 9pt; line-height: 1.35; }
 
-    @media print { 
+    @media print {
         .doc-wrap { background: white !important; padding: 0 !important; } 
         .doc-page { margin: 0 !important; box-shadow: none !important; } 
         .doc-editable { background: transparent !important; box-shadow: none !important; }
@@ -128,9 +131,25 @@ const PDF_CSS = `
     .doc-p { margin-bottom: 2mm; line-height: 1.35; text-align: justify; font-size: 9pt; }
     .signature-area { margin-top: 8mm; text-align: right; font-size: 9.5pt; }
     .footer { margin-top: auto; display: flex; justify-content: space-between; font-size: 8pt; color: #999; border-top: 0.1mm solid #eee; padding-top: 2mm; }
+    .doc-page ul { margin: 0 0 10px 20px; padding: 0; }
+    .doc-page li { margin-bottom: 4px; font-size: 9pt; line-height: 1.4; }
 `;
 
-export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, attachments: externalAttachments, onAttachmentsChange, onSaveDrive }) {
+// Emisores de calefacción (para la justificación del SCOP, igual que RES060).
+const EMITTER_OPTIONS = [
+    { value: 'suelo_radiante',            label: 'Suelo Radiante (35°C)',              temp: 35 },
+    { value: 'radiadores_baja_temp',      label: 'Radiadores Baja Temperatura (45°C)', temp: 45 },
+    { value: 'radiadores_convencionales', label: 'Radiadores Convencionales (55°C)',   temp: 55 },
+];
+
+function getEmitterTemp(val) {
+    if (val === 'suelo_radiante') return 35;
+    if (val === 'radiadores_baja_temp') return 45;
+    if (val === 'radiadores_convencionales') return 55;
+    return 35;
+}
+
+export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, attachments: externalAttachments, onAttachmentsChange, onSaveDrive, onSaveFichaLink, onSaveExtraAnnexes, onMarkSent }) {
     const { user } = useAuth();
     const containerRef = useRef(null);
     const [generating, setGenerating] = useState(false);
@@ -140,22 +159,35 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, a
     const [scale, setScale] = useState(1);
     const [isGlobalDragging, setIsGlobalDragging] = useState(false);
 
-    // Initial structure for RES080 (managed by parent)
-    const initialAttachments = [
-        { id: 'aerotermia', label: 'Ficha técnica aerotermia', file: null, required: true },
-        { id: 'rite', label: 'Certificado RITE / Memoria técnica', file: null, required: true },
-        { id: 'marco', label: 'Ficha técnica Marco Ventana', file: null, required: false },
-        { id: 'cristal', label: 'Ficha técnica Vidrio/Cristal', file: null, required: false },
-        { id: 'aislamiento', label: 'Ficha técnica Aislamiento', file: null, required: false }
-    ];
+    // ── Envío del Certificado RES080 al cliente (contacto + canal Email/WhatsApp) ──
+    // El RES080 lo firma Brokergy (admin), así que el envío es la ENTREGA FINAL del
+    // certificado ya firmado al cliente (sin flujo de firma del instalador).
+    const [sendOpen, setSendOpen] = useState(false);
+    const [waReady, setWaReady] = useState(null);                 // null = sin comprobar
+    const [selectedContactId, setSelectedContactId] = useState(null);
+    const [manualContact, setManualContact] = useState({ name: '', phone: '', email: '' });
+    const [sendMessage, setSendMessage] = useState('');
+    const [sendStatus, setSendStatus] = useState(null);          // { ok, text }
+    const [channels, setChannels] = useState({ email: true, whatsapp: true });
+    const [sendPhase, setSendPhase] = useState(null);            // null | 'sending' | 'done'
+    const [sendResults, setSendResults] = useState([]);
+    const [loadingFichas, setLoadingFichas] = useState({ cal: false, acs: false });
+    const [resyncingType, setResyncingType] = useState(null);
+    const [uploadingExtra, setUploadingExtra] = useState(false);
 
+    // Estado efímero de anexos: fichas de aerotermia (auto-copiadas del modelo) +
+    // anexos extra (RITE, envolvente, etc.) que viven en Drive. Mismo modelo que el
+    // CIFO RES060. El padre persiste los enlaces en documentacion.
+    const initialAttachments = [
+        { id: 'aerotermia_cal', label: 'Ficha técnica aerotermia calefacción', file: null, required: true },
+        { id: 'aerotermia_acs', label: 'Ficha técnica aerotermia ACS', file: null, required: true }
+    ];
     const attachments = externalAttachments || initialAttachments;
+    // IMPORTANTE: pasamos el updater tal cual al setter del padre (que es un
+    // useState setter y sabe encadenar). Resolver aquí introduciría stale closures
+    // cuando dos cargas async (cal+acs) corren en paralelo.
     const setAttachments = (newVal) => {
-        if (typeof newVal === 'function') {
-            onAttachmentsChange(newVal(attachments));
-        } else {
-            onAttachmentsChange(newVal);
-        }
+        if (onAttachmentsChange) onAttachmentsChange(newVal);
     };
 
     const editableRef = useRef({
@@ -222,16 +254,21 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, a
                 ? `${pres.direccion}, ${pres.codigo_postal || pres.cp || ''} ${pres.municipio || ''} (${pres.provincia || ''})`.replace(/,  \(\)/, '').replace(/^, /, '')
                 : (op.datos_calculo?.inputs?.partner_address || '');
 
-            const formatDate = (iso) => {
-                if (!iso || !iso.includes('-')) return iso;
-                const [y, m, d] = iso.split('-');
-                return `${d}/${m}/${y}`;
+            // Normaliza cualquier fecha (ISO aaaa-mm-dd, dd/mm/aaaa o dd-mm-aaaa) a formato dd-mm-aaaa.
+            const toDdMmYyyy = (val) => {
+                if (!val) return '';
+                const s = String(val).trim();
+                let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);          // ISO: aaaa-mm-dd[Thh:mm]
+                if (m) return `${m[3]}-${m[2]}-${m[1]}`;
+                m = s.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})/);  // dd/mm/aaaa o dd-mm-aaaa
+                if (m) return `${m[1].padStart(2, '0')}-${m[2].padStart(2, '0')}-${m[3]}`;
+                return s;
             };
 
             const initialFields = {
                 nombre_actuacion: `${expediente.numero_expediente}: Rehabilitación profunda de edificios de viviendas generadora de ahorros energéticos`,
-                fecha_inicio: doc.fecha_inicio_res080 || doc.fecha_inicio_cifo || formatDate(doc.fecha_visita_cee_inicial) || '',
-                fecha_fin: doc.fecha_fin_res080 || doc.fecha_fin_cifo || formatDate(doc.fecha_firma_cee_final) || '',
+                fecha_inicio: toDdMmYyyy(doc.fecha_inicio_res080 || doc.fecha_inicio_cifo || doc.fecha_visita_cee_inicial),
+                fecha_fin: toDdMmYyyy(doc.fecha_fin_res080 || doc.fecha_fin_cifo || doc.fecha_firma_cee_final),
                 descripcion_ventanas: env.descripcion_ventanas || editableRef.current.descripcion_ventanas || 'Se sustituyen las ventanas actuales por unas con mejores prestaciones térmicas y hermeticidad.',
                 descripcion_termica: doc.descripcion_termica || editableRef.current.descripcion_termica,
                 descripcion_envolvente: env.descripcion_cerramientos || editableRef.current.descripcion_envolvente || 'Se ha llevado a cabo la rehabilitación energética...',
@@ -269,6 +306,257 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, a
         }
     };
 
+    // ── ANEXOS (Drive) — mismo modelo que el CIFO RES060 ─────────────────────
+    // PDF.js (CDN) solo para el preview. El backend concatena los PDFs vectoriales
+    // originales con pdf-lib en las 4 llamadas (generate, save-to-drive, send-cifo).
+    const loadPdfJs = () => {
+        if (window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
+        return new Promise((resolve) => {
+            const script = document.createElement('script');
+            script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+            script.onload = () => {
+                window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+                resolve(window.pdfjsLib);
+            };
+            document.head.appendChild(script);
+        });
+    };
+
+    const renderPdfBufferToImages = async (arrayBuffer) => {
+        try {
+            const pdfjs = await loadPdfJs();
+            const loadingTask = pdfjs.getDocument({ data: new Uint8Array(arrayBuffer) });
+            const pdf = await loadingTask.promise;
+            const images = [];
+            for (let i = 1; i <= pdf.numPages; i++) {
+                const page = await pdf.getPage(i);
+                const viewport = page.getViewport({ scale: 1.5 });
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+                canvas.height = viewport.height;
+                canvas.width = viewport.width;
+                await page.render({ canvasContext: ctx, viewport }).promise;
+                images.push(canvas.toDataURL('image/jpeg', 0.7));
+            }
+            return images;
+        } catch (e) {
+            console.warn('[RES080 preview] No se pudo renderizar el PDF para preview:', e.message);
+            return [];
+        }
+    };
+
+    const makeSlotFile = ({ driveId, link, fileName, source, label }) => ({
+        driveId, link, name: fileName || label || 'Ficha técnica', source
+    });
+
+    const setSlot = (slotId, updater) => {
+        setAttachments(prev => prev.map(a => a.id === slotId ? { ...a, ...updater(a) } : a));
+    };
+
+    const hydrateSlotPreview = async (slotId, type) => {
+        try {
+            const res = await axios.get(`/api/expedientes/${expediente.id}/fichas-tecnicas/${type}`, {
+                responseType: 'arraybuffer',
+                validateStatus: s => s === 200
+            });
+            const images = await renderPdfBufferToImages(res.data);
+            if (images.length === 0) return;
+            setSlot(slotId, prev => ({ file: { ...(prev.file || {}), previewPages: images } }));
+        } catch (e) {
+            console.warn(`[RES080 preview] hydrate ${type} falló:`, e.message);
+        }
+    };
+
+    const loadFichaSlot = useCallback(async (type) => {
+        if (!expediente?.id) return;
+        const slotId = type === 'cal' ? 'aerotermia_cal' : 'aerotermia_acs';
+        setLoadingFichas(p => ({ ...p, [type]: true }));
+        try {
+            const infoUrl = `/api/expedientes/${expediente.id}/fichas-tecnicas/${type}?info=1`;
+            const res = await axios.get(infoUrl, { validateStatus: s => s === 200 || s === 404 });
+            if (res.status === 200) {
+                setSlot(slotId, () => ({
+                    file: makeSlotFile({ driveId: res.data.driveId, link: res.data.link, fileName: res.data.fileName, source: 'drive' }),
+                    missing: false, missingReason: null, missingModel: null
+                }));
+                hydrateSlotPreview(slotId, type);
+                return;
+            }
+            const copyRes = await axios.post(
+                `/api/expedientes/${expediente.id}/fichas-tecnicas/auto-copy`,
+                { type },
+                { validateStatus: s => s === 200 || s === 400 || s === 404 }
+            );
+            if (copyRes.status === 200) {
+                if (onSaveFichaLink) onSaveFichaLink(type, copyRes.data.link, copyRes.data.driveId);
+                setSlot(slotId, () => ({
+                    file: makeSlotFile({ driveId: copyRes.data.driveId, link: copyRes.data.link, fileName: null, source: 'model_copy' }),
+                    missing: false, missingReason: null, missingModel: null
+                }));
+                hydrateSlotPreview(slotId, type);
+            } else {
+                setSlot(slotId, () => ({
+                    file: null, missing: true,
+                    missingReason: copyRes.data?.error || 'unknown',
+                    missingModel: copyRes.data?.model || null
+                }));
+            }
+        } catch (err) {
+            console.error(`[RES080] loadFichaSlot(${type}) error:`, err);
+            setSlot(slotId, () => ({ file: null, missing: true, missingReason: 'network_error' }));
+        } finally {
+            setLoadingFichas(p => ({ ...p, [type]: false }));
+        }
+    }, [expediente?.id, onSaveFichaLink]);
+
+    const handleResync = async (type) => {
+        if (!expediente?.id) return;
+        const slotId = type === 'cal' ? 'aerotermia_cal' : 'aerotermia_acs';
+        setResyncingType(type);
+        try {
+            const copyRes = await axios.post(
+                `/api/expedientes/${expediente.id}/fichas-tecnicas/auto-copy`,
+                { type, force: true },
+                { validateStatus: s => s === 200 || s === 400 || s === 404 }
+            );
+            if (copyRes.status === 200) {
+                if (onSaveFichaLink) onSaveFichaLink(type, copyRes.data.link, copyRes.data.driveId);
+                setSlot(slotId, () => ({
+                    file: makeSlotFile({ driveId: copyRes.data.driveId, link: copyRes.data.link, fileName: null, source: 'model_copy' }),
+                    missing: false, missingReason: null, missingModel: null
+                }));
+                hydrateSlotPreview(slotId, type);
+            } else {
+                setSlot(slotId, () => ({
+                    file: null, missing: true,
+                    missingReason: copyRes.data?.error || 'unknown',
+                    missingModel: copyRes.data?.model || null
+                }));
+            }
+        } catch (err) {
+            console.error(`[RES080] resync(${type}) error:`, err);
+        } finally {
+            setResyncingType(null);
+        }
+    };
+
+    const arrayBufferToBase64 = (arrayBuffer) => {
+        const bytes = new Uint8Array(arrayBuffer);
+        let binary = '';
+        const chunk = 0x8000;
+        for (let i = 0; i < bytes.length; i += chunk) {
+            binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+        }
+        return btoa(binary);
+    };
+
+    const handleManualFixedUpload = async (slotId, file) => {
+        if (!file || !expediente?.id) return;
+        const type = slotId === 'aerotermia_cal' ? 'cal' : 'acs';
+        setLoadingFichas(p => ({ ...p, [type]: true }));
+        try {
+            const arrayBuffer = await file.arrayBuffer();
+            const base64 = arrayBufferToBase64(arrayBuffer);
+            const { data } = await axios.post(`/api/expedientes/${expediente.id}/fichas-tecnicas/upload`, {
+                base64, type, numexpte: expediente.numero_expediente
+            });
+            if (onSaveFichaLink) onSaveFichaLink(type, data.link, data.driveId);
+            const previewPages = await renderPdfBufferToImages(arrayBuffer);
+            setSlot(slotId, () => ({
+                file: { ...makeSlotFile({ driveId: data.driveId, link: data.link, fileName: file.name, source: 'manual_upload' }), previewPages },
+                missing: false, missingReason: null, missingModel: null
+            }));
+        } catch (err) {
+            console.error('[RES080] manualFixedUpload error:', err);
+            alert('❌ Error al subir la ficha: ' + (err.response?.data?.error || err.message));
+        } finally {
+            setLoadingFichas(p => ({ ...p, [type]: false }));
+        }
+    };
+
+    const handleManualExtraUpload = async (file, labelOverride) => {
+        if (!file || !expediente?.id) return;
+        setUploadingExtra(true);
+        try {
+            const arrayBuffer = await file.arrayBuffer();
+            const base64 = arrayBufferToBase64(arrayBuffer);
+            const { data } = await axios.post(`/api/expedientes/${expediente.id}/anexos-cifo/upload`, {
+                base64, fileName: file.name, label: labelOverride || file.name
+            });
+            const previewPages = await renderPdfBufferToImages(arrayBuffer);
+            setAttachments(prev => [...prev, {
+                id: `extra_${data.driveId}`,
+                label: data.label,
+                isExtra: true,
+                file: { ...makeSlotFile({ driveId: data.driveId, link: data.link, fileName: data.fileName, source: 'manual_upload' }), previewPages }
+            }]);
+            if (onSaveExtraAnnexes) onSaveExtraAnnexes('add', { driveId: data.driveId, link: data.link, fileName: data.fileName, label: data.label });
+        } catch (err) {
+            console.error('[RES080] manualExtraUpload error:', err);
+            alert('❌ Error al subir el anexo: ' + (err.response?.data?.error || err.message));
+        } finally {
+            setUploadingExtra(false);
+        }
+    };
+
+    const removeAttachment = async (index) => {
+        const item = attachments[index];
+        if (!item) return;
+        if (item.required) {
+            setAttachments(prev => prev.map((a, i) => i === index ? { ...a, file: null, missing: false } : a));
+            return;
+        }
+        if (item.file?.driveId && expediente?.id) {
+            try {
+                await axios.delete(`/api/expedientes/${expediente.id}/anexos-cifo/${item.file.driveId}`);
+                if (onSaveExtraAnnexes) onSaveExtraAnnexes('remove', { driveId: item.file.driveId });
+            } catch (err) {
+                console.error('[RES080] delete extra annex error:', err);
+                alert('❌ Error al eliminar el anexo');
+                return;
+            }
+        }
+        setAttachments(prev => prev.filter((_, i) => i !== index));
+    };
+
+    const reorderAttachments = (dragIdx, dropIdx) => {
+        if (dragIdx === dropIdx) return;
+        setAttachments(prev => {
+            const copy = [...prev];
+            const [moved] = copy.splice(dragIdx, 1);
+            copy.splice(dropIdx, 0, moved);
+            return copy;
+        });
+    };
+
+    // Carga automática de fichas técnicas + hidratación de previews al abrir.
+    useEffect(() => {
+        if (!isOpen || !expediente?.id) return;
+        const inst = expediente.instalacion || {};
+        const tieneAcs = inst.cambio_acs !== false;
+        loadFichaSlot('cal');
+        if (tieneAcs) loadFichaSlot('acs');
+
+        const extras = (attachments || []).filter(a => a.isExtra && a.file?.driveId && !a.file.previewPages);
+        extras.forEach(async (extra) => {
+            try {
+                const res = await axios.get(`/api/expedientes/${expediente.id}/anexos-cifo/${extra.file.driveId}/content`, {
+                    responseType: 'arraybuffer',
+                    validateStatus: s => s === 200
+                });
+                const imgs = await renderPdfBufferToImages(res.data);
+                if (imgs.length > 0) {
+                    setAttachments(prev => prev.map(a => a.id === extra.id
+                        ? { ...a, file: { ...a.file, previewPages: imgs } }
+                        : a));
+                }
+            } catch (e) {
+                console.warn('[RES080 preview] extra hydrate falló:', extra.id, e.message);
+            }
+        });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isOpen, expediente?.id]);
+
     if (!isOpen || !expediente) return null;
 
     const op = expediente.oportunidades || {};
@@ -277,6 +565,7 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, a
     const env = (expediente.documentacion || {}).envolvente || {};
     const cli = expediente.clientes || expediente.cliente || {};
     const loc = expediente.ubicacion || {};
+    const tieneAcs = inst.cambio_acs !== false;
 
     const numExpte = expediente.numero_expediente || '—';
     const locCA = (inst.ccaa || loc.ccaa || cli.ccaa || '—').toUpperCase();
@@ -306,8 +595,12 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, a
     // ─── LÓGICA DE EQUIPOS ───────────────────────────────────────────────────
     const calExBrand = inst.caldera_antigua_cal?.marca || '—';
     const calExMod   = inst.caldera_antigua_cal?.modelo || '—';
-    const calExFuel  = inst.caldera_antigua_cal?.combustible || '—';
-    const calExEff   = parseFloat(inst.caldera_antigua_cal?.rendimiento) || 0.65;
+    const calExSerie = inst.caldera_antigua_cal?.numero_serie || '—';
+    // Rendimiento/combustible de la caldera antigua derivados de rendimiento_id
+    // (BOILER_EFFICIENCIES), igual que el CIFO RES060 — no hay campos combustible/rendimiento.
+    const calEffEntry = BOILER_EFFICIENCIES.find(b => b.id === (inst.caldera_antigua_cal?.rendimiento_id || 'default')) || BOILER_EFFICIENCIES[0];
+    const calExFuel  = calEffEntry.id !== 'default' ? calEffEntry.label.split(',')[0].trim() : (inst.caldera_antigua_cal?.combustible || '—');
+    const calExEff   = calEffEntry.value;
     
     const calNuBrand = inst.aerotermia_cal?.marca || '—';
     const calNuMod   = inst.aerotermia_cal?.modelo || '—';
@@ -316,13 +609,28 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, a
 
     const acsExBrand = inst.caldera_antigua_acs?.marca || calExBrand;
     const acsExMod   = inst.caldera_antigua_acs?.modelo || calExMod;
-    const acsExFuel  = inst.caldera_antigua_acs?.combustible || calExFuel;
+    const acsExSerie = inst.caldera_antigua_acs?.numero_serie || calExSerie;
+    const acsEffEntry = BOILER_EFFICIENCIES.find(b => b.id === (inst.caldera_antigua_acs?.rendimiento_id || inst.caldera_antigua_cal?.rendimiento_id || 'default')) || calEffEntry;
+    const acsExFuel  = acsEffEntry.id !== 'default' ? acsEffEntry.label.split(',')[0].trim() : (inst.caldera_antigua_acs?.combustible || calExFuel);
+    const acsExEff   = acsEffEntry.value;
 
     const sameAero = !!inst.misma_aerotermia_acs;
     const acsNuBrand = sameAero ? calNuBrand : (inst.aerotermia_acs?.marca || '—');
     const acsNuMod   = sameAero ? calNuMod : (inst.aerotermia_acs?.modelo || '—');
     const acsNuScop  = sameAero ? calNuScop : (inst.aerotermia_acs?.scop || '—');
     const acsNuSerie = sameAero ? 'Misma unidad' : (inst.aerotermia_acs?.numero_serie || '—');
+
+    // ─── JUSTIFICACIÓN DEL SCOP (igual que RES060) ──────────────────────────
+    const zoneStr = (op.datos_calculo?.zona || 'D3').toUpperCase();
+    const zoneLabel = ['A3','A4','B3','B4','C1','C2','C3','C4','D1','D2','D3'].includes(zoneStr)
+        ? 'Cálido' : (zoneStr === 'E1' ? 'Medio' : 'Cálido');
+    const scopCalRaw = parseFloat(inst.aerotermia_cal?.scop) || 0;
+    const scopCalStr = scopCalRaw ? scopCalRaw.toFixed(2).replace('.', ',') : '—';
+    const scopAcsRaw = tieneAcs ? parseFloat(sameAero ? inst.aerotermia_cal?.scop : inst.aerotermia_acs?.scop || 0) : 0;
+    const scopAcsStr = tieneAcs ? (scopAcsRaw ? scopAcsRaw.toFixed(2).replace('.', ',') : '—') : 'no aplica';
+    const emiLabel   = EMITTER_OPTIONS.find(o => o.value === inst.tipo_emisor)?.label || '—';
+    const metodoCal  = inst.aerotermia_cal?.metodo_scop || 'ficha';
+    const metodoAcs  = inst.aerotermia_acs?.metodo_scop || 'ficha';
 
     // ─── LÓGICA DE HUECOS (XML) ─────────────────────────────────────────────
     // Función para parsear XML on-the-fly si no vienen los huecos en el objeto
@@ -429,7 +737,7 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, a
     // Determinar si se sustituyen ventanas (Prioridad: Detección automática > flag manual)
     const seSustituyen = changedHuecos.length > 0 || env.sustituye_ventanas === true;
 
-    const generateHtml = (isForPdf = false) => {
+    const generateHtml = (isForPdf = false, withAnnexPreview = false) => {
         const ed = (f) => editableData[f] || editableRef.current[f] || '';
         const eb = (f) => isForPdf ? ed(f) : `<div contenteditable="true" class="doc-editable" data-field="${f}">${ed(f)}</div>`;
         const formatN = (v) => v ? v.toString().replace('.', ',') : '—';
@@ -535,7 +843,7 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, a
                     <tr><td class="lbl">Marca</td><td>${calExBrand}</td><td>${calNuBrand}</td></tr>
                     <tr><td class="lbl">Modelo</td><td>${calExMod}</td><td>${calNuMod}</td></tr>
                     <tr><td class="lbl">Combustible</td><td>${calExFuel}</td><td>Electricidad</td></tr>
-                    <tr><td class="lbl">Nº serie unidad exterior</td><td>—</td><td>${calNuSerieOut}</td></tr>
+                    <tr><td class="lbl">Nº serie unidad exterior</td><td>${calExSerie}</td><td>${calNuSerieOut}</td></tr>
                     <tr><td class="lbl">SCOP / Rendimiento</td><td class="text-center">${calExEff.toFixed(2)} <sup>(1)</sup></td><td class="text-center">${calNuScop} <sup>(2)</sup></td></tr>
                 </table>
                 <table class="doc-table">
@@ -545,20 +853,21 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, a
                     <tr><td class="lbl">Marca</td><td>${acsExBrand}</td><td>${acsNuBrand}</td></tr>
                     <tr><td class="lbl">Modelo</td><td>${acsExMod}</td><td>${acsNuMod}</td></tr>
                     <tr><td class="lbl">Combustible</td><td>${acsExFuel}</td><td>Electricidad</td></tr>
-                    <tr><td class="lbl">Nº serie Equipo de ACS</td><td>—</td><td>${acsNuSerie}</td></tr>
-                    <tr><td class="lbl">SCOP / Rendimiento</td><td class="text-center">${calExEff.toFixed(2)} <sup>(1)</sup></td><td class="text-center">${acsNuScop} <sup>(3)</sup></td></tr>
+                    <tr><td class="lbl">Nº serie Equipo de ACS</td><td>${acsExSerie}</td><td>${acsNuSerie}</td></tr>
+                    <tr><td class="lbl">SCOP / Rendimiento</td><td class="text-center">${acsExEff.toFixed(2)} <sup>(1)</sup></td><td class="text-center">${acsNuScop} <sup>(3)</sup></td></tr>
                 </table>
                 <table class="doc-table">
                     <tr><td colspan="2" class="heading">Datos de la empresa instaladora</td></tr>
                     <tr><td class="lbl">Nombre o Razón Social</td><td>${eb('empresa_responsable')}</td></tr>
                     <tr><td class="lbl">CIF / NIF</td><td>${eb('empresa_cif')}</td></tr>
                     <tr><td class="lbl">Domicilio</td><td>${eb('empresa_domicilio')}</td></tr>
-                    <tr><td class="lbl" style="height: 50px;">Firma y sello responsable</td><td></td></tr>
                 </table>
                 <div style="margin-top: 12px; font-size: 8.5pt; line-height: 1.5;">
                     <strong>Observaciones:</strong>
                     <ul style="margin: 4px 0 0 0; padding-left: 16px; list-style: none;">
-                        <li><sup>(1)</sup> El valor del rendimiento es calculado directamente por el programa de Certificación CE3X para esta caldera [sin aislamiento/antigua con aislamiento medio/antigua con mal aislamiento/ bien aislada y mantenida] de Combustible sólido, alimentación manual, instalado en un espacio sin calefactar, siguiendo las indicaciones del Ministerio para la Transición Ecológica y el Reto Demográfico recogidas en los criterios de verificación <em>"24/11.03: Rendimientos estacionales vs. nominales en fichas IND040, RES060, RES090-099, TER100 y TER170-179"</em>.</li>
+                        <li><sup>(1)</sup> ${calEffEntry.id === acsEffEntry.id
+                            ? `Se ha utilizado un rendimiento estacional de <strong>${calExEff.toFixed(2).replace('.', ',')}</strong>, al tratarse de una caldera de <strong>${calEffEntry.label}</strong>`
+                            : `Se han utilizado rendimientos estacionales de <strong>${calExEff.toFixed(2).replace('.', ',')}</strong> (calefacción, caldera de ${calEffEntry.label}) y <strong>${acsExEff.toFixed(2).replace('.', ',')}</strong> (ACS, caldera de ${acsEffEntry.label})`}, según el programa oficial de Certificación Energética CE3X y conforme a las indicaciones del Ministerio para la Transición Ecológica y el Reto Demográfico recogidas en los criterios de verificación <em>"24/11.03: Rendimientos estacionales vs. nominales en fichas IND040, RES060, RES090-099, TER100 y TER170-179"</em>.</li>
                         <li style="margin-top: 4px;"><sup>(2)</sup> Según ficha técnica aportada por el fabricante y/o para unos cálculos realizados según indican los anexos III y IV de la ficha RES060 de la Orden TED/845/2023, de 18 de julio.</li>
                         <li style="margin-top: 4px;"><sup>(3)</sup> Según ficha técnica aportada por el fabricante y/o para unos cálculos realizados según indican los anexos III, V y VI de la ficha RES060 de la Orden TED/845/2023, de 18 de julio.</li>
                         <li style="margin-top: 4px;">- La duración indicativa de la actuación (Di) es de 15 años según Recomendación (UE) 2019/1658, de la Comisión, de 25 de septiembre, relativa a la transposición de la obligación de ahorro de energía en virtud de la Directiva de eficiencia energética.</li>
@@ -620,7 +929,7 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, a
                     </div>
                     <div class="section-title">Descripción de la actuación sobre las ventanas de la vivienda</div>
                     <div style="margin-bottom: 10px;">${eb('descripcion_ventanas')}</div>
-                    <table class="doc-table"><tr><td class="lbl" style="width: 35%">¿Se sustituyen las ventanas?</td><td class="text-center font-bold" style="font-size: 11pt;">${seSustituyen ? 'SÍ' : 'NO'}</td><td class="lbl" style="width: 35%">N.º ventanas sustituidas</td><td class="text-center">${env.num_ventanas || changedHuecos.length}</td></tr></table>
+                    <table class="doc-table"><tr><td class="lbl" style="width: 35%">¿Se sustituyen las ventanas?</td><td class="text-center font-bold" style="font-size: 11pt;">${seSustituyen ? 'SÍ' : 'NO'}</td><td class="lbl" style="width: 35%">N.º ventanas sustituidas</td><td class="text-center font-bold" style="font-size: 11pt;">${env.num_ventanas || changedHuecos.length}</td></tr></table>
                     ${seSustituyen ? `
                         <div class="section-title" style="text-align: center; background: #000; color: white; padding: 2px;">Huecos antes de la rehabilitación</div>
                         <table class="doc-table text-center">
@@ -731,36 +1040,172 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, a
             `);
         }
 
-        // PÁGINA SEPARADORA: ANEXOS (Siempre presente)
-        pages.push(`
-            <div class="doc-page" style="justify-content: center; align-items: center; text-align: center;">
-                <div style="border: 4px solid #f2a640; padding: 40px 80px;">
-                    <h1 style="font-size: 35pt; font-weight: 900; text-transform: uppercase; color: #000; margin: 0; letter-spacing: 15px;">
-                        ANEXOS
-                    </h1>
+        // PÁGINA: JUSTIFICACIÓN DEL SCOP (calefacción + ACS) — igual que RES060
+        const renderEprelJustification = (isAcs = false) => {
+            const label = isAcs ? 'ACS' : 'Calefacción';
+            const etaVar = isAcs ? 'η<sub>wh</sub>' : 'η<sub>s,h</sub>';
+            const scopRaw = isAcs ? scopAcsRaw : scopCalRaw;
+            const scopStr = isAcs ? scopAcsStr : scopCalStr;
+            const etaValue = Math.round((scopRaw * 40) - 3);
+            const totalPercentage = (scopRaw * 100).toFixed(0);
+            const eprelUrl = isAcs ? inst.aerotermia_acs?.url_eprel : inst.aerotermia_cal?.url_eprel;
+            return `
+                <div class="eprel-container" style="margin-top: 15px;">
+                    <div style="font-weight: bold; margin-bottom: 8px; font-size: 11pt;">Cálculo del SCOP en ${label}</div>
+                    <div style="font-weight: bold; margin-bottom: 4px;">Fórmula Aplicada</div>
+                    <div class="doc-p" style="margin-bottom: 4px;">Según el Anexo IV de la ficha RES060:</div>
+                    <div style="margin: 10px 0; font-size: 12pt;"><strong>SCOP = CC · (${etaVar} + F(1) + F(2))</strong></div>
+                    <div class="doc-p" style="margin-bottom: 12px;">Donde:</div>
+                    <ul style="list-style-type: none; margin-left: 0; padding-left: 10px; margin-bottom: 15px;">
+                        <li>- CC: Coeficiente de conversión</li>
+                        <li>- ${etaVar}: Eficiencia energética estacional de ${label.toLowerCase()}</li>
+                        <li>- F(1): Factor de corrección por tecnología</li>
+                        <li>- F(2): Factor de corrección por clima</li>
+                    </ul>
+                    <div style="font-weight: bold; margin-bottom: 8px;">Valores Utilizados</div>
+                    <ul style="list-style-type: none; margin-left: 0; padding-left: 10px; margin-bottom: 15px;">
+                        <li>- CC = 2,5</li>
+                        <li>- ${etaVar} = ${etaValue}% (obtenido de la Ficha EPREL para clima ${zoneLabel.toLowerCase()} ${isAcs ? 'y perfil ACS' : `e impulsión ${getEmitterTemp(inst.tipo_emisor)}°C`})</li>
+                        ${eprelUrl ? `<li>- Enlace EPREL: <a href="${eprelUrl}" style="color: #0000EE; text-decoration: underline;">Acceder a la Ficha Oficial EPREL</a></li>` : ''}
+                        <li>- F(1) = 3% (para bombas de calor aerotérmicas)</li>
+                        <li>- F(2) = 0% (para bombas de calor aerotérmicas)</li>
+                    </ul>
+                    <div style="font-weight: bold; margin-bottom: 8px;">Cálculo</div>
+                    <div class="doc-p" style="margin-bottom: 15px;">SCOP = 2,5 · (${etaValue}% + 3% + 0%) = ${totalPercentage}%</div>
+                    <div style="font-weight: bold; font-size: 12pt; margin-top: 10px;">SCOP en ${label} = ${scopStr}</div>
                 </div>
+            `;
+        };
+
+        const renderAcsScopJustification = () => {
+            const FC_TABLE = { A3: 1.246, A4: 1.251, B3: 1.223, B4: 1.228, C1: 1.154, C2: 1.165, C3: 1.175, C4: 1.181, D1: 1.093, D2: 1.103, D3: 1.113, E1: 1.056 };
+            const acsEprelUrl = sameAero ? inst.aerotermia_cal?.url_eprel : inst.aerotermia_acs?.url_eprel;
+            const acsFtUrl    = sameAero ? inst.aerotermia_cal?.url_ficha  : inst.aerotermia_acs?.url_ficha;
+
+            if (metodoAcs === 'conjunto') {
+                // Anexo IV RES060: SCOPdhw = CC × ηwh = 2,5 × (eta_acs / 100)
+                const etaWh = (scopAcsRaw / 2.5 * 100).toFixed(1).replace('.', ',');
+                const eprelLink = acsEprelUrl ? `<li>- Enlace EPREL: <a href="${acsEprelUrl}" style="color: #0000EE; text-decoration: underline;">Acceder a la Ficha Oficial EPREL</a></li>` : '';
+                return `
+                    <div class="eprel-container" style="margin-top: 15px;">
+                        <div style="font-weight: bold; margin-bottom: 8px; font-size: 11pt;">Cálculo del SCOP en ACS</div>
+                        <div style="font-weight: bold; margin-bottom: 4px;">Fórmula Aplicada</div>
+                        <div class="doc-p" style="margin-bottom: 4px;">Según el Anexo IV de la ficha RES060, para sistemas con depósito de ACS suministrado como conjunto con la bomba de calor:</div>
+                        <div style="margin: 10px 0; font-size: 12pt;"><strong>SCOP<sub>dhw</sub> = CC · η<sub>wh</sub></strong></div>
+                        <div class="doc-p" style="margin-bottom: 12px;">Donde:</div>
+                        <ul style="list-style-type: none; margin-left: 0; padding-left: 10px; margin-bottom: 15px;">
+                            <li>- CC: Coeficiente de conversión</li>
+                            <li>- η<sub>wh</sub>: Eficiencia energética de caldeo de agua (obtenida de la Ficha EPREL para clima ${zoneLabel.toLowerCase()} y perfil ACS)</li>
+                            ${eprelLink}
+                        </ul>
+                        <div style="font-weight: bold; margin-bottom: 8px;">Valores Utilizados</div>
+                        <ul style="list-style-type: none; margin-left: 0; padding-left: 10px; margin-bottom: 15px;">
+                            <li>- CC = 2,5</li>
+                            <li>- η<sub>wh</sub> = ${etaWh}%</li>
+                        </ul>
+                        <div style="font-weight: bold; margin-bottom: 8px;">Cálculo</div>
+                        <div class="doc-p" style="margin-bottom: 15px;">SCOP<sub>dhw</sub> = 2,5 · ${etaWh}% = ${scopAcsStr}</div>
+                        <div style="font-weight: bold; font-size: 12pt; margin-top: 10px;">SCOP en ACS = ${scopAcsStr}</div>
+                    </div>`;
+            }
+
+            if (metodoAcs === 'independiente') {
+                // Anexo VI RES060 Caso 3: SCOPdhw = COP × Fc(zona)
+                const fc = FC_TABLE[zoneStr] ?? FC_TABLE['D3'];
+                const fcStr  = fc.toFixed(3).replace('.', ',');
+                const copCalc = (scopAcsRaw / fc).toFixed(2).replace('.', ',');
+                const ftLink = acsFtUrl ? `<li>- Ficha técnica: <a href="${acsFtUrl}" style="color: #0000EE; text-decoration: underline;">Acceder a la Ficha Técnica del fabricante</a></li>` : '';
+                return `
+                    <div class="eprel-container" style="margin-top: 15px;">
+                        <div style="font-weight: bold; margin-bottom: 8px; font-size: 11pt;">Cálculo del SCOP en ACS</div>
+                        <div style="font-weight: bold; margin-bottom: 4px;">Fórmula Aplicada</div>
+                        <div class="doc-p" style="margin-bottom: 4px;">Según el Anexo VI de la ficha RES060 (Caso 3: bomba de calor aerotérmica con depósito de ACS no suministrado como conjunto), para la zona climática ${zoneStr}:</div>
+                        <div style="margin: 10px 0; font-size: 12pt;"><strong>SCOP<sub>dhw</sub> = COP · F<sub>c</sub></strong></div>
+                        <div class="doc-p" style="margin-bottom: 12px;">Donde:</div>
+                        <ul style="list-style-type: none; margin-left: 0; padding-left: 10px; margin-bottom: 15px;">
+                            <li>- COP: Coeficiente de rendimiento según ficha técnica y placa de características del equipo</li>
+                            <li>- F<sub>c</sub>: Factor de corrección para la zona climática ${zoneStr} (clima ${zoneLabel.toLowerCase()})</li>
+                            ${ftLink}
+                        </ul>
+                        <div style="font-weight: bold; margin-bottom: 8px;">Valores Utilizados</div>
+                        <ul style="list-style-type: none; margin-left: 0; padding-left: 10px; margin-bottom: 15px;">
+                            <li>- COP = ${copCalc} (según ficha técnica del fabricante)</li>
+                            <li>- F<sub>c</sub> = ${fcStr} (para zona climática ${zoneStr})</li>
+                        </ul>
+                        <div style="font-weight: bold; margin-bottom: 8px;">Cálculo</div>
+                        <div class="doc-p" style="margin-bottom: 15px;">SCOP<sub>dhw</sub> = ${copCalc} × ${fcStr} = ${scopAcsStr}</div>
+                        <div style="font-weight: bold; font-size: 12pt; margin-top: 10px;">SCOP en ACS = ${scopAcsStr}</div>
+                    </div>`;
+            }
+
+            // Ficha técnica (default + legacy 'eprel')
+            return `<div class="doc-p" style="font-weight: bold; margin-top: 10px;">SCOP en ACS = ${scopAcsStr} Según la ficha técnica aportada por el fabricante que se entregará como anexo al expediente CAE.</div>`;
+        };
+
+        pages.push(`
+            <div class="doc-page">
+                <div class="doc-header" style="border-bottom: 2px solid #f2a640; padding-bottom: 5px; display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 20px;">
+                    <div style="display: flex; flex-direction: column;">
+                        <div style="font-size: 7pt; font-weight: 900; color: #999; letter-spacing: 1px; text-transform: uppercase; margin-bottom: -2px;">Certificado CAE · RES080</div>
+                        <div style="font-size: 13pt; font-weight: bold; color: #000;">Expte: ${numExpte}</div>
+                    </div>
+                    <img src="/logo_brokergy_doc.png" class="doc-logo">
+                </div>
+                <div class="section-title">Anexo justificativo del rendimiento estacional (SCOP) de la bomba de calor en calefacción</div>
+                <ul style="margin-bottom: 15px;">
+                    <li>- Ubicación de la instalación: Zona climática <strong>${zoneStr}</strong> según DB-HE CTE</li>
+                    <li>- Condiciones equivalentes en calefacción: <strong>${zoneLabel}</strong></li>
+                    <li>- Tipo de bomba de calor: Aerotérmica</li>
+                    <li>- Sistema de distribución: ${emiLabel}</li>
+                </ul>
+                ${metodoCal === 'eprel'
+                    ? renderEprelJustification(false)
+                    : `<div class="doc-p" style="font-weight: bold; margin-top: 10px;">SCOP en Calefacción = ${scopCalStr} Según la ficha técnica aportada por el fabricante que se entregará como anexo al expediente CAE.</div>`
+                }
+                <div class="section-title" style="margin-top: 25px;">Anexo justificativo del rendimiento estacional (SCOP) de la bomba de calor para ACS (agua caliente sanitaria)</div>
+                ${tieneAcs ? renderAcsScopJustification() : `<div class="doc-p" style="font-weight: bold;">SCOP en ACS = no aplica</div>`}
+                <div class="footer">PAGE_X_OF_Y</div>
             </div>
         `);
 
-        // PÁGINAS DE DOCUMENTACIÓN SUBIDA
-        const getAttachmentPages = (attachment) => {
-            if (!attachment || !attachment.data) return [];
-            return attachment.data.map(pageData => `
-                <div class="doc-page" style="padding: 0; position: relative; display: flex; align-items: center; justify-content: center; background: #fff;">
-                    <img src="${pageData}" style="width: 100%; height: 100%; object-fit: contain;">
-                    <div class="footer" style="position: absolute; bottom: 30px; left: 50px; right: 50px; background: white; padding: 5px 10px; border-radius: 5px; text-align: right;">PAGE_X_OF_Y</div>
+        // SEPARADOR ANEXOS — solo si hay al menos un anexo en Drive. Lista los
+        // ficheros que se concatenarán al PDF (las páginas reales las añade
+        // pdf-lib en backend con annexDriveFileIds, escaladas a A4). En el preview
+        // del modal añadimos imágenes rasterizadas (withAnnexPreview) para ver todo.
+        const annexList = attachments.filter(a => a.file?.driveId && (a.id !== 'aerotermia_acs' || tieneAcs));
+        if (annexList.length > 0) {
+            const items = annexList.map(a => `
+                <li style="margin-bottom: 14px; display: flex; align-items: center; gap: 14px; font-size: 12pt; color: #1a1a1a;">
+                    <span style="display:inline-block; width:10px; height:10px; background:#f2a640; border-radius:2px;"></span>
+                    <span style="font-weight: 700;">${a.label}</span>
+                </li>
+            `).join('');
+            pages.push(`
+                <div class="doc-page" style="display: flex; flex-direction: column; align-items: center; justify-content: center; background: #fff;">
+                    <div style="text-align: center; color: #000; margin-bottom: 40px;">
+                        <div style="font-size: 60pt; font-weight: 900; letter-spacing: 20px; margin-bottom: 20px;">ANEXOS</div>
+                        <div style="width: 150px; height: 4px; background: #f2a640; margin: 0 auto 40px;"></div>
+                        <div style="font-size: 10pt; text-transform: uppercase; letter-spacing: 3px; color: #666;">Documentación adjunta</div>
+                    </div>
+                    <ul style="list-style: none; margin: 0; padding: 0; max-width: 70%;">${items}</ul>
                 </div>
             `);
-        };
 
-        attachments.forEach(item => {
-            if (item.file) {
-                pages.push(...getAttachmentPages(item.file));
+            if (withAnnexPreview) {
+                annexList.forEach(a => {
+                    (a.file.previewPages || []).forEach(src => {
+                        pages.push(`
+                            <div class="doc-page" style="padding: 0; position: relative; display: flex; align-items: center; justify-content: center; background: #fff;">
+                                <img src="${src}" style="width: 100%; height: 100%; object-fit: contain;">
+                            </div>
+                        `);
+                    });
+                });
             }
-        });
+        }
 
-        // NUMERACIÓN DINÁMICA
-        const total = pages.length - 1; // La portada no se cuenta
+        // NUMERACIÓN DINÁMICA (la portada no se cuenta)
+        const total = pages.length - 1;
         return pages.map((p, idx) => {
             if (idx === 0) return p;
             return p.replace(/PAGE_X_OF_Y/g, `Página ${idx} | ${total}`);
@@ -772,7 +1217,7 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, a
     const handleDownloadPdf = async () => {
         setGenerating(true);
         try {
-            const { data } = await axios.post('/api/pdf/generate', { html: buildFullHtml(true) });
+            const { data } = await axios.post('/api/pdf/generate', { html: buildFullHtml(true), annexDriveFileIds: getAnnexDriveFileIds() });
             const bytes = new Uint8Array(atob(data.pdf).split('').map(c => c.charCodeAt(0)));
             const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' })); a.download = `${numExpte} - Certificado_Reforma_RES080.pdf`; a.click();
         } catch (error) { console.error('Error PDF:', error); alert('Error al generar el PDF.'); } finally { setGenerating(false); }
@@ -783,7 +1228,7 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, a
         if (!folderId) { alert('No se encontró el identificador de la carpeta de Drive.'); return; }
         setSavingDrive(true);
         try {
-            const { data } = await axios.post('/api/pdf/save-to-drive', { html: buildFullHtml(true), folderId, fileName: `${numExpte} - Certificado Reforma RES080`, subfolderName: '6. ANEXOS CAE' });
+            const { data } = await axios.post('/api/pdf/save-to-drive', { html: buildFullHtml(true), folderId, fileName: `${numExpte} - Certificado Reforma RES080`, subfolderName: '6. ANEXOS CAE', annexDriveFileIds: getAnnexDriveFileIds() });
             if (data.driveLink) {
                 if (onSaveDrive) onSaveDrive(data.driveLink);
                 alert('✅ Guardado en Drive');
@@ -791,145 +1236,385 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, a
         } catch (error) { console.error('Error Drive:', error); alert('Error al guardar en Drive.'); } finally { setSavingDrive(false); }
     };
 
-    const handleSendByEmail = async () => {
-        const toEmail = cli.email;
-        if (!toEmail) { alert("❌ El cliente no tiene un email registrado."); return; }
-        setSendingEmail(true);
-        try {
-            const response = await axios.post('/api/pdf/send-proposal', {
-                html: buildFullHtml(true),
-                to: toEmail,
-                userName: clientFull,
-                summaryData: { id: numExpte, docType: 'Certificado RES080' }
-            });
-            if (response.data.success) alert(`✅ Certificado RES080 enviado correctamente a ${toEmail}`);
-        } catch (error) { alert("❌ Error al enviar el correo."); } finally { setSendingEmail(false); }
+    // ── ENTREGA AL CLIENTE (contacto + canal Email/WhatsApp) ──────────────────
+    // El RES080 lo firma Brokergy, así que se entrega ya firmado al cliente.
+    // Contactos disponibles: el propietario (cliente) + un contacto manual.
+    const clientContacts = [];
+    {
+        const cPhone = cli.tlf || cli.telefono || '';
+        const cEmail = cli.email || '';
+        if (cPhone || cEmail || clientFull) {
+            clientContacts.push({ id: 'cliente', label: clientFull || 'Cliente', sublabel: 'Propietario', phone: cPhone, email: cEmail });
+        }
+    }
+
+    const resolveContact = (id) => {
+        if (id === 'otro') return { id: 'otro', label: (manualContact.name || '').trim() || 'Otro contacto', phone: (manualContact.phone || '').trim(), email: (manualContact.email || '').trim() };
+        return clientContacts.find(c => c.id === id) || clientContacts[0] || { id: 'cliente', label: clientFull, phone: cli.tlf || cli.telefono || '', email: cli.email || '' };
+    };
+    const selectedContact = resolveContact(selectedContactId);
+
+    const buildDeliveryMessage = (contactName) => {
+        const firstName = (contactName || '').trim().split(/\s+/)[0] || 'hola';
+        return `Hola ${firstName},\n\nTe adjuntamos el *Certificado Final de Obra (RES080)* correspondiente a tu expediente *${numExpte}*, ya firmado.\n\nEs el documento que acredita la actuación de rehabilitación energética realizada en tu vivienda.\n\nCualquier duda, quedamos a tu disposición.\n\nUn saludo,\n*BROKERGY · Ingeniería Energética*`;
     };
 
-    const handleSendByWhatsapp = async () => {
-        const toPhone = cli.tlf || cli.telefono;
-        if (!toPhone || toPhone === '—') { alert("❌ El cliente no tiene un teléfono registrado."); return; }
-        setSendingWhatsapp(true);
+    const openSendModal = async () => {
+        const defaultId = clientContacts[0]?.id || 'otro';
+        const initContact = resolveContact(defaultId);
+        setSelectedContactId(defaultId);
+        setSendMessage(buildDeliveryMessage(initContact.label));
+        setChannels({
+            email: !!initContact.email,
+            whatsapp: (initContact.phone || '').replace(/[^0-9]/g, '').length >= 9,
+        });
+        setSendStatus(null);
+        setSendPhase(null);
+        setSendResults([]);
+        setWaReady(null);
+        setSendOpen(true);
         try {
             const st = await axios.get('/api/whatsapp/status');
-            if (!st.data?.ready) { alert("❌ WhatsApp no está conectado."); return; }
-            const pdfResp = await axios.post('/api/pdf/generate', { html: buildFullHtml(true) });
-            await axios.post('/api/whatsapp/send-media', {
-                phone: toPhone,
-                caption: `Hola, te adjunto el Certificado RES080 de tu expediente ${numExpte}.`,
-                media: { base64: pdfResp.data?.pdf, filename: `${numExpte}_Certificado_RES080.pdf`, mimetype: 'application/pdf' },
-                asDocument: true,
-            });
-            alert(`✅ Certificado RES080 enviado por WhatsApp correctamente.`);
-        } catch (error) { alert("❌ Error al enviar por WhatsApp."); } finally { setSendingWhatsapp(false); }
+            setWaReady(!!st.data?.ready);
+        } catch { setWaReady(false); }
     };
 
-    const loadPdfJs = () => {
-        if (window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
-        return new Promise((resolve) => {
-            const script = document.createElement('script');
-            script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
-            script.onload = () => {
-                window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-                resolve(window.pdfjsLib);
-            };
-            document.head.appendChild(script);
+    const pickContact = (id) => {
+        setSelectedContactId(id);
+        setSendMessage(buildDeliveryMessage(resolveContact(id).label));
+    };
+
+    const toggleChannel = (ch) => setChannels(prev => ({ ...prev, [ch]: !prev[ch] }));
+
+    const contactPhoneValid = (selectedContact.phone || '').replace(/[^0-9]/g, '').length >= 9;
+    const canEmail = !!selectedContact.email;
+    const canWhatsapp = contactPhoneValid && waReady !== false;
+    const willEmail = channels.email && canEmail;
+    const willWhatsapp = channels.whatsapp && canWhatsapp;
+    const sending = sendingEmail || sendingWhatsapp;
+
+    // Envíos individuales (devuelven { ok, text } y NO tocan el status global).
+    const sendEmailOnce = async () => {
+        const c = selectedContact;
+        // Reutilizamos /send-cifo (concatena anexos y respeta el mensaje editable,
+        // sin enlace de subida y SIN efectos sobre la oportunidad).
+        const { data } = await axios.post('/api/pdf/send-cifo', {
+            html: buildFullHtml(true),
+            to: c.email,
+            subject: `${numExpte} - Certificado Final de Obra RES080 de ${clientFull}`,
+            message: sendMessage,
+            instaladorNombre: c.label,
+            numExpediente: numExpte,
+            clienteNombre: clientFull,
+            annexDriveFileIds: getAnnexDriveFileIds(),
         });
+        if (data.success) return { ok: true, text: `Email → ${c.email}` };
+        return { ok: false, text: 'Email no enviado' };
     };
 
-    const convertPdfToImages = async (dataUrl) => {
+    const sendWhatsappOnce = async () => {
+        const c = selectedContact;
+        const st = await axios.get('/api/whatsapp/status');
+        if (!st.data?.ready) { setWaReady(false); return { ok: false, text: 'WhatsApp no conectado' }; }
+        const pdfResp = await axios.post('/api/pdf/generate', { html: buildFullHtml(true), annexDriveFileIds: getAnnexDriveFileIds() });
+        await axios.post('/api/whatsapp/send-media', {
+            phone: c.phone,
+            caption: sendMessage,
+            media: { base64: pdfResp.data?.pdf, filename: `${numExpte}_Certificado_RES080.pdf`, mimetype: 'application/pdf' },
+            asDocument: true,
+        });
+        return { ok: true, text: `WhatsApp → ${c.phone}` };
+    };
+
+    const fireSuccessConfetti = () => {
+        if (typeof window === 'undefined') return;
+        if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+        const scalar = 3.6;
+        let shapes;
         try {
-            const pdfjs = await loadPdfJs();
-            const loadingTask = pdfjs.getDocument(dataUrl);
-            const pdf = await loadingTask.promise;
-            const images = [];
-            for (let i = 1; i <= pdf.numPages; i++) {
-                const page = await pdf.getPage(i);
-                const viewport = page.getViewport({ scale: 2 });
-                const canvas = document.createElement('canvas');
-                const context = canvas.getContext('2d');
-                canvas.height = viewport.height;
-                canvas.width = viewport.width;
-                await page.render({ canvasContext: context, viewport }).promise;
-                images.push(canvas.toDataURL('image/jpeg', 0.8));
-            }
-            return images;
-        } catch (error) {
-            console.error('Error converting PDF:', error);
-            return [];
+            shapes = ['📄', '📃', '📑', '📋'].map(text => confetti.shapeFromText({ text, scalar }));
+        } catch { shapes = undefined; }
+        const burst = (x, delay = 0) => setTimeout(() => {
+            confetti({
+                particleCount: 22, spread: 65, startVelocity: 34, gravity: 0.8, decay: 0.92, ticks: 220, scalar,
+                origin: { x, y: 0.5 }, zIndex: 10000, disableForReducedMotion: true,
+                ...(shapes ? { shapes, flat: true } : { colors: ['#f2a640', '#34d399', '#fcd34d', '#ffffff'] }),
+            });
+        }, delay);
+        burst(0.2, 0); burst(0.8, 140); burst(0.5, 300);
+    };
+
+    const exitToExpediente = () => {
+        setSendPhase(null);
+        setSendOpen(false);
+        if (onClose) onClose();
+    };
+
+    const doSend = async () => {
+        const doEmail = willEmail;
+        const doWa = willWhatsapp;
+        if (!doEmail && !doWa) { setSendStatus({ ok: false, text: 'Selecciona al menos un canal disponible.' }); return; }
+        setSendStatus(null);
+        setSendResults([]);
+        setSendPhase('sending');
+        const results = [];
+
+        if (doEmail) {
+            setSendingEmail(true);
+            try { const r = await sendEmailOnce(); results.push({ channel: 'email', status: r.ok ? 'ok' : 'fail', text: r.text }); }
+            catch (e) { results.push({ channel: 'email', status: 'fail', text: 'Email: ' + (e.response?.data?.message || e.message) }); }
+            finally { setSendingEmail(false); }
+        } else if (channels.email) {
+            results.push({ channel: 'email', status: 'unavailable', text: 'No disponible — sin dirección de correo' });
+        }
+        if (doWa) {
+            setSendingWhatsapp(true);
+            try { const r = await sendWhatsappOnce(); results.push({ channel: 'whatsapp', status: r.ok ? 'ok' : 'fail', text: r.text }); }
+            catch (e) { results.push({ channel: 'whatsapp', status: 'fail', text: 'WhatsApp: ' + (e.response?.data?.message || e.message) }); }
+            finally { setSendingWhatsapp(false); }
+        } else if (channels.whatsapp) {
+            results.push({ channel: 'whatsapp', status: 'unavailable', text: !contactPhoneValid ? 'No disponible — sin teléfono' : 'No disponible — WhatsApp no conectado' });
+        }
+
+        // Si llegó al cliente por al menos un canal, registramos la fecha de envío.
+        const anyOk = results.some(r => r.status === 'ok');
+        if (anyOk && onMarkSent) onMarkSent();
+        setSendResults(results);
+        setSendStatus({ ok: anyOk, text: results.map(r => `${r.status === 'ok' ? '✓' : '✕'} ${r.text}`).join('   ') });
+        setSendPhase('done');
+        if (anyOk) fireSuccessConfetti();
+    };
+
+    const Spinner = () => (
+        <svg className="animate-spin h-4 w-4 text-current" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+        </svg>
+    );
+
+    // Anexos en Drive: IDs a concatenar al PDF principal, en orden de attachments.
+    const getAnnexDriveFileIds = () => {
+        return attachments
+            .filter(a => a.file?.driveId && (a.id !== 'aerotermia_acs' || tieneAcs))
+            .map(a => a.file.driveId);
+    };
+
+    const missingReasonText = (item) => {
+        switch (item.missingReason) {
+            case 'no_model': return '⚠ Selecciona un modelo de aerotermia en Instalación';
+            case 'no_ficha_in_db': return `⚠ El modelo "${item.missingModel || '?'}" no tiene ficha técnica en la BD`;
+            case 'bad_ficha_url': return '⚠ La URL de la ficha del modelo no es válida';
+            case 'model_not_found': return '⚠ El modelo no existe en la BD';
+            case 'no_drive_folder': return '⚠ La oportunidad no tiene carpeta de Drive';
+            case 'network_error': return '⚠ Error de red — reintenta';
+            default: return '⚠ Sube manualmente o re-sincroniza';
         }
     };
 
-    const handleFileChange = async (targetId, file, isNew = false) => {
-        if (!file) return;
-        const reader = new FileReader();
-        reader.onload = async (rev) => {
-            const dataUrl = rev.target.result;
-            const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
-            let finalData = [dataUrl];
-            if (isPdf) {
-                setGenerating(true); 
-                finalData = await convertPdfToImages(dataUrl);
-                setGenerating(false);
-            }
-            const newFileObj = { name: file.name, data: finalData, isPdf };
-            setAttachments(prev => {
-                if (isNew) return [...prev, { id: `extra_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`, label: `Documento Extra`, file: newFileObj, required: false }];
-                if (!targetId) {
-                    const emptyIdx = prev.findIndex(a => !a.file);
-                    if (emptyIdx !== -1) return prev.map((a, i) => i === emptyIdx ? { ...a, file: newFileObj } : a);
-                    return [...prev, { id: `extra_${Date.now()}`, label: `Documento Extra`, file: newFileObj, required: false }];
-                }
-                return prev.map(a => a.id === targetId ? { ...a, file: newFileObj } : a);
-            });
-        };
-        reader.readAsDataURL(file);
+    const sourceBadge = (source) => {
+        if (source === 'drive') return { text: 'Drive del expediente', tone: 'emerald' };
+        if (source === 'model_copy') return { text: 'Copiada del modelo', tone: 'sky' };
+        if (source === 'manual_upload') return { text: 'Subida manual', tone: 'amber' };
+        return { text: 'Drive', tone: 'emerald' };
     };
 
-    const removeAttachment = (index) => {
-        const item = attachments[index];
-        if (item.required) setAttachments(prev => prev.map((a, i) => i === index ? { ...a, file: null } : a));
-        else setAttachments(prev => prev.filter((_, i) => i !== index));
-    };
-
-    const reorderAttachments = (from, to) => {
-        if (from === null || to === null || from === to) return;
-        const newArr = [...attachments];
-        const [removed] = newArr.splice(from, 1);
-        newArr.splice(to, 0, removed);
-        setAttachments(newArr);
-        setDraggedIndex(null);
-    };
+    // Documentación de eficiencia (EPREL/KEYMARK): el modelo solo guarda el enlace
+    // web (no PDF), así que se ofrecen huecos de subida manual con el enlace oficial
+    // del modelo como ayuda. Al subir se guardan como anexos extra etiquetados y se
+    // concatenan al PDF como cualquier otra ficha.
+    const EPREL_LABEL = 'Ficha EPREL';
+    const KEYMARK_LABEL = 'Certificado KEYMARK';
+    const isHttpUrl = (u) => /^https?:\/\//i.test((u || '').trim());
+    const eficienciaDocs = [
+        { kind: 'eprel',   label: EPREL_LABEL,   url: inst.aerotermia_cal?.url_eprel,   openText: 'Abrir ficha EPREL oficial' },
+        { kind: 'keymark', label: KEYMARK_LABEL, url: inst.aerotermia_cal?.url_keymark, openText: 'Abrir certificado KEYMARK' },
+    ];
 
     const AnexosModal = () => (
         <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/95 backdrop-blur-xl" onClick={() => setIsAnexosOpen(false)}>
-            <div className="bg-[#16181D] border border-white/10 rounded-3xl w-full max-w-2xl overflow-hidden shadow-[0_30px_60px_-15px_rgba(0,0,0,0.5)]" onClick={e => e.stopPropagation()}>
+            <div className="bg-[#16181D] border border-white/10 rounded-3xl w-full max-w-2xl overflow-hidden shadow-[0_30px_60px_-15px_rgba(0,0,0,0.5)]"
+                 onClick={e => e.stopPropagation()}>
                 <div className="px-8 py-5 border-b border-white/10 flex justify-between items-center bg-white/[0.02]">
                     <div className="flex items-center gap-3">
                         <div className="w-8 h-8 rounded-lg bg-brand/20 flex items-center justify-center">
                             <svg className="w-5 h-5 text-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
                         </div>
-                        <h3 className="text-white font-bold uppercase tracking-[0.2em] text-xs">Gestión de Anexos Técnicos</h3>
+                        <h3 className="text-white font-bold uppercase tracking-[0.2em] text-xs">Gestión de Anexos {(numExpte.match(/RES\d+/) || [])[0] || 'RES080'}</h3>
                     </div>
                     <button onClick={() => setIsAnexosOpen(false)} className="text-white/20 hover:text-white transition-colors"><svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg></button>
                 </div>
+
                 <div className="p-8 grid gap-4 max-h-[65vh] overflow-y-auto custom-scrollbar bg-gradient-to-b from-transparent to-black/20">
-                    {attachments.map((item, idx) => (
-                        <div key={item.id} draggable onDragStart={() => setDraggedIndex(idx)} onDrop={(e) => { e.preventDefault(); reorderAttachments(draggedIndex, idx); }} className={`group flex items-center justify-between p-4 bg-white/[0.03] rounded-2xl border ${item.file ? 'border-white/10' : 'border-white/5 border-dashed'}`}>
-                            <div className="flex items-center gap-4">
-                                <div className="cursor-grab text-white/5"><svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M7 2a2 2 0 1 0 .001 4.001A2 2 0 0 0 7 2zm0 6a2 2 0 1 0 .001 4.001A2 2 0 0 0 7 8zm0 6a2 2 0 1 0 .001 4.001A2 2 0 0 0 7 14zm6-12a2 2 0 1 0 .001 4.001A2 2 0 0 0 13 2zm0 6a2 2 0 1 0 .001 4.001A2 2 0 0 0 13 8zm0 6a2 2 0 1 0 .001 4.001A2 2 0 0 0 13 14z" /></svg></div>
-                                <div className="flex flex-col gap-1">
-                                    <span className={`text-[11px] font-black uppercase tracking-wider ${item.file ? 'text-white/80' : 'text-white/20'}`}>{item.label}</span>
-                                    {item.file && <span className="text-[10px] text-brand font-bold">{item.file.name}</span>}
+                    <p className="text-white/30 text-[10px] uppercase font-bold tracking-widest mb-2">Las fichas técnicas se concatenan al PDF automáticamente desde Drive</p>
+
+                    {attachments.map((item, idx) => {
+                        if (item.id === 'aerotermia_acs' && !tieneAcs) return null;
+                        // EPREL/KEYMARK se muestran en su propio bloque, no aquí.
+                        if (item.isExtra && (item.label === EPREL_LABEL || item.label === KEYMARK_LABEL)) return null;
+                        const type = item.id === 'aerotermia_cal' ? 'cal' : item.id === 'aerotermia_acs' ? 'acs' : null;
+                        const isLoading = type && loadingFichas[type];
+                        const isResyncing = type && resyncingType === type;
+                        const badge = item.file ? sourceBadge(item.file.source) : null;
+                        return (
+                            <div key={item.id}
+                                 draggable={!isLoading && !isResyncing}
+                                 onDragStart={() => setDraggedIndex(idx)}
+                                 onDragOver={(e) => { e.preventDefault(); e.currentTarget.style.backgroundColor = 'rgba(242, 166, 64, 0.1)'; }}
+                                 onDragLeave={(e) => { e.currentTarget.style.backgroundColor = ''; }}
+                                 onDrop={(e) => {
+                                     e.preventDefault();
+                                     e.currentTarget.style.backgroundColor = '';
+                                     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                                         const f = e.dataTransfer.files[0];
+                                         if (item.required) handleManualFixedUpload(item.id, f);
+                                         else handleManualExtraUpload(f);
+                                     } else {
+                                         reorderAttachments(draggedIndex, idx);
+                                     }
+                                 }}
+                                 className={`group flex items-center justify-between p-4 bg-white/[0.03] rounded-2xl border transition-all duration-300 ${draggedIndex === idx ? 'opacity-30' : 'opacity-100'} ${item.file ? 'border-white/10 hover:border-brand/40' : item.missing ? 'border-amber-400/30 border-dashed hover:border-amber-400/60' : 'border-white/5 border-dashed hover:border-white/20'}`}>
+
+                                <div className="flex items-center gap-4 min-w-0">
+                                    <div className="cursor-grab active:cursor-grabbing text-white/5 hover:text-white/20 transition-colors shrink-0">
+                                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M7 2a2 2 0 1 0 .001 4.001A2 2 0 0 0 7 2zm0 6a2 2 0 1 0 .001 4.001A2 2 0 0 0 7 8zm0 6a2 2 0 1 0 .001 4.001A2 2 0 0 0 7 14zm6-12a2 2 0 1 0 .001 4.001A2 2 0 0 0 13 2zm0 6a2 2 0 1 0 .001 4.001A2 2 0 0 0 13 8zm0 6a2 2 0 1 0 .001 4.001A2 2 0 0 0 13 14z" /></svg>
+                                    </div>
+
+                                    <div className="flex flex-col gap-1 min-w-0">
+                                        <span className={`text-[11px] font-black uppercase tracking-wider ${item.file ? 'text-white/80' : 'text-white/20'} truncate`}>{item.label}</span>
+                                        {isLoading || isResyncing ? (
+                                            <span className="text-[10px] text-white/40 flex items-center gap-1.5">
+                                                <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                                                {isResyncing ? 'Re-sincronizando…' : 'Cargando desde Drive…'}
+                                            </span>
+                                        ) : item.file ? (
+                                            <div className="flex flex-col gap-0.5 min-w-0">
+                                                <a href={item.file.link} target="_blank" rel="noreferrer" className="text-[10px] text-brand font-bold flex items-center gap-1.5 hover:text-brand/70 transition-colors truncate">
+                                                    <svg className="w-3 h-3 shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd"/></svg>
+                                                    <span className="truncate">{item.file.name}</span>
+                                                </a>
+                                                {badge && (
+                                                    <span className={`text-[9px] text-${badge.tone}-400/70 font-bold uppercase tracking-wider`}>✓ {badge.text}</span>
+                                                )}
+                                            </div>
+                                        ) : item.missing ? (
+                                            <span className="text-[10px] text-amber-400/80 font-bold">{missingReasonText(item)}</span>
+                                        ) : (
+                                            <span className="text-[10px] text-white/10 italic">Sin ficha</span>
+                                        )}
+                                    </div>
+                                </div>
+
+                                <div className="flex gap-2 shrink-0">
+                                    {type && (item.file || item.missing) && !isLoading && (
+                                        <button
+                                            onClick={() => handleResync(type)}
+                                            disabled={isResyncing}
+                                            title="Re-sincronizar desde el modelo de aerotermia"
+                                            className="p-2.5 text-sky-400/60 hover:text-sky-300 hover:bg-sky-500/10 rounded-xl transition-all disabled:opacity-30"
+                                        >
+                                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                                        </button>
+                                    )}
+                                    {item.file && (
+                                        <button onClick={() => removeAttachment(idx)} title={item.required ? 'Quitar del slot' : 'Eliminar del Drive'} className="p-2.5 text-red-500/50 hover:text-red-500 hover:bg-red-500/10 rounded-xl transition-all"><svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg></button>
+                                    )}
+                                    {!item.file && !isLoading && (
+                                        <label className="p-2.5 bg-white/5 text-white/40 border border-white/10 rounded-xl cursor-pointer hover:bg-brand hover:text-black hover:border-brand transition-all shadow-xl">
+                                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M12 4v16m8-8H4"/></svg>
+                                            <input type="file" className="hidden" accept=".pdf" onChange={(e) => {
+                                                const f = e.target.files[0];
+                                                if (!f) return;
+                                                if (item.required) handleManualFixedUpload(item.id, f);
+                                                else handleManualExtraUpload(f);
+                                            }} />
+                                        </label>
+                                    )}
                                 </div>
                             </div>
-                            <div className="flex gap-2">
-                                {item.file ? <button onClick={() => removeAttachment(idx)} className="p-2.5 text-red-500/50 hover:text-red-500"><svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg></button> : <label className="p-2.5 bg-white/5 text-white/40 rounded-xl cursor-pointer"><input type="file" className="hidden" accept="image/*,.pdf" onChange={(e) => handleFileChange(item.id, e.target.files[0])} /><svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M12 4v16m8-8H4"/></svg></label>}
-                            </div>
+                        );
+                    })}
+
+                    {/* EPREL / KEYMARK — huecos de subida manual con el enlace del modelo */}
+                    <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-4">
+                        <div className="text-[10px] font-black uppercase tracking-widest text-white/40 mb-1">Documentación de eficiencia (EPREL / KEYMARK)</div>
+                        <p className="text-[10px] text-white/25 mb-3">Si el SCOP se justifica por EPREL, adjunta aquí la ficha EPREL y/o el KEYMARK: abre el enlace oficial, descarga el PDF y súbelo. Se concatenan al certificado.</p>
+                        {eficienciaDocs.map(row => {
+                            const idx = attachments.findIndex(a => a.isExtra && a.label === row.label);
+                            const annex = idx >= 0 ? attachments[idx] : null;
+                            return (
+                                <div key={row.kind} className="flex items-center justify-between gap-3 py-2.5 border-t border-white/5 first:border-t-0">
+                                    <div className="min-w-0">
+                                        <div className="text-[11px] font-black uppercase tracking-wider text-white/80">{row.label}</div>
+                                        {annex ? (
+                                            <a href={annex.file.link} target="_blank" rel="noreferrer" className="text-[10px] text-emerald-400 font-bold flex items-center gap-1.5 truncate hover:text-emerald-300 transition-colors">
+                                                <svg className="w-3 h-3 shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd"/></svg>
+                                                <span className="truncate">{annex.file.name}</span>
+                                            </a>
+                                        ) : isHttpUrl(row.url) ? (
+                                            <a href={row.url} target="_blank" rel="noreferrer" className="text-[10px] text-brand font-bold hover:text-brand/70 inline-flex items-center gap-1 transition-colors">{row.openText} ↗</a>
+                                        ) : (
+                                            <span className="text-[10px] text-white/20 italic">Sin enlace en el modelo — sube el PDF manualmente</span>
+                                        )}
+                                    </div>
+                                    <div className="flex gap-2 shrink-0">
+                                        {annex ? (
+                                            <button onClick={() => removeAttachment(idx)} title="Eliminar del Drive" className="p-2.5 text-red-500/50 hover:text-red-500 hover:bg-red-500/10 rounded-xl transition-all"><svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg></button>
+                                        ) : (
+                                            <label className={`p-2.5 bg-white/5 text-white/40 border border-white/10 rounded-xl cursor-pointer hover:bg-brand hover:text-black hover:border-brand transition-all shadow-xl ${uploadingExtra ? 'opacity-40 pointer-events-none' : ''}`}>
+                                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M12 4v16m8-8H4"/></svg>
+                                                <input type="file" className="hidden" accept=".pdf" onChange={(e) => { const f = e.target.files[0]; if (f) handleManualExtraUpload(f, row.label); }} />
+                                            </label>
+                                        )}
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+
+                    <div className="mt-4 flex flex-col items-center gap-4">
+                        <div
+                            onDragOver={e => { e.preventDefault(); setIsGlobalDragging(true); }}
+                            onDragLeave={() => setIsGlobalDragging(false)}
+                            onDrop={e => {
+                                e.preventDefault();
+                                setIsGlobalDragging(false);
+                                if (e.dataTransfer.files.length > 0) handleManualExtraUpload(e.dataTransfer.files[0]);
+                            }}
+                            className={`w-full py-8 border-2 border-dashed rounded-2xl flex flex-col items-center justify-center gap-2 transition-all ${isGlobalDragging ? 'border-brand bg-brand/5 scale-[1.02]' : 'border-white/5 bg-white/[0.01]'}`}
+                        >
+                            {uploadingExtra ? (
+                                <svg className="w-8 h-8 text-brand animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                            ) : (
+                                <svg className={`w-8 h-8 transition-transform ${isGlobalDragging ? 'scale-110 text-brand' : 'text-white/10'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
+                            )}
+                            <p className="text-[10px] font-black uppercase tracking-widest text-white/20">{uploadingExtra ? 'Subiendo…' : 'Suelta un PDF aquí para anexarlo'}</p>
                         </div>
-                    ))}
+
+                        <button
+                            onClick={() => {
+                                const input = document.createElement('input');
+                                input.type = 'file';
+                                input.accept = '.pdf';
+                                input.onchange = (e) => { if (e.target.files[0]) handleManualExtraUpload(e.target.files[0]); };
+                                input.click();
+                            }}
+                            disabled={uploadingExtra}
+                            className="flex items-center gap-2 px-6 py-3 bg-white/5 hover:bg-brand hover:text-black border border-white/10 hover:border-brand text-white/50 text-[10px] font-black rounded-2xl transition-all uppercase tracking-[0.2em] shadow-xl disabled:opacity-30"
+                        >
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M12 4v16m8-8H4"/></svg>
+                            Explorar Archivos
+                        </button>
+                    </div>
                 </div>
-                <div className="p-6 bg-black/40 flex justify-end gap-3"><button onClick={() => setIsAnexosOpen(false)} className="px-10 py-3 bg-brand text-black text-[11px] font-black rounded-2xl uppercase tracking-[0.2em]">Guardar Anexos</button></div>
+
+                <div className="p-6 bg-black/40 flex justify-end">
+                    <button
+                        onClick={() => setIsAnexosOpen(false)}
+                        className="px-10 py-3 bg-brand text-black text-[11px] font-black rounded-2xl uppercase tracking-[0.2em] shadow-[0_10px_20px_-5px_rgba(242,166,64,0.3)] hover:scale-105 active:scale-95 transition-all"
+                    >
+                        Cerrar
+                    </button>
+                </div>
             </div>
         </div>
     );
@@ -973,39 +1658,24 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, a
                             </button>
                         )}
 
-                        {/* Botón ENVIAR POR EMAIL */}
+                        {/* Botón ENVIAR (Email / WhatsApp / ambos — se elige en el popup) */}
                         <button
-                            onClick={handleSendByEmail}
-                            disabled={sendingEmail || generating || savingDrive || sendingWhatsapp}
-                            title="Enviar por Correo"
-                            className="text-white/40 hover:text-brand w-10 h-10 flex items-center justify-center transition-all hover:bg-white/5 rounded-xl border border-transparent hover:border-white/10 shrink-0 active:scale-95 disabled:opacity-20"
+                            onClick={openSendModal}
+                            disabled={sendingEmail || sendingWhatsapp || generating || savingDrive}
+                            title="Enviar al cliente"
+                            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white/[0.03] border border-white/10 text-white/50 text-xs font-bold hover:text-brand hover:border-brand/30 transition-all disabled:opacity-30"
                         >
-                            {sendingEmail ? (
-                                <div className="w-5 h-5 border-2 border-brand/20 border-t-brand rounded-full animate-spin" />
+                            {(sendingEmail || sendingWhatsapp) ? (
+                                <div className="w-4 h-4 border-2 border-brand/20 border-t-brand rounded-full animate-spin" />
                             ) : (
-                                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2-2v10a2 2 0 002 2z" />
+                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
                                 </svg>
                             )}
+                            Enviar
                         </button>
 
-                        {/* Botón ENVIAR POR WHATSAPP */}
-                        <button
-                            onClick={handleSendByWhatsapp}
-                            disabled={sendingWhatsapp || generating || savingDrive || sendingEmail}
-                            title="Enviar por WhatsApp"
-                            className="text-white/40 hover:text-emerald-400 w-10 h-10 flex items-center justify-center transition-all hover:bg-white/5 rounded-xl border border-transparent hover:border-white/10 shrink-0 active:scale-95 disabled:opacity-20"
-                        >
-                            {sendingWhatsapp ? (
-                                <div className="w-5 h-5 border-2 border-emerald-400/20 border-t-emerald-400 rounded-full animate-spin" />
-                            ) : (
-                                <svg className="w-6 h-6" viewBox="0 0 24 24" fill="currentColor">
-                                    <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51l-.57-.01c-.198 0-.52.074-.792.372s-1.04 1.016-1.04 2.479 1.065 2.876 1.213 3.074c.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.999-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
-                                </svg>
-                            )}
-                        </button>
-
-                        <button onClick={handleDownloadPdf} disabled={generating || savingDrive || sendingEmail || sendingWhatsapp} 
+                        <button onClick={handleDownloadPdf} disabled={generating || savingDrive || sendingEmail || sendingWhatsapp}
                                 className="px-5 py-2 bg-brand text-black text-xs font-black rounded-xl uppercase tracking-wider transition-all hover:brightness-110 active:scale-95 disabled:opacity-30">
                             {generating ? <Spinner /> : 'Generar PDF'}
                         </button>
@@ -1013,13 +1683,223 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, a
                 </div>
                 
                 <div ref={containerRef} className="flex-1 overflow-auto bg-[#16181D] py-8 px-4 text-center custom-scrollbar">
-                    <div className="inline-block text-left" 
+                    <div className="inline-block text-left"
                          style={{ transform: `scale(${scale})`, transformOrigin: 'top center' }}
                          onBlur={handleContentBlur}>
                         <style dangerouslySetInnerHTML={{ __html: DOC_CSS }} />
-                        <div dangerouslySetInnerHTML={{ __html: generateHtml(false) }} />
+                        <div dangerouslySetInnerHTML={{ __html: generateHtml(false, true) }} />
                     </div>
                 </div>
+
+                {/* ── MODAL ENVÍO AL CLIENTE (contacto + mensaje + canal) ── */}
+                {sendOpen && (
+                    <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4" onClick={() => setSendOpen(false)}>
+                        <div className="bg-[#0F1013] border border-white/[0.07] rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden" onClick={e => e.stopPropagation()}>
+                            {/* Header */}
+                            <div className="px-6 py-5 border-b border-white/[0.07] bg-brand/5 flex items-center justify-between">
+                                <div>
+                                    <h2 className="text-lg font-black uppercase tracking-tight text-white">Enviar Certificado RES080 al cliente</h2>
+                                    <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest mt-0.5">Certificado final · {numExpte}</p>
+                                </div>
+                                <button onClick={() => setSendOpen(false)} className="text-white/30 hover:text-white transition-colors">
+                                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                </button>
+                            </div>
+
+                            <div className="px-6 py-5 space-y-5 max-h-[74vh] overflow-y-auto custom-scrollbar">
+                                {/* Destinatario */}
+                                <div>
+                                    <label className="block text-[9px] font-black text-white/30 uppercase tracking-[0.2em] mb-2">Destinatario</label>
+                                    <div className="space-y-2">
+                                        {clientContacts.map(c => (
+                                            <button key={c.id} type="button" onClick={() => pickContact(c.id)}
+                                                className={`w-full flex items-center gap-3 p-3 rounded-xl border text-left transition-all ${selectedContactId === c.id ? 'border-brand/50 bg-brand/5' : 'border-white/10 bg-white/[0.02] hover:border-white/20'}`}>
+                                                <span className={`w-4 h-4 rounded-full border-2 shrink-0 ${selectedContactId === c.id ? 'border-brand bg-brand' : 'border-white/20'}`} />
+                                                <div className="min-w-0 flex-1">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="text-sm font-bold text-white truncate">{c.label}</span>
+                                                        <span className="text-[9px] uppercase tracking-wider text-white/30 font-bold shrink-0">{c.sublabel}</span>
+                                                    </div>
+                                                    <div className="text-[11px] text-white/40 truncate">
+                                                        {c.phone || 'sin teléfono'}{c.email ? ` · ${c.email}` : ''}
+                                                    </div>
+                                                </div>
+                                            </button>
+                                        ))}
+                                        {/* Otro contacto manual */}
+                                        <button type="button" onClick={() => pickContact('otro')}
+                                            className={`w-full flex items-center gap-3 p-3 rounded-xl border text-left transition-all ${selectedContactId === 'otro' ? 'border-brand/50 bg-brand/5' : 'border-white/10 bg-white/[0.02] hover:border-white/20'}`}>
+                                            <span className={`w-4 h-4 rounded-full border-2 shrink-0 ${selectedContactId === 'otro' ? 'border-brand bg-brand' : 'border-white/20'}`} />
+                                            <span className="text-sm font-bold text-white">Otro contacto…</span>
+                                        </button>
+                                        {selectedContactId === 'otro' && (
+                                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pl-7">
+                                                <input value={manualContact.name} onChange={e => { const v = e.target.value; setManualContact(m => ({ ...m, name: v })); setSendMessage(buildDeliveryMessage(v)); }} placeholder="Nombre" className="w-full min-w-0 bg-bkg-elevated border border-white/5 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-brand/40 transition-all" />
+                                                <input value={manualContact.phone} onChange={e => setManualContact(m => ({ ...m, phone: e.target.value }))} placeholder="Teléfono" className="w-full min-w-0 bg-bkg-elevated border border-white/5 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-brand/40 transition-all" />
+                                                <input type="email" value={manualContact.email} onChange={e => setManualContact(m => ({ ...m, email: e.target.value }))} placeholder="Email" className="w-full min-w-0 no-uppercase bg-bkg-elevated border border-white/5 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-brand/40 transition-all" />
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* Mensaje */}
+                                <div>
+                                    <label className="block text-[9px] font-black text-white/30 uppercase tracking-[0.2em] mb-2">Mensaje (email / WhatsApp)</label>
+                                    <textarea
+                                        value={sendMessage}
+                                        onChange={e => setSendMessage(e.target.value)}
+                                        rows={9}
+                                        className="w-full no-uppercase bg-bkg-elevated border border-white/5 rounded-xl px-4 py-3 text-white text-[12px] leading-relaxed focus:outline-none focus:border-brand/40 transition-all resize-y"
+                                    />
+                                </div>
+
+                                {/* Canal de envío (email / whatsapp / ambos) */}
+                                <div>
+                                    <label className="block text-[9px] font-black text-white/30 uppercase tracking-[0.2em] mb-2">Enviar por</label>
+                                    <div className="grid grid-cols-2 gap-2">
+                                        {/* Email */}
+                                        <button type="button" disabled={!canEmail} onClick={() => toggleChannel('email')}
+                                            className={`flex items-center gap-2.5 p-3 rounded-xl border text-left transition-all ${!canEmail ? 'opacity-40 cursor-not-allowed border-white/10 bg-white/[0.02]' : (channels.email ? 'border-brand/50 bg-brand/10' : 'border-white/10 bg-white/[0.02] hover:border-white/20')}`}>
+                                            <span className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 ${willEmail ? 'border-brand bg-brand' : 'border-white/20'}`}>
+                                                {willEmail && <svg className="w-3 h-3 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
+                                            </span>
+                                            <div className="min-w-0">
+                                                <div className="text-[11px] font-black uppercase tracking-wider text-white">Email</div>
+                                                <div className="text-[10px] text-white/40 truncate">{selectedContact.email || 'sin email'}</div>
+                                            </div>
+                                        </button>
+                                        {/* WhatsApp */}
+                                        <button type="button" disabled={!contactPhoneValid || waReady === false} onClick={() => toggleChannel('whatsapp')}
+                                            className={`flex items-center gap-2.5 p-3 rounded-xl border text-left transition-all ${(!contactPhoneValid || waReady === false) ? 'opacity-40 cursor-not-allowed border-white/10 bg-white/[0.02]' : (channels.whatsapp ? 'border-emerald-400/50 bg-emerald-400/10' : 'border-white/10 bg-white/[0.02] hover:border-white/20')}`}>
+                                            <span className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 ${willWhatsapp ? 'border-emerald-400 bg-emerald-400' : 'border-white/20'}`}>
+                                                {willWhatsapp && <svg className="w-3 h-3 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
+                                            </span>
+                                            <div className="min-w-0">
+                                                <div className="text-[11px] font-black uppercase tracking-wider text-white">WhatsApp</div>
+                                                <div className="text-[10px] text-white/40 truncate">{!contactPhoneValid ? 'sin teléfono' : (waReady === false ? 'no conectado' : selectedContact.phone)}</div>
+                                            </div>
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {sendStatus && (
+                                    <p className={`text-[11px] ${sendStatus.ok ? 'text-emerald-400' : 'text-red-400'}`}>
+                                        {sendStatus.ok ? '✅' : '❌'} {sendStatus.text}
+                                    </p>
+                                )}
+                            </div>
+
+                            {/* Footer */}
+                            <div className="px-6 py-4 bg-white/[0.02] border-t border-white/[0.07] flex items-center justify-end gap-3">
+                                <button onClick={() => setSendOpen(false)} className="px-4 py-2.5 rounded-xl border border-white/10 text-white/50 text-[10px] font-black uppercase tracking-widest hover:text-white hover:border-white/30 transition-all">
+                                    Cerrar
+                                </button>
+                                <button onClick={doSend} disabled={sending || (!willEmail && !willWhatsapp)}
+                                    title={(!willEmail && !willWhatsapp) ? 'Selecciona al menos un canal disponible' : 'Enviar'}
+                                    className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-brand text-black text-[11px] font-black uppercase tracking-widest hover:brightness-110 active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed transition-all">
+                                    {sending
+                                        ? <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.4 0 0 5.4 0 12h4z" /></svg>
+                                        : <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>}
+                                    {sending ? 'Enviando…' : 'Enviar'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* ── OVERLAY DE ENVÍO: enviando → enviado, estado por canal ── */}
+                {sendPhase && (() => {
+                    const anyOk = sendResults.some(r => r.status === 'ok');
+                    const hasFail = sendResults.some(r => r.status === 'fail');
+                    const hasUnavail = sendResults.some(r => r.status === 'unavailable');
+                    const allGood = anyOk && !hasFail && !hasUnavail;
+                    const done = sendPhase === 'done';
+                    const tone = !done ? 'brand' : (allGood ? 'emerald' : (anyOk ? 'amber' : 'red'));
+                    const glow = { brand: 'bg-brand/20', emerald: 'bg-emerald-500/25', amber: 'bg-amber-500/20', red: 'bg-red-500/20' }[tone];
+                    const chMeta = {
+                        email:    { name: 'Email',    path: 'M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z' },
+                        whatsapp: { name: 'WhatsApp', path: 'M12 2a10 10 0 00-8.94 14.46L2 22l5.7-1.5A10 10 0 1012 2z' },
+                    };
+                    const statusMeta = {
+                        ok:          { color: 'emerald', label: 'Enviado',       icon: 'M5 13l4 4L19 7' },
+                        fail:        { color: 'red',     label: 'Error',         icon: 'M6 18L18 6M6 6l12 12' },
+                        unavailable: { color: 'amber',   label: 'No disponible', icon: 'M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z' },
+                    };
+                    return (
+                        <div className="fixed inset-0 z-[400] flex items-center justify-center bg-black/85 backdrop-blur-md p-4 animate-fade-in">
+                            <div className="relative w-full max-w-md bg-[#0F1013] border border-white/10 rounded-3xl shadow-2xl overflow-hidden animate-scale-in">
+                                <div className={`absolute -top-28 left-1/2 -translate-x-1/2 w-80 h-80 rounded-full blur-3xl pointer-events-none ${glow}`} />
+                                <div className="relative px-8 py-9 flex flex-col items-center text-center">
+                                    {!done ? (
+                                        <>
+                                            <div className="relative w-24 h-24 mb-6 flex items-center justify-center">
+                                                <span className="absolute inset-0 rounded-full bg-brand/20 animate-ping" />
+                                                <span className="absolute inset-4 rounded-full bg-brand/20 animate-ping" style={{ animationDelay: '0.5s' }} />
+                                                <div className="relative w-16 h-16 rounded-full bg-brand/15 border border-brand/40 flex items-center justify-center">
+                                                    <svg className="w-8 h-8 text-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8} style={{ animation: 'float 1.8s ease-in-out infinite' }}><path strokeLinecap="round" strokeLinejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>
+                                                </div>
+                                            </div>
+                                            <h3 className="text-xl font-black uppercase tracking-tight text-white">Enviando certificado…</h3>
+                                            <p className="text-white/40 text-[10px] font-bold uppercase tracking-[0.2em] mt-1">{numExpte}</p>
+                                            <div className="mt-6 w-full space-y-2">
+                                                {willEmail && (
+                                                    <div className="flex items-center gap-3 px-4 py-2.5 rounded-xl bg-white/[0.03] border border-white/10">
+                                                        <svg className="w-4 h-4 animate-spin text-brand shrink-0" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.4 0 0 5.4 0 12h4z" /></svg>
+                                                        <span className="text-[11px] font-bold text-white/70 uppercase tracking-wider">Enviando email…</span>
+                                                    </div>
+                                                )}
+                                                {willWhatsapp && (
+                                                    <div className="flex items-center gap-3 px-4 py-2.5 rounded-xl bg-white/[0.03] border border-white/10">
+                                                        <svg className="w-4 h-4 animate-spin text-emerald-400 shrink-0" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.4 0 0 5.4 0 12h4z" /></svg>
+                                                        <span className="text-[11px] font-bold text-white/70 uppercase tracking-wider">Enviando WhatsApp…</span>
+                                                    </div>
+                                                )}
+                                            </div>
+                                            <p className="mt-6 text-[10px] text-white/25 uppercase tracking-widest font-bold">No cierres esta ventana</p>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <div className="relative w-24 h-24 mb-6 flex items-center justify-center">
+                                                <span className={`absolute inset-0 rounded-full animate-ping ${tone === 'emerald' ? 'bg-emerald-500/20' : tone === 'amber' ? 'bg-amber-500/20' : 'bg-red-500/20'}`} />
+                                                <div className={`relative w-20 h-20 rounded-full flex items-center justify-center border-2 ${tone === 'emerald' ? 'bg-emerald-500/15 border-emerald-400/50 text-emerald-400' : tone === 'amber' ? 'bg-amber-500/15 border-amber-400/50 text-amber-400' : 'bg-red-500/15 border-red-400/50 text-red-400'}`}>
+                                                    <svg className="w-10 h-10 animate-scale-in" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d={anyOk ? 'M5 13l4 4L19 7' : 'M6 18L18 6M6 6l12 12'} /></svg>
+                                                </div>
+                                            </div>
+                                            <h3 className="text-xl font-black uppercase tracking-tight text-white">{allGood ? '¡Certificado enviado!' : anyOk ? 'Enviado parcialmente' : 'No se pudo enviar'}</h3>
+                                            <p className="text-white/40 text-[10px] font-bold uppercase tracking-[0.2em] mt-1">{numExpte}</p>
+                                            <div className="mt-6 w-full space-y-2">
+                                                {sendResults.map((r, i) => {
+                                                    const cm = chMeta[r.channel]; const sm = statusMeta[r.status];
+                                                    return (
+                                                        <div key={i} className={`flex items-center gap-3 px-4 py-3 rounded-xl border ${sm.color === 'emerald' ? 'bg-emerald-500/[0.06] border-emerald-400/25' : sm.color === 'amber' ? 'bg-amber-500/[0.06] border-amber-400/25' : 'bg-red-500/[0.06] border-red-400/25'}`}>
+                                                            <svg className="w-5 h-5 text-white/50 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.7}><path strokeLinecap="round" strokeLinejoin="round" d={cm.path} /></svg>
+                                                            <div className="min-w-0 flex-1 text-left">
+                                                                <div className="text-[11px] font-black uppercase tracking-wider text-white">{cm.name}</div>
+                                                                <div className="text-[10px] text-white/45 truncate">{r.text}</div>
+                                                            </div>
+                                                            <span className={`flex items-center gap-1 text-[9px] font-black uppercase tracking-wider shrink-0 ${sm.color === 'emerald' ? 'text-emerald-400' : sm.color === 'amber' ? 'text-amber-400' : 'text-red-400'}`}>
+                                                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d={sm.icon} /></svg>
+                                                                {sm.label}
+                                                            </span>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                            <div className="mt-7 w-full flex flex-col gap-2">
+                                                <button onClick={exitToExpediente} className="w-full py-3 rounded-xl bg-brand text-black text-[11px] font-black uppercase tracking-widest hover:brightness-110 active:scale-95 transition-all">
+                                                    Volver al expediente
+                                                </button>
+                                                <button onClick={() => setSendPhase(null)} className="w-full py-2.5 rounded-xl border border-white/10 text-white/40 text-[10px] font-black uppercase tracking-widest hover:text-white hover:border-white/30 transition-all">
+                                                    Seguir aquí
+                                                </button>
+                                            </div>
+                                        </>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    );
+                })()}
             </div>
             {isAnexosOpen && <AnexosModal />}
         </div>
