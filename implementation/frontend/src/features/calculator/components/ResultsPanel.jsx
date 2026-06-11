@@ -318,6 +318,33 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
         }
     };
 
+    // Abrir la carpeta LOCAL de Windows de la oportunidad (solo ADMIN). Igual que en
+    // el detalle de expediente: el backend reconstruye la ruta (espejo de Drive) y
+    // lanzamos el protocolo brokergylocal: (abre directo, sin modal); la ruta se copia
+    // al portapapeles en silencio como respaldo. Requiere brokergylocal_setup.reg.
+    const [localPathLoading, setLocalPathLoading] = useState(false);
+    const handleOpenLocalFolder = async () => {
+        try {
+            setLocalPathLoading(true);
+            const { data } = await axios.get(`/api/oportunidades/${encodeURIComponent(inputs.id_oportunidad)}/local-path`);
+            const path = data?.path;
+            if (!path) { showAlert('No se pudo obtener la ruta local de la oportunidad.', 'Carpeta local', 'error'); return; }
+            try { await navigator.clipboard.writeText(path); } catch (e) { /* contexto no seguro */ }
+            const b64url = btoa(unescape(encodeURIComponent(path))).replace(/\+/g, '-').replace(/\//g, '_');
+            const a = document.createElement('a');
+            a.href = `brokergylocal:${b64url}`;
+            a.style.display = 'none';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+        } catch (err) {
+            const msg = err?.response?.data?.error || 'No se pudo resolver la ruta local.';
+            showAlert(msg, 'Carpeta local', 'error');
+        } finally {
+            setLocalPathLoading(false);
+        }
+    };
+
     const handleSuccessCliente = (cliente) => {
         onInputChange({ ...inputs, cliente_id: cliente?.id_cliente });
         setClienteModalOp(null);
@@ -409,6 +436,21 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
                             )}
                         </div>
                         <div className="flex items-center gap-1">
+                            {inputs?.drive_folder_link && user?.rol?.toUpperCase() === 'ADMIN' && (
+                                <button
+                                    type="button"
+                                    onClick={handleOpenLocalFolder}
+                                    disabled={localPathLoading}
+                                    className="p-2 mr-1 rounded-full bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 transition-all hover:scale-110 active:scale-90 disabled:opacity-50 disabled:cursor-wait"
+                                    title="Abrir la carpeta local en el Explorador de Windows"
+                                >
+                                    <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" />
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 13l2 2 4-4" />
+                                    </svg>
+                                </button>
+                            )}
+
                             {inputs?.drive_folder_link && user?.rol?.toUpperCase() === 'ADMIN' && (
                                 <a
                                     href={inputs.drive_folder_link}

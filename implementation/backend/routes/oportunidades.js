@@ -761,6 +761,62 @@ router.get('/:id', async (req, res) => {
     }
 });
 
+// ─── GET /api/oportunidades/:id/local-path ────────────────────────────────────
+// Solo ADMIN. Reconstruye la ruta LOCAL de Windows (espejo de Google Drive para
+// escritorio) de la carpeta de la oportunidad, subiendo por las carpetas padre en
+// Drive. El frontend la usa para abrir la carpeta con el protocolo brokergylocal:.
+// Misma lógica que expedientes/:id/local-path. Configurable con LOCAL_DRIVE_BASE.
+router.get('/:id/local-path', adminOnly, async (req, res) => {
+    try {
+        const { id } = req.params;
+        // Buscar por id_oportunidad y, si no, por UUID id
+        let { data: op } = await supabase
+            .from('oportunidades')
+            .select('id, id_oportunidad, datos_calculo')
+            .eq('id_oportunidad', id)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+        if (!op) {
+            const byUuid = await supabase
+                .from('oportunidades')
+                .select('id, id_oportunidad, datos_calculo')
+                .eq('id', id)
+                .maybeSingle();
+            op = byUuid.data;
+        }
+        if (!op) return res.status(404).json({ error: 'Oportunidad no encontrada' });
+
+        let datos = op.datos_calculo || {};
+        if (typeof datos === 'string') {
+            try { datos = JSON.parse(datos); } catch (e) { datos = {}; }
+        }
+        let driveFolderId = datos?.drive_folder_id || datos?.inputs?.drive_folder_id;
+        // Fallback robusto: si solo hay enlace, extraer el id de la carpeta del propio link.
+        if (!driveFolderId && datos?.drive_folder_link) {
+            const m = String(datos.drive_folder_link).match(/folders\/([A-Za-z0-9_-]+)/);
+            if (m) driveFolderId = m[1];
+        }
+        if (!driveFolderId) {
+            return res.status(404).json({ error: 'La oportunidad no tiene carpeta de Drive asociada' });
+        }
+
+        const { getFolderPathSegments } = require('../services/driveService');
+        const segments = await getFolderPathSegments(driveFolderId);
+        if (!segments.length) {
+            return res.status(502).json({ error: 'No se pudo resolver la ruta de la carpeta en Drive' });
+        }
+
+        const base = (process.env.LOCAL_DRIVE_BASE || 'C:\\Users\\Usuario\\Mi unidad').replace(/[\\/]+$/, '');
+        const localPath = [base, ...segments].join('\\');
+
+        res.json({ path: localPath, folderName: segments[segments.length - 1], segments });
+    } catch (err) {
+        console.error('Error GET oportunidades/:id/local-path:', err);
+        res.status(500).json({ error: 'Error al resolver la ruta local', details: err.message });
+    }
+});
+
 // Obtener anexos (archivos en carpeta "0. PRESUPUESTO")
 router.get('/:id/anexos', async (req, res) => {
     try {
