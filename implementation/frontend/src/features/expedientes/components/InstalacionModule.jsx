@@ -234,7 +234,18 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
                 const temp = getEmitterTemp(tipoEmisor);
                 scop = getScopFromModel(found, found.zona_climatica || 'D3', temp, method);
             }
-            onChange({ ...data, metodo_scop: method, scop });
+            onChange({
+                ...data,
+                metodo_scop: method,
+                scop,
+                // El enlace EPREL/KEYMARK/ficha se persiste también al cambiar de
+                // método (no solo al elegir modelo): el certificado los lee del
+                // snapshot del expediente, no del catálogo. Sin esto, poner método
+                // 'eprel' deja url_eprel en null y el enlace no se imprime en el CIFO.
+                url_eprel: found.eprel ?? data?.url_eprel ?? null,
+                url_keymark: found.url_keymark ?? data?.url_keymark ?? null,
+                url_ficha: found.ficha_tecnica ?? data?.url_ficha ?? null,
+            });
         } else {
             onChange({ ...data, metodo_scop: method });
         }

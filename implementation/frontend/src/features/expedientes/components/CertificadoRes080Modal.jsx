@@ -1049,31 +1049,29 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, a
             const etaValue = Math.round((scopRaw * 40) - 3);
             const totalPercentage = (scopRaw * 100).toFixed(0);
             const eprelUrl = isAcs ? inst.aerotermia_acs?.url_eprel : inst.aerotermia_cal?.url_eprel;
+            // El hipervínculo va embebido en el texto "Ficha EPREL" (sin fila aparte,
+            // que desbordaba la página al sumar un <li> extra).
+            const fichaEprel = eprelUrl
+                ? `<a href="${eprelUrl}" style="color: #0000EE; text-decoration: underline;">Ficha EPREL</a>`
+                : 'Ficha EPREL';
+            // Justificación compacta en tabla (solo método EPREL): mantiene fórmula,
+            // definición de variables, valores, cálculo y resultado, ocupando ~1/4 de
+            // página para que ambas secciones SCOP quepan juntas sin salto de página.
             return `
-                <div class="eprel-container" style="margin-top: 15px;">
-                    <div style="font-weight: bold; margin-bottom: 8px; font-size: 11pt;">Cálculo del SCOP en ${label}</div>
-                    <div style="font-weight: bold; margin-bottom: 4px;">Fórmula Aplicada</div>
-                    <div class="doc-p" style="margin-bottom: 4px;">Según el Anexo IV de la ficha RES060:</div>
-                    <div style="margin: 10px 0; font-size: 12pt;"><strong>SCOP = CC · (${etaVar} + F(1) + F(2))</strong></div>
-                    <div class="doc-p" style="margin-bottom: 12px;">Donde:</div>
-                    <ul style="list-style-type: none; margin-left: 0; padding-left: 10px; margin-bottom: 15px;">
-                        <li>- CC: Coeficiente de conversión</li>
-                        <li>- ${etaVar}: Eficiencia energética estacional de ${label.toLowerCase()}</li>
-                        <li>- F(1): Factor de corrección por tecnología</li>
-                        <li>- F(2): Factor de corrección por clima</li>
-                    </ul>
-                    <div style="font-weight: bold; margin-bottom: 8px;">Valores Utilizados</div>
-                    <ul style="list-style-type: none; margin-left: 0; padding-left: 10px; margin-bottom: 15px;">
-                        <li>- CC = 2,5</li>
-                        <li>- ${etaVar} = ${etaValue}% (obtenido de la Ficha EPREL para clima ${zoneLabel.toLowerCase()} ${isAcs ? 'y perfil ACS' : `e impulsión ${getEmitterTemp(inst.tipo_emisor)}°C`})</li>
-                        ${eprelUrl ? `<li>- Enlace EPREL: <a href="${eprelUrl}" style="color: #0000EE; text-decoration: underline;">Acceder a la Ficha Oficial EPREL</a></li>` : ''}
-                        <li>- F(1) = 3% (para bombas de calor aerotérmicas)</li>
-                        <li>- F(2) = 0% (para bombas de calor aerotérmicas)</li>
-                    </ul>
-                    <div style="font-weight: bold; margin-bottom: 8px;">Cálculo</div>
-                    <div class="doc-p" style="margin-bottom: 15px;">SCOP = 2,5 · (${etaValue}% + 3% + 0%) = ${totalPercentage}%</div>
-                    <div style="font-weight: bold; font-size: 12pt; margin-top: 10px;">SCOP en ${label} = ${scopStr}</div>
-                </div>
+                <table class="doc-table" style="margin-top: 12px; margin-bottom: 10px;">
+                    <tr><td colspan="3" class="heading">Justificación del SCOP en ${label} — Anexo IV ficha RES060</td></tr>
+                    <tr><td colspan="3" style="text-align: center; font-weight: bold; font-size: 11.5pt; background: #faf3e6; padding: 6px;">SCOP = CC · (${etaVar} + F(1) + F(2))</td></tr>
+                    <tr>
+                        <td class="lbl" style="width: 15%; text-align: center;">Variable</td>
+                        <td class="lbl">Descripción</td>
+                        <td class="lbl" style="width: 14%; text-align: center;">Valor</td>
+                    </tr>
+                    <tr><td style="text-align: center; font-weight: bold;">CC</td><td>Coeficiente de conversión</td><td style="text-align: center;">2,5</td></tr>
+                    <tr><td style="text-align: center; font-weight: bold;">${etaVar}</td><td>Eficiencia energética estacional de ${label.toLowerCase()} (obtenida de la ${fichaEprel} — clima ${zoneLabel.toLowerCase()}${isAcs ? ' y perfil ACS' : `, impulsión ${getEmitterTemp(inst.tipo_emisor)}°C`})</td><td style="text-align: center;">${etaValue}%</td></tr>
+                    <tr><td style="text-align: center; font-weight: bold;">F(1)</td><td>Factor de corrección por tecnología (bombas de calor aerotérmicas)</td><td style="text-align: center;">3%</td></tr>
+                    <tr><td style="text-align: center; font-weight: bold;">F(2)</td><td>Factor de corrección por clima (bombas de calor aerotérmicas)</td><td style="text-align: center;">0%</td></tr>
+                    <tr><td colspan="2" style="font-weight: bold;">Cálculo: SCOP = 2,5 · (${etaValue}% + 3% + 0%) = ${totalPercentage}% &nbsp;→&nbsp; SCOP en ${label}</td><td style="text-align: center; font-weight: bold; font-size: 13pt; background: #d9f0d3;">${scopStr}</td></tr>
+                </table>
             `;
         };
 
@@ -1085,28 +1083,22 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, a
             if (metodoAcs === 'conjunto') {
                 // Anexo IV RES060: SCOPdhw = CC × ηwh = 2,5 × (eta_acs / 100)
                 const etaWh = (scopAcsRaw / 2.5 * 100).toFixed(1).replace('.', ',');
-                const eprelLink = acsEprelUrl ? `<li>- Enlace EPREL: <a href="${acsEprelUrl}" style="color: #0000EE; text-decoration: underline;">Acceder a la Ficha Oficial EPREL</a></li>` : '';
+                const fichaEprel = acsEprelUrl
+                    ? `<a href="${acsEprelUrl}" style="color: #0000EE; text-decoration: underline;">Ficha EPREL</a>`
+                    : 'Ficha EPREL';
                 return `
-                    <div class="eprel-container" style="margin-top: 15px;">
-                        <div style="font-weight: bold; margin-bottom: 8px; font-size: 11pt;">Cálculo del SCOP en ACS</div>
-                        <div style="font-weight: bold; margin-bottom: 4px;">Fórmula Aplicada</div>
-                        <div class="doc-p" style="margin-bottom: 4px;">Según el Anexo IV de la ficha RES060, para sistemas con depósito de ACS suministrado como conjunto con la bomba de calor:</div>
-                        <div style="margin: 10px 0; font-size: 12pt;"><strong>SCOP<sub>dhw</sub> = CC · η<sub>wh</sub></strong></div>
-                        <div class="doc-p" style="margin-bottom: 12px;">Donde:</div>
-                        <ul style="list-style-type: none; margin-left: 0; padding-left: 10px; margin-bottom: 15px;">
-                            <li>- CC: Coeficiente de conversión</li>
-                            <li>- η<sub>wh</sub>: Eficiencia energética de caldeo de agua (obtenida de la Ficha EPREL para clima ${zoneLabel.toLowerCase()} y perfil ACS)</li>
-                            ${eprelLink}
-                        </ul>
-                        <div style="font-weight: bold; margin-bottom: 8px;">Valores Utilizados</div>
-                        <ul style="list-style-type: none; margin-left: 0; padding-left: 10px; margin-bottom: 15px;">
-                            <li>- CC = 2,5</li>
-                            <li>- η<sub>wh</sub> = ${etaWh}%</li>
-                        </ul>
-                        <div style="font-weight: bold; margin-bottom: 8px;">Cálculo</div>
-                        <div class="doc-p" style="margin-bottom: 15px;">SCOP<sub>dhw</sub> = 2,5 · ${etaWh}% = ${scopAcsStr}</div>
-                        <div style="font-weight: bold; font-size: 12pt; margin-top: 10px;">SCOP en ACS = ${scopAcsStr}</div>
-                    </div>`;
+                    <table class="doc-table" style="margin-top: 12px; margin-bottom: 10px;">
+                        <tr><td colspan="3" class="heading">Justificación del SCOP en ACS — Anexo IV ficha RES060 (depósito ACS en conjunto con la BdC)</td></tr>
+                        <tr><td colspan="3" style="text-align: center; font-weight: bold; font-size: 11.5pt; background: #faf3e6; padding: 6px;">SCOP<sub>dhw</sub> = CC · η<sub>wh</sub></td></tr>
+                        <tr>
+                            <td class="lbl" style="width: 15%; text-align: center;">Variable</td>
+                            <td class="lbl">Descripción</td>
+                            <td class="lbl" style="width: 14%; text-align: center;">Valor</td>
+                        </tr>
+                        <tr><td style="text-align: center; font-weight: bold;">CC</td><td>Coeficiente de conversión</td><td style="text-align: center;">2,5</td></tr>
+                        <tr><td style="text-align: center; font-weight: bold;">η<sub>wh</sub></td><td>Eficiencia energética de caldeo de agua (obtenida de la ${fichaEprel} — clima ${zoneLabel.toLowerCase()} y perfil ACS)</td><td style="text-align: center;">${etaWh}%</td></tr>
+                        <tr><td colspan="2" style="font-weight: bold;">Cálculo: SCOP<sub>dhw</sub> = 2,5 · ${etaWh}% &nbsp;→&nbsp; SCOP en ACS</td><td style="text-align: center; font-weight: bold; font-size: 13pt; background: #d9f0d3;">${scopAcsStr}</td></tr>
+                    </table>`;
             }
 
             if (metodoAcs === 'independiente') {
@@ -1142,6 +1134,8 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, a
             return `<div class="doc-p" style="font-weight: bold; margin-top: 10px;">SCOP en ACS = ${scopAcsStr} Según la ficha técnica aportada por el fabricante que se entregará como anexo al expediente CAE.</div>`;
         };
 
+        // SCOP calefacción + SCOP ACS en una sola página: con las justificaciones EPREL
+        // en formato tabla compacta ambas caben en un A4 sin necesidad de salto.
         pages.push(`
             <div class="doc-page">
                 <div class="doc-header" style="border-bottom: 2px solid #f2a640; padding-bottom: 5px; display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 20px;">
@@ -1162,7 +1156,7 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, a
                     ? renderEprelJustification(false)
                     : `<div class="doc-p" style="font-weight: bold; margin-top: 10px;">SCOP en Calefacción = ${scopCalStr} Según la ficha técnica aportada por el fabricante que se entregará como anexo al expediente CAE.</div>`
                 }
-                <div class="section-title" style="margin-top: 25px;">Anexo justificativo del rendimiento estacional (SCOP) de la bomba de calor para ACS (agua caliente sanitaria)</div>
+                <div class="section-title" style="margin-top: 20px;">Anexo justificativo del rendimiento estacional (SCOP) de la bomba de calor para ACS (agua caliente sanitaria)</div>
                 ${tieneAcs ? renderAcsScopJustification() : `<div class="doc-p" style="font-weight: bold;">SCOP en ACS = no aplica</div>`}
                 <div class="footer">PAGE_X_OF_Y</div>
             </div>

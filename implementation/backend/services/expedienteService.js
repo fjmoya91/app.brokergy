@@ -101,7 +101,7 @@ async function createExpediente(uuid_oportunidad, id_cliente, manualNumber = nul
             try {
                 const { data: aero } = await supabase
                     .from('aerotermia')
-                    .select('id, marca, modelo_comercial, modelo_conjunto, modelo_ud_exterior')
+                    .select('id, marca, modelo_comercial, modelo_conjunto, modelo_ud_exterior, eprel, url_keymark, ficha_tecnica')
                     .eq('id', numericId)
                     .maybeSingle();
                 if (!aero) {
@@ -114,7 +114,13 @@ async function createExpediente(uuid_oportunidad, id_cliente, manualNumber = nul
                     modelo: aero.modelo_comercial || aero.modelo_conjunto || aero.modelo_ud_exterior || '',
                     numero_serie: '',
                     scop: scopFallback != null && scopFallback !== '' ? Number(scopFallback) : null,
-                    metodo_scop: 'ficha'
+                    metodo_scop: 'ficha',
+                    // Enlaces del catálogo → snapshot del expediente. El certificado CIFO
+                    // (RES060/RES080) los lee de aquí, no del catálogo, así que deben
+                    // viajar con el expediente desde su creación.
+                    url_eprel: aero.eprel || null,
+                    url_keymark: aero.url_keymark || null,
+                    url_ficha: aero.ficha_tecnica || null
                 };
             } catch (e) {
                 console.warn(`[ExpedienteService] Lookup aerotermia id=${numericId} falló: ${e.message}`);
