@@ -158,11 +158,51 @@ function UploadItem({
     );
 }
 
-export function CeeDocumentsGrid({ 
-    expediente, 
-    ceeFiles, 
-    onFilesChange, 
-    editMode, 
+// "JOSEFINA PEDROCHE ABAD" → "Josefina Pedroche Abad" (los nombres se guardan en MAYÚSCULAS en BD).
+const toTitleCase = (s) => (s || '')
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ');
+
+// "LUIS ALBERTO LANUZA PELAYO" → "Luis" (solo el nombre de pila, en formato normal).
+const firstNameProper = (s) => {
+    const t = (s || '').trim().split(/\s+/)[0] || '';
+    return t ? t.charAt(0).toUpperCase() + t.slice(1).toLowerCase() : '';
+};
+
+// Construye el cuerpo del mensaje al certificador en mayúsculas/minúsculas (sentence case),
+// según tipo de mensaje y fase. Es el texto que se muestra editable en el modal y que,
+// si se envía, sustituye al saludo+intro de la plantilla de email y al cuerpo del WhatsApp.
+// Incluye el enlace a la carpeta "12. DOCUMENTOS PARA CEE" para acceso directo del técnico.
+function buildCertDefaultMessage(template, section, certName, clienteNombre, numExp, ceeFolderLink) {
+    const tecnico = firstNameProper(certName) || 'técnico';
+    const cli = clienteNombre ? ` (${toTitleCase(clienteNombre)})` : '';
+    const fase = section === 'final' ? 'CEE Final' : 'CEE Inicial';
+    const carpeta = ceeFolderLink ? `\n\n📁 Carpeta de documentos del expediente:\n${ceeFolderLink}` : '';
+
+    let body;
+    if (template === 'reminder') {
+        body = `¡Hola ${tecnico}! 👋\n\nTe recordamos que tienes pendiente el ${fase} del expediente ${numExp}${cli}.\n\n¿Podrías darnos una estimación de fecha de entrega? Nos ayudaría mucho para la planificación.\n\n¡Gracias!`;
+    } else if (template === 'urgent') {
+        body = `Hola ${tecnico}:\n\nNecesitamos con carácter urgente el ${fase} del expediente ${numExp}${cli}.\n\nEs importante que lo priorices para poder cumplir con los plazos del programa de ayudas. Quedamos a la espera.`;
+    } else if (section === 'final') {
+        // standard (Encargo) — Final
+        body = `¡Hola ${tecnico}! 👋\n\nYa puedes presentar el CEE Final del expediente ${numExp}${cli}.\n\nToda la documentación de obra (facturas, memorias de instalación y fotos de fin de obra) ya está disponible en la carpeta compartida.\n\n¡Gracias!`;
+    } else {
+        // standard (Encargo) — Inicial
+        body = `¡Hola ${tecnico}! 👋\n\nTe hemos asignado el expediente ${numExp}${cli} para la emisión del CEE Inicial.\n\nTienes toda la documentación del cliente en la carpeta compartida y en el portal.\n\n¡Gracias!`;
+    }
+    return body + carpeta;
+}
+
+export function CeeDocumentsGrid({
+    expediente,
+    certName,
+    ceeFiles,
+    onFilesChange,
+    editMode,
     onXmlUploaded,
     demands, // { inicial: parsedXml, final: parsedXml }
     acsMethod,
@@ -190,6 +230,8 @@ export function CeeDocumentsGrid({
     const [certChannels, setCertChannels] = useState(['email']);
     const [certNotifyMessage, setCertNotifyMessage] = useState('');
     const [sendingCertNotify, setSendingCertNotify] = useState(false);
+    // Guarda la última plantilla autogenerada para saber si el admin la ha editado a mano.
+    const lastCertDefaultRef = useRef('');
     // ── Modal "solicitar revisión a Brokergy" disparado al subir .CEX (certificador) ──
     const [notifyReviewModal, setNotifyReviewModal] = useState(null); // { section: 'inicial'|'final' }
     const [sendingNotifyReview, setSendingNotifyReview] = useState(false);
@@ -197,6 +239,36 @@ export function CeeDocumentsGrid({
     const [reviewMessage, setReviewMessage] = useState('');
     
     const numExp = expediente?.numero_expediente || 'S-EXP';
+
+    // Nombre del cliente para prerellenar el mensaje al certificador (mismo fallback que el backend).
+    const clienteNombre = (() => {
+        const c = expediente?.clientes;
+        const full = c ? `${c.nombre_razon_social || ''} ${c.apellidos || ''}`.trim() : '';
+        return full || expediente?.oportunidades?.referencia_cliente || '';
+    })();
+
+    // Enlace a la carpeta "12. DOCUMENTOS PARA CEE" del expediente (la persiste el backend en cee.cee_folder_link).
+    const ceeFolderLink = expediente?.cee?.cee_folder_link || null;
+
+    // Al abrir el modal, sembramos el cuadro con la plantilla por defecto del tipo activo.
+    useEffect(() => {
+        if (!certNotifyModal) return;
+        const def = buildCertDefaultMessage(certTemplate, certNotifyModal.section, certName, clienteNombre, numExp, ceeFolderLink);
+        setCertNotifyMessage(def);
+        lastCertDefaultRef.current = def;
+        // Solo al abrir el modal (no en cada cambio de tipo: eso lo gestiona handleCertTemplateChange).
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [certNotifyModal]);
+
+    // Cambio de tipo de mensaje: regenera la plantilla, pero respeta el texto si el admin lo editó a mano.
+    const handleCertTemplateChange = (id) => {
+        setCertTemplate(id);
+        if (!certNotifyModal) return;
+        const def = buildCertDefaultMessage(id, certNotifyModal.section, certName, clienteNombre, numExp, ceeFolderLink);
+        setCertNotifyMessage(prev => (prev.trim() === '' || prev === lastCertDefaultRef.current) ? def : prev);
+        lastCertDefaultRef.current = def;
+    };
+
     const [resendingNotif, setResendingNotif] = useState(null); // 'inicial' | 'final' | null
     const [resendNotifModal, setResendNotifModal] = useState(null); // { section: 'inicial'|'final' }
     const [resendTargets, setResendTargets] = useState(['CLIENTE', 'PARTNER', 'ADMIN']);
@@ -1139,7 +1211,7 @@ export function CeeDocumentsGrid({
                             ].map(t => (
                                 <button
                                     key={t.id}
-                                    onClick={() => setCertTemplate(t.id)}
+                                    onClick={() => handleCertTemplateChange(t.id)}
                                     className={`flex-1 flex flex-col items-center gap-1.5 py-3 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all border ${
                                         certTemplate === t.id
                                             ? t.id === 'urgent' 
@@ -1185,38 +1257,36 @@ export function CeeDocumentsGrid({
                             ))}
                         </div>
 
-                        {/* Vista previa del tono */}
-                        <div className={`p-3 rounded-xl border mb-5 text-[11px] leading-relaxed ${
-                            certTemplate === 'urgent' ? 'bg-red-500/5 border-red-500/20 text-red-300/70' :
-                            certTemplate === 'reminder' ? 'bg-blue-500/5 border-blue-500/20 text-blue-300/70' :
-                            'bg-white/[0.02] border-white/5 text-white/40'
-                        }`}>
-                            {certTemplate === 'urgent' && (
-                                <p>⚠️ <strong>Aviso urgente</strong>: Se enviará un mensaje indicando que el CEE se necesita con carácter prioritario para cumplir plazos.</p>
-                            )}
-                            {certTemplate === 'reminder' && (
-                                <p>⏰ <strong>Recordatorio amable</strong>: Se enviará un mensaje preguntando por el estado y pidiendo estimación de fecha de entrega.</p>
-                            )}
-                            {certTemplate === 'standard' && certNotifyModal.section === 'final' && (
-                                <p>📋 <strong>Encargo Final</strong>: Se notificará al técnico que ya puede presentar el CEE Final con la documentación disponible en la carpeta compartida.</p>
-                            )}
-                            {certTemplate === 'standard' && certNotifyModal.section === 'inicial' && (
-                                <p>📋 <strong>Encargo Inicial</strong>: Se notificará al técnico la asignación del expediente con los datos del cliente y las directrices técnicas.</p>
-                            )}
+                        {/* Mensaje a enviar (editable). Es el texto real que se manda al certificador. */}
+                        <div className="flex items-center justify-between mb-2">
+                            <p className="text-[9px] font-black text-white/30 uppercase tracking-widest">Mensaje al certificador</p>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    const def = buildCertDefaultMessage(certTemplate, certNotifyModal.section, certName, clienteNombre, numExp, ceeFolderLink);
+                                    setCertNotifyMessage(def);
+                                    lastCertDefaultRef.current = def;
+                                }}
+                                disabled={sendingCertNotify}
+                                className="text-[9px] font-black uppercase tracking-widest text-white/30 hover:text-brand transition-colors disabled:opacity-40"
+                                title="Restaurar el texto por defecto de este tipo de mensaje"
+                            >↺ Restaurar plantilla</button>
                         </div>
-
-                        {/* Mensaje libre */}
-                        <p className="text-[9px] font-black text-white/30 uppercase tracking-widest mb-2">Mensaje adicional (opcional)</p>
                         <textarea
                             value={certNotifyMessage}
                             onChange={e => setCertNotifyMessage(e.target.value)}
                             disabled={sendingCertNotify}
-                            placeholder="Indicaciones específicas para el certificador (se incluyen en email/WhatsApp y se registran en el historial)…"
-                            rows={3}
-                            maxLength={500}
-                            className="w-full bg-black/30 border border-white/10 rounded-xl p-3 text-xs text-white placeholder:text-white/20 focus:outline-none focus:border-brand/40 resize-none mb-1"
+                            placeholder="Escribe el mensaje que se enviará al certificador…"
+                            rows={9}
+                            maxLength={2000}
+                            className="w-full bg-black/30 border border-white/10 rounded-xl p-3 text-sm leading-relaxed text-white normal-case placeholder:text-white/20 focus:outline-none focus:border-brand/40 resize-none mb-1"
                         />
-                        <p className="text-[9px] text-white/20 mb-5 text-right">{certNotifyMessage.length}/500</p>
+                        <div className="flex items-center justify-between mb-5">
+                            <p className="text-[9px] text-white/25 leading-snug">
+                                Puedes editarlo libremente.{certChannels.includes('email') ? ' El email mantiene la cabecera de marca, los datos del cliente y los botones de acceso.' : ''}
+                            </p>
+                            <p className="text-[9px] text-white/20 shrink-0 ml-3">{certNotifyMessage.length}/2000</p>
+                        </div>
 
                         {/* Botón Enviar */}
                         <button

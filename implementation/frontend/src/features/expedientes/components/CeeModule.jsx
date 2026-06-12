@@ -589,9 +589,10 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
     }) : null;
 
     const renderRes060 = () => (
-        <CeeDocumentsGrid 
-            expediente={expediente} 
-            ceeFiles={local.cee_files} 
+        <CeeDocumentsGrid
+            expediente={expediente}
+            certName={selectedCertName}
+            ceeFiles={local.cee_files}
             onFilesChange={(newFiles) => {
                 setLocal(current => {
                     const nextFiles = typeof newFiles === 'function' ? newFiles(current.cee_files) : newFiles;
@@ -614,7 +615,7 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                 onSave({ cee: nextLocal });
             }}
             onAutoStatus={onAutoStatus}
-            onForceNotify={async (phase, channels, template, adminMessage) => {
+            onForceNotify={async (phase, channels, template, customMessage) => {
                 if (!local.certificador_id) {
                     alert('Asigna primero un certificador');
                     return;
@@ -626,7 +627,7 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                         sendWhatsApp: channels.includes('whatsapp'),
                         phase,
                         template,
-                        adminMessage: (adminMessage || '').trim() || null,
+                        customMessage: (customMessage || '').trim() || null,
                         priority: template === 'urgent' ? 'urgent' : 'normal'
                     });
                     const msgs = [];
@@ -666,9 +667,10 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
 
     const renderRes080 = () => (
         <div className="space-y-8">
-            <CeeDocumentsGrid 
-                expediente={expediente} 
-                ceeFiles={local.cee_files} 
+            <CeeDocumentsGrid
+                expediente={expediente}
+                certName={selectedCertName}
+                ceeFiles={local.cee_files}
                 onFilesChange={(newFiles) => {
                     setLocal(current => {
                         const nextFiles = typeof newFiles === 'function' ? newFiles(current.cee_files) : newFiles;
@@ -691,7 +693,7 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                     onSave({ cee: nextLocal });
                 }}
                 onAutoStatus={onAutoStatus}
-                onForceNotify={async (phase, channels, template, adminMessage) => {
+                onForceNotify={async (phase, channels, template, customMessage) => {
                     if (!local.certificador_id) {
                         alert('Asigna primero un certificador');
                         return;
@@ -703,7 +705,7 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                             sendWhatsApp: channels.includes('whatsapp'),
                             phase,
                             template,
-                            adminMessage: (adminMessage || '').trim() || null,
+                            customMessage: (customMessage || '').trim() || null,
                             priority: template === 'urgent' ? 'urgent' : 'normal'
                         });
                         const msgs = [];

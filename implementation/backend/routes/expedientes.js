@@ -2595,6 +2595,9 @@ router.post('/:id/notify-certificador', enforceAuth, async (req, res) => {
         const template = req.body?.template || 'standard';
         const priority = req.body?.priority === 'urgent' ? 'urgent' : 'normal';
         const adminMessage = (req.body?.adminMessage || '').trim() || null;
+        // Cuerpo del mensaje editado en el modal. Si viene, ES el texto que se envía
+        // (sustituye al saludo+intro de la plantilla en email y al cuerpo en WhatsApp).
+        const customMessage = (req.body?.customMessage || '').trim() || null;
         const dbCertId = exp.cee?.certificador_id || null;
         const certId = bodyCertId || dbCertId;
         if (!certId) return res.status(400).json({ error: 'El expediente no tiene certificador asignado' });
@@ -2777,6 +2780,7 @@ router.post('/:id/notify-certificador', enforceAuth, async (req, res) => {
                 ackLink,
                 priority,
                 adminMessage,
+                customMessage,
             };
 
             if (template === 'reminder') {
@@ -2806,7 +2810,13 @@ router.post('/:id/notify-certificador', enforceAuth, async (req, res) => {
                 const adminMsgWa = adminMessage ? `\n💬 *Mensaje:* ${adminMessage}\n` : '';
 
                 let waMsg = '';
-                if (template === 'reminder') {
+                if (customMessage) {
+                    // El admin ha editado el texto (suele incluir ya el enlace de la carpeta). Solo
+                    // añadimos el enlace de la carpeta si el cuerpo no trae ninguna URL, y la firma.
+                    const hasUrl = /https?:\/\//i.test(customMessage);
+                    const carpetaWa = (ceeFolderLink && !hasUrl) ? `\n\n📁 Carpeta de documentos:\n${ceeFolderLink}` : '';
+                    waMsg = `${customMessage}${carpetaWa}\n\n*BROKERGY · Ingeniería Energética*`;
+                } else if (template === 'reminder') {
                     waMsg = `¡Hola *${certName}*! 👋\n\nTe recordamos que tienes pendiente el *${phaseLabel}* del expediente *${expedienteNum}*${clienteName ? ` (${clienteName})` : ''}.\n\n¿Podrías darnos una estimación de fecha de entrega?${adminMsgWa}\n\n${ceeFolderLink ? '📁 Carpeta: ' + ceeFolderLink + '\n' : ''}${portalLink ? '🔗 Portal: ' + portalLink + '\n' : ''}\n¡Gracias!\n*BROKERGY · Ingeniería Energética*`;
                 } else if (template === 'urgent') {
                     waMsg = `*⚠️ AVISO URGENTE*\n\nHola *${certName}*, necesitamos con urgencia el *${phaseLabel}* del expediente *${expedienteNum}*${clienteName ? ` (${clienteName})` : ''}.\n\nEs importante que lo priorices para cumplir con los plazos del programa.${adminMsgWa}\n\n${ceeFolderLink ? '📁 Carpeta: ' + ceeFolderLink + '\n' : ''}${portalLink ? '🔗 Portal: ' + portalLink + '\n' : ''}\nQuedamos a la espera.\n*BROKERGY · Ingeniería Energética*`;
@@ -2836,7 +2846,8 @@ router.post('/:id/notify-certificador', enforceAuth, async (req, res) => {
                     : (req.user?.acronimo || req.user?.razon_social || 'SISTEMA');
 
                 const priorityTag = priority === 'urgent' ? ' · 🚨 URGENTE' : '';
-                const msgTag = adminMessage ? `\n💬 Mensaje: "${adminMessage}"` : '';
+                const sentBody = customMessage || adminMessage;
+                const msgTag = sentBody ? `\n💬 Mensaje: "${sentBody}"` : '';
                 historial.push({
                     id: Date.now().toString() + '_certnotif',
                     tipo: 'notificacion_certificador',
@@ -2844,7 +2855,8 @@ router.post('/:id/notify-certificador', enforceAuth, async (req, res) => {
                     fecha: new Date().toISOString(),
                     usuario: userName,
                     priority,
-                    adminMessage
+                    adminMessage,
+                    customMessage
                 });
 
                 await supabase.from('expedientes')
