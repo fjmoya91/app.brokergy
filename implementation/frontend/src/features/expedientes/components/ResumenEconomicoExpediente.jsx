@@ -2,8 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 
 // Movido fuera para evitar que React desmonte el componente en cada renderizado de ResumenEconomicoExpediente
 const Metric = ({ label, value, sub, icon, color = 'text-white', proposalValue, proposalDiff, onDoubleClick, isEditingVal, editValue, onEditChange, handleKeyDown, handleSaveLocal, onCancel, inputRef }) => (
-    <div 
-        className={`flex-1 min-w-[200px] p-4 border-r border-white/5 last:border-0 group hover:bg-white/[0.02] transition-colors relative ${onDoubleClick && !isEditingVal ? 'cursor-pointer' : ''}`}
+    <div
+        className={`flex-1 min-w-[200px] p-4 border-r border-white/5 last:border-0 group hover:bg-white/[0.02] transition-colors relative max-md:min-w-0 max-md:p-3 max-md:border-0 max-md:rounded-xl max-md:bg-white/[0.03] ${onDoubleClick && !isEditingVal ? 'cursor-pointer' : ''}`}
         onDoubleClick={isEditingVal ? null : onDoubleClick}
     >
         <div className="flex items-center gap-2 mb-1">
@@ -62,7 +62,7 @@ const Metric = ({ label, value, sub, icon, color = 'text-white', proposalValue, 
             </div>
         )}
         
-        {sub && <div className="text-[10px] font-bold text-white/20 uppercase tracking-tighter mt-0.5">{sub}</div>}
+        {sub && <div className="text-[10px] font-bold text-white/20 uppercase tracking-tighter mt-0.5 max-md:hidden">{sub}</div>}
 
         {proposalValue != null && (
             <div className="flex items-center gap-1.5 mt-1.5 pt-1.5 border-t border-white/[0.04]" title="Valor que se presentó al cliente en la oportunidad">
@@ -88,6 +88,9 @@ const Metric = ({ label, value, sub, icon, color = 'text-white', proposalValue, 
 
 export function ResumenEconomicoExpediente({ results, proposal, onUpdatePrice, onLivePrice }) {
     const [isEditing, setIsEditing] = useState(false);
+    // En móvil el panel vive fijo abajo y arranca plegado (tira compacta) para no
+    // tapar el formulario; se expande a matriz 2×2 al tocar. En escritorio no aplica.
+    const [collapsed, setCollapsed] = useState(true);
     const [editValue, setEditValue] = useState('');
     const inputRef = useRef(null);
     // Valor previo al empezar a editar, para poder revertir si se cancela
@@ -162,68 +165,131 @@ export function ResumenEconomicoExpediente({ results, proposal, onUpdatePrice, o
         }
     }, [isEditing]);
 
+    // Una sola fuente de verdad para las 4 métricas → se reutiliza tanto en la fila
+    // de escritorio / matriz 2×2 (móvil expandido) como en la tira compacta (móvil plegado).
+    const metrics = [
+        {
+            key: 'volumen',
+            label: 'Volumen CAEs',
+            value: `${(savingsKwh / 1000).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MWh`,
+            sub: `${Math.round(savingsKwh).toLocaleString('es-ES')} CAEs (1 kWh = 1 CAE)`,
+            proposalValue: prop ? fmtMwh(prop.savingsKwh) : null,
+            proposalDiff: prop ? fmtMwh(prop.savingsKwh) !== fmtMwh(savingsKwh) : false,
+            color: 'text-green-400',
+            icon: (
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                </svg>
+            ),
+        },
+        {
+            key: 'ayuda',
+            label: 'Ayuda Cliente',
+            value: `${Math.round(caeBonus).toLocaleString('es-ES')} €`,
+            sub: 'Bono CAE Directo',
+            proposalValue: prop ? fmtEur(prop.caeBonus) : null,
+            proposalDiff: prop ? fmtEur(prop.caeBonus) !== fmtEur(caeBonus) : false,
+            color: 'text-brand',
+            icon: (
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+            ),
+        },
+        {
+            key: 'precio',
+            label: 'Precio CAE',
+            value: `${Math.round(finalPriceClient).toLocaleString('es-ES')} €/MWh`,
+            sub: 'Precio pagado al cliente',
+            proposalValue: prop ? fmtPrice(prop.finalPriceClient) : null,
+            proposalDiff: prop ? fmtPrice(prop.finalPriceClient) !== fmtPrice(finalPriceClient) : false,
+            color: 'text-white',
+            editable: true,
+            icon: (
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
+                </svg>
+            ),
+        },
+        {
+            key: 'ganancia',
+            label: 'Ganancia BRKRGY',
+            value: `${Math.round(profitBrokergy).toLocaleString('es-ES')} €`,
+            sub: 'Margen tras ajuste',
+            proposalValue: prop ? fmtEur(prop.profitBrokergy) : null,
+            proposalDiff: prop ? fmtEur(prop.profitBrokergy) !== fmtEur(profitBrokergy) : false,
+            color: 'text-cyan-400',
+            icon: (
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                </svg>
+            ),
+        },
+    ];
+
+    // En móvil arranca plegado; si se está editando el precio forzamos la vista completa.
+    const showFull = !collapsed || isEditing;
+
+    const renderMetric = (m) => (
+        <Metric
+            key={m.key}
+            label={m.label}
+            value={m.value}
+            sub={m.sub}
+            icon={m.icon}
+            color={m.color}
+            proposalValue={m.proposalValue}
+            proposalDiff={m.proposalDiff}
+            {...(m.editable ? {
+                onDoubleClick: handleDoubleClick,
+                isEditingVal: isEditing,
+                editValue,
+                onEditChange: handleLiveChange,
+                handleKeyDown,
+                handleSaveLocal,
+                onCancel: handleCancel,
+                inputRef,
+            } : {})}
+        />
+    );
+
     return (
-        <div className="bg-bkg-surface border border-white/[0.08] rounded-2xl overflow-hidden mb-6 shadow-2xl animate-in fade-in slide-in-from-top-4 duration-500">
-            <div className="flex flex-wrap divide-x divide-white/5">
-                <Metric
-                    label="Volumen CAEs"
-                    value={`${(savingsKwh / 1000).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MWh`}
-                    sub={`${Math.round(savingsKwh).toLocaleString('es-ES')} CAEs (1 kWh = 1 CAE)`}
-                    proposalValue={prop ? fmtMwh(prop.savingsKwh) : null}
-                    proposalDiff={prop ? fmtMwh(prop.savingsKwh) !== fmtMwh(savingsKwh) : false}
-                    icon={
+        <div className="bg-bkg-surface border border-white/[0.08] rounded-2xl overflow-hidden mb-6 shadow-2xl animate-in fade-in slide-in-from-top-4 duration-500 max-md:mb-0 max-md:rounded-none max-md:border-0 max-md:bg-transparent max-md:shadow-none">
+            {/* Móvil: control de plegado. Plegado = tira compacta (1 línea); expandido = cabecera "Ocultar". */}
+            <div className="md:hidden">
+                {showFull ? (
+                    <button
+                        type="button"
+                        onClick={() => setCollapsed(true)}
+                        className="w-full flex items-center justify-center gap-1.5 py-1.5 text-white/30 active:text-white/60 transition-colors"
+                    >
+                        <span className="text-[9px] font-black uppercase tracking-widest">Ocultar resumen</span>
                         <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7" />
                         </svg>
-                    }
-                    color="text-green-400"
-                />
-                <Metric
-                    label="Ayuda Cliente"
-                    value={`${Math.round(caeBonus).toLocaleString('es-ES')} €`}
-                    sub="Bono CAE Directo"
-                    proposalValue={prop ? fmtEur(prop.caeBonus) : null}
-                    proposalDiff={prop ? fmtEur(prop.caeBonus) !== fmtEur(caeBonus) : false}
-                    icon={
-                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </button>
+                ) : (
+                    <button
+                        type="button"
+                        onClick={() => setCollapsed(false)}
+                        className="w-full flex items-center gap-3 px-1 py-2.5 overflow-x-auto scrollbar-hide"
+                    >
+                        {metrics.map((m) => (
+                            <span key={m.key} className="flex items-center gap-1.5 shrink-0">
+                                <span className={m.color}>{m.icon}</span>
+                                <span className={`text-[11px] font-black tracking-tight whitespace-nowrap ${m.color}`}>{m.value}</span>
+                            </span>
+                        ))}
+                        <svg className="w-4 h-4 ml-auto shrink-0 text-white/30" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 15l7-7 7 7" />
                         </svg>
-                    }
-                    color="text-brand"
-                />
-                <Metric
-                    label="Precio CAE"
-                    value={`${Math.round(finalPriceClient).toLocaleString('es-ES')} €/MWh`}
-                    sub="Precio pagado al cliente"
-                    proposalValue={prop ? fmtPrice(prop.finalPriceClient) : null}
-                    proposalDiff={prop ? fmtPrice(prop.finalPriceClient) !== fmtPrice(finalPriceClient) : false}
-                    icon={
-                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
-                        </svg>
-                    }
-                    onDoubleClick={handleDoubleClick}
-                    isEditingVal={isEditing}
-                    editValue={editValue}
-                    onEditChange={handleLiveChange}
-                    handleKeyDown={handleKeyDown}
-                    handleSaveLocal={handleSaveLocal}
-                    onCancel={handleCancel}
-                    inputRef={inputRef}
-                />
-                <Metric
-                    label="Ganancia BRKRGY"
-                    value={`${Math.round(profitBrokergy).toLocaleString('es-ES')} €`}
-                    sub="Margen tras ajuste"
-                    proposalValue={prop ? fmtEur(prop.profitBrokergy) : null}
-                    proposalDiff={prop ? fmtEur(prop.profitBrokergy) !== fmtEur(profitBrokergy) : false}
-                    icon={
-                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                        </svg>
-                    }
-                    color="text-cyan-400"
-                />
+                    </button>
+                )}
+            </div>
+
+            {/* Métricas: fila de 4 en escritorio (sin cambios) · matriz 2×2 en móvil expandido. */}
+            <div className={`flex-wrap divide-x divide-white/5 max-md:grid-cols-2 max-md:gap-2 max-md:p-2 max-md:pt-0 max-md:divide-x-0 ${showFull ? 'grid md:flex' : 'hidden md:flex'}`}>
+                {metrics.map(renderMetric)}
             </div>
         </div>
     );

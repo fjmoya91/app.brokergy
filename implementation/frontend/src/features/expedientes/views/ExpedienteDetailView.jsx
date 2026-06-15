@@ -510,7 +510,7 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
     })();
 
     return (
-        <div className="p-6 sm:p-8 lg:p-10 min-h-full">
+        <div className="p-6 sm:p-8 lg:p-10 min-h-full max-md:pb-24">
             {/* Aviso de incidencias abiertas (solo ADMIN) */}
             {isAdmin && incidenciasAbiertas > 0 && (
                 <button
@@ -861,7 +861,7 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
 
             {/* Panel de Resumen Económico Sticky (Solo RES060) */}
             {calcResults && !isCertificador && (
-                <div className="sticky top-0 max-md:top-14 z-[100] -mx-6 sm:-mx-8 lg:-mx-10 px-6 sm:px-8 lg:px-10 py-4 bg-bkg-base/60 backdrop-blur-xl border-b border-white/[0.05] mb-6 shadow-2xl">
+                <div className="sticky top-0 z-[100] -mx-6 sm:-mx-8 lg:-mx-10 px-6 sm:px-8 lg:px-10 py-4 bg-bkg-base/60 backdrop-blur-xl border-b border-white/[0.05] mb-6 shadow-2xl max-md:fixed max-md:bottom-0 max-md:inset-x-0 max-md:top-auto max-md:mx-0 max-md:px-3 max-md:py-0 max-md:mb-0 max-md:border-b-0 max-md:border-t max-md:bg-bkg-base/80 max-md:rounded-t-2xl">
                     <ResumenEconomicoExpediente
                         results={calcResults}
                         proposal={proposalResults}
