@@ -41,11 +41,14 @@ export function DocsAdminModal({ isOpen, onClose, idOportunidad }) {
         return () => { cancel = true; };
     }, [isOpen, idOportunidad]);
 
-    // Lo que falta: antes de aceptar → solo obligatorias (pre_aceptacion);
+    // Lo que falta — mismo criterio que "Solicitar lo que falta" ([buildSolicitudAcciones]
+    // en expedientes.js): solo fase ANTES, OBLIGATORIAS y SIN las marcadas como
+    // "no necesario" (waived). El backend ya pone required=false a las waived, pero lo
+    // filtramos explícitamente por claridad. Antes de aceptar → solo las pre_aceptacion;
     // tras aceptar → todas las de ANTES sin subir. Más las rechazadas (a repetir).
     const pendientes = useMemo(() => {
         const slots = info?.slots || [];
-        const antes = slots.filter(s => s.fase === 'ANTES');
+        const antes = slots.filter(s => s.fase === 'ANTES' && s.required && !s.waived);
         const missing = antes.filter(s => !(s.items?.length));
         const base = info?.aceptada ? missing : missing.filter(s => s.gating === 'pre_aceptacion');
         const rechazadas = antes.filter(s => (s.items || []).some(i => i.estado === 'rechazada'));
