@@ -649,6 +649,12 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
     const scopAcsRaw = tieneAcs ? parseFloat(inst.misma_aerotermia_acs ? inst.aerotermia_cal?.scop : inst.aerotermia_acs?.scop || 0) : 0;
     const scopAcsStr = tieneAcs ? (scopAcsRaw ? scopAcsRaw.toFixed(2).replace('.', ',') : '—') : 'no aplica';
 
+    // ACS como depósito acumulador (toggle "Es acumulador" en Instalación):
+    // el depósito lo calienta la BdC de calefacción, no hay equipo de ACS con
+    // serie propia → el CIFO imprime "Acumulador ACS" y "no aplica" en el serie.
+    const acsAero = inst.misma_aerotermia_acs ? inst.aerotermia_cal : inst.aerotermia_acs;
+    const acsEsAcumulador = tieneAcs && !!acsAero?.es_acumulador;
+
     // Ahorro Total
     const aeRaw = results?.savingsKwh || 0;
     const aeKwhVal = aeRaw ? Math.round(aeRaw).toLocaleString('es-ES') : '—';
@@ -911,11 +917,11 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
                 <table class="doc-table">
                     <tr><td colspan="3" class="heading">DATOS DE LA INSTALACIÓN AGUA CALIENTE SANITARIA (ACS)</td></tr>
                     <tr><td class="lbl" style="width: 33%; text-align: center;">COMPARATIVA</td><td style="font-weight: bold; text-align: center; width: 33%">EXISTENTE</td><td style="font-weight: bold; text-align: center;">NUEVA</td></tr>
-                    <tr><td class="lbl">Tipo de caldera</td><td>${acsExTipo}</td><td>${tieneAcs ? 'Bomba de calor' : 'no aplica'}</td></tr>
+                    <tr><td class="lbl">Tipo de caldera</td><td>${acsExTipo}</td><td>${tieneAcs ? (acsEsAcumulador ? 'Acumulador ACS' : 'Bomba de calor') : 'no aplica'}</td></tr>
                     <tr><td class="lbl">Marca</td><td>${acsExMarca}</td><td>${tieneAcs ? acsNuMarca : '—'}</td></tr>
                     <tr><td class="lbl">Modelo</td><td>${acsExMod}</td><td>${tieneAcs ? acsNuMod : '—'}</td></tr>
                     <tr><td class="lbl">Fuente de energía</td><td>${acsExComb}</td><td>${tieneAcs ? 'Electricidad' : '—'}</td></tr>
-                    <tr><td class="lbl">Nº serie equipo ACS</td><td>${acsExSerie}</td><td>${tieneAcs ? acsNuSerieEx : '—'}</td></tr>
+                    <tr><td class="lbl">Nº serie equipo ACS</td><td>${acsExSerie}</td><td>${tieneAcs ? (acsEsAcumulador ? 'no aplica' : acsNuSerieEx) : '—'}</td></tr>
                     <tr><td class="lbl">SCOPdhw / Rendimiento</td><td style="text-align: center;">${etaStr}</td><td style="text-align: center;">${scopAcsStr}</td></tr>
                 </table>
                 <div class="heading" style="margin-bottom: 0;">Valores de las variables para el ahorro de energía</div>

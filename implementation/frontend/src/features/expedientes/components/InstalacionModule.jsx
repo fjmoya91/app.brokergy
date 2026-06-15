@@ -251,6 +251,33 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
         }
     };
 
+    // Toggle "Es acumulador de ACS" (solo columna ACS): el depósito lo calienta
+    // la propia BdC de calefacción (no hay BdC dedicada para ACS). Al activarlo se
+    // fija el cálculo a Anexo VI (depósito independiente) y el CIFO representa el
+    // equipo nuevo de ACS como "Acumulador ACS" con nº de serie "No aplica".
+    const handleAcumuladorToggle = (val) => {
+        if (!val) {
+            onChange({ ...data, es_acumulador: false });
+            return;
+        }
+        // Activar → forzar método Anexo VI y recalcular SCOP si hay modelo elegido
+        const found = availableModels.find(m => String(m.id) === String(data?.aerotermia_db_id));
+        const scop = found
+            ? getScopAcsFromModel(found, found.zona_climatica || 'D3', 'independiente')
+            : data?.scop;
+        onChange({
+            ...data,
+            es_acumulador: true,
+            metodo_scop: 'independiente',
+            scop,
+            ...(found ? {
+                url_eprel: found.eprel ?? data?.url_eprel ?? null,
+                url_keymark: found.url_keymark ?? data?.url_keymark ?? null,
+                url_ficha: found.ficha_tecnica ?? data?.url_ficha ?? null,
+            } : {}),
+        });
+    };
+
     return (
         <div className="bg-bkg-surface/60 rounded-xl p-4 border border-white/[0.06] space-y-3">
             <h4 className="text-xs font-black text-brand/80 uppercase tracking-wider">{title}</h4>
@@ -281,14 +308,31 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
                 </label>
                 <input
                     type="text"
-                    value={data?.numero_serie ?? ''}
+                    value={isAcs && data?.es_acumulador ? '' : (data?.numero_serie ?? '')}
                     onChange={v => onChange({ ...data, numero_serie: v.target.value })}
-                    readOnly={readOnly}
+                    readOnly={readOnly || (isAcs && data?.es_acumulador)}
+                    placeholder={isAcs && data?.es_acumulador ? 'No aplica (acumulador ACS)' : ''}
                     className={`w-full bg-bkg-elevated border rounded-lg px-3 py-2 text-white text-sm focus:outline-none ${
-                        readOnly ? 'border-white/5 text-white/60 cursor-not-allowed' : 'border-white/10 focus:border-brand/50'
+                        readOnly || (isAcs && data?.es_acumulador) ? 'border-white/5 text-white/40 cursor-not-allowed' : 'border-white/10 focus:border-brand/50'
                     }`}
                 />
             </div>
+
+            {isAcs && (
+                <div className="bg-bkg-elevated/40 rounded-lg px-3 border border-white/5">
+                    <Toggle
+                        label="¿El ACS es un acumulador (sin BdC propia)?"
+                        value={!!data?.es_acumulador}
+                        onChange={handleAcumuladorToggle}
+                        readOnly={readOnly}
+                    />
+                    {data?.es_acumulador && (
+                        <p className="text-[10px] text-white/30 -mt-1 pb-2">
+                            El depósito lo calienta la BdC de calefacción. SCOP por Anexo VI. En el CIFO se imprime como «Acumulador ACS» con nº de serie «No aplica».
+                        </p>
+                    )}
+                </div>
+            )}
 
             <div className="space-y-1">
                 <label className="flex items-center gap-1.5 text-xs text-brand/40 uppercase tracking-wider font-bold">
