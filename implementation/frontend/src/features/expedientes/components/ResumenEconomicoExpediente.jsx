@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 
 // Movido fuera para evitar que React desmonte el componente en cada renderizado de ResumenEconomicoExpediente
-const Metric = ({ label, value, sub, icon, color = 'text-white', proposalValue, proposalDiff, onDoubleClick, isEditingVal, editValue, setEditValue, handleKeyDown, handleSaveLocal, setIsEditing, inputRef }) => (
+const Metric = ({ label, value, sub, icon, color = 'text-white', proposalValue, proposalDiff, onDoubleClick, isEditingVal, editValue, onEditChange, handleKeyDown, handleSaveLocal, onCancel, inputRef }) => (
     <div 
         className={`flex-1 min-w-[200px] p-4 border-r border-white/5 last:border-0 group hover:bg-white/[0.02] transition-colors relative ${onDoubleClick && !isEditingVal ? 'cursor-pointer' : ''}`}
         onDoubleClick={isEditingVal ? null : onDoubleClick}
@@ -23,7 +23,7 @@ const Metric = ({ label, value, sub, icon, color = 'text-white', proposalValue, 
                         type="number"
                         step="1"
                         value={editValue}
-                        onChange={e => setEditValue(e.target.value)}
+                        onChange={e => onEditChange(e.target.value)}
                         onKeyDown={handleKeyDown}
                         className="bg-bkg-elevated border border-brand/50 rounded-lg px-2 py-1 text-lg font-black text-brand w-24 focus:outline-none focus:ring-2 focus:ring-brand/20 shadow-xl"
                     />
@@ -42,7 +42,7 @@ const Metric = ({ label, value, sub, icon, color = 'text-white', proposalValue, 
                 </button>
                 <button
                     type="button"
-                    onClick={(e) => { e.stopPropagation(); setIsEditing(false); }}
+                    onClick={(e) => { e.stopPropagation(); onCancel(); }}
                     className="p-1.5 bg-white/5 text-white/40 rounded-lg hover:text-white hover:bg-white/10 transition-all"
                     title="Cancelar"
                 >
@@ -86,10 +86,13 @@ const Metric = ({ label, value, sub, icon, color = 'text-white', proposalValue, 
     </div>
 );
 
-export function ResumenEconomicoExpediente({ results, proposal, onUpdatePrice }) {
+export function ResumenEconomicoExpediente({ results, proposal, onUpdatePrice, onLivePrice }) {
     const [isEditing, setIsEditing] = useState(false);
     const [editValue, setEditValue] = useState('');
     const inputRef = useRef(null);
+    // Valor previo al empezar a editar, para poder revertir si se cancela
+    // (mientras se edita reflejamos el cambio en vivo en el resto de la app).
+    const originalRef = useRef(null);
 
     if (!results) return null;
 
@@ -112,8 +115,19 @@ export function ResumenEconomicoExpediente({ results, proposal, onUpdatePrice })
 
     const handleDoubleClick = (e) => {
         e.stopPropagation();
-        setEditValue(Math.round(finalPriceClient).toString()); 
+        const cur = Math.round(finalPriceClient);
+        originalRef.current = cur;
+        setEditValue(cur.toString());
         setIsEditing(true);
+    };
+
+    // Cada pulsación refleja el precio AL MOMENTO en el resto de la app (panel de
+    // "Datos Económicos" y métricas), sin necesidad de confirmar. La confirmación
+    // (check / Enter) solo se encarga de PERSISTIR el cambio.
+    const handleLiveChange = (raw) => {
+        setEditValue(raw);
+        const val = parseFloat(raw);
+        if (!isNaN(val) && onLivePrice) onLivePrice(val);
     };
 
     const handleSaveLocal = () => {
@@ -124,6 +138,12 @@ export function ResumenEconomicoExpediente({ results, proposal, onUpdatePrice })
         setIsEditing(false);
     };
 
+    const handleCancel = () => {
+        // Revertir el reflejo en vivo al valor que había antes de editar.
+        if (onLivePrice && originalRef.current != null) onLivePrice(originalRef.current);
+        setIsEditing(false);
+    };
+
     const handleKeyDown = (e) => {
         if (e.key === 'Enter') {
             e.preventDefault();
@@ -131,7 +151,7 @@ export function ResumenEconomicoExpediente({ results, proposal, onUpdatePrice })
         }
         if (e.key === 'Escape') {
             e.preventDefault();
-            setIsEditing(false);
+            handleCancel();
         }
     };
 
@@ -185,10 +205,10 @@ export function ResumenEconomicoExpediente({ results, proposal, onUpdatePrice })
                     onDoubleClick={handleDoubleClick}
                     isEditingVal={isEditing}
                     editValue={editValue}
-                    setEditValue={setEditValue}
+                    onEditChange={handleLiveChange}
                     handleKeyDown={handleKeyDown}
                     handleSaveLocal={handleSaveLocal}
-                    setIsEditing={setIsEditing}
+                    onCancel={handleCancel}
                     inputRef={inputRef}
                 />
                 <Metric

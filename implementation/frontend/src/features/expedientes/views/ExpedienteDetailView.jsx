@@ -865,13 +865,26 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
                     <ResumenEconomicoExpediente
                         results={calcResults}
                         proposal={proposalResults}
+                        onLivePrice={(newPrice) => {
+                            // Reflejo en vivo (sin persistir) mientras se edita el precio
+                            // arriba: actualiza el cálculo y el módulo "Datos Económicos".
+                            setLiveInst(prev => ({
+                                ...(prev || {}),
+                                economico_override: {
+                                    ...(prev?.economico_override || {}),
+                                    cae_client_rate: newPrice
+                                }
+                            }));
+                        }}
                         onUpdatePrice={(newPrice) => {
-                            const newInst = { 
-                                ...liveInst, 
-                                economico_override: { 
-                                    ...liveInst?.economico_override, 
-                                    cae_client_rate: newPrice 
-                                } 
+                            // Confirmar = persistir en el expediente.
+                            const base = liveInst || expediente.instalacion || {};
+                            const newInst = {
+                                ...base,
+                                economico_override: {
+                                    ...(base.economico_override || {}),
+                                    cae_client_rate: newPrice
+                                }
                             };
                             setLiveInst(newInst);
                             handleSave({ instalacion: newInst });
@@ -1135,6 +1148,7 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
                     >
                         <EconomicoModule
                             expediente={expediente}
+                            liveInst={liveInst}
                             results={calcResults}
                             onSave={handleSave}
                             onLiveUpdate={setLiveInst}

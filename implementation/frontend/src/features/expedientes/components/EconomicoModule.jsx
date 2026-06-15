@@ -1,18 +1,24 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { Input, Label, SectionCard } from '../../calculator/components/UIComponents';
 
-export function EconomicoModule({ expediente, results, onSave, onLiveUpdate, saving }) {
+export function EconomicoModule({ expediente, liveInst, results, onSave, onLiveUpdate, saving }) {
     const op = expediente.oportunidades || {};
     const opInputs = op.datos_calculo?.inputs || {};
-    const inst = expediente.instalacion || {};
+    // Fuente de verdad ÚNICA: el estado "live" del padre, compartido con el panel
+    // superior "Precio CAE". Así, un cambio en cualquiera de los dos sitios se
+    // refleja al momento en el otro (mismo `economico_override.cae_client_rate`).
+    // Si todavía no hay estado live, caemos a lo persistido en el expediente.
+    const inst = liveInst || expediente.instalacion || {};
     const economico = inst.economico_override || {};
 
-    // Estado local para edición fluida
-    const [localData, setLocalData] = useState({
+    // Valores efectivos: override live + defaults resueltos desde la oportunidad.
+    // Se derivan en CADA render (no es estado local) para que el componente sea
+    // controlado y no quede desincronizado con cambios externos.
+    const localData = {
         presupuesto: economico.presupuesto ?? (parseFloat(opInputs.presupuesto || opInputs.importe_total) || 0),
         cae_client_rate: economico.cae_client_rate ?? (parseFloat(opInputs.caePriceClient || opInputs.cae_client_rate) || 95),
         cae_so_rate: economico.cae_so_rate ?? (parseFloat(opInputs.caePriceSO || opInputs.cae_so_rate) || 160),
-        include_commission: economico.include_commission ?? false, 
+        include_commission: economico.include_commission ?? false,
         cae_prescriptor_rate: economico.cae_prescriptor_rate ?? (parseFloat(opInputs.caePricePrescriptor || opInputs.cae_prescriptor_rate) || 0),
         cae_prescriptor_mode: economico.cae_prescriptor_mode ?? opInputs.prescriptorMode ?? 'brokergy',
         discount_certificates: economico.discount_certificates ?? false,
@@ -20,53 +26,23 @@ export function EconomicoModule({ expediente, results, onSave, onLiveUpdate, sav
         include_legalization: economico.include_legalization ?? false,
         legalization_mode: economico.legalization_mode ?? opInputs.legalization_mode ?? 'client',
         legalization_price: economico.legalization_price ?? (parseFloat(opInputs.legalizationPrice || opInputs.legalization_price) || 200)
-    });
-
-    // Sincronizar si cambian los datos base desde el exterior (pero no si estamos editando localmente)
-    useEffect(() => {
-        // Solo actualizamos si NO hay cambios pendientes o si el expediente persistido cambió (ej: recarga)
-        if (JSON.stringify(economico) !== JSON.stringify(inst.economico_override)) {
-             setLocalData({
-                presupuesto: economico.presupuesto ?? (parseFloat(opInputs.presupuesto || opInputs.importe_total) || 0),
-                cae_client_rate: economico.cae_client_rate ?? (parseFloat(opInputs.caePriceClient || opInputs.cae_client_rate) || 95),
-                cae_so_rate: economico.cae_so_rate ?? (parseFloat(opInputs.caePriceSO || opInputs.cae_so_rate) || 160),
-                include_commission: economico.include_commission ?? false,
-                cae_prescriptor_rate: economico.cae_prescriptor_rate ?? (parseFloat(opInputs.caePricePrescriptor || opInputs.cae_prescriptor_rate) || 0),
-                cae_prescriptor_mode: economico.cae_prescriptor_mode ?? opInputs.prescriptorMode ?? 'brokergy',
-                discount_certificates: economico.discount_certificates ?? false,
-                certificates_cost: economico.certificates_cost ?? (parseFloat(opInputs.certificates_cost) || 250),
-                include_legalization: economico.include_legalization ?? false,
-                legalization_mode: economico.legalization_mode ?? opInputs.legalization_mode ?? 'client',
-                legalization_price: economico.legalization_price ?? (parseFloat(opInputs.legalizationPrice || opInputs.legalization_price) || 200)
-            });
-        }
-    }, [expediente.id]);
+    };
 
     const formatNumber = (num) => (num || 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
     const handleChange = (field, value) => {
-        const newData = { ...localData, [field]: value };
-        setLocalData(newData);
-        // Actualizar el estado LIVE del padre para recalcular resultados en tiempo real
+        // Empujamos al estado LIVE del padre para recalcular en tiempo real.
+        // Materializamos todos los campos efectivos (con sus defaults) para no
+        // perder valores al persistir.
         if (onLiveUpdate) {
             onLiveUpdate({
                 ...inst,
-                economico_override: newData
+                economico_override: { ...localData, [field]: value }
             });
         }
     };
 
-    const toggleField = (field) => {
-        const newVal = !localData[field];
-        const newData = { ...localData, [field]: newVal };
-        setLocalData(newData);
-        if (onLiveUpdate) {
-            onLiveUpdate({
-                ...inst,
-                economico_override: newData
-            });
-        }
-    };
+    const toggleField = (field) => handleChange(field, !localData[field]);
 
     return (
         <div className="space-y-6">
