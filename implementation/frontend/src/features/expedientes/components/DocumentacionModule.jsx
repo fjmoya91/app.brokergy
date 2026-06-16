@@ -385,16 +385,31 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
 
     // Cuando cambia el expediente o se rehidrata documentacion, recargamos los
     // anexos extra persistidos como slots.
+    //
+    // IMPORTANTE: cada save dispara un re-fetch del expediente (handleSave →
+    // fetchExpediente → setExpediente), lo que cambia la referencia de
+    // cifo_extra_annexes y vuelve a ejecutar este effect. Si reconstruyéramos los
+    // slots desde cero perderíamos las `previewPages` ya rasterizadas (el preview
+    // del CIFO/RES080 dejaría de mostrar las páginas del anexo aunque sí viajen en
+    // la descarga). Por eso CONSERVAMOS el slot previo cuando ya existe por driveId
+    // (mantiene previewPages); solo creamos slot nuevo para anexos no vistos aún.
     React.useEffect(() => {
         const extras = expediente?.documentacion?.cifo_extra_annexes || [];
         setCifoAttachments(prev => {
             const fixed = prev.filter(a => a.required);
-            const extraSlots = extras.map(e => ({
-                id: `extra_${e.driveId}`,
-                label: e.label || e.fileName,
-                isExtra: true,
-                file: { driveId: e.driveId, link: e.link, name: e.fileName, source: 'manual_upload' }
-            }));
+            const prevByDriveId = new Map(
+                prev.filter(a => a.isExtra && a.file?.driveId).map(a => [a.file.driveId, a])
+            );
+            const extraSlots = extras.map(e => {
+                const existing = prevByDriveId.get(e.driveId);
+                if (existing) return existing; // conserva previewPages ya hidratadas
+                return {
+                    id: `extra_${e.driveId}`,
+                    label: e.label || e.fileName,
+                    isExtra: true,
+                    file: { driveId: e.driveId, link: e.link, name: e.fileName, source: 'manual_upload' }
+                };
+            });
             return [...fixed, ...extraSlots];
         });
     }, [expediente?.id, expediente?.documentacion?.cifo_extra_annexes]);

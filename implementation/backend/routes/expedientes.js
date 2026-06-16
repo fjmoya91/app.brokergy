@@ -1113,7 +1113,17 @@ router.put('/:id', enforceAuth, async (req, res) => {
         }
 
         let docObj = existing.documentacion || {};
-        if (documentacion !== undefined) docObj = { ...docObj, ...documentacion };
+        if (documentacion !== undefined) {
+            docObj = { ...docObj, ...documentacion };
+            // cifo_extra_annexes se gestiona ATÓMICAMENTE vía RPC (cifo_annex_append /
+            // cifo_annex_remove en /anexos-cifo). Un PUT de documentacion completo
+            // NUNCA debe sobrescribirlo: si el frontend reenvía una copia obsoleta
+            // (p.ej. tras subir un anexo en paralelo) borraría anexos. Conservamos
+            // siempre el valor ya persistido en BD.
+            if (existing.documentacion && 'cifo_extra_annexes' in existing.documentacion) {
+                docObj.cifo_extra_annexes = existing.documentacion.cifo_extra_annexes;
+            }
+        }
         
         // Log de historial si cambia el estado (incluyendo el forzado por la automatización superior)
         const activeEstado = updates.estado || estado;
@@ -3576,7 +3586,7 @@ router.post('/:id/anexos-cifo/upload', enforceAuth, async (req, res) => {
     try {
         const { data: exp } = await supabase
             .from('expedientes')
-            .select('id, oportunidad_id, numero_expediente, documentacion')
+            .select('id, oportunidad_id, numero_expediente')
             .eq('id', req.params.id)
             .single();
         if (!exp) return res.status(404).json({ error: 'expediente_not_found' });
@@ -3598,14 +3608,15 @@ router.post('/:id/anexos-cifo/upload', enforceAuth, async (req, res) => {
         const result = await saveFileToFolder(ftFolderId, safeName, 'application/pdf', buffer);
         if (!result) return res.status(500).json({ error: 'upload_failed' });
 
-        const docObj = exp.documentacion || {};
-        const list = Array.isArray(docObj.cifo_extra_annexes) ? docObj.cifo_extra_annexes : [];
-        list.push({ driveId: result.id, link: result.link, fileName: safeName, label: label || safeName });
-        await supabase.from('expedientes')
-            .update({ documentacion: { ...docObj, cifo_extra_annexes: list }, updated_at: new Date().toISOString() })
-            .eq('id', req.params.id);
+        // Escritura ATÓMICA en documentacion.cifo_extra_annexes (RPC con jsonb_set +
+        // bloqueo de fila). Evita el read-modify-write del documentacion completo que
+        // se pisaba con subidas/guardados concurrentes (regla #19, ver
+        // scripts/cifo_annex_atomic_writes.sql).
+        const annex = { driveId: result.id, link: result.link, fileName: safeName, label: label || safeName };
+        const { error: rpcErr } = await supabase.rpc('cifo_annex_append', { p_id: req.params.id, p_annex: annex });
+        if (rpcErr) throw rpcErr;
 
-        res.json({ driveId: result.id, link: result.link, fileName: safeName, label: label || safeName });
+        res.json(annex);
     } catch (err) {
         console.error('Error POST /:id/anexos-cifo/upload:', err);
         res.status(500).json({ error: 'internal', message: err.message });
@@ -3646,21 +3657,18 @@ router.delete('/:id/anexos-cifo/:driveId', enforceAuth, async (req, res) => {
     try {
         const { data: exp } = await supabase
             .from('expedientes')
-            .select('id, documentacion')
+            .select('id')
             .eq('id', req.params.id)
             .single();
         if (!exp) return res.status(404).json({ error: 'expediente_not_found' });
 
-        const docObj = exp.documentacion || {};
-        const list = Array.isArray(docObj.cifo_extra_annexes) ? docObj.cifo_extra_annexes : [];
-        const newList = list.filter(a => a.driveId !== req.params.driveId);
-
         const { deleteFile } = require('../services/driveService');
         await deleteFile(req.params.driveId);
 
-        await supabase.from('expedientes')
-            .update({ documentacion: { ...docObj, cifo_extra_annexes: newList }, updated_at: new Date().toISOString() })
-            .eq('id', req.params.id);
+        // Borrado ATÓMICO en documentacion.cifo_extra_annexes (RPC con jsonb_set +
+        // bloqueo de fila). Evita el read-modify-write del documentacion completo.
+        const { error: rpcErr } = await supabase.rpc('cifo_annex_remove', { p_id: req.params.id, p_drive_id: req.params.driveId });
+        if (rpcErr) throw rpcErr;
 
         res.json({ success: true });
     } catch (err) {
