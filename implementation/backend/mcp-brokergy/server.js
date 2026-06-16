@@ -265,20 +265,59 @@ function requireApiKey(req, res, next) {
 // Protocolo MCP 2025-03-26: StreamableHTTP — POST para RPC, GET para SSE
 const sessions = new Map(); // sessionId → { transport, server }
 
+// Leer body crudo del stream (el SDK necesita el objeto ya parseado cuando
+// nosotros consumimos el stream primero — lo pasamos como 3er arg a handleRequest)
+function readBody(req) {
+    return new Promise((resolve, reject) => {
+        let raw = '';
+        req.on('data', chunk => raw += chunk);
+        req.on('end', () => {
+            try { resolve(JSON.parse(raw)); }
+            catch (e) { reject(e); }
+        });
+        req.on('error', reject);
+    });
+}
+
 // POST /sse — inicializar nueva sesión o reanudar existente
 app.post('/sse', requireApiKey, async (req, res) => {
+    // Leemos el body primero para poder inspeccionar el método antes de rutear.
+    // Esto nos permite distinguir "sesión expirada + tools/call" de "nueva sesión".
+    let body;
+    try {
+        body = await readBody(req);
+    } catch {
+        return res.status(400).json({ error: 'Invalid JSON body' });
+    }
+
     const sessionId = req.headers['mcp-session-id'];
 
-    // Sesión existente → reenviar al transport correcto
+    // Sesión existente → reenviar al transport correcto (pasamos body ya parseado)
     if (sessionId && sessions.has(sessionId)) {
         const { transport } = sessions.get(sessionId);
-        await transport.handleRequest(req, res);
+        await transport.handleRequest(req, res, body);
         return;
     }
 
-    // Nueva sesión: onsessioninitialized guarda la sesión en el momento exacto
-    // en que el SDK asigna el ID (antes de enviar la respuesta HTTP).
-    // Así la siguiente petición siempre la encuentra aunque llegue en ms.
+    // Sesión expirada (server reiniciado) + petición que NO es initialize:
+    // devolver un error claro y accionable en lugar del críptico "Server not initialized".
+    if (sessionId && !sessions.has(sessionId) && body?.method !== 'initialize') {
+        return res.status(200).json({
+            jsonrpc: '2.0',
+            error: {
+                code: -32001,
+                message: 'La sesión MCP expiró porque el servidor se reinició. ' +
+                    'Ve a claude.ai → Conectores → MCP BROKERGY → Desconectar → Conectar de nuevo.'
+            },
+            id: body?.id ?? null
+        });
+    }
+
+    // Nueva sesión (o re-initialize tras expiración): strip del ID antiguo si lo hay
+    if (sessionId) delete req.headers['mcp-session-id'];
+
+    // onsessioninitialized guarda la sesión en el momento exacto en que el SDK
+    // asigna el ID (antes de enviar la respuesta HTTP).
     let server;
     const transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: () => randomUUID(),
@@ -294,7 +333,7 @@ app.post('/sse', requireApiKey, async (req, res) => {
     };
 
     await server.connect(transport);
-    await transport.handleRequest(req, res);
+    await transport.handleRequest(req, res, body);
 });
 
 // GET /sse — abre stream SSE para notificaciones del servidor al cliente
