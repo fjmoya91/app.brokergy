@@ -773,7 +773,10 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                 });
                 if (data.drive_link) {
                     setLocal(prev => {
-                        const next = { ...prev, [field]: data.drive_link };
+                        const updates = { [field]: data.drive_link };
+                        // Cuando el admin sube la Cesión firmada, es la versión final (ambas firmas)
+                        if (field === 'anexo_cesion_signed_link') updates.cesion_firmado_brokergy = true;
+                        const next = { ...prev, ...updates };
                         onSave({ documentacion: next });
                         return next;
                     });
@@ -797,7 +800,8 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
         });
     };
 
-    const SignedSlot = ({ link, onUpload, label, field }) => {
+    // partial=true → el cliente firmó pero Brokergy aún no (solo para Cesión)
+    const SignedSlot = ({ link, onUpload, label, field, partial }) => {
         const slotInputRef = React.useRef();
         return (
             <div className="flex flex-col items-center gap-1 group/slot">
@@ -810,14 +814,20 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                             slotInputRef.current.click();
                         }
                     }}
-                    title={link ? `Gestionar ${label}` : `Subir ${label}`}
+                    title={partial ? 'Cliente firmó — subir versión firmada por Brokergy' : (link ? `Gestionar ${label}` : `Subir ${label}`)}
                     className={`w-11 h-11 rounded-2xl border flex items-center justify-center transition-all relative ${
-                        link 
-                        ? 'bg-brand/10 border-brand/30 text-brand shadow-lg shadow-brand/10 hover:bg-brand hover:text-bkg-deep' 
-                        : 'bg-white/5 border-white/5 border-dashed hover:border-brand/40 hover:bg-white/[0.07] text-white/20'
+                        partial
+                        ? 'bg-orange-500/10 border-orange-500/30 text-orange-400 shadow-lg shadow-orange-500/10 hover:bg-orange-500 hover:text-white'
+                        : link
+                            ? 'bg-brand/10 border-brand/30 text-brand shadow-lg shadow-brand/10 hover:bg-brand hover:text-bkg-deep'
+                            : 'bg-white/5 border-white/5 border-dashed hover:border-brand/40 hover:bg-white/[0.07] text-white/20'
                     }`}
                 >
-                    {link ? (
+                    {partial ? (
+                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                    ) : link ? (
                         <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
                         </svg>
@@ -826,12 +836,12 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" />
                         </svg>
                     )}
-                    <input 
-                        type="file" 
-                        ref={slotInputRef} 
-                        className="hidden" 
-                        accept=".pdf" 
-                        onChange={e => onUpload(e.target.files[0])} 
+                    <input
+                        type="file"
+                        ref={slotInputRef}
+                        className="hidden"
+                        accept=".pdf"
+                        onChange={e => onUpload(e.target.files[0])}
                     />
                 </button>
             </div>
@@ -1292,11 +1302,12 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
 
                                         {/* 3. PDF FIRMADO */}
                                         <div className="w-11">
-                                            <SignedSlot 
-                                                link={local.anexo_cesion_signed_link} 
+                                            <SignedSlot
+                                                link={local.anexo_cesion_signed_link}
                                                 field="anexo_cesion_signed_link"
                                                 label="Anexo Cesión Firmado"
-                                                onUpload={(file) => handleSignedUpload('anexo_cesion_signed_link', file)} 
+                                                onUpload={(file) => handleSignedUpload('anexo_cesion_signed_link', file)}
+                                                partial={!!local.anexo_cesion_signed_link && !local.cesion_firmado_brokergy}
                                             />
                                         </div>
                                     </div>
@@ -1484,11 +1495,6 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                                         <div className="min-w-0 flex-1">
                                             <p className="text-sm font-black text-white uppercase tracking-tight mb-1">Certificado RITE</p>
                                             <p className="text-white/30 text-[9px] font-bold uppercase tracking-widest mb-1">Gestión manual (Drive)</p>
-                                            {local.cert_rite_drive_link && user?.rol === 'ADMIN' ? (
-                                                <a href={local.cert_rite_drive_link} target="_blank" rel="noopener noreferrer" className="text-[9px] text-brand/60 hover:text-brand font-black uppercase underline decoration-1 underline-offset-4 tracking-[0.15em] transition-all">Ver en Drive</a>
-                                            ) : (
-                                                <span className="text-[9px] text-white/5 font-black uppercase tracking-widest italic">Link pendiente...</span>
-                                            )}
                                         </div>
                                         <div className="flex items-center gap-6">
                                             {/* 1. BORRADOR (Manual Drive Link) */}
@@ -1505,11 +1511,33 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                                                 </button>
                                             </div>
 
-                                            {/* 2. ENVIADO (Spacer) */}
-                                            <div className="w-11" />
+                                            {/* 2. ENVIADO */}
+                                            <div className="w-11 flex justify-center">
+                                                <button
+                                                    disabled={!local.cert_rite_drive_link}
+                                                    onClick={() => handleToggleSent('cert_rite_sent_at')}
+                                                    title={local.cert_rite_sent_at ? `Enviado el ${new Date(local.cert_rite_sent_at).toLocaleDateString()}` : 'Marcar como enviado'}
+                                                    className={`w-11 h-11 rounded-2xl border flex items-center justify-center transition-all ${
+                                                        local.cert_rite_sent_at
+                                                        ? 'bg-blue-500/20 border-blue-500/30 text-blue-400 shadow-lg shadow-blue-500/10 hover:bg-blue-500 hover:text-white'
+                                                        : !local.cert_rite_drive_link
+                                                            ? 'bg-white/5 border-white/5 text-white/5 cursor-not-allowed'
+                                                            : 'bg-orange-500/10 border-orange-500/20 text-orange-500 hover:bg-orange-500 hover:text-white'
+                                                    }`}
+                                                >
+                                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
+                                                </button>
+                                            </div>
 
-                                            {/* 3. PDF FIRMADO (Spacer for now as it's manual) */}
-                                            <div className="w-11" />
+                                            {/* 3. PDF FIRMADO — fallback al link del cert si aún no hay versión firmada separada */}
+                                            <div className="w-11">
+                                                <SignedSlot
+                                                    link={local.cert_rite_signed_link || local.cert_rite_drive_link}
+                                                    field="cert_rite_signed_link"
+                                                    label="Certificado RITE"
+                                                    onUpload={(file) => handleSignedUpload('cert_rite_signed_link', file)}
+                                                />
+                                            </div>
                                         </div>
                                     </div>
                                     {editMode && (

@@ -1245,13 +1245,13 @@ router.post('/rite-upload/:expedienteId',
             let memoriaLink = null;
             let certLink = null;
             if (memFile) {
-                const r = await saveReplacing(`${numexpte} - RITE_Memoria_Firmada.pdf`, memFile.mimetype, memFile.buffer);
+                const r = await saveReplacing(`${numexpte} - Memoria RITE_fdo.pdf`, memFile.mimetype, memFile.buffer);
                 memoriaLink = r?.link || null;
                 docUpdate.cert_rite_signed_link = memoriaLink;
                 if (r?.id) try { await driveService.setFolderPublic(r.id, 'reader'); } catch (e) {}
             }
             if (certFile) {
-                const r = await saveReplacing(`${numexpte} - RITE_Certificado.pdf`, certFile.mimetype, certFile.buffer);
+                const r = await saveReplacing(`${numexpte} - Certificado RITE.pdf`, certFile.mimetype, certFile.buffer);
                 certLink = r?.link || null;
                 docUpdate.cert_rite_drive_link = certLink;   // → slot "Certificado RITE" (validación del agente)
                 if (r?.id) try { await driveService.setFolderPublic(r.id, 'reader'); } catch (e) {}
@@ -1526,7 +1526,7 @@ router.post('/anexos-upload/:expedienteId',
             // Anexo I firmado
             if (anexoIFile) {
                 const buf = await toPdfBuffer(anexoIFile);
-                const r = await saveReplacing(`${numexpte} - Anexo_I_Firmado.pdf`, buf);
+                const r = await saveReplacing(`${numexpte} - Anexo I_fdo.pdf`, buf);
                 if (r?.link) { docUpdate.anexo_i_signed_link = r.link; recibido.push('Anexo I firmado'); }
             }
 
@@ -1553,9 +1553,10 @@ router.post('/anexos-upload/:expedienteId',
                     const annexes = [dniFrontPdf, dniBackPdf].filter(Boolean);
                     if (annexes.length) cesionPdf = await mergePdfs(cesionPdf, annexes);
                 }
-                const r = await saveReplacing(`${numexpte} - Anexo_Cesion_Firmado.pdf`, cesionPdf);
+                const r = await saveReplacing(`${numexpte} - Anexo Cesión ahorro_fdo.pdf`, cesionPdf);
                 if (r?.link) {
                     docUpdate.anexo_cesion_signed_link = r.link;
+                    docUpdate.cesion_firmado_brokergy = false; // solo el cliente ha firmado aún
                     recibido.push(cesionFirma === 'manuscrita' ? 'Anexo de Cesión firmado (con DNI anexado)' : 'Anexo de Cesión firmado (firma electrónica)');
                 }
             }
