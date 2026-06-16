@@ -1598,11 +1598,11 @@ router.post('/:id/facturas/upload', enforceAuth, async (req, res) => {
         // Obtener el drive_folder_id de la oportunidad
         const { data: op } = await supabase
             .from('oportunidades')
-            .select('datos_calculo, drive_folder_id')
+            .select('datos_calculo')
             .eq('id', exp.oportunidad_id)
             .single();
 
-        const driveFolderId = op?.drive_folder_id || op?.datos_calculo?.drive_folder_id || op?.datos_calculo?.inputs?.drive_folder_id;
+        const driveFolderId = op?.datos_calculo?.drive_folder_id || op?.datos_calculo?.inputs?.drive_folder_id;
         if (!driveFolderId) {
             return res.status(400).json({ error: 'La oportunidad no tiene carpeta de Drive configurada' });
         }
@@ -1667,7 +1667,7 @@ router.post('/:id/documents/upload', enforceAuth, async (req, res) => {
             try { normalizedDatos = JSON.parse(normalizedDatos); } catch(e) { normalizedDatos = {}; }
         }
 
-        const driveFolderId = op?.drive_folder_id || normalizedDatos?.drive_folder_id || normalizedDatos?.inputs?.drive_folder_id || exp.drive_folder_id;
+        const driveFolderId = normalizedDatos?.drive_folder_id || normalizedDatos?.inputs?.drive_folder_id || exp.drive_folder_id;
         console.log(`[POST /documents/upload] ExpID: ${req.params.id}, OpID: ${exp.oportunidad_id}`);
         console.log(`[POST /documents/upload] driveFolderId identified: ${driveFolderId}`);
 
@@ -1907,7 +1907,7 @@ router.post('/:id/memoria-rite/generate', enforceAuth, async (req, res) => {
         }
 
         // 4) Localizar carpeta Drive del expediente
-        const driveFolderId = op?.drive_folder_id || normalizedDatos?.drive_folder_id
+        const driveFolderId = normalizedDatos?.drive_folder_id
             || normalizedDatos?.inputs?.drive_folder_id || exp.drive_folder_id;
         if (!driveFolderId) {
             return res.status(400).json({ error: 'La oportunidad no tiene carpeta de Drive configurada' });
@@ -2190,7 +2190,7 @@ router.get('/:id/documents/scan-cee', enforceAuth, async (req, res) => {
 
         const { data: op } = await supabase
             .from('oportunidades')
-            .select('drive_folder_id, datos_calculo')
+            .select('datos_calculo')
             .eq('id', exp.oportunidad_id)
             .single();
 
@@ -2322,14 +2322,14 @@ router.post('/:id/documents/repair-cee-links', enforceAuth, async (req, res) => 
 
         const { data: op } = await supabase
             .from('oportunidades')
-            .select('drive_folder_id, datos_calculo')
+            .select('datos_calculo')
             .eq('id', exp.oportunidad_id)
             .single();
         let normalizedDatos = op?.datos_calculo || {};
         if (typeof normalizedDatos === 'string') {
             try { normalizedDatos = JSON.parse(normalizedDatos); } catch (e) { normalizedDatos = {}; }
         }
-        const driveFolderId = op?.drive_folder_id || normalizedDatos?.drive_folder_id || normalizedDatos?.inputs?.drive_folder_id || exp.drive_folder_id;
+        const driveFolderId = normalizedDatos?.drive_folder_id || normalizedDatos?.inputs?.drive_folder_id || exp.drive_folder_id;
         if (!driveFolderId) return res.status(400).json({ error: 'Sin carpeta de Drive' });
         console.log(`[repair-cee-links] driveFolderId=${driveFolderId}`);
 
