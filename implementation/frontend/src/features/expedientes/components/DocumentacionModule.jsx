@@ -1657,25 +1657,40 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
 
                             <div className="flex items-center gap-4">
                                 {user?.rol === 'ADMIN' && (
-                                    <button 
+                                    <button
                                         onClick={() => window.open(managingSigned.link, '_blank')}
                                         className="px-8 py-3.5 rounded-2xl bg-white/5 border border-white/10 text-white/60 text-[11px] font-black uppercase tracking-[0.2em] hover:bg-white/10 hover:text-white transition-all active:scale-95"
                                     >
                                         Abrir en Drive
                                     </button>
                                 )}
+                                {managingSigned.field === 'anexo_cesion_signed_link' && !local.cesion_firmado_brokergy && (
+                                    <button
+                                        onClick={() => {
+                                            setLocal(prev => {
+                                                const next = { ...prev, cesion_firmado_brokergy: true };
+                                                onSave({ documentacion: next });
+                                                return next;
+                                            });
+                                            setManagingSigned(null);
+                                        }}
+                                        className="px-10 py-3.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[11px] font-black uppercase tracking-[0.2em] hover:bg-emerald-500 hover:text-white transition-all active:scale-95 shadow-lg shadow-emerald-500/10"
+                                    >
+                                        ✓ Brokergy ha firmado
+                                    </button>
+                                )}
                                 <label className="px-10 py-3.5 rounded-2xl bg-brand text-bkg-deep text-[11px] font-black uppercase tracking-[0.2em] hover:scale-[1.02] transition-all cursor-pointer shadow-xl shadow-brand/20 active:scale-95">
                                     Sustituir Archivo
-                                    <input 
-                                        type="file" 
-                                        className="hidden" 
-                                        accept=".pdf" 
+                                    <input
+                                        type="file"
+                                        className="hidden"
+                                        accept=".pdf"
                                         onChange={e => {
                                             if (e.target.files[0]) {
                                                 handleSignedUpload(managingSigned.field, e.target.files[0]);
                                                 setManagingSigned(null);
                                             }
-                                        }} 
+                                        }}
                                     />
                                 </label>
                             </div>
