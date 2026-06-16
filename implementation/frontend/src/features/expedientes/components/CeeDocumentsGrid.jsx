@@ -3,6 +3,7 @@ import axios from 'axios';
 import { useAuth } from '../../../context/AuthContext';
 import { useModal } from '../../../context/ModalContext';
 import { readPhaseTime, SUBESTADO_LABELS, STALE_CLASSES, fmtDate, humanDays, daysSince } from '../logic/seguimientoTime';
+import { buildCertDefaultMessage } from '../logic/certMessages';
 
 // Pill compacto de estado por fase CEE: subestado actual + días-en-estado + última comunicación.
 function CeeStatusPill({ expediente, section }) {
@@ -156,45 +157,6 @@ function UploadItem({
             )}
         </div>
     );
-}
-
-// "JOSEFINA PEDROCHE ABAD" → "Josefina Pedroche Abad" (los nombres se guardan en MAYÚSCULAS en BD).
-const toTitleCase = (s) => (s || '')
-    .toLowerCase()
-    .split(/\s+/)
-    .filter(Boolean)
-    .map(w => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(' ');
-
-// "LUIS ALBERTO LANUZA PELAYO" → "Luis" (solo el nombre de pila, en formato normal).
-const firstNameProper = (s) => {
-    const t = (s || '').trim().split(/\s+/)[0] || '';
-    return t ? t.charAt(0).toUpperCase() + t.slice(1).toLowerCase() : '';
-};
-
-// Construye el cuerpo del mensaje al certificador en mayúsculas/minúsculas (sentence case),
-// según tipo de mensaje y fase. Es el texto que se muestra editable en el modal y que,
-// si se envía, sustituye al saludo+intro de la plantilla de email y al cuerpo del WhatsApp.
-// Incluye el enlace a la carpeta "12. DOCUMENTOS PARA CEE" para acceso directo del técnico.
-function buildCertDefaultMessage(template, section, certName, clienteNombre, numExp, ceeFolderLink) {
-    const tecnico = firstNameProper(certName) || 'técnico';
-    const cli = clienteNombre ? ` (${toTitleCase(clienteNombre)})` : '';
-    const fase = section === 'final' ? 'CEE Final' : 'CEE Inicial';
-    const carpeta = ceeFolderLink ? `\n\n📁 Carpeta de documentos del expediente:\n${ceeFolderLink}` : '';
-
-    let body;
-    if (template === 'reminder') {
-        body = `¡Hola ${tecnico}! 👋\n\nTe recordamos que tienes pendiente el ${fase} del expediente ${numExp}${cli}.\n\n¿Podrías darnos una estimación de fecha de entrega? Nos ayudaría mucho para la planificación.\n\n¡Gracias!`;
-    } else if (template === 'urgent') {
-        body = `Hola ${tecnico}:\n\nNecesitamos con carácter urgente el ${fase} del expediente ${numExp}${cli}.\n\nEs importante que lo priorices para poder cumplir con los plazos del programa de ayudas. Quedamos a la espera.`;
-    } else if (section === 'final') {
-        // standard (Encargo) — Final
-        body = `¡Hola ${tecnico}! 👋\n\nYa puedes presentar el CEE Final del expediente ${numExp}${cli}.\n\nToda la documentación de obra (facturas, memorias de instalación y fotos de fin de obra) ya está disponible en la carpeta compartida.\n\n¡Gracias!`;
-    } else {
-        // standard (Encargo) — Inicial
-        body = `¡Hola ${tecnico}! 👋\n\nTe hemos asignado el expediente ${numExp}${cli} para la emisión del CEE Inicial.\n\nTienes toda la documentación del cliente en la carpeta compartida y en el portal.\n\n¡Gracias!`;
-    }
-    return body + carpeta;
 }
 
 export function CeeDocumentsGrid({

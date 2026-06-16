@@ -365,13 +365,23 @@ async function buildChecklistData(exp, cli, op) {
     }
 
     const anexoIFirmado = present(doc.anexo_i_signed_link);
-    const cesionFirmado = present(doc.anexo_cesion_signed_link);
+    const cesionClienteFirmo = present(doc.anexo_cesion_signed_link);
+    const cesionBrokergyFirmo = !!doc.cesion_firmado_brokergy;
+    const cesionFirmado = cesionClienteFirmo && cesionBrokergyFirmo;
+    let cesionDetalle = null;
+    if (!cesionClienteFirmo) {
+        cesionDetalle = present(doc.anexo_cesion_drive_link) ? 'Generado, pendiente de firma' : null;
+    } else if (!cesionBrokergyFirmo) {
+        cesionDetalle = 'Cliente firmó — pendiente firma Brokergy';
+    }
+    const anexoFotoFirmado = present(doc.anexo_fotografico_signed_link);
     const grupoCliente = [
         mk('datos_personales', 'Datos personales', 'CLIENTE', datosPersOk, ['anexos', 'final'], datosPersOk ? null : 'Faltan: ' + faltanPers.join(', ')),
         mk('numero_cuenta', 'Nº de cuenta (IBAN)', 'CLIENTE', ibanOk, ['anexos', 'final'], ibanOk ? c.numero_cuenta : 'Sin IBAN'),
         mk('justificante', 'Justificante titularidad bancaria', 'CLIENTE', justifOk, ['final'], null, justifLink),
         mk('anexo_i_firmado', 'Anexo I firmado', 'CLIENTE', anexoIFirmado, ['final'], present(doc.anexo_i_drive_link) && !anexoIFirmado ? 'Generado, pendiente de firma' : null, doc.anexo_i_signed_link),
-        mk('cesion_firmado', 'Anexo Cesión firmado', 'CLIENTE', cesionFirmado, ['final'], present(doc.anexo_cesion_drive_link) && !cesionFirmado ? 'Generado, pendiente de firma' : null, doc.anexo_cesion_signed_link),
+        mk('cesion_firmado', 'Anexo Cesión firmado', 'CLIENTE', cesionFirmado, ['final'], cesionDetalle, doc.anexo_cesion_signed_link),
+        mk('anexo_fotografico_firmado', 'Anexo Fotográfico firmado', 'CLIENTE', anexoFotoFirmado, ['final'], null, doc.anexo_fotografico_signed_link),
     ];
 
     // ── INSTALADOR ──
@@ -2837,8 +2847,9 @@ router.post('/:id/notify-certificador', enforceAuth, async (req, res) => {
                 }
 
                 try {
-                    await whatsappService.sendText(certPhone, waMsg);
-                    channels.push('WhatsApp');
+                    const waRes = await whatsappService.sendText(certPhone, waMsg);
+                    // sendText siempre encola en BD; si el cliente no está READY, se enviará al reconectar.
+                    channels.push(waRes?.state === 'READY' ? 'WhatsApp' : 'WhatsApp (encolado)');
                 } catch (waErr) {
                     console.error('[notify-certificador] Error WhatsApp:', waErr.message);
                     channels.push('WhatsApp (encolado)');
@@ -3209,6 +3220,12 @@ router.post('/:id/approve-cee', adminOnly, async (req, res) => {
     try {
         const { phase } = req.body;
         const adminMessage = (req.body?.adminMessage || '').trim() || null;
+        // Mensaje editado en el popup de "Validar" + canales elegidos.
+        const customMessage = (req.body?.customMessage || '').trim() || null;
+        const bodyMsg = customMessage || adminMessage;
+        // Por compatibilidad: si no se especifica canal, se envía email (comportamiento previo).
+        const sendEmail = req.body?.sendEmail !== false;
+        const sendWhatsApp = req.body?.sendWhatsApp === true;
         const { data: exp, error: expErr } = await supabase
             .from('expedientes')
             .select('*')
@@ -3224,11 +3241,13 @@ router.post('/:id/approve-cee', adminOnly, async (req, res) => {
         const cee = exp.cee || {};
         let certEmail = null;
         let certName = 'Técnico';
+        let certPhone = null;
         if (cee.certificador_id) {
-            const { data: cert } = await supabase.from('prescriptores').select('email, razon_social, acronimo').eq('id_empresa', cee.certificador_id).maybeSingle();
+            const { data: cert } = await supabase.from('prescriptores').select('*').eq('id_empresa', cee.certificador_id).maybeSingle();
             if (cert) {
                 certEmail = cert.email;
                 certName = cert.razon_social || cert.acronimo || 'Técnico';
+                certPhone = cert.tlf || cert.tlf_contacto || cert.landing_telefono_contacto || null;
             }
         }
 
@@ -3250,7 +3269,7 @@ router.post('/:id/approve-cee', adminOnly, async (req, res) => {
         historial.push({
             id: Date.now().toString() + '_revok',
             tipo: 'aprobacion_tecnica',
-            texto: `BROKERGY ha revisado y dado el VISTO BUENO al ${phaseLabel}. Se autoriza su registro en Industria.${adminMessage ? ` Nota: ${adminMessage}` : ''}`,
+            texto: `BROKERGY ha revisado y dado el VISTO BUENO al ${phaseLabel}. Se autoriza su registro en Industria.${bodyMsg ? ` Nota: ${bodyMsg}` : ''}`,
             fecha: new Date().toISOString(),
             usuario: 'ADMINISTRADOR'
         });
@@ -3276,29 +3295,50 @@ router.post('/:id/approve-cee', adminOnly, async (req, res) => {
 
         if (updErr) throw updErr;
 
-        // Enviar email automático al técnico indicando que ya tiene luz verde
-        if (certEmail) {
-            const portalLink = `${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/?exp=${req.params.id}`;
-            const ceeFolderLink = cee.cee_folder_link || null;
-            
-            setImmediate(async () => {
-                try {
-                    await emailService.sendCertificadorApproveNotification(
-                        certEmail,
-                        certName,
-                        exp.numero_expediente,
-                        phaseLabel,
-                        portalLink,
-                        ceeFolderLink,
-                        adminMessage
-                    );
-                } catch (mailErr) {
-                    console.error('[approve-cee] Error enviando email de visto bueno al certificador:', mailErr.message);
-                }
-            });
+        // Notificar al técnico que ya tiene luz verde, por los canales elegidos.
+        // Esperamos los envíos para devolver el estado real de cada canal (sin esto el
+        // frontend no podía saber si se envió email/WhatsApp).
+        const portalLink = `${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/?exp=${req.params.id}`;
+        const ceeFolderLink = cee.cee_folder_link || null;
+        let emailSent = false;
+        let whatsAppSent = false;
+        let waReason = null; // 'sin_telefono' | 'encolado' | 'error' | null
+
+        // EMAIL
+        if (sendEmail && certEmail) {
+            try {
+                await emailService.sendCertificadorApproveNotification(
+                    certEmail, certName, exp.numero_expediente, phaseLabel, portalLink, ceeFolderLink, adminMessage, customMessage
+                );
+                emailSent = true;
+            } catch (mailErr) {
+                console.error('[approve-cee] Error enviando email de visto bueno al certificador:', mailErr.message);
+            }
         }
 
-        res.json({ ok: true, newEstado, seguimiento });
+        // WHATSAPP
+        if (sendWhatsApp) {
+            if (!certPhone) {
+                waReason = 'sin_telefono';
+                console.warn('[approve-cee] Certificador sin teléfono para WhatsApp');
+            } else {
+                const hasUrl = bodyMsg && /https?:\/\//i.test(bodyMsg);
+                const carpetaWa = (ceeFolderLink && !hasUrl) ? `\n\n📁 Carpeta de documentos:\n${ceeFolderLink}` : '';
+                const waMsg = bodyMsg
+                    ? `${bodyMsg}${carpetaWa}\n\n*BROKERGY · Ingeniería Energética*`
+                    : `✅ *Visto bueno* — ${phaseLabel}\n\nHola ${certName}, ya tienes luz verde para registrar el ${phaseLabel} del expediente ${exp.numero_expediente} en Industria.${carpetaWa}\n\n*BROKERGY · Ingeniería Energética*`;
+                try {
+                    const waRes = await whatsappService.sendText(certPhone, waMsg);
+                    whatsAppSent = true; // se ha encolado/enviado correctamente
+                    if (waRes?.state && waRes.state !== 'READY') waReason = 'encolado';
+                } catch (waErr) {
+                    console.error('[approve-cee] Error enviando WhatsApp de visto bueno al certificador:', waErr.message);
+                    waReason = 'error';
+                }
+            }
+        }
+
+        res.json({ ok: true, newEstado, seguimiento, emailSent, whatsAppSent, waReason, sentTo: emailSent ? certEmail : null });
     } catch (err) {
         console.error('[approve-cee]', err.message);
         res.status(500).json({ error: 'Error aprobando el CEE' });

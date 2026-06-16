@@ -1448,16 +1448,14 @@ const sendCertifierAcceptedAdminNotification = async (expedienteId, numExp, cert
 /**
  * Notifica al certificador que el administrador ha validado su CEE (Inicial o Final)
  */
-const sendCertificadorApproveNotification = async (to, certName, numExp, phaseLabel, portalLink, folderLink, adminMessage = null) => {
+const sendCertificadorApproveNotification = async (to, certName, numExp, phaseLabel, portalLink, folderLink, adminMessage = null, customMessage = null) => {
     const subject = `✅ VISTO BUENO — ${phaseLabel} — ${numExp}`;
 
-    const html = `
-    <!DOCTYPE html>
-    <html lang="es">
-    <head><meta charset="UTF-8"></head>
-    <body style="background-color:#0a0e1a; font-family:sans-serif; color:#ffffff; padding:40px;">
-        <div style="max-width:600px; margin:0 auto; background-color:#111827; border-radius:20px; border:1px solid #334155; padding:30px;">
-            <h2 style="color:#10b981; margin-top:0;">Certificado Validado</h2>
+    // Si el admin editó el mensaje en el popup de "Validar", ese texto es el cuerpo
+    // (sustituye al saludo+intro), manteniendo la cabecera, el bloque de instrucciones y los botones.
+    const bodyHtml = customMessage ? `
+            <p style="color:rgba(255,255,255,0.88); white-space:pre-wrap; line-height:1.6;">${escapeHtml(customMessage)}</p>
+    ` : `
             <p style="color:#ffffff;">Hola <strong>${certName}</strong>, el equipo de BROKERGY ha revisado y dado el visto bueno al archivo .CEX del <strong>${phaseLabel}</strong>.</p>
             ${adminMessage ? `
             <div style="background-color:rgba(16,185,129,0.08); border-left:4px solid #10b981; padding:15px; margin:20px 0; border-radius:0 8px 8px 0;">
@@ -1469,6 +1467,16 @@ const sendCertificadorApproveNotification = async (to, certName, numExp, phaseLa
                 <strong>Expediente:</strong> ${numExp}<br><br>
                 Ya tienes luz verde para <strong>registrarlo en Industria</strong>. Una vez registrado, por favor sube la Etiqueta Energética y el justificante de registro a la carpeta compartida o al portal.
             </p>
+    `;
+
+    const html = `
+    <!DOCTYPE html>
+    <html lang="es">
+    <head><meta charset="UTF-8"></head>
+    <body style="background-color:#0a0e1a; font-family:sans-serif; color:#ffffff; padding:40px;">
+        <div style="max-width:600px; margin:0 auto; background-color:#111827; border-radius:20px; border:1px solid #334155; padding:30px;">
+            <h2 style="color:#10b981; margin-top:0;">Certificado Validado</h2>
+            ${bodyHtml}
             <div style="margin-top:30px; text-align:center;">
                 ${portalLink ? `<a href="${portalLink}" style="display:inline-block; margin-right:10px; padding:12px 24px; background-color:#10b981; color:#000000; font-weight:bold; text-decoration:none; border-radius:10px;">Ir al Portal</a>` : ''}
                 ${folderLink ? `<a href="${folderLink}" style="display:inline-block; padding:12px 24px; border:1px solid #10b981; color:#10b981; font-weight:bold; text-decoration:none; border-radius:10px;">Abrir Carpeta</a>` : ''}
@@ -1479,7 +1487,8 @@ const sendCertificadorApproveNotification = async (to, certName, numExp, phaseLa
     </html>
     `;
 
-    return sendMail({ to, subject, html, text: `Hola ${certName}, el ${phaseLabel} ha sido validado. Puedes proceder a registrarlo.` });
+    const text = customMessage || `Hola ${certName}, el ${phaseLabel} ha sido validado. Puedes proceder a registrarlo.`;
+    return sendMail({ to, subject, html, text });
 };
 
 /**

@@ -4,6 +4,8 @@ import { parseCeeXml } from '../../calculator/logic/xmlCeeParser';
 import { FACTORES_PASO, calculateRes080 } from '../../calculator/logic/calculation';
 import { EfficiencyTable } from '../../calculator/components/EfficiencyTable';
 import { CeeDocumentsGrid } from './CeeDocumentsGrid';
+import { buildCertApproveMessage } from '../logic/certMessages';
+import { fireSuccessConfetti } from '../utils/successConfetti';
 
 // ─── Componentes de Celda ──────────────────────────────────────────────────
 function TableCell({ value, onChange, readOnly, type = 'number', highlight = false }) {
@@ -324,6 +326,7 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
     const [approveResult, setApproveResult] = useState(null);
     const [approveMessage, setApproveMessage] = useState('');
     const [approvePendingPhase, setApprovePendingPhase] = useState(null);
+    const [approveChannels, setApproveChannels] = useState(['email']);
 
     // Notificar al padre de cambios en tiempo real
     useEffect(() => {
@@ -556,19 +559,49 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
         }
     };
 
+    // Nombre del cliente y enlace a la carpeta CEE, para prerellenar el mensaje de visto bueno
+    // (mismos fallbacks que el popup de notificar y que el backend).
+    const clienteNombre = (() => {
+        const c = expediente?.clientes;
+        const full = c ? `${c.nombre_razon_social || ''} ${c.apellidos || ''}`.trim() : '';
+        return full || expediente?.oportunidades?.referencia_cliente || '';
+    })();
+    const ceeFolderLink = expediente?.cee?.cee_folder_link || null;
+    const numExp = expediente?.numero_expediente || 'S-EXP';
+
+    // Abre el popup de "Validar" prerellenando el mensaje editable de visto bueno.
+    const openApprovePopup = (phase) => {
+        const section = phase === 'final' ? 'final' : 'inicial';
+        setApprovePendingPhase(phase);
+        setApproveChannels(['email']);
+        setApproveMessage(buildCertApproveMessage(section, selectedCertName, clienteNombre, numExp, ceeFolderLink));
+        setApproveResult(null);
+        setShowApprovePopup(true);
+    };
+
     const handleApproveConfirm = async () => {
         if (!expediente?.id || !approvePendingPhase) return;
         setApproveLoading(true);
         try {
-            await axios.post(`/api/expedientes/${expediente.id}/approve-cee`, {
+            const { data } = await axios.post(`/api/expedientes/${expediente.id}/approve-cee`, {
                 phase: approvePendingPhase,
-                adminMessage: approveMessage.trim() || null
+                sendEmail: approveChannels.includes('email'),
+                sendWhatsApp: approveChannels.includes('whatsapp'),
+                customMessage: approveMessage.trim() || null
             });
             const phaseLabel = approvePendingPhase === 'final' ? 'CEE Final' : 'CEE Inicial';
+            // Feedback real por canal (el backend devuelve el estado de cada envío).
+            const parts = [];
+            if (approveChannels.includes('email')) parts.push(data.emailSent ? '✉️ Email enviado' : '✉️ Email NO enviado');
+            if (approveChannels.includes('whatsapp')) {
+                if (data.whatsAppSent) parts.push(data.waReason === 'encolado' ? '💬 WhatsApp encolado (se enviará al reconectar)' : '💬 WhatsApp enviado');
+                else parts.push(data.waReason === 'sin_telefono' ? '💬 WhatsApp NO enviado (certificador sin teléfono)' : '💬 WhatsApp NO enviado');
+            }
             setApproveResult({
                 type: 'ok',
-                text: `${phaseLabel} validado correctamente. El certificador ha sido notificado para proceder al registro en Industria.`
+                text: `${phaseLabel} validado. ${parts.join(' · ')}`
             });
+            fireSuccessConfetti();
             if (onRefresh) onRefresh();
         } catch (err) {
             setApproveResult({ type: 'error', text: err.response?.data?.error || 'Error al aprobar el CEE' });
@@ -630,12 +663,16 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                         customMessage: (customMessage || '').trim() || null,
                         priority: template === 'urgent' ? 'urgent' : 'normal'
                     });
-                    const msgs = [];
-                    if (data.emailSent) msgs.push(`Email enviado a ${data.sentTo}`);
-                    if (data.whatsAppSent) msgs.push('WhatsApp enviado');
-                    else if (data.channels?.some(c => c.includes('encolado'))) msgs.push('WhatsApp encolado (se enviará al conectar)');
-                    if (data.newEstado) msgs.push(`Estado: ${data.newEstado}`);
-                    alert(msgs.join('\n') || 'Notificación procesada');
+                    // Éxito = confeti de papeles (efecto homogéneo con el envío de anexos).
+                    fireSuccessConfetti();
+                    // Solo interrumpimos con un aviso si algún canal no salió limpio.
+                    const issues = [];
+                    if (channels.includes('email') && !data.emailSent) issues.push('✉️ Email NO enviado');
+                    if (channels.includes('whatsapp')) {
+                        if (data.channels?.some(c => c.includes('encolado'))) issues.push('💬 WhatsApp encolado: se enviará cuando WhatsApp esté conectado.');
+                        else if (!data.whatsAppSent) issues.push('💬 WhatsApp NO enviado (revisa el teléfono del certificador).');
+                    }
+                    if (issues.length) setTimeout(() => alert(issues.join('\n')), 600);
                     if (onRefresh) onRefresh();
                 } catch (err) {
                     alert(err.response?.data?.error || 'Error al notificar al certificador');
@@ -656,12 +693,7 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                     alert(err.response?.data?.error || 'Error al solicitar revisión');
                 }
             }}
-            onApproveCee={(phase) => {
-                setApprovePendingPhase(phase);
-                setApproveMessage('');
-                setApproveResult(null);
-                setShowApprovePopup(true);
-            }}
+            onApproveCee={openApprovePopup}
         />
     );
 
@@ -708,12 +740,16 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                             customMessage: (customMessage || '').trim() || null,
                             priority: template === 'urgent' ? 'urgent' : 'normal'
                         });
-                        const msgs = [];
-                        if (data.emailSent) msgs.push(`Email enviado a ${data.sentTo}`);
-                        if (data.whatsAppSent) msgs.push('WhatsApp enviado');
-                        else if (data.channels?.some(c => c.includes('encolado'))) msgs.push('WhatsApp encolado (se enviará al conectar)');
-                        if (data.newEstado) msgs.push(`Estado: ${data.newEstado}`);
-                        alert(msgs.join('\n') || 'Notificación procesada');
+                        // Éxito = confeti de papeles (efecto homogéneo con el envío de anexos).
+                        fireSuccessConfetti();
+                        // Solo interrumpimos con un aviso si algún canal no salió limpio.
+                        const issues = [];
+                        if (channels.includes('email') && !data.emailSent) issues.push('✉️ Email NO enviado');
+                        if (channels.includes('whatsapp')) {
+                            if (data.channels?.some(c => c.includes('encolado'))) issues.push('💬 WhatsApp encolado: se enviará cuando WhatsApp esté conectado.');
+                            else if (!data.whatsAppSent) issues.push('💬 WhatsApp NO enviado (revisa el teléfono del certificador).');
+                        }
+                        if (issues.length) setTimeout(() => alert(issues.join('\n')), 600);
                         if (onRefresh) onRefresh();
                     } catch (err) {
                         alert(err.response?.data?.error || 'Error al notificar al certificador');
@@ -734,12 +770,7 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                         alert(err.response?.data?.error || 'Error al solicitar revisión');
                     }
                 }}
-                onApproveCee={(phase) => {
-                    setApprovePendingPhase(phase);
-                    setApproveMessage('');
-                    setApproveResult(null);
-                    setShowApprovePopup(true);
-                }}
+                onApproveCee={openApprovePopup}
             />
 
             {res080Data ? (
@@ -802,15 +833,57 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                                     </div>
                                 </div>
 
-                                <p className="text-[9px] font-black text-white/30 uppercase tracking-widest mb-2">Nota / Instrucción para el certificador (opcional)</p>
+                                {/* Canales */}
+                                <p className="text-[9px] font-black text-white/30 uppercase tracking-widest mb-2">Canales</p>
+                                <div className="flex gap-2 mb-5">
+                                    {[
+                                        { id: 'email', label: 'Email', icon: '✉️' },
+                                        { id: 'whatsapp', label: 'WhatsApp', icon: '💬' }
+                                    ].map(ch => (
+                                        <button
+                                            key={ch.id}
+                                            type="button"
+                                            onClick={() => setApproveChannels(prev => prev.includes(ch.id) ? prev.filter(c => c !== ch.id) : [...prev, ch.id])}
+                                            disabled={approveLoading}
+                                            className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all border ${
+                                                approveChannels.includes(ch.id)
+                                                    ? ch.id === 'whatsapp'
+                                                        ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                                                        : 'bg-brand/10 border-brand/30 text-brand'
+                                                    : 'border-white/5 text-white/20 hover:text-white/40'
+                                            }`}
+                                        >
+                                            <span>{ch.icon}</span> {ch.label}
+                                        </button>
+                                    ))}
+                                </div>
+
+                                {/* Mensaje editable (homogéneo con el popup de notificar) */}
+                                <div className="flex items-center justify-between mb-2">
+                                    <p className="text-[9px] font-black text-white/30 uppercase tracking-widest">Mensaje al certificador</p>
+                                    <button
+                                        type="button"
+                                        onClick={() => setApproveMessage(buildCertApproveMessage(approvePendingPhase === 'final' ? 'final' : 'inicial', selectedCertName, clienteNombre, numExp, ceeFolderLink))}
+                                        disabled={approveLoading}
+                                        className="text-[9px] font-black uppercase tracking-widest text-white/30 hover:text-emerald-400 transition-colors disabled:opacity-40"
+                                        title="Restaurar el texto por defecto"
+                                    >↺ Restaurar plantilla</button>
+                                </div>
                                 <textarea
                                     value={approveMessage}
                                     onChange={e => setApproveMessage(e.target.value)}
                                     disabled={approveLoading}
-                                    placeholder="Indicaciones adicionales… se incluirán en el email al certificador y quedarán registradas en el historial."
-                                    rows={3}
-                                    className="w-full bg-black/30 border border-white/10 rounded-xl p-3 text-xs text-white placeholder:text-white/20 focus:outline-none focus:border-emerald-500/40 resize-none mb-5"
+                                    placeholder="Escribe el mensaje que se enviará al certificador…"
+                                    rows={9}
+                                    maxLength={2000}
+                                    className="w-full bg-black/30 border border-white/10 rounded-xl p-3 text-sm leading-relaxed text-white normal-case placeholder:text-white/20 focus:outline-none focus:border-emerald-500/40 resize-none mb-1"
                                 />
+                                <div className="flex items-center justify-between mb-5">
+                                    <p className="text-[9px] text-white/25 leading-snug">
+                                        Puedes editarlo libremente.{approveChannels.includes('email') ? ' El email mantiene la cabecera de marca y los botones de acceso.' : ''}
+                                    </p>
+                                    <p className="text-[9px] text-white/20 shrink-0 ml-3">{approveMessage.length}/2000</p>
+                                </div>
 
                                 <div className="flex gap-3">
                                     <button
@@ -820,12 +893,12 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                                     >Cancelar</button>
                                     <button
                                         onClick={handleApproveConfirm}
-                                        disabled={approveLoading}
+                                        disabled={approveLoading || approveChannels.length === 0}
                                         className="flex-1 py-2.5 bg-emerald-500 text-black text-[11px] font-black uppercase tracking-widest rounded-xl shadow-lg shadow-emerald-500/20 transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2"
                                     >
                                         {approveLoading ? (
                                             <><div className="w-4 h-4 border-2 border-black/20 border-t-black rounded-full animate-spin" />Validando...</>
-                                        ) : '✅ Confirmar Visto Bueno'}
+                                        ) : (approveChannels.length === 0 ? 'Selecciona un canal' : `✅ Validar y enviar ${approveChannels.map(c => c === 'email' ? 'Email' : 'WhatsApp').join(' + ')}`)}
                                     </button>
                                 </div>
                             </>
