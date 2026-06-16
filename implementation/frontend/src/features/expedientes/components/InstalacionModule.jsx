@@ -567,6 +567,10 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
     const [modelosPorMarca, setModelosPorMarca] = useState({});
     const [prescriptores, setPrescriptores] = useState([]);
     const [fetchingUtm, setFetchingUtm] = useState(false);
+    // Override manual de las coordenadas UTM. Por defecto las coords van bloqueadas
+    // (se rellenan desde el Catastro vía la RC), pero en parcelas grandes el punto
+    // del Catastro no cae sobre la vivienda y hay que poder corregirlas a mano.
+    const [editCoords, setEditCoords] = useState(false);
     const [provincias, setProvincias] = useState([]);
     const [municipios, setMunicipios] = useState([]);
     const [loadingGeo, setLoadingGeo] = useState({ prov: false, muni: false });
@@ -609,6 +613,7 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
     // Sincronizar local cuando cambie el expediente (para resetear al entrar en otro diferente)
     useEffect(() => {
         if (expediente?.id) {
+            setEditCoords(false);
             const inst = expediente?.instalacion || {};
             setLocal({
                 misma_direccion: true,
@@ -662,22 +667,27 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
             .finally(() => setLoadingGeo(p => ({ ...p, muni: false })));
     }, [local.provincia_cod, local.misma_direccion]);
 
+    // Obtiene las coordenadas UTM del Catastro a partir de una RC y las vuelca en el estado.
+    const fetchUtmFromRC = async (rc) => {
+        if (!rc) return;
+        setFetchingUtm(true);
+        try {
+            const { data } = await axios.get(`/api/catastro/property-data?rc=${encodeURIComponent(rc)}`);
+            const x = String(data?.utm?.x || data?.coordX || '');
+            const y = String(data?.utm?.y || data?.coordY || '');
+            setLocal(p => ({ ...p, coord_x: x, coord_y: y }));
+        } catch {
+        } finally {
+            setFetchingUtm(false);
+        }
+    };
+
     const handleMismaDireccionChange = async (val) => {
         if (val) {
             const rc = opRC;
+            setEditCoords(false);
             setLocal(p => ({ ...p, misma_direccion: true, ref_catastral: rc, coord_x: '', coord_y: '' }));
-            if (rc) {
-                setFetchingUtm(true);
-                try {
-                    const { data } = await axios.get(`/api/catastro/property-data?rc=${encodeURIComponent(rc)}`);
-                    const x = String(data?.utm?.x || data?.coordX || '');
-                    const y = String(data?.utm?.y || data?.coordY || '');
-                    setLocal(p => ({ ...p, coord_x: x, coord_y: y }));
-                } catch {
-                } finally {
-                    setFetchingUtm(false);
-                }
-            }
+            await fetchUtmFromRC(rc);
         } else {
             setLocal(p => ({ ...p, misma_direccion: false }));
         }
@@ -773,10 +783,59 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
                         </div>
                     )}
 
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-white/5">
-                        <Field label="Referencia Catastral" value={local.ref_catastral} onChange={v => setLocal(p => ({ ...p, ref_catastral: v }))} readOnly={readOnly || local.misma_direccion} />
-                        <Field label={fetchingUtm ? 'Coordenada X (obteniendo...)' : 'Coordenada X'} value={local.coord_x} onChange={v => setLocal(p => ({ ...p, coord_x: v }))} readOnly={readOnly || local.misma_direccion} />
-                        <Field label={fetchingUtm ? 'Coordenada Y (obteniendo...)' : 'Coordenada Y'} value={local.coord_y} onChange={v => setLocal(p => ({ ...p, coord_y: v }))} readOnly={readOnly || local.misma_direccion} />
+                    <div className="pt-2 border-t border-white/5 space-y-3">
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                            <Field label="Referencia Catastral" value={local.ref_catastral} onChange={v => setLocal(p => ({ ...p, ref_catastral: v }))} readOnly={readOnly || local.misma_direccion} />
+                            <Field label={fetchingUtm ? 'Coordenada X (obteniendo...)' : 'Coordenada X (UTM)'} value={local.coord_x} onChange={v => setLocal(p => ({ ...p, coord_x: v }))} readOnly={readOnly || (local.misma_direccion && !editCoords)} placeholder="Ej: 482304" />
+                            <Field label={fetchingUtm ? 'Coordenada Y (obteniendo...)' : 'Coordenada Y (UTM)'} value={local.coord_y} onChange={v => setLocal(p => ({ ...p, coord_y: v }))} readOnly={readOnly || (local.misma_direccion && !editCoords)} placeholder="Ej: 4361303" />
+                        </div>
+
+                        {/* Editar coordenadas a mano: en parcelas grandes el punto del Catastro
+                            puede no caer sobre la vivienda. Solo aplica cuando se usa la misma
+                            dirección que el cliente (si no, las coords ya son editables). */}
+                        {!readOnly && local.misma_direccion && (
+                            <div className="flex flex-wrap items-center gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => setEditCoords(e => !e)}
+                                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all border ${
+                                        editCoords
+                                            ? 'bg-amber-500/15 text-amber-300 border-amber-500/40'
+                                            : 'bg-white/5 text-white/50 border-white/10 hover:text-white hover:border-white/20'
+                                    }`}
+                                >
+                                    {editCoords ? (
+                                        <>
+                                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
+                                            Bloquear coordenadas
+                                        </>
+                                    ) : (
+                                        <>
+                                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                                            Editar coordenadas manualmente
+                                        </>
+                                    )}
+                                </button>
+
+                                {editCoords && (
+                                    <button
+                                        type="button"
+                                        onClick={() => fetchUtmFromRC(local.ref_catastral || opRC)}
+                                        disabled={fetchingUtm}
+                                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all border bg-white/5 text-white/50 border-white/10 hover:text-white hover:border-white/20 disabled:opacity-50 disabled:cursor-wait"
+                                    >
+                                        <svg className={`w-3.5 h-3.5 ${fetchingUtm ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                                        {fetchingUtm ? 'Recalculando...' : 'Recalcular desde Catastro'}
+                                    </button>
+                                )}
+
+                                <span className="text-[10px] text-white/30">
+                                    {editCoords
+                                        ? 'Coordenadas desbloqueadas. Ajústalas si el punto del Catastro no coincide con la vivienda (parcelas grandes).'
+                                        : 'Coordenadas obtenidas del Catastro por la referencia catastral.'}
+                                </span>
+                            </div>
+                        )}
                     </div>
                 </div>
 
