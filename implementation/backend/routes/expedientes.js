@@ -385,9 +385,18 @@ async function buildChecklistData(exp, cli, op) {
     ];
 
     // ── INSTALADOR ──
-    const facturasDoc = (Array.isArray(doc.facturas) ? doc.facturas : []).filter(f => f && f.drive_link).length;
-    const facturasSlot = Array.isArray(uploads.DOC_FACTURAS) ? uploads.DOC_FACTURAS.length : 0;
-    const nFacturas = facturasDoc + facturasSlot;
+    // Conteo de facturas DEDUPLICADO por driveId: una factura subida por el instalador
+    // queda registrada en documentacion.facturas[] (vía addFacturaToExpediente) Y en
+    // reforma_uploads.DOC_FACTURAS; sumar ambas la contaría dos veces. Las del admin
+    // solo tienen drive_link (sin drive_id), de ahí el fallback drive_id || drive_link.
+    const factSet = new Set();
+    (Array.isArray(doc.facturas) ? doc.facturas : []).forEach(f => {
+        if (f && (f.drive_id || f.drive_link)) factSet.add(f.drive_id || f.drive_link);
+    });
+    (Array.isArray(uploads.DOC_FACTURAS) ? uploads.DOC_FACTURAS : []).forEach(u => {
+        if (u && (u.driveId || u.link)) factSet.add(u.driveId || u.link);
+    });
+    const nFacturas = factSet.size;
     const cifoOk = present(doc.cert_cifo_signed_link);
     const riteOk = present(doc.cert_rite_drive_link) || present(doc.cert_rite_signed_link) || (Array.isArray(uploads.DOC_RITE) && uploads.DOC_RITE.length > 0);
     const facturaOk = nFacturas > 0;
@@ -2283,11 +2292,13 @@ router.get('/:id/local-path', adminOnly, async (req, res) => {
             return res.status(404).json({ error: 'El expediente no tiene carpeta de Drive asociada' });
         }
 
-        const { getFolderPathSegments } = require('../services/driveService');
-        const segments = await getFolderPathSegments(driveFolderId);
-        if (!segments.length) {
+        const { getFolderPathSegments, sanitizeWindowsSegment } = require('../services/driveService');
+        const rawSegments = await getFolderPathSegments(driveFolderId);
+        if (!rawSegments.length) {
             return res.status(502).json({ error: 'No se pudo resolver la ruta de la carpeta en Drive' });
         }
+        // Saneo a nombre LOCAL de Windows (Google sustituye \ / : * ? " < > | por espacio)
+        const segments = rawSegments.map(sanitizeWindowsSegment);
 
         const base = (process.env.LOCAL_DRIVE_BASE || 'C:\\Users\\Usuario\\Mi unidad').replace(/[\\/]+$/, '');
         const localPath = [base, ...segments].join('\\');

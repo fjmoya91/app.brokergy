@@ -801,11 +801,13 @@ router.get('/:id/local-path', adminOnly, async (req, res) => {
             return res.status(404).json({ error: 'La oportunidad no tiene carpeta de Drive asociada' });
         }
 
-        const { getFolderPathSegments } = require('../services/driveService');
-        const segments = await getFolderPathSegments(driveFolderId);
-        if (!segments.length) {
+        const { getFolderPathSegments, sanitizeWindowsSegment } = require('../services/driveService');
+        const rawSegments = await getFolderPathSegments(driveFolderId);
+        if (!rawSegments.length) {
             return res.status(502).json({ error: 'No se pudo resolver la ruta de la carpeta en Drive' });
         }
+        // Saneo a nombre LOCAL de Windows (Google sustituye \ / : * ? " < > | por espacio)
+        const segments = rawSegments.map(sanitizeWindowsSegment);
 
         const base = (process.env.LOCAL_DRIVE_BASE || 'C:\\Users\\Usuario\\Mi unidad').replace(/[\\/]+$/, '');
         const localPath = [base, ...segments].join('\\');

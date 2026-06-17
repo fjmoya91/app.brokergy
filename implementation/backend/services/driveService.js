@@ -482,6 +482,20 @@ async function getFolderPathSegments(fileId) {
 }
 
 /**
+ * Sanea un nombre de carpeta/fichero tal y como hace Google Drive para escritorio al
+ * espejar en Windows: los caracteres ilegales de Windows ( \ / : * ? " < > | ) se
+ * sustituyen por un espacio (verificado empíricamente: "/" → espacio), y Windows
+ * recorta espacios/puntos finales. Se usa para construir la ruta LOCAL del expediente
+ * de modo que coincida con la carpeta real en disco. El handler .vbs además resuelve
+ * de forma tolerante por si Google cambiara el criterio para algún carácter.
+ */
+function sanitizeWindowsSegment(name) {
+    return String(name == null ? '' : name)
+        .replace(/[\\/:*?"<>|]/g, ' ')
+        .replace(/[ .]+$/g, '');
+}
+
+/**
  * Elimina un archivo de Drive (lo mueve a la papelera)
  */
 async function deleteFile(fileId) {
@@ -514,6 +528,7 @@ module.exports = {
     copyFile,
     getFileMetadata,
     getFolderPathSegments,
+    sanitizeWindowsSegment,
     listFiles,
     listFilesByPrefix,
     deleteFile
