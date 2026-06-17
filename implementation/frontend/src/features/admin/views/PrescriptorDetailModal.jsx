@@ -118,25 +118,64 @@ function Sel({ children, ...props }) {
 function DireccionEdit({ values, onChange }) {
     const [provincias, setProvincias] = useState([]);
     const [municipios, setMunicipios] = useState([]);
+    const [loadingProv, setLoadingProv] = useState(false);
+    const [loadingMuni, setLoadingMuni] = useState(false);
 
+    // Normalizar CCAA al cargar (la BD puede tenerla en otra capitalización)
     useEffect(() => {
-        if (!values.ccaa) { setProvincias([]); setMunicipios([]); return; }
-        axios.get('/api/geo/provincias', { params: { ccaa: values.ccaa } })
-            .then(r => setProvincias(r.data)).catch(() => setProvincias([]));
+        if (!values.ccaa) return;
+        const matched = CCAA_LIST.find(c => normalize(c) === normalize(values.ccaa));
+        if (matched && matched !== values.ccaa) onChange({ ccaa: matched });
     }, [values.ccaa]);
 
+    // Cargar provincias cuando cambia CCAA
+    useEffect(() => {
+        if (!values.ccaa) { setProvincias([]); setMunicipios([]); return; }
+        setLoadingProv(true);
+        axios.get('/api/geo/provincias', { params: { ccaa: values.ccaa } })
+            .then(r => setProvincias(r.data))
+            .catch(() => setProvincias([]))
+            .finally(() => setLoadingProv(false));
+    }, [values.ccaa]);
+
+    // Cargar municipios cuando cambia provincia_cod
     useEffect(() => {
         if (!values.provincia_cod) { setMunicipios([]); return; }
+        setLoadingMuni(true);
         axios.get('/api/geo/municipios', { params: { codprov: values.provincia_cod } })
-            .then(r => setMunicipios(r.data)).catch(() => setMunicipios([]));
+            .then(r => setMunicipios(r.data))
+            .catch(() => setMunicipios([]))
+            .finally(() => setLoadingMuni(false));
     }, [values.provincia_cod]);
 
+    // Derivar provincia_cod a partir del nombre guardado (partner existente)
     useEffect(() => {
         if (!values.provincia_cod && values.provincia) {
             const cod = getProvCodByNombre(values.provincia);
             if (cod) onChange({ provincia_cod: cod });
         }
     }, [values.provincia]);
+
+    // Normalizar Provincia cuando cargue la lista (la BD puede tenerla en otra capitalización)
+    useEffect(() => {
+        if (loadingProv || provincias.length === 0 || !values.provincia_cod) return;
+        const matchedProv = provincias.find(p => p.cod === values.provincia_cod);
+        if (matchedProv && matchedProv.nombre !== values.provincia) onChange({ provincia: matchedProv.nombre });
+    }, [provincias, loadingProv, values.provincia_cod]);
+
+    // Normalizar Municipio cuando cargue la lista — el CSV se sirve en MAYÚSCULAS y la BD
+    // puede tenerlo en otra capitalización (ej: "Solana (La)" vs "SOLANA (LA)"), lo que dejaba
+    // el desplegable vacío. Casamos por nombre normalizado (sin tildes/mayúsculas).
+    useEffect(() => {
+        if (loadingMuni || municipios.length === 0 || !values.municipio) return;
+        if (!municipios.includes(values.municipio)) {
+            const normTarget = normalize(values.municipio);
+            const match = municipios.find(m => normalize(m) === normTarget)
+                || municipios.find(m => normalize(m).includes(normTarget))
+                || municipios.find(m => normTarget.includes(normalize(m)));
+            if (match && match !== values.municipio) onChange({ municipio: match });
+        }
+    }, [municipios, loadingMuni]);
 
     return (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -147,16 +186,16 @@ function DireccionEdit({ values, onChange }) {
                 </Sel>
             </FI>
             <FI label="Provincia">
-                <Sel value={values.provincia_cod || ''} disabled={!values.ccaa}
+                <Sel value={values.provincia_cod || ''} disabled={!values.ccaa || loadingProv}
                     onChange={e => { const o = e.target.options[e.target.selectedIndex]; onChange({ provincia: o.text, provincia_cod: o.value, municipio: '' }); }}>
-                    <option value="">— Selecciona provincia —</option>
+                    <option value="">{loadingProv ? 'Cargando...' : '— Selecciona provincia —'}</option>
                     {provincias.map(p => <option key={p.cod} value={p.cod}>{p.nombre}</option>)}
                 </Sel>
             </FI>
             <FI label="Municipio">
-                <Sel value={values.municipio || ''} disabled={!values.provincia_cod}
+                <Sel value={values.municipio || ''} disabled={!values.provincia_cod || loadingMuni}
                     onChange={e => onChange({ municipio: e.target.value })}>
-                    <option value="">— Selecciona municipio —</option>
+                    <option value="">{loadingMuni ? 'Cargando...' : '— Selecciona municipio —'}</option>
                     {municipios.map(m => <option key={m} value={m}>{m}</option>)}
                 </Sel>
             </FI>
