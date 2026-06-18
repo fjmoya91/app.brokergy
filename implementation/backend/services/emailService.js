@@ -284,8 +284,23 @@ const sendLeadSummaryEmail = async ({ to, nombre, idOportunidad, cae, irpf, neta
 /**
  * Envía la propuesta en PDF al cliente por correo
  */
-const sendProposalEmail = async ({ to, userName, pdfBuffer, tableImageBase64, summaryData }) => {
+const sendProposalEmail = async ({ to, userName, pdfBuffer, tableImageBase64, summaryData, customMessage = null }) => {
     const isB2B = summaryData.mode === 'PARTNER' || summaryData.mode === 'INSTALADOR';
+    // Mensaje editado en el popup de envío (homogéneo con anexos). Si viene, se muestra
+    // como intro antes del resumen, con *negritas* estilo WhatsApp.
+    const customMessageHtml = customMessage
+        ? `<div style="margin:0 0 22px; font-size:15px; line-height:1.7; color:rgba(255,255,255,0.82); white-space:pre-wrap;">${customMessage.replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c])).replace(/\*(.*?)\*/g, '<b style="color:#ffffff;">$1</b>')}</div>`
+        : '';
+    // Saludo/intro por defecto (cuando no hay mensaje editado). Si hay customMessage, ese texto lo sustituye.
+    const greetingHtml = customMessage ? customMessageHtml : `
+                            <h2 style="margin:0 0 20px; font-size:20px; font-weight:800; color:#ffffff; letter-spacing:-0.3px;">
+                                ¡Hola, ${userName || (isB2B ? 'equipo' : 'cliente')}!
+                            </h2>
+                            ${isB2B ? `
+                            <p style="margin:0 0 20px; font-size:15px; line-height:1.6; color:rgba(255,255,255,0.7);">
+                                Te adjuntamos la propuesta de ayudas para el expediente de vuestro cliente <strong style="color:#ffffff;">${summaryData.clienteName || ''}</strong> (Exp. ${summaryData.id}).
+                            </p>
+                            ` : ''}`;
     const subject = isB2B
         ? `Propuesta cliente ${summaryData.clienteName || ''} [Exp. ${summaryData.id}] — Brokergy`
         : `Propuesta Bono Energético CAE — Brokergy (${summaryData.id})`;
@@ -347,15 +362,7 @@ const sendProposalEmail = async ({ to, userName, pdfBuffer, tableImageBase64, su
                     <!-- Content Body -->
                     <tr>
                         <td style="padding:10px 40px 30px;">
-                            <h2 style="margin:0 0 20px; font-size:20px; font-weight:800; color:#ffffff; letter-spacing:-0.3px;">
-                                ¡Hola, ${userName || (isB2B ? 'equipo' : 'cliente')}!
-                            </h2>
-
-                            ${isB2B ? `
-                            <p style="margin:0 0 20px; font-size:15px; line-height:1.6; color:rgba(255,255,255,0.7);">
-                                Te adjuntamos la propuesta de ayudas para el expediente de vuestro cliente <strong style="color:#ffffff;">${summaryData.clienteName || ''}</strong> (Exp. ${summaryData.id}).
-                            </p>
-                            ` : ''}
+                            ${greetingHtml}
 
                             ${summaryData.isBoth ? `
                                 <!-- CASO COMPARATIVA -->

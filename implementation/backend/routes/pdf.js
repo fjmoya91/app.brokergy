@@ -192,7 +192,7 @@ router.post('/save-to-drive', async (req, res) => {
  * Body: { html: string, to: string, userName: string, summaryData: object }
  */
 router.post('/send-proposal', async (req, res) => {
-    const { html, to, userName, summaryData } = req.body;
+    const { html, to, userName, summaryData, customMessage } = req.body;
     const emailService = require('../services/emailService');
 
     if (!html || !to) {
@@ -230,7 +230,8 @@ router.post('/send-proposal', async (req, res) => {
             userName,
             pdfBuffer,
             tableImageBase64,
-            summaryData
+            summaryData,
+            customMessage: customMessage || null
         });
 
         // 4. Guardar HTML en base de datos para la vista web online
