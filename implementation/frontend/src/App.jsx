@@ -66,6 +66,14 @@ function App() {
     return params.get('exp') || null;
   });
 
+  // Deep-link a una oportunidad: /?op=<id_oportunidad> (usado por los enlaces de la
+  // ficha de cliente cuando no hay handler de navegación en el contexto actual).
+  const [initialOportunidad] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('op') || null;
+  });
+  const [opLinkHandled, setOpLinkHandled] = useState(false);
+
   const [firmaOportunidadId] = useState(() => {
     const path = window.location.pathname;
     if (path.startsWith('/firma/')) return path.split('/firma/')[1] || null;
@@ -618,6 +626,20 @@ function App() {
       setLoading(false);
     }
   };
+
+  // Deep-link a oportunidad: al cargar con /?op=<id> y usuario logueado, traemos la
+  // oportunidad y la abrimos en la calculadora (loadOpportunity). Solo una vez.
+  useEffect(() => {
+    if (!initialOportunidad || !user || opLinkHandled) return;
+    setOpLinkHandled(true);
+    const url = new URL(window.location);
+    url.searchParams.delete('op');
+    window.history.replaceState({}, '', url);
+    axios.get(`/api/oportunidades/${initialOportunidad}`)
+      .then(r => { if (r.data && r.data.id_oportunidad) loadOpportunity(r.data); })
+      .catch(e => console.warn('[op deep-link] no se pudo cargar la oportunidad:', e.message));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialOportunidad, user, opLinkHandled]);
 
   const handleNavigate = (tab, payload, fromExpediente = null) => {
     if (fromExpediente) {

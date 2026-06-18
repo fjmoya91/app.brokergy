@@ -817,8 +817,12 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
                                         {cliente.oportunidades_vinculadas?.length > 0 ? (
                                             cliente.oportunidades_vinculadas.map(op => (
                                                 <div key={op.id_oportunidad}
-                                                    onClick={() => onOpenOportunidad ? (onClose(), onOpenOportunidad(op)) : undefined}
-                                                    className={`flex items-center justify-between p-3 bg-bkg-surface rounded-xl border border-white/[0.06] transition-all hover:scale-[1.02] active:scale-[0.98] ${onOpenOportunidad ? 'cursor-pointer hover:border-brand/30 hover:bg-brand/5' : ''}`}>
+                                                    onClick={() => {
+                                                        onClose?.();
+                                                        if (onOpenOportunidad) onOpenOportunidad(op);
+                                                        else if (op.id_oportunidad) window.location.assign(`/?op=${encodeURIComponent(op.id_oportunidad)}`);
+                                                    }}
+                                                    className="flex items-center justify-between p-3 bg-bkg-surface rounded-xl border border-white/[0.06] transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer hover:border-brand/30 hover:bg-brand/5">
                                                     <div>
                                                         <span className="text-xs font-mono font-black text-brand">{op.id_oportunidad}</span>
                                                         <p className="text-[10px] text-white/40 truncate max-w-[120px]">
@@ -846,8 +850,12 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
                                     {cliente.expedientes_vinculados?.length > 0 ? (
                                         cliente.expedientes_vinculados.map(exp => (
                                             <div key={exp.id}
-                                                onClick={() => onOpenExpediente ? (onClose(), onOpenExpediente(exp)) : undefined}
-                                                className={`flex items-center justify-between p-3 bg-amber-500/5 rounded-xl border border-amber-500/10 transition-all hover:scale-[1.02] active:scale-[0.98] ${onOpenExpediente ? 'cursor-pointer hover:border-amber-500/30 hover:bg-amber-500/10' : ''}`}>
+                                                onClick={() => {
+                                                    onClose?.();
+                                                    if (onOpenExpediente) onOpenExpediente(exp);
+                                                    else if (exp.id) window.location.assign(`/?exp=${encodeURIComponent(exp.id)}`);
+                                                }}
+                                                className="flex items-center justify-between p-3 bg-amber-500/5 rounded-xl border border-amber-500/10 transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer hover:border-amber-500/30 hover:bg-amber-500/10">
                                                 <div>
                                                     <span className="text-xs font-mono font-black text-amber-500">{exp.numero_expediente}</span>
                                                     <p className="text-[10px] text-amber-500/40 uppercase tracking-widest font-bold">
