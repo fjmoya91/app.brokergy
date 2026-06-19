@@ -1,6 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import axios from 'axios';
 import { useAuth } from '../../../context/AuthContext';
+import { toTitleCase } from '../logic/certMessages';
 import { AnexoIModal } from './AnexoIModal';
 import { AnexoCesionModal } from './AnexoCesionModal';
 import { FichaRes060Modal } from './FichaRes060Modal';
@@ -266,7 +267,7 @@ function FacturasSection({ expedienteId, facturas, onChange, readOnly }) {
                                             {!readOnly && (
                                                 <label className="cursor-pointer text-xs text-white/30 hover:text-white/60">
                                                     Reemplazar
-                                                    <input type="file" accept=".pdf" className="hidden" onChange={e => handleFileUpload(idx, e.target.files[0])} />
+                                                    <input type="file" accept=".pdf,image/*" className="hidden" onChange={e => handleFileUpload(idx, e.target.files[0])} />
                                                 </label>
                                             )}
                                         </div>
@@ -286,12 +287,12 @@ function FacturasSection({ expedienteId, facturas, onChange, readOnly }) {
                                                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
                                                     </svg>
-                                                    Subir PDF a Drive (5.FACTURAS)
+                                                    Subir PDF/imagen a Drive (5.FACTURAS)
                                                 </>
                                             )}
                                             <input
                                                 type="file"
-                                                accept=".pdf"
+                                                accept=".pdf,image/*"
                                                 className="hidden"
                                                 disabled={uploading[idx]}
                                                 onChange={e => handleFileUpload(idx, e.target.files[0])}
@@ -490,6 +491,14 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
     const [showCertificadoRes080, setShowCertificadoRes080] = useState(false);
     const [showAnexoFotografico, setShowAnexoFotografico] = useState(false);
     const [managingSigned, setManagingSigned] = useState(null); // { field, link, label }
+    // Rechazo de documento (motivo + destinatario + mensaje editable → aviso WA/email)
+    const [rejectDoc, setRejectDoc] = useState(null); // { field, label }
+    const [rejectMotivo, setRejectMotivo] = useState('');
+    const [rejectTarget, setRejectTarget] = useState('cliente'); // 'cliente'|'instalador'|'ninguno'
+    const [rejectMsg, setRejectMsg] = useState('');
+    const [rejectMsgEdited, setRejectMsgEdited] = useState(false);
+    const [rejectSending, setRejectSending] = useState(false);
+    const [rejectError, setRejectError] = useState(null);
     const [showEnviarBorrador, setShowEnviarBorrador] = useState(false);
     const [enviarAnexos, setEnviarAnexos] = useState({ open: false, docs: [], overrides: null });
 
@@ -739,6 +748,112 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
         }
     };
 
+    // ── Validación de documentos: SUBIDO (ámbar) → REVISADO/CORRECTO (verde) ──────
+    // El estado vive en documentacion.docs_validados = { <campo>: fecha-ISO }. La
+    // Cesión conserva su semántica propia (cesion_firmado_brokergy = ambas firmas).
+    const isValidated = (field) => field === 'anexo_cesion_signed_link'
+        ? !!local.cesion_firmado_brokergy
+        : !!local.docs_validados?.[field];
+
+    const handleValidateSigned = (field) => {
+        setLocal(prev => {
+            const dv = { ...(prev.docs_validados || {}), [field]: new Date().toISOString() };
+            const dr = { ...(prev.docs_rechazados || {}) }; delete dr[field];
+            const next = { ...prev, docs_validados: dv, docs_rechazados: dr };
+            onSave({ documentacion: next });
+            return next;
+        });
+        setManagingSigned(null);
+    };
+
+    // ── Rechazo de documento: marca docs_rechazados (recuadro rojo) y, si se elige
+    // cliente/instalador, envía el aviso por WhatsApp/email para que lo corrijan.
+    const isRejected = (field) => !!local.docs_rechazados?.[field];
+
+    // Resuelve a quién se notifica REALMENTE (igual que resolveSolicitudContacto del
+    // backend): para el instalador, el CONTACTO de notificaciones si está activo.
+    const notifyTarget = (t) => {
+        if (t === 'cliente' || t === 'CLIENTE') {
+            const c = expediente?.clientes || {};
+            return {
+                nombre: [c.nombre_razon_social, c.apellidos].filter(Boolean).join(' ').trim() || 'Cliente',
+                tlf: c.tlf || c.telefono || null,
+                email: c.email || null,
+            };
+        }
+        const p = expediente?.prescriptores || {};
+        const useContact = p.contacto_notificaciones_activas === true || p.contacto_notificaciones_activas === 'true';
+        return {
+            nombre: (useContact ? (p.nombre_contacto || p.razon_social) : (p.razon_social || p.acronimo)) || 'Instalador',
+            tlf: (useContact ? (p.tlf_contacto || p.tlf) : (p.tlf || p.tlf_contacto || p.landing_telefono_contacto)) || null,
+            email: (useContact ? (p.email_contacto || p.email) : (p.email || p.email_contacto)) || null,
+        };
+    };
+    const recipientName = (t) => toTitleCase(notifyTarget(t).nombre);
+
+    // Enlace público de subida según el documento (mismo patrón que el CIFO): el
+    // destinatario sube la versión corregida y aparece directamente en su slot.
+    const docUploadLink = (field) => {
+        const id = expediente?.id;
+        const origin = typeof window !== 'undefined' ? window.location.origin : '';
+        if (!id) return null;
+        if (field === 'cert_cifo_signed_link') return `${origin}/subir-cifo/${id}`;
+        if (field === 'cert_rite_signed_link') return `${origin}/subir-rite/${id}`;
+        if (['anexo_i_signed_link', 'anexo_cesion_signed_link', 'anexo_fotografico_signed_link'].includes(field)) return `${origin}/firmar-anexos/${id}`;
+        return null;
+    };
+
+    const buildRejectMessage = (t, field, label, motivo) => {
+        const nombre = recipientName(t);
+        const numExp = expediente?.numero_expediente || '';
+        const link = docUploadLink(field);
+        return `Hola ${nombre} 👋\n\n`
+            + `Hemos revisado «${label}» del expediente ${numExp} y necesitamos que lo corrijáis:\n\n`
+            + `• Motivo: ${motivo || '—'}\n\n`
+            + (link ? `👉 Súbelo ya corregido directamente aquí:\n${link}\n\n` : '')
+            + `¡Gracias!\nBROKERGY — Ingeniería Energética`;
+    };
+
+    // Autogenera el mensaje a partir del motivo/destinatario mientras no se edite a mano.
+    React.useEffect(() => {
+        if (rejectDoc && !rejectMsgEdited) {
+            setRejectMsg(buildRejectMessage(rejectTarget, rejectDoc.field, rejectDoc.label, rejectMotivo));
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [rejectDoc, rejectTarget, rejectMotivo, rejectMsgEdited]);
+
+    const openRejectDoc = (field, label) => {
+        setRejectMotivo(''); setRejectMsg(''); setRejectMsgEdited(false); setRejectError(null);
+        // Defecto razonable: anexos del cliente → cliente; CIFO/RITE/factura → instalador.
+        const clienteFields = ['anexo_i_signed_link', 'anexo_cesion_signed_link', 'anexo_fotografico_signed_link'];
+        setRejectTarget(clienteFields.includes(field) ? 'cliente' : 'instalador');
+        setRejectDoc({ field, label });
+        setManagingSigned(null);
+    };
+
+    const confirmRejectDoc = async () => {
+        if (!rejectMotivo.trim() || !rejectDoc) return;
+        setRejectSending(true); setRejectError(null);
+        try {
+            const target = rejectTarget === 'cliente' ? 'CLIENTE' : rejectTarget === 'instalador' ? 'INSTALADOR' : 'NINGUNO';
+            const { data } = await axios.post(`/api/expedientes/${expediente.id}/documentos/rechazar`, {
+                field: rejectDoc.field,
+                label: rejectDoc.label,
+                motivo: rejectMotivo.trim(),
+                target,
+                channels: ['whatsapp', 'email'],
+                mensaje: target === 'NINGUNO' ? '' : rejectMsg,
+            });
+            // Fusiona SOLO lo que persistió el backend (no pisa ediciones locales sin guardar).
+            setLocal(prev => ({ ...prev, docs_rechazados: data.docs_rechazados, docs_validados: data.docs_validados, historial: data.historial }));
+            setRejectDoc(null); setRejectMotivo(''); setRejectMsg('');
+        } catch (e) {
+            setRejectError(e.response?.data?.error || 'No se pudo rechazar el documento.');
+        } finally {
+            setRejectSending(false);
+        }
+    };
+
     const handleSignedUpload = async (field, file) => {
         if (!file) return;
 
@@ -776,7 +891,10 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                         const updates = { [field]: data.drive_link };
                         // Cuando el admin sube la Cesión firmada, es la versión final (ambas firmas)
                         if (field === 'anexo_cesion_signed_link') updates.cesion_firmado_brokergy = true;
-                        const next = { ...prev, ...updates };
+                        // Re-subir un firmado lo deja como "subido sin revisar": limpia validación/rechazo previos.
+                        const dv = { ...(prev.docs_validados || {}) }; delete dv[field];
+                        const dr = { ...(prev.docs_rechazados || {}) }; delete dr[field];
+                        const next = { ...prev, ...updates, docs_validados: dv, docs_rechazados: dr };
                         onSave({ documentacion: next });
                         return next;
                     });
@@ -803,6 +921,8 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
     // partial=true → el cliente firmó pero Brokergy aún no (solo para Cesión)
     const SignedSlot = ({ link, onUpload, label, field, partial }) => {
         const slotInputRef = React.useRef();
+        const validated = isValidated(field); // subido (ámbar) → validado (verde)
+        const rejected = isRejected(field);   // rechazado (rojo)
         return (
             <div className="flex flex-col items-center gap-1 group/slot">
                 <button
@@ -814,16 +934,24 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                             slotInputRef.current.click();
                         }
                     }}
-                    title={partial ? 'Cliente firmó — subir versión firmada por Brokergy' : (link ? `Gestionar ${label}` : `Subir ${label}`)}
+                    title={validated && link ? `${label} — validado (correcto)` : rejected ? `${label} — rechazado: ${local.docs_rechazados?.[field]?.motivo || ''}` : partial ? 'Cliente firmó — subir versión firmada por Brokergy' : (link ? `Gestionar ${label}` : `Subir ${label}`)}
                     className={`w-11 h-11 rounded-2xl border flex items-center justify-center transition-all relative ${
-                        partial
+                        validated && link
+                        ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400 shadow-lg shadow-emerald-500/10 hover:bg-emerald-500 hover:text-white'
+                        : rejected
+                        ? 'bg-red-500/15 border-red-500/40 text-red-400 shadow-lg shadow-red-500/10 hover:bg-red-500 hover:text-white'
+                        : partial
                         ? 'bg-orange-500/10 border-orange-500/30 text-orange-400 shadow-lg shadow-orange-500/10 hover:bg-orange-500 hover:text-white'
                         : link
                             ? 'bg-brand/10 border-brand/30 text-brand shadow-lg shadow-brand/10 hover:bg-brand hover:text-bkg-deep'
                             : 'bg-white/5 border-white/5 border-dashed hover:border-brand/40 hover:bg-white/[0.07] text-white/20'
                     }`}
                 >
-                    {partial ? (
+                    {rejected ? (
+                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                    ) : partial ? (
                         <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                         </svg>
@@ -1621,11 +1749,11 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
             {/* MODAL GESTIÓN FIRMADOS */}
             {managingSigned && (
                 <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-bkg-deep/90 backdrop-blur-xl animate-fade-in">
-                    <div className="bg-[#0b0c11] border border-white/10 rounded-[2.5rem] w-full max-w-5xl h-[85vh] flex flex-col shadow-2xl overflow-hidden relative">
+                    <div className="bg-[#0b0c11] border border-white/10 rounded-2xl sm:rounded-[2.5rem] w-full max-w-5xl h-[90vh] sm:h-[85vh] flex flex-col shadow-2xl overflow-hidden relative">
                         <div className="absolute top-0 right-0 w-80 h-80 bg-brand/5 blur-[100px] rounded-full -translate-y-1/2 translate-x-1/2 pointer-events-none" />
-                        
+
                         {/* Header */}
-                        <div className="p-8 border-b border-white/5 flex items-center justify-between relative z-10">
+                        <div className="p-5 sm:p-8 border-b border-white/5 flex items-center justify-between relative z-10">
                             <div>
                                 <h3 className="text-lg font-black text-white uppercase tracking-[0.2em]">{managingSigned.label}</h3>
                                 <p className="text-[10px] text-brand font-black uppercase tracking-[0.3em] mt-1.5 opacity-60">Gestión de Documento Firmado</p>
@@ -1646,54 +1774,110 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                             />
                         </div>
 
-                        {/* Footer */}
-                        <div className="p-8 border-t border-white/5 flex items-center justify-between bg-white/[0.01] relative z-10">
-                            <button 
-                                onClick={() => handleDeleteSigned(managingSigned.field)}
-                                className="px-8 py-3.5 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-500 text-[11px] font-black uppercase tracking-[0.2em] hover:bg-red-500 hover:text-white transition-all active:scale-95 shadow-lg shadow-red-500/5"
-                            >
-                                Eliminar Documento
-                            </button>
-
-                            <div className="flex items-center gap-4">
-                                {user?.rol === 'ADMIN' && (
+                        {/* Footer — acciones de revisión (moderno, mobile-first) */}
+                        <div className="p-4 sm:p-6 border-t border-white/5 bg-white/[0.01] relative z-10 space-y-2.5">
+                            {/* Principales: validar / rechazar */}
+                            <div className="flex flex-col sm:flex-row gap-2.5">
+                                {managingSigned.field === 'anexo_cesion_signed_link' && !local.cesion_firmado_brokergy ? (
                                     <button
-                                        onClick={() => window.open(managingSigned.link, '_blank')}
-                                        className="px-8 py-3.5 rounded-2xl bg-white/5 border border-white/10 text-white/60 text-[11px] font-black uppercase tracking-[0.2em] hover:bg-white/10 hover:text-white transition-all active:scale-95"
+                                        onClick={() => {
+                                            setLocal(prev => { const next = { ...prev, cesion_firmado_brokergy: true }; onSave({ documentacion: next }); return next; });
+                                            setManagingSigned(null);
+                                        }}
+                                        className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-3.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[11px] font-black uppercase tracking-[0.15em] hover:bg-emerald-500 hover:text-white transition-all active:scale-[0.98] shadow-lg shadow-emerald-500/10"
                                     >
+                                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
+                                        Brokergy ha firmado
+                                    </button>
+                                ) : isValidated(managingSigned.field) ? (
+                                    <div className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-3.5 rounded-2xl bg-emerald-500/[0.07] border border-emerald-500/20 text-emerald-400/80 text-[11px] font-black uppercase tracking-[0.15em]">
+                                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
+                                        Validado
+                                    </div>
+                                ) : (
+                                    <button
+                                        onClick={() => handleValidateSigned(managingSigned.field)}
+                                        className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-3.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[11px] font-black uppercase tracking-[0.15em] hover:bg-emerald-500 hover:text-white transition-all active:scale-[0.98] shadow-lg shadow-emerald-500/10"
+                                    >
+                                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
+                                        Validar — correcto
+                                    </button>
+                                )}
+                                <button
+                                    onClick={() => openRejectDoc(managingSigned.field, managingSigned.label)}
+                                    className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-3.5 rounded-2xl bg-red-500/10 border border-red-500/30 text-red-400 text-[11px] font-black uppercase tracking-[0.15em] hover:bg-red-500 hover:text-white transition-all active:scale-[0.98] shadow-lg shadow-red-500/5"
+                                >
+                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" /></svg>
+                                    Rechazar
+                                </button>
+                            </div>
+                            {/* Secundarias: sustituir / abrir en Drive / eliminar */}
+                            <div className="flex flex-wrap items-center gap-2">
+                                <label className="flex-1 min-w-[120px] inline-flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-brand/10 border border-brand/25 text-brand text-[10px] font-black uppercase tracking-[0.15em] hover:bg-brand hover:text-bkg-deep transition-all cursor-pointer active:scale-[0.98]">
+                                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" /></svg>
+                                    Sustituir
+                                    <input type="file" className="hidden" accept=".pdf" onChange={e => { if (e.target.files[0]) { handleSignedUpload(managingSigned.field, e.target.files[0]); setManagingSigned(null); } }} />
+                                </label>
+                                {user?.rol === 'ADMIN' && (
+                                    <button onClick={() => window.open(managingSigned.link, '_blank')} className="flex-1 min-w-[120px] inline-flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white/55 text-[10px] font-black uppercase tracking-[0.15em] hover:bg-white/10 hover:text-white transition-all active:scale-[0.98]">
+                                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
                                         Abrir en Drive
                                     </button>
                                 )}
-                                {managingSigned.field === 'anexo_cesion_signed_link' && !local.cesion_firmado_brokergy && (
-                                    <button
-                                        onClick={() => {
-                                            setLocal(prev => {
-                                                const next = { ...prev, cesion_firmado_brokergy: true };
-                                                onSave({ documentacion: next });
-                                                return next;
-                                            });
-                                            setManagingSigned(null);
-                                        }}
-                                        className="px-10 py-3.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[11px] font-black uppercase tracking-[0.2em] hover:bg-emerald-500 hover:text-white transition-all active:scale-95 shadow-lg shadow-emerald-500/10"
-                                    >
-                                        ✓ Brokergy ha firmado
-                                    </button>
-                                )}
-                                <label className="px-10 py-3.5 rounded-2xl bg-brand text-bkg-deep text-[11px] font-black uppercase tracking-[0.2em] hover:scale-[1.02] transition-all cursor-pointer shadow-xl shadow-brand/20 active:scale-95">
-                                    Sustituir Archivo
-                                    <input
-                                        type="file"
-                                        className="hidden"
-                                        accept=".pdf"
-                                        onChange={e => {
-                                            if (e.target.files[0]) {
-                                                handleSignedUpload(managingSigned.field, e.target.files[0]);
-                                                setManagingSigned(null);
-                                            }
-                                        }}
-                                    />
-                                </label>
+                                <button onClick={() => handleDeleteSigned(managingSigned.field)} className="flex-1 min-w-[120px] inline-flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-white/[0.02] border border-red-500/15 text-red-500/70 text-[10px] font-black uppercase tracking-[0.15em] hover:bg-red-500/10 hover:text-red-400 hover:border-red-500/30 transition-all active:scale-[0.98]">
+                                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                    Eliminar
+                                </button>
                             </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Modal de RECHAZO de documento (motivo + destinatario + mensaje → aviso) */}
+            {rejectDoc && (
+                <div className="fixed inset-0 z-[400] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in" onClick={() => !rejectSending && setRejectDoc(null)}>
+                    <div className="bg-[#0F1013] border border-white/10 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden flex flex-col max-h-[90vh]" onClick={e => e.stopPropagation()}>
+                        <div className="px-6 py-5 border-b border-white/10 bg-red-500/5 flex items-center gap-3 text-red-400">
+                            <svg className="w-6 h-6 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                            </svg>
+                            <div className="min-w-0">
+                                <h3 className="text-base font-black uppercase tracking-tight">Rechazar documento</h3>
+                                <p className="text-[11px] text-white/40 truncate">{rejectDoc.label}</p>
+                            </div>
+                        </div>
+
+                        <div className="px-6 py-5 space-y-5 overflow-y-auto">
+                            <div>
+                                <label className="block text-[10px] font-black uppercase tracking-widest text-white/40 mb-2">¿Por qué se rechaza?</label>
+                                <textarea value={rejectMotivo} onChange={e => setRejectMotivo(e.target.value)} rows={2} placeholder="Ej: el importe no coincide con la base imponible" className="no-uppercase w-full bg-bkg-elevated border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-red-400/50 resize-none" />
+                            </div>
+                            <div>
+                                <label className="block text-[10px] font-black uppercase tracking-widest text-white/40 mb-2">Enviar a corregir a</label>
+                                <div className="grid grid-cols-3 gap-2">
+                                    {['cliente', 'instalador', 'ninguno'].map(v => (
+                                        <button key={v} onClick={() => setRejectTarget(v)} title={v === 'ninguno' ? 'Solo rechazar, sin enviar mensaje' : recipientName(v)}
+                                            className={`py-2.5 px-2 rounded-xl border transition-all text-center ${rejectTarget === v ? 'border-red-400/80 bg-red-400/[0.08]' : 'border-white/10 bg-white/[0.03] hover:border-white/20'}`}>
+                                            <span className={`block text-[10px] font-black uppercase tracking-widest ${rejectTarget === v ? 'text-red-300' : 'text-white/60'}`}>{v === 'ninguno' ? 'Sin aviso' : v === 'cliente' ? 'Cliente' : 'Instalador'}</span>
+                                            <span className="block text-[9px] font-bold normal-case truncate mt-0.5 text-white/35">{v === 'ninguno' ? 'No enviar' : recipientName(v)}</span>
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                            {rejectTarget !== 'ninguno' && (
+                                <div>
+                                    <label className="block text-[10px] font-black uppercase tracking-widest text-white/40 mb-2">Mensaje (editable)</label>
+                                    <textarea value={rejectMsg} onChange={e => { setRejectMsg(e.target.value); setRejectMsgEdited(true); }} rows={7} className="no-uppercase w-full bg-bkg-elevated border border-white/10 rounded-xl px-3 py-2 text-sm text-white/90 focus:outline-none focus:border-red-400/50 resize-none" />
+                                    <p className="text-[10px] text-white/25 mt-1.5 normal-case">Se enviará por WhatsApp/email a <span className="text-white/45">{recipientName(rejectTarget)}</span>{(() => { const nt = notifyTarget(rejectTarget); const d = nt.tlf || nt.email; return d ? <span className="text-white/30"> · {d}</span> : null; })()}.</p>
+                                </div>
+                            )}
+                            {rejectError && <p className="text-[12px] text-red-400">⚠️ {rejectError}</p>}
+                        </div>
+
+                        <div className="px-6 py-4 bg-white/[0.02] border-t border-white/10 flex gap-3">
+                            <button onClick={() => setRejectDoc(null)} disabled={rejectSending} className="flex-1 px-4 py-2.5 rounded-xl border border-white/10 text-white/50 text-[10px] font-black uppercase tracking-widest hover:text-white hover:border-white/30 transition-all disabled:opacity-40">Cancelar</button>
+                            <button onClick={confirmRejectDoc} disabled={rejectSending || !rejectMotivo.trim()} className="flex-1 px-4 py-2.5 rounded-xl bg-red-500/15 border border-red-500/30 text-red-300 text-[10px] font-black uppercase tracking-widest hover:bg-red-500 hover:text-white transition-all disabled:opacity-40">{rejectSending ? 'Enviando…' : rejectTarget === 'ninguno' ? 'Rechazar' : 'Rechazar y avisar'}</button>
                         </div>
                     </div>
                 </div>

@@ -20,6 +20,7 @@ const whatsappService = require('./whatsappService');
 const { partnerNotifyTargets } = require('./notifyContacts');
 
 const SUBCARPETA_DOCS = '12. DOCUMENTOS PARA CEE'; // misma que usa /firma y scan-photos
+const SUBCARPETA_FACTURAS = '5.FACTURAS'; // TODAS las facturas (admin y cliente/instalador) van aquí
 const BOILER_COMBUSTIBLE = ['gas', 'gasoleo', 'carbon', 'biomasa'];
 const FRONTEND = () => process.env.FRONTEND_URL || 'https://app.brokergy.es';
 
@@ -371,11 +372,16 @@ async function buildDocsView(opp, opts = {}) {
 
     // Listar la carpeta de documentos una sola vez (reconciliación)
     let driveFiles = [];
+    let facturasFiles = [];
     try {
         const folderId = dc.drive_folder_id || dc.inputs?.drive_folder_id;
         if (folderId) {
             const subId = await driveService.findSubfolderByName(folderId, SUBCARPETA_DOCS);
             if (subId) driveFiles = await driveService.listFiles(subId);
+            // Las FACTURAS viven en su propia carpeta "5.FACTURAS" (unificadas con el
+            // alta del admin). Se reconcilian aparte para el slot DOC_FACTURAS.
+            const factId = await driveService.findSubfolderByName(folderId, SUBCARPETA_FACTURAS);
+            if (factId) facturasFiles = await driveService.listFiles(factId);
         }
     } catch (e) { console.warn('[Docs] reconciliación Drive:', e.message); }
 
@@ -391,7 +397,9 @@ async function buildDocsView(opp, opts = {}) {
 
     const slots = checklist.map(s => {
         const dbByName = new Map((uploads[s.key] || []).map(it => [it.name, it]));
-        const driveForSlot = driveFiles.filter(f => fileBelongsToSlot(f.name, s.key));
+        // Las facturas se reconcilian contra "5.FACTURAS"; el resto contra "12. DOCUMENTOS PARA CEE".
+        const folderFiles = s.key === 'DOC_FACTURAS' ? facturasFiles : driveFiles;
+        const driveForSlot = folderFiles.filter(f => fileBelongsToSlot(f.name, s.key));
         driveForSlot.forEach(f => consumedDriveIds.add(f.id));
 
         // Si Drive devolvió ficheros del slot, esa es la verdad de existencia;
@@ -713,6 +721,7 @@ ${uploadLink}
 
 module.exports = {
     SUBCARPETA_DOCS,
+    SUBCARPETA_FACTURAS,
     PHASE,
     ADDABLE_CONCEPTS,
     ADDABLE_SLOT_KEYS,

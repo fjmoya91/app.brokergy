@@ -718,6 +718,75 @@ router.post('/:id/solicitar-faltantes', enforceAuth, async (req, res) => {
     }
 });
 
+// ─── POST /api/expedientes/:id/documentos/rechazar ────────────────────────────
+// Rechaza un documento (firmado/factura) marcándolo en documentacion.docs_rechazados,
+// limpia su validación previa, registra el rechazo en el historial y —si se elige un
+// destinatario— avisa por WhatsApp/Email para que lo corrijan. TODO en una sola
+// escritura (read-modify-write de documentacion) para no pisar el historial.
+// Body: { field, label?, motivo, target:'CLIENTE'|'INSTALADOR'|'NINGUNO', channels?, mensaje?, tlf?, email?, nombre? }
+router.post('/:id/documentos/rechazar', enforceAuth, async (req, res) => {
+    try {
+        const field = String(req.body?.field || '').trim();
+        const label = String(req.body?.label || '').trim() || field;
+        const motivo = String(req.body?.motivo || '').trim();
+        const target = String(req.body?.target || 'NINGUNO').toUpperCase();
+        const channels = Array.isArray(req.body?.channels) ? req.body.channels : [];
+        const mensaje = String(req.body?.mensaje || '').trim();
+        if (!field) return res.status(400).json({ error: 'field es obligatorio' });
+        if (!motivo) return res.status(400).json({ error: 'El motivo del rechazo es obligatorio' });
+
+        const { data: exp, error } = await supabase.from('expedientes').select('*').eq('id', req.params.id).single();
+        if (error || !exp) return res.status(404).json({ error: 'Expediente no encontrado' });
+
+        // Aviso al destinatario (si procede). No bloquea el rechazo: si falta el dato
+        // de un canal, ese canal se omite (el rechazo se registra igualmente).
+        const sent = [];
+        let sentTo = null;
+        if ((target === 'CLIENTE' || target === 'INSTALADOR') && mensaje) {
+            const contacto = await resolveSolicitudContacto(exp, target);
+            const tlf = (String(req.body?.tlf || '').trim()) || contacto.tlf;
+            const email = (String(req.body?.email || '').trim()) || contacto.email;
+            if (channels.includes('whatsapp') && tlf) {
+                try { await whatsappService.sendText(tlf, mensaje); sent.push('WhatsApp'); }
+                catch (e) { console.warn('[rechazar-doc] WA:', e.message); sent.push('WhatsApp (encolado)'); }
+            }
+            if (channels.includes('email') && email) {
+                const html = `<div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;color:#222;white-space:pre-wrap;line-height:1.5">${mensaje.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>`;
+                try { await emailService.sendMail({ to: email, subject: `Documento a revisar · Expediente ${exp.numero_expediente || ''}`.trim(), text: mensaje, html }); sent.push('Email'); }
+                catch (e) { console.warn('[rechazar-doc] Email:', e.message); }
+            }
+            sentTo = email || tlf || null;
+        }
+
+        // Persistir estado de rechazo + historial (una sola escritura).
+        const docObj = exp.documentacion || {};
+        const docsRechazados = { ...(docObj.docs_rechazados || {}), [field]: { motivo, at: new Date().toISOString(), target } };
+        const docsValidados = { ...(docObj.docs_validados || {}) };
+        delete docsValidados[field];
+        const historial = Array.isArray(docObj.historial) ? [...docObj.historial] : [];
+        const userName = req.user?.rol_nombre === 'ADMIN' ? 'ADMINISTRADOR' : (req.user?.acronimo || req.user?.razon_social || 'SISTEMA');
+        const avisoTxt = sent.length ? ` · avisado a ${target === 'CLIENTE' ? 'Cliente' : 'Instalador'} vía ${sent.join(' + ')}` : ' · sin aviso';
+        historial.push({
+            id: Date.now().toString() + '_rechazo_doc',
+            tipo: 'rechazo_doc',
+            texto: `Documento rechazado: ${label} · Motivo: ${motivo}${avisoTxt}`,
+            campo: field, motivo, target,
+            fecha: new Date().toISOString(),
+            usuario: userName,
+        });
+        const newDoc = { ...docObj, docs_rechazados: docsRechazados, docs_validados: docsValidados, historial };
+        const { error: updErr } = await supabase.from('expedientes')
+            .update({ documentacion: newDoc, updated_at: new Date().toISOString() })
+            .eq('id', req.params.id);
+        if (updErr) throw updErr;
+
+        res.json({ ok: true, channels: sent, sentTo, docs_rechazados: docsRechazados, docs_validados: docsValidados, historial });
+    } catch (err) {
+        console.error('[rechazar-doc]', err.message);
+        res.status(500).json({ error: 'Error al rechazar el documento' });
+    }
+});
+
 // ─── POST /api/expedientes/:id/justificante ───────────────────────────────────
 // Sube el justificante de titularidad bancaria desde admin (barrido o ficha de
 // cliente). Escribe EXACTAMENTE donde la subida pública del cliente: carpeta raíz

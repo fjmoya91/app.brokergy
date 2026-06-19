@@ -745,9 +745,14 @@ router.post('/reforma-docs/:uuid/:slot', requireAuth, uploadDocsSingle, async (r
         const slotDef = checklist.find(s => s.key === slot);
         if (!slotDef) return res.status(400).json({ error: 'Tipo de documento no válido' });
 
-        // Asegurar carpeta del lead + subcarpeta de documentos (la crea si falta)
+        // Asegurar carpeta del lead + subcarpeta destino (la crea si falta).
+        // Las FACTURAS van TODAS a "5.FACTURAS" (mismo sitio que el alta del admin);
+        // el resto de documentos/fotos a "12. DOCUMENTOS PARA CEE".
         const folderId = await reformaUploadService.ensureDriveFolder(uuid);
-        const subId = await driveService.getOrCreateSubfolder(folderId, reformaUploadService.SUBCARPETA_DOCS);
+        const targetSub = slot === 'DOC_FACTURAS'
+            ? reformaUploadService.SUBCARPETA_FACTURAS
+            : reformaUploadService.SUBCARPETA_DOCS;
+        const subId = await driveService.getOrCreateSubfolder(folderId, targetSub);
 
         // Nombre por slot-key (compatible con scan-photos del Anexo Fotográfico)
         const ext = (req.file.originalname.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -831,7 +836,10 @@ router.delete('/reforma-docs/:uuid/:slot', async (req, res) => {
             } else if (name) {
                 const folderId = dc.drive_folder_id || dc.inputs?.drive_folder_id;
                 if (folderId) {
-                    const subId = await driveService.findSubfolderByName(folderId, reformaUploadService.SUBCARPETA_DOCS);
+                    const subName = slot === 'DOC_FACTURAS'
+                        ? reformaUploadService.SUBCARPETA_FACTURAS
+                        : reformaUploadService.SUBCARPETA_DOCS;
+                    const subId = await driveService.findSubfolderByName(folderId, subName);
                     const fid = subId ? await driveService.findFileByName(subId, name) : null;
                     if (fid) await driveService.deleteFile(fid);
                 }
