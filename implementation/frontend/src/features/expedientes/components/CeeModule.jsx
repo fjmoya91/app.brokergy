@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import axios from 'axios';
 import { parseCeeXml } from '../../calculator/logic/xmlCeeParser';
 import { FACTORES_PASO, calculateRes080 } from '../../calculator/logic/calculation';
@@ -175,8 +176,10 @@ function normalizeCombKey(val) {
 function SearchableSelect({ value, onChange, options, placeholder = '— Sin asignar —', disabled = false }) {
     const [open, setOpen] = useState(false);
     const [query, setQuery] = useState('');
+    const [coords, setCoords] = useState(null); // posición fixed del menú (portal)
     const containerRef = useRef(null);
     const inputRef = useRef(null);
+    const menuRef = useRef(null);
 
     const selected = options.find(o => String(o.value) === String(value));
     const filtered = query
@@ -187,15 +190,43 @@ function SearchableSelect({ value, onChange, options, placeholder = '— Sin asi
         if (!open) setQuery('');
     }, [open]);
 
+    // Cierra al hacer click fuera del botón Y fuera del menú (que vive en un portal a body).
     useEffect(() => {
         const handler = (e) => {
-            if (containerRef.current && !containerRef.current.contains(e.target)) {
-                setOpen(false);
-            }
+            if (containerRef.current?.contains(e.target)) return;
+            if (menuRef.current?.contains(e.target)) return;
+            setOpen(false);
         };
         document.addEventListener('mousedown', handler);
         return () => document.removeEventListener('mousedown', handler);
     }, []);
+
+    // Calcula la posición del menú respecto al viewport (position:fixed). Como el menú
+    // se renderiza en un portal a document.body, ningún overflow/z-index de los paneles
+    // padre lo puede recortar ni tapar. Abre hacia abajo, o hacia arriba si no hay sitio.
+    useEffect(() => {
+        if (!open) return;
+        const update = () => {
+            const r = containerRef.current?.getBoundingClientRect();
+            if (!r) return;
+            const MENU_H = 300;
+            const spaceBelow = window.innerHeight - r.bottom;
+            const openUp = spaceBelow < MENU_H && r.top > spaceBelow;
+            setCoords({
+                left: r.left,
+                width: Math.max(r.width, 240),
+                top: openUp ? undefined : r.bottom + 4,
+                bottom: openUp ? (window.innerHeight - r.top + 4) : undefined,
+            });
+        };
+        update();
+        window.addEventListener('scroll', update, true);
+        window.addEventListener('resize', update);
+        return () => {
+            window.removeEventListener('scroll', update, true);
+            window.removeEventListener('resize', update);
+        };
+    }, [open]);
 
     const handleOpen = () => {
         if (disabled) return;
@@ -226,8 +257,19 @@ function SearchableSelect({ value, onChange, options, placeholder = '— Sin asi
                 </svg>
             </button>
 
-            {open && (
-                <div className="absolute z-50 bottom-full mb-1 w-full min-w-[220px] bg-bkg-elevated border border-white/10 rounded-xl shadow-xl overflow-hidden">
+            {open && coords && createPortal(
+                <div
+                    ref={menuRef}
+                    style={{
+                        position: 'fixed',
+                        left: coords.left,
+                        width: coords.width,
+                        top: coords.top,
+                        bottom: coords.bottom,
+                        zIndex: 9999,
+                    }}
+                    className="bg-bkg-elevated border border-white/10 rounded-xl shadow-2xl overflow-hidden"
+                >
                     <div className="p-2 border-b border-white/5">
                         <input
                             ref={inputRef}
@@ -262,7 +304,8 @@ function SearchableSelect({ value, onChange, options, placeholder = '— Sin asi
                             </li>
                         ))}
                     </ul>
-                </div>
+                </div>,
+                document.body
             )}
         </div>
     );
@@ -282,12 +325,9 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
             acs_method: 'xml',
             num_rooms: 4,
             certificador_id: null,
-            comb_acs_inicial: 'Gasoleo Calefacción',
-            comb_acs_final: 'Electricidad peninsular',
-            comb_cal_inicial: 'Gasoleo Calefacción',
-            comb_cal_final: 'Electricidad peninsular',
-            comb_ref_inicial: 'Electricidad peninsular',
-            comb_ref_final: 'Electricidad peninsular',
+            // Los comb_* (acs/cal/ref · inicial/final) se inicializan más abajo, en el
+            // bloque de normalización (tras ...saved), con su mismo valor por defecto.
+            // No declararlos aquí evita claves duplicadas en el literal.
             cee_files: {
                 inicial: { pdf: null, xml: null, cex: null, registro: null, etiqueta: null, otros: [] },
                 final: { pdf: null, xml: null, cex: null, registro: null, etiqueta: null, otros: [] }

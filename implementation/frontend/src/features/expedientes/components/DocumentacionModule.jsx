@@ -91,6 +91,29 @@ function DateField({ label, value, onChange, readOnly = false, hint = '' }) {
     );
 }
 
+// Fecha compacta para incrustar dentro de una fila de documento (label arriba, control abajo).
+// Sin onChange → display de solo lectura (p.ej. fechas CIFO calculadas).
+function InlineDate({ label, value, onChange, readOnly = false }) {
+    return (
+        <div className="flex flex-col items-center gap-1 shrink-0">
+            <span className="text-[8px] font-black uppercase text-white/30 tracking-[0.12em] whitespace-nowrap text-center leading-tight">{label}</span>
+            {onChange ? (
+                <input
+                    type="date"
+                    value={value || ''}
+                    onChange={e => onChange(e.target.value || null)}
+                    disabled={readOnly}
+                    className={`no-uppercase bg-bkg-elevated border rounded-lg px-2 py-2 text-[10px] text-center font-mono w-[122px] focus:outline-none transition-colors ${readOnly ? 'border-white/5 text-white/45 cursor-not-allowed' : 'border-white/10 text-white/80 focus:border-brand/50 cursor-pointer hover:border-white/20'}`}
+                />
+            ) : (
+                <div className="bg-bkg-elevated border border-white/5 rounded-lg px-2 py-2 text-[10px] text-center font-bold text-white/55 w-[122px]">
+                    {value ? formatDateDisplay(value) : '—'}
+                </div>
+            )}
+        </div>
+    );
+}
+
 function TextField({ label, value, onChange, readOnly = false, placeholder = '' }) {
     return (
         <div>
@@ -482,6 +505,19 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
     }, [local, onLiveUpdate]);
 
     const [editMode, setEditMode] = useState(false);
+    // Revela el campo para pegar el enlace Drive del Certificado RITE (acción puntual).
+    const [showRiteLinkInput, setShowRiteLinkInput] = useState(false);
+
+    // Drag & drop a nivel de FILA: arrastrar un PDF sobre cualquier parte de la fila
+    // resalta su slot firmado y, al soltar, lo anexa. dragRow = id de la fila activa.
+    const [dragRow, setDragRow] = useState(null);
+    const dragCounters = React.useRef({});
+    const rowDragProps = (rowId, onDropFile) => ({
+        onDragEnter: (e) => { if (!e.dataTransfer?.types?.includes('Files')) return; e.preventDefault(); e.stopPropagation(); dragCounters.current[rowId] = (dragCounters.current[rowId] || 0) + 1; setDragRow(rowId); },
+        onDragOver:  (e) => { if (!e.dataTransfer?.types?.includes('Files')) return; e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = 'copy'; },
+        onDragLeave: (e) => { e.preventDefault(); e.stopPropagation(); dragCounters.current[rowId] = (dragCounters.current[rowId] || 0) - 1; if (dragCounters.current[rowId] <= 0) { dragCounters.current[rowId] = 0; setDragRow(r => (r === rowId ? null : r)); } },
+        onDrop:      (e) => { e.preventDefault(); e.stopPropagation(); dragCounters.current[rowId] = 0; setDragRow(null); const f = e.dataTransfer?.files?.[0]; if (f) onDropFile(f); },
+    });
     const [showAnexoI, setShowAnexoI] = useState(false);
     const [showAnexoCesion, setShowAnexoCesion] = useState(false);
     const [showFichaRes060, setShowFichaRes060] = useState(false);
@@ -490,6 +526,7 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
     const [showCertificadoCifo, setShowCertificadoCifo] = useState(false);
     const [showCertificadoRes080, setShowCertificadoRes080] = useState(false);
     const [showAnexoFotografico, setShowAnexoFotografico] = useState(false);
+    const [showFacturasModal, setShowFacturasModal] = useState(false);
     const [managingSigned, setManagingSigned] = useState(null); // { field, link, label }
     // Rechazo de documento (motivo + destinatario + mensaje editable → aviso WA/email)
     const [rejectDoc, setRejectDoc] = useState(null); // { field, label }
@@ -644,6 +681,18 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
             return { ...next, fecha_inicio_cifo: cifo.inicio, fecha_fin_cifo: cifo.fin };
         });
     }, []);
+
+    // Autoguardado: actualiza el campo en local y persiste de inmediato (modelo C).
+    // Para fechas (un único evento de cambio) y para commits onBlur de inputs de texto.
+    const commitField = useCallback((field, val) => {
+        setLocal(prev => {
+            const next = { ...prev, [field]: val };
+            const cifo = calcCifo(next);
+            const merged = { ...next, fecha_inicio_cifo: cifo.inicio, fecha_fin_cifo: cifo.fin };
+            onSave({ documentacion: merged });
+            return merged;
+        });
+    }, [onSave]);
 
     const handleFacturasChange = (facturas) => {
         setLocal(prev => {
@@ -918,13 +967,14 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
         });
     };
 
-    // partial=true → el cliente firmó pero Brokergy aún no (solo para Cesión)
-    const SignedSlot = ({ link, onUpload, label, field, partial }) => {
+    // partial=true → cliente firmó pero Brokergy aún no (Cesión). dragActive lo controla
+    // la fila: al arrastrar un PDF sobre cualquier parte de la fila, su slot se resalta.
+    const SignedSlot = ({ link, onUpload, label, field, partial, dragActive = false }) => {
         const slotInputRef = React.useRef();
         const validated = isValidated(field); // subido (ámbar) → validado (verde)
         const rejected = isRejected(field);   // rechazado (rojo)
         return (
-            <div className="flex flex-col items-center gap-1 group/slot">
+            <div className="flex flex-col items-center gap-1 group/slot relative">
                 <button
                     onClick={(e) => {
                         e.stopPropagation();
@@ -934,9 +984,11 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                             slotInputRef.current.click();
                         }
                     }}
-                    title={validated && link ? `${label} — validado (correcto)` : rejected ? `${label} — rechazado: ${local.docs_rechazados?.[field]?.motivo || ''}` : partial ? 'Cliente firmó — subir versión firmada por Brokergy' : (link ? `Gestionar ${label}` : `Subir ${label}`)}
+                    title={validated && link ? `${label} — validado (correcto)` : rejected ? `${label} — rechazado: ${local.docs_rechazados?.[field]?.motivo || ''}` : partial ? 'Cliente firmó — subir versión firmada por Brokergy' : (link ? `Gestionar ${label}` : `Arrastra un PDF aquí o pulsa para subir ${label}`)}
                     className={`w-11 h-11 rounded-2xl border flex items-center justify-center transition-all relative ${
-                        validated && link
+                        dragActive
+                        ? 'ring-2 ring-brand ring-offset-2 ring-offset-[#0b0c11] scale-125 bg-brand/25 border-brand text-brand shadow-2xl shadow-brand/40 z-20'
+                        : validated && link
                         ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400 shadow-lg shadow-emerald-500/10 hover:bg-emerald-500 hover:text-white'
                         : rejected
                         ? 'bg-red-500/15 border-red-500/40 text-red-400 shadow-lg shadow-red-500/10 hover:bg-red-500 hover:text-white'
@@ -947,7 +999,11 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                             : 'bg-white/5 border-white/5 border-dashed hover:border-brand/40 hover:bg-white/[0.07] text-white/20'
                     }`}
                 >
-                    {rejected ? (
+                    {dragActive ? (
+                        <svg className="w-5 h-5 animate-bounce" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v12m0 0l-4-4m4 4l4-4M4 20h16" />
+                        </svg>
+                    ) : rejected ? (
                         <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
                         </svg>
@@ -972,6 +1028,11 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                         onChange={e => onUpload(e.target.files[0])}
                     />
                 </button>
+                {dragActive && (
+                    <span className="absolute -bottom-5 left-1/2 -translate-x-1/2 z-30 text-[8px] font-black uppercase tracking-widest text-brand whitespace-nowrap bg-bkg-deep/95 px-2 py-0.5 rounded-md border border-brand/40 shadow-lg pointer-events-none">
+                        Soltar
+                    </span>
+                )}
             </div>
         );
     };
@@ -983,8 +1044,6 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
 
     const inicialHint = isReforma ? '(obligatorio)' : '(opcional)';
     const finalHint   = '(obligatorio)';
-
-    const [activeSubTab, setActiveSubTab] = useState('fechas');
 
     return (
         <div>
@@ -1192,126 +1251,33 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                 onUploaded={onBorradorUploaded}
             />
 
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
-                <div className="flex p-0.5 bg-white/5 rounded-xl border border-white/5 w-fit">
-                    <button
-                        onClick={() => setActiveSubTab('fechas')}
-                        className={`px-6 py-2 text-[10px] font-black uppercase tracking-[0.2em] rounded-lg transition-all ${
-                            activeSubTab === 'fechas'
-                                ? 'bg-brand text-bkg-deep shadow-lg'
-                                : 'text-white/40 hover:text-white'
-                        }`}
-                    >
-                        Fechas y Facturas
-                    </button>
-                    <button
-                        onClick={() => setActiveSubTab('docs')}
-                        className={`px-6 py-2 text-[10px] font-black uppercase tracking-[0.2em] rounded-lg transition-all ${
-                            activeSubTab === 'docs'
-                                ? 'bg-brand text-bkg-deep shadow-lg'
-                                : 'text-white/40 hover:text-white'
-                        }`}
-                    >
-                        Documentación
-                    </button>
-                </div>
-
-                <div className="flex items-center gap-2">
-                    {editMode ? (
+            {/* Indicador de autoguardado: los datos se persisten solos (al cambiar fechas
+                o salir de un campo); las subidas y toggles guardan al instante. */}
+            <div className="flex items-center justify-end gap-4 mb-6">
+                <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.15em]">
+                    {saving ? (
                         <>
-                            <button
-                                onClick={() => setEditMode(false)}
-                                className="px-3 py-1.5 text-xs rounded-lg border border-white/10 text-white/50 hover:text-white transition-colors"
-                            >
-                                Cancelar
-                            </button>
-                            <button
-                                onClick={handleSave}
-                                disabled={saving}
-                                className="px-4 py-1.5 text-xs rounded-lg bg-brand text-bkg-deep font-black uppercase tracking-wider disabled:opacity-50"
-                            >
-                                {saving ? 'Guardando...' : 'Guardar Datos'}
-                            </button>
+                            <svg className="w-3.5 h-3.5 text-brand animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                            <span className="text-brand/70">Guardando…</span>
                         </>
                     ) : (
-                        <button
-                            onClick={() => setEditMode(true)}
-                            className="px-3 py-1.5 text-xs rounded-lg border border-white/10 text-white/50 hover:text-white hover:border-white/30 transition-colors"
-                        >
-                            Editar
-                        </button>
+                        <>
+                            <svg className="w-3.5 h-3.5 text-emerald-400/60" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>
+                            <span className="text-white/25">Cambios guardados automáticamente</span>
+                        </>
                     )}
                 </div>
             </div>
 
             <div className="space-y-6">
-                {activeSubTab === 'fechas' ? (
                     <div className="space-y-6 animate-fade-in">
-                        <div className="bg-bkg-surface/60 rounded-xl p-6 border border-white/[0.06]">
-                            <div className="flex items-center gap-2 mb-6">
-                                <h4 className="text-[11px] font-black text-amber-500/80 uppercase tracking-widest">CEE Inicial</h4>
-                                <span className="text-[10px] text-white/20 uppercase font-black">{inicialHint}</span>
-                            </div>
-                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-                                <DateField label="Fecha Visita" value={local.fecha_visita_cee_inicial} onChange={v => setField('fecha_visita_cee_inicial', v)} readOnly={!editMode} />
-                                <DateField label="Fecha Firma" value={local.fecha_firma_cee_inicial} onChange={v => setField('fecha_firma_cee_inicial', v)} readOnly={!editMode} />
-                                <DateField label="Fecha Registro" value={local.fecha_registro_cee_inicial} onChange={v => setField('fecha_registro_cee_inicial', v)} readOnly={!editMode} />
-                            </div>
-                        </div>
-
-                        <div className="bg-bkg-surface/60 rounded-xl p-6 border border-white/[0.06]">
-                            <div className="flex items-center gap-2 mb-6">
-                                <h4 className="text-[11px] font-black text-green-500/80 uppercase tracking-widest">CEE Final</h4>
-                                <span className="text-[10px] text-red-500/40 uppercase font-black">{finalHint}</span>
-                            </div>
-                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-                                <DateField label="Fecha Visita" value={local.fecha_visita_cee_final} onChange={v => setField('fecha_visita_cee_final', v)} readOnly={!editMode} />
-                                <DateField label="Fecha Firma" value={local.fecha_firma_cee_final} onChange={v => setField('fecha_firma_cee_final', v)} readOnly={!editMode} />
-                                <DateField label="Fecha Registro" value={local.fecha_registro_cee_final} onChange={v => setField('fecha_registro_cee_final', v)} readOnly={!editMode} />
-                            </div>
-                        </div>
-
-                        <div className="bg-bkg-surface/60 rounded-xl p-6 border border-white/[0.06]">
-                            <FacturasSection
-                                expedienteId={expediente?.id}
-                                facturas={local.facturas || []}
-                                onChange={handleFacturasChange}
-                                readOnly={!editMode}
-                            />
-                        </div>
-
-                        <div className="bg-bkg-surface/60 rounded-xl p-6 border border-white/[0.06]">
-                            <h4 className="text-[11px] font-black text-white/40 uppercase tracking-widest mb-6">
-                                Certificado de Instalación Térmica
-                            </h4>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                                <DateField label="Fecha Pruebas Cert. Instalación" value={local.fecha_pruebas_cert_instalacion} onChange={v => setField('fecha_pruebas_cert_instalacion', v)} readOnly={!editMode} />
-                                <DateField label="Fecha Firma Cert. Instalación" value={local.fecha_firma_cert_instalacion} onChange={v => setField('fecha_firma_cert_instalacion', v)} readOnly={!editMode} />
-                            </div>
-                        </div>
-
-                        <div className="bg-bkg-surface/60 rounded-xl p-6 border border-brand/10">
-                            <h4 className="text-[11px] font-black text-brand/80 uppercase tracking-widest mb-1">Periodo CIFO</h4>
-                            <p className="text-white/20 text-[10px] mb-6 uppercase tracking-wider font-bold">Calculado según el rango de facturas y certificados.</p>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                                <div>
-                                    <label className="block text-[10px] font-black text-white/30 uppercase tracking-[0.2em] mb-2 ml-1">Fecha Inicio CIFO</label>
-                                    <div className="bg-bkg-elevated border border-white/5 rounded-xl px-4 py-3 text-white/60 text-sm font-bold">
-                                        {formatDateDisplay(local.fecha_inicio_cifo)}
-                                    </div>
-                                </div>
-                                <div>
-                                    <label className="block text-[10px] font-black text-white/30 uppercase tracking-[0.2em] mb-2 ml-1">Fecha Fin CIFO</label>
-                                    <div className="bg-bkg-elevated border border-white/5 rounded-xl px-4 py-3 text-white/60 text-sm font-bold">
-                                        {formatDateDisplay(local.fecha_fin_cifo)}
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                ) : (
-                    <div className="space-y-6 animate-fade-in">
-                        <div className="bg-bkg-surface/60 rounded-xl p-6 border border-white/[0.06]">
+                        {/* Guard: un PDF soltado fuera de un slot NO debe abrirse en el navegador.
+                            Cada SignedSlot hace stopPropagation, así que solo los drops perdidos llegan aquí. */}
+                        <div
+                            className="bg-bkg-surface/60 rounded-xl p-6 border border-white/[0.06]"
+                            onDragOver={e => { if (e.dataTransfer?.types?.includes('Files')) e.preventDefault(); }}
+                            onDrop={e => { if (e.dataTransfer?.types?.includes('Files')) e.preventDefault(); }}
+                        >
                             <div className="flex items-center justify-between mb-8 px-4">
                                 <h4 className="text-[11px] font-black text-white/40 uppercase tracking-widest">Documentos Generables</h4>
                                 <div className="flex items-center gap-6">
@@ -1328,8 +1294,33 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                             </div>
 
                             <div className="space-y-4">
-                                {/* ANEXO I */}
+                                {/* FACTURAS DE LA OBRA */}
                                 <div className="flex items-center justify-between gap-6 p-4 rounded-2xl bg-white/[0.01] hover:bg-white/[0.03] transition-colors group">
+                                    <div className="flex-1 min-w-0">
+                                        <p className="text-sm font-black text-white uppercase tracking-tight mb-0.5">Facturas de la Obra</p>
+                                        <p className="text-white/30 text-[9px] font-bold uppercase tracking-widest leading-tight">{(local.facturas?.length || 0)} factura(s) · carpeta 5.FACTURAS</p>
+                                    </div>
+                                    <div className="flex items-center gap-6">
+                                        <div className="w-[100px]">
+                                            <button
+                                                onClick={() => setShowFacturasModal(true)}
+                                                className={`w-full py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all active:scale-95 ${
+                                                    (local.facturas?.length > 0)
+                                                    ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 hover:bg-emerald-500 hover:text-bkg-deep shadow-[0_0_15px_rgba(16,185,129,0.1)]'
+                                                    : 'bg-brand/10 border border-brand/20 text-brand hover:bg-brand hover:text-bkg-deep'
+                                                }`}
+                                            >
+                                                Gestionar
+                                            </button>
+                                        </div>
+                                        {/* placeholders para alinear con las columnas Enviado/Firmado de las demás filas */}
+                                        <div className="w-11" />
+                                        <div className="w-11" />
+                                    </div>
+                                </div>
+
+                                {/* ANEXO I */}
+                                <div className={`flex items-center justify-between gap-6 p-4 rounded-2xl transition-all group ${dragRow === 'anexo_i' ? 'ring-2 ring-brand/40 bg-brand/[0.05]' : 'bg-white/[0.01] hover:bg-white/[0.03]'}`} {...rowDragProps('anexo_i', f => handleSignedUpload('anexo_i_signed_link', f))}>
                                     <div className="flex-1 min-w-0">
                                         <p className="text-sm font-black text-white uppercase tracking-tight mb-0.5">Anexo I</p>
                                         <p className="text-white/30 text-[9px] font-bold uppercase tracking-widest leading-tight">Declaración Responsable Beneficiario</p>
@@ -1374,18 +1365,19 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
 
                                         {/* 3. PDF FIRMADO */}
                                         <div className="w-11">
-                                            <SignedSlot 
-                                                link={local.anexo_i_signed_link} 
+                                            <SignedSlot
+                                                link={local.anexo_i_signed_link}
                                                 field="anexo_i_signed_link"
                                                 label="Anexo I Firmado"
-                                                onUpload={(file) => handleSignedUpload('anexo_i_signed_link', file)} 
+                                                dragActive={dragRow === 'anexo_i'}
+                                                onUpload={(file) => handleSignedUpload('anexo_i_signed_link', file)}
                                             />
                                         </div>
                                     </div>
                                 </div>
 
                                 {/* ANEXO CESIÓN */}
-                                <div className="flex items-center justify-between gap-6 p-4 rounded-2xl bg-white/[0.01] hover:bg-white/[0.03] transition-colors group">
+                                <div className={`flex items-center justify-between gap-6 p-4 rounded-2xl transition-all group ${dragRow === 'cesion' ? 'ring-2 ring-brand/40 bg-brand/[0.05]' : 'bg-white/[0.01] hover:bg-white/[0.03]'}`} {...rowDragProps('cesion', f => handleSignedUpload('anexo_cesion_signed_link', f))}>
                                     <div className="flex-1 min-w-0">
                                         <p className="text-sm font-black text-white uppercase tracking-tight mb-0.5">Anexo Cesión de Ahorro</p>
                                         <p className="text-white/30 text-[9px] font-bold uppercase tracking-widest leading-tight">Convenio de Cesión CAE</p>
@@ -1434,6 +1426,7 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                                                 link={local.anexo_cesion_signed_link}
                                                 field="anexo_cesion_signed_link"
                                                 label="Anexo Cesión Firmado"
+                                                dragActive={dragRow === 'cesion'}
                                                 onUpload={(file) => handleSignedUpload('anexo_cesion_signed_link', file)}
                                                 partial={!!local.anexo_cesion_signed_link && !local.cesion_firmado_brokergy}
                                             />
@@ -1442,7 +1435,7 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                                 </div>
 
                                 {/* FICHA RES060 */}
-                                <div className="flex items-center justify-between gap-6 p-4 rounded-2xl bg-white/[0.01] hover:bg-white/[0.03] transition-colors group">
+                                <div className={`flex items-center justify-between gap-6 p-4 rounded-2xl transition-all group ${dragRow === 'res060' ? 'ring-2 ring-brand/40 bg-brand/[0.05]' : 'bg-white/[0.01] hover:bg-white/[0.03]'}`} {...rowDragProps('res060', f => handleSignedUpload('ficha_res060_signed_link', f))}>
                                     <div className="flex-1 min-w-0">
                                         <p className="text-sm font-black text-white uppercase tracking-tight mb-0.5">{isReforma ? 'Ficha RES080' : isHybrid ? 'Ficha RES093' : 'Ficha RES060'}</p>
                                         <p className="text-white/30 text-[9px] font-bold uppercase tracking-widest leading-tight">{isReforma ? 'Resultado del cálculo de ahorro — Reforma' : isHybrid ? 'Resultado del cálculo de ahorro — Hibridación' : 'Resultado del cálculo de ahorro energético'}</p>
@@ -1487,19 +1480,20 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
 
                                         {/* 3. PDF FIRMADO */}
                                         <div className="w-11">
-                                            <SignedSlot 
-                                                link={local.ficha_res060_signed_link} 
+                                            <SignedSlot
+                                                link={local.ficha_res060_signed_link}
                                                 field="ficha_res060_signed_link"
                                                 label={isReforma ? 'Ficha RES080 Firmada' : isHybrid ? 'Ficha RES093 Firmada' : 'Ficha RES060 Firmada'}
-                                                onUpload={(file) => handleSignedUpload('ficha_res060_signed_link', file)} 
+                                                dragActive={dragRow === 'res060'}
+                                                onUpload={(file) => handleSignedUpload('ficha_res060_signed_link', file)}
                                             />
                                         </div>
                                     </div>
                                 </div>
 
                                 {/* CIFO / RES080 */}
-                                <div className="flex items-center justify-between gap-6 p-4 rounded-2xl bg-white/[0.01] hover:bg-white/[0.03] transition-colors group">
-                                    <div className="flex-1 min-w-0">
+                                <div className={`flex items-center justify-between gap-6 p-4 rounded-2xl transition-all group ${dragRow === 'cifo' ? 'ring-2 ring-brand/40 bg-brand/[0.05]' : 'bg-white/[0.01] hover:bg-white/[0.03]'}`} {...rowDragProps('cifo', f => handleSignedUpload('cert_cifo_signed_link', f))}>
+                                    <div className="w-[260px] min-w-0 shrink-0">
                                         <p className="text-sm font-black text-white uppercase tracking-tight mb-0.5">
                                             {isReforma ? 'Certificado CAE Reforma' : 'Certificado CIFO'}
                                         </p>
@@ -1510,10 +1504,17 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                                             <a href={local.cert_cifo_drive_link} target="_blank" rel="noopener noreferrer" className="text-[9px] text-emerald-400/60 hover:text-emerald-400 font-black uppercase underline decoration-1 underline-offset-4 tracking-[0.15em] transition-all mt-1.5 inline-block">Ver Borrador</a>
                                         )}
                                     </div>
+
+                                    {/* Fechas del periodo CIFO (calculadas según facturas/certificados) */}
+                                    <div className="flex items-center gap-3 shrink-0">
+                                        <InlineDate label="Fecha Inicio CIFO" value={local.fecha_inicio_cifo} />
+                                        <InlineDate label="Fecha Fin CIFO" value={local.fecha_fin_cifo} />
+                                    </div>
+
                                     <div className="flex items-center gap-6">
                                         {/* 1. BORRADOR */}
                                         <div className="w-[100px]">
-                                            <button 
+                                            <button
                                                 onClick={() => handleGenerateClick('cifo', isReforma ? 'Certificado Reforma RES080' : 'Certificado CIFO', () => isReforma ? setShowCertificadoRes080(true) : setShowCertificadoCifo(true))}
                                                 className={`w-full py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all active:scale-95 ${
                                                     local.cert_cifo_drive_link 
@@ -1549,18 +1550,19 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
 
                                         {/* 3. PDF FIRMADO */}
                                         <div className="w-11">
-                                            <SignedSlot 
-                                                link={local.cert_cifo_signed_link} 
+                                            <SignedSlot
+                                                link={local.cert_cifo_signed_link}
                                                 field="cert_cifo_signed_link"
                                                 label={isReforma ? 'RES080 Firmado' : 'CIFO Firmado'}
-                                                onUpload={(file) => handleSignedUpload('cert_cifo_signed_link', file)} 
+                                                dragActive={dragRow === 'cifo'}
+                                                onUpload={(file) => handleSignedUpload('cert_cifo_signed_link', file)}
                                             />
                                         </div>
                                     </div>
                                 </div>
 
                                 {/* ANEXO FOTOGRÁFICO */}
-                                <div className="flex items-center justify-between gap-6 p-4 rounded-2xl bg-white/[0.01] hover:bg-white/[0.03] transition-colors group">
+                                <div className={`flex items-center justify-between gap-6 p-4 rounded-2xl transition-all group ${dragRow === 'foto' ? 'ring-2 ring-brand/40 bg-brand/[0.05]' : 'bg-white/[0.01] hover:bg-white/[0.03]'}`} {...rowDragProps('foto', f => handleSignedUpload('anexo_fotografico_signed_link', f))}>
                                     <div className="flex-1 min-w-0">
                                         <p className="text-sm font-black text-white uppercase tracking-tight mb-0.5">Anexo Fotográfico</p>
                                         <p className="text-white/30 text-[9px] font-bold uppercase tracking-widest leading-tight">
@@ -1607,35 +1609,43 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
 
                                         {/* 3. PDF FIRMADO */}
                                         <div className="w-11">
-                                            <SignedSlot 
-                                                link={local.anexo_fotografico_signed_link} 
+                                            <SignedSlot
+                                                link={local.anexo_fotografico_signed_link}
                                                 field="anexo_fotografico_signed_link"
                                                 label="Anexo Fotografico Firmado"
-                                                onUpload={(file) => handleSignedUpload('anexo_fotografico_signed_link', file)} 
+                                                dragActive={dragRow === 'foto'}
+                                                onUpload={(file) => handleSignedUpload('anexo_fotografico_signed_link', file)}
                                             />
                                         </div>
                                     </div>
                                 </div>
 
                                 {/* CERTIFICADO RITE */}
-                                <div className="flex flex-col gap-4 p-4 rounded-2xl bg-white/[0.02] border border-white/[0.04]">
+                                <div className={`flex flex-col gap-4 p-4 rounded-2xl border transition-all ${dragRow === 'rite_cert' ? 'ring-2 ring-brand/40 bg-brand/[0.05] border-brand/30' : 'bg-white/[0.02] border-white/[0.04]'}`} {...rowDragProps('rite_cert', f => handleSignedUpload('cert_rite_signed_link', f))}>
                                     <div className="flex items-center justify-between gap-6">
-                                        <div className="min-w-0 flex-1">
+                                        <div className="w-[260px] min-w-0 shrink-0">
                                             <p className="text-sm font-black text-white uppercase tracking-tight mb-1">Certificado RITE</p>
                                             <p className="text-white/30 text-[9px] font-bold uppercase tracking-widest mb-1">Gestión manual (Drive)</p>
                                         </div>
+
+                                        {/* Fechas del Certificado de Instalación Térmica (editables en modo edición) */}
+                                        <div className="flex items-center gap-3 shrink-0">
+                                            <InlineDate label="Fecha Pruebas Cert. Inst." value={local.fecha_pruebas_cert_instalacion} onChange={v => commitField('fecha_pruebas_cert_instalacion', v)} />
+                                            <InlineDate label="Fecha Firma Cert. Inst." value={local.fecha_firma_cert_instalacion} onChange={v => commitField('fecha_firma_cert_instalacion', v)} />
+                                        </div>
+
                                         <div className="flex items-center gap-6">
                                             {/* 1. BORRADOR (Manual Drive Link) */}
                                             <div className="w-[100px]">
-                                                <button 
-                                                    onClick={() => setEditMode(true)}
+                                                <button
+                                                    onClick={() => setShowRiteLinkInput(v => !v)}
                                                     className={`w-full py-2 rounded-xl border text-[10px] font-black uppercase tracking-widest transition-all ${
                                                         local.cert_rite_drive_link
                                                         ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400 hover:bg-emerald-500 hover:text-bkg-deep'
                                                         : 'border-white/10 text-white/30 hover:border-white/20 hover:text-white'
                                                     }`}
                                                 >
-                                                    {local.cert_rite_drive_link ? 'Aportado' : 'Editar'}
+                                                    {local.cert_rite_drive_link ? 'Aportado' : 'Enlace'}
                                                 </button>
                                             </div>
 
@@ -1663,18 +1673,20 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                                                     link={local.cert_rite_signed_link || local.cert_rite_drive_link}
                                                     field="cert_rite_signed_link"
                                                     label="Certificado RITE"
+                                                    dragActive={dragRow === 'rite_cert'}
                                                     onUpload={(file) => handleSignedUpload('cert_rite_signed_link', file)}
                                                 />
                                             </div>
                                         </div>
                                     </div>
-                                    {editMode && (
+                                    {showRiteLinkInput && (
                                         <div className="animate-slide-up pt-2 border-t border-white/5">
-                                            <label className="block text-[8px] font-black text-white/20 uppercase tracking-[0.2em] mb-2 ml-1">Enlace a Documento Drive</label>
+                                            <label className="block text-[8px] font-black text-white/20 uppercase tracking-[0.2em] mb-2 ml-1">Enlace a Documento Drive · se guarda al salir del campo</label>
                                             <input
                                                 type="text"
                                                 value={local.cert_rite_drive_link || ''}
                                                 onChange={e => setLocal(p => ({ ...p, cert_rite_drive_link: e.target.value || null }))}
+                                                onBlur={() => setLocal(p => { onSave({ documentacion: p }); return p; })}
                                                 placeholder="https://drive.google.com/..."
                                                 className="w-full bg-bkg-elevated border border-white/5 rounded-xl px-4 py-2.5 text-white text-[11px] font-bold focus:outline-none focus:border-brand/40 transition-all"
                                             />
@@ -1683,7 +1695,7 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                                 </div>
 
                                 {/* MEMORIA RITE + BORRADOR CERTIFICADO RITE (se generan y envían juntos) */}
-                                <div className="flex items-center justify-between gap-6 p-4 rounded-2xl bg-white/[0.01] hover:bg-white/[0.03] transition-colors group">
+                                <div className={`flex items-center justify-between gap-6 p-4 rounded-2xl transition-all group ${dragRow === 'rite_memoria' ? 'ring-2 ring-brand/40 bg-brand/[0.05]' : 'bg-white/[0.01] hover:bg-white/[0.03]'}`} {...rowDragProps('rite_memoria', f => handleSignedUpload('cert_rite_signed_link', f))}>
                                     <div className="flex-1 min-w-0">
                                         <p className="text-sm font-black text-white uppercase tracking-tight mb-0.5">Memoria RITE + Borrador Certificado RITE</p>
                                         <p className="text-white/30 text-[9px] font-bold uppercase tracking-widest leading-tight">
@@ -1736,6 +1748,7 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                                                 link={local.cert_rite_signed_link}
                                                 field="cert_rite_signed_link"
                                                 label="Memoria RITE Firmada"
+                                                dragActive={dragRow === 'rite_memoria'}
                                                 onUpload={(file) => handleSignedUpload('cert_rite_signed_link', file)}
                                             />
                                         </div>
@@ -1744,7 +1757,6 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                             </div>
                         </div>
                     </div>
-                )}
             </div>
             {/* MODAL GESTIÓN FIRMADOS */}
             {managingSigned && (
@@ -1878,6 +1890,35 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                         <div className="px-6 py-4 bg-white/[0.02] border-t border-white/10 flex gap-3">
                             <button onClick={() => setRejectDoc(null)} disabled={rejectSending} className="flex-1 px-4 py-2.5 rounded-xl border border-white/10 text-white/50 text-[10px] font-black uppercase tracking-widest hover:text-white hover:border-white/30 transition-all disabled:opacity-40">Cancelar</button>
                             <button onClick={confirmRejectDoc} disabled={rejectSending || !rejectMotivo.trim()} className="flex-1 px-4 py-2.5 rounded-xl bg-red-500/15 border border-red-500/30 text-red-300 text-[10px] font-black uppercase tracking-widest hover:bg-red-500 hover:text-white transition-all disabled:opacity-40">{rejectSending ? 'Enviando…' : rejectTarget === 'ninguno' ? 'Rechazar' : 'Rechazar y avisar'}</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Modal de gestión de FACTURAS (desde la pestaña Documentación) */}
+            {showFacturasModal && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-bkg-deep/90 backdrop-blur-xl animate-fade-in" onClick={() => setShowFacturasModal(false)}>
+                    <div className="bg-[#0b0c11] border border-white/10 rounded-2xl sm:rounded-[2rem] w-full max-w-2xl max-h-[88vh] flex flex-col shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
+                        <div className="p-5 sm:p-6 border-b border-white/5 flex items-center justify-between">
+                            <div>
+                                <h3 className="text-base font-black text-white uppercase tracking-[0.15em]">Facturas de la Obra</h3>
+                                <p className="text-[10px] text-brand font-black uppercase tracking-[0.2em] mt-1 opacity-60">Carpeta Drive · 5.FACTURAS</p>
+                            </div>
+                            <button onClick={() => setShowFacturasModal(false)} className="w-9 h-9 flex items-center justify-center hover:bg-white/5 rounded-xl transition-all border border-transparent hover:border-white/10">
+                                <svg className="w-5 h-5 text-white/40" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                            </button>
+                        </div>
+                        <div className="p-5 sm:p-6 overflow-y-auto flex-1">
+                            <FacturasSection
+                                expedienteId={expediente?.id}
+                                facturas={local.facturas || []}
+                                onChange={handleFacturasChange}
+                                readOnly={false}
+                            />
+                        </div>
+                        <div className="p-4 sm:p-5 border-t border-white/5 bg-white/[0.01] flex justify-end gap-3">
+                            <button onClick={() => setShowFacturasModal(false)} className="px-5 py-2.5 rounded-xl border border-white/10 text-white/50 text-[10px] font-black uppercase tracking-widest hover:text-white hover:border-white/30 transition-all">Cerrar</button>
+                            <button onClick={() => { onSave({ documentacion: local }); setShowFacturasModal(false); }} disabled={saving} className="px-6 py-2.5 rounded-xl bg-brand text-bkg-deep text-[10px] font-black uppercase tracking-widest hover:scale-[1.02] transition-all disabled:opacity-50">{saving ? 'Guardando…' : 'Guardar Facturas'}</button>
                         </div>
                     </div>
                 </div>

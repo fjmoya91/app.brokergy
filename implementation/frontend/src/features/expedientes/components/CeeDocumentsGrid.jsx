@@ -106,7 +106,7 @@ function UploadItem({
 
     return (
         <div
-            className={`flex flex-col items-center gap-1.5 min-w-[60px] transition-all duration-150 relative ${isDragOver ? 'z-30' : ''}`}
+            className={`flex flex-col items-center gap-1.5 min-w-[48px] transition-all duration-150 relative ${isDragOver ? 'z-30' : ''}`}
             onDragEnter={handleDragEnter}
             onDragLeave={handleDragLeave}
             onDragOver={handleDragOver}
@@ -201,6 +201,16 @@ export function CeeDocumentsGrid({
     const [reviewMessage, setReviewMessage] = useState('');
     
     const numExp = expediente?.numero_expediente || 'S-EXP';
+
+    // ── Fechas del CEE (Visita/Firma desde el XML; Registro = día de subida al slot
+    // REGISTRO). Viven en documentacion; se editan vía onAutoStatus, que ya enruta las
+    // claves fecha_* a documentacion. dateEdits da feedback inmediato antes del refetch.
+    const [dateEdits, setDateEdits] = useState({});
+    const ceeDate = (field) => (field in dateEdits ? dateEdits[field] : (expediente?.documentacion?.[field] ?? '')) || '';
+    const setCeeDate = (field, v) => {
+        setDateEdits(prev => ({ ...prev, [field]: v || null }));
+        if (onAutoStatus) onAutoStatus(field, v || null);
+    };
 
     // Nombre del cliente para prerellenar el mensaje al certificador (mismo fallback que el backend).
     const clienteNombre = (() => {
@@ -659,9 +669,9 @@ export function CeeDocumentsGrid({
                     const acsValue = isHab ? calcAcsHab(numRooms) : (parseFloat(sectionDemand.demandaACS) || 0).toFixed(2);
 
                     return (
-                        <div key={section} className="flex flex-col lg:flex-row items-center gap-10 border-b border-white/[0.04] pb-12 last:border-0 last:pb-0">
+                        <div key={section} className="flex flex-wrap items-center gap-x-5 gap-y-6 border-b border-white/[0.04] pb-12 last:border-0 last:pb-0">
                             {/* 1. Título y XML */}
-                            <div className="flex items-center gap-6 min-w-[320px]">
+                            <div className="flex items-center gap-3 w-[250px] shrink-0">
                                 <div className="flex flex-col">
                                     <div className="flex items-center gap-3 mb-2">
                                         <h4 className="text-[14px] font-black uppercase text-white tracking-[0.2em] leading-tight">
@@ -770,9 +780,9 @@ export function CeeDocumentsGrid({
                             </div>
 
                             {/* 2. Demanda Calefacción */}
-                            <div className="flex flex-col items-center gap-2 px-6 border-l border-white/5">
-                                <span className="text-[9px] font-black uppercase text-white/30 tracking-[0.2em] mb-1">Demanda Calefacción</span>
-                                <div className="bg-white/[0.03] border border-white/5 px-6 py-3 rounded-2xl shadow-inner min-w-[100px] text-center">
+                            <div className="flex flex-col items-center gap-2 w-[150px] border-l border-white/5 shrink-0">
+                                <span className="text-[9px] font-black uppercase text-white/30 tracking-[0.2em] mb-1 whitespace-nowrap">Demanda Calefacción</span>
+                                <div className="bg-white/[0.03] border border-white/5 px-4 py-2.5 rounded-2xl shadow-inner min-w-[84px] text-center">
                                     <span className="text-sm font-mono font-bold text-white/80">
                                         {sectionDemand.demandaCalefaccion || '—'}
                                     </span>
@@ -780,9 +790,9 @@ export function CeeDocumentsGrid({
                             </div>
 
                             {/* 3. Demanda ACS (Con Toggle) */}
-                            <div className="flex flex-col items-center gap-2 px-6 border-l border-white/5">
+                            <div className="flex flex-col items-center gap-2 w-[225px] border-l border-white/5 shrink-0">
                                 <span className="text-[9px] font-black uppercase text-white/30 tracking-[0.2em] mb-1">Demanda ACS</span>
-                                <div className="flex items-center gap-4">
+                                <div className="flex items-center gap-2.5">
                                     {/* Toggles */}
                                     <div className="flex flex-col gap-1.5">
                                         <div className="flex p-0.5 bg-black/40 rounded-lg border border-white/5">
@@ -813,7 +823,7 @@ export function CeeDocumentsGrid({
                                     </div>
                                     {/* Valor */}
                                     <div className="flex flex-col items-start gap-0.5">
-                                        <div className="bg-white/[0.03] border border-white/5 px-6 py-3 rounded-2xl shadow-inner min-w-[120px] text-center">
+                                        <div className="bg-white/[0.03] border border-white/5 px-4 py-2.5 rounded-2xl shadow-inner min-w-[92px] text-center">
                                             <span className={`text-sm font-mono font-bold ${isHab ? 'text-brand shadow-[0_0_15px_rgba(238,143,31,0.2)]' : 'text-white/80'}`}>
                                                 {acsValue}
                                             </span>
@@ -823,8 +833,31 @@ export function CeeDocumentsGrid({
                                 </div>
                             </div>
 
-                            {/* 4. Restantes Slots */}
-                            <div className="flex items-center gap-6 ml-auto pl-10 border-l border-white/5">
+                            {/* 4. Fechas CEE (Visita/Firma auto del XML · Registro al subir slot REGISTRO; editables) */}
+                            <div className="flex flex-col items-center gap-2 w-[320px] border-l border-white/5 shrink-0">
+                                <span className="text-[9px] font-black uppercase text-white/30 tracking-[0.2em] mb-1">Fechas CEE</span>
+                                <div className="flex items-end gap-1.5">
+                                    {[
+                                        { label: 'Visita',   field: `fecha_visita_cee_${section}` },
+                                        { label: 'Firma',    field: `fecha_firma_cee_${section}` },
+                                        { label: 'Registro', field: `fecha_registro_cee_${section}` },
+                                    ].map(({ label, field }) => (
+                                        <div key={field} className="flex flex-col items-center gap-1">
+                                            <span className="text-[7px] font-black uppercase text-white/25 tracking-[0.12em] whitespace-nowrap">{label}</span>
+                                            <input
+                                                type="date"
+                                                value={ceeDate(field)}
+                                                onChange={e => setCeeDate(field, e.target.value)}
+                                                disabled={!editMode}
+                                                className={`no-uppercase bg-white/[0.03] border rounded-lg px-1.5 py-2 text-[10px] text-center font-mono w-[94px] focus:outline-none transition-colors ${editMode ? 'border-white/10 text-white/80 focus:border-brand/50 cursor-pointer hover:border-white/20' : 'border-white/5 text-white/45 cursor-not-allowed'}`}
+                                            />
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* 5. Documentos (slots) */}
+                            <div className="flex items-center justify-between gap-2 pl-4 border-l border-white/5 w-[340px] shrink-0">
                                 {['pdf', 'cex', 'registro', 'etiqueta', 'otros'].map(sId => showSlot(sId))}
                             </div>
                         </div>
