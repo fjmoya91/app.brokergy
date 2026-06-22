@@ -131,6 +131,18 @@ function SelectField({ value, onChange, options, readOnly = false, placeholder =
         );
     }
 
+    // El valor persistido puede no coincidir EXACTAMENTE con ninguna opción de la
+    // lista (p. ej. el backend normaliza a MAYÚSCULAS al guardar: "MADERA" vs la
+    // opción "Madera"). Un <select> controlado cuyo value no casa con ninguna
+    // <option> se queda en blanco → parecía que "se perdían" los datos al reentrar.
+    // Garantizamos que el valor actual SIEMPRE esté presente como opción, y evitamos
+    // el duplicado "MADERA"/"Madera" ocultando la variante que solo difiere en caja.
+    const hasValue = value !== undefined && value !== null && value !== '';
+    const hasExactOption = hasValue && options.some(o => String(o.value ?? o) === String(value));
+    const renderOptions = hasValue && !hasExactOption
+        ? options.filter(o => String(o.value ?? o).toUpperCase() !== String(value).toUpperCase())
+        : options;
+
     return (
         <div className="relative h-11">
             <select
@@ -148,7 +160,10 @@ function SelectField({ value, onChange, options, readOnly = false, placeholder =
                 }`}
             >
                 <option value="" disabled>{placeholder}</option>
-                {options.map(o => (
+                {hasValue && !hasExactOption && (
+                    <option value={value}>{value}</option>
+                )}
+                {renderOptions.map(o => (
                     <option key={o.value || o} value={o.value || o}>{o.label || o}</option>
                 ))}
                 {!readOnly && (
@@ -358,7 +373,7 @@ export function EnvolventeModule({ expediente, onSave, onLiveUpdate, saving }) {
                                                 key={m}
                                                 disabled={!editMode}
                                                 onClick={() => setLocal(p => ({ ...p, cristal_nuevo_modelo: m }))}
-                                                className={`flex-1 rounded-lg text-[10px] font-black transition-all ${local.cristal_nuevo_modelo === m ? 'bg-brand/20 text-brand' : 'text-white/20'}`}
+                                                className={`flex-1 rounded-lg text-[10px] font-black transition-all ${String(local.cristal_nuevo_modelo || '').toUpperCase() === m.toUpperCase() ? 'bg-brand/20 text-brand' : 'text-white/20'}`}
                                                 type="button"
                                             >
                                                 {m}

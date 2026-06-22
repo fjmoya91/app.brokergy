@@ -207,12 +207,14 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, a
         marco_nuevo_material: 'PVC',
         marco_nuevo_marca: 'CORTIZO',
         marco_nuevo_modelo: 'A 70',
+        marco_nuevo_uf: '1,3',
         cristal_nuevo_u: '1.3',
         cristal_nuevo_marca: 'GUARDIAN',
         cristal_nuevo_modelo: 'SUN',
         cristal_nuevo_composicion: '4/16/4 Bajo emisivo',
-        cristal_nuevo_ug: '1.1',
-        cristal_nuevo_g: '0.43',
+        cristal_nuevo_ug: '1,1',
+        cristal_nuevo_g: '0,43',
+        permeabilidad_nueva: '3',
     });
 
     const [editableData, setEditableData] = useState({});
@@ -266,6 +268,10 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, a
                 return s;
             };
 
+            // Número → string con coma decimal (es-ES). Devuelve '' para vacío/null,
+            // de modo que el `|| default` posterior funcione.
+            const numStr = (v) => (v === null || v === undefined || v === '') ? '' : String(v).replace('.', ',');
+
             const initialFields = {
                 nombre_actuacion: `${expediente.numero_expediente}: Rehabilitación profunda de edificios de viviendas generadora de ahorros energéticos`,
                 fecha_inicio: toDdMmYyyy(doc.fecha_inicio_res080 || doc.fecha_inicio_cifo || doc.fecha_visita_cee_inicial),
@@ -284,6 +290,20 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, a
                 aislamiento_cubierta_esp: env.aislamiento_cubierta_espesor ? `${env.aislamiento_cubierta_espesor} cm` : (editableRef.current.aislamiento_cubierta_esp || '—'),
                 aislamiento_cubierta_cond: env.aislamiento_cubierta_conductividad ? env.aislamiento_cubierta_conductividad.toString().replace('.', ',') : (editableRef.current.aislamiento_cubierta_cond || '—'),
                 envolvente_observaciones: env.envolvente_observaciones || editableRef.current.envolvente_observaciones || '- La duración indicativa de la actuación (Di) es de 25 años...',
+                // ── Ventanas NUEVAS: volcar lo guardado en la pestaña Envolvente ──
+                // Antes la columna "NUEVAS" usaba SIEMPRE los defaults de editableRef
+                // (PVC/CORTIZO/A 70…), ignorando lo introducido por el usuario. Ahora
+                // se siembra desde `env`; si un campo está vacío, cae al default.
+                marco_nuevo_material: env.marco_nuevo_material || editableRef.current.marco_nuevo_material,
+                marco_nuevo_marca: env.marco_nuevo_marca || editableRef.current.marco_nuevo_marca,
+                marco_nuevo_modelo: env.marco_nuevo_modelo || editableRef.current.marco_nuevo_modelo,
+                marco_nuevo_uf: numStr(env.marco_nuevo_transmitancia) || editableRef.current.marco_nuevo_uf,
+                cristal_nuevo_marca: env.cristal_nuevo_marca || editableRef.current.cristal_nuevo_marca,
+                cristal_nuevo_modelo: env.cristal_nuevo_modelo || editableRef.current.cristal_nuevo_modelo,
+                cristal_nuevo_composicion: env.cristal_nuevo_composicion || editableRef.current.cristal_nuevo_composicion,
+                cristal_nuevo_ug: numStr(env.cristal_nuevo_transmitancia) || editableRef.current.cristal_nuevo_ug,
+                cristal_nuevo_g: numStr(env.cristal_nuevo_factor_solar) || editableRef.current.cristal_nuevo_g,
+                permeabilidad_nueva: numStr(env.permeabilidad_nueva) || editableRef.current.permeabilidad_nueva,
                 empresa_responsable: empName.toUpperCase(),
                 empresa_cif: empCif.toUpperCase(),
                 empresa_domicilio: empAddr.toUpperCase()
@@ -949,9 +969,19 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, a
                         <table class="doc-table">
                             <colgroup><col style="width: 40%;"><col style="width: 30%;"><col style="width: 30%;"></colgroup>
                             <tr class="text-center font-bold bg-gray"><td>COMPARATIVA</td><td>EXISTENTES</td><td>NUEVAS</td></tr>
+                            <tr><td class="heading" colspan="3" style="text-align:left; padding-left:6px;">MARCO</td></tr>
                             <tr><td class="lbl">Material del marco</td><td class="text-center">${env.marco_existente_material || '—'}</td><td class="text-center">${eb('marco_nuevo_material')}</td></tr>
                             <tr><td class="lbl">Marca del marco</td><td class="text-center">Desconocida</td><td class="text-center">${eb('marco_nuevo_marca')}</td></tr>
                             <tr><td class="lbl">Modelo del marco</td><td class="text-center">Desconocida</td><td class="text-center">${eb('marco_nuevo_modelo')}</td></tr>
+                            <tr><td class="lbl">Transmitancia del marco Uf (W/m²K)</td><td class="text-center">—</td><td class="text-center">${eb('marco_nuevo_uf')}</td></tr>
+                            <tr><td class="heading" colspan="3" style="text-align:left; padding-left:6px;">VIDRIO</td></tr>
+                            <tr><td class="lbl">Composición del cristal</td><td class="text-center">${env.cristal_existente_composicion || 'Desconocida'}</td><td class="text-center">${eb('cristal_nuevo_composicion')}</td></tr>
+                            <tr><td class="lbl">Marca del cristal</td><td class="text-center">Desconocida</td><td class="text-center">${eb('cristal_nuevo_marca')}</td></tr>
+                            <tr><td class="lbl">Modelo del cristal</td><td class="text-center">Desconocida</td><td class="text-center">${eb('cristal_nuevo_modelo')}</td></tr>
+                            <tr><td class="lbl">Transmitancia del cristal Ug (W/m²K)</td><td class="text-center">—</td><td class="text-center">${eb('cristal_nuevo_ug')}</td></tr>
+                            <tr><td class="lbl">Factor solar (g)</td><td class="text-center">—</td><td class="text-center">${eb('cristal_nuevo_g')}</td></tr>
+                            <tr><td class="heading" colspan="3" style="text-align:left; padding-left:6px;">CONJUNTO</td></tr>
+                            <tr><td class="lbl">Permeabilidad al aire (m³/h·m²)</td><td class="text-center">${env.permeabilidad_existente ?? '—'}</td><td class="text-center">${eb('permeabilidad_nueva')}</td></tr>
                         </table>
                     ` : `<div style="margin-top: 40px; text-align: center; color: #999;">No hay sustitución de ventanas.</div>`}
                     <div style="margin-top: 15px;"><strong>Observaciones:</strong><div style="margin-top: 5px; font-size: 9pt;">
