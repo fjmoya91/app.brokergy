@@ -3,6 +3,7 @@ import axios from 'axios';
 import confetti from 'canvas-confetti';
 import { useAuth } from '../../../context/AuthContext';
 import { BOILER_EFFICIENCIES, calculateHybridization } from '../../calculator/logic/calculation';
+import { buildInstalacionAddress } from '../utils/docGenerators';
 
 const APP_BASE_URL = 'https://app.brokergy.es';
 
@@ -574,8 +575,10 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
     }
     const dacsStr = dacsValue.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-    // Identificación Actuación (Location)
-    const locFullDir = `${inst.direccion || loc.direccion || cli.direccion || ''} ${inst.num || loc.num || ''}, ${inst.codigo_postal || loc.cp || cli.codigo_postal || ''} ${inst.municipio || loc.municipio || cli.municipio || ''} (${inst.provincia || loc.provincia || cli.provincia || ''})`.trim() || '—';
+    // Identificación Actuación (Location) — dirección de la INSTALACIÓN (vivienda
+    // del Catastro/oportunidad), NUNCA el domicilio del cliente.
+    const instAddr = buildInstalacionAddress(expediente);
+    const locFullDir = instAddr.full || '—';
     const PROV_CCAA = {
         '04':'Andalucía','11':'Andalucía','14':'Andalucía','18':'Andalucía',
         '21':'Andalucía','23':'Andalucía','29':'Andalucía','41':'Andalucía',
@@ -592,17 +595,15 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
         '52':'Melilla','30':'Región de Murcia','31':'Navarra','01':'País Vasco','20':'País Vasco','48':'País Vasco',
     };
 
-    const cp = inst.codigo_postal || loc.cp || cli.codigo_postal || opInputs.ccaa_cp || opInputs.cp || '';
+    const cp = instAddr.cp || opInputs.ccaa_cp || opInputs.cp || '';
     const provCode = cp ? String(cp).substring(0, 2).padStart(2, '0') : '';
 
     const locCA = (
-        inst.ccaa || 
-        loc.ccaa || 
-        cli.ccaa || 
-        (provCode ? PROV_CCAA[provCode] : '') || 
+        instAddr.ccaa ||
+        (provCode ? PROV_CCAA[provCode] : '') ||
         '—'
     ).toUpperCase();
-    const locRefCat = inst.ref_catastral || loc.ref_catastral || opInputs.rc || '—';
+    const locRefCat = instAddr.refCatastral || '—';
     const locUtmX = inst.coord_x || loc.coord_x || opInputs.coordX || opInputs.coord_x || '—';
     const locUtmY = inst.coord_y || loc.coord_y || opInputs.coordY || opInputs.coord_y || '—';
 
@@ -1257,11 +1258,9 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
     };
 
     // ── ENVÍO AL INSTALADOR ──────────────────────────────────────────────────
-    // Dirección de la instalación y enlace único de subida del CIFO firmado.
-    const instDireccion = inst.direccion || loc.direccion || cli.direccion || '';
-    const instCp        = inst.codigo_postal || loc.cp || cli.codigo_postal || '';
-    const instMun       = inst.municipio || loc.municipio || cli.municipio || '';
-    const instAddr      = [instDireccion, instCp, instMun].filter(Boolean).join(', ');
+    // Dirección de la instalación (Catastro/oportunidad) y enlace único de subida
+    // del CIFO firmado. Reutiliza `instAddr` calculado arriba (NO el del cliente).
+    const instAddrText  = instAddr.full || '';
     const uploadLink    = `${APP_BASE_URL}/subir-cifo/${expediente.id}`;
 
     // Contactos disponibles del perfil del instalador (puede haber varios):
@@ -1295,9 +1294,9 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
         const firstName = (contactName || '').trim().split(/\s+/)[0] || 'instalador';
         const expteB = `*${numexpte}*`;
         if (tplKey === 'requerimiento') {
-            return `Hola ${firstName},\n\nHemos recibido un *requerimiento* sobre el expediente ${expteB} de ${cliNombre}${instAddr ? ` (instalación en ${instAddr})` : ''} y necesitamos que el *Certificado CIFO* se vuelva a firmar.\n\nTe adjunto de nuevo el documento. Por favor, fírmalo *digitalmente* (representante legal de la empresa instaladora) y vuelve a subirlo en este enlace:\n\n${uploadLink}\n\nDisculpa las molestias y gracias por tu colaboración.\n*BROKERGY · Ingeniería Energética*`;
+            return `Hola ${firstName},\n\nHemos recibido un *requerimiento* sobre el expediente ${expteB} de ${cliNombre}${instAddrText ? ` (instalación en ${instAddrText})` : ''} y necesitamos que el *Certificado CIFO* se vuelva a firmar.\n\nTe adjunto de nuevo el documento. Por favor, fírmalo *digitalmente* (representante legal de la empresa instaladora) y vuelve a subirlo en este enlace:\n\n${uploadLink}\n\nDisculpa las molestias y gracias por tu colaboración.\n*BROKERGY · Ingeniería Energética*`;
         }
-        return `Hola ${firstName},\n\nTe adjunto el *Certificado CIFO* correspondiente al expediente ${expteB} de ${cliNombre}${instAddr ? `, de la instalación realizada en ${instAddr}` : ''}.\n\nEs necesario que nos lo devuelvas *firmado digitalmente* por el representante legal de la empresa instaladora para poder continuar con la tramitación.\n\nPuedes subirlo directamente, ya firmado, en este enlace:\n\n${uploadLink}\n\nUn saludo,\n*BROKERGY · Ingeniería Energética*`;
+        return `Hola ${firstName},\n\nTe adjunto el *Certificado CIFO* correspondiente al expediente ${expteB} de ${cliNombre}${instAddrText ? `, de la instalación realizada en ${instAddrText}` : ''}.\n\nEs necesario que nos lo devuelvas *firmado digitalmente* por el representante legal de la empresa instaladora para poder continuar con la tramitación.\n\nPuedes subirlo directamente, ya firmado, en este enlace:\n\n${uploadLink}\n\nUn saludo,\n*BROKERGY · Ingeniería Energética*`;
     };
 
     const openSendModal = async () => {
@@ -1365,7 +1364,7 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
             instaladorNombre: c.label,
             numExpediente: numexpte,
             clienteNombre: cliNombre,
-            direccionInstalacion: instAddr,
+            direccionInstalacion: instAddrText,
             uploadLink,
             annexDriveFileIds: getAnnexDriveFileIds(),
         });

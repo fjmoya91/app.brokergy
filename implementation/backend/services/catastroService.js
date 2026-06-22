@@ -303,6 +303,20 @@ async function getByRC(rc) {
             // autocompletar el CP del cliente aunque el XML del CEE no lo incluya.
             postalCode: String(bi.dt?.locs?.lous?.lourb?.dp || bi.dt?.lourb?.dp || '') || null,
 
+            // Desglose de la dirección de la INSTALACIÓN (vivienda) para poder
+            // separarla del domicilio del cliente en los documentos (Anexo I, CIFO,
+            // RES080, Cesión...). `street` = la dirección (ldt) sin el CP/municipio/
+            // provincia del final — coincide con cómo la formatea el propio Catastro
+            // (sin interior en unifamiliares); fallback a construir desde `dt`.
+            // `municipality`/`province` = nombre del municipio y provincia.
+            street: (function () {
+                const ldt = String(bi?.ldt || bico?.ldt || '');
+                const m = ldt.match(/^(.*?)\s+\d{5}\b/);
+                return (m ? m[1] : '').trim() || buildStreetFromDt(bi.dt) || null;
+            })(),
+            municipality: getText(bi.dt?.nm) || null,
+            province: getText(bi.dt?.np) || null,
+
             // Enrich with Climate Data
             climateInfo: climateService.getClimateInfo(bi.dt?.loine?.cp, bi.dt?.loine?.cm),
 
@@ -546,6 +560,40 @@ function buildAddressFromDt(dt) {
     if (np) address += ` (${np})`;
 
     return address.trim();
+}
+
+/**
+ * Igual que buildAddressFromDt pero SOLO la parte de calle (tipo vía + nombre +
+ * número + interior), sin código postal, municipio ni provincia. Se usa para
+ * autocompletar la dirección de la instalación por separado (la app guarda
+ * municipio/provincia/CP en campos propios).
+ */
+function buildStreetFromDt(dt) {
+    if (!dt) return '';
+    const lourb = dt.locs?.lous?.lourb || dt.lourb || {};
+    const dir = lourb.dir || {};
+    const loint = lourb.loint || {};
+
+    const tv = getText(dir.tv);
+    const nv = getText(dir.nv);
+    const pnp = getText(dir.pnp);
+    const es = getText(loint.es);
+    const pt = getText(loint.pt);
+    const pu = getText(loint.pu);
+
+    const parts = [];
+    if (tv && nv) parts.push(`${tv} ${nv}`);
+    if (pnp) parts.push(pnp);
+
+    const intParts = [];
+    if (es) intParts.push(`Es:${es}`);
+    if (pt) intParts.push(`Pl:${pt}`);
+    if (pu) intParts.push(`Pt:${pu}`);
+
+    let street = parts.join(' ');
+    if (intParts.length) street += ' ' + intParts.join(' ');
+
+    return street.trim();
 }
 
 function isLikelyNonResidentialFloor(floor) {

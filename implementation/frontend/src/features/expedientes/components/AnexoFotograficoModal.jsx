@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import axios from 'axios';
 import { useAuth } from '../../../context/AuthContext';
 import { useModal } from '../../../context/ModalContext';
+import { buildInstalacionAddress } from '../utils/docGenerators';
 import ReactCrop, { centerCrop, makeAspectCrop } from 'react-image-crop';
 import 'react-image-crop/dist/ReactCrop.css';
 
@@ -636,16 +637,18 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
 
     const numexpte = expediente.numero_expediente || '';
 
-    const cp = inst.codigo_postal || loc.cp || cli.codigo_postal || opInputs.ccaa_cp || opInputs.cp || '';
+    // Dirección de la INSTALACIÓN (Catastro/oportunidad), nunca la del cliente.
+    const instAddr = buildInstalacionAddress(expediente);
+    const cp = instAddr.cp || opInputs.ccaa_cp || opInputs.cp || '';
     const provCode = cp ? String(cp).substring(0, 2).padStart(2, '0') : '';
 
     const locCA = (
-        inst.ccaa || loc.ccaa || cli.ccaa ||
+        instAddr.ccaa ||
         (provCode ? PROV_CCAA[provCode] : '') || '—'
     ).toUpperCase();
 
-    const locFullDir = `${inst.direccion || loc.direccion || cli.direccion || ''} ${inst.num || loc.num || ''}, ${inst.codigo_postal || loc.cp || cli.codigo_postal || ''} ${inst.municipio || loc.municipio || cli.municipio || ''} (${inst.provincia || loc.provincia || cli.provincia || ''})`.trim() || '—';
-    const locRefCat = inst.ref_catastral || loc.ref_catastral || opInputs.rc || '—';
+    const locFullDir = instAddr.full || '—';
+    const locRefCat = instAddr.refCatastral || '—';
     const locUtmX = inst.coord_x || loc.coord_x || opInputs.coordX || opInputs.coord_x || '—';
     const locUtmY = inst.coord_y || loc.coord_y || opInputs.coordY || opInputs.coord_y || '—';
 

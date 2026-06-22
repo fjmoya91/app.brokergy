@@ -15,6 +15,7 @@ import {
     calculateHybridization,
     BOILER_EFFICIENCIES
 } from '../../calculator/logic/calculation';
+import { computeExpedienteFinancials } from '../logic/expedienteFinancials';
 
 // ─── Dropzone de XML (migración de expedientes desde CE3X) ────────────────────
 function XmlDrop({ label, slot, error, onFile }) {
@@ -542,7 +543,10 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
         return '—';
     };
 
-    const getExpedienteFinancials = (exp) => {
+    // Delegado al helper compartido (fuente única de verdad del cálculo económico).
+    const getExpedienteFinancials = (exp) => computeExpedienteFinancials(exp);
+    // eslint-disable-next-line no-unused-vars
+    const _getExpedienteFinancialsLegacy = (exp) => {
         const op = exp.oportunidades;
         if (!op) return { ficha: '—', savingsKwh: null, cae: null, profit: null };
 

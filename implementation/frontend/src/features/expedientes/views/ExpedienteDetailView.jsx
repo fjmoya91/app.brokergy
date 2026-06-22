@@ -583,6 +583,28 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
                               </select>
                          </div>
 
+                         {/* Lote (solo lectura): código + estado + SO/Verificador */}
+                         {expediente.lote && (
+                            <div className="flex items-center gap-3 bg-white/[0.03] px-3 py-1.5 rounded-xl border border-white/[0.06] shadow-lg">
+                                <div>
+                                    <p className="text-[8px] uppercase tracking-widest font-black text-white/30">Lote</p>
+                                    <p className="text-[11px] font-black text-white whitespace-nowrap">
+                                        {expediente.lote.codigo || 'BORRADOR'}
+                                        <span className="text-white/40 font-bold"> · {expediente.lote.estado}</span>
+                                    </p>
+                                </div>
+                                <div className="h-6 w-px bg-white/10" />
+                                <div>
+                                    <p className="text-[8px] uppercase tracking-widest font-black text-white/30">S.O. / Verificador</p>
+                                    <p className="text-[11px] text-white/70 whitespace-nowrap">
+                                        {expediente.lote.sujeto_obligado ? (expediente.lote.sujeto_obligado.acronimo || expediente.lote.sujeto_obligado.razon_social) : '—'}
+                                        {' · '}
+                                        {expediente.lote.verificador ? (expediente.lote.verificador.acronimo || expediente.lote.verificador.razon_social) : '—'}
+                                    </p>
+                                </div>
+                            </div>
+                         )}
+
                          {/* Botón de Nota Rápida */}
                          <button
                             onClick={() => setShowQuickNote(true)}

@@ -26,7 +26,7 @@ function hasChannel(c) {
 
 /**
  * Normaliza el array de contactos para persistir: recorta strings, descarta
- * entradas sin ningún dato y limita campos a { nombre, tlf, email }.
+ * entradas sin ningún dato y limita campos a { nombre, tlf, email, cargo }.
  */
 function normalizeContactos(value) {
     return parseContactos(value)
@@ -34,6 +34,7 @@ function normalizeContactos(value) {
             nombre: (c?.nombre || '').toString().trim(),
             tlf:    (c?.tlf || '').toString().trim(),
             email:  (c?.email || '').toString().trim().toLowerCase(),
+            cargo:  (c?.cargo || '').toString().trim(),
         }))
         .filter(c => c.nombre || c.tlf || c.email);
 }

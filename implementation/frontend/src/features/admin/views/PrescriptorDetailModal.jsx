@@ -52,10 +52,12 @@ function getProvCodByNombre(nombre) {
 }
 
 const TIPO_BADGE = {
-    DISTRIBUIDOR: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
-    INSTALADOR:   'bg-cyan-500/10 text-cyan-400 border-cyan-500/20',
-    CERTIFICADOR: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
-    OTRO:         'bg-white/5 text-white/40 border-white/10',
+    DISTRIBUIDOR:    'bg-blue-500/10 text-blue-400 border-blue-500/20',
+    INSTALADOR:      'bg-cyan-500/10 text-cyan-400 border-cyan-500/20',
+    CERTIFICADOR:    'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
+    SUJETO_OBLIGADO: 'bg-purple-500/10 text-purple-400 border-purple-500/20',
+    VERIFICADOR:     'bg-orange-500/10 text-orange-400 border-orange-500/20',
+    OTRO:            'bg-white/5 text-white/40 border-white/10',
 };
 
 // Color del badge de estado de expediente (mismo criterio que ExpedientesView)
@@ -227,14 +229,14 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
         razon_social: '', acronimo: '', cif: '', email: '', tlf: '',
         tipo_empresa: 'DISTRIBUIDOR', marca_referencia: '', marca_secundaria: '',
         tiene_carnet_rite: false, numero_carnet_rite: '', cargo: '',
-        nombre_responsable: '', apellidos_responsable: '', nif_responsable: '',
+        nombre_responsable: '', apellidos_responsable: '', nif_responsable: '', precio_referencia: '', codigo_identificacion: '',
         ccaa: '', provincia: '', provincia_cod: '', municipio: '',
         codigo_postal: '', direccion: '', es_autonomo: false, logo_empresa: '',
         marcas_aerotermia: [],
         instaladores_asociados: [],
         usuario_password: '', usuario_confirm_password: '',
         contacto_alternativo_activo: false,
-        contactos_notificacion: [{ nombre: '', tlf: '', email: '' }],
+        contactos_notificacion: [{ nombre: '', tlf: '', email: '', cargo: '' }],
         contacto_notificaciones_activas: false,
         // Técnico habilitado que firma las memorias (si es distinto del representante legal)
         tecnico_firmante_distinto: false,
@@ -358,6 +360,8 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                 nombre_responsable:   p.nombre_responsable || p.usuarios?.nombre || '',
                 apellidos_responsable:p.apellidos_responsable || p.usuarios?.apellidos || '',
                 nif_responsable:      p.nif_responsable || '',
+                precio_referencia:    p.precio_referencia ?? '',
+                codigo_identificacion: p.codigo_identificacion ?? '',
                 ccaa:                 p.ccaa || '',
                 provincia:            p.provincia || '',
                 provincia_cod:        cod,
@@ -373,12 +377,12 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                 contacto_alternativo_activo: p.contacto_alternativo_activo || false,
                 contactos_notificacion: (() => {
                     const arr = Array.isArray(p.contactos_notificacion) ? p.contactos_notificacion : [];
-                    if (arr.length) return arr.map(c => ({ nombre: c.nombre || '', tlf: c.tlf || '', email: c.email || '' }));
+                    if (arr.length) return arr.map(c => ({ nombre: c.nombre || '', tlf: c.tlf || '', email: c.email || '', cargo: c.cargo || '' }));
                     // Migración: si solo hay el contacto plano antiguo, sembrar el array con él.
                     if (p.nombre_contacto || p.tlf_contacto || p.email_contacto) {
-                        return [{ nombre: p.nombre_contacto || '', tlf: p.tlf_contacto || '', email: p.email_contacto || '' }];
+                        return [{ nombre: p.nombre_contacto || '', tlf: p.tlf_contacto || '', email: p.email_contacto || '', cargo: '' }];
                     }
-                    return [{ nombre: '', tlf: '', email: '' }];
+                    return [{ nombre: '', tlf: '', email: '', cargo: '' }];
                 })(),
                 contacto_notificaciones_activas: p.contacto_notificaciones_activas || false,
                 tecnico_firmante_distinto:    p.tecnico_firmante_distinto || false,
@@ -399,11 +403,11 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
     }));
     const addContacto = () => setForm(f => ({
         ...f,
-        contactos_notificacion: [...(f.contactos_notificacion || []), { nombre: '', tlf: '', email: '' }],
+        contactos_notificacion: [...(f.contactos_notificacion || []), { nombre: '', tlf: '', email: '', cargo: '' }],
     }));
     const removeContacto = (i) => setForm(f => {
         const next = (f.contactos_notificacion || []).filter((_, idx) => idx !== i);
-        return { ...f, contactos_notificacion: next.length ? next : [{ nombre: '', tlf: '', email: '' }] };
+        return { ...f, contactos_notificacion: next.length ? next : [{ nombre: '', tlf: '', email: '', cargo: '' }] };
     });
 
     // ─── Logo upload ─────────────────────────────────────────────────────────
@@ -473,6 +477,8 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                 nombre_responsable:    form.nombre_responsable.trim() || null,
                 apellidos_responsable: form.apellidos_responsable.trim() || null,
                 nif_responsable:       form.nif_responsable.trim().toUpperCase() || null,
+                precio_referencia:     (form.precio_referencia === '' || form.precio_referencia == null) ? null : Number(form.precio_referencia),
+                codigo_identificacion: form.codigo_identificacion?.trim() || null,
                 ccaa:                  form.ccaa || null,
                 provincia:             form.provincia || null,
                 municipio:             form.municipio || null,
@@ -483,7 +489,7 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                 instaladores_asociados: form.tipo_empresa === 'DISTRIBUIDOR' ? form.instaladores_asociados : [],
                 contacto_alternativo_activo: form.contacto_alternativo_activo,
                 contactos_notificacion: (form.contactos_notificacion || [])
-                    .map(c => ({ nombre: (c.nombre || '').trim(), tlf: (c.tlf || '').trim(), email: (c.email || '').trim().toLowerCase() }))
+                    .map(c => ({ nombre: (c.nombre || '').trim(), tlf: (c.tlf || '').trim(), email: (c.email || '').trim().toLowerCase(), cargo: (c.cargo || '').trim() }))
                     .filter(c => c.nombre || c.tlf || c.email),
                 contacto_notificaciones_activas: form.contacto_notificaciones_activas,
                 tecnico_firmante_distinto:    form.tecnico_firmante_distinto,
@@ -584,6 +590,12 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
     const displayName = isCreating ? 'NUEVO PARTNER' : (p.acronimo || p.razon_social || '?');
     const contactName = isCreating ? null : ([p.nombre_responsable || p.usuarios?.nombre, p.apellidos_responsable || p.usuarios?.apellidos]
         .filter(Boolean).join(' ') || null);
+
+    // Sujeto Obligado / Verificador = entidades CAE: sin marcas ni RITE; el responsable
+    // de la sección principal es el REPRESENTANTE LEGAL (no una persona de contacto).
+    const isEntidadCae = form.tipo_empresa === 'SUJETO_OBLIGADO' || form.tipo_empresa === 'VERIFICADOR';
+    // Las marcas de aerotermia solo aplican a distribuidores/instaladores.
+    const tieneMarcas = form.tipo_empresa === 'DISTRIBUIDOR' || form.tipo_empresa === 'INSTALADOR';
 
     return (
         <div className="fixed inset-0 z-[300] flex items-start justify-center p-4 bg-black/75 backdrop-blur-md animate-fade-in overflow-y-auto">
@@ -731,7 +743,7 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
 
                             {contactName && (
                                 <div className="space-y-2">
-                                    <p className="text-[10px] uppercase tracking-[0.2em] font-black text-white/30">Persona de Contacto</p>
+                                    <p className="text-[10px] uppercase tracking-[0.2em] font-black text-white/30">{isEntidadCae ? 'Representante Legal' : 'Persona de Contacto'}</p>
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
                                         <FV label="Nombre" value={contactName} />
                                         {p.tipo_empresa === 'INSTALADOR' && <FV label="NIF / DNI" value={p.nif_responsable} mono />}
@@ -926,6 +938,8 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                                                 <option value="DISTRIBUIDOR">DISTRIBUIDOR</option>
                                                 <option value="INSTALADOR">INSTALADOR</option>
                                                 <option value="CERTIFICADOR">CERTIFICADOR</option>
+                                                <option value="SUJETO_OBLIGADO">SUJETO OBLIGADO</option>
+                                                <option value="VERIFICADOR">VERIFICADOR</option>
                                                 <option value="OTRO">OTRO</option>
                                             </Sel>
                                         </FI>
@@ -933,6 +947,17 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                                         <div className="hidden">
                                             <input type="hidden" value="INSTALADOR" />
                                         </div>
+                                    )}
+
+                                    {form.tipo_empresa === 'SUJETO_OBLIGADO' && (
+                                        <FI label="Precio de Referencia (€/MWh)">
+                                            <Inp type="number" value={form.precio_referencia} onChange={e => upd({ precio_referencia: e.target.value })} placeholder="Ej: 175" />
+                                        </FI>
+                                    )}
+                                    {form.tipo_empresa === 'SUJETO_OBLIGADO' && (
+                                        <FI label="Código identificación (MITERD)">
+                                            <Inp value={form.codigo_identificacion} uppercase onChange={e => upd({ codigo_identificacion: e.target.value })} placeholder="SO-A13035266" />
+                                        </FI>
                                     )}
                                     
                                     {form.tipo_empresa === 'DISTRIBUIDOR' && (
@@ -990,7 +1015,7 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                                         </div>
                                     )}
 
-                                    {isAdmin && (
+                                    {isAdmin && tieneMarcas && (
                                         <div className="sm:col-span-2">
                                             <FI label="Marcas Aerotermia (Multi-selección)">
                                                 <div className="space-y-3">
@@ -1044,7 +1069,7 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                             {/* Persona de contacto — solo si es empresa */}
                             {!form.es_autonomo && (
                             <div className="space-y-3">
-                                <p className="text-[10px] uppercase tracking-[0.2em] font-black text-white/30">Persona de Contacto</p>
+                                <p className="text-[10px] uppercase tracking-[0.2em] font-black text-white/30">{isEntidadCae ? 'Representante Legal' : 'Persona de Contacto'}</p>
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                     <FI label="Nombre">
                                         <Inp value={form.nombre_responsable} uppercase onChange={e => upd({ nombre_responsable: e.target.value })} />
@@ -1052,11 +1077,12 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                                     <FI label="Apellidos">
                                         <Inp value={form.apellidos_responsable} uppercase onChange={e => upd({ apellidos_responsable: e.target.value })} />
                                     </FI>
-                                    {form.tipo_empresa === 'INSTALADOR' && (
-                                        <FI label="NIF / DNI del Representante">
+                                    {(form.tipo_empresa === 'INSTALADOR' || isEntidadCae) && (
+                                        <FI label={form.tipo_empresa === 'SUJETO_OBLIGADO' ? 'NIF/NIE del Representante (firma RES060)' : 'NIF / DNI del Representante'}>
                                             <Inp value={form.nif_responsable} uppercase onChange={e => upd({ nif_responsable: e.target.value })} placeholder="00000000X" />
                                         </FI>
                                     )}
+                                    {!isEntidadCae && (<>
                                     <FI label="Cargo">
                                         <Inp value={form.cargo} uppercase onChange={e => upd({ cargo: e.target.value })} placeholder="GERENTE / PROPIETARIO" />
                                     </FI>
@@ -1075,6 +1101,7 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                                             <span className="text-[10px] font-black uppercase tracking-widest text-white/40">Habilitada en Industria (RITE)</span>
                                         </label>
                                     </div>
+                                    </>)}
                                 </div>
                             </div>
                             )}
@@ -1184,16 +1211,18 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                                                         <Inp value={c.nombre} uppercase placeholder="Ej: VICTORIA"
                                                             onChange={e => updContacto(i, { nombre: e.target.value })} />
                                                     </FI>
+                                                    <FI label="Cargo">
+                                                        <Inp value={c.cargo} uppercase placeholder="Ej: GESTOR CAE"
+                                                            onChange={e => updContacto(i, { cargo: e.target.value })} />
+                                                    </FI>
                                                     <FI label="Teléfono de Contacto">
                                                         <Inp value={c.tlf} placeholder="600 000 000"
                                                             onChange={e => updContacto(i, { tlf: e.target.value })} />
                                                     </FI>
-                                                    <div className="sm:col-span-2">
-                                                        <FI label="Email de Contacto">
-                                                            <Inp type="email" value={c.email} placeholder="contacto@ejemplo.com"
-                                                                onChange={e => updContacto(i, { email: e.target.value.toLowerCase() })} />
-                                                        </FI>
-                                                    </div>
+                                                    <FI label="Email de Contacto">
+                                                        <Inp type="email" value={c.email} placeholder="contacto@ejemplo.com"
+                                                            onChange={e => updContacto(i, { email: e.target.value.toLowerCase() })} />
+                                                    </FI>
                                                 </div>
                                             </div>
                                         ))}

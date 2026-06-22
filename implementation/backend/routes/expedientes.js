@@ -291,11 +291,34 @@ router.get('/:id', enforceAuth, async (req, res) => {
             if (presInfo) assignedPrescriptor = presInfo;
         }
 
-        return res.json({ 
-            ...simple, 
+        // Lote al que pertenece el expediente (solo-lectura en la ficha): SO y Verificador.
+        let lote = null;
+        if (simple.lote_id) {
+            const { data: loteRow } = await supabase.from('lotes').select('*').eq('id', simple.lote_id).maybeSingle();
+            if (loteRow) {
+                const presIds = [loteRow.sujeto_obligado_id, loteRow.verificador_id].filter(Boolean);
+                let presMap = {};
+                if (presIds.length) {
+                    const { data: pres } = await supabase.from('prescriptores')
+                        .select('id_empresa, razon_social, acronimo, nombre_responsable, apellidos_responsable, nif_responsable')
+                        .in('id_empresa', presIds);
+                    presMap = Object.fromEntries((pres || []).map(p => [p.id_empresa, p]));
+                }
+                lote = {
+                    id: loteRow.id, codigo: loteRow.codigo, estado: loteRow.estado,
+                    anio_actuacion: loteRow.anio_actuacion, ccaa: loteRow.ccaa,
+                    sujeto_obligado: presMap[loteRow.sujeto_obligado_id] || null,
+                    verificador: presMap[loteRow.verificador_id] || null,
+                };
+            }
+        }
+
+        return res.json({
+            ...simple,
             clientes: cli || null,
             oportunidades: op || null,
-            prescriptores: assignedPrescriptor 
+            prescriptores: assignedPrescriptor,
+            lote
         });
     } catch (err) {
         console.error('Error GET expedientes/:id:', err);

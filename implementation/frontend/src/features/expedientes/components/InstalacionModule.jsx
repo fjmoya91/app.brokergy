@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { BOILER_EFFICIENCIES, getScopFromModel, getScopAcsFromModel, calculateHybridization } from '../../calculator/logic/calculation';
+import { PROVINCE_CODE_TO_CCAA, PROVINCE_CODE_TO_NAME } from '../utils/docGenerators';
 
 const EMITTER_OPTIONS = [
     { value: 'suelo_radiante',          label: 'Suelo Radiante (35°C)',           temp: 35 },
@@ -667,29 +668,117 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
             .finally(() => setLoadingGeo(p => ({ ...p, muni: false })));
     }, [local.provincia_cod, local.misma_direccion]);
 
-    // Obtiene las coordenadas UTM del Catastro a partir de una RC y las vuelca en el estado.
+    // Obtiene del Catastro (a partir de una RC) SOLO las coordenadas UTM y las
+    // vuelca en el estado. Para parcelas grandes donde el punto del Catastro no
+    // cae sobre la vivienda (botón "Recalcular desde Catastro").
     const fetchUtmFromRC = async (rc) => {
-        if (!rc) return;
+        if (!rc) return null;
         setFetchingUtm(true);
         try {
             const { data } = await axios.get(`/api/catastro/property-data?rc=${encodeURIComponent(rc)}`);
             const x = String(data?.utm?.x || data?.coordX || '');
             const y = String(data?.utm?.y || data?.coordY || '');
             setLocal(p => ({ ...p, coord_x: x, coord_y: y }));
+            return data;
         } catch {
+            return null;
         } finally {
             setFetchingUtm(false);
         }
     };
 
+    // Normaliza la respuesta del Catastro a los campos partidos de la dirección de
+    // la INSTALACIÓN (la vivienda de la RC). La CCAA no la da el Catastro: se deriva
+    // del código de provincia.
+    const catastroToAddress = (data) => {
+        if (!data) return null;
+        const provCode = String(data.provinceCode || '').padStart(2, '0');
+        return {
+            direccion: data.street || data.address || '',
+            codigo_postal: data.postalCode || '',
+            municipio: data.municipality || '',
+            provincia: data.province || PROVINCE_CODE_TO_NAME[provCode] || '',
+            provincia_cod: provCode || '',
+            ccaa: PROVINCE_CODE_TO_CCAA[provCode] || '',
+            coord_x: String(data?.utm?.x || data?.coordX || ''),
+            coord_y: String(data?.utm?.y || data?.coordY || ''),
+        };
+    };
+
+    // Autorellena los campos partidos de la dirección de la instalación desde el
+    // Catastro por la RC (calle/CP/municipio/provincia/CCAA + UTM). Es la dirección
+    // de la vivienda del Catastro — la misma capturada en la oportunidad — y NUNCA
+    // el domicilio del cliente. Se usa al marcar "dirección distinta" y como cacheo.
+    const fillAddressFromCatastro = async (rc) => {
+        if (!rc) return null;
+        setFetchingUtm(true);
+        try {
+            const { data } = await axios.get(`/api/catastro/property-data?rc=${encodeURIComponent(rc)}`);
+            const addr = catastroToAddress(data);
+            if (!addr) return null;
+            setLocal(p => ({
+                ...p,
+                ...Object.fromEntries(Object.entries(addr).filter(([, v]) => v)),
+            }));
+            return addr;
+        } catch {
+            return null;
+        } finally {
+            setFetchingUtm(false);
+        }
+    };
+
+    // Auto-obtención (1 sola vez por expediente) de la dirección de la instalación
+    // desde el Catastro para expedientes antiguos que no la tengan cacheada, y
+    // persistencia en `inst`. Así los documentos dejan de caer en la dirección del
+    // cliente. Solo cuando es editable (admin) y hay RC pero falta la dirección.
+    const autoAddrTriedRef = React.useRef(null);
+    useEffect(() => {
+        const expId = expediente?.id;
+        if (readOnly || !expId) return;
+        if (autoAddrTriedRef.current === expId) return;
+
+        const inst0 = expediente?.instalacion || {};
+        const dc = expediente?.oportunidades?.datos_calculo || {};
+        const opIn = { ...dc, ...(dc.inputs || {}) };
+        const yaTieneDir = !!(inst0.direccion || opIn.direccion || opIn.address);
+        const rc = inst0.ref_catastral || expediente?.oportunidades?.ref_catastral || '';
+        if (yaTieneDir || !rc) return;
+
+        autoAddrTriedRef.current = expId;
+        (async () => {
+            const addr = await fillAddressFromCatastro(rc);
+            if (!addr) return;
+            const patch = {
+                ...inst0,
+                ref_catastral: inst0.ref_catastral || rc,
+                ...Object.fromEntries(Object.entries(addr).filter(([, v]) => v)),
+            };
+            if (onSave) onSave({ instalacion: patch });
+        })();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [expediente?.id, readOnly]);
+
     const handleMismaDireccionChange = async (val) => {
         if (val) {
+            // "Misma dirección": sin dirección custom. Los documentos usarán la
+            // dirección de la oportunidad/Catastro. Limpiamos los campos partidos y
+            // refrescamos las UTM desde la RC.
             const rc = opRC;
             setEditCoords(false);
-            setLocal(p => ({ ...p, misma_direccion: true, ref_catastral: rc, coord_x: '', coord_y: '' }));
+            setLocal(p => ({
+                ...p, misma_direccion: true, ref_catastral: rc,
+                coord_x: '', coord_y: '',
+                direccion: '', codigo_postal: '', municipio: '', provincia: '', provincia_cod: '', ccaa: '',
+            }));
             await fetchUtmFromRC(rc);
         } else {
+            // "Dirección distinta": autorellenamos los campos de dirección desde el
+            // Catastro (la dirección de la instalación, la misma capturada en la
+            // oportunidad). Quedan editables por si hay que corregirlos a mano.
+            const rc = local.ref_catastral || opRC;
             setLocal(p => ({ ...p, misma_direccion: false }));
+            await fillAddressFromCatastro(rc);
         }
     };
 
@@ -777,7 +866,7 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 pt-2 border-t border-white/5 animate-fade-in">
                             <SelectField label="CCAA" value={local.ccaa} onChange={v => setLocal(prev => ({ ...prev, ccaa: v, provincia: '', provincia_cod: '', municipio: '' }))} options={CCAA_LIST.map(c => ({ value: c, label: c }))} readOnly={readOnly} />
                             <SelectField label="Provincia" value={local.provincia_cod} onChange={v => { const pName = provincias.find(p => p.cod === v)?.nombre || ''; setLocal(prev => ({ ...prev, provincia_cod: v, provincia: pName, municipio: '' })); }} options={provincias.map(p => ({ value: p.cod, label: p.nombre }))} loading={loadingGeo.prov} readOnly={readOnly || !local.ccaa} />
-                            <SelectField label="Municipio" value={local.municipio} onChange={v => setLocal(prev => ({ ...prev, municipio: v }))} options={municipios.map(m => ({ value: m.nombre, label: m.nombre }))} loading={loadingGeo.muni} readOnly={readOnly || !local.provincia_cod} />
+                            <SelectField label="Municipio" value={local.municipio} onChange={v => setLocal(prev => ({ ...prev, municipio: v }))} options={(local.municipio && !municipios.includes(local.municipio) ? [local.municipio, ...municipios] : municipios).map(m => ({ value: m, label: m }))} loading={loadingGeo.muni} readOnly={readOnly || !local.provincia_cod} />
                             <Field label="Código Postal" value={local.codigo_postal} onChange={v => setLocal(prev => ({ ...prev, codigo_postal: v }))} placeholder="Ej: 28001" readOnly={readOnly} />
                             <div className="sm:col-span-2"><Field label="Dirección de la instalación" value={local.direccion} onChange={v => setLocal(prev => ({ ...prev, direccion: v }))} placeholder="Calle, número, piso..." readOnly={readOnly} /></div>
                         </div>

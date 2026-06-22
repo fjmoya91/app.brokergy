@@ -193,6 +193,22 @@ export function DashboardLayout({ children, activeTab, onTabChange }) {
                             {!isSidebarCollapsed && <span>Expedientes</span>}
                         </button>
                     )}
+
+                    {isAdmin && (
+                        <button
+                            onClick={() => go('lotes')}
+                            className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all ${
+                                activeTab === 'lotes'
+                                    ? 'bg-gradient-to-r from-brand to-brand-700 text-bkg-deep shadow-lg shadow-brand/20'
+                                    : 'text-white/50 hover:bg-bkg-hover hover:text-white border border-transparent'
+                            } ${isSidebarCollapsed ? 'justify-center px-0' : ''}`}
+                        >
+                            <svg className="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                            </svg>
+                            {!isSidebarCollapsed && <span>Lotes</span>}
+                        </button>
+                    )}
                 </nav>
 
                 {/* ====== WHATSAPP SECTION ====== */}

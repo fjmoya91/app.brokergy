@@ -3,6 +3,7 @@ import axios from 'axios';
 import confetti from 'canvas-confetti';
 import { useAuth } from '../../../context/AuthContext';
 import { BOILER_EFFICIENCIES } from '../../calculator/logic/calculation';
+import { buildInstalacionAddress } from '../utils/docGenerators';
 
 // ─── CONSTANTES Y ESTILOS SAGRADOS ───────────────────────────────────────────
 
@@ -568,9 +569,12 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, a
     const tieneAcs = inst.cambio_acs !== false;
 
     const numExpte = expediente.numero_expediente || '—';
-    const locCA = (inst.ccaa || loc.ccaa || cli.ccaa || '—').toUpperCase();
-    const locDir = `${inst.direccion || loc.direccion || cli.direccion || ''} ${inst.num || loc.num || ''}, ${inst.codigo_postal || loc.cp || cli.codigo_postal || ''} ${inst.municipio || loc.municipio || cli.municipio || ''} (${inst.provincia || loc.provincia || cli.provincia || ''})`.trim();
-    const locCat = inst.ref_catastral || loc.ref_catastral || '—';
+    // Dirección de la INSTALACIÓN (Catastro/oportunidad), nunca la del cliente
+    // (esa se usa en clientDir, abajo, como dato legal del titular).
+    const instAddr = buildInstalacionAddress(expediente);
+    const locCA = (instAddr.ccaa || '—').toUpperCase();
+    const locDir = instAddr.full || '—';
+    const locCat = instAddr.refCatastral || '—';
     const utmX = inst.coord_x || loc.coord_x || '—';
     const utmY = inst.coord_y || loc.coord_y || '—';
 

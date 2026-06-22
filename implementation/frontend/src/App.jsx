@@ -15,6 +15,7 @@ import { DashboardLayout } from './components/layout/DashboardLayout';
 import { ClientesView } from './features/clientes/views/ClientesView';
 import { AerotermiaView } from './features/aerotermia/views/AerotermiaView';
 import { ExpedientesView } from './features/expedientes/views/ExpedientesView';
+import { LotesView } from './features/lotes/views/LotesView';
 import { ResetPasswordView } from './features/auth/views/ResetPasswordView';
 import { AceptarPropuestaView } from './features/public/views/AceptarPropuestaView';
 import { CertAckView } from './features/public/views/CertAckView';
@@ -791,6 +792,8 @@ function App() {
                 initialSelectedId={selectedExpedienteId}
                 onClearInitialSelection={() => setSelectedExpedienteId(null)}
               />
+            ) : step === 'ADMIN' && activeTab === 'lotes' && user?.rol === 'ADMIN' ? (
+              <LotesView key={`lotes-${navNonce}`} onNavigate={handleNavigate} />
             ) : step === 'ADMIN' && activeTab === 'aerotermia' && user?.rol === 'ADMIN' ? (
               <AerotermiaView key={`aero-${navNonce}`} />
             ) : step === 'ADMIN' && activeTab === 'clientes' ? (

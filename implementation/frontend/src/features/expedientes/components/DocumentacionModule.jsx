@@ -14,6 +14,18 @@ import { EnviarBorradorRiteModal } from './EnviarBorradorRiteModal';
 import { EnviarAnexosModal } from './EnviarAnexosModal';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+// Convierte un ArrayBuffer a base64 POR TROZOS. Evita el "Maximum call stack size
+// exceeded" de `String.fromCharCode(...array)` con ficheros grandes (PDFs).
+function arrayBufferToBase64(arrayBuffer) {
+    const bytes = new Uint8Array(arrayBuffer);
+    let binary = '';
+    const chunk = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunk) {
+        binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+    }
+    return btoa(binary);
+}
+
 function ValidationModal({ isOpen, onClose, missingFields, onConfirm, docName }) {
     if (!isOpen) return null;
     return (
@@ -201,7 +213,10 @@ function FacturasSection({ expedienteId, facturas, onChange, readOnly }) {
         setUploading(u => ({ ...u, [idx]: true }));
         try {
             const arrayBuffer = await file.arrayBuffer();
-            const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
+            // Conversión a base64 POR TROZOS. `String.fromCharCode(...array)` con el
+            // spread de un PDF (>100 KB) revienta el stack ("Maximum call stack size
+            // exceeded") y caía en el catch genérico "Comprueba la configuración de Drive".
+            const base64 = arrayBufferToBase64(arrayBuffer);
             const { data } = await axios.post(`/api/expedientes/${expedienteId}/facturas/upload`, {
                 base64,
                 fileName: file.name,
@@ -210,7 +225,8 @@ function FacturasSection({ expedienteId, facturas, onChange, readOnly }) {
             updateFactura(idx, 'drive_link', data.drive_link);
         } catch (err) {
             console.error('Error subiendo factura:', err);
-            alert('Error al subir la factura a Drive. Comprueba la configuración de Drive.');
+            const detail = err.response?.data?.error || err.response?.data?.details || err.message || '';
+            alert('Error al subir la factura a Drive.' + (detail ? `\n\nDetalle: ${detail}` : ' Comprueba la configuración de Drive.'));
         } finally {
             setUploading(u => ({ ...u, [idx]: false }));
         }

@@ -6,6 +6,117 @@
 
 const APP_URL = import.meta.env.VITE_APP_URL || window.location.origin;
 
+// Mapa código de provincia (2 díg.) → nombre. Permite mostrar la provincia
+// cuando solo tenemos el código (p.ej. oportunidades migradas) o el CP.
+export const PROVINCE_CODE_TO_NAME = {
+    '01': 'Álava', '02': 'Albacete', '03': 'Alicante', '04': 'Almería',
+    '05': 'Ávila', '06': 'Badajoz', '07': 'Baleares', '08': 'Barcelona',
+    '09': 'Burgos', '10': 'Cáceres', '11': 'Cádiz', '12': 'Castellón',
+    '13': 'Ciudad Real', '14': 'Córdoba', '15': 'A Coruña', '16': 'Cuenca',
+    '17': 'Girona', '18': 'Granada', '19': 'Guadalajara', '20': 'Guipúzcoa',
+    '21': 'Huelva', '22': 'Huesca', '23': 'Jaén', '24': 'León',
+    '25': 'Lleida', '26': 'La Rioja', '27': 'Lugo', '28': 'Madrid',
+    '29': 'Málaga', '30': 'Murcia', '31': 'Navarra', '32': 'Ourense',
+    '33': 'Asturias', '34': 'Palencia', '35': 'Las Palmas', '36': 'Pontevedra',
+    '37': 'Salamanca', '38': 'S.C. de Tenerife', '39': 'Cantabria', '40': 'Segovia',
+    '41': 'Sevilla', '42': 'Soria', '43': 'Tarragona', '44': 'Teruel',
+    '45': 'Toledo', '46': 'Valencia', '47': 'Valladolid', '48': 'Vizcaya',
+    '49': 'Zamora', '50': 'Zaragoza', '51': 'Ceuta', '52': 'Melilla',
+};
+
+// Mapa código de provincia → Comunidad Autónoma (el Catastro NO devuelve la CCAA;
+// se deriva del código de provincia). Nombres alineados con el selector de CCAA
+// del módulo de Instalación.
+export const PROVINCE_CODE_TO_CCAA = {
+    '01': 'País Vasco', '02': 'Castilla-La Mancha', '03': 'Comunidad Valenciana', '04': 'Andalucía',
+    '05': 'Castilla y León', '06': 'Extremadura', '07': 'Baleares', '08': 'Cataluña',
+    '09': 'Castilla y León', '10': 'Extremadura', '11': 'Andalucía', '12': 'Comunidad Valenciana',
+    '13': 'Castilla-La Mancha', '14': 'Andalucía', '15': 'Galicia', '16': 'Castilla-La Mancha',
+    '17': 'Cataluña', '18': 'Andalucía', '19': 'Castilla-La Mancha', '20': 'País Vasco',
+    '21': 'Andalucía', '22': 'Aragón', '23': 'Andalucía', '24': 'Castilla y León',
+    '25': 'Cataluña', '26': 'La Rioja', '27': 'Galicia', '28': 'Comunidad de Madrid',
+    '29': 'Andalucía', '30': 'Región de Murcia', '31': 'Navarra', '32': 'Galicia',
+    '33': 'Asturias', '34': 'Castilla y León', '35': 'Canarias', '36': 'Galicia',
+    '37': 'Castilla y León', '38': 'Canarias', '39': 'Cantabria', '40': 'Castilla y León',
+    '41': 'Andalucía', '42': 'Castilla y León', '43': 'Cataluña', '44': 'Aragón',
+    '45': 'Castilla-La Mancha', '46': 'Comunidad Valenciana', '47': 'Castilla y León', '48': 'País Vasco',
+    '49': 'Castilla y León', '50': 'Aragón', '51': 'Ceuta', '52': 'Melilla',
+};
+
+/**
+ * Resuelve la dirección de la INSTALACIÓN (la vivienda donde se ejecutó la
+ * actuación), que es la vinculada al Catastro de la oportunidad y que NUNCA debe
+ * confundirse con el domicilio del cliente (que puede ser distinto).
+ *
+ * Regla de oro (acordada 2026-06-21): en los documentos, la dirección de la
+ * INSTALACIÓN sale de la oportunidad/Catastro; el domicilio del CLIENTE solo se
+ * usa en los datos legales (propietario/cedente). Por eso aquí NO se cae nunca a
+ * `clientes.*`.
+ *
+ * Prioridad:
+ *   1. instalacion.*      → cacheado desde el Catastro o sobrescrito a mano en el
+ *                           módulo de Instalación (fuente autoritativa, partes sueltas).
+ *   2. oportunidad inputs → dirección de la vivienda capturada del Catastro al
+ *                           crear/migrar la oportunidad (datos_calculo[.inputs]).
+ *                           OJO: en migradas, `direccion` suele ser la dirección
+ *                           COMPLETA (con CP, municipio y provincia) y `provincia`
+ *                           un código numérico.
+ *   3. ubicacion.*        → legacy.
+ *
+ * Devuelve partes sueltas (calle, cp, municipio, provincia, ccaa, refCatastral)
+ * y la cadena completa `full` ya formateada para los campos de una sola línea.
+ */
+export const buildInstalacionAddress = (expediente) => {
+    const exp = expediente || {};
+    const op = exp.oportunidades || {};
+    const inst = exp.instalacion || {};
+    const loc = exp.ubicacion || {};
+    const dc = op.datos_calculo || {};
+    // Los inputs del Catastro pueden estar tanto en datos_calculo como en
+    // datos_calculo.inputs (doble-spread al guardar). Fusionamos para leer de
+    // cualquiera de los dos sitios.
+    const opIn = { ...dc, ...(dc.inputs || {}) };
+    const isNum = (v) => /^\d+$/.test(String(v ?? '').trim());
+
+    const calle = inst.direccion || opIn.direccion || opIn.address || loc.direccion || '';
+    const num = inst.num || loc.num || '';
+    const cp = inst.codigo_postal || opIn.cp || opIn.codigo_postal || loc.cp || '';
+    const municipio = inst.municipio || opIn.municipio || loc.municipio || '';
+
+    // Código de provincia: de un campo de código, de una provincia que llega como
+    // número, o de los 2 primeros dígitos del CP.
+    const provCodeRaw = inst.provincia_cod || opIn.provincia_cod
+        || (isNum(inst.provincia) ? inst.provincia : '')
+        || (isNum(opIn.provincia) ? opIn.provincia : '')
+        || (cp ? String(cp).substring(0, 2) : '');
+    const provCode = provCodeRaw ? String(provCodeRaw).padStart(2, '0') : '';
+
+    // Nombre de provincia (nunca un código). geoContext deja el nombre en
+    // datos_calculo.provincia; si no, lo derivamos del código.
+    const provincia = [inst.provincia, opIn.provincia_nombre, dc.provincia, opIn.provincia, loc.provincia]
+        .find(v => v && !isNum(v)) || PROVINCE_CODE_TO_NAME[provCode] || '';
+
+    // CCAA: el Catastro no la da; preferimos lo guardado y, si no, la derivamos
+    // del código de provincia.
+    const ccaa = inst.ccaa || dc.ccaa || opIn.ccaa || PROVINCE_CODE_TO_CCAA[provCode] || '';
+    const refCatastral = inst.ref_catastral || op.ref_catastral || opIn.rc || opIn.ref_catastral || loc.ref_catastral || '';
+
+    // Si `calle` ya es una dirección COMPLETA (contiene un CP de 5 dígitos), la
+    // usamos tal cual (caso migrado) y NO volvemos a añadir CP/municipio/provincia
+    // para no duplicar ni colar el código de provincia.
+    const calleFull = [calle, num].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+    const full = /\b\d{5}\b/.test(calleFull)
+        ? calleFull
+        : [
+            calleFull,
+            cp,
+            municipio,
+            provincia ? `(${provincia})` : ''
+        ].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+
+    return { calle, num, cp, municipio, provincia, provinciaCod: provCode, ccaa, refCatastral, full };
+};
+
 export const ANEXO_I_TEXTS = {
     TITULO_PRINCIPAL: "ANEXO I DECLARACIÓN RESPONSABLE FORMALIZADA POR EL PROPIETARIO INICIAL DEL AHORRO REFERIDA A LA SOLICITUD Y/U OBTENCIÓN DE AYUDAS O SUBVENCIONES PÚBLICAS PARA LA MISMA ACTUACIÓN DE AHORRO DE ENERGÍA",
     NOMBRE_ACTUACION_FIXED: "Sustitución caldera existente por bomba de calor (aerotermia)",
@@ -162,8 +273,10 @@ export const buildAnexoIHtml = (expediente, results, states = {}, isForPdf = tru
         : fichaType === 'RES093'
             ? 'RES093: Hibridación en modo paralelo de caldera/s de combustión con bomba de calor de accionamiento eléctrico en edificios residenciales ubicados en la zona climática D1, D2 o D3'
             : 'RES060: Sustitución de caldera de combustión por una bomba de calor tipo aire-aire, aire-agua, agua-agua o combinadas';
-    const ccaa = (inst.ccaa || cliente.ccaa || 'CASTILLA-LA MANCHA').toUpperCase();
-    const dirActuacion = [cliente.direccion, cliente.codigo_postal, cliente.municipio, cliente.provincia ? `(${cliente.provincia})` : null].filter(Boolean).join(' ').toUpperCase() || '___________';
+    // Dirección de la INSTALACIÓN (vivienda del Catastro), NUNCA la del cliente.
+    const instAddr = buildInstalacionAddress(expediente);
+    const ccaa = (instAddr.ccaa || 'CASTILLA-LA MANCHA').toUpperCase();
+    const dirActuacion = instAddr.full.toUpperCase() || '___________';
     const opInputs = op?.datos_calculo?.inputs || {};
     // inst.cambio_acs es autoritativo (fijado por el usuario en InstalacionModule);
     // si no está establecido aún, cae al valor del calculador de la oportunidad.
@@ -172,7 +285,7 @@ export const buildAnexoIHtml = (expediente, results, states = {}, isForPdf = tru
         : !!(opInputs.changeAcs === true || opInputs.changeAcs === 'si' || opInputs.incluir_acs === true || opInputs.incluir_acs === 'si');
     const snExt = inst.aerotermia_cal?.numero_serie || '___________';
     const snInt = inst.misma_aerotermia_acs ? snExt : (inst.aerotermia_acs?.numero_serie || '___________');
-    const refCatastral = inst.ref_catastral || opInputs.rc || cliente.referencia_catastral || '___________';
+    const refCatastral = instAddr.refCatastral || '___________';
     const serialsHtml = hasAcs ? `Ud. exterior: ${snExt}<br>Ud. interior: ${snInt}` : `Ud. exterior: ${snExt}`;
     const nombrePropietario = [cliente.nombre_razon_social, cliente.apellidos].filter(Boolean).join(' ') || '___________';
     const nif = cliente.dni_nie || cliente.dni || '___________';
@@ -296,10 +409,13 @@ export const buildAnexoCesionHtml = (expediente, results) => {
     const rateMWhStr = rateMwh ? Math.round(rateMwh).toString() : '___';
     const beneficioRaw = results?.caeBonus ?? (aeRaw && rateMwh ? aeRaw / 1000 * rateMwh : null);
     const beneficioStr = beneficioRaw ? Math.round(beneficioRaw).toLocaleString('es-ES', { useGrouping: true }) : '___________';
-    const municipioAct = (cliente.municipio || '___________').toUpperCase();
-    const provinciaAct = (cliente.provincia || '___________').toUpperCase();
-    const ccaa = (inst.ccaa || cliente.ccaa || '___________').toUpperCase();
-    const refCatastral = opInputs.rc || cliente.referencia_catastral || '___________';
+    // Localización de la INSTALACIÓN (Catastro), independiente del domicilio del
+    // cliente (que arriba se usa en `dirCedente` como dato legal del cedente).
+    const instAddr = buildInstalacionAddress(expediente);
+    const municipioAct = (instAddr.municipio || '___________').toUpperCase();
+    const provinciaAct = (instAddr.provincia || '___________').toUpperCase();
+    const ccaa = (instAddr.ccaa || '___________').toUpperCase();
+    const refCatastral = instAddr.refCatastral || '___________';
     const coordX = inst.coord_x || opInputs.coordX || opInputs.coord_x || '___________';
     const coordY = inst.coord_y || opInputs.coordY || opInputs.coord_y || '___________';
 
