@@ -12,6 +12,7 @@ import {
     calculatePayback,
     calculateRes080,
     calculateRes080Estimated,
+    calculateRes080FromEmissions,
     calculateHybridization,
     FUEL_PRICES,
     getUByYear,
@@ -101,6 +102,16 @@ const INITIAL_INPUTS = {
     insulationState: 'sin_aislamiento',
     reformaParedes: false,
     
+    // Sub-modo del "CEE Aportado" en reforma: 'demanda' (estima por demanda de
+    // calefacción, comportamiento histórico) | 'emisiones' (calcula desde las
+    // emisiones de CO2 por consumo introducidas a mano). Default = demanda.
+    manualCeeMode: 'demanda',
+
+    // Superficies (m²) inicial y final del modo emisiones. Pueden diferir (CEEs de
+    // técnicos distintos). Vacías = se usa superficieCalefactable para ambas.
+    manualSupInicial: '',
+    manualSupFinal: '',
+
     // Campos de Emisiones Manuales (para modo Manual + Reforma)
     manualEmisionesAcsInicial: 0,
     manualEmisionesAcsFinal: 0,
@@ -329,6 +340,11 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
         }
     }, [result, lastSnapshot, currentSnapshot]);
 
+    // Apertura del modal de desglose RES080 (editable en modo emisiones). Se eleva aquí
+    // para que tanto el botón "Por Emisiones" del formulario como "Ver TABLA RES080" de
+    // resultados abran el MISMO modal.
+    const [showEficiencia, setShowEficiencia] = useState(false);
+
     const handleCalculate = () => {
         // Se eliminó la alerta bloqueante para permitir actualización fluida de cálculos en tiempo real
 
@@ -377,6 +393,10 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
             boilerAcsType: inputs.boilerAcsType || '',
             boilerHeatingType: inputs.boilerHeatingType || '',
             insulationState: inputs.insulationState || 'sin_aislamiento',
+
+            // Superficies inicial/final del modo emisiones (fallback a superficieCalefactable)
+            manualSupInicial: parseFloat(inputs.manualSupInicial) || 0,
+            manualSupFinal: parseFloat(inputs.manualSupFinal) || 0,
 
             // Sanitización Emisiones Manuales
             manualEmisionesAcsInicial: parseFloat(inputs.manualEmisionesAcsInicial) || 0,
@@ -508,6 +528,26 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
                         superficieCustom: sanitizedInputs.superficieCalefactable
                     });
                 }
+            } else if (inputs.demandMode === 'manual' && inputs.isReforma) {
+                // MODO CEE APORTADO + REFORMA → SIEMPRE por emisiones del CEE
+                // No tenemos el .xml pero sí las emisiones de CO2 por consumo (del CEE
+                // aportado). Calculamos consumo = emisiones / factor_paso con el mismo motor.
+                res080Data = calculateRes080FromEmissions({
+                    emiAcsIni: sanitizedInputs.manualEmisionesAcsInicial,
+                    emiAcsFin: sanitizedInputs.manualEmisionesAcsFinal,
+                    emiCalIni: sanitizedInputs.manualEmisionesCalefaccionInicial,
+                    emiCalFin: sanitizedInputs.manualEmisionesCalefaccionFinal,
+                    emiRefIni: sanitizedInputs.manualEmisionesRefrigeracionInicial,
+                    emiRefFin: sanitizedInputs.manualEmisionesRefrigeracionFinal,
+                    combAcsInicial: inputs.combustibleAcsInicial,
+                    combAcsFinal: inputs.combustibleAcsFinal,
+                    combCalefaccionInicial: inputs.combustibleCalefaccionInicial,
+                    combCalefaccionFinal: inputs.combustibleCalefaccionFinal,
+                    combRefrigeracionInicial: inputs.combustibleRefrigeracionInicial,
+                    combRefrigeracionFinal: inputs.combustibleRefrigeracionFinal,
+                    superficieInicial: sanitizedInputs.manualSupInicial || sanitizedInputs.superficieCalefactable,
+                    superficieFinal: sanitizedInputs.manualSupFinal || sanitizedInputs.manualSupInicial || sanitizedInputs.superficieCalefactable
+                });
             } else if (inputs.reformaType === 'estimated' || (inputs.demandMode === 'manual' && inputs.isReforma)) {
                 // MODO ESTIMATIVO MANUAL O CEE APORTADO
                 // El CEE aportado usa el mismo motor pero inyectando la demanda manual real en vez de calcularla
@@ -794,6 +834,7 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
                         onDemandModeChange={(mode) => setInputs(prev => ({...prev, demandMode: mode}))}
                         xmlDemandData={inputs.xmlDemandData}
                         onXmlDemandDataChange={(data) => setInputs(prev => ({...prev, xmlDemandData: data}))}
+                        onOpenEmisionesTable={() => setShowEficiencia(true)}
                         dbModels={dbModels}
                     />
                 </div>
@@ -801,10 +842,12 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
                 {/* Columna Derecha: Resultados (en móvil va ARRIBA — acciones accesibles primero) */}
                 <div className="lg:col-span-5 order-1 lg:order-2">
                     <ResultsPanel
-                        result={result} 
-                        inputs={inputs} 
-                        onInputChange={setInputs} 
-                        showBrokergy={showBrokergy} 
+                        result={result}
+                        inputs={inputs}
+                        onInputChange={setInputs}
+                        showBrokergy={showBrokergy}
+                        showEficiencia={showEficiencia}
+                        setShowEficiencia={setShowEficiencia}
                         onAcceptOpportunity={['ENVIADA', 'PTE ENVIAR'].includes(inputs.estado?.toUpperCase()) && !associatedExpediente ? () => {
                             setManualExpNumber('');
                             setIsManualMode(false);

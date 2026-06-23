@@ -5,6 +5,7 @@ import { useModal } from '../../../context/ModalContext';
 import { buildSolicitudVerificacionHtml, SOLICITUD_DEFAULTS, vidaUtilDefaultSolicitud } from '../logic/solicitudVerificacion';
 import { fichaDe } from '../logic/anexoListado';
 import { computeExpedienteFinancials } from '../../expedientes/logic/expedienteFinancials';
+import { EnviarLoteDocModal } from './EnviarLoteDocModal';
 
 export function SolicitudVerificacionModal({ lote, onClose }) {
     const { showAlert } = useModal();
@@ -34,11 +35,7 @@ export function SolicitudVerificacionModal({ lote, onClose }) {
     const ver = lote.verificador || {};
     const verNotify = ver.notify_email || ver.email || '';
     const [sendOpen, setSendOpen] = useState(false);
-    const [sending, setSending] = useState(false);
-    const [recipient, setRecipient] = useState(verNotify);
-    const [sendMsg, setSendMsg] = useState(
-        `Estimados,\n\nAdjuntamos el Formulario de Solicitud de Verificación Estandarizada del lote ${lote.codigo || ''}, que recoge ${exps.length} actuaciones con un ahorro total de ${totalMwh.toLocaleString('es-ES', { maximumFractionDigits: 1 })} MWh/año, para su verificación.\n\nQuedamos a su disposición para cualquier aclaración.\n\nUn saludo,\nBROKERGY · Ingeniería Energética`
-    );
+    const sendMsg = `Estimados,\n\nAdjuntamos el Formulario de Solicitud de Verificación Estandarizada del lote ${lote.codigo || ''}, que recoge ${exps.length} actuaciones con un ahorro total de ${totalMwh.toLocaleString('es-ES', { maximumFractionDigits: 1 })} MWh/año, para su verificación.\n\nQuedamos a su disposición para cualquier aclaración.\n\nUn saludo,\nBROKERGY · Ingeniería Energética`;
 
     const upd = (patch) => setContacto(c => ({ ...c, ...patch }));
 
@@ -55,24 +52,6 @@ export function SolicitudVerificacionModal({ lote, onClose }) {
         } catch (err) {
             showAlert(err.response?.data?.error || 'Error al generar el PDF', 'Error', 'error');
         } finally { setGenerating(false); }
-    };
-
-    const handleEnviar = async () => {
-        const to = (recipient || '').trim();
-        if (!to) { showAlert('Indica un email de destinatario (verificador).', 'Falta email', 'warning'); return; }
-        setSending(true);
-        try {
-            await axios.post('/api/pdf/send-annex', {
-                to,
-                customMessage: sendMsg,
-                summaryData: { id: lote.codigo || 'LOTE', docType: 'Solicitud de Verificación Estandarizada' },
-                docs: [{ html, fileName: `${lote.codigo || 'LOTE'} - Solicitud Verificacion` }],
-            });
-            showAlert(`Enviado a ${to}: Solicitud de Verificación.`, 'Enviado', 'success');
-            setSendOpen(false);
-        } catch (err) {
-            showAlert(err.response?.data?.error || 'Error al enviar', 'Error', 'error');
-        } finally { setSending(false); }
     };
 
     const inputCls = 'w-full bg-bkg-surface border border-white/[0.08] rounded-xl px-3 py-2 text-sm text-white focus:border-brand/40 focus:outline-none';
@@ -135,35 +114,12 @@ export function SolicitudVerificacionModal({ lote, onClose }) {
                         <div dangerouslySetInnerHTML={{ __html: html }} />
                     </div>
 
-                    {/* Panel de envío al Verificador */}
-                    {sendOpen && (
-                        <div className="border border-brand/20 bg-brand/[0.06] rounded-xl p-4 space-y-3 animate-fade-in">
-                            <p className="text-[11px] uppercase tracking-widest font-black text-brand/70">Enviar al Verificador</p>
-                            <div>
-                                <label className="block text-[9px] uppercase tracking-widest font-black text-white/30 mb-1">Destinatario (email)</label>
-                                <input type="email" value={recipient} onChange={e => setRecipient(e.target.value)} placeholder="email@verificador"
-                                    className={`${inputCls} lowercase`} />
-                                <p className="text-[9px] text-white/30 mt-1">{ver.razon_social ? `Verificador del lote: ${ver.razon_social}.` : 'El lote aún no tiene verificador asignado.'} Cámbialo para hacer una prueba.</p>
-                            </div>
-                            <div>
-                                <label className="block text-[9px] uppercase tracking-widest font-black text-white/30 mb-1">Mensaje</label>
-                                <textarea value={sendMsg} onChange={e => setSendMsg(e.target.value)} rows={6} className={`${inputCls} normal-case resize-none`} />
-                            </div>
-                            <div className="flex justify-end gap-2">
-                                <button onClick={() => setSendOpen(false)} className="px-3 py-2 rounded-lg text-[11px] font-black uppercase tracking-widest text-white/50 hover:text-white transition-colors">Cancelar</button>
-                                <button onClick={handleEnviar} disabled={sending || !(recipient || '').trim()}
-                                    className="px-4 py-2 rounded-lg text-[11px] font-black uppercase tracking-widest bg-brand/15 text-brand border border-brand/30 hover:bg-brand/25 disabled:opacity-40 transition-all">
-                                    {sending ? 'Enviando…' : 'Confirmar envío'}
-                                </button>
-                            </div>
-                        </div>
-                    )}
                 </div>
 
                 <div className="flex items-center justify-between gap-3 p-6 border-t border-white/[0.06] flex-wrap">
                     <button onClick={onClose} className="px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest text-white/50 hover:text-white transition-colors">Cerrar</button>
                     <div className="flex items-center gap-2 flex-wrap">
-                        <button onClick={() => setSendOpen(s => !s)}
+                        <button onClick={() => setSendOpen(true)}
                             className="px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest border border-brand/30 text-brand bg-brand/10 hover:bg-brand/20 transition-all">
                             Enviar al Verificador
                         </button>
@@ -174,6 +130,17 @@ export function SolicitudVerificacionModal({ lote, onClose }) {
                     </div>
                 </div>
             </div>
+            {sendOpen && (
+                <EnviarLoteDocModal
+                    title="Enviar al Verificador"
+                    subtitle={`${lote.codigo || 'Lote'} · Solicitud de Verificación`}
+                    defaultEmail={verNotify}
+                    defaultMessage={sendMsg}
+                    summaryData={{ id: lote.codigo || 'LOTE', docType: 'Solicitud de Verificación Estandarizada' }}
+                    docs={[{ html, fileName: `${lote.codigo || 'LOTE'} - Solicitud Verificacion`, label: 'Solicitud' }]}
+                    onClose={() => setSendOpen(false)}
+                />
+            )}
         </div>,
         document.body
     );

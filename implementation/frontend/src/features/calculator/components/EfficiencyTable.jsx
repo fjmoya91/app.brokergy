@@ -1,6 +1,6 @@
 import React from 'react';
 
-export function EfficiencyTable({ res080, editable = false, onFuelChange = null }) {
+export function EfficiencyTable({ res080, editable = false, onFuelChange = null, onEmissionChange = null, emissionDraft = null, superficieDraft = null, onSuperficieChange = null }) {
     if (!res080 || !res080.details) return null;
 
     const { details, totalEnergiaInicialM2, totalEnergiaFinalM2, totalEnergiaInicialAno, totalEnergiaFinalAno, ahorroEnergiaFinalTotal } = res080;
@@ -34,15 +34,49 @@ export function EfficiencyTable({ res080, editable = false, onFuelChange = null 
     };
 
     const FuelSelector = ({ value, type, isFinal }) => {
-        if (!editable) return <span>{value}</span>;
+        if (!editable || !onFuelChange) return <span>{value}</span>;
         return (
             <select
                 value={value}
                 onChange={(e) => onFuelChange(type, isFinal, e.target.value)}
-                className="bg-black/20 border border-black/10 rounded px-2 py-0.5 text-xs font-bold focus:outline-none focus:border-black/30"
+                className="block w-full max-w-full truncate bg-black/20 border border-black/10 rounded px-2 py-1 text-[11px] font-bold focus:outline-none focus:border-black/30"
             >
                 {FUEL_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
             </select>
+        );
+    };
+
+    // Celda de emisiones: editable (input crudo) solo si se pasa onEmissionChange.
+    // El consumo se recalcula solo (= emisiones / factor), así que sigue de solo lectura.
+    // Si hay `emissionDraft`, el input muestra el texto crudo tecleado (admite coma
+    // decimal) en vez del número recalculado, para que no pelee con el re-render.
+    const EmissionCell = ({ value, type, isFinal }) => {
+        if (!editable || !onEmissionChange) return <span>{formatDec(value)}</span>;
+        const draft = emissionDraft?.[type]?.[isFinal ? 'fin' : 'ini'];
+        const shown = (draft !== undefined && draft !== null) ? draft : (value ?? '');
+        return (
+            <input
+                type="text"
+                inputMode="decimal"
+                value={shown}
+                onChange={(e) => onEmissionChange(type, isFinal, e.target.value)}
+                className="w-24 text-center bg-black/20 border border-black/10 rounded px-2 py-0.5 text-xs font-bold font-mono focus:outline-none focus:border-black/30"
+            />
+        );
+    };
+
+    // Celda de superficie (m²) — input solo si editable+onSuperficieChange; si no, texto.
+    // Render function (se llama, no <SupCell/>) para no remontar el input al teclear.
+    const SupCell = ({ value, isFinal }) => {
+        if (!editable || !onSuperficieChange) return <span>{value || '—'}</span>;
+        return (
+            <input
+                type="text"
+                inputMode="decimal"
+                value={value ?? ''}
+                onChange={(e) => onSuperficieChange(isFinal, e.target.value)}
+                className="w-24 text-center bg-black/20 border border-black/10 rounded px-2 py-0.5 text-xs font-bold font-mono focus:outline-none focus:border-black/30"
+            />
         );
     };
 
@@ -52,38 +86,41 @@ export function EfficiencyTable({ res080, editable = false, onFuelChange = null 
                 {label}
             </td>
             <td className={`py-2 px-3 text-sm text-center font-mono ${isTitle ? 'text-slate-900 bg-amber-500/10' : 'text-slate-800'}`}>
-                {isTitle && type ? <FuelSelector value={inicial} type={type} isFinal={false} /> : inicial}
+                {isTitle && type ? FuelSelector({ value: inicial, type, isFinal: false }) : inicial}
             </td>
             <td className={`py-2 px-3 text-sm text-center font-mono ${isTitle ? 'text-slate-900 bg-amber-500/10' : 'text-slate-800'}`}>
-                {isTitle && type ? <FuelSelector value={final} type={type} isFinal={true} /> : final}
+                {isTitle && type ? FuelSelector({ value: final, type, isFinal: true }) : final}
             </td>
         </tr>
     );
 
+    // Render function (NO componente JSX): se llama como función para que los <input>/
+    // <select> que devuelve sean elementos host estables y NO se remonten en cada tecla
+    // (eso provocaba pérdida de foco al escribir las emisiones).
     const CategoryBlock = ({ title, data, type }) => (
         <>
-            <Row 
-                label={title} 
-                inicial={data.fuelIni} 
-                final={data.fuelFin} 
-                isTitle={true} 
-                type={type}
-            />
-            <Row
-                label="Factor de paso de la fuente de energía seleccionada"
-                inicial={formatDec(data.factorIni, 3)}
-                final={formatDec(data.factorFin, 3)}
-            />
-            <Row 
-                label={`Emisiones de CO2 ${title.split(' para ')[1].toUpperCase()} (kgCO2/ m² año)`} 
-                inicial={formatDec(data.emissionsIni)} 
-                final={formatDec(data.emissionsFin)} 
-            />
-            <Row 
-                label={`Consumo de energía final para ${title.split(' para ')[1].toUpperCase()} (kWh/m² año)`} 
-                inicial={formatDec(data.energyIni)} 
-                final={formatDec(data.energyFin)} 
-            />
+            {Row({
+                label: title,
+                inicial: data.fuelIni,
+                final: data.fuelFin,
+                isTitle: true,
+                type,
+            })}
+            {Row({
+                label: "Factor de paso de la fuente de energía seleccionada",
+                inicial: formatDec(data.factorIni, 3),
+                final: formatDec(data.factorFin, 3),
+            })}
+            {Row({
+                label: `Emisiones de CO2 ${title.split(' para ')[1].toUpperCase()} (kgCO2/ m² año)`,
+                inicial: EmissionCell({ value: data.emissionsIni, type, isFinal: false }),
+                final: EmissionCell({ value: data.emissionsFin, type, isFinal: true }),
+            })}
+            {Row({
+                label: `Consumo de energía final para ${title.split(' para ')[1].toUpperCase()} (kWh/m² año)`,
+                inicial: formatDec(data.energyIni),
+                final: formatDec(data.energyFin),
+            })}
         </>
     );
 
@@ -103,9 +140,16 @@ export function EfficiencyTable({ res080, editable = false, onFuelChange = null 
                     </tr>
                 </thead>
                 <tbody>
-                    <CategoryBlock title="Tipo de combustible para ACS" data={details.acs} type="acs" />
-                    <CategoryBlock title="Tipo de combustible para calefacción" data={details.cal} type="cal" />
-                    <CategoryBlock title="Tipo de combustible para Refrigeración" data={details.ref} type="ref" />
+                    {superficieDraft && (
+                        <tr className="border-b border-slate-200 bg-orange-50/70">
+                            <td className="py-2 px-3 text-sm text-slate-700 font-bold">Superficie (m²) · base del ahorro</td>
+                            <td className="py-2 px-3 text-center font-mono text-slate-800">{SupCell({ value: superficieDraft.ini, isFinal: false })}</td>
+                            <td className="py-2 px-3 text-center font-mono text-slate-800">{SupCell({ value: superficieDraft.fin, isFinal: true })}</td>
+                        </tr>
+                    )}
+                    {CategoryBlock({ title: "Tipo de combustible para ACS", data: details.acs, type: "acs" })}
+                    {CategoryBlock({ title: "Tipo de combustible para calefacción", data: details.cal, type: "cal" })}
+                    {CategoryBlock({ title: "Tipo de combustible para Refrigeración", data: details.ref, type: "ref" })}
                     
                     {/* TOTALES */}
                     <tr className="border-t-2 border-slate-900">

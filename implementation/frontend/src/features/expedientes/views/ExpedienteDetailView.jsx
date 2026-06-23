@@ -11,11 +11,12 @@ import { ChecklistModule } from '../components/ChecklistModule';
 import { EconomicoModule } from '../components/EconomicoModule';
 import { ResumenEconomicoExpediente } from '../components/ResumenEconomicoExpediente';
 import { 
-    calculateSavings, 
+    calculateSavings,
     calculateFinancials,
     calculateRes080,
+    calculateRes080FromEmissions,
     calculateHybridization,
-    BOILER_EFFICIENCIES 
+    BOILER_EFFICIENCIES
 } from '../../calculator/logic/calculation';
 import { SeguimientoModule } from '../components/SeguimientoModule';
 import { ComunicacionesCertificador } from '../components/ComunicacionesCertificador';
@@ -388,9 +389,28 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
                 });
             }
         } else if (ficha === 'RES080') {
-            // Caso RES080: Basado en XML Inicial vs Final
-            if (cee.cee_inicial && cee.cee_final) {
-                const res080 = calculateRes080({
+            // Caso RES080: emisiones manuales (sin .xml) o XML Inicial vs Final.
+            // El backend puede guardar cee_source en MAYÚSCULAS → comparar en minúsculas.
+            const ceeSourceManual = String(cee.cee_source || '').toLowerCase() === 'manual';
+            let res080 = null;
+            if (ceeSourceManual && cee.emisiones_manual) {
+                const em = cee.emisiones_manual;
+                const supFallback = cee.superficie_manual || op.datos_calculo?.surface;
+                res080 = calculateRes080FromEmissions({
+                    emiAcsIni: em.acs_ini, emiAcsFin: em.acs_fin,
+                    emiCalIni: em.cal_ini, emiCalFin: em.cal_fin,
+                    emiRefIni: em.ref_ini, emiRefFin: em.ref_fin,
+                    combAcsInicial: cee.comb_acs_inicial,
+                    combAcsFinal: cee.comb_acs_final,
+                    combCalefaccionInicial: cee.comb_cal_inicial,
+                    combCalefaccionFinal: cee.comb_cal_final,
+                    combRefrigeracionInicial: cee.comb_ref_inicial,
+                    combRefrigeracionFinal: cee.comb_ref_final,
+                    superficieInicial: cee.superficie_manual_inicial || supFallback,
+                    superficieFinal: cee.superficie_manual_final || cee.superficie_manual_inicial || supFallback
+                });
+            } else if (cee.cee_inicial && cee.cee_final) {
+                res080 = calculateRes080({
                     xmlInicial: cee.cee_inicial,
                     xmlFinal: cee.cee_final,
                     combAcsInicial: cee.comb_acs_inicial,
@@ -401,12 +421,12 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
                     combRefrigeracionFinal: cee.comb_ref_final,
                     superficieCustom: cee.superficie_custom
                 });
-                if (res080) {
-                    savings = {
-                        ...res080,
-                        savingsKwh: res080.ahorroEnergiaFinalTotal // Normalizar nombre para Anexo I
-                    };
-                }
+            }
+            if (res080) {
+                savings = {
+                    ...res080,
+                    savingsKwh: res080.ahorroEnergiaFinalTotal // Normalizar nombre para Anexo I
+                };
             }
         }
 

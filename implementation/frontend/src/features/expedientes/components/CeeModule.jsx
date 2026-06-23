@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import axios from 'axios';
 import { parseCeeXml } from '../../calculator/logic/xmlCeeParser';
-import { FACTORES_PASO, calculateRes080 } from '../../calculator/logic/calculation';
+import { FACTORES_PASO, calculateRes080, calculateRes080FromEmissions } from '../../calculator/logic/calculation';
 import { EfficiencyTable } from '../../calculator/components/EfficiencyTable';
 import { CeeDocumentsGrid } from './CeeDocumentsGrid';
 import { buildCertApproveMessage } from '../logic/certMessages';
@@ -340,6 +340,15 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
             comb_cal_final:   normalizeCombKey(saved.comb_cal_final)   || 'Electricidad peninsular',
             comb_ref_inicial: normalizeCombKey(saved.comb_ref_inicial) || 'Electricidad peninsular',
             comb_ref_final:   normalizeCombKey(saved.comb_ref_final)   || 'Electricidad peninsular',
+            // Fuente del cálculo RES080: 'xml' (desde .xml) | 'manual' (emisiones a mano).
+            // El backend puede haber guardado el string en MAYÚSCULAS → comparar en minúsculas.
+            cee_source: (String(saved.cee_source || '').toLowerCase() === 'manual') ? 'manual' : 'xml',
+            emisiones_manual: saved.emisiones_manual || { acs_ini: '', acs_fin: '', cal_ini: '', cal_fin: '', ref_ini: '', ref_fin: '' },
+            // Superficie inicial y final (pueden diferir; CEEs de técnicos distintos).
+            // Compat: si había una sola `superficie_manual`, se usa para ambas.
+            superficie_manual: saved.superficie_manual ?? '',
+            superficie_manual_inicial: saved.superficie_manual_inicial ?? saved.superficie_manual ?? '',
+            superficie_manual_final: saved.superficie_manual_final ?? saved.superficie_manual ?? '',
         };
     });
 
@@ -650,16 +659,77 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
         }
     };
 
-    const res080Data = isReforma && local.cee_inicial && local.cee_final ? calculateRes080({
-        xmlInicial: local.cee_inicial,
-        xmlFinal: local.cee_final,
-        combAcsInicial: local.comb_acs_inicial,
-        combAcsFinal: local.comb_acs_final,
-        combCalefaccionInicial: local.comb_cal_inicial,
-        combCalefaccionFinal: local.comb_cal_final,
-        combRefrigeracionInicial: local.comb_ref_inicial,
-        combRefrigeracionFinal: local.comb_ref_final
-    }) : null;
+    // Fuente manual (sin .xml): comparar en minúsculas por la normalización del backend.
+    const isManualSource = String(local.cee_source || '').toLowerCase() === 'manual';
+
+    const res080Data = (() => {
+        if (!isReforma) return null;
+        if (isManualSource) {
+            const em = local.emisiones_manual || {};
+            const supFallback = local.superficie_manual || expediente?.oportunidades?.datos_calculo?.surface;
+            return calculateRes080FromEmissions({
+                emiAcsIni: em.acs_ini, emiAcsFin: em.acs_fin,
+                emiCalIni: em.cal_ini, emiCalFin: em.cal_fin,
+                emiRefIni: em.ref_ini, emiRefFin: em.ref_fin,
+                combAcsInicial: local.comb_acs_inicial,
+                combAcsFinal: local.comb_acs_final,
+                combCalefaccionInicial: local.comb_cal_inicial,
+                combCalefaccionFinal: local.comb_cal_final,
+                combRefrigeracionInicial: local.comb_ref_inicial,
+                combRefrigeracionFinal: local.comb_ref_final,
+                superficieInicial: local.superficie_manual_inicial || supFallback,
+                superficieFinal: local.superficie_manual_final || local.superficie_manual_inicial || supFallback
+            });
+        }
+        if (local.cee_inicial && local.cee_final) {
+            return calculateRes080({
+                xmlInicial: local.cee_inicial,
+                xmlFinal: local.cee_final,
+                combAcsInicial: local.comb_acs_inicial,
+                combAcsFinal: local.comb_acs_final,
+                combCalefaccionInicial: local.comb_cal_inicial,
+                combCalefaccionFinal: local.comb_cal_final,
+                combRefrigeracionInicial: local.comb_ref_inicial,
+                combRefrigeracionFinal: local.comb_ref_final
+            });
+        }
+        return null;
+    })();
+
+    // Mostrar con coma decimal (ES). Normalizar lo tecleado a coma.
+    const ceeComma = (v) => (v === '' || v === null || v === undefined) ? '' : String(v).replace('.', ',');
+    const ceeNormComma = (s) => (String(s).includes(',') ? String(s) : String(s).replace('.', ','));
+
+    // Draft crudo para los inputs de emisiones (modo manual): lo que se teclea, sin
+    // recalcular, para que el input no pelee con el re-render del motor (con coma decimal).
+    const emissionDraft = {
+        acs: { ini: ceeComma(local.emisiones_manual?.acs_ini), fin: ceeComma(local.emisiones_manual?.acs_fin) },
+        cal: { ini: ceeComma(local.emisiones_manual?.cal_ini), fin: ceeComma(local.emisiones_manual?.cal_fin) },
+        ref: { ini: ceeComma(local.emisiones_manual?.ref_ini), fin: ceeComma(local.emisiones_manual?.ref_fin) },
+    };
+
+    // type ∈ 'acs'|'cal'|'ref' (igual que EfficiencyTable.onFuelChange)
+    const handleEmissionChange = (type, isFinal, value) => {
+        const key = `${type}_${isFinal ? 'fin' : 'ini'}`;
+        const nextLocal = {
+            ...local,
+            emisiones_manual: { ...(local.emisiones_manual || {}), [key]: ceeNormComma(value) },
+        };
+        setLocal(nextLocal);
+        onSave({ cee: nextLocal });
+    };
+
+    // Superficie inicial/final (modo manual), editable desde la fila de la tabla.
+    const handleSuperficieChange = (isFinal, value) => {
+        const key = isFinal ? 'superficie_manual_final' : 'superficie_manual_inicial';
+        const nextLocal = { ...local, [key]: ceeNormComma(value) };
+        setLocal(nextLocal);
+        onSave({ cee: nextLocal });
+    };
+    const supDraft = {
+        ini: ceeComma(local.superficie_manual_inicial),
+        fin: ceeComma(local.superficie_manual_final),
+    };
 
     const renderRes060 = () => (
         <CeeDocumentsGrid
@@ -813,25 +883,46 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                 onApproveCee={openApprovePopup}
             />
 
+            {/* En modo MANUAL (sin .xml): aviso de que todo (incluida la superficie) se edita en la tabla */}
+            {isManualSource && (
+                <div className="bg-amber-500/5 border border-amber-500/20 rounded-2xl p-4 flex items-center gap-3">
+                    <div className="flex items-center gap-2 text-amber-400 text-[10px] font-black uppercase tracking-widest shrink-0">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                        </svg>
+                        CEE Manual (sin XML)
+                    </div>
+                    <p className="text-[10px] text-slate-500 leading-relaxed">
+                        Edita en la tabla la <b className="text-slate-300">superficie</b> (inicial/final, pueden diferir entre CEEs), el <b className="text-slate-300">combustible</b> y las <b className="text-slate-300">emisiones</b> de CO₂ de cada consumo; el consumo y el ahorro se recalculan con el factor de paso.
+                    </p>
+                </div>
+            )}
+
             {res080Data ? (
                 <div className="bg-slate-900 border border-white/10 rounded-[2rem] p-8 shadow-2xl overflow-hidden">
                     <h4 className="text-sm font-black text-white uppercase tracking-widest mb-8 flex items-center gap-2">
                         <span className="w-2 h-2 bg-brand rounded-full" /> Resultados Comparativos
                     </h4>
-                    <EfficiencyTable 
-                        res080={res080Data} 
-                        editable={editMode} 
+                    <EfficiencyTable
+                        res080={res080Data}
+                        editable={editMode}
                         onFuelChange={(type, isFinal, value) => {
                             const key = `comb_${type}_${isFinal ? 'final' : 'inicial'}`;
                             const nextLocal = { ...local, [key]: value };
                             setLocal(nextLocal);
                             onSave({ cee: nextLocal });
                         }}
+                        onEmissionChange={isManualSource ? handleEmissionChange : undefined}
+                        emissionDraft={isManualSource ? emissionDraft : undefined}
+                        superficieDraft={isManualSource ? supDraft : undefined}
+                        onSuperficieChange={isManualSource ? handleSuperficieChange : undefined}
                     />
                 </div>
             ) : (
                 <div className="p-20 text-center bg-white/[0.01] border border-dashed border-white/10 rounded-[3rem]">
-                    <p className="text-white/20 font-black uppercase tracking-widest text-xs">Sube los archivos XML para ver resultados</p>
+                    <p className="text-white/20 font-black uppercase tracking-widest text-xs">
+                        {isManualSource ? 'Activa "Editar Módulo" e introduce las emisiones del CEE' : 'Sube los archivos XML para ver resultados'}
+                    </p>
                 </div>
             )}
         </div>
@@ -1081,6 +1172,23 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                             ))}
                         </div>
                     )}
+                    {/* Reforma RES080: fuente del cálculo — desde .xml o emisiones a mano */}
+                    {isReforma && (
+                        <div className={`flex items-center gap-1 bg-white/[0.03] p-1 rounded-xl border border-white/[0.06] ${!editMode ? 'opacity-50' : ''}`}>
+                            {[{ id: 'xml', label: 'Auto XML' }, { id: 'manual', label: 'Manual' }].map(t => (
+                                <button
+                                    key={t.id}
+                                    disabled={!editMode}
+                                    onClick={() => setLocal(p => ({ ...p, cee_source: t.id }))}
+                                    className={`px-4 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${
+                                        (String(local.cee_source || '').toLowerCase() === t.id) ? 'bg-brand text-black' : 'text-white/30'
+                                    } ${!editMode ? 'cursor-not-allowed' : 'cursor-pointer'}`}
+                                >
+                                    {t.label}
+                                </button>
+                            ))}
+                        </div>
+                    )}
                     <SearchableSelect
                         value={local.certificador_id || ''}
                         onChange={v => setLocal(p => ({ ...p, certificador_id: v || null }))}
@@ -1109,6 +1217,11 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                                         comb_cal_final: 'Electricidad peninsular',
                                         comb_ref_inicial: 'Electricidad peninsular',
                                         comb_ref_final: 'Electricidad peninsular',
+                                        cee_source: 'xml',
+                                        emisiones_manual: { acs_ini: '', acs_fin: '', cal_ini: '', cal_fin: '', ref_ini: '', ref_fin: '' },
+                                        superficie_manual: '',
+                                        superficie_manual_inicial: '',
+                                        superficie_manual_final: '',
                                         cee_files: {
                                             inicial: { pdf: null, xml: null, cex: null, registro: null, etiqueta: null, otros: [] },
                                             final: { pdf: null, xml: null, cex: null, registro: null, etiqueta: null, otros: [] }

@@ -613,7 +613,9 @@ export function calculateRes080({
     combCalefaccionFinal,
     combRefrigeracionInicial,
     combRefrigeracionFinal,
-    superficieCustom
+    superficieCustom,
+    superficieInicial,
+    superficieFinal
 }) {
     if (!xmlInicial || !xmlFinal) return null;
 
@@ -639,8 +641,16 @@ export function calculateRes080({
     const totalEnergiaFinalM2 = energiaAcsFinal + energiaCalefFinal + energiaRefFinal;
     const ahorroEnergiaFinalM2 = Math.max(0, totalEnergiaInicialM2 - totalEnergiaFinalM2);
 
-    // Usar la superficie custom provista o la del XML inicial
-    const sup = parseFloat(superficieCustom) || xmlInicial.superficieHabitable || 120; 
+    // Superficie por lado: inicial y final pueden diferir (CEEs de técnicos distintos).
+    // Fallbacks: superficie de cada lado → superficieCustom (común) → superficie del XML → 120.
+    const supBase = parseFloat(superficieCustom) || xmlInicial.superficieHabitable || 120;
+    const supIni = parseFloat(superficieInicial) || supBase;
+    const supFin = parseFloat(superficieFinal) || parseFloat(superficieCustom) || xmlFinal.superficieHabitable || supIni;
+
+    // El ahorro anual es la diferencia de consumos anuales, cada uno con SU superficie.
+    const totalEnergiaInicialAno = totalEnergiaInicialM2 * supIni;
+    const totalEnergiaFinalAno = totalEnergiaFinalM2 * supFin;
+    const ahorroEnergiaFinalAno = Math.max(0, totalEnergiaInicialAno - totalEnergiaFinalAno);
 
     return {
         energiaAcsInicial,
@@ -651,11 +661,13 @@ export function calculateRes080({
         energiaRefFinal,
         totalEnergiaInicialM2,
         totalEnergiaFinalM2,
-        totalEnergiaInicialAno: totalEnergiaInicialM2 * sup,
-        totalEnergiaFinalAno: totalEnergiaFinalM2 * sup,
-        ahorroEnergiaFinalTotal: ahorroEnergiaFinalM2 * sup,
+        totalEnergiaInicialAno,
+        totalEnergiaFinalAno,
+        ahorroEnergiaFinalTotal: ahorroEnergiaFinalAno,
         ahorroM2: ahorroEnergiaFinalM2,
-        superficieAplicada: sup,
+        superficieAplicada: supIni,
+        superficieInicialAplicada: supIni,
+        superficieFinalAplicada: supFin,
         // Detalles para la tabla de eficiencia
         details: {
             acs: {
@@ -690,6 +702,50 @@ export function calculateRes080({
             }
         }
     };
+}
+
+// ============================================================================
+// CÁLCULO DE AHORROS RES080 (ENERGÍA FINAL DESDE EMISIONES INTRODUCIDAS A MANO)
+// ============================================================================
+// Cuando NO tenemos el .xml del CEE pero sí las emisiones de CO2 por consumo
+// (vienen en el propio CEE aportado), construimos dos "CEE sintéticos" con esas
+// emisiones y delegamos en calculateRes080. Así reutilizamos el mismo motor
+// (consumo = emisiones / factor_paso; ahorro = ΣEi − ΣEf) sin duplicar lógica.
+export function calculateRes080FromEmissions({
+    emiAcsIni, emiAcsFin, emiCalIni, emiCalFin, emiRefIni, emiRefFin,
+    combAcsInicial, combAcsFinal,
+    combCalefaccionInicial, combCalefaccionFinal,
+    combRefrigeracionInicial, combRefrigeracionFinal,
+    superficie, superficieInicial, superficieFinal
+}) {
+    const num = (v) => {
+        if (typeof v === 'number') return isNaN(v) ? 0 : v;
+        if (v === null || v === undefined) return 0;
+        // Admite coma decimal (ej. "105,83"); si hay coma, los puntos son miles.
+        let s = String(v).trim();
+        if (s.includes(',')) s = s.replace(/\./g, '').replace(',', '.');
+        const n = parseFloat(s);
+        return isNaN(n) ? 0 : n;
+    };
+    // Superficie inicial y final pueden diferir (CEEs de técnicos distintos). Si no se
+    // pasan por separado, se usa la común `superficie` para ambas.
+    const supIni = num(superficieInicial ?? superficie) || 120;
+    const supFin = num(superficieFinal ?? superficie) || supIni;
+    const mk = (acs, cal, ref, s) => ({
+        emisionesACS: num(acs),
+        emisionesCalefaccion: num(cal),
+        emisionesRefrigeracion: num(ref),
+        superficieHabitable: s,
+    });
+    return calculateRes080({
+        xmlInicial: mk(emiAcsIni, emiCalIni, emiRefIni, supIni),
+        xmlFinal:   mk(emiAcsFin, emiCalFin, emiRefFin, supFin),
+        combAcsInicial, combAcsFinal,
+        combCalefaccionInicial, combCalefaccionFinal,
+        combRefrigeracionInicial, combRefrigeracionFinal,
+        superficieInicial: supIni,
+        superficieFinal: supFin,
+    });
 }
 
 // ============================================================================

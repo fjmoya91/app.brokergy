@@ -11,7 +11,7 @@ import { SaveOpportunityModal } from './SaveOpportunityModal';
 import { ClienteFormModal } from '../../clientes/components/ClienteFormModal';
 import { ClienteDetailModal } from '../../clientes/components/ClienteDetailModal';
 import { generateBrokergyReport } from '../logic/pdfGenerator';
-import { calculateSavings, calculateFinancials } from '../logic/calculation';
+import { calculateSavings, calculateFinancials, calculateRes080FromEmissions, getFactorPaso } from '../logic/calculation';
 import { EfficiencyTable } from './EfficiencyTable';
 import realCasesData from '../data/real_cases_db.json';
 import { DocsAdminModal } from './DocsAdminModal';
@@ -233,7 +233,7 @@ function ResultCard({ title, value, unit, subtext, color = 'cyan' }) {
     );
 }
 
-export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAcceptOpportunity }) {
+export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAcceptOpportunity, showEficiencia, setShowEficiencia }) {
     const { user } = useAuth();
     const { showAlert } = useModal();
     const [showComparative, setShowComparative] = React.useState(false);
@@ -242,7 +242,14 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
     const [showAerotermia, setShowAerotermia] = React.useState(false);
     const [showProposal, setShowProposal] = React.useState(false);
     const [showSaveOpportunity, setShowSaveOpportunity] = React.useState(false);
-    const [showEfficiency, setShowEfficiency] = React.useState(false);
+    // Apertura del modal de desglose: usa el estado elevado (CalculatorView) si se pasa,
+    // para que tanto "Ver TABLA RES080" como "Por Emisiones" abran el mismo modal.
+    const [showEfficiencyInternal, setShowEfficiencyInternal] = React.useState(false);
+    const showEfficiency = showEficiencia !== undefined ? showEficiencia : showEfficiencyInternal;
+    const setShowEfficiency = setShowEficiencia || setShowEfficiencyInternal;
+    // Borrador editable (solo modo emisiones). Al confirmar se vuelca a inputs.
+    const [emiDraft, setEmiDraft] = React.useState(null);
+    const isEmisionesMode = inputs?.demandMode === 'manual' && inputs?.isReforma;
     const [clienteModalOp, setClienteModalOp] = React.useState(null);
     const [clienteDetailId, setClienteDetailId] = React.useState(null);
     const [pendingAcceptance, setPendingAcceptance] = React.useState(false);
@@ -254,6 +261,110 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
     // Plegado del Estudio de Viabilidad SOLO en móvil (en PC siempre visible vía md:block)
     const [showViability, setShowViability] = useState(false);
     const tableRef = useRef(null);
+
+    // Mostrar un número con coma decimal (ES). Cadena vacía si no hay valor.
+    const toCommaStr = (v) => {
+        if (v === '' || v === null || v === undefined) return '';
+        return String(v).replace('.', ',');
+    };
+
+    // Al abrir el modal en modo emisiones, sembrar el borrador desde los inputs actuales
+    // (con coma decimal para que se muestre "14,35" y no "14.35").
+    React.useEffect(() => {
+        if (showEfficiency && isEmisionesMode) {
+            const supBase = inputs.superficieCalefactable || inputs.superficie || '';
+            setEmiDraft({
+                emi: {
+                    acsIni: toCommaStr(inputs.manualEmisionesAcsInicial), acsFin: toCommaStr(inputs.manualEmisionesAcsFinal),
+                    calIni: toCommaStr(inputs.manualEmisionesCalefaccionInicial), calFin: toCommaStr(inputs.manualEmisionesCalefaccionFinal),
+                    refIni: toCommaStr(inputs.manualEmisionesRefrigeracionInicial), refFin: toCommaStr(inputs.manualEmisionesRefrigeracionFinal),
+                },
+                comb: {
+                    acsIni: inputs.combustibleAcsInicial, acsFin: inputs.combustibleAcsFinal,
+                    calIni: inputs.combustibleCalefaccionInicial, calFin: inputs.combustibleCalefaccionFinal,
+                    refIni: inputs.combustibleRefrigeracionInicial, refFin: inputs.combustibleRefrigeracionFinal,
+                },
+                supIni: toCommaStr(inputs.manualSupInicial || supBase),
+                supFin: toCommaStr(inputs.manualSupFinal || inputs.manualSupInicial || supBase),
+                // Datos para estimar el CEE FINAL (demanda del CEE inicial + SCOP de la aerotermia).
+                est: {
+                    demCal: toCommaStr(inputs.manualDemand || ''),
+                    demAcs: toCommaStr(inputs.manualDemandAcs || 8.8),
+                    scopCal: toCommaStr(inputs.scopHeating || ''),
+                    scopAcs: toCommaStr(inputs.scopAcs || ''),
+                },
+            });
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [showEfficiency]);
+
+    // Parse tolerante a coma decimal ("10,67" → 10.67) al volcar el borrador a inputs.
+    const toNumEmi = (v) => {
+        if (typeof v === 'number') return isNaN(v) ? 0 : v;
+        if (v === null || v === undefined || v === '') return 0;
+        let s = String(v).trim();
+        if (s.includes(',')) s = s.replace(/\./g, '').replace(',', '.');
+        const n = parseFloat(s);
+        return isNaN(n) ? 0 : n;
+    };
+    // Normaliza lo tecleado para mostrar coma (convierte un punto decimal en coma).
+    const normComma = (s) => (s.includes(',') ? s : s.replace('.', ','));
+
+    // Estima la columna FINAL del CEE cuando aún no tenemos el CEE final:
+    // consumo_final = demanda / SCOP (aerotermia) ; emisiones = consumo · factor_electricidad.
+    // ACS: si NO se cambia, se mantiene la del CEE inicial. Refrigeración: se mantiene la inicial.
+    const estimarFinal = () => {
+        const changeAcs = inputs?.changeAcs || inputs?.incluir_acs;
+        const fElec = getFactorPaso('Electricidad peninsular'); // 0.331
+        const r2 = (n) => Math.round(n * 100) / 100;
+        setEmiDraft(d => {
+            const est = d.est || {};
+            const demCal = toNumEmi(est.demCal);
+            const demAcs = toNumEmi(est.demAcs);
+            const scopCal = toNumEmi(est.scopCal) || 3.0;
+            const scopAcs = toNumEmi(est.scopAcs) || scopCal;
+            const emiCalFin = (demCal / scopCal) * fElec;
+            const emiAcsFin = changeAcs ? (demAcs / scopAcs) * fElec : null;
+            return {
+                ...d,
+                comb: {
+                    ...d.comb,
+                    calFin: 'Electricidad peninsular',
+                    acsFin: changeAcs ? 'Electricidad peninsular' : d.comb.acsIni,
+                    refFin: d.comb.refIni,
+                },
+                emi: {
+                    ...d.emi,
+                    calFin: toCommaStr(r2(emiCalFin)),
+                    // ACS: estimada si se cambia; si no, igual que el inicial
+                    acsFin: changeAcs ? toCommaStr(r2(emiAcsFin)) : d.emi.acsIni,
+                    // Refrigeración: se mantiene la inicial
+                    refFin: d.emi.refIni,
+                },
+            };
+        });
+    };
+
+    const confirmEmisiones = () => {
+        const d = emiDraft;
+        if (!d) { setShowEfficiency(false); return; }
+        const supIniNum = toNumEmi(d.supIni);
+        onInputChange(prev => ({
+            ...prev,
+            combustibleAcsInicial: d.comb.acsIni, combustibleAcsFinal: d.comb.acsFin,
+            combustibleCalefaccionInicial: d.comb.calIni, combustibleCalefaccionFinal: d.comb.calFin,
+            combustibleRefrigeracionInicial: d.comb.refIni, combustibleRefrigeracionFinal: d.comb.refFin,
+            manualEmisionesAcsInicial: toNumEmi(d.emi.acsIni), manualEmisionesAcsFinal: toNumEmi(d.emi.acsFin),
+            manualEmisionesCalefaccionInicial: toNumEmi(d.emi.calIni), manualEmisionesCalefaccionFinal: toNumEmi(d.emi.calFin),
+            manualEmisionesRefrigeracionInicial: toNumEmi(d.emi.refIni), manualEmisionesRefrigeracionFinal: toNumEmi(d.emi.refFin),
+            manualSupInicial: supIniNum, manualSupFinal: toNumEmi(d.supFin),
+            // La superficie INICIAL (vivienda real) sincroniza con el resto del cálculo.
+            superficieCalefactable: supIniNum, superficie: supIniNum,
+            manualCeeMode: 'emisiones',
+        }));
+        // El recálculo (presupuestos/CAE) lo dispara el useEffect([inputs]) del padre.
+        setShowEfficiency(false);
+    };
 
     // Etiquetas de IVA. Empresa/autónomo en modo "Sin IVA" => cifras netas => "(IVA NO INCLUIDO)".
     const ivaTag = (fin) => {
@@ -534,7 +645,10 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
 
                     {/* ACTION BUTTONS: Always Visible at top level */}
                     {result.financials && (() => {
-                        const showRes080Button = result.res080 && inputs.demandMode === 'real';
+                        const showRes080Button = result.res080 && (
+                            inputs.demandMode === 'real' ||
+                            (inputs.demandMode === 'manual' && inputs.isReforma)
+                        );
                         return (
                         <div className={`grid grid-cols-2 ${showRes080Button ? 'lg:grid-cols-5' : 'sm:grid-cols-4'} gap-2 mb-4 animate-fade-in`}>
                             <button
@@ -1023,17 +1137,38 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
                 }}
             />
 
-            {showEfficiency && result.res080 && (
-                <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in"
-                    onClick={() => setShowEfficiency(false)}
+            {showEfficiency && (result.res080 || isEmisionesMode) && (() => {
+                // En modo emisiones la tabla es EDITABLE y se calcula desde el borrador
+                // (no del resultado), para no recalcular todo en cada tecla. Al confirmar
+                // se vuelca a inputs. En el resto de modos, tabla de solo lectura.
+                const editable = isEmisionesMode && !!emiDraft;
+                const draftRes = editable ? calculateRes080FromEmissions({
+                    emiAcsIni: emiDraft.emi.acsIni, emiAcsFin: emiDraft.emi.acsFin,
+                    emiCalIni: emiDraft.emi.calIni, emiCalFin: emiDraft.emi.calFin,
+                    emiRefIni: emiDraft.emi.refIni, emiRefFin: emiDraft.emi.refFin,
+                    combAcsInicial: emiDraft.comb.acsIni, combAcsFinal: emiDraft.comb.acsFin,
+                    combCalefaccionInicial: emiDraft.comb.calIni, combCalefaccionFinal: emiDraft.comb.calFin,
+                    combRefrigeracionInicial: emiDraft.comb.refIni, combRefrigeracionFinal: emiDraft.comb.refFin,
+                    superficieInicial: emiDraft.supIni, superficieFinal: emiDraft.supFin
+                }) : result.res080;
+                const setComb = (type, isFinal, value) => setEmiDraft(d => ({ ...d, comb: { ...d.comb, [type + (isFinal ? 'Fin' : 'Ini')]: value } }));
+                const setEmi = (type, isFinal, value) => setEmiDraft(d => ({ ...d, emi: { ...d.emi, [type + (isFinal ? 'Fin' : 'Ini')]: normComma(value) } }));
+                const eDraft = editable ? {
+                    acs: { ini: emiDraft.emi.acsIni, fin: emiDraft.emi.acsFin },
+                    cal: { ini: emiDraft.emi.calIni, fin: emiDraft.emi.calFin },
+                    ref: { ini: emiDraft.emi.refIni, fin: emiDraft.emi.refFin },
+                } : null;
+                return (
+                <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-fade-in"
+                    onClick={() => { if (!editable) setShowEfficiency(false); }}
                 >
-                    <div className="bg-white rounded-3xl overflow-hidden shadow-2xl relative animate-scale-up max-w-4xl w-full border border-white/20"
+                    <div className="bg-white rounded-3xl overflow-hidden shadow-2xl relative animate-scale-up max-w-4xl w-full max-h-[92vh] flex flex-col border border-white/20"
                         onClick={(e) => e.stopPropagation()}
                     >
-                        <div className="px-8 py-5 bg-slate-900 border-b border-white/10 flex justify-between items-center">
+                        <div className="px-8 py-5 bg-slate-900 border-b border-white/10 flex justify-between items-center shrink-0">
                             <h3 className="text-white font-black uppercase tracking-widest flex items-center gap-3 text-lg">
                                 <span className="text-amber-500 text-2xl">📊</span>
-                                DESGLOSE ENERGÉTICO RES080
+                                DESGLOSE ENERGÉTICO RES080{editable ? ' · EDITAR EMISIONES' : ''}
                             </h3>
                             <button
                                 onClick={() => setShowEfficiency(false)}
@@ -1044,18 +1179,86 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
                                 </svg>
                             </button>
                         </div>
-                        <div className="p-8 bg-white overflow-auto max-h-[85vh]">
-                             <EfficiencyTable res080={result.res080} />
-                             
-                             <div className="mt-8 p-4 bg-slate-50 rounded-xl border border-slate-200">
-                                <p className="text-[11px] text-slate-500 italic leading-relaxed text-center font-medium">
-                                    Este desglose corresponde a la comparativa técnica entre los certificados energéticos (XML) aportados para la situación inicial y propuesta de reforma.
+                        <div className="p-8 bg-white overflow-auto flex-1">
+                             {editable && (
+                                <p className="mb-4 text-[11px] text-slate-500 leading-relaxed">
+                                    Edita combustible, <b>emisiones</b> y <b>superficie</b> (inicial/final) en la tabla. La superficie es la base del ahorro (emisiones × superficie) y puede diferir entre el CEE inicial y el final. Al confirmar se actualiza todo el cálculo.
                                 </p>
-                             </div>
+                             )}
+                             {/* Estimar el CEE FINAL si aún no lo tenemos (con la aerotermia) */}
+                             {editable && emiDraft?.est && (
+                                <div className="mb-5 p-4 rounded-xl bg-blue-50 border border-blue-200">
+                                    <div className="flex items-center gap-2 mb-3">
+                                        <span className="text-blue-500 text-lg">⚡</span>
+                                        <div className="flex flex-col leading-tight">
+                                            <span className="text-[11px] font-black text-slate-800 uppercase tracking-widest">¿Aún no tienes el CEE FINAL?</span>
+                                            <span className="text-[9px] font-bold text-blue-500/70 uppercase tracking-widest">Estímalo con la aerotermia · consumo = demanda / SCOP</span>
+                                        </div>
+                                    </div>
+                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                                        {[
+                                            { key: 'demCal', label: 'Demanda calef.', unit: 'kWh/m²·año' },
+                                            { key: 'scopCal', label: 'SCOP calef.', unit: '' },
+                                            { key: 'demAcs', label: 'Demanda ACS', unit: 'kWh/m²·año' },
+                                            { key: 'scopAcs', label: 'SCOP ACS', unit: '' },
+                                        ].map(f => (
+                                            <div key={f.key}>
+                                                <label className="block text-[8px] font-black text-slate-500 uppercase tracking-[0.15em] mb-1">{f.label}</label>
+                                                <input
+                                                    type="text"
+                                                    inputMode="decimal"
+                                                    className="w-full bg-white border border-blue-300 rounded-lg h-9 text-[13px] font-mono font-bold text-slate-900 text-center focus:outline-none focus:border-blue-500"
+                                                    placeholder="—"
+                                                    value={emiDraft.est[f.key] ?? ''}
+                                                    onChange={e => { const v = normComma(e.target.value); setEmiDraft(d => ({ ...d, est: { ...d.est, [f.key]: v } })); }}
+                                                />
+                                            </div>
+                                        ))}
+                                    </div>
+                                    <div className="flex items-center justify-between gap-3 mt-3 flex-wrap">
+                                        <p className="text-[10px] text-slate-500 leading-relaxed flex-1 min-w-[200px]">
+                                            La demanda la lees del CEE inicial. {(inputs?.changeAcs || inputs?.incluir_acs) ? 'Se estima también el ACS (se cambia a aerotermia).' : 'El ACS se mantiene igual que el inicial (no se cambia).'} La refrigeración se mantiene. Rellena la columna FINAL; puedes ajustarla luego.
+                                        </p>
+                                        <button onClick={estimarFinal} className="shrink-0 flex items-center gap-2 px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-[11px] font-black uppercase tracking-widest shadow-lg shadow-blue-500/20 transition-all active:scale-95">
+                                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                                            Rellenar FINAL
+                                        </button>
+                                    </div>
+                                </div>
+                             )}
+                             <EfficiencyTable
+                                res080={draftRes}
+                                editable={editable}
+                                onFuelChange={editable ? setComb : null}
+                                onEmissionChange={editable ? setEmi : null}
+                                emissionDraft={eDraft}
+                                superficieDraft={editable ? { ini: emiDraft.supIni, fin: emiDraft.supFin } : null}
+                                onSuperficieChange={editable ? (isFinal, value) => { const v = normComma(value); setEmiDraft(d => ({ ...d, [isFinal ? 'supFin' : 'supIni']: v })); } : null}
+                             />
+
+                             {!editable && (
+                                <div className="mt-8 p-4 bg-slate-50 rounded-xl border border-slate-200">
+                                   <p className="text-[11px] text-slate-500 italic leading-relaxed text-center font-medium">
+                                       Este desglose corresponde a la comparativa técnica entre los certificados energéticos (XML) aportados para la situación inicial y propuesta de reforma.
+                                   </p>
+                                </div>
+                             )}
                         </div>
+                        {editable && (
+                            <div className="px-8 py-4 bg-slate-50 border-t border-slate-200 flex justify-end gap-3 shrink-0">
+                                <button onClick={() => setShowEfficiency(false)} className="px-6 py-3 rounded-xl border border-slate-300 text-slate-500 text-[11px] font-black uppercase tracking-widest hover:bg-slate-100 transition-all">
+                                    Cancelar
+                                </button>
+                                <button onClick={confirmEmisiones} className="px-7 py-3 rounded-xl bg-orange-500 hover:bg-orange-400 text-white text-[11px] font-black uppercase tracking-widest shadow-lg shadow-orange-500/20 transition-all active:scale-95 flex items-center gap-2">
+                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>
+                                    Confirmar y recalcular
+                                </button>
+                            </div>
+                        )}
                     </div>
                 </div>
-            )}
+                );
+            })()}
             {/* Modal de Guardia para PDF: Obliga/Sugiere guardar antes de generar */}
             {showPdfGuard && (
                 <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-bkg-deep/80 backdrop-blur-md animate-fade-in" onClick={() => setShowPdfGuard(false)}>

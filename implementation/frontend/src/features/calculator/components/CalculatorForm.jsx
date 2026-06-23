@@ -12,12 +12,12 @@ import {
     AEROTHERMIA_MODELS,
     FACTORES_PASO,
     getScopFromModel,
-    getScopAcsFromModel
+    getScopAcsFromModel,
+    calculateRes080FromEmissions
 } from '../logic/calculation';
 import { PROVINCE_CLIMATE_MAP } from '../data/provinceMapping';
 import { useAuth } from '../../../context/AuthContext';
 import { parseCeeXml } from '../logic/xmlCeeParser';
-
 export function CalculatorForm({
     inputs,
     onInputChange,
@@ -28,6 +28,7 @@ export function CalculatorForm({
     onDemandModeChange,
     xmlDemandData,
     onXmlDemandDataChange,
+    onOpenEmisionesTable,
     dbModels = []
 }) {
     const { user } = useAuth();
@@ -38,6 +39,13 @@ export function CalculatorForm({
     const [xmlFinalError, setXmlFinalError] = useState(null);
     const [isDragging, setIsDragging] = useState(false);
     const [isDraggingFinal, setIsDraggingFinal] = useState(false);
+
+    // "Por emisiones" pone el modo y abre el modal de desglose RES080 (que vive en
+    // ResultsPanel, elevado a CalculatorView) donde se editan emisiones/combustible.
+    const openEmisionesTable = () => {
+        onInputChange(prev => ({ ...prev, manualCeeMode: 'emisiones' }));
+        if (onOpenEmisionesTable) onOpenEmisionesTable();
+    };
 
 
     const formatDisplay = (value) => {
@@ -710,7 +718,7 @@ export function CalculatorForm({
                             </div>
                         </div>
 
-                        {demandMode === 'manual' && (
+                        {demandMode === 'manual' && inputs.manualCeeMode !== 'emisiones' && (
                             <div className="flex items-center gap-4 bg-slate-950/40 p-2 pl-4 rounded-2xl border border-white/5 shadow-inner">
                                 <div className="flex flex-col">
                                     <div className="flex items-center gap-2 text-amber-400 text-[10px] font-black uppercase tracking-widest mb-1">
@@ -739,6 +747,58 @@ export function CalculatorForm({
                         )}
                     </div>
 
+                    {/* RESUMEN POR EMISIONES (CEE aportado + reforma → siempre por emisiones del CEE) */}
+                    {demandMode === 'manual' && (() => {
+                        const supIni = inputs.manualSupInicial || inputs.superficieCalefactable || inputs.superficie;
+                        const supFin = inputs.manualSupFinal || supIni;
+                        const r = calculateRes080FromEmissions({
+                            emiAcsIni: inputs.manualEmisionesAcsInicial, emiAcsFin: inputs.manualEmisionesAcsFinal,
+                            emiCalIni: inputs.manualEmisionesCalefaccionInicial, emiCalFin: inputs.manualEmisionesCalefaccionFinal,
+                            emiRefIni: inputs.manualEmisionesRefrigeracionInicial, emiRefFin: inputs.manualEmisionesRefrigeracionFinal,
+                            combAcsInicial: inputs.combustibleAcsInicial, combAcsFinal: inputs.combustibleAcsFinal,
+                            combCalefaccionInicial: inputs.combustibleCalefaccionInicial, combCalefaccionFinal: inputs.combustibleCalefaccionFinal,
+                            combRefrigeracionInicial: inputs.combustibleRefrigeracionInicial, combRefrigeracionFinal: inputs.combustibleRefrigeracionFinal,
+                            superficieInicial: supIni, superficieFinal: supFin
+                        });
+                        const ahorroMwh = r ? (r.ahorroEnergiaFinalTotal / 1000) : 0;
+                        const tieneDatos = ahorroMwh > 0;
+                        const mismaSup = String(supIni) === String(supFin);
+                        return (
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5 rounded-2xl bg-gradient-to-r from-orange-500/10 via-orange-500/[0.03] to-transparent border border-orange-500/20">
+                                <div className="flex items-center gap-4">
+                                    <div className="w-11 h-11 rounded-2xl bg-orange-500/20 border border-orange-500/30 flex items-center justify-center text-orange-300 text-xl">📊</div>
+                                    <div>
+                                        <p className="text-[11px] font-black text-orange-300 uppercase tracking-widest">Cálculo por emisiones (CEE)</p>
+                                        {tieneDatos ? (
+                                            <p className="text-[11px] text-slate-300 mt-0.5">
+                                                Ahorro <span className="font-mono font-black text-white">{formatDisplay(ahorroMwh.toFixed(2))}</span> MWh/año
+                                                <span className="text-slate-500"> · Superficie </span>
+                                                {mismaSup ? (
+                                                    <><span className="font-mono font-bold text-orange-200">{formatDisplay(supIni) || '—'}</span> m²</>
+                                                ) : (
+                                                    <><span className="font-mono font-bold text-emerald-300">{formatDisplay(supIni) || '—'}</span><span className="text-slate-500"> → </span><span className="font-mono font-bold text-cyan-300">{formatDisplay(supFin) || '—'}</span> m²</>
+                                                )}
+                                            </p>
+                                        ) : (
+                                            <p className="text-[11px] text-slate-500 mt-0.5">Aún sin datos. Abre la tabla e introduce las emisiones del CEE.</p>
+                                        )}
+                                    </div>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={openEmisionesTable}
+                                    className="shrink-0 flex items-center gap-2 px-5 py-3 rounded-xl bg-orange-500 hover:bg-orange-400 text-bkg-deep text-[11px] font-black uppercase tracking-widest shadow-lg shadow-orange-500/20 transition-all active:scale-95"
+                                >
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                    </svg>
+                                    {tieneDatos ? 'Editar tabla' : 'Abrir tabla'}
+                                </button>
+                            </div>
+                        );
+                    })()}
+
+                    {(demandMode !== 'manual') && (
                     <div className="space-y-6">
                         {/* Situación Inicial - Fila Superior 3 columnas */}
                         <div>
@@ -838,6 +898,7 @@ export function CalculatorForm({
                             </div>
                         </div>
                     </div>
+                    )}
                 </div>
             )}
 
