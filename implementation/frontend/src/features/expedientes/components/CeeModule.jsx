@@ -5,7 +5,7 @@ import { parseCeeXml } from '../../calculator/logic/xmlCeeParser';
 import { FACTORES_PASO, calculateRes080, calculateRes080FromEmissions } from '../../calculator/logic/calculation';
 import { EfficiencyTable } from '../../calculator/components/EfficiencyTable';
 import { CeeDocumentsGrid } from './CeeDocumentsGrid';
-import { buildCertApproveMessage } from '../logic/certMessages';
+import { buildCertApproveMessage, buildCertDefaultMessage } from '../logic/certMessages';
 import { fireSuccessConfetti } from '../utils/successConfetti';
 
 // ─── Componentes de Celda ──────────────────────────────────────────────────
@@ -366,6 +366,8 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
     const [certNotifResult, setCertNotifResult] = useState(null);
     const [certPriority, setCertPriority] = useState('normal');
     const [certAdminMessage, setCertAdminMessage] = useState('');
+    // Mensaje de encargo editable (previsualización), homogéneo con el popup de la campana.
+    const [certAssignMessage, setCertAssignMessage] = useState('');
     const [certChannels, setCertChannels] = useState(['email']); // 'email' | 'whatsapp'
     const savedCertId = useRef(expediente?.cee?.certificador_id || null);
 
@@ -517,6 +519,8 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
             setCertPriority('normal');
             setCertAdminMessage('');
             setCertChannels(['email']);
+            // Previsualización editable del mensaje de encargo (igual que el popup de la campana).
+            setCertAssignMessage(buildCertDefaultMessage('standard', 'inicial', selectedCertName, clienteNombre, numExp, ceeFolderLink));
         } else {
             onSave({ cee: local });
             setEditMode(false);
@@ -579,8 +583,11 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                 sendEmail: wantsEmail,
                 sendWhatsApp: wantsWA,
                 phase: 'initial',
+                template: 'standard',
                 priority: certPriority,
-                adminMessage: certAdminMessage.trim() || null
+                adminMessage: certAdminMessage.trim() || null,
+                // Cuerpo editable del encargo (previsualización). Solo aplica si se notifica.
+                customMessage: notify ? (certAssignMessage.trim() || null) : null
             });
 
             const driveOk = data?.driveAccessGranted;
@@ -591,6 +598,7 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                     ? `Enviado vía ${chans.join(' + ')}${data?.sentTo ? ' (' + data.sentTo + ')' : ''}.`
                     : `Notificación enviada.`;
                 setCertNotifResult({ type: 'ok', text: `${sentText}${driveMsg}` });
+                fireSuccessConfetti();
             } else {
                 const driveMsg = driveOk
                     ? `Certificador asignado. ${localCert?.razon_social || 'El cert'} tiene acceso de edición a la carpeta CEE.`
@@ -1058,8 +1066,8 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
 
             {/* ─── Popup de notificación al certificador ─────────────────── */}
             {showCertPopup && (
-                <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/70 backdrop-blur-sm animate-fade-in" onClick={() => { if (!certNotifLoading) setShowCertPopup(false); }}>
-                    <div className="bg-bkg-deep border border-white/10 rounded-2xl p-6 max-w-md w-full mx-4 shadow-2xl" onClick={e => e.stopPropagation()}>
+                <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/70 backdrop-blur-sm animate-fade-in p-4" onClick={() => { if (!certNotifLoading) setShowCertPopup(false); }}>
+                    <div className="bg-bkg-deep border border-white/10 rounded-2xl p-6 max-w-md w-full mx-4 shadow-2xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
                         {certNotifResult ? (
                             <div className="text-center py-4">
                                 <div className={`w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-4 border ${certNotifResult.type === 'ok' ? 'bg-emerald-500/20 border-emerald-500/30' : 'bg-red-500/20 border-red-500/30'}`}>
@@ -1135,7 +1143,32 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                                     >💬 WhatsApp</button>
                                 </div>
 
-                                {/* Mensaje libre */}
+                                {/* Mensaje al certificador (previsualización editable, homogéneo con el popup de la campana) */}
+                                <div className="flex items-center justify-between mb-2">
+                                    <p className="text-[9px] font-black text-white/30 uppercase tracking-widest">Mensaje al certificador</p>
+                                    <button
+                                        type="button"
+                                        onClick={() => setCertAssignMessage(buildCertDefaultMessage('standard', 'inicial', selectedCertName, clienteNombre, numExp, ceeFolderLink))}
+                                        disabled={certNotifLoading}
+                                        className="text-[9px] font-black uppercase tracking-widest text-white/30 hover:text-brand transition-colors disabled:opacity-40"
+                                        title="Restaurar el texto por defecto"
+                                    >↺ Restaurar plantilla</button>
+                                </div>
+                                <textarea
+                                    value={certAssignMessage}
+                                    onChange={e => setCertAssignMessage(e.target.value)}
+                                    disabled={certNotifLoading}
+                                    placeholder="Mensaje que se enviará al certificador…"
+                                    rows={8}
+                                    maxLength={2000}
+                                    className="w-full bg-black/30 border border-white/10 rounded-xl p-3 text-sm leading-relaxed text-white normal-case placeholder:text-white/20 focus:outline-none focus:border-brand/40 resize-none mb-1"
+                                />
+                                <div className="flex items-center justify-between mb-4">
+                                    <p className="text-[9px] text-white/25 leading-snug">Puedes editarlo libremente. Solo se envía si pulsas «Asignar y notificar».</p>
+                                    <p className="text-[9px] text-white/20 shrink-0 ml-3">{certAssignMessage.length}/2000</p>
+                                </div>
+
+                                {/* Notas internas adicionales (se añaden al mensaje y al historial) */}
                                 <p className="text-[9px] font-black text-white/30 uppercase tracking-widest mb-2">Mensaje adicional (opcional)</p>
                                 <textarea
                                     value={certAdminMessage}
