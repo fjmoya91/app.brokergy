@@ -25,7 +25,8 @@ ALTER TABLE public.prescriptores
     ADD COLUMN IF NOT EXISTS landing_color_primary VARCHAR(7),
     ADD COLUMN IF NOT EXISTS landing_titulo TEXT,
     ADD COLUMN IF NOT EXISTS landing_subtitulo TEXT,
-    ADD COLUMN IF NOT EXISTS landing_telefono_contacto VARCHAR(30);
+    ADD COLUMN IF NOT EXISTS landing_telefono_contacto VARCHAR(30),
+    ADD COLUMN IF NOT EXISTS landing_email_contacto VARCHAR(120);
 
 -- Validación de formato del slug: minúsculas, números y guiones, 3-80 chars.
 -- Solo se aplica si el slug es no nulo (permitimos partners sin landing).

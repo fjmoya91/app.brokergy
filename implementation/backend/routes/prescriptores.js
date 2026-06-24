@@ -4,6 +4,11 @@ const supabase = require('../services/supabaseClient');
 const { requireAuth, enforceAuth } = require('../middleware/auth');
 const { normalizeContactos } = require('../services/notifyContacts');
 
+// Validación del slug de la landing white-label (mismo patrón que el CHECK de
+// landing_schema.sql y que el regex de routes/landing.js): minúsculas, números
+// y guiones, 3-80 chars, sin empezar/terminar en guión.
+const LANDING_SLUG_REGEX = /^[a-z0-9]([a-z0-9-]{1,78}[a-z0-9])$/;
+
 // Construye los campos de contacto a persistir a partir del payload:
 //  · contactos_notificacion: array normalizado de { nombre, tlf, email } (fuente preferente)
 //  · espejo del PRIMER contacto en nombre_contacto/tlf_contacto/email_contacto (compatibilidad
@@ -676,6 +681,46 @@ router.patch('/:id', enforceAuth, async (req, res) => {
             console.log(`[PATCH] Logo recibido en payload (Size: ${payload.logo_empresa?.length || 0})`);
         }
 
+        // ── Landing white-label (Opción A) ──────────────────────────────────
+        // Branding (color/título/subtítulo/teléfono) lo puede editar el propio
+        // partner. El slug y la activación SOLO los controla un ADMIN, para
+        // evitar squatting de URLs y mantener control de calidad.
+        const isAdminReq = req.user.rol_nombre === 'ADMIN';
+        if (payload.landing_color_primary !== undefined) {
+            const c = (payload.landing_color_primary || '').toString().trim();
+            if (c && !/^#[0-9A-Fa-f]{6}$/.test(c)) {
+                return res.status(400).json({ error: 'El color debe ser un hex válido (#RRGGBB).', code: 'INVALID_COLOR' });
+            }
+            prescriptorPayload.landing_color_primary = c || null;
+        }
+        if (payload.landing_titulo !== undefined)            prescriptorPayload.landing_titulo = (payload.landing_titulo || '').toString().trim() || null;
+        if (payload.landing_subtitulo !== undefined)         prescriptorPayload.landing_subtitulo = (payload.landing_subtitulo || '').toString().trim() || null;
+        if (payload.landing_telefono_contacto !== undefined) prescriptorPayload.landing_telefono_contacto = (payload.landing_telefono_contacto || '').toString().trim() || null;
+        if (payload.landing_email_contacto !== undefined)    prescriptorPayload.landing_email_contacto = (payload.landing_email_contacto || '').toString().trim().toLowerCase() || null;
+
+        if (isAdminReq) {
+            if (payload.landing_slug !== undefined) {
+                const raw = (payload.landing_slug || '').toString().trim().toLowerCase();
+                if (raw === '') {
+                    prescriptorPayload.landing_slug = null;
+                } else if (!LANDING_SLUG_REGEX.test(raw)) {
+                    return res.status(400).json({ error: 'El enlace (slug) debe tener entre 3 y 80 caracteres: solo minúsculas, números y guiones, sin empezar ni terminar en guión.', code: 'INVALID_SLUG' });
+                } else {
+                    prescriptorPayload.landing_slug = raw;
+                }
+            }
+            if (payload.landing_activa !== undefined) {
+                prescriptorPayload.landing_activa = !!payload.landing_activa;
+            }
+            // No permitir activar una landing sin slug (quedaría inalcanzable / 404).
+            const slugFinal = prescriptorPayload.landing_slug !== undefined
+                ? prescriptorPayload.landing_slug
+                : undefined; // si no viene en el payload, lo valida la BD contra lo existente
+            if (prescriptorPayload.landing_activa === true && slugFinal === null) {
+                return res.status(400).json({ error: 'No puedes activar la landing sin un enlace (slug).', code: 'ACTIVE_WITHOUT_SLUG' });
+            }
+        }
+
         // Limpiar undefined
         Object.keys(prescriptorPayload).forEach(key => prescriptorPayload[key] === undefined && delete prescriptorPayload[key]);
 
@@ -689,6 +734,10 @@ router.patch('/:id', enforceAuth, async (req, res) => {
             .single();
 
         if (presError) {
+            // Colisión del slug de landing (índice único global).
+            if (presError.code === '23505' && /landing_slug/i.test(`${presError.message || ''} ${presError.details || ''}`)) {
+                return res.status(409).json({ error: 'Ese enlace ya está en uso por otro partner. Elige otro.', code: 'SLUG_TAKEN' });
+            }
             console.error('[PATCH] Error Supabase:', presError);
             throw presError;
         }

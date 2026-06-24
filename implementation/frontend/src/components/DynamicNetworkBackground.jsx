@@ -1,6 +1,14 @@
 import React, { useEffect, useRef } from 'react';
 
-export const DynamicNetworkBackground = () => {
+// Convierte un hex (#RRGGBB) a {r,g,b}. Devuelve null si no es válido.
+const hexToRgb = (hex) => {
+    const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec((hex || '').trim());
+    return m ? { r: parseInt(m[1], 16), g: parseInt(m[2], 16), b: parseInt(m[3], 16) } : null;
+};
+
+// `color` (opcional): hex del partner para teñir nodos y líneas en la landing
+// white-label. Sin color → comportamiento por defecto (ámbar + azul Brokergy).
+export const DynamicNetworkBackground = ({ color = null }) => {
     const canvasRef = useRef(null);
 
     useEffect(() => {
@@ -11,6 +19,11 @@ export const DynamicNetworkBackground = () => {
         const particleCount = 60;
         const connectionDistance = 150;
         const mouseRadius = 200;
+
+        // Paleta: si hay color de partner, los nodos son su color (con algunos
+        // blancos para dar profundidad) y las líneas su color. Si no, ámbar+azul.
+        const accentRgb = hexToRgb(color) || { r: 255, g: 160, b: 0 };
+        const nodeColor = (color && hexToRgb(color)) ? color : null;
 
         let mouse = { x: null, y: null };
 
@@ -29,7 +42,9 @@ export const DynamicNetworkBackground = () => {
                 this.baseY = this.y;
                 this.dx = (Math.random() - 0.5) * 0.8;
                 this.dy = (Math.random() - 0.5) * 0.8;
-                this.color = Math.random() > 0.85 ? '#29B6F6' : '#FFA000';
+                this.color = nodeColor
+                    ? (Math.random() > 0.8 ? '#FFFFFF' : nodeColor)
+                    : (Math.random() > 0.85 ? '#29B6F6' : '#FFA000');
             }
 
             update() {
@@ -87,7 +102,7 @@ export const DynamicNetworkBackground = () => {
                     if (distance < connectionDistance) {
                         // El color de la línea es un degradado entre los dos nodos
                         const opacity = 1 - (distance / connectionDistance);
-                        ctx.strokeStyle = `rgba(255, 160, 0, ${opacity * 0.15})`;
+                        ctx.strokeStyle = `rgba(${accentRgb.r}, ${accentRgb.g}, ${accentRgb.b}, ${opacity * 0.15})`;
                         ctx.lineWidth = 1;
                         ctx.beginPath();
                         ctx.moveTo(particles[i].x, particles[i].y);
@@ -122,7 +137,7 @@ export const DynamicNetworkBackground = () => {
             cancelAnimationFrame(animationFrameId);
             window.removeEventListener('resize', resize);
         };
-    }, []);
+    }, [color]);
 
     return (
         <>

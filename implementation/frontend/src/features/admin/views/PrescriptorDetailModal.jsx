@@ -244,6 +244,14 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
         tecnico_firmante_apellidos: '',
         tecnico_firmante_dni: '',
         tecnico_firmante_carnet_rite: '',
+        // Landing white-label de captación de leads (/p/<slug>)
+        landing_slug: '',
+        landing_activa: false,
+        landing_color_primary: '',
+        landing_titulo: '',
+        landing_subtitulo: '',
+        landing_telefono_contacto: '',
+        landing_email_contacto: '',
     };
     const [form, setForm] = useState(emptyForm);
     const [loading, setLoading] = useState(false);
@@ -256,7 +264,23 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
     const [loadingInst, setLoadingInst] = useState(false);
     const [expedientes, setExpedientes] = useState([]);
     const [loadingExpedientes, setLoadingExpedientes] = useState(false);
+    const [linkCopied, setLinkCopied] = useState(false);
+    const [showNewPwd, setShowNewPwd] = useState(false);
+    const [showConfirmPwd, setShowConfirmPwd] = useState(false);
     const logoInputRef = useRef(null);
+
+    // ─── Landing white-label ───────────────────────────────────────────────────
+    const SLUG_RE = /^[a-z0-9]([a-z0-9-]{1,78}[a-z0-9])$/;
+    const slugValido = !form.landing_slug || SLUG_RE.test(form.landing_slug);
+    const landingBase = typeof window !== 'undefined' ? window.location.origin : 'https://app.brokergy.es';
+    const copyLandingLink = (slug) => {
+        const url = `${landingBase}/p/${slug}`;
+        try {
+            navigator.clipboard?.writeText(url);
+            setLinkCopied(true);
+            setTimeout(() => setLinkCopied(false), 2000);
+        } catch { /* clipboard no disponible */ }
+    };
 
     // Cargar marcas disponibles
     useEffect(() => {
@@ -390,6 +414,13 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                 tecnico_firmante_apellidos:   p.tecnico_firmante_apellidos || '',
                 tecnico_firmante_dni:         p.tecnico_firmante_dni || '',
                 tecnico_firmante_carnet_rite: p.tecnico_firmante_carnet_rite || '',
+                landing_slug:                 p.landing_slug || '',
+                landing_activa:               p.landing_activa || false,
+                landing_color_primary:        p.landing_color_primary || '',
+                landing_titulo:               p.landing_titulo || '',
+                landing_subtitulo:            p.landing_subtitulo || '',
+                landing_telefono_contacto:    p.landing_telefono_contacto || '',
+                landing_email_contacto:       p.landing_email_contacto || '',
             };
         });
     }, [p]);
@@ -497,6 +528,18 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                 tecnico_firmante_apellidos:   form.tecnico_firmante_apellidos.trim() || null,
                 tecnico_firmante_dni:         form.tecnico_firmante_dni.trim().toUpperCase() || null,
                 tecnico_firmante_carnet_rite: form.tecnico_firmante_carnet_rite.trim() || null,
+
+                // Landing white-label — branding editable por el propio partner.
+                landing_color_primary:        form.landing_color_primary.trim() || null,
+                landing_titulo:               form.landing_titulo.trim() || null,
+                landing_subtitulo:            form.landing_subtitulo.trim() || null,
+                landing_telefono_contacto:    form.landing_telefono_contacto.trim() || null,
+                landing_email_contacto:       form.landing_email_contacto.trim().toLowerCase() || null,
+                // slug + activación SOLO las envía el admin (backend también lo refuerza).
+                ...(isAdmin ? {
+                    landing_slug:   form.landing_slug.trim().toLowerCase() || null,
+                    landing_activa: !!form.landing_activa,
+                } : {}),
 
                 // Campos para el backend (creación/actualización de usuario vinculado)
                 usuario_nombre:    form.nombre_responsable.trim() || null,
@@ -804,6 +847,46 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                                         <FV label="CP" value={p.codigo_postal} mono />
                                         {p.direccion && <div className="col-span-1 sm:col-span-2"><FV label="Dirección" value={p.direccion} /></div>}
                                     </div>
+                                </div>
+                            )}
+
+                            {/* Landing de captación de leads (white-label) */}
+                            {(p.tipo_empresa === 'INSTALADOR' || p.tipo_empresa === 'DISTRIBUIDOR') && (
+                                <div className="space-y-2">
+                                    <p className="text-[10px] uppercase tracking-[0.2em] font-black text-white/30 flex items-center gap-2">
+                                        Landing de Captación
+                                        {p.landing_slug && (
+                                            <span className={`text-[9px] font-black uppercase tracking-tighter px-1.5 py-0.5 rounded border ${p.landing_activa ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-white/5 text-white/40 border-white/10'}`}>
+                                                {p.landing_activa ? 'Activa' : 'Inactiva'}
+                                            </span>
+                                        )}
+                                    </p>
+                                    {p.landing_slug ? (
+                                        <div className="p-4 bg-bkg-surface rounded-xl border border-white/[0.06] space-y-3">
+                                            <div className="flex items-center gap-2">
+                                                <code className="flex-1 min-w-0 truncate text-sm text-cyan-400 font-mono bg-black/30 rounded-lg px-3 py-2 border border-white/[0.06]">
+                                                    {landingBase}/p/{p.landing_slug}
+                                                </code>
+                                                <button type="button" onClick={() => copyLandingLink(p.landing_slug)}
+                                                    title="Copiar enlace"
+                                                    className="shrink-0 px-3 py-2 rounded-lg bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 text-[10px] font-black uppercase tracking-widest hover:bg-cyan-500/20 transition-all">
+                                                    {linkCopied ? '✓ Copiado' : 'Copiar'}
+                                                </button>
+                                                <a href={`${landingBase}/p/${p.landing_slug}`} target="_blank" rel="noopener noreferrer"
+                                                    title="Abrir landing en nueva pestaña"
+                                                    className="shrink-0 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white/50 hover:text-white transition-all">
+                                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
+                                                </a>
+                                            </div>
+                                            {!p.landing_activa && (
+                                                <p className="text-[11px] text-amber-400/70">La landing está desactivada: el enlace devuelve 404 hasta que un administrador la active.</p>
+                                            )}
+                                        </div>
+                                    ) : (
+                                        <p className="text-xs text-white/25 italic px-1 py-2">
+                                            {isAdmin ? 'Sin landing configurada. Pulsa «Editar» para asignar un enlace.' : 'Sin landing configurada. Pídele a Brokergy que te active tu enlace de captación.'}
+                                        </p>
+                                    )}
                                 </div>
                             )}
 
@@ -1258,28 +1341,124 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                                 <DireccionEdit values={form} onChange={upd} />
                             </div>
 
+                            {/* Landing de captación de leads (white-label) — INSTALADOR / DISTRIBUIDOR */}
+                            {(form.tipo_empresa === 'INSTALADOR' || form.tipo_empresa === 'DISTRIBUIDOR') && (
+                            <div className="pt-4 border-t border-white/5 space-y-4">
+                                <div>
+                                    <p className="text-[10px] uppercase tracking-[0.2em] font-black text-white/30">Landing de Captación de Leads</p>
+                                    <p className="text-[11px] text-white/20 mt-0.5">
+                                        Enlace propio para redes sociales. Los leads que entren por aquí se registran automáticamente atribuidos a este partner.
+                                    </p>
+                                </div>
+
+                                {/* Enlace (slug) + activación: SOLO ADMIN */}
+                                {isAdmin ? (
+                                    <div className="space-y-3">
+                                        <FI label="Enlace (slug)">
+                                            <div className="flex items-stretch rounded-xl border border-white/[0.08] overflow-hidden focus-within:ring-2 focus-within:ring-brand/40 focus-within:border-brand/40 transition-all">
+                                                <span className="flex items-center px-3 text-[11px] text-white/30 font-mono bg-white/[0.03] border-r border-white/[0.06] whitespace-nowrap">{landingBase}/p/</span>
+                                                <input
+                                                    value={form.landing_slug}
+                                                    onChange={e => upd({ landing_slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '') })}
+                                                    placeholder="ism"
+                                                    style={{ textTransform: 'lowercase' }}
+                                                    className="flex-1 min-w-0 bg-bkg-surface px-3 py-2.5 text-white text-sm font-mono placeholder:text-white/20 focus:outline-none"
+                                                />
+                                            </div>
+                                            {!slugValido && (
+                                                <p className="text-[10px] text-red-400 font-bold mt-1 uppercase tracking-wider">Mín. 3 caracteres: minúsculas, números y guiones, sin empezar/terminar en guión.</p>
+                                            )}
+                                        </FI>
+
+                                        <label className={`flex items-center gap-3 ${form.landing_slug && slugValido ? 'cursor-pointer' : 'opacity-40 cursor-not-allowed'}`}>
+                                            <div className="relative h-5 w-9 shrink-0">
+                                                <input type="checkbox" checked={form.landing_activa}
+                                                    disabled={!form.landing_slug || !slugValido}
+                                                    onChange={e => upd({ landing_activa: e.target.checked })}
+                                                    className="sr-only peer" />
+                                                <div className="w-full h-full bg-white/10 border border-white/10 rounded-full peer peer-checked:bg-emerald-500 peer-checked:after:translate-x-[16px] after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all"></div>
+                                            </div>
+                                            <div>
+                                                <span className="text-[10px] font-black uppercase tracking-widest text-white/40">Landing activa</span>
+                                                <p className="text-[9px] text-white/20 -mt-0.5">Si está desactivada, el enlace devuelve 404. Requiere un slug válido.</p>
+                                            </div>
+                                        </label>
+                                    </div>
+                                ) : (
+                                    <div className="p-3 bg-white/[0.02] border border-white/[0.05] rounded-xl text-[11px] text-white/30">
+                                        {form.landing_slug
+                                            ? <>Tu enlace: <code className="text-cyan-400 font-mono">{landingBase}/p/{form.landing_slug}</code>{!form.landing_activa && ' (inactivo)'}</>
+                                            : 'Brokergy debe asignarte el enlace. Puedes personalizar el branding abajo.'}
+                                    </div>
+                                )}
+
+                                {/* Branding — editable por el propio partner */}
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    <FI label="Título de la landing">
+                                        <Inp value={form.landing_titulo} onChange={e => upd({ landing_titulo: e.target.value })} placeholder="Calcula tu ayuda para cambiar a aerotermia" className="no-uppercase" />
+                                    </FI>
+                                    <FI label="Subtítulo">
+                                        <Inp value={form.landing_subtitulo} onChange={e => upd({ landing_subtitulo: e.target.value })} placeholder="Subvenciones y ahorro garantizado" className="no-uppercase" />
+                                    </FI>
+                                    <FI label="Teléfono de contacto (cliente final)">
+                                        <Inp value={form.landing_telefono_contacto} onChange={e => upd({ landing_telefono_contacto: e.target.value })} placeholder="600 000 000" />
+                                    </FI>
+                                    <FI label="Email de contacto (cliente final)">
+                                        <Inp type="email" value={form.landing_email_contacto} onChange={e => upd({ landing_email_contacto: e.target.value.toLowerCase() })} placeholder="contacto@empresa.com" />
+                                    </FI>
+                                    <FI label="Color principal">
+                                        <div className="flex items-center gap-2">
+                                            <input type="color" value={form.landing_color_primary || '#f59e0b'}
+                                                onChange={e => upd({ landing_color_primary: e.target.value })}
+                                                className="h-[42px] w-12 shrink-0 rounded-xl bg-bkg-surface border border-white/[0.08] cursor-pointer p-1" />
+                                            <Inp value={form.landing_color_primary} onChange={e => upd({ landing_color_primary: e.target.value })} placeholder="#F59E0B" className="font-mono" />
+                                        </div>
+                                    </FI>
+                                </div>
+                                <p className="text-[10px] text-white/20">El logotipo de la landing es el mismo logo del partner (arriba). Si dejas un campo vacío, se usa el branding por defecto de Brokergy.</p>
+                            </div>
+                            )}
+
                             {/* Contraseña — solo si tiene acceso activo */}
                             {accesoActivo && (
                                 <div className="space-y-3">
                                     <p className="text-[10px] uppercase tracking-[0.2em] font-black text-white/30">Cambiar Contraseña</p>
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-4 bg-emerald-500/[0.03] border border-emerald-500/10 rounded-xl">
                                         <FI label="Nueva contraseña (opcional)">
-                                            <Inp
-                                                type="password"
-                                                placeholder="Mín. 6 caracteres"
-                                                value={form.usuario_password}
-                                                onChange={e => upd({ usuario_password: e.target.value })}
-                                                className="font-mono"
-                                            />
+                                            <div className="relative">
+                                                <Inp
+                                                    type={showNewPwd ? 'text' : 'password'}
+                                                    placeholder="Mín. 6 caracteres"
+                                                    value={form.usuario_password}
+                                                    onChange={e => upd({ usuario_password: e.target.value })}
+                                                    className="font-mono pr-9"
+                                                />
+                                                <button type="button" onClick={() => setShowNewPwd(v => !v)} tabIndex={-1} aria-label={showNewPwd ? 'Ocultar' : 'Mostrar'} className="absolute inset-y-0 right-2.5 flex items-center text-brand/50 hover:text-brand transition-colors">
+                                                    {showNewPwd ? (
+                                                        <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" /></svg>
+                                                    ) : (
+                                                        <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                                                    )}
+                                                </button>
+                                            </div>
                                         </FI>
                                         <FI label="Confirmar contraseña">
-                                            <Inp
-                                                type="password"
-                                                placeholder="Repetir contraseña"
-                                                value={form.usuario_confirm_password}
-                                                onChange={e => upd({ usuario_confirm_password: e.target.value })}
-                                                className={`font-mono ${form.usuario_password && form.usuario_confirm_password && form.usuario_password !== form.usuario_confirm_password ? 'border-red-500/50 focus:ring-red-500/30' : ''}`}
-                                            />
+                                            <div className="relative">
+                                                <Inp
+                                                    type={showConfirmPwd ? 'text' : 'password'}
+                                                    placeholder="Repetir contraseña"
+                                                    value={form.usuario_confirm_password}
+                                                    onChange={e => upd({ usuario_confirm_password: e.target.value })}
+                                                    className={`font-mono pr-9 ${form.usuario_password && form.usuario_confirm_password && form.usuario_password !== form.usuario_confirm_password ? 'border-red-500/50 focus:ring-red-500/30' : ''}`}
+                                                />
+                                                <button type="button" onClick={() => setShowConfirmPwd(v => !v)} tabIndex={-1} aria-label={showConfirmPwd ? 'Ocultar' : 'Mostrar'} className="absolute inset-y-0 right-2.5 flex items-center text-brand/50 hover:text-brand transition-colors">
+                                                    {showConfirmPwd ? (
+                                                        <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" /></svg>
+                                                    ) : (
+                                                        <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                                                    )}
+                                                </button>
+                                            </div>
                                             {form.usuario_password && form.usuario_confirm_password && form.usuario_password !== form.usuario_confirm_password && (
                                                 <p className="text-[10px] text-red-400 font-bold mt-1 uppercase tracking-wider">No coinciden</p>
                                             )}
@@ -1294,7 +1473,7 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                                     className="flex-1 py-3 rounded-xl border border-white/10 text-white/60 hover:text-white font-bold text-sm transition-all">
                                     Cancelar
                                 </button>
-                                <button type="button" onClick={handleSave} disabled={loading || (!form.es_autonomo && (!form.razon_social?.trim() || !form.cif?.trim())) || (form.es_autonomo && (!form.nombre_responsable?.trim() || !form.cif?.trim()))}
+                                <button type="button" onClick={handleSave} disabled={loading || !slugValido || (!form.es_autonomo && (!form.razon_social?.trim() || !form.cif?.trim())) || (form.es_autonomo && (!form.nombre_responsable?.trim() || !form.cif?.trim()))}
                                     className="flex-1 py-3 rounded-xl bg-gradient-to-r from-brand to-brand-700 text-bkg-deep font-black text-sm uppercase tracking-wider shadow-lg shadow-brand/20 transition-all disabled:opacity-50">
                                     {loading ? 'Guardando...' : isCreating ? 'Crear Partner' : 'Guardar Cambios'}
                                 </button>

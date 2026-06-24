@@ -48,7 +48,8 @@ function App() {
     if (path.startsWith('/p/')) {
       const slug = path.split('/p/')[1]?.split('/')[0] || null;
       if (slug && /^[a-z0-9]([a-z0-9-]{1,78}[a-z0-9])$/.test(slug)) {
-        return { type: 'partner', slug };
+        // La landing white-label del partner usa el mismo flujo que /reforma.
+        return { type: 'partner', slug, variant: 'reforma' };
       }
     }
     return null;

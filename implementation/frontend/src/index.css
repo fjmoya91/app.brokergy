@@ -439,6 +439,53 @@ input[type="email"],
     text-transform: lowercase;
 }
 
+/* ─── Tema de acento por partner (landing white-label /p/:slug) ───────────────
+   Con scope .partner-accent: SOLO afecta a la landing de un partner que tenga
+   color definido. Remapea las utilidades amber/brand de Tailwind a su color
+   (var(--accent)) sin tocar el JSX ni el resto de la app. */
+/* Texto en color de marca → versión ACLARADA y legible sobre el fondo oscuro */
+.partner-accent .text-amber-400,
+.partner-accent .text-amber-300,
+.partner-accent .text-amber-500,
+.partner-accent .text-brand,
+.partner-accent .hover\:text-amber-300:hover {
+    color: var(--accent-text, var(--accent)) !important;
+}
+/* Rellenos sólidos (botones/badges) → color de marca */
+.partner-accent .bg-amber-500,
+.partner-accent .bg-amber-400,
+.partner-accent .bg-brand,
+.partner-accent .hover\:bg-amber-400:hover {
+    background-color: var(--accent) !important;
+}
+/* Texto SOBRE el relleno de marca: los botones usan `text-bkg-deep` como color
+   de texto sobre el ámbar/brand; lo remapeamos al contraste calculado en JS
+   (blanco si el color del partner es oscuro) para que el botón siempre se lea. */
+.partner-accent .text-bkg-deep {
+    color: var(--accent-on, #08090C) !important;
+}
+.partner-accent .border-amber-500,
+.partner-accent .border-amber-400,
+.partner-accent .border-brand {
+    border-color: var(--accent) !important;
+}
+/* Botones con degradado (from-amber-500 to-amber-400, from-brand …) →
+   color de marca de extremo a extremo + texto de contraste para que se lea */
+.partner-accent .from-amber-500,
+.partner-accent .from-amber-400,
+.partner-accent .from-brand {
+    --tw-gradient-from: var(--accent) var(--tw-gradient-from-position) !important;
+    --tw-gradient-to: var(--accent) var(--tw-gradient-to-position) !important;
+    --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important;
+    color: var(--accent-on, #08090C) !important;
+}
+.partner-accent .to-amber-400,
+.partner-accent .to-amber-300,
+.partner-accent .to-brand,
+.partner-accent .to-brand-700 {
+    --tw-gradient-to: var(--accent) var(--tw-gradient-to-position) !important;
+}
+
 /* ===================================
    GEO LOCATING (RADAR) ANIMATIONS
    =================================== */

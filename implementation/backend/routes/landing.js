@@ -60,7 +60,7 @@ router.get('/partner/:slug', async (req, res) => {
     try {
         const { data, error } = await supabase
             .from('prescriptores')
-            .select('id_empresa, acronimo, razon_social, logo_empresa, landing_slug, landing_activa, landing_color_primary, landing_titulo, landing_subtitulo, landing_telefono_contacto, tipo_empresa, provincia, ccaa')
+            .select('id_empresa, acronimo, razon_social, logo_empresa, landing_slug, landing_activa, landing_color_primary, landing_titulo, landing_subtitulo, landing_telefono_contacto, landing_email_contacto, tipo_empresa, provincia, ccaa')
             .eq('landing_slug', slug)
             .eq('landing_activa', true)
             .maybeSingle();
@@ -82,6 +82,7 @@ router.get('/partner/:slug', async (req, res) => {
             titulo: data.landing_titulo,
             subtitulo: data.landing_subtitulo,
             telefono_contacto: data.landing_telefono_contacto,
+            email_contacto: data.landing_email_contacto,
             tipo_empresa: data.tipo_empresa,
             provincia: data.provincia,
             ccaa: data.ccaa

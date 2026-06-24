@@ -59,10 +59,10 @@ const DELIVERY_BANNERS = {
         color: 'border-blue-400/40 bg-blue-400/[0.07]',
         text: `Propuesta enviada por email${contacto?.email ? ` a ${contacto.email}` : ''}. Revisa tu bandeja de entrada.`,
     }),
-    tecnico: () => ({
+    tecnico: (contacto, equipo = 'técnico de Brokergy') => ({
         icon: '👨‍💼',
         color: 'border-amber-400/40 bg-amber-400/[0.07]',
-        text: 'Un técnico de Brokergy revisará tu propuesta y te contactará antes de las 18h del siguiente día laborable.',
+        text: `Un ${equipo} revisará tu propuesta y te contactará antes de las 18h del siguiente día laborable.`,
     }),
 };
 
@@ -113,7 +113,9 @@ export function LandingResultView({ leadResult, funnel, contacto, partnerBrandin
         .filter(p => p !== 'tecnico' && DELIVERY_BANNERS[p])
         .map(p => DELIVERY_BANNERS[p](contacto));
     if (activeBanners.length === 0 && deliveryArr.includes('tecnico')) {
-        activeBanners.push(DELIVERY_BANNERS.tecnico(contacto));
+        // En landing de partner (white-label) usamos copy neutro; en la genérica, "de Brokergy".
+        const equipoLabel = partnerBranding ? 'técnico especialista' : 'técnico de Brokergy';
+        activeBanners.push(DELIVERY_BANNERS.tecnico(contacto, equipoLabel));
     }
 
     return (

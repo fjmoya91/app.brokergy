@@ -67,9 +67,14 @@ export function LeadDeliveryView({
     onBack,
     submitting,
     submitError,
+    partnerBranding,         // branding white-label si la landing es de un partner
     origen = 'aerotermia',   // 'aerotermia' (default) | 'reforma' — adapta el copy
 }) {
     const esReforma = origen === 'reforma';
+    // En landing de partner usamos copy neutro; en la genérica, "de Brokergy".
+    const tecnicoTitle = partnerBranding
+        ? 'Que un técnico especialista revise mi propuesta'
+        : 'Que un técnico de Brokergy revise mi propuesta';
     const [touched, setTouched] = useState({});
     const setField = (key, value) => setContacto(prev => ({ ...prev, [key]: value }));
 
@@ -249,7 +254,7 @@ export function LeadDeliveryView({
                 <OptionCard
                     icon={<IconUser className="w-6 h-6" />}
                     iconColor="text-amber-400"
-                    title="Que un técnico de Brokergy revise mi propuesta"
+                    title={tecnicoTitle}
                     desc="Un especialista la estudia y te contacta antes de las 18h del siguiente día laborable."
                     selected={hasTecnico}
                     ring={hasTecnico ? 'border-amber-400 bg-amber-400/10' : 'border-white/10 bg-white/[0.03] hover:border-amber-400/30'}
