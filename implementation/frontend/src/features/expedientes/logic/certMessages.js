@@ -19,8 +19,12 @@ export const firstNameProper = (s) => {
 const carpetaLine = (ceeFolderLink) =>
     ceeFolderLink ? `\n\n📁 Carpeta de documentos del expediente:\n${ceeFolderLink}` : '';
 
-// Mensaje de ENCARGO / RECORDATORIO / URGENTE (popup "Notificar Certificador").
+// Mensaje de ENCARGO / RECORDATORIO / URGENTE / VISTO BUENO (popup "Notificar Certificador").
 export function buildCertDefaultMessage(template, section, certName, clienteNombre, numExp, ceeFolderLink) {
+    // El "visto bueno" se redacta igual que el popup dedicado de Validar.
+    if (template === 'approve') {
+        return buildCertApproveMessage(section, certName, clienteNombre, numExp, ceeFolderLink);
+    }
     const tecnico = firstNameProper(certName) || 'técnico';
     const cli = clienteNombre ? ` (${toTitleCase(clienteNombre)})` : '';
     const fase = section === 'final' ? 'CEE Final' : 'CEE Inicial';

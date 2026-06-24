@@ -36,6 +36,17 @@ function fmtDate(d) {
     return s;
 }
 
+// Fecha → ISO (YYYY-MM-DD), el formato que exige la API de Marwen.
+function isoDate(d) {
+    if (!d) return null;
+    const s = String(d).trim();
+    let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+    m = s.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})/);
+    if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+    return s;
+}
+
 const nf = (n, dec = 0) => (Number(n) || 0).toLocaleString('es-ES', { minimumFractionDigits: dec, maximumFractionDigits: dec });
 const esc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
@@ -157,6 +168,79 @@ export function buildSolicitudVerificacionHtml(lote, opts = {}) {
 
     // (Sección 3 "Declaración del solicitante" eliminada por requisito del usuario)
 
+    return SOLICITUD_HTML(seccion1, seccion2);
+}
+
+// ============================================================
+// buildSolicitudVerificacionPayload — payload JSON para la API de Marwen
+// (POST /api/v1/solicitud/estandarizada). Usa EXACTAMENTE los mismos datos
+// que el PDF, pero en la forma que espera la API:
+//   step2 = una actuación por expediente · step3 = un emplazamiento por exp.
+// El step1 (solicitante/SO + IDs de provincia/localidad) lo construye el BACKEND
+// de forma autoritativa desde el Sujeto Obligado del lote; aquí solo aportamos
+// los datos editables de contacto y la figura.
+// Devuelve { contacto, figura, step2, step3 }.
+// ============================================================
+export function buildSolicitudVerificacionPayload(lote, opts = {}) {
+    const l = lote || {};
+    const exps = Array.isArray(l.expedientes) ? l.expedientes : [];
+
+    const contacto = { ...SOLICITUD_DEFAULTS.contacto, ...(opts.contacto || {}) };
+    const intermediaria = opts.intermediaria != null ? opts.intermediaria : SOLICITUD_DEFAULTS.intermediaria;
+    const cnae = opts.cnae != null ? opts.cnae : SOLICITUD_DEFAULTS.cnae;
+    const vidaUtilByExp = opts.vidaUtilByExp || {};
+
+    const step2 = [];
+    const step3 = [];
+
+    exps.forEach((exp, i) => {
+        const e = exp || {};
+        const num = e.numero_expediente || '';
+        const ficha = fichaDe(num);
+        const doc = e.documentacion || {};
+        const inst = e.instalacion || {};
+
+        let addr = {};
+        try { addr = buildInstalacionAddress(e) || {}; } catch { addr = {}; }
+        let fin = {};
+        try { fin = computeExpedienteFinancials(e) || {}; } catch { fin = {}; }
+
+        const ahorroAnual = Math.round(Number(fin.savingsKwh) || 0);
+        const facturas = Array.isArray(doc.facturas) ? doc.facturas : [];
+        const inversion = facturas.reduce((s, f) => s + (Number(f && f.importe_sin_iva) || 0), 0);
+        const vidaUtil = (vidaUtilByExp[e.id] != null) ? vidaUtilByExp[e.id] : vidaUtilDefaultSolicitud(ficha);
+        const refCat = inst.ref_catastral || addr.refCatastral || '';
+
+        step2.push({
+            SE_propietario_inicial: e.cliente_nombre || '',
+            SE_otras_empresas: intermediaria || '',
+            SE_nombre_actuacion: num,
+            SE_cod_ficha: ficha,
+            SE_v_ficha: 'V1.1',
+            SE_cnae: cnae,
+            SE_vida_util: Number(vidaUtil) || 0,
+            SE_ahorro_anual: ahorroAnual,
+            SE_fecha_inicio: isoDate(doc.fecha_inicio_cifo),
+            SE_fecha_fin: isoDate(doc.fecha_fin_cifo),
+            // Importe sin IVA en formato español (máx. 2 decimales). Acepta "0", no vacío.
+            SE_inversion: nf(inversion, 2),
+            SE_costes_operativos: '0',
+            SE_apoyo_programa: 'no',
+        });
+
+        step3.push({
+            SE_comunidad_autonoma: l.ccaa || '',
+            SE_direccion_instalacion: addr.full || '',
+            SE_referencia_catastral: refCat,
+            SE_coordenadas_utm: `X: ${inst.coord_x || ''}, Y: ${inst.coord_y || ''}`,
+            numero_actuacion: i, // 0-based
+        });
+    });
+
+    return { contacto, figura: 'obligado', step2, step3 };
+}
+
+function SOLICITUD_HTML(seccion1, seccion2) {
     return `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
       @page { size: A4 portrait; margin: 12mm; }
       * { box-sizing: border-box; }

@@ -31,6 +31,15 @@ implementation/backend/debug_email.txt
 # Resultados de linting y builds locales
 implementation/frontend/lint_result.json
 
+# Internos de Claude Code (worktrees temporales con dumps de datos, nunca subir)
+.claude/worktrees/
+# Permisos/ajustes locales de Claude Code (pueden contener tokens de depuración)
+.claude/settings.local.json
+
+# Bytecode de Python (generado)
+__pycache__/
+*.pyc
+
 # Datos locales (xlsx, imágenes de instaladores)
 data/Instaladores_Images/
 data/bbdd_aerotermia/

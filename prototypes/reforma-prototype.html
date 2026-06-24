@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Brokergy · Reforma — Prototipo de flujo</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    theme: { extend: {
+      colors: { 'bkg-deep':'#08090C','bkg-base':'#0C0E12','bkg-surface':'#13151A','bkg-elevated':'#1A1C22','bkg-hover':'#22242B', brand:{DEFAULT:'#FFA000',700:'#FF6D00'} },
+      fontFamily: { sans:['Inter','system-ui','sans-serif'] },
+    }},
+  };
+</script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&display=swap');
+  body { font-family:'Inter',system-ui,sans-serif; }
+  @keyframes fadeIn { from{opacity:0} to{opacity:1} }
+  @keyframes slideUp { from{opacity:0;transform:translateY(24px)} to{opacity:1;transform:translateY(0)} }
+  .animate-fade-in { animation:fadeIn .3s ease both; }
+  .animate-slide-up { animation:slideUp .4s cubic-bezier(.16,1,.3,1) both; }
+  .sel { box-shadow:0 0 30px rgba(251,191,36,0.15); }
+  ::-webkit-scrollbar { width:8px; }
+  ::-webkit-scrollbar-thumb { background:rgba(255,255,255,.1); border-radius:8px; }
+</style>
+</head>
+<body class="bg-slate-950 text-white min-h-screen">
+
+<div class="fixed inset-0 z-0 pointer-events-none"
+     style="background:
+       radial-gradient(800px circle at 20% 0%, rgba(255,160,0,0.06), transparent 60%),
+       radial-gradient(700px circle at 90% 100%, rgba(255,109,0,0.05), transparent 55%);"></div>
+
+<div class="relative z-10 px-4 py-5 md:py-8">
+  <header class="max-w-3xl mx-auto mb-5 md:mb-8 flex flex-col items-center gap-2">
+    <div class="text-2xl md:text-3xl font-black tracking-tight">
+      <span class="text-white">BROKER</span><span class="text-amber-400">GY</span>
+    </div>
+    <span class="text-[10px] font-black uppercase tracking-[0.25em] text-white/30">Prototipo · /reforma</span>
+  </header>
+
+  <main id="app" class="max-w-3xl mx-auto"></main>
+
+  <footer class="max-w-3xl mx-auto mt-16 pt-6 border-t border-white/5 text-center">
+    <p class="text-white/20 text-[10px] uppercase tracking-[0.2em] font-bold">Brokergy Analytics · © 2026 · Maqueta interna</p>
+  </footer>
+</div>
+
+<script>
+/* ============================================================
+   ESTADO
+   ============================================================ */
+const state = {
+  direccion: null,
+  path: null,            // 'medias' | 'ejecutada'
+  combustible: null,     // 'gas'|'gasoleo'|'electrica'|'carbon'|'biomasa'  (idéntico al form actual)
+  edadCaldera: null,     // '<10'|'10-20'|'>20'|'no_se'
+  condensacion: null,    // 'si'|'no'|'no_se'
+  emisor: null,          // 'radiadores_convencionales'|'radiadores_baja_temp'|'suelo_radiante'|'fancoils'
+  acsTipo: null,         // 'misma_caldera'|'termo'|'butano'|'solar'|'no_tengo'
+  incluirAcs: null,      // true|false
+  elementos: [],         // ['caldera','ventanas','cubierta','paredes','suelo','placas']
+  facturas: null,        // 'si'|'no'
+  facturaFecha: null,    // 'menos1mes'|'mas1mes'
+  ceePrevio: null,       // 'si'|'no'|'nose'   (a medias)
+  ceeAmbos: null,        // 'si'|'no'          (ejecutada: previo + posterior)
+  fotos: null,           // 'si'|'no'
+  ejecFecha: null,       // 'antes2024'|'desde2024'
+  contacto: { nombre:'', tlf:'', email:'', rgpd:false },
+};
+let stack = [];
+
+/* ============================================================
+   ELEGIBILIDAD (lenguaje claro, sin jerga interna)
+   ============================================================ */
+const BOILER_COMBUSTIBLE = ['gas','gasoleo','carbon','biomasa']; // tienen caldera de combustible
+function tieneEnvolvente() { return state.elementos.some(e => ['ventanas','cubierta','paredes','suelo'].includes(e)); }
+function ceePresente() {
+  return state.path === 'ejecutada' ? state.ceeAmbos === 'si' : state.ceePrevio === 'si';
+}
+function calc() {
+  const esCombustible = BOILER_COMBUSTIBLE.includes(state.combustible);
+  const esBiomasa     = state.combustible === 'biomasa';
+  const cambioCaldera = state.elementos.includes('caldera');
+  const env           = tieneEnvolvente();
+  const cee           = ceePresente();
+  // CLAVE DE NEGOCIO: la aerotermia es donde más ayuda se consigue.
+  // Sin cambio de caldera por aerotermia, las ayudas son limitadas.
+  const ayudaBaja     = !cambioCaldera;
+
+  // Ayuda por cambio de caldera por aerotermia (necesita caldera de combustible previa)
+  const ayudaCaldera = esCombustible && cambioCaldera;
+
+  // Ayuda por Reforma (mejora de aislamiento / envolvente)
+  let ayudaReforma = false, reformaRevisar = false;
+  if (state.path === 'medias') {
+    if (state.facturas === 'no' || state.facturaFecha === 'menos1mes') ayudaReforma = env;
+    else if (cee) reformaRevisar = env || cee;
+  } else { // ejecutada
+    if (cee) reformaRevisar = true;
+  }
+
+  // Deducción IRPF (siempre "a revisar"; en obra ejecutada NO se calcula)
+  const irpfRevisar = cee;
+
+  // Caso sin caldera de combustible / eléctrico → SÍ hay ayuda si hay envolvente o CEE
+  const elegible = ayudaCaldera || ayudaReforma || reformaRevisar || env || cee;
+
+  return { esCombustible, esBiomasa, cambioCaldera, env, cee, ayudaCaldera, ayudaReforma, reformaRevisar, irpfRevisar, ayudaBaja, elegible };
+}
+
+/* ============================================================
+   HELPERS UI
+   ============================================================ */
+function go(s){ stack.push(s); render(); }
+function back(){ if(stack.length>1){ stack.pop(); render(); } }
+function jump(arr){ stack = arr; render(); }
+function reset(){ Object.assign(state,{direccion:null,path:null,combustible:null,edadCaldera:null,condensacion:null,elementos:[],facturas:null,facturaFecha:null,ceePrevio:null,ceeAmbos:null,fotos:null,ejecFecha:null,contacto:{nombre:'',tlf:'',email:'',rgpd:false}}); stack=['ubicacion']; render(); }
+
+function progressBar(step,total){
+  const pct = Math.round((step/total)*100);
+  return `<div class="flex items-center gap-3 mb-8">
+    <button onclick="back()" class="shrink-0 w-9 h-9 rounded-xl bg-white/[0.04] border border-white/10 flex items-center justify-center text-white/50 hover:text-white hover:bg-white/[0.08] transition-all" ${stack.length<=1?'style="visibility:hidden"':''}>
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M15 19l-7-7 7-7"/></svg>
+    </button>
+    <div class="flex-1 h-1 bg-white/5 rounded-full overflow-hidden">
+      <div class="h-full bg-gradient-to-r from-amber-500 to-amber-300 transition-all duration-500" style="width:${pct}%"></div>
+    </div>
+    <span class="shrink-0 text-[10px] font-black uppercase tracking-widest text-white/30">${step}/${total}</span>
+  </div>`;
+}
+function header(t,s){ return `<div class="text-center mb-8 animate-slide-up">
+    <h2 class="text-2xl md:text-4xl font-black text-white tracking-tight leading-tight">${t}</h2>
+    ${s?`<p class="text-white/55 text-sm md:text-base mt-3 max-w-xl mx-auto leading-relaxed">${s}</p>`:''}
+  </div>`; }
+function card(o){
+  const {emoji,titulo,sub,selected,onclick,disabled,badge}=o;
+  const base="w-full text-left p-5 rounded-2xl border-2 transition-all flex items-start gap-4";
+  const cls=disabled?"border-white/5 bg-white/[0.01] opacity-40 cursor-not-allowed"
+    :selected?"border-amber-400 bg-amber-400/10 sel"
+    :"border-white/10 bg-white/[0.03] hover:border-amber-400/40 hover:bg-white/[0.05] cursor-pointer";
+  return `<button ${disabled?'disabled':''} onclick="${disabled?'':onclick}" class="${base} ${cls}">
+    <span class="text-3xl shrink-0 leading-none mt-0.5">${emoji}</span>
+    <span class="flex-1 min-w-0">
+      <span class="block font-black text-white text-base md:text-lg">${titulo} ${badge?`<span class="ml-1 align-middle text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-400/15 text-amber-300">${badge}</span>`:''}</span>
+      ${sub?`<span class="block text-white/45 text-xs md:text-sm mt-1 leading-snug font-medium">${sub}</span>`:''}
+    </span>
+    ${selected?`<span class="shrink-0 w-6 h-6 rounded-full bg-amber-400 flex items-center justify-center mt-1"><svg class="w-3.5 h-3.5 text-bkg-deep" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/></svg></span>`:''}
+  </button>`;
+}
+function btnPrimary(l,onclick,disabled){
+  return `<button onclick="${disabled?'':onclick}" ${disabled?'disabled':''}
+    class="w-full max-w-xs mx-auto block py-4 rounded-2xl font-black uppercase tracking-widest text-sm transition-all
+    ${disabled?'bg-white/[0.06] text-white/25 cursor-not-allowed':'bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-400 hover:to-amber-300 text-bkg-deep shadow-lg shadow-amber-500/20'}">${l}</button>`;
+}
+function btnGhost(l,onclick){ return `<button onclick="${onclick}" class="mt-4 mx-auto block text-white/30 hover:text-white/70 text-[11px] font-black uppercase tracking-widest transition-all">${l}</button>`; }
+function deadEnd(emoji,t,cuerpo,cta){
+  return `<div class="text-center max-w-xl mx-auto animate-fade-in">
+    <div class="text-6xl mb-6">${emoji}</div>
+    <h2 class="text-2xl md:text-3xl font-black text-white mb-4 tracking-tight">${t}</h2>
+    <div class="text-white/60 text-sm md:text-base leading-relaxed space-y-3 mb-8">${cuerpo}</div>
+    ${cta||btnGhost('← Empezar de nuevo','reset()')}
+  </div>`;
+}
+
+/* ============================================================
+   PANTALLAS
+   ============================================================ */
+const screens = {
+
+  /* ---------- 0) UBICACIÓN (igual que el formulario actual) ---------- */
+  ubicacion(){
+    return `<div class="text-center mb-10 animate-slide-up">
+        <h1 class="text-3xl md:text-5xl font-black text-white tracking-tight leading-tight">¿Dónde está tu <span class="text-amber-400">vivienda</span>?</h1>
+        <p class="text-white/60 text-base md:text-lg mt-4 max-w-2xl mx-auto">Localiza tu casa para empezar. Igual que en el formulario actual.</p>
+      </div>
+      <div class="max-w-xl mx-auto">
+        <div class="flex gap-2">
+          <input id="dir" placeholder="Calle, número, municipio…" class="flex-1 bg-white/[0.04] border-2 border-white/10 focus:border-amber-400 rounded-2xl px-5 py-4 text-white placeholder-white/30 outline-none transition-all"/>
+          <button onclick="buscarDir()" class="px-5 rounded-2xl bg-gradient-to-r from-amber-500 to-amber-400 text-bkg-deep font-black">Buscar</button>
+        </div>
+        <button onclick="usarUbicacion()" class="mt-4 w-full py-3 rounded-2xl bg-white/[0.04] border border-white/10 text-white/70 hover:bg-white/[0.07] font-bold text-sm flex items-center justify-center gap-2">
+          📍 Usar mi ubicación actual
+        </button>
+        <p class="text-white/30 text-xs text-center mt-4">(En el prototipo, cualquiera de las dos opciones simula la búsqueda en Catastro)</p>
+      </div>`;
+  },
+
+  ubicacion_confirm(){
+    return `<div class="max-w-xl mx-auto animate-fade-in">
+      <div class="p-6 bg-white/[0.03] border border-white/10 rounded-3xl">
+        <p class="text-[10px] font-black uppercase tracking-widest text-amber-300 mb-2">¿Es esta tu vivienda?</p>
+        <p class="text-white text-lg font-bold">${state.direccion}</p>
+        <p class="text-white/40 text-xs mt-1 font-mono">RC: 1234567VK4713S0001AB (simulada)</p>
+      </div>
+      <div class="mt-6">${btnPrimary('Sí, es correcta →', "go('intro')")}</div>
+      ${btnGhost('← Buscar otra dirección','back()')}
+    </div>`;
+  },
+
+  /* ---------- 1) ESTADO DE LA OBRA ---------- */
+  intro(){
+    return `<div class="text-center mb-10 animate-slide-up">
+        <h1 class="text-3xl md:text-5xl font-black text-white tracking-tight leading-tight">¿En qué punto está tu <span class="text-amber-400">obra</span>?</h1>
+        <p class="text-white/60 text-base md:text-lg mt-4 max-w-2xl mx-auto">Cuéntanos cómo está la reforma. Sin compromiso.</p>
+      </div>
+      <div class="space-y-3 max-w-2xl mx-auto">
+        ${card({emoji:'📐',titulo:'Aún no he empezado la obra',sub:'Quiero saber qué ayudas tendría antes de empezar',onclick:"go('redirect_calc')"})}
+        ${card({emoji:'🚧',titulo:'Obra a medias',sub:'Ya he empezado la reforma pero no está terminada',onclick:"state.path='medias'; go('combustible')"})}
+        ${card({emoji:'✅',titulo:'Obra ya ejecutada',sub:'La reforma ya está hecha y quiero ver si puedo conseguir ayudas',onclick:"state.path='ejecutada'; go('ejec_fecha')"})}
+        ${card({emoji:'🏗️',titulo:'Obra nueva',sub:'Construyo una vivienda desde cero',onclick:"go('nueva_dead')"})}
+      </div>`;
+  },
+
+  redirect_calc(){
+    return deadEnd('🧮','Te llevamos a tu cálculo',
+      `<p>Como aún no has empezado la obra, puedes usar nuestra <strong class="text-amber-400">calculadora de ahorro</strong> para ver cuánto te ahorrarías y qué ayuda del Estado te corresponde.</p>
+       <p class="text-white/40 text-xs">(En producción este botón redirige a <span class="font-mono">/calcula-tu-ayuda</span>)</p>`,
+      btnPrimary('Ir a la calculadora →',"alert('En producción: redirección a /calcula-tu-ayuda')")+btnGhost('← Volver','back()'));
+  },
+
+  nueva_dead(){
+    return deadEnd('🏗️','La obra nueva no tiene ayudas',
+      `<p>Las viviendas de <strong class="text-white">nueva construcción</strong> no pueden acogerse a las ayudas por eficiencia energética. Estas ayudas exigen <strong class="text-white">sustituir o mejorar</strong> instalaciones que ya existían.</p>
+       <div class="p-4 bg-white/[0.03] border border-white/10 rounded-2xl text-left text-sm">
+         <p class="text-amber-300 font-bold mb-1">☀️ ¿Y las placas solares?</p>
+         <p class="text-white/55">Las placas solares <strong class="text-white">no dan ayuda directa</strong>. Sólo dan derecho a <strong class="text-white">deducción en el IRPF</strong>, y para ello necesitarás certificados de eficiencia energética <strong>antes y después</strong> de las facturas.</p>
+       </div>`);
+  },
+
+  /* ---------- EJECUTADA: fecha + terminada (antes que caldera) ---------- */
+  ejec_fecha(){
+    return progressBar(1,6)+header('¿De cuándo es la factura de la obra?','Sólo podemos gestionar obras facturadas desde <strong>enero de 2024</strong> en adelante.')
+      +`<div class="space-y-3 max-w-2xl mx-auto">
+          ${card({emoji:'✅',titulo:'Desde enero de 2024',sub:'La factura es de 2024 en adelante',badge:'OK',onclick:"state.ejecFecha='desde2024'; go('ejec_terminada')"})}
+          ${card({emoji:'⛔',titulo:'Antes de enero de 2024',sub:'La obra se facturó antes de esa fecha',onclick:"state.ejecFecha='antes2024'; go('ejec_block_fecha')"})}
+        </div>`;
+  },
+  ejec_block_fecha(){
+    return deadEnd('⛔','Esa obra ya no se puede gestionar',
+      `<p>Lo sentimos. Las obras facturadas <strong class="text-white">antes de enero de 2024</strong> ya no pueden acogerse a estas ayudas y no podemos tramitarlas.</p>`);
+  },
+  ejec_terminada(){
+    return progressBar(2,6)+header('¿La obra está totalmente terminada?','Si sólo tienes una factura parcial, en realidad es una obra a medias y la tratamos de otra forma.')
+      +`<div class="space-y-3 max-w-2xl mx-auto">
+          ${card({emoji:'🏁',titulo:'Sí, totalmente terminada',sub:'La reforma está acabada y facturada',onclick:"go('combustible')"})}
+          ${card({emoji:'🚧',titulo:'Tengo factura parcial',sub:'Aún queda obra por hacer',onclick:"state.path='medias'; go('combustible')"})}
+        </div>`;
+  },
+
+  /* ---------- TRONCO: COMBUSTIBLE (idéntico al formulario actual) ---------- */
+  combustible(){
+    const ej = state.path==='ejecutada';
+    const verbo = ej ? 'calentabas tu vivienda ANTES de la reforma' : 'se calienta hoy tu vivienda';
+    const step = ej?3:1, total = ej?9:7;
+    const isBiomasa = state.combustible==='biomasa';
+    return progressBar(step,total)+header(`¿Con qué ${verbo}?`,'Esto nos ayuda a calcular cuánto puedes ahorrar.')
+      +`<div class="space-y-3 max-w-2xl mx-auto">
+          ${card({emoji:'🔥',titulo:'Gas natural o butano',sub:'Caldera de gas (la más común en España)',selected:state.combustible==='gas',onclick:"setComb('gas')"})}
+          ${card({emoji:'🛢️',titulo:'Gasóleo / Diésel',sub:'Caldera con depósito de combustible líquido',selected:state.combustible==='gasoleo',onclick:"setComb('gasoleo')"})}
+          ${card({emoji:'⚡',titulo:'Electricidad',sub:'Radiadores eléctricos o caldera eléctrica',selected:state.combustible==='electrica',onclick:"setComb('electrica')"})}
+          ${card({emoji:'⚫',titulo:'Carbón',sub:'Estufa o caldera de carbón',selected:state.combustible==='carbon',onclick:"setComb('carbon')"})}
+          ${card({emoji:'🪵',titulo:'Biomasa',sub:'Pellets, leña o hueso de aceituna',selected:state.combustible==='biomasa',onclick:"setComb('biomasa')"})}
+          ${card({emoji:'🚫',titulo:ej?'No tenía caldera de calefacción':'No tengo caldera de calefacción',sub:'No hay/había sistema central de calefacción en la vivienda',selected:state.combustible==='no_tiene',onclick:"setComb('no_tiene')"})}
+        </div>
+        ${isBiomasa?`<div class="max-w-2xl mx-auto mt-4 p-4 bg-amber-500/10 border border-amber-500/30 rounded-2xl"><div class="flex gap-3"><span class="text-2xl">⚠️</span><div><div class="text-amber-300 font-bold text-sm mb-1">Aviso importante</div><p class="text-white/70 text-xs leading-relaxed">Las ayudas para sustituir biomasa por aerotermia están en revisión por el Ministerio. Continúa con la simulación y un técnico verificará personalmente si tu caso es elegible.</p></div></div><div class="mt-4">${btnPrimary('Continuar',"nextFromComb()")}</div></div>`:''}`;
+  },
+
+  /* ---------- EDAD CALDERA (idéntico; se omite si electricidad) ---------- */
+  edad_caldera(){
+    const ej = state.path==='ejecutada';
+    const step = ej?4:2, total = ej?9:7;
+    const aplicaCond = state.combustible==='gas'||state.combustible==='gasoleo';
+    return progressBar(step,total)+header(ej?'¿Cuántos años tenía tu caldera?':'¿Cuántos años tiene tu caldera?','A más antigua, más probable que esté perdiendo dinero por ineficiencia.')
+      +`<div class="space-y-3 max-w-2xl mx-auto">
+          ${card({emoji:'🆕',titulo:'Menos de 10 años',sub:'Caldera moderna',selected:state.edadCaldera==='<10',onclick:"setEdad('<10')"})}
+          ${card({emoji:'⏳',titulo:'Entre 10 y 20 años',sub:'Tecnología intermedia',selected:state.edadCaldera==='10-20',onclick:"setEdad('10-20')"})}
+          ${card({emoji:'👴',titulo:'Más de 20 años',sub:'Caldera antigua, gran margen de ahorro',selected:state.edadCaldera==='>20',badge:'🔥 Ahorro alto',onclick:"setEdad('>20')"})}
+          ${card({emoji:'❓',titulo:'No lo sé',sub:'Calculamos con una estimación conservadora',selected:state.edadCaldera==='no_se',onclick:"setEdad('no_se')"})}
+        </div>
+        ${aplicaCond && state.edadCaldera?`<div class="max-w-2xl mx-auto mt-6 pt-6 border-t border-white/10 animate-fade-in">
+          <div class="text-center mb-4"><div class="text-amber-300 text-xs font-black uppercase tracking-widest mb-2">¿Tu caldera es de condensación?</div>
+          <p class="text-white/40 text-xs leading-relaxed"><strong class="text-white/70">Pista:</strong> las de condensación tienen una <strong class="text-amber-400">manguera fina por debajo</strong> que evacúa agua.</p></div>
+          <div class="space-y-3">
+            ${card({emoji:'💧',titulo:'Sí, tiene manguera de condensados',selected:state.condensacion==='si',onclick:"setCond('si')"})}
+            ${card({emoji:'🏭',titulo:'No, sin manguera de condensados',selected:state.condensacion==='no',onclick:"setCond('no')"})}
+            ${card({emoji:'❓',titulo:'No lo sé',selected:state.condensacion==='no_se',onclick:"setCond('no_se')"})}
+          </div></div>`:''}`;
+  },
+
+  /* ---------- EMISORES (réplica exacta Step4) ---------- */
+  emisores(){
+    const ej = state.path==='ejecutada';
+    const step = ej?5:3, total = ej?9:7;
+    return progressBar(step,total)+header('¿Qué te calienta cada habitación?','Lo que tienes hoy en paredes o suelo. Cuanto mejor, más eficiente será la aerotermia.')
+      +`<div class="space-y-3 max-w-2xl mx-auto">
+          ${card({emoji:'🪜',titulo:'Radiadores tradicionales',sub:'Los típicos de hierro o aluminio, altos y delgados',selected:state.emisor==='radiadores_convencionales',onclick:"setEmisor('radiadores_convencionales')"})}
+          ${card({emoji:'〰️',titulo:'Radiadores de baja temperatura',sub:'Más modernos, anchos y finos. Suelen ser blancos',selected:state.emisor==='radiadores_baja_temp',onclick:"setEmisor('radiadores_baja_temp')"})}
+          ${card({emoji:'♨️',titulo:'Suelo radiante',sub:'Calor que sale del suelo de la vivienda',badge:'⭐ Ideal',selected:state.emisor==='suelo_radiante',onclick:"setEmisor('suelo_radiante')"})}
+          ${card({emoji:'💨',titulo:'Fancoils / Split',sub:'Unidades de aire frío/caliente en pared o techo',selected:state.emisor==='fancoils',onclick:"setEmisor('fancoils')"})}
+          ${card({emoji:'❓',titulo:'No lo sé',sub:'Calculamos asumiendo radiadores tradicionales',selected:state.emisor==='radiadores_convencionales'&&state._emisorNose,onclick:"setEmisor('radiadores_convencionales',true)"})}
+        </div>`;
+  },
+
+  /* ---------- ACS / AGUA CALIENTE (réplica exacta Step5) ---------- */
+  acs(){
+    const ej = state.path==='ejecutada';
+    const step = ej?6:4, total = ej?9:7;
+    let misma = null;
+    switch(state.combustible){
+      case 'gas': misma={t:'La misma caldera de gas',s:'Si tu caldera de gas te da calefacción y agua caliente'}; break;
+      case 'gasoleo': misma={t:'La misma caldera de gasóleo',s:'Si tu caldera de gasóleo te da calefacción y agua caliente'}; break;
+      case 'carbon': misma={t:'La misma caldera de carbón',s:'Si tu caldera te da calefacción y agua caliente'}; break;
+      case 'biomasa': misma={t:'La misma caldera de biomasa',s:'Si tu caldera te da calefacción y agua caliente'}; break;
+      default: misma=null; // eléctrica: no aplica
+    }
+    const acsAnswered = !!state.acsTipo;
+    const canCont = acsAnswered && (state.incluirAcs===true||state.incluirAcs===false);
+    return progressBar(step,total)+header('Vamos con el agua caliente','Dos preguntas rápidas para afinar tu ahorro.')
+      +`<div class="max-w-2xl mx-auto space-y-3">
+          <div class="text-amber-300 text-xs font-black uppercase tracking-widest mb-3 text-center">1. ¿Cómo calientas el agua caliente HOY?</div>
+          ${misma?card({emoji:'🔁',titulo:misma.t,sub:misma.s,selected:state.acsTipo==='misma_caldera',onclick:"setAcs('misma_caldera')"}):''}
+          ${card({emoji:'⚡',titulo:'Termo eléctrico',sub:'Depósito con resistencia',selected:state.acsTipo==='termo',onclick:"setAcs('termo')"})}
+          ${card({emoji:'🛢️',titulo:'Calentador de butano o GLP',sub:'Bombona de butano o tanque de propano',selected:state.acsTipo==='butano',onclick:"setAcs('butano')"})}
+          ${card({emoji:'🌞',titulo:'Placas solares térmicas',sub:'Captadores solares para agua caliente',selected:state.acsTipo==='solar',onclick:"setAcs('solar')"})}
+          ${card({emoji:'❓',titulo:'No tengo / no lo sé',sub:'Usamos butano como referencia',selected:state.acsTipo==='no_tengo',onclick:"setAcs('no_tengo')"})}
+        </div>
+        ${acsAnswered?`<div class="max-w-2xl mx-auto mt-8 pt-6 border-t border-white/10 animate-fade-in space-y-3">
+          <div class="text-amber-300 text-xs font-black uppercase tracking-widest mb-3 text-center">2. ¿Quieres que la aerotermia te dé también el agua caliente?</div>
+          ${card({emoji:'🚿',titulo:'Sí, también el agua caliente',sub:'Más ahorro: una sola máquina para todo',badge:'Más ahorro',selected:state.incluirAcs===true,onclick:"setIncluirAcs(true)"})}
+          ${card({emoji:'🔥',titulo:'No, solo calefacción',sub:'Mantienes tu sistema actual de agua caliente',selected:state.incluirAcs===false,onclick:"setIncluirAcs(false)"})}
+        </div>`:''}
+        ${canCont?`<div class="mt-10">${btnPrimary('Continuar',"go('elementos')")}</div>`:''}`;
+  },
+
+  /* ---------- ELEMENTOS A INCLUIR (multi) ---------- */
+  elementos(){
+    const ej = state.path==='ejecutada';
+    const step = ej?7:5, total = ej?9:7;
+    const els=[
+      {k:'caldera',e:'🔄',t:'Cambio de caldera por aerotermia',s:ej?'Se sustituyó la caldera':'Sustituir la caldera actual'},
+      {k:'ventanas',e:'🪟',t:'Ventanas',s:'Cambio de ventanas por modelos más eficientes'},
+      {k:'cubierta',e:'🏠',t:'Cubierta / tejado',s:'Aislamiento del techo o tejado'},
+      {k:'paredes',e:'🧱',t:'Fachada (paredes exteriores)',s:'SATE, trasdosado o aislamiento de fachada'},
+      {k:'suelo',e:'⬇️',t:'Suelo',s:'Aislamiento del suelo de la vivienda'},
+      {k:'placas',e:'☀️',t:'Placas solares',s:'Autoconsumo fotovoltaico'},
+    ];
+    const cards=els.map(o=>card({emoji:o.e,titulo:o.t,sub:o.s,selected:state.elementos.includes(o.k),onclick:`toggleEl('${o.k}')`})).join('');
+    const hayPlacas=state.elementos.includes('placas');
+    return progressBar(step,total)+header(ej?'¿Qué incluyó la reforma?':'¿Qué quieres incluir en la ayuda?','Marca todos los elementos en los que se actúa. Puedes elegir varios.')
+      +`<div class="space-y-3 max-w-2xl mx-auto">${cards}</div>`
+      +(hayPlacas?`<div class="max-w-2xl mx-auto mt-4 p-4 bg-amber-400/5 border border-amber-400/20 rounded-2xl text-sm text-white/60"><strong class="text-amber-300">☀️ Placas solares:</strong> no dan ayuda directa, sólo deducción en IRPF (requiere certificados antes y después de las facturas).</div>`:'')
+      +(!state.elementos.includes('caldera') && state.elementos.length>0 ? `<div class="max-w-2xl mx-auto mt-4 p-5 bg-gradient-to-r from-amber-500/15 to-amber-400/5 border-2 border-amber-400/30 rounded-2xl animate-fade-in"><div class="flex gap-3"><span class="text-2xl shrink-0">💡</span><div><div class="text-amber-300 font-black text-sm mb-1">¿Y la aerotermia?</div><p class="text-white/70 text-xs leading-relaxed">Donde de verdad se consigue la <strong class="text-white">mayor ayuda</strong> es <strong class="text-amber-300">cambiando la caldera por aerotermia</strong>. Si solo mejoras el aislamiento, las ayudas son bastante más bajas. Te recomendamos incluirla.</p></div></div></div>`:'')
+      +`<div class="mt-10">${btnPrimary('Continuar', ej?"go('fotos')":"go('facturas')", state.elementos.length===0)}</div>`;
+  },
+
+  /* ---------- A MEDIAS: facturas ---------- */
+  facturas(){
+    return progressBar(6,7)+header('¿Ya tienes facturas emitidas de la reforma?','Es clave: si ya hay facturas, cambia qué ayudas podemos tramitar.')
+      +`<div class="space-y-3 max-w-2xl mx-auto">
+          ${card({emoji:'📄',titulo:'Sí, ya tengo facturas',sub:'Hay trabajos ya facturados',onclick:"state.facturas='si'; go('factura_fecha')"})}
+          ${card({emoji:'🆕',titulo:'No, todavía no',sub:'Aún no se ha facturado nada de la reforma',onclick:"state.facturas='no'; go('fotos')"})}
+        </div>`;
+  },
+  factura_fecha(){
+    return progressBar(6,7)+header('¿De cuándo es la factura más antigua?','Si tiene menos de un mes, todavía podríamos tramitar la reforma completa.')
+      +`<div class="space-y-3 max-w-2xl mx-auto">
+          ${card({emoji:'🗓️',titulo:'Menos de 1 mes',sub:'Todavía estaríamos a tiempo',badge:'OK',onclick:"state.facturaFecha='menos1mes'; go('fotos')"})}
+          ${card({emoji:'📆',titulo:'Más de 1 mes',sub:'La factura es más antigua',onclick:"state.facturaFecha='mas1mes'; go('cee_previo')"})}
+        </div>`;
+  },
+  cee_previo(){
+    return progressBar(6,7)+header('¿Tienes Certificado de Eficiencia Energética previo?','Tiene que estar <strong>registrado en tu Comunidad Autónoma</strong> y ser anterior a la reforma. Es lo que permite tramitar la reforma completa cuando ya hay facturas.')
+      +`<div class="space-y-3 max-w-2xl mx-auto">
+          ${card({emoji:'📑',titulo:'Sí, lo tengo registrado',sub:'Lo revisamos para confirmar',onclick:"state.ceePrevio='si'; go('fotos')"})}
+          ${card({emoji:'🚫',titulo:'No tengo',sub:'Aún podríamos ayudarte con el cambio de caldera',onclick:"state.ceePrevio='no'; go('fotos')"})}
+          ${card({emoji:'❓',titulo:'No lo sé',sub:'No estoy seguro de si lo tengo o está registrado',onclick:"state.ceePrevio='nose'; go('fotos')"})}
+        </div>`;
+  },
+
+  /* ---------- FOTOS (gate) ---------- */
+  fotos(){
+    const ej = state.path==='ejecutada';
+    const step = ej?8:7, total = ej?9:7;
+    return progressBar(step,total)+header('¿Tienes fotografías de lo que había antes?','Necesitamos fotos de la caldera antigua y su placa, ventanas viejas, etc. — de todo lo que quieras meter en la ayuda. Sin fotos no se puede justificar la reforma.')
+      +`<div class="space-y-3 max-w-2xl mx-auto">
+          ${card({emoji:'📸',titulo:'Sí, tengo fotos',sub:'Del estado anterior (caldera, placa, ventanas…)',onclick: ej?"go('cee_ambos')":"go('resumen')"})}
+          ${card({emoji:'🙈',titulo:'No tengo fotos',sub:'No hice fotos antes de la reforma',onclick:"go('fotos_block')"})}
+        </div>`;
+  },
+  fotos_block(){
+    return deadEnd('🙈','Sin fotos no podemos justificar la reforma',
+      `<p>Sin fotografías del estado anterior <strong class="text-white">no podemos justificar la reforma</strong> y, por tanto, no podrías obtener la ayuda.</p>
+       <p>Te recomendamos <strong class="text-amber-400">encarecidamente que busques</strong> a ver si las encuentras (móvil viejo, álbumes, mensajes…). Si aparecen, vuelve a rellenar el formulario.</p>`,
+      btnPrimary('Empezar de nuevo','reset()'));
+  },
+
+  /* ---------- EJECUTADA: CEE previo + posterior ---------- */
+  cee_ambos(){
+    return progressBar(9,9)+header('¿Tienes certificados de eficiencia energética?','Para valorar la reforma completa y la deducción de IRPF necesitamos certificado <strong>previo (registrado)</strong> y <strong>posterior</strong> a la reforma.')
+      +`<div class="space-y-3 max-w-2xl mx-auto">
+          ${card({emoji:'📑',titulo:'Sí, tengo ambos (antes y después)',sub:'Registrados — los revisamos',onclick:"state.ceeAmbos='si'; go('resumen')"})}
+          ${card({emoji:'📄',titulo:'No / sólo uno',sub:'Valoramos las vías posibles al revisar tu caso',onclick:"state.ceeAmbos='no'; go('resumen')"})}
+        </div>`;
+  },
+
+  /* ---------- RESUMEN ---------- */
+  resumen(){
+    const r=calc(); const ej=state.path==='ejecutada';
+    const els=state.elementos;
+    const items=[];
+
+    if(!r.ayudaBaja){
+      // CASO FUERTE: incluye aerotermia → ayudas grandes
+      if(r.ayudaCaldera) items.push({ok:r.esBiomasa?'rev':true, t:'Ayuda por cambio de caldera por aerotermia', d:r.esBiomasa?'Posible — la biomasa está en revisión por el Ministerio.':'Sustitución de tu caldera por aerotermia.'});
+      if(r.ayudaReforma) items.push({ok:true, t:'Ayuda por Reforma (mejora de aislamiento)', d:'Tu reforma es elegible para la ayuda de mejora de la envolvente.'});
+      if(r.reformaRevisar) items.push({ok:'rev', t:'Ayuda por Reforma — a revisar', d:'Posible, sujeto a revisión de tu certificado de eficiencia energética.'});
+      if(r.irpfRevisar) items.push({ok:'rev', t:'Deducción en el IRPF — a revisar', d: ej?'En obra ejecutada no calculamos el IRPF aquí; lo valoramos al revisar tus certificados.':'Posible si mantienes certificados antes/después y facturas.'});
+    } else {
+      // CASO SIN AEROTERMIA: deducciones IRPF concretas según lo marcado
+      if(els.includes('ventanas')) items.push({icon:'💶', tone:'amber', t:'Deducción en el IRPF · Ventanas',
+        d:'Podrías deducir el <strong class="text-white">20% del coste de la obra, hasta 1.000€</strong>. Si la vivienda tiene <strong class="text-white">dos propietarios, se duplica</strong> (hasta 2.000€). Necesitas certificados de eficiencia energética <strong>antes y después</strong>.'});
+      if(els.some(e=>['cubierta','paredes','suelo'].includes(e))) items.push({icon:'🏠', tone:'amber', t:'Deducción IRPF + posible ayuda · Aislamiento',
+        d:'El <strong class="text-white">20% del coste hasta 1.000€</strong> en IRPF (el doble si sois dos propietarios). Además, el aislamiento de cubierta, fachada o suelo <strong class="text-amber-300">puede tener ayuda por mejora energética</strong>: lo analizamos contigo. Necesitas certificados antes y después.'});
+      if(els.includes('placas')) items.push({icon:'☀️', tone:'amber', t:'Deducción en el IRPF · Placas solares',
+        d:'Las placas no dan ayuda directa, pero podrías deducir el <strong class="text-white">60% del coste, hasta un máximo de 9.000€</strong>. Necesitas certificados de eficiencia energética <strong>antes y después</strong>.'});
+    }
+
+    const iconFor=(i)=> i.icon ? i.icon : (i.ok===true?'✅':i.ok==='rev'?'🔎':'ℹ️');
+    const borderFor=(i)=> i.tone==='amber'||i.ok==='rev' ? 'border-amber-400/30 bg-amber-400/5' : i.ok===true ? 'border-emerald-400/30 bg-emerald-400/5' : 'border-white/10 bg-white/[0.03]';
+    const lista=items.map(i=>`<div class="flex items-start gap-3 p-4 rounded-2xl border ${borderFor(i)}">
+      <span class="text-xl mt-0.5">${iconFor(i)}</span>
+      <div><p class="font-black text-white text-sm">${i.t}</p><p class="text-white/55 text-xs mt-1 leading-snug">${i.d}</p></div></div>`).join('');
+
+    const titulo = !r.elegible ? 'Lo revisamos contigo' : r.ayudaBaja ? 'Aquí la ayuda es pequeña' : '¡Buenas noticias!';
+    const subt = !r.elegible ? 'Tu caso necesita una revisión personalizada.' : r.ayudaBaja ? 'Sin aerotermia, lo que te corresponde es básicamente una deducción en el IRPF:' : 'Según lo que nos cuentas, esto es lo que podrías conseguir:';
+
+    // Bloque destacado: empujar la aerotermia (la clave del negocio)
+    const nudgeAero = r.ayudaBaja ? `<div class="max-w-2xl mx-auto mt-5 p-5 bg-gradient-to-br from-amber-500/20 to-amber-400/5 border-2 border-amber-400/40 rounded-3xl animate-fade-in">
+        <div class="flex items-start gap-4">
+          <span class="text-4xl shrink-0">🔥</span>
+          <div class="flex-1">
+            <p class="text-amber-300 font-black text-base md:text-lg leading-tight">¿Quieres conseguir mucho más?</p>
+            <p class="text-white/70 text-sm mt-2 leading-relaxed">Donde de verdad se consigue la mayor ayuda es <strong class="text-amber-300">cambiando la caldera por aerotermia</strong>. Si la incluyes, podrías multiplicar lo que recibes.</p>
+            <button onclick="${ej?"jump(['ubicacion','intro','ejec_fecha','ejec_terminada','combustible','emisores','acs','elementos'])":"jump(['ubicacion','intro','combustible','emisores','acs','elementos'])"}" class="mt-4 px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-400 text-bkg-deep font-black uppercase tracking-widest text-xs shadow-lg shadow-amber-500/20">+ Añadir aerotermia</button>
+          </div>
+        </div>
+      </div>` : '';
+
+    const notaCertif = r.ayudaBaja ? `<div class="max-w-2xl mx-auto mt-5 p-4 bg-white/[0.02] border border-white/10 rounded-2xl text-xs text-white/45 leading-relaxed"><strong class="text-white/70">Para tramitar la deducción</strong> necesitas certificado de eficiencia energética <strong>antes y después</strong> de la obra. Déjanos tus datos y enviaremos tu solicitud a nuestro equipo (<span class="text-amber-300">info@brokergy.es</span>) para analizar tu caso y decirte cómo conseguirlo.</div>`
+      : `<div class="max-w-2xl mx-auto mt-5 p-4 bg-white/[0.02] border border-white/10 rounded-2xl text-xs text-white/45 leading-relaxed"><strong class="text-white/70">Importante:</strong> esto es una estimación orientativa. La confirmación final depende de la documentación que aportes y de nuestra revisión técnica.</div>`;
+
+    const cta = r.ayudaBaja ? 'Quiero que lo analicéis →' : 'Quiero que me lo gestionéis →';
+
+    return progressBar(ej?9:7,ej?9:7)+header(titulo,subt)
+      +`<div class="space-y-3 max-w-2xl mx-auto">${lista||`<div class="p-4 rounded-2xl border border-white/10 bg-white/[0.03] text-white/50 text-sm">Déjanos tus datos y un técnico revisará tu caso.</div>`}</div>`
+      +nudgeAero
+      +notaCertif
+      +`<div class="mt-8">${btnPrimary(cta,"go('contacto')")}</div>${btnGhost('← Atrás','back()')}`;
+  },
+
+  /* ---------- CONTACTO ---------- */
+  contacto(){
+    const c=state.contacto;
+    const fuerte=state.elementos.includes('caldera');
+    const valido=c.nombre.trim()&&c.tlf.replace(/\s/g,'').length>=9&&c.rgpd;
+    const subt = fuerte
+      ? 'Te enviaremos por <strong>WhatsApp y email</strong> tu número de oportunidad y un enlace para subir la documentación.'
+      : 'Enviaremos tu solicitud a nuestro equipo (<strong>info@brokergy.es</strong>) y te contactaremos para analizar tu caso.';
+    return header('Casi está. ¿Cómo te contactamos?',subt)
+      +`<div class="max-w-md mx-auto space-y-4">
+        <div><label class="block text-[10px] font-black uppercase tracking-widest text-white/40 mb-2">Nombre *</label>
+          <input id="f-nombre" oninput="state.contacto.nombre=this.value; refreshContactBtn()" value="${c.nombre}" placeholder="Tu nombre y apellidos" class="w-full bg-white/[0.04] border-2 border-white/10 focus:border-amber-400 rounded-xl px-4 py-3 text-white placeholder-white/25 outline-none transition-all"/></div>
+        <div><label class="block text-[10px] font-black uppercase tracking-widest text-white/40 mb-2">Teléfono *</label>
+          <input id="f-tlf" inputmode="tel" oninput="state.contacto.tlf=this.value; refreshContactBtn()" value="${c.tlf}" placeholder="600 000 000" class="w-full bg-white/[0.04] border-2 border-white/10 focus:border-amber-400 rounded-xl px-4 py-3 text-white placeholder-white/25 outline-none transition-all"/></div>
+        <div><label class="block text-[10px] font-black uppercase tracking-widest text-white/40 mb-2">Email <span class="text-white/25 normal-case tracking-normal">(opcional)</span></label>
+          <input id="f-email" type="email" oninput="state.contacto.email=this.value" value="${c.email}" placeholder="tu@email.com" class="w-full bg-white/[0.04] border-2 border-white/10 focus:border-amber-400 rounded-xl px-4 py-3 text-white placeholder-white/25 outline-none transition-all"/></div>
+        <label class="flex items-start gap-3 cursor-pointer pt-1"><input type="checkbox" ${c.rgpd?'checked':''} onchange="state.contacto.rgpd=this.checked; refreshContactBtn()" class="mt-1 w-4 h-4 accent-amber-400"/>
+          <span class="text-white/45 text-xs leading-snug">Acepto el tratamiento de mis datos para que Brokergy me contacte sobre las ayudas. Confirmo que soy <strong class="text-white/70">propietario de la vivienda</strong>.</span></label>
+        <div id="contact-btn" class="pt-2">${btnPrimary(fuerte?'Enviar y recibir mi enlace':'Enviar mi solicitud',"go('confirmacion')",!valido)}</div>
+      </div>${btnGhost('← Atrás','back()')}`;
+  },
+
+  /* ---------- CONFIRMACIÓN ---------- */
+  confirmacion(){
+    const fuerte=state.elementos.includes('caldera');
+    const nombre=state.contacto.nombre.split(' ')[0]||'gracias';
+    if(!fuerte){
+      // Caso de solo deducción → email a info@brokergy.es para análisis
+      return `<div class="max-w-xl mx-auto animate-fade-in text-center">
+          <div class="text-6xl mb-5">📩</div>
+          <h2 class="text-2xl md:text-3xl font-black text-white mb-3 tracking-tight">¡Recibido, ${nombre}!</h2>
+          <p class="text-white/60 text-sm md:text-base mb-2">Hemos enviado tu solicitud a <span class="font-mono text-amber-400 font-bold">info@brokergy.es</span>.</p>
+          <p class="text-white/50 text-sm mb-8">Un técnico analizará tu caso y te contactará para explicarte cómo conseguir tu deducción en el IRPF.</p>
+        </div>
+        <div class="max-w-xl mx-auto p-6 bg-white/[0.03] border border-white/10 rounded-3xl">
+          <p class="text-[10px] font-black uppercase tracking-widest text-amber-300 mb-4">Para tramitar la deducción harán falta</p>
+          <ul class="space-y-3 text-sm text-white/70">
+            <li class="flex gap-3"><span>📑</span><span><strong class="text-white">Certificado de eficiencia energética ANTES</strong> de la obra (registrado en tu CCAA).</span></li>
+            <li class="flex gap-3"><span>📑</span><span><strong class="text-white">Certificado de eficiencia energética DESPUÉS</strong> de la obra.</span></li>
+            <li class="flex gap-3"><span>🧾</span><span><strong class="text-white">Facturas y justificantes de pago</strong> de la reforma.</span></li>
+          </ul>
+          <p class="text-white/35 text-xs mt-5 leading-relaxed border-t border-white/5 pt-4">Sin los certificados antes y después no es posible aplicar la deducción. Si aún no los tienes, te ayudamos a organizarlo.</p>
+        </div>${btnGhost('Empezar otra simulación','reset()')}`;
+    }
+    // Caso fuerte (aerotermia) → oportunidad + enlace Drive + BROKERGY-Expedientes
+    return `<div class="max-w-xl mx-auto animate-fade-in text-center">
+        <div class="text-6xl mb-5">🎉</div>
+        <h2 class="text-2xl md:text-3xl font-black text-white mb-3 tracking-tight">¡Listo, ${nombre}!</h2>
+        <p class="text-white/60 text-sm md:text-base mb-2">Hemos creado tu oportunidad <span class="font-mono text-amber-400 font-bold">26RES_OP-XXX</span>.</p>
+        <p class="text-white/50 text-sm mb-8">Te acabamos de enviar por <strong class="text-white">WhatsApp y email</strong> un enlace único para subir tu documentación a tu carpeta segura.</p>
+      </div>
+      <div class="max-w-xl mx-auto p-6 bg-white/[0.03] border border-white/10 rounded-3xl">
+        <p class="text-[10px] font-black uppercase tracking-widest text-amber-300 mb-4">Qué necesitamos que subas</p>
+        <ul class="space-y-3 text-sm text-white/70">
+          <li class="flex gap-3"><span>🔥</span><span><strong class="text-white">Foto de la caldera antigua</strong> (el sistema que había antes).</span></li>
+          <li class="flex gap-3"><span>🏷️</span><span><strong class="text-white">Foto de la placa de la caldera</strong> (datos del fabricante).</span></li>
+          <li class="flex gap-3"><span>📷</span><span><strong class="text-white">Otras fotos de la reforma</strong>: ventanas, cubierta, fachada… todo lo que quieras incluir.</span></li>
+          <li class="flex gap-3"><span>📑</span><span><strong class="text-white">Certificado de eficiencia energética anterior</strong> (PDF; y los archivos <span class="font-mono text-xs">.cex/.xml</span> si los tienes).</span></li>
+          <li class="flex gap-3"><span>🧾</span><span><strong class="text-white">Facturas</strong> y cualquier otra documentación de la reforma.</span></li>
+        </ul>
+        <p class="text-white/35 text-xs mt-5 leading-relaxed border-t border-white/5 pt-4">Al subirlos, el sistema los nombra y archiva automáticamente en tu carpeta de Drive (igual que en el CRM). El equipo <strong class="text-white/60">BROKERGY – Expedientes</strong> recibe el aviso de tu nueva oportunidad.</p>
+      </div>${btnGhost('Empezar otra simulación','reset()')}`;
+  },
+};
+
+/* ============================================================
+   ACCIONES
+   ============================================================ */
+function buscarDir(){ const v=document.getElementById('dir').value.trim(); state.direccion = v||'Calle Ejemplo 12, Toledo'; go('ubicacion_confirm'); }
+function usarUbicacion(){ state.direccion='Tu ubicación actual (simulada), Toledo'; go('ubicacion_confirm'); }
+
+function setComb(c){
+  state.combustible=c; state.edadCaldera=null; state.condensacion=null;
+  if(c==='biomasa'){ render(); return; }      // muestra aviso + botón continuar
+  if(c==='no_tiene'){
+    // Sin calefacción: no hay caldera (salta edad) NI emisores (no hay nada que
+    // caliente las habitaciones). La app recibe boilerHeatingType='No tiene
+    // Calefacción' (combustible_actual vacío) y un emisor por defecto conservador.
+    state.emisor='radiadores_convencionales'; state._emisorNose=true;
+    go('acs'); return;
+  }
+  if(c==='electrica'){ go('emisores'); return; } // radiadores eléctricos SÍ son emisores
+  go('edad_caldera');
+}
+function nextFromComb(){ // sólo biomasa usa botón
+  if(state.combustible==='gas'||state.combustible==='gasoleo') go('edad_caldera');
+  else go('emisores');
+}
+function setEdad(e){
+  state.edadCaldera=e;
+  const aplicaCond = state.combustible==='gas'||state.combustible==='gasoleo';
+  if(!aplicaCond){ state.condensacion='no_se'; go('emisores'); return; }
+  render(); // muestra sub-pregunta condensación
+}
+function setCond(v){ state.condensacion=v; go('emisores'); }
+function setEmisor(e,nose){ state.emisor=e; state._emisorNose=!!nose; go('acs'); }
+function setAcs(v){ state.acsTipo=v; render(); }
+function setIncluirAcs(v){ state.incluirAcs=v; render(); }
+function toggleEl(k){ const i=state.elementos.indexOf(k); if(i>=0) state.elementos.splice(i,1); else state.elementos.push(k); render(); }
+function refreshContactBtn(){ const c=state.contacto; const v=c.nombre.trim()&&c.tlf.replace(/\s/g,'').length>=9&&c.rgpd; document.getElementById('contact-btn').innerHTML=btnPrimary('Enviar y recibir mi enlace',"go('confirmacion')",!v); }
+
+/* ============================================================
+   RENDER
+   ============================================================ */
+function render(){ const id=stack[stack.length-1]||'ubicacion'; const fn=screens[id]; document.getElementById('app').innerHTML = fn?fn():`<p class="text-white/50">Pantalla no encontrada: ${id}</p>`; }
+stack=['ubicacion']; render();
+</script>
+</body>
+</html>

@@ -83,6 +83,7 @@ export function AdminPanelView({
     const [error, setError] = useState(null);
     const [oportunidadToDelete, setOportunidadToDelete] = useState(null);
     const [deleting, setDeleting] = useState(false);
+    const [localPathLoadingId, setLocalPathLoadingId] = useState(null); // id_oportunidad cuyo botón "carpeta local" está cargando
     const [assigningPrescriptor, setAssigningPrescriptor] = useState(null);
 
     // CRM States
@@ -391,6 +392,32 @@ export function AdminPanelView({
             return () => clearTimeout(timer);
         }
     }, [error]);
+
+    // Abrir la carpeta LOCAL de Windows de la oportunidad (solo ADMIN). El backend
+    // reconstruye la ruta (espejo de Google Drive Desktop) subiendo por las carpetas
+    // padre y lanzamos el protocolo brokergylocal: (abre directo, sin modal); la ruta
+    // se copia al portapapeles en silencio como respaldo. Requiere brokergylocal_setup.reg.
+    const handleOpenLocalFolder = async (op) => {
+        try {
+            setLocalPathLoadingId(op.id_oportunidad);
+            const { data } = await axios.get(`/api/oportunidades/${encodeURIComponent(op.id_oportunidad)}/local-path`);
+            const path = data?.path;
+            if (!path) { setError('No se pudo obtener la ruta local de la oportunidad.'); return; }
+            try { await navigator.clipboard.writeText(path); } catch (e) { /* contexto no seguro */ }
+            const b64url = btoa(unescape(encodeURIComponent(path))).replace(/\+/g, '-').replace(/\//g, '_');
+            const a = document.createElement('a');
+            a.href = `brokergylocal:${b64url}`;
+            a.style.display = 'none';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+        } catch (err) {
+            const msg = err?.response?.data?.error || 'No se pudo resolver la ruta local.';
+            setError(msg);
+        } finally {
+            setLocalPathLoadingId(null);
+        }
+    };
 
     const handleDelete = async () => {
         if (!oportunidadToDelete) return;
@@ -1412,18 +1439,17 @@ export function AdminPanelView({
                                                         </svg>
                                                     </button>
                                                     {op.datos_calculo?.drive_folder_link && user?.rol === 'ADMIN' && (
-                                                        <a
-                                                            href={op.datos_calculo.drive_folder_link}
-                                                            target="_blank"
-                                                            rel="noopener noreferrer"
-                                                            onClick={(e) => e.stopPropagation()}
-                                                            className="p-1 text-cyan-400/40 hover:text-cyan-400 transition-all rounded-lg hover:bg-cyan-500/10"
-                                                            title="Abrir carpeta en Google Drive"
+                                                        <button
+                                                            onClick={(e) => { e.stopPropagation(); handleOpenLocalFolder(op); }}
+                                                            disabled={localPathLoadingId === op.id_oportunidad}
+                                                            className="p-1 text-emerald-400/50 hover:text-emerald-400 transition-all rounded-lg hover:bg-emerald-500/10 disabled:opacity-40 disabled:cursor-wait"
+                                                            title="Abrir la carpeta local en el Explorador de Windows"
                                                         >
                                                             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" />
+                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 13l2 2 4-4" />
                                                             </svg>
-                                                        </a>
+                                                        </button>
                                                     )}
                                                     {user?.rol !== 'DISTRIBUIDOR' && (
                                                         <>
@@ -1639,18 +1665,17 @@ export function AdminPanelView({
                                         )
                                     )}
                                     {op.datos_calculo?.drive_folder_link && user?.rol === 'ADMIN' && (
-                                        <a
-                                            href={op.datos_calculo.drive_folder_link}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            onClick={(e) => e.stopPropagation()}
-                                            className="w-9 h-9 flex items-center justify-center text-cyan-400/60 hover:text-cyan-400 rounded-lg hover:bg-cyan-500/10 transition-all"
-                                            title="Abrir carpeta en Google Drive"
+                                        <button
+                                            onClick={(e) => { e.stopPropagation(); handleOpenLocalFolder(op); }}
+                                            disabled={localPathLoadingId === op.id_oportunidad}
+                                            className="w-9 h-9 flex items-center justify-center text-emerald-400/60 hover:text-emerald-400 rounded-lg hover:bg-emerald-500/10 transition-all disabled:opacity-40 disabled:cursor-wait"
+                                            title="Abrir la carpeta local en el Explorador de Windows"
                                         >
                                             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" />
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 13l2 2 4-4" />
                                             </svg>
-                                        </a>
+                                        </button>
                                     )}
                                     <button
                                         onClick={(e) => { e.stopPropagation(); setOportunidadToDelete(op); }}

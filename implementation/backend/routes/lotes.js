@@ -4,6 +4,7 @@ const supabase = require('../services/supabaseClient');
 const { adminOnly } = require('../middleware/auth');
 const geoCcaa = require('../services/geoCcaa');
 const loteService = require('../services/loteService');
+const marwenService = require('../services/marwenService');
 
 const {
     MAX_RECOMENDADO, ESTADOS_COMPLETO, LOTE_ESTADOS,
@@ -451,6 +452,146 @@ router.delete('/:id', adminOnly, async (req, res) => {
     } catch (err) {
         console.error('[DELETE /lotes/:id]', err.message);
         res.status(500).json({ error: 'Error al borrar el lote' });
+    }
+});
+
+// ─── POST /api/lotes/:id/enviar-verificador-api ──────────────────────────────────
+// Envía el lote como "Solicitud de Verificación Estandarizada" a Marwen por API.
+// El frontend manda los bloques que él construye (step2 = actuaciones, step3 =
+// emplazamientos) + los datos editables de contacto; el backend arma el step1
+// AUTORITATIVO desde el Sujeto Obligado del lote (identidad + IDs de provincia/
+// localidad resueltos contra el catálogo de Marwen) y envía.
+// Con { dryRun:true } no envía: devuelve la previsualización de la resolución
+// geográfica y el payload, para que el usuario confirme antes.
+function toIsoDate(d) {
+    if (!d) return null;
+    const s = String(d).trim();
+    let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);                  // ISO
+    if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+    m = s.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})/);            // dd/mm/yyyy
+    if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+    return s;
+}
+
+router.post('/:id/enviar-verificador-api', adminOnly, async (req, res) => {
+    try {
+        if (!marwenService.isConfigured()) {
+            return res.status(503).json({ error: 'La integración con Marwen no está configurada (falta MARWEN_API_KEY en el backend).' });
+        }
+
+        const { contacto = {}, figura = 'obligado', step2 = [], step3 = [], dryRun = false } = req.body || {};
+
+        // 1. Lote + Sujeto Obligado (solicitante autoritativo).
+        const { data: lote, error } = await supabase.from('lotes').select('*').eq('id', req.params.id).maybeSingle();
+        if (error) throw error;
+        if (!lote) return res.status(404).json({ error: 'Lote no encontrado' });
+        if (!lote.sujeto_obligado_id) return res.status(409).json({ error: 'El lote no tiene Sujeto Obligado asignado (necesario como solicitante).' });
+
+        const { data: so } = await supabase.from('prescriptores')
+            .select('razon_social, cif, codigo_identificacion, direccion, codigo_postal, municipio, provincia')
+            .eq('id_empresa', lote.sujeto_obligado_id).maybeSingle();
+        if (!so) return res.status(409).json({ error: 'No se pudo cargar el Sujeto Obligado del lote.' });
+
+        // 2. Validaciones de los bloques del frontend.
+        if (!Array.isArray(step2) || !Array.isArray(step3)) return res.status(400).json({ error: 'step2/step3 no válidos.' });
+        if (!step2.length) return res.status(400).json({ error: 'No hay actuaciones que enviar.' });
+        if (step2.length !== step3.length) {
+            return res.status(400).json({ error: `El nº de actuaciones (${step2.length}) y de emplazamientos (${step3.length}) debe coincidir.` });
+        }
+
+        // 3. Resolver provincia + localidad del SO contra el catálogo de Marwen.
+        const geo = await marwenService.resolveGeoSolicitante({ provincia: so.provincia, municipio: so.municipio });
+
+        // 4. step1 autoritativo.
+        const cif = so.cif || '';
+        const step1 = {
+            SE_cif: cif,
+            SE_figura: figura === 'delegado' ? 'delegado' : 'obligado',
+            SE_cod_id_sol: so.codigo_identificacion || (cif ? `SO-${cif}` : ''),
+            SE_razon_social: so.razon_social || '',
+            SE_provincia: geo.provincia ? Number(geo.provincia.id) : null,
+            SE_localidad: geo.localidad ? Number(geo.localidad.id) : null,
+            SE_cp: so.codigo_postal || '',
+            SE_direccion: so.direccion || '',
+            SE_telefono: contacto.telefono || '',
+            SE_contacto: contacto.persona || '',
+            SE_email: contacto.email || '',
+            SE_dispone_internet: 'si',
+            SE_n_actuaciones: step2.length,
+            SE_solicitud_replicable: 'no',
+        };
+
+        // Fechas de actuación → ISO (red de seguridad, el front ya debería mandarlas así).
+        const step2norm = step2.map(a => ({
+            ...a,
+            SE_fecha_inicio: toIsoDate(a.SE_fecha_inicio),
+            SE_fecha_fin: toIsoDate(a.SE_fecha_fin),
+        }));
+
+        const payload = { step1, step2: step2norm, step3 };
+        if (process.env.MARWEN_CODIGO_CLIENTE) payload.codigo_cliente = process.env.MARWEN_CODIGO_CLIENTE;
+
+        // Bloqueos duros: sin IDs de geo no se puede enviar.
+        const blocking = [];
+        if (step1.SE_provincia == null) blocking.push('No se pudo resolver el ID de PROVINCIA del Sujeto Obligado en Marwen.');
+        if (step1.SE_localidad == null) blocking.push('No se pudo resolver el ID de LOCALIDAD del Sujeto Obligado en Marwen.');
+
+        // 5. dryRun → previsualización sin enviar.
+        if (dryRun) {
+            return res.json({
+                dryRun: true,
+                destino: marwenService.BASE_URL,
+                solicitante: { razon_social: so.razon_social, cif, provincia: so.provincia, municipio: so.municipio, cp: so.codigo_postal, direccion: so.direccion },
+                resolved: { provincia: geo.provincia, localidad: geo.localidad },
+                warnings: geo.warnings,
+                blocking,
+                payload,
+            });
+        }
+
+        // 6. Envío real.
+        if (blocking.length) return res.status(422).json({ error: blocking.join(' '), warnings: geo.warnings });
+        if (!step1.SE_email || !step1.SE_contacto) return res.status(400).json({ error: 'Falta la persona de contacto o el email del solicitante.' });
+
+        const result = await marwenService.enviarSolicitudEstandarizada(payload);
+
+        // 7. Persistir resultado en el lote + historial.
+        const verificacionApi = {
+            num_solicitud: result.num_solicitud || null,
+            tipo_solicitud: result.tipo_solicitud || 'estandarizada',
+            enviado_at: nowIso(),
+            enviado_por: usuarioDe(req),
+            destino: marwenService.BASE_URL,
+            n_actuaciones: step2.length,
+            provincia_id: step1.SE_provincia,
+            localidad_id: step1.SE_localidad,
+        };
+        const historial = Array.isArray(lote.historial) ? lote.historial.slice() : [];
+        historial.push({
+            id: `${Date.now()}_api_verif`, tipo: 'sistema',
+            texto: `Enviado al verificador por API (Marwen) · solicitud ${result.num_solicitud || '—'} · ${step2.length} actuaciones`,
+            fecha: nowIso(), usuario: usuarioDe(req),
+        });
+        const update = { verificacion_api: verificacionApi, historial, updated_at: nowIso() };
+        // Al enviar la solicitud por API el lote pasa a "solicitado presupuesto al verificador".
+        if (lote.estado === 'BORRADOR') {
+            update.estado = 'SOLICITADO PRESUPUESTO A VERIFICADOR';
+        }
+        const { data: updated, error: upErr } = await supabase.from('lotes').update(update).eq('id', lote.id).select().single();
+        if (upErr) throw upErr;
+        const [enriched] = await enrichLotes([updated]);
+
+        res.json({
+            ok: true,
+            num_solicitud: result.num_solicitud,
+            tipo_solicitud: result.tipo_solicitud,
+            message: result.message,
+            lote: enriched,
+        });
+    } catch (err) {
+        console.error('[POST /lotes/:id/enviar-verificador-api]', err.message);
+        const code = (err.status && err.status >= 400 && err.status < 500) ? 422 : 500;
+        res.status(code).json({ error: err.message || 'Error al enviar la solicitud por API', marwen: err.marwen || null });
     }
 });
 

@@ -628,6 +628,22 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
         setShowApprovePopup(true);
     };
 
+    // Visto bueno enviado DIRECTAMENTE desde el popup de la campana (sin abrir el popup
+    // dedicado de Validar). Parametriza approve-cee con fase/canales/mensaje editado y
+    // devuelve la respuesta para que el grid muestre el estado real por canal.
+    const submitApprove = async (phase, channels, customMessage) => {
+        if (!expediente?.id) throw new Error('Expediente no disponible');
+        const { data } = await axios.post(`/api/expedientes/${expediente.id}/approve-cee`, {
+            phase,
+            sendEmail: channels.includes('email'),
+            sendWhatsApp: channels.includes('whatsapp'),
+            customMessage: (customMessage || '').trim() || null,
+        });
+        fireSuccessConfetti();
+        if (onRefresh) onRefresh();
+        return data;
+    };
+
     const handleApproveConfirm = async () => {
         if (!expediente?.id || !approvePendingPhase) return;
         setApproveLoading(true);
@@ -804,6 +820,7 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                 }
             }}
             onApproveCee={openApprovePopup}
+            onApproveSend={submitApprove}
         />
     );
 
@@ -881,6 +898,7 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                     }
                 }}
                 onApproveCee={openApprovePopup}
+                onApproveSend={submitApprove}
             />
 
             {/* En modo MANUAL (sin .xml): aviso de que todo (incluida la superficie) se edita en la tabla */}

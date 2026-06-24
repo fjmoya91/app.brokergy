@@ -173,7 +173,8 @@ export function CeeDocumentsGrid({
     onAutoStatus,
     onForceNotify,
     onNotifyReview,
-    onApproveCee
+    onApproveCee,
+    onApproveSend
 }) {
     const { showAlert, showConfirm } = useModal();
     const { user } = useAuth();
@@ -678,13 +679,17 @@ export function CeeDocumentsGrid({
                                             CEE {section === 'inicial' ? 'Inicial' : 'Final'}
                                         </h4>
                                         {(() => {
-                                            const estado = expediente?.cee?.estado || '';
                                             const phaseLabel = section === 'inicial' ? 'INICIAL' : 'FINAL';
-                                            const isPendingReview = estado.includes(`PENDIENTE REVISIÓN (${phaseLabel})`);
+                                            const seguimientoKey = section === 'final' ? 'cee_final' : 'cee_inicial';
+                                            const segStatus = expediente?.seguimiento?.[seguimientoKey];
+                                            // El subestado canónico (seguimiento) manda. `cee.estado` es un espejo que
+                                            // puede desincronizarse (p. ej. se queda en "EN TRABAJO" tras re-subir el XML),
+                                            // así que NO nos fiamos solo de él para decidir si se puede validar.
+                                            const estado = expediente?.cee?.estado || expediente?.estado || '';
+                                            const isPendingReview = segStatus === 'PTE_REVISION' || estado.includes(`PENDIENTE REVISIÓN (${phaseLabel})`);
 
                                             const isAdmin = (user?.rol || '').toUpperCase() === 'ADMIN' || (user?.rol_nombre || '').toUpperCase() === 'ADMIN' || Number(user?.id_rol) === 1;
                                             const isCertificador = (user?.rol || '').toUpperCase() === 'CERTIFICADOR' || (user?.rol_nombre || '').toUpperCase() === 'CERTIFICADOR' || Number(user?.id_rol) === 4;
-                                            const seguimientoKey = section === 'final' ? 'cee_final' : 'cee_inicial';
                                             const isRegistrado = expediente?.seguimiento?.[seguimientoKey] === 'REGISTRADO';
                                             const isResending = resendingNotif === section;
 
@@ -705,26 +710,26 @@ export function CeeDocumentsGrid({
                                             ) : null;
 
                                             if (isAdmin) {
-                                                if (isPendingReview && onApproveCee) {
-                                                    return (
-                                                        <>
+                                                // La campana SIEMPRE está disponible para el admin y abre un popup con
+                                                // varias opciones de mensaje (Encargo / Recordatorio / Urgente / Visto bueno).
+                                                // El check verde es un atajo extra al "Visto bueno" cuando el CEE está
+                                                // pendiente de revisión.
+                                                return (
+                                                    <>
+                                                        {isPendingReview && onApproveCee && (
                                                             <button
-                                                                title="Validar y Autorizar Presentación"
+                                                                title="Validar y autorizar registro (visto bueno)"
                                                                 onClick={() => onApproveCee(section)}
                                                                 className="w-7 h-7 rounded-lg bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 hover:bg-emerald-500 hover:text-white transition-all shadow-[0_0_10px_rgba(16,185,129,0.3)] active:scale-95"
                                                             >
                                                                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>
                                                             </button>
-                                                            {resendBtn}
-                                                        </>
-                                                    );
-                                                }
-                                                return (
-                                                    <>
+                                                        )}
                                                         <button
-                                                            title={`Notificar certificador (${section === 'inicial' ? 'CEE Inicial' : 'CEE Final'})`}
+                                                            title={`Comunicar con el certificador (${section === 'inicial' ? 'CEE Inicial' : 'CEE Final'})`}
                                                             onClick={() => {
-                                                                setCertTemplate('standard');
+                                                                // Si está pendiente de revisión, el popup abre ya en "Visto bueno".
+                                                                setCertTemplate(isPendingReview ? 'approve' : 'standard');
                                                                 setCertChannels(['email']);
                                                                 setCertNotifyMessage('');
                                                                 setCertNotifyModal({ section });
@@ -1198,22 +1203,25 @@ export function CeeDocumentsGrid({
 
                         {/* Selector de Plantilla */}
                         <p className="text-[9px] font-black text-white/30 uppercase tracking-widest mb-2">Tipo de mensaje</p>
-                        <div className="flex gap-2 mb-5">
+                        <div className="grid grid-cols-4 gap-2 mb-5">
                             {[
                                 { id: 'standard', icon: '📋', label: 'Encargo', color: 'brand' },
                                 { id: 'reminder', icon: '⏰', label: 'Recordatorio', color: 'blue-400' },
                                 { id: 'urgent', icon: '⚠️', label: 'Urgente', color: 'red-400' },
+                                { id: 'approve', icon: '✅', label: 'Visto bueno', color: 'emerald-400' },
                             ].map(t => (
                                 <button
                                     key={t.id}
                                     onClick={() => handleCertTemplateChange(t.id)}
-                                    className={`flex-1 flex flex-col items-center gap-1.5 py-3 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all border ${
+                                    className={`flex flex-col items-center justify-center gap-1.5 py-3 px-1 rounded-xl text-[8px] font-black uppercase tracking-wide text-center leading-tight transition-all border ${
                                         certTemplate === t.id
-                                            ? t.id === 'urgent' 
+                                            ? t.id === 'urgent'
                                                 ? 'bg-red-500/10 border-red-500/30 text-red-400'
                                                 : t.id === 'reminder'
                                                     ? 'bg-blue-500/10 border-blue-500/30 text-blue-400'
-                                                    : 'bg-brand/10 border-brand/30 text-brand'
+                                                    : t.id === 'approve'
+                                                        ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                                                        : 'bg-brand/10 border-brand/30 text-brand'
                                             : 'border-white/5 text-white/20 hover:text-white/40'
                                     }`}
                                 >
@@ -1222,6 +1230,16 @@ export function CeeDocumentsGrid({
                                 </button>
                             ))}
                         </div>
+
+                        {/* Aviso cuando se elige "Visto bueno": no es un simple aviso, avanza el estado. */}
+                        {certTemplate === 'approve' && (
+                            <div className="flex items-start gap-2 mb-5 px-3 py-2.5 rounded-xl bg-emerald-500/5 border border-emerald-500/20">
+                                <svg className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                <p className="text-[9px] text-emerald-300/80 leading-snug normal-case">
+                                    Da el <b>visto bueno</b> al {certNotifyModal.section === 'final' ? 'CEE Final' : 'CEE Inicial'}: marca el CEE como <b>REVISADO</b> y autoriza al certificador a registrarlo en Industria.
+                                </p>
+                            </div>
+                        )}
 
                         {/* Selector de Canal */}
                         <p className="text-[9px] font-black text-white/30 uppercase tracking-widest mb-2">Canales</p>
@@ -1306,7 +1324,25 @@ export function CeeDocumentsGrid({
                                 setSendingCertNotify(true);
                                 try {
                                     const phase = certNotifyModal.section === 'final' ? 'final' : 'initial';
-                                    await onForceNotify(phase, certChannels, certTemplate, certNotifyMessage);
+                                    if (certTemplate === 'approve') {
+                                        // Visto bueno: avanza el estado a REVISADO y avisa al certificador.
+                                        const data = onApproveSend
+                                            ? await onApproveSend(phase, certChannels, certNotifyMessage)
+                                            : null;
+                                        // Avisar solo si algún canal no salió limpio (mismo criterio que onForceNotify).
+                                        const issues = [];
+                                        if (data) {
+                                            if (certChannels.includes('email') && !data.emailSent) issues.push('✉️ Email NO enviado');
+                                            if (certChannels.includes('whatsapp') && !data.whatsAppSent) {
+                                                issues.push(data.waReason === 'sin_telefono'
+                                                    ? '💬 WhatsApp NO enviado (certificador sin teléfono)'
+                                                    : '💬 WhatsApp NO enviado');
+                                            }
+                                        }
+                                        if (issues.length) setTimeout(() => showAlert(issues.join('\n'), 'Aviso de envío', 'warning'), 400);
+                                    } else {
+                                        await onForceNotify(phase, certChannels, certTemplate, certNotifyMessage);
+                                    }
                                     setCertNotifyModal(null);
                                 } catch (err) {
                                     console.error('Error notifying cert:', err);
@@ -1319,7 +1355,9 @@ export function CeeDocumentsGrid({
                                     ? 'bg-white/5 text-white/20 cursor-not-allowed'
                                     : certTemplate === 'urgent'
                                         ? 'bg-red-500 text-white hover:scale-[1.02] shadow-red-500/20'
-                                        : 'bg-brand text-bkg-deep hover:scale-[1.02] shadow-brand/20'
+                                        : certTemplate === 'approve'
+                                            ? 'bg-emerald-500 text-black hover:scale-[1.02] shadow-emerald-500/20'
+                                            : 'bg-brand text-bkg-deep hover:scale-[1.02] shadow-brand/20'
                             }`}
                         >
                             {sendingCertNotify ? (
@@ -1329,7 +1367,9 @@ export function CeeDocumentsGrid({
                                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
                                     </svg>
-                                    {certChannels.length === 0 ? 'Selecciona un canal' : `Enviar ${certChannels.map(c => c === 'email' ? 'Email' : 'WhatsApp').join(' + ')}`}
+                                    {certChannels.length === 0
+                                        ? 'Selecciona un canal'
+                                        : `${certTemplate === 'approve' ? '✅ Validar y enviar ' : 'Enviar '}${certChannels.map(c => c === 'email' ? 'Email' : 'WhatsApp').join(' + ')}`}
                                 </>
                             )}
                         </button>

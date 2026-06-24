@@ -415,7 +415,13 @@ export function LoteDetailModal({ loteId, soList, verList, onClose, onChanged, o
                 )}
             </div>
             {showAnexo && lote && <AnexoListadoModal lote={lote} onClose={() => setShowAnexo(false)} />}
-            {showSolicitud && lote && <SolicitudVerificacionModal lote={lote} onClose={() => setShowSolicitud(false)} />}
+            {showSolicitud && lote && (
+                <SolicitudVerificacionModal
+                    lote={lote}
+                    onClose={() => setShowSolicitud(false)}
+                    onSent={() => { refresh().catch(() => {}); onChanged?.(); }}
+                />
+            )}
         </div>
     );
 }

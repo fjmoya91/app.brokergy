@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 
 const API_URL = '/api/catastro';
 
@@ -25,6 +25,15 @@ export function PropertySheet({ data, onCalculateDemand, initialSelection }) {
     const [parcelImageError, setParcelImageError] = useState(false);
     const pdfRef = useRef(null);
     const [selectedElements, setSelectedElements] = useState([]);
+
+    // Reforma registrada en Catastro (auto-rellenada desde la ficha de la Sede,
+    // editable por el operador). Se persiste en datos_calculo al calcular.
+    const [reformaTipo, setReformaTipo] = useState('');
+    const [reformaAnio, setReformaAnio] = useState('');
+    useEffect(() => {
+        setReformaTipo(data?.reforma?.tipo || '');
+        setReformaAnio(data?.reforma?.anio ? String(data.reforma.anio) : '');
+    }, [data?.rc, data?.reforma?.tipo, data?.reforma?.anio]);
 
     // Actualizar selección cuando cambian los datos
     React.useEffect(() => {
@@ -152,7 +161,13 @@ export function PropertySheet({ data, onCalculateDemand, initialSelection }) {
                 tipo,
                 participation,
                 provincia: data.provinceCode || '',
-                direccion: data.address || ''
+                direccion: data.address || '',
+                // Reforma registrada en Catastro (resumen del inmueble), editable.
+                reforma: {
+                    has: !!(reformaTipo.trim() || reformaAnio),
+                    tipo: reformaTipo.trim() || null,
+                    anio: reformaAnio ? parseInt(reformaAnio, 10) : null
+                }
             });
         }
     };
@@ -463,6 +478,7 @@ export function PropertySheet({ data, onCalculateDemand, initialSelection }) {
                                             <th>Planta</th>
                                             <th>Código</th>
                                             <th className="text-right">Superficie</th>
+                                            <th>Reforma</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -492,17 +508,68 @@ export function PropertySheet({ data, onCalculateDemand, initialSelection }) {
                                                     <td className="text-white/80">{getFloorLabel(c.floor)}</td>
                                                     <td className="font-mono text-white/60 text-sm">{c.code}</td>
                                                     <td className="text-right font-bold text-white">{c.surface} m²</td>
+                                                    <td className="text-sm">
+                                                        {c.reformType ? (
+                                                            <span className="text-amber-300">
+                                                                {c.reformType}{c.reformYear ? ` · ${c.reformYear}` : ''}
+                                                            </span>
+                                                        ) : (
+                                                            <span className="text-white/30">—</span>
+                                                        )}
+                                                    </td>
                                                 </tr>
                                             );
                                         })}
                                     </tbody>
                                     <tfoot>
                                         <tr className="border-t border-white/10">
-                                            <td colSpan={3} className="text-right font-semibold text-white/60 uppercase text-xs">Total</td>
+                                            <td colSpan={4} className="text-right font-semibold text-white/60 uppercase text-xs">Total</td>
                                             <td className="text-right font-bold text-xl text-white">{data.totalSurface} m²</td>
+                                            <td></td>
                                         </tr>
                                     </tfoot>
                                 </table>
+                            </div>
+
+                            {/* Reforma del inmueble — auto desde Catastro, editable. Se persiste. */}
+                            <div className="mt-4 rounded-xl bg-white/5 border border-white/10 p-4">
+                                <div className="flex items-center justify-between mb-3">
+                                    <span className="text-sm font-semibold text-white/80 flex items-center gap-2">
+                                        <svg className="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                        </svg>
+                                        Reforma del inmueble
+                                    </span>
+                                    {data.reforma?.has ? (
+                                        <span className="text-[10px] uppercase tracking-wider text-amber-300/90 bg-amber-500/10 border border-amber-400/20 px-2 py-0.5 rounded">Detectada en Catastro</span>
+                                    ) : (
+                                        <span className="text-[10px] uppercase tracking-wider text-white/40 bg-white/5 px-2 py-0.5 rounded">Sin reforma en Catastro</span>
+                                    )}
+                                </div>
+                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                    <div className="sm:col-span-2">
+                                        <label className="block text-xs text-white/50 mb-1">Tipo de reforma</label>
+                                        <input
+                                            value={reformaTipo}
+                                            onChange={(e) => setReformaTipo(e.target.value)}
+                                            placeholder="Sin reforma registrada"
+                                            className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-white/30 focus:outline-none focus:border-amber-400/50"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs text-white/50 mb-1">Año de reforma</label>
+                                        <input
+                                            value={reformaAnio}
+                                            onChange={(e) => setReformaAnio(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                                            inputMode="numeric"
+                                            placeholder="—"
+                                            className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-white/30 focus:outline-none focus:border-amber-400/50"
+                                        />
+                                    </div>
+                                </div>
+                                <p className="text-[11px] text-white/30 mt-2">
+                                    Obtenido del Catastro. Puedes corregirlo; se guardará junto a la oportunidad.
+                                </p>
                             </div>
                         </div>
                     )}

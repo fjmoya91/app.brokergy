@@ -13,7 +13,15 @@
       "runtimeExecutable": "node",
       "runtimeArgs": ["node_modules/vite/bin/vite.js", "--host"],
       "cwd": "implementation/frontend",
-      "port": 5173
+      "port": 5173,
+      "autoPort": true
+    },
+    {
+      "name": "reforma-prototype",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["-y", "serve", "prototypes", "-l", "4321"],
+      "port": 4321,
+      "autoPort": true
     }
   ]
 }

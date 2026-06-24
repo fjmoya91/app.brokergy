@@ -186,6 +186,79 @@ async function getCoordinatesByRC(rc) {
     }
 }
 
+// URL de la ficha web (Consulta Descriptiva y Gráfica) de la Sede Electrónica.
+const SEDE_FICHA_URL = 'https://www1.sedecatastro.gob.es/CYCBienInmueble/OVCConCiud.aspx';
+
+/**
+ * Reforma por construcción (Tipo Reforma / Fecha Reforma).
+ *
+ * IMPORTANTE: el web service WCF JSON `Consulta_DNPRC` NO devuelve la reforma.
+ * En su `lcons` cada construcción solo trae uso, ubicación, superficie y tipología.
+ * El dato "Tipo Reforma" + "Fecha Reforma" SOLO aparece en la ficha web de la Sede
+ * (la Consulta Descriptiva y Gráfica), en la tabla `tblLocales` de OVCConCiud.aspx.
+ *
+ * Esa ficha es accesible con `del` (código de provincia) y `mun` (código de
+ * municipio de Catastro), ambos presentes en la propia respuesta del DNPRC
+ * (`dt.loine.cp` y `dt.cmc`). Devuelve un 200 directo con la tabla.
+ *
+ * Best-effort: ante CUALQUIER fallo (red, WAF, HTML cambiado, códigos erróneos)
+ * devuelve [] y la búsqueda principal del Catastro no se ve afectada. No pasa por
+ * el `catastroMonitor` (es otro host/servicio: www1.sedecatastro.gob.es).
+ *
+ * @returns {Promise<Array<{uso,es,pt,pu,surface,reformType,reformYear}>>}
+ */
+async function getReformsByRC(rc, del, mun) {
+    if (!rc || !del || !mun) return [];
+    try {
+        const cleanRC = rc.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+        const url = `${SEDE_FICHA_URL}?del=${del}&mun=${mun}&RefC=${cleanRC}&from=OVCBusqueda&pest=urbana&final=&RCABRV=`;
+        const response = await catastroGet(url, {
+            timeout: 8000,
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36',
+                'Accept': 'text/html',
+                'Accept-Encoding': 'identity'
+            }
+        });
+
+        const html = String(response.data || '');
+        const tIdx = html.indexOf('tblLocales');
+        if (tIdx < 0) return [];
+        const endIdx = html.indexOf('</table>', tIdx);
+        const tableHtml = html.slice(tIdx, endIdx < 0 ? undefined : endIdx);
+
+        const cellText = (cell) => cell
+            .replace(/<[^>]+>/g, '')
+            .replace(/&nbsp;/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+
+        const out = [];
+        for (const row of tableHtml.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)) {
+            const cells = [...row[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)].map(c => cellText(c[1]));
+            // Columnas: Uso | Escalera | Planta | Puerta | Superficie | Tipo Reforma | Fecha Reforma
+            // La cabecera usa <th>, así que no genera celdas <td> → se descarta sola.
+            if (cells.length < 7) continue;
+            const [uso, es, pt, pu, sup, tipoRef, fechaRef] = cells;
+            const reformType = tipoRef ? tipoRef.trim() : '';
+            const yr = parseInt(String(fechaRef || '').replace(/\D/g, ''), 10);
+            out.push({
+                uso,
+                es,
+                pt,
+                pu,
+                surface: parseInt(sup, 10) || 0,
+                reformType: reformType || null,
+                reformYear: (Number.isFinite(yr) && yr > 1700 && yr < 2100) ? yr : null
+            });
+        }
+        return out;
+    } catch (e) {
+        console.warn(`[getReformsByRC] ${rc}:`, e.message);
+        return [];
+    }
+}
+
 /**
  * Consulta_DNPRC: Get data by RC
  * Cacheado durante 30 días (datos catastrales muy estables).
@@ -282,6 +355,45 @@ async function getByRC(rc) {
             });
         }
 
+        // --- Enriquecer con la REFORMA (Tipo/Fecha) de la ficha de la Sede ---
+        // El DNPRC no trae reforma; se obtiene de la ficha web (best-effort).
+        let reformaResumen = { has: false, tipo: null, anio: null };
+        try {
+            const del = bi.dt?.loine?.cp;
+            const mun = bi.dt?.cmc || bi.dt?.loine?.cm;
+            const reforms = await getReformsByRC(cleanRC, del, mun);
+            if (reforms.length) {
+                const norm = (s) => String(s ?? '').trim().replace(/^0+(?=\d)/, '').toUpperCase();
+                constructions.forEach((cons, idx) => {
+                    let r = null;
+                    // 1) Posicional si los conteos cuadran y coincide el uso (mismo orden y fuente).
+                    if (reforms.length === constructions.length) {
+                        const cand = reforms[idx];
+                        if (cand && norm(cand.uso) === norm(cons.originalType)) r = cand;
+                    }
+                    // 2) Fallback por uso + planta + puerta (parseando code "es/pt/pu").
+                    if (!r) {
+                        const [, pt, pu] = String(cons.code || '//').split('/');
+                        r = reforms.find(x =>
+                            norm(x.uso) === norm(cons.originalType) &&
+                            norm(x.pt) === norm(pt) &&
+                            norm(x.pu) === norm(pu)
+                        ) || null;
+                    }
+                    cons.reformType = r?.reformType || null;
+                    cons.reformYear = r?.reformYear || null;
+                });
+                // Resumen del inmueble = reforma más reciente entre sus construcciones.
+                const conRef = constructions.filter(c => c.reformType);
+                if (conRef.length) {
+                    const latest = conRef.reduce((a, b) => ((b.reformYear || 0) > (a.reformYear || 0) ? b : a));
+                    reformaResumen = { has: true, tipo: latest.reformType, anio: latest.reformYear };
+                }
+            }
+        } catch (e) {
+            console.warn(`[getByRC] reforma enrichment [${cleanRC}]:`, e.message);
+        }
+
         const primaryUse = summaryByType['VIVIENDA'] ? 'Residencial' : (String(debi.luso || '') || 'No especificado');
 
         const propertyData = {
@@ -292,6 +404,9 @@ async function getByRC(rc) {
             yearBuilt: parseInt(debi.ant) || 0,
             utm: coordinates || { x: 0, y: 0, zone: 30, srs: 'EPSG:25830' },
             constructions: constructions.sort((a, b) => a.floor.localeCompare(b.floor)),
+            // Reforma registrada en Catastro (resumen del inmueble). El detalle por
+            // construcción va en cada item de `constructions` (reformType/reformYear).
+            reforma: reformaResumen,
             summaryByType,
             floors: {
                 total: floorSet.size || 1,

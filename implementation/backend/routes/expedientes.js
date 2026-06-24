@@ -1184,7 +1184,17 @@ router.put('/:id', enforceAuth, async (req, res) => {
         if (fetchErr || !existing) return res.status(404).json({ error: 'Expediente no encontrado' });
 
         const updates = { updated_at: new Date().toISOString() };
-        if (cee !== undefined)           updates.cee           = { ...existing.cee,           ...cee };
+        if (cee !== undefined) {
+            updates.cee = { ...existing.cee, ...cee };
+            // `cee.estado` es un campo DERIVADO por el servidor (notify-review / approve-cee /
+            // cert-ack lo actualizan vía update directo). El módulo del frontend arrastra una
+            // copia que puede estar OBSOLETA y la reenviaría en cada guardado, pisando el avance
+            // real del estado (bug: quedaba "EN TRABAJO" tras re-subir el XML estando ya en
+            // "PENDIENTE REVISIÓN"). Lo preservamos siempre: el módulo NUNCA debe cambiarlo.
+            if (existing.cee && 'estado' in existing.cee) {
+                updates.cee.estado = existing.cee.estado;
+            }
+        }
         if (instalacion !== undefined)   updates.instalacion   = { ...existing.instalacion,   ...instalacion };
         if (seguimiento !== undefined) {
             updates.seguimiento = { ...existing.seguimiento, ...seguimiento };

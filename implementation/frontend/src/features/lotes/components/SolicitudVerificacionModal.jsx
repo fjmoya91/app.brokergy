@@ -6,8 +6,9 @@ import { buildSolicitudVerificacionHtml, SOLICITUD_DEFAULTS, vidaUtilDefaultSoli
 import { fichaDe } from '../logic/anexoListado';
 import { computeExpedienteFinancials } from '../../expedientes/logic/expedienteFinancials';
 import { EnviarLoteDocModal } from './EnviarLoteDocModal';
+import { EnviarApiVerificadorModal } from './EnviarApiVerificadorModal';
 
-export function SolicitudVerificacionModal({ lote, onClose }) {
+export function SolicitudVerificacionModal({ lote, onClose, onSent }) {
     const { showAlert } = useModal();
     const exps = lote.expedientes || [];
 
@@ -35,6 +36,8 @@ export function SolicitudVerificacionModal({ lote, onClose }) {
     const ver = lote.verificador || {};
     const verNotify = ver.notify_email || ver.email || '';
     const [sendOpen, setSendOpen] = useState(false);
+    const [apiOpen, setApiOpen] = useState(false);
+    const payloadOpts = { contacto, intermediaria, cnae, vidaUtilByExp: vidaUtil };
     const sendMsg = `Estimados,\n\nAdjuntamos el Formulario de Solicitud de Verificación Estandarizada del lote ${lote.codigo || ''}, que recoge ${exps.length} actuaciones con un ahorro total de ${totalMwh.toLocaleString('es-ES', { maximumFractionDigits: 1 })} MWh/año, para su verificación.\n\nQuedamos a su disposición para cualquier aclaración.\n\nUn saludo,\nBROKERGY · Ingeniería Energética`;
 
     const upd = (patch) => setContacto(c => ({ ...c, ...patch }));
@@ -119,6 +122,12 @@ export function SolicitudVerificacionModal({ lote, onClose }) {
                 <div className="flex items-center justify-between gap-3 p-6 border-t border-white/[0.06] flex-wrap">
                     <button onClick={onClose} className="px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest text-white/50 hover:text-white transition-colors">Cerrar</button>
                     <div className="flex items-center gap-2 flex-wrap">
+                        <button onClick={() => setApiOpen(true)}
+                            title="Enviar la solicitud directamente a Marwen por API"
+                            className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest bg-emerald-500/15 border border-emerald-400/40 text-emerald-300 hover:bg-emerald-500/25 transition-all">
+                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2}><path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                            Enviar por API
+                        </button>
                         <button onClick={() => setSendOpen(true)}
                             className="px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest border border-brand/30 text-brand bg-brand/10 hover:bg-brand/20 transition-all">
                             Enviar al Verificador
@@ -139,6 +148,14 @@ export function SolicitudVerificacionModal({ lote, onClose }) {
                     summaryData={{ id: lote.codigo || 'LOTE', docType: 'Solicitud de Verificación Estandarizada' }}
                     docs={[{ html, fileName: `${lote.codigo || 'LOTE'} - Solicitud Verificacion`, label: 'Solicitud' }]}
                     onClose={() => setSendOpen(false)}
+                />
+            )}
+            {apiOpen && (
+                <EnviarApiVerificadorModal
+                    lote={lote}
+                    payloadOpts={payloadOpts}
+                    onClose={() => setApiOpen(false)}
+                    onSent={onSent}
                 />
             )}
         </div>,
