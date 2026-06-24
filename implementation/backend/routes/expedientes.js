@@ -12,6 +12,24 @@ const reformaUploadService = require('../services/reformaUploadService');
 const { applyStatus, stampSeguimientoTimestamps, markCertContact } = require('../services/seguimientoTracking');
 const { partnerNotifyTargets, normalizeContactos } = require('../services/notifyContacts');
 
+// Firma HMAC para el enlace "Dar visto bueno" del email de revisión.
+// STATELESS a propósito: NO guardamos el token en `seguimiento` porque el
+// autoguardado del módulo (PUT /:id) reemplaza la columna completa desde una copia
+// en memoria obsoleta y pisaba el token (race con la subida del .CEX). El endpoint
+// recomputa la firma y la compara; la idempotencia (no re-aprobar si ya REVISADO)
+// hace innecesario el uso único.
+function approveCeeSignature(expId, phase) {
+    const secret = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.JWT_SECRET || 'brokergy-approve-cee';
+    return crypto.createHmac('sha256', secret).update(`approve-cee:${expId}:${phase}`).digest('hex');
+}
+function approveCeeSignatureValid(expId, phase, token) {
+    if (!token) return false;
+    const expected = approveCeeSignature(expId, phase);
+    const a = Buffer.from(String(token));
+    const b = Buffer.from(expected);
+    return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
 
 // ─── Helpers de notificación CEE registrado ───────────────────────────────────
 // Extraídos de los IIFE async dentro de PUT /:id para que también se puedan
@@ -3265,12 +3283,11 @@ router.post('/:id/notify-review', enforceAuth, async (req, res) => {
             applyStatus(seguimiento, 'cee_inicial', 'PTE_REVISION');
         }
 
-        // Token de un solo uso para el botón "Dar visto bueno" del email al admin
-        // (one-tap approve: marca REVISADO + avisa al certificador por email/WhatsApp).
+        // Enlace one-tap "Dar visto bueno" del email al admin. Firma HMAC stateless
+        // (ver approveCeeSignature): NO se guarda en `seguimiento` para que el
+        // autoguardado del módulo no lo pueda pisar.
         const approvePhaseKey = phase === 'final' ? 'final' : 'inicial';
-        const approveCeeToken = crypto.randomBytes(32).toString('hex');
-        seguimiento[`approve_cee_token_${approvePhaseKey}`] = approveCeeToken;
-        seguimiento[`approve_cee_token_${approvePhaseKey}_exp`] = Date.now() + 7 * 24 * 60 * 60 * 1000; // 7 días
+        const approveCeeToken = approveCeeSignature(req.params.id, approvePhaseKey);
 
         const { error: updErr } = await supabase.from('expedientes')
             .update({
@@ -3999,19 +4016,18 @@ router.get('/:id/approve-cee-from-email', async (req, res) => {
         if (expErr || !exp) return sendHtmlPage(false, 'Error', 'Expediente no encontrado.');
 
         const seguimiento = exp.seguimiento || {};
-        const tokenField = `approve_cee_token_${phase}`;
-        const expField = `approve_cee_token_${phase}_exp`;
         const segKey = phase === 'final' ? 'cee_final' : 'cee_inicial';
         const phaseLabel = phase === 'final' ? 'CEE Final' : 'CEE Inicial';
+
+        // Verificación de la firma HMAC (stateless; no depende de la BD → inmune al
+        // pisado por el autoguardado del módulo).
+        if (!approveCeeSignatureValid(req.params.id, phase, token)) {
+            return sendHtmlPage(false, 'Enlace no válido', 'El enlace no es válido o ha cambiado. Da el visto bueno desde el portal.');
+        }
 
         // Idempotencia: si ya está revisado/registrado, no repetir el envío.
         if (['REVISADO', 'REGISTRADO'].includes(seguimiento[segKey])) {
             return sendHtmlPage(true, 'Ya aprobado', `El ${phaseLabel} del expediente ${exp.numero_expediente || ''} ya tenía el visto bueno. No se ha realizado ninguna acción nueva.`);
-        }
-        if (!seguimiento[tokenField]) return sendHtmlPage(false, 'Enlace no válido', 'Este enlace ya fue utilizado o no existe.');
-        if (seguimiento[tokenField] !== token) return sendHtmlPage(false, 'Token inválido', 'Es posible que se haya generado un enlace más reciente.');
-        if (seguimiento[expField] && Date.now() > seguimiento[expField]) {
-            return sendHtmlPage(false, 'Enlace caducado', 'El enlace ha caducado (validez 7 días). Da el visto bueno desde el portal.');
         }
 
         const newEstado = phase === 'final' ? 'REVISADO Y LISTO (FINAL)' : 'REVISADO Y LISTO (INICIAL)';
@@ -4033,11 +4049,9 @@ router.get('/:id/approve-cee-from-email', async (req, res) => {
             if (cli) clienteNombre = `${cli.nombre_razon_social || ''} ${cli.apellidos || ''}`.trim();
         }
 
-        // Estado + seguimiento + historial + invalidar token (uso único)
+        // Estado + seguimiento + historial
         cee.estado = newEstado;
         applyStatus(seguimiento, segKey, 'REVISADO');
-        seguimiento[tokenField] = null;
-        seguimiento[expField] = null;
 
         const docObj = exp.documentacion || {};
         const historial = docObj.historial || [];
