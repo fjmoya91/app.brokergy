@@ -50,6 +50,34 @@ async function imageToPdf(imageBuffer, mimeType) {
     return Buffer.from(await pdfDoc.save());
 }
 
+// Une varias imágenes en un único PDF (una imagen por página, sin reescalar).
+// pdf-lib solo sabe embeber JPG y PNG: detectamos el formato por los bytes mágicos
+// y omitimos lo que no sea embebible (HEIC/webp…). Devuelve el buffer + cuántas
+// se incluyeron / se omitieron para poder avisar al usuario.
+async function imagesToPdf(images) {
+    const pdfDoc = await PDFDocument.create();
+    let added = 0, skipped = 0;
+    for (const { buffer } of images) {
+        try {
+            const isPng = buffer.length > 8 && buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4E && buffer[3] === 0x47;
+            const isJpg = buffer.length > 3 && buffer[0] === 0xFF && buffer[1] === 0xD8 && buffer[2] === 0xFF;
+            let img;
+            if (isPng) img = await pdfDoc.embedPng(buffer);
+            else if (isJpg) img = await pdfDoc.embedJpg(buffer);
+            else { skipped++; continue; }
+            const { width, height } = img.scale(1);
+            const page = pdfDoc.addPage([width, height]);
+            page.drawImage(img, { x: 0, y: 0, width, height });
+            added++;
+        } catch (e) {
+            console.warn('[imagesToPdf] no se pudo embeber una imagen:', e.message);
+            skipped++;
+        }
+    }
+    const pdf = Buffer.from(await pdfDoc.save());
+    return { pdf, added, skipped };
+}
+
 // Concatena un PDF principal con varios PDF anexo, normalizando cada página
 // anexada a A4 (escalada y centrada). Réplica del helper de routes/pdf.js para
 // no acoplar este módulo al router de PDF. Se usa para anexar el DNI (delante +
@@ -871,6 +899,101 @@ router.delete('/reforma-docs/:uuid/:slot', async (req, res) => {
     } catch (e) {
         console.error('Error reforma-docs DELETE:', e);
         res.status(500).json({ error: 'Error interno al borrar el archivo' });
+    }
+});
+
+// POST /api/public/reforma-docs/:uuid/:slot/merge-pdf?token=
+// Une las imágenes subidas en un slot (p.ej. las páginas fotografiadas del CEE
+// existente) en un ÚNICO PDF (una imagen por página), lo sube a Drive con el
+// nombre canónico {slot}.pdf y elimina las fotos sueltas. Idempotente: si se
+// vuelve a pulsar, regenera el PDF con las imágenes que haya en ese momento.
+// requireAuth NO bloqueante: marca subido_por (admin/instalador) o 'cliente' por token.
+router.post('/reforma-docs/:uuid/:slot/merge-pdf', requireAuth, async (req, res) => {
+    try {
+        const { uuid, slot } = req.params;
+        const { token } = req.query;
+
+        const { data: opp } = await supabase
+            .from('oportunidades')
+            .select('id, id_oportunidad, datos_calculo')
+            .eq('id', uuid)
+            .maybeSingle();
+        if (!opp) return res.status(404).json({ error: 'Solicitud no encontrada' });
+        if (!token || opp.datos_calculo?.upload_token !== token) {
+            return res.status(403).json({ error: 'Enlace inválido o caducado.' });
+        }
+
+        const dc = opp.datos_calculo || {};
+        const checklist = reformaUploadService.buildDocChecklist(dc);
+        const slotDef = checklist.find(s => s.key === slot);
+        if (!slotDef) return res.status(400).json({ error: 'Tipo de documento no válido' });
+        if (!slotDef.mergePdf) return res.status(400).json({ error: 'Este apartado no admite unir fotos en un PDF.' });
+
+        // Fuente de verdad = Drive (regla nº 20). Listar las imágenes del slot en
+        // "12. DOCUMENTOS PARA CEE" y ordenarlas por su sufijo numérico (_1, _2…).
+        const folderId = await reformaUploadService.ensureDriveFolder(uuid);
+        const subId = await driveService.getOrCreateSubfolder(folderId, reformaUploadService.SUBCARPETA_DOCS);
+        const driveFiles = await driveService.listFiles(subId);
+        const IMG_EXT = /\.(jpe?g|png|gif|webp|heic|heif|bmp|tiff?)$/i;
+        const isImg = (f) => (f.mimeType || '').startsWith('image/') || IMG_EXT.test(f.name || '');
+        const images = driveFiles
+            .filter(f => reformaUploadService.fileBelongsToSlot(f.name, slot) && isImg(f))
+            .sort((a, b) => String(a.name).localeCompare(String(b.name), 'es', { numeric: true }));
+
+        if (images.length < 1) {
+            return res.status(400).json({ error: 'No hay fotos que unir en este apartado.' });
+        }
+
+        // Descargar y construir el PDF (una imagen por página).
+        const buffers = [];
+        for (const f of images) {
+            // eslint-disable-next-line no-await-in-loop
+            const buf = await driveService.getFileContent(f.id);
+            if (buf && buf.length) buffers.push({ name: f.name, buffer: buf });
+        }
+        const { pdf, added, skipped } = await imagesToPdf(buffers);
+        if (added === 0) {
+            return res.status(422).json({ error: 'No pudimos leer las fotos (formato no compatible). Súbelas en JPG o PNG, o sube directamente el PDF.' });
+        }
+
+        // Subir el PDF unificado con nombre canónico (slot único → sin sufijo)
+        const canonicalPdf = `${slot}.pdf`;
+        const saved = await driveService.saveFileToFolder(subId, canonicalPdf, 'application/pdf', pdf);
+        if (!saved?.id) return res.status(500).json({ error: 'No se pudo guardar el PDF en Drive.' });
+
+        // Borrar las imágenes recién unidas + cualquier PDF canónico previo (re-merge),
+        // pero nunca el que acabamos de subir.
+        const toDelete = driveFiles.filter(f =>
+            (reformaUploadService.fileBelongsToSlot(f.name, slot) && isImg(f)) ||
+            (f.name === canonicalPdf && f.id !== saved.id)
+        );
+        await Promise.all(toDelete.map(f => driveService.deleteFile(f.id)
+            .catch(e => console.warn('[Merge] borrar', f.name, e.message))));
+
+        // Actualizar reforma_uploads del slot: conservar lo que NO hemos borrado + el nuevo PDF.
+        const deletedSet = new Set(toDelete.map(f => f.id));
+        const prev = Array.isArray(dc.reforma_uploads?.[slot]) ? dc.reforma_uploads[slot] : [];
+        const kept = prev.filter(it => it.driveId && !deletedSet.has(it.driveId) && it.driveId !== saved.id);
+        const subidoPor = req.user ? (req.user.rol_nombre === 'ADMIN' ? 'admin' : 'instalador') : 'cliente';
+        const pdfEntry = {
+            name: canonicalPdf, link: saved.link, driveId: saved.id, mimeType: 'application/pdf',
+            at: new Date().toISOString(), estado: 'subida', subido_por: subidoPor, motivo: null
+        };
+        const { error: rpcErr } = await supabase.rpc('reforma_replace_slot', {
+            p_id: uuid, p_slot: slot, p_array: [...kept, pdfEntry]
+        });
+        if (rpcErr) console.warn('[Merge] reforma_replace_slot:', rpcErr.message);
+
+        return res.json({
+            success: true, slot, name: canonicalPdf, link: saved.link, driveId: saved.id,
+            pages: added, skipped,
+            message: skipped > 0
+                ? `Unidas ${added} foto(s) en un PDF. ${skipped} no se pudieron incluir (formato no compatible).`
+                : `Unidas ${added} foto(s) en un único PDF.`
+        });
+    } catch (e) {
+        console.error('Error reforma-docs merge-pdf:', e);
+        res.status(500).json({ error: 'Error interno al unir las fotos en un PDF' });
     }
 });
 

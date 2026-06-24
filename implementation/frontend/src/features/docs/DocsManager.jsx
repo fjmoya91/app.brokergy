@@ -133,6 +133,7 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
     const [rejectMotivo, setRejectMotivo] = useState('');
     const [rejectNotifyTarget, setRejectNotifyTarget] = useState('cliente'); // 'cliente'|'instalador'|'ninguno'
     const [waiving, setWaiving] = useState(null); // slot.key cuyo "no necesario" se está cambiando
+    const [merging, setMerging] = useState(null); // slot.key cuyas fotos se están uniendo en un PDF
     const [dragOver, setDragOver] = useState(null); // slot.key sobre el que se arrastra
     const [bulkValidating, setBulkValidating] = useState(null); // slot.key | '__antes__' | '__despues__' en validación masiva
     const [conceptPanel, setConceptPanel] = useState(false); // panel "Añadir apartado" abierto
@@ -314,6 +315,28 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
         }
     };
 
+    // Une las fotos de un slot (p.ej. las páginas del CEE existente) en un único PDF.
+    // El backend las funde, sube el PDF a Drive y borra las sueltas → recargamos.
+    const mergeSlotPdf = async (slot) => {
+        setMerging(slot.key);
+        setSlotError(prev => ({ ...prev, [slot.key]: null }));
+        try {
+            const res = await axios.post(
+                `/api/public/reforma-docs/${uuidRef.current}/${slot.key}/merge-pdf`,
+                null,
+                { params: { token: tokenRef.current } }
+            );
+            await load(true); // el slot ahora muestra el PDF unificado en vez de las fotos
+            if (res.data?.skipped > 0) {
+                setSlotError(prev => ({ ...prev, [slot.key]: res.data.message }));
+            }
+        } catch (err) {
+            setSlotError(prev => ({ ...prev, [slot.key]: err.response?.data?.error || 'No se pudo unir en un PDF.' }));
+        } finally {
+            setMerging(null);
+        }
+    };
+
     // Admin: habilita (o quita) un APARTADO de foto extra para este expediente
     // (ventanas, cubierta, fachada…) cuando el alcance cambió a posteriori.
     // Tras guardar, recarga para que aparezcan/desaparezcan los slots.
@@ -487,6 +510,22 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
                                     className="mt-2 inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-lg border border-emerald-400/30 text-emerald-300 hover:bg-emerald-400/10 transition-all disabled:opacity-40"
                                 >
                                     {bulkValidating === slot.key ? '…' : `✓ Validar todas (${pend.length})`}
+                                </button>
+                            );
+                        })()}
+
+                        {/* Unir las fotos del slot en un único PDF (CEE existente y similares).
+                            Aparece cuando hay 2+ imágenes; las funde, sube el PDF y borra las sueltas. */}
+                        {slot.mergePdf && (() => {
+                            const imgCount = items.filter(isImageItem).length;
+                            if (imgCount < 2) return null;
+                            return (
+                                <button
+                                    onClick={() => mergeSlotPdf(slot)}
+                                    disabled={merging === slot.key || busy}
+                                    className="mt-2 inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-lg border border-sky-400/30 text-sky-300 hover:bg-sky-400/10 transition-all disabled:opacity-40"
+                                >
+                                    {merging === slot.key ? 'Uniendo…' : `📄 Unir ${imgCount} fotos en un PDF`}
                                 </button>
                             );
                         })()}

@@ -200,6 +200,12 @@ function buildDocChecklist(datosCalculo = {}) {
            label: 'Vídeo recorriendo la vivienda', help: 'Un vídeo corto mostrando estancias, ventanas y accesos al exterior.' });
     push({ key: 'DOC_PLANOS', fase: PHASE.ANTES, required: false, multiple: true, accept: ACCEPT_DOC,
            label: 'Planos o croquis', help: 'PDF o foto (.pdf, .png, .jpg…). Si no los tienes, con el vídeo nos vale.' });
+    // CEE EXISTENTE: el certificado energético actual de la vivienda (si ya lo tiene).
+    // optionalAlways → nunca pasa a obligatorio al ACEPTAR (no toda vivienda tiene CEE previo).
+    // mergePdf → puede aportarse como PDF directo O como fotos de las páginas; cuando estén
+    // todas, el cliente/admin pulsa "Unir en un PDF" y el backend las funde en un único PDF.
+    push({ key: 'DOC_CEE_EXISTENTE', fase: PHASE.ANTES, required: false, multiple: true, optionalAlways: true, mergePdf: true, accept: 'application/pdf,image/*',
+           label: 'Certificado de Eficiencia Energética existente', help: 'El CEE actual de la vivienda, si ya tienes uno. Puede ser un PDF o varias fotos de sus páginas: cuando estén todas, pulsa “Unir en un PDF” para juntarlas en un único documento.' });
     if (want('FOTO_VENTANAS_ANTES', sel.reforma.ventanas)) push({ key: 'FOTO_VENTANAS_ANTES', fase: PHASE.ANTES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Ventanas a sustituir (antes)', help: 'Las que vais a cambiar.' });
     if (want('FOTO_CUBIERTA_ANTES', sel.reforma.cubierta)) push({ key: 'FOTO_CUBIERTA_ANTES', fase: PHASE.ANTES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Cubierta / tejado (antes)' });
     if (want('FOTO_FACHADA_ANTES', sel.reforma.paredes))  push({ key: 'FOTO_FACHADA_ANTES', fase: PHASE.ANTES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Fachada a aislar (antes)' });
@@ -237,7 +243,7 @@ function buildDocChecklist(datosCalculo = {}) {
     // exigirlas si aún no se ha instalado nada).
     if (datosCalculo.estado === 'ACEPTADA') {
         for (const s of slots) {
-            if (s.fase === PHASE.ANTES) s.required = true;
+            if (s.fase === PHASE.ANTES && !s.optionalAlways) s.required = true;
         }
     }
 
