@@ -1279,6 +1279,7 @@ const sendReviewRequestEmailToAdmin = async ({
     expedienteId, numExp, certName, certPhone, certEmail, phase,
     clienteName, clienteData,
     portalLink, ceeFolderLink,
+    approveLink = null,
     priority = 'normal',
     techMessage = null,
     isResend = false,
@@ -1385,10 +1386,19 @@ const sendReviewRequestEmailToAdmin = async ({
                                     📁 Abrir Carpeta CEE
                                 </a>
                             </td></tr>` : ''}
+                            ${approveLink ? `
+                            <tr><td align="center" style="padding-top:18px;">
+                                <a href="${approveLink}" target="_blank" style="display:inline-block; padding:15px 32px; background:linear-gradient(135deg,#10b981,#059669); color:#03130d; font-size:15px; font-weight:900; text-decoration:none; border-radius:10px; width:80%; max-width:300px; box-sizing:border-box; text-align:center; text-transform:uppercase; letter-spacing:1px; box-shadow:0 4px 16px rgba(16,185,129,0.45);">
+                                    ✅ Dar Visto Bueno
+                                </a>
+                            </td></tr>
+                            <tr><td align="center" style="padding-top:8px;">
+                                <p style="margin:0; font-size:11px; line-height:1.5; color:rgba(255,255,255,0.3);">Al pulsar autorizas el registro en Industria y se avisa al técnico automáticamente por <strong style="color:rgba(255,255,255,0.45);">email y WhatsApp</strong>.</p>
+                            </td></tr>` : ''}
                         </table>
 
                         <p style="margin:28px 0 0; font-size:13px; line-height:1.6; color:rgba(255,255,255,0.35); text-align:center;">
-                            Una vez revisado el .CEX, pulsa <strong style="color:rgba(255,255,255,0.6);">Validar y Autorizar Presentación</strong> en el portal.
+                            ${approveLink ? 'Revisa el .CEX y, si todo es correcto, pulsa <strong style="color:#34d399;">Dar Visto Bueno</strong> (o hazlo desde el portal).' : 'Una vez revisado el .CEX, pulsa <strong style="color:rgba(255,255,255,0.6);">Validar y Autorizar Presentación</strong> en el portal.'}
                         </p>
                     </td>
                 </tr>
@@ -1415,7 +1425,8 @@ const sendReviewRequestEmailToAdmin = async ({
 
     const urgentText = isUrgent ? '🚨 URGENTE 🚨\n\n' : '';
     const techMsgText = techMessage ? `\nMensaje del técnico:\n${techMessage}\n\n` : '';
-    const text = `${urgentText}SOLICITUD DE REVISIÓN TÉCNICA\n\nEl técnico ${certName || 'Técnico'} ha subido el .CEX del CEE ${phaseLabel} del expediente ${numExp}.\n\n${clienteText}${techMsgText}Ver expediente: ${finalPortalLink}\n${ceeFolderLink ? 'Carpeta CEE: ' + ceeFolderLink + '\n' : ''}\nBROKERGY · Ingeniería Energética`;
+    const approveText = approveLink ? `\n✅ Dar visto bueno (un clic, avisa al técnico por email + WhatsApp):\n${approveLink}\n` : '';
+    const text = `${urgentText}SOLICITUD DE REVISIÓN TÉCNICA\n\nEl técnico ${certName || 'Técnico'} ha subido el .CEX del CEE ${phaseLabel} del expediente ${numExp}.\n\n${clienteText}${techMsgText}Ver expediente: ${finalPortalLink}\n${ceeFolderLink ? 'Carpeta CEE: ' + ceeFolderLink + '\n' : ''}${approveText}\nBROKERGY · Ingeniería Energética`;
 
     return sendMail({ to, subject, html, text });
 };

@@ -237,8 +237,11 @@ export function CeeDocumentsGrid({
     const handleCertTemplateChange = (id) => {
         setCertTemplate(id);
         if (!certNotifyModal) return;
+        // Al elegir un tipo de mensaje regeneramos SIEMPRE el texto de esa plantilla.
+        // (La lógica anterior de "preservar la edición" hacía que al pulsar "Visto bueno"
+        //  el texto se quedara en el de "Encargo").
         const def = buildCertDefaultMessage(id, certNotifyModal.section, certName, clienteNombre, numExp, ceeFolderLink);
-        setCertNotifyMessage(prev => (prev.trim() === '' || prev === lastCertDefaultRef.current) ? def : prev);
+        setCertNotifyMessage(def);
         lastCertDefaultRef.current = def;
     };
 
@@ -729,9 +732,13 @@ export function CeeDocumentsGrid({
                                                             title={`Comunicar con el certificador (${section === 'inicial' ? 'CEE Inicial' : 'CEE Final'})`}
                                                             onClick={() => {
                                                                 // Si está pendiente de revisión, el popup abre ya en "Visto bueno".
-                                                                setCertTemplate(isPendingReview ? 'approve' : 'standard');
+                                                                const tpl = isPendingReview ? 'approve' : 'standard';
+                                                                setCertTemplate(tpl);
                                                                 setCertChannels(['email']);
-                                                                setCertNotifyMessage('');
+                                                                // Sembramos el texto correcto YA (no dependemos solo del efecto de apertura).
+                                                                const def = buildCertDefaultMessage(tpl, section, certName, clienteNombre, numExp, ceeFolderLink);
+                                                                setCertNotifyMessage(def);
+                                                                lastCertDefaultRef.current = def;
                                                                 setCertNotifyModal({ section });
                                                             }}
                                                             className="w-7 h-7 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center text-white/40 hover:bg-brand/20 hover:text-brand hover:border-brand/40 transition-all active:scale-95"

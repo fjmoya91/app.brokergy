@@ -3265,6 +3265,13 @@ router.post('/:id/notify-review', enforceAuth, async (req, res) => {
             applyStatus(seguimiento, 'cee_inicial', 'PTE_REVISION');
         }
 
+        // Token de un solo uso para el botón "Dar visto bueno" del email al admin
+        // (one-tap approve: marca REVISADO + avisa al certificador por email/WhatsApp).
+        const approvePhaseKey = phase === 'final' ? 'final' : 'inicial';
+        const approveCeeToken = crypto.randomBytes(32).toString('hex');
+        seguimiento[`approve_cee_token_${approvePhaseKey}`] = approveCeeToken;
+        seguimiento[`approve_cee_token_${approvePhaseKey}_exp`] = Date.now() + 7 * 24 * 60 * 60 * 1000; // 7 días
+
         const { error: updErr } = await supabase.from('expedientes')
             .update({
                 cee,
@@ -3279,6 +3286,9 @@ router.post('/:id/notify-review', enforceAuth, async (req, res) => {
             console.error('Error actualizando Supabase en notify-review:', updErr);
             throw updErr;
         }
+
+        // Enlace one-tap para el email del admin
+        const approveLink = `${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/api/expedientes/${req.params.id}/approve-cee-from-email?token=${approveCeeToken}&phase=${approvePhaseKey}`;
 
         const channels = [];
 
@@ -3295,6 +3305,7 @@ router.post('/:id/notify-review', enforceAuth, async (req, res) => {
                 clienteData,
                 portalLink,
                 ceeFolderLink,
+                approveLink,
                 priority,
                 techMessage,
                 isResend,
@@ -3936,6 +3947,147 @@ router.get('/:id/notify-client', async (req, res) => {
     } catch (err) {
         console.error('[notify-client]', err.message);
         return sendHtmlPage(false, 'Error interno del servidor. Inténtalo desde el panel de administración.');
+    }
+});
+
+// ─── GET /api/expedientes/:id/approve-cee-from-email ──────────────────────────
+// Endpoint PÚBLICO (token de un solo uso). El admin lo recibe como botón
+// "Dar Visto Bueno" en el email de SOLICITUD DE REVISIÓN. Al pulsarlo:
+//   1. Marca el CEE como REVISADO (seguimiento) + estado "REVISADO Y LISTO (...)".
+//   2. Avisa al certificador por EMAIL y WhatsApp con el texto de visto bueno
+//      (idéntico al que envía la app por defecto).
+// Query params: token (string), phase (inicial | final)
+router.get('/:id/approve-cee-from-email', async (req, res) => {
+    const { token, phase } = req.query;
+
+    const sendHtmlPage = (ok, title, message) => {
+        const color = ok ? '#10b981' : '#ef4444';
+        res.setHeader('Content-Type', 'text/html; charset=utf-8');
+        res.send(`<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BROKERGY</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #0a0e1a; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #fff; display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 20px; }
+    .card { background: #111827; border: 1px solid #334155; border-radius: 20px; padding: 40px 30px; max-width: 440px; width: 100%; text-align: center; }
+    .icon { font-size: 48px; margin-bottom: 16px; }
+    h2 { color: ${color}; margin-bottom: 12px; font-size: 22px; }
+    p { color: #94a3b8; line-height: 1.5; margin-bottom: 8px; }
+    .brand { color: #475569; font-size: 11px; margin-top: 30px; letter-spacing: 0.05em; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon">${ok ? '✅' : '⚠️'}</div>
+    <h2>${title}</h2>
+    <p>${message}</p>
+    <div class="brand">BROKERGY · Ingeniería Energética</div>
+  </div>
+</body>
+</html>`);
+    };
+
+    if (!token || !phase) return sendHtmlPage(false, 'Error', 'Parámetros inválidos.');
+    if (phase !== 'inicial' && phase !== 'final') return sendHtmlPage(false, 'Error', 'Phase inválida. Usa "inicial" o "final".');
+
+    try {
+        const { data: exp, error: expErr } = await supabase
+            .from('expedientes').select('*').eq('id', req.params.id).single();
+        if (expErr || !exp) return sendHtmlPage(false, 'Error', 'Expediente no encontrado.');
+
+        const seguimiento = exp.seguimiento || {};
+        const tokenField = `approve_cee_token_${phase}`;
+        const expField = `approve_cee_token_${phase}_exp`;
+        const segKey = phase === 'final' ? 'cee_final' : 'cee_inicial';
+        const phaseLabel = phase === 'final' ? 'CEE Final' : 'CEE Inicial';
+
+        // Idempotencia: si ya está revisado/registrado, no repetir el envío.
+        if (['REVISADO', 'REGISTRADO'].includes(seguimiento[segKey])) {
+            return sendHtmlPage(true, 'Ya aprobado', `El ${phaseLabel} del expediente ${exp.numero_expediente || ''} ya tenía el visto bueno. No se ha realizado ninguna acción nueva.`);
+        }
+        if (!seguimiento[tokenField]) return sendHtmlPage(false, 'Enlace no válido', 'Este enlace ya fue utilizado o no existe.');
+        if (seguimiento[tokenField] !== token) return sendHtmlPage(false, 'Token inválido', 'Es posible que se haya generado un enlace más reciente.');
+        if (seguimiento[expField] && Date.now() > seguimiento[expField]) {
+            return sendHtmlPage(false, 'Enlace caducado', 'El enlace ha caducado (validez 7 días). Da el visto bueno desde el portal.');
+        }
+
+        const newEstado = phase === 'final' ? 'REVISADO Y LISTO (FINAL)' : 'REVISADO Y LISTO (INICIAL)';
+
+        // Datos del certificador y del cliente (para el mensaje de visto bueno)
+        const cee = exp.cee || {};
+        let certEmail = null, certName = 'Técnico', certPhone = null;
+        if (cee.certificador_id) {
+            const { data: cert } = await supabase.from('prescriptores').select('*').eq('id_empresa', cee.certificador_id).maybeSingle();
+            if (cert) {
+                certEmail = cert.email || null;
+                certName = cert.razon_social || cert.acronimo || 'Técnico';
+                certPhone = cert.telefono || cert.movil || cert.tlf || cert.tlf_contacto || cert.landing_telefono_contacto || null;
+            }
+        }
+        let clienteNombre = '';
+        if (exp.cliente_id) {
+            const { data: cli } = await supabase.from('clientes').select('nombre_razon_social, apellidos').eq('id_cliente', exp.cliente_id).maybeSingle();
+            if (cli) clienteNombre = `${cli.nombre_razon_social || ''} ${cli.apellidos || ''}`.trim();
+        }
+
+        // Estado + seguimiento + historial + invalidar token (uso único)
+        cee.estado = newEstado;
+        applyStatus(seguimiento, segKey, 'REVISADO');
+        seguimiento[tokenField] = null;
+        seguimiento[expField] = null;
+
+        const docObj = exp.documentacion || {};
+        const historial = docObj.historial || [];
+        historial.push({
+            id: Date.now().toString() + '_revok_mail',
+            tipo: 'aprobacion_tecnica',
+            texto: `BROKERGY ha dado el VISTO BUENO al ${phaseLabel} desde el botón del email de solicitud de revisión. Se autoriza su registro en Industria.`,
+            fecha: new Date().toISOString(),
+            usuario: 'ADMINISTRADOR'
+        });
+        historial.push({ id: Date.now().toString() + '_status_revok_mail', estado: newEstado, fecha: new Date().toISOString(), usuario: 'ADMINISTRADOR' });
+
+        await supabase.from('expedientes')
+            .update({ cee, estado: newEstado, seguimiento, documentacion: { ...docObj, historial }, updated_at: new Date().toISOString() })
+            .eq('id', req.params.id);
+
+        // Mensaje de visto bueno IDÉNTICO al que la app envía por defecto (buildCertApproveMessage)
+        const ceeFolderLink = cee.cee_folder_link || null;
+        const portalLink = `${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/?exp=${req.params.id}`;
+        const firstName = (certName || '').trim().split(/\s+/)[0] || '';
+        const tecnico = firstName ? firstName.charAt(0).toUpperCase() + firstName.slice(1).toLowerCase() : 'técnico';
+        const cliProper = clienteNombre
+            ? ' (' + clienteNombre.toLowerCase().split(/\s+/).filter(Boolean).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ') + ')'
+            : '';
+        const carpeta = ceeFolderLink ? `\n\n📁 Carpeta de documentos del expediente:\n${ceeFolderLink}` : '';
+        const vistoBuenoMsg = `¡Hola ${tecnico}! 👋\n\nHemos revisado el ${phaseLabel} del expediente ${exp.numero_expediente}${cliProper} y tiene nuestro visto bueno. Ya puedes proceder a registrarlo en Industria.\n\nUna vez registrado, sube por favor la etiqueta energética y el justificante de registro a la carpeta compartida o al portal.\n\n¡Gracias!${carpeta}`;
+
+        // EMAIL + WhatsApp al certificador (automático, ambos canales)
+        let emailSent = false, waSent = false;
+        if (certEmail) {
+            try {
+                await emailService.sendCertificadorApproveNotification(
+                    certEmail, certName, exp.numero_expediente, phaseLabel, portalLink, ceeFolderLink, null, vistoBuenoMsg
+                );
+                emailSent = true;
+            } catch (e) { console.error('[approve-from-email] email:', e.message); }
+        }
+        if (certPhone) {
+            try {
+                await whatsappService.sendText(certPhone, `${vistoBuenoMsg}\n\n*BROKERGY · Ingeniería Energética*`);
+                waSent = true;
+            } catch (e) { console.error('[approve-from-email] WhatsApp:', e.message); }
+        }
+
+        const canales = [emailSent ? '✉️ email' : null, waSent ? '💬 WhatsApp' : null].filter(Boolean).join(' + ')
+            || 'ningún canal (revisa el email/teléfono del certificador en su ficha)';
+        return sendHtmlPage(true, 'Visto bueno enviado', `Has dado el visto bueno al ${phaseLabel} del expediente ${exp.numero_expediente}. El certificador ya tiene luz verde para registrar y ha sido avisado por ${canales}.`);
+    } catch (err) {
+        console.error('[approve-cee-from-email]', err.message);
+        return sendHtmlPage(false, 'Error', 'Error interno del servidor. Da el visto bueno desde el portal.');
     }
 });
 
