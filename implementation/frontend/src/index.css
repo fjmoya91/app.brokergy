@@ -800,15 +800,33 @@ input[type="email"],
 .theme-light .focus\:bg-black\/40:focus { background-color: rgba(15, 23, 42, 0.06) !important; }
 .theme-light .focus\:bg-black\/60:focus { background-color: rgba(15, 23, 42, 0.08) !important; }
 
-/* ── Fondos NEUTROS oscuros (slate/gray/zinc/neutral 700–950), sólidos Y con
-   opacidad → superficie clara. Se usan en paneles, chips y botones (calculadora,
-   modales…). Selector por substring: cubre base y /opacidad de una vez (la
-   alpha exacta da igual, todas deben quedar claras). ── */
-.theme-light [class*="bg-slate-700"], .theme-light [class*="bg-slate-800"], .theme-light [class*="bg-slate-900"], .theme-light [class*="bg-slate-950"],
-.theme-light [class*="bg-gray-700"],  .theme-light [class*="bg-gray-800"],  .theme-light [class*="bg-gray-900"],  .theme-light [class*="bg-gray-950"],
-.theme-light [class*="bg-zinc-700"],  .theme-light [class*="bg-zinc-800"],  .theme-light [class*="bg-zinc-900"],  .theme-light [class*="bg-zinc-950"],
-.theme-light [class*="bg-neutral-700"], .theme-light [class*="bg-neutral-800"], .theme-light [class*="bg-neutral-900"], .theme-light [class*="bg-neutral-950"] {
+/* ── Fondos NEUTROS oscuros (slate/gray/zinc/neutral 700–950) → superficie clara.
+   OJO: hay que distinguir dos casos:
+   1) CON opacidad (bg-slate-900/40): es un tinte translúcido → tinte oscuro suave.
+   2) SÓLIDO (bg-slate-900): es una superficie OPACA (desplegables, tooltips, chips,
+      cabeceras de modal) → debe quedar OPACA clara, NUNCA un tinte casi transparente
+      (si no, los desplegables se transparentan y no se distinguen).
+   Se excluyen los backdrops (:not(.fixed)) para que sigan oscureciendo. ── */
+/* (1) Translúcidos (substring, capta /opacidad) → tinte */
+.theme-light [class*="bg-slate-700"]:not(.fixed), .theme-light [class*="bg-slate-800"]:not(.fixed), .theme-light [class*="bg-slate-900"]:not(.fixed), .theme-light [class*="bg-slate-950"]:not(.fixed),
+.theme-light [class*="bg-gray-700"]:not(.fixed),  .theme-light [class*="bg-gray-800"]:not(.fixed),  .theme-light [class*="bg-gray-900"]:not(.fixed),  .theme-light [class*="bg-gray-950"]:not(.fixed),
+.theme-light [class*="bg-zinc-700"]:not(.fixed),  .theme-light [class*="bg-zinc-800"]:not(.fixed),  .theme-light [class*="bg-zinc-900"]:not(.fixed),  .theme-light [class*="bg-zinc-950"]:not(.fixed),
+.theme-light [class*="bg-neutral-700"]:not(.fixed), .theme-light [class*="bg-neutral-800"]:not(.fixed), .theme-light [class*="bg-neutral-900"]:not(.fixed), .theme-light [class*="bg-neutral-950"]:not(.fixed) {
     background-color: rgba(15, 23, 42, 0.055) !important;
+}
+/* (2) SÓLIDOS (clase exacta, sin opacidad) → superficie OPACA. Va DESPUÉS para
+   ganar al tinte en los fondos sólidos (misma especificidad → orden de cascada). */
+.theme-light .bg-slate-900:not(.fixed), .theme-light .bg-slate-950:not(.fixed),
+.theme-light .bg-gray-900:not(.fixed),  .theme-light .bg-gray-950:not(.fixed),
+.theme-light .bg-zinc-900:not(.fixed),  .theme-light .bg-zinc-950:not(.fixed),
+.theme-light .bg-neutral-900:not(.fixed), .theme-light .bg-neutral-950:not(.fixed) {
+    background-color: #ffffff !important;
+}
+.theme-light .bg-slate-800:not(.fixed), .theme-light .bg-slate-700:not(.fixed),
+.theme-light .bg-gray-800:not(.fixed),  .theme-light .bg-gray-700:not(.fixed),
+.theme-light .bg-zinc-800:not(.fixed),  .theme-light .bg-zinc-700:not(.fixed),
+.theme-light .bg-neutral-800:not(.fixed), .theme-light .bg-neutral-700:not(.fixed) {
+    background-color: #F1F3F6 !important;
 }
 /* Bordes neutros oscuros → borde claro */
 .theme-light [class*="border-slate-700"], .theme-light [class*="border-slate-800"], .theme-light [class*="border-slate-900"],
