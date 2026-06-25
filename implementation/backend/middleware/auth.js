@@ -129,8 +129,24 @@ const adminOnly = (req, res, next) => {
     });
 };
 
+/**
+ * Middleware para módulos INTERNOS de Brokergy (p.ej. Expedientes).
+ * Solo ADMIN y CERTIFICADOR. Los partners (PRESCRIPTOR / INSTALADOR /
+ * DISTRIBUIDOR) quedan completamente fuera: no son datos de su ámbito.
+ */
+const internalOnly = (req, res, next) => {
+    enforceAuth(req, res, () => {
+        const rol = req.user.rol_nombre;
+        if (rol !== 'ADMIN' && rol !== 'CERTIFICADOR') {
+            return res.status(403).json({ error: 'Acceso denegado. Este recurso es interno de Brokergy.' });
+        }
+        next();
+    });
+};
+
 module.exports = {
     requireAuth,
     enforceAuth,
-    adminOnly
+    adminOnly,
+    internalOnly
 };

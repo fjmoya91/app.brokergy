@@ -901,8 +901,9 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
                 </div>
             </div>
 
-            {/* Panel de Resumen Económico Sticky (Solo RES060) */}
-            {calcResults && !isCertificador && (
+            {/* Panel de Resumen Económico Sticky (Solo RES060).
+                Importes (PRECIO CAE, BENEFICIO BROKERGY…) = SOLO ADMIN. */}
+            {calcResults && isAdmin && (
                 <div className="sticky top-0 z-[100] -mx-6 sm:-mx-8 lg:-mx-10 px-6 sm:px-8 lg:px-10 py-4 bg-bkg-base/60 backdrop-blur-xl border-b border-white/[0.05] mb-6 shadow-2xl max-md:fixed max-md:bottom-0 max-md:inset-x-0 max-md:top-auto max-md:mx-0 max-md:px-3 max-md:py-0 max-md:mb-0 max-md:border-b-0 max-md:border-t max-md:bg-bkg-base/80 max-md:rounded-t-2xl">
                     <ResumenEconomicoExpediente
                         results={calcResults}
@@ -1156,7 +1157,8 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
                     </ModuleSection>
                 )}
 
-                {!isCertificador && (
+                {/* Datos Económicos (tarifas CAE, beneficio, presupuesto) = SOLO ADMIN. */}
+                {isAdmin && (
                     <ModuleSection
                         id="economico"
                         title="Datos Económicos"

@@ -12,6 +12,48 @@ const emailService = require('../services/emailService');
 const { createLead } = require('../services/leadService');
 const { getProvinceInfo, normalizeProvinceCode } = require('../data/allowedProvinces');
 
+// ─── Ocultar el MARGEN a los partners ─────────────────────────────────────────
+// Un partner (instalador/distribuidor) solo puede ver lo que gana SU CLIENTE
+// (bono CAE) y el PRESUPUESTO de la obra. NUNCA el precio CAE de venta al Sujeto
+// Obligado, la comisión de prescriptor ni el BENEFICIO BROKERGY. No basta con
+// ocultarlo en la UI: hay que sacarlo del payload (si no, se ve por DevTools).
+//
+// Se conserva el precio CAE del CLIENTE (caePriceClient / cae_client_rate) porque
+// el bono del cliente se recalcula a partir de él, pero NUNCA se muestra en pantalla.
+const PARTNER_MARGIN_DATOS     = ['caePriceSO', 'caePricePrescriptor', 'prescriptorMode', 'caePriceBrokergy'];
+const PARTNER_MARGIN_INPUTS    = ['cae_so_rate', 'cae_prescriptor_rate', 'cae_prescriptor_mode'];
+const PARTNER_MARGIN_FINANCIALS = ['profitBrokergy', 'caePriceBrokergy', 'totalPrescriptor', 'prescriptorMode'];
+
+// `inputs` replica el estado de la calculadora en camelCase (caePriceSO, …) y, en
+// algunos registros, también hay variantes snake_case. Quitamos AMBAS de `inputs`.
+const PARTNER_MARGIN_INPUTS_ALL = [...PARTNER_MARGIN_DATOS, ...PARTNER_MARGIN_INPUTS];
+
+function stripPartnerMargin(op) {
+    if (!op || typeof op !== 'object' || !op.datos_calculo || typeof op.datos_calculo !== 'object') return op;
+    const dc = { ...op.datos_calculo };
+    PARTNER_MARGIN_DATOS.forEach(k => { delete dc[k]; });
+    if (dc.inputs && typeof dc.inputs === 'object') {
+        const inp = { ...dc.inputs };
+        PARTNER_MARGIN_INPUTS_ALL.forEach(k => { delete inp[k]; });
+        dc.inputs = inp;
+    }
+    if (dc.result && typeof dc.result === 'object') {
+        const r = { ...dc.result };
+        for (const fk of ['financials', 'financialsRes080']) {
+            if (r[fk] && typeof r[fk] === 'object') {
+                const f = { ...r[fk] };
+                PARTNER_MARGIN_FINANCIALS.forEach(k => { delete f[k]; });
+                r[fk] = f;
+            }
+        }
+        dc.result = r;
+    }
+    return { ...op, datos_calculo: dc };
+}
+
+// Devuelve true si el usuario NO es ADMIN (incluye sin sesión → tratamos como externo).
+const isNonAdmin = (req) => !(req.user && req.user.rol_nombre === 'ADMIN');
+
 router.use((req, res, next) => {
     console.log(`[Router Oportunidades] ${req.method} ${req.url}`);
     next();
@@ -192,6 +234,36 @@ router.post('/', requireAuth, async (req, res) => {
                     datosCalculoFinal[k] = existingData.datos_calculo[k];
                 }
             }
+
+            // El MARGEN (precio S.O., comisión prescriptor, beneficio Brokergy) es de ADMIN.
+            // Un partner recibe el payload SIN esos campos (stripPartnerMargin), así que al
+            // guardar NO debe poder borrarlos ni cambiarlos: los restauramos tal cual estaban
+            // (y se los quitamos a su `result` recalculado para no guardar un margen erróneo).
+            if (req.user && req.user.rol_nombre !== 'ADMIN') {
+                for (const k of PARTNER_MARGIN_DATOS) {
+                    if (existingData.datos_calculo[k] !== undefined) datosCalculoFinal[k] = existingData.datos_calculo[k];
+                    else delete datosCalculoFinal[k];
+                }
+                if (datosCalculoFinal.inputs && typeof datosCalculoFinal.inputs === 'object') {
+                    const exInputs = existingData.datos_calculo.inputs || {};
+                    for (const k of PARTNER_MARGIN_INPUTS_ALL) {
+                        if (exInputs[k] !== undefined) datosCalculoFinal.inputs[k] = exInputs[k];
+                        else delete datosCalculoFinal.inputs[k];
+                    }
+                }
+                if (datosCalculoFinal.result && typeof datosCalculoFinal.result === 'object') {
+                    const exResult = existingData.datos_calculo.result || {};
+                    for (const fk of ['financials', 'financialsRes080']) {
+                        if (datosCalculoFinal.result[fk] && typeof datosCalculoFinal.result[fk] === 'object') {
+                            const exFin = (exResult[fk] && typeof exResult[fk] === 'object') ? exResult[fk] : {};
+                            for (const k of PARTNER_MARGIN_FINANCIALS) {
+                                if (exFin[k] !== undefined) datosCalculoFinal.result[fk][k] = exFin[k];
+                                else delete datosCalculoFinal.result[fk][k];
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         let payloadPrescriptorStr = prescriptor || 'BROKERGY';
@@ -344,12 +416,15 @@ router.get('/', requireAuth, async (req, res) => {
                 }
                 const { data: retryData, error: retryError } = await retryQuery;
                 if (retryError) return res.status(500).json({ error: retryError.message });
-                return res.status(200).json((retryData || []).filter(o => o?.datos_calculo?.origen !== 'migracion_xml'));
+                const retryVisible = (retryData || []).filter(o => o?.datos_calculo?.origen !== 'migracion_xml');
+                return res.status(200).json(isNonAdmin(req) ? retryVisible.map(stripPartnerMargin) : retryVisible);
             }
             return res.status(200).json([]); // Devolvemos array vacío para evitar crashes en el front
         }
-        // Ocultar oportunidades "fantasma" creadas por la migración de expedientes desde XML
-        res.status(200).json((data || []).filter(o => o?.datos_calculo?.origen !== 'migracion_xml'));
+        // Ocultar oportunidades "fantasma" creadas por la migración de expedientes desde XML.
+        // A los no-ADMIN les quitamos el margen del payload (precio S.O., comisión, beneficio).
+        const visible = (data || []).filter(o => o?.datos_calculo?.origen !== 'migracion_xml');
+        res.status(200).json(isNonAdmin(req) ? visible.map(stripPartnerMargin) : visible);
     } catch (error) {
         console.error('Fatal crash in GET /:', error);
         res.status(500).json({ error: 'Error del servidor.' });
@@ -712,7 +787,7 @@ router.put('/:id/historial/:entryId', requireAuth, async (req, res) => {
 // Acepta tanto id_oportunidad (ej. 26RES060_OP90) como ref_catastral (20 chars).
 // Si hay varias coincidencias por RC (varios LEAD para la misma vivienda),
 // devuelve la MÁS RECIENTE — nunca 500 por duplicados.
-router.get('/:id', async (req, res) => {
+router.get('/:id', requireAuth, async (req, res) => {
     try {
         const { id } = req.params;
         if (!id) return res.status(400).json({ error: 'ID requerido' });
@@ -732,7 +807,7 @@ router.get('/:id', async (req, res) => {
         if (byId.data && byId.data.length > 0) {
             const found = byId.data[0];
             console.log(`[Backend] Encontrada por id_oportunidad: ${found.id_oportunidad}`);
-            return res.status(200).json(found);
+            return res.status(200).json(isNonAdmin(req) ? stripPartnerMargin(found) : found);
         }
 
         // 2. Fallback por ref_catastral
@@ -750,7 +825,7 @@ router.get('/:id', async (req, res) => {
         if (byRc.data && byRc.data.length > 0) {
             const found = byRc.data[0];
             console.log(`[Backend] Encontrada por ref_catastral: ${found.id_oportunidad}`);
-            return res.status(200).json(found);
+            return res.status(200).json(isNonAdmin(req) ? stripPartnerMargin(found) : found);
         }
 
         console.log(`[Backend] Oportunidad no encontrada para: ${id}`);

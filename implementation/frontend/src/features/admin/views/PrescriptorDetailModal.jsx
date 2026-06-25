@@ -219,6 +219,10 @@ function DireccionEdit({ values, onChange }) {
 export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp, onUpdated, onCreated, onNavigate }) {
     const { user } = useAuth();
     const isAdmin = user?.rol?.toUpperCase() === 'ADMIN';
+    // Un partner puede ver/editar SU PROPIA ficha (con campos capados: sin toggle
+    // de acceso, sin tipo/rol, sin toggle de autónomo — esos solo los toca un admin).
+    const isOwnProfile = !!user?.prescriptor_id && user?.prescriptor_id === prescProp?.id_empresa;
+    const canEditProfile = isAdmin || isOwnProfile;
 
     // isCreating = abrimos el modal con {} (sin id_empresa)
     const isCreating = isOpen && !prescProp?.id_empresa;
@@ -318,8 +322,8 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
             setExpedientes([]);
             return;
         }
-        // El endpoint solo permite ADMIN o el propio instalador
-        if (!isAdmin && user?.prescriptor_id !== p.id_empresa) {
+        // Expedientes son INTERNOS de Brokergy: la trazabilidad solo es para ADMIN.
+        if (!isAdmin) {
             setExpedientes([]);
             return;
         }
@@ -722,7 +726,7 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                             </button>
                         )}
 
-                        {!isCreating && !editing && isAdmin && (
+                        {!isCreating && !editing && canEditProfile && (
                             <button onClick={() => setEditing(true)}
                                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand/10 border border-brand/20 text-brand text-xs font-black uppercase tracking-widest hover:bg-brand/20 transition-all">
                                 <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -890,8 +894,9 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                                 </div>
                             )}
 
-                            {/* Expedientes en los que ha participado como instaladora asignada */}
-                            {p.tipo_empresa === 'INSTALADOR' && (
+                            {/* Expedientes en los que ha participado como instaladora asignada.
+                                INTERNO de Brokergy: solo ADMIN (un distribuidor no debe verlos). */}
+                            {isAdmin && p.tipo_empresa === 'INSTALADOR' && (
                                 <div className="space-y-2">
                                     <p className="text-[10px] uppercase tracking-[0.2em] font-black text-white/30 flex items-center gap-2">
                                         Expedientes Asignados
@@ -954,7 +959,8 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                     {(editing || isCreating) && (
                         <div className="space-y-5">
 
-                            {/* Toggle Autónomo / Empresa */}
+                            {/* Toggle Autónomo / Empresa — SOLO ADMIN (el partner no cambia su naturaleza jurídica) */}
+                            {isAdmin && (
                             <div className="p-4 bg-white/[0.03] border border-white/10 rounded-2xl flex items-center">
                                 <label className="flex items-center gap-4 cursor-pointer w-full">
                                     <div className="relative h-6 w-11 shrink-0">
@@ -969,6 +975,7 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                                     </div>
                                 </label>
                             </div>
+                            )}
 
                             {/* Datos principales — cambian según autónomo/empresa */}
                             <div className="space-y-3">

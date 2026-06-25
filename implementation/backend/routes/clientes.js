@@ -109,20 +109,26 @@ router.get('/:id', enforceAuth, async (req, res) => {
             .eq('cliente_id', req.params.id)
             .order('created_at', { ascending: false });
 
-        // Buscar expedientes vinculados (vía oportunidades)
-        const { data: exps } = await supabase
-            .from('expedientes')
-            .select(`
-                id,
-                numero_expediente,
-                created_at,
-                oportunidades!inner (
-                    id_oportunidad,
-                    cliente_id
-                )
-            `)
-            .eq('oportunidades.cliente_id', req.params.id)
-            .order('created_at', { ascending: false });
+        // Buscar expedientes vinculados (vía oportunidades).
+        // Los expedientes son INTERNOS de Brokergy: solo se exponen al ADMIN.
+        // Un partner no debe ver ni poder acceder a los expedientes de sus clientes.
+        let exps = [];
+        if (req.user.rol_nombre === 'ADMIN') {
+            const { data } = await supabase
+                .from('expedientes')
+                .select(`
+                    id,
+                    numero_expediente,
+                    created_at,
+                    oportunidades!inner (
+                        id_oportunidad,
+                        cliente_id
+                    )
+                `)
+                .eq('oportunidades.cliente_id', req.params.id)
+                .order('created_at', { ascending: false });
+            exps = data || [];
+        }
 
         // Máscara de seguridad para no-admins
         if (req.user.rol_nombre !== 'ADMIN') {

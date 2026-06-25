@@ -138,8 +138,15 @@ function App() {
     const userRole = (user?.rol || '').toUpperCase();
     const userRoleId = user?.id_rol ? Number(user.id_rol) : null;
     const isCertificador = userRole === 'CERTIFICADOR' || userRoleId === 4;
+    const isAdmin = userRole === 'ADMIN' || userRoleId === 1;
     if (isCertificador && activeTab !== 'expedientes') {
       setActiveTab('expedientes');
+    }
+    // Expedientes son INTERNOS de Brokergy (solo ADMIN/CERTIFICADOR). Si un partner
+    // llega a la pestaña (p.ej. abriendo una URL ?exp=<id> a mano), lo devolvemos a
+    // su vista por defecto. El backend además rechaza la petición con 403.
+    if (user && activeTab === 'expedientes' && !isAdmin && !isCertificador) {
+      setActiveTab('oportunidades');
     }
   }, [user?.id, user?.rol, user?.id_rol, activeTab]);
 
@@ -580,7 +587,11 @@ function App() {
       const inputs = {
         ...rootInputs, // Propiedades en la raíz (sin 'inputs' ni 'result')
         ...cleanNested, // Propiedades anidadas (también sin 'inputs' ni 'result')
-        cliente_id: op.cliente_id || null,
+        // Priorizamos la columna SQL canónica, pero caemos al cliente_id guardado en
+        // los inputs si la navegación (p.ej. desde el modal de cliente) no la trae.
+        // Sin este fallback el botón de "Resultados" creía que no había cliente y
+        // ofrecía "crear" en vez de "ver ficha" del cliente ya vinculado.
+        cliente_id: op.cliente_id || cleanNested.cliente_id || rootInputs.cliente_id || null,
         instalador_asociado_id: op.instalador_asociado_id || '',
         estado: rootInputs.estado || 'BORRADOR',
         cod_cliente_interno: rootInputs.cod_cliente_interno || '',
@@ -910,10 +921,23 @@ function App() {
             )}
             
             {/* Footer */}
-            <footer className="max-w-6xl mx-auto mt-auto py-8 text-center border-t border-white/5 opacity-50">
-              <p className="text-white/20 text-[10px] uppercase tracking-[0.2em] font-bold">
-                Brokergy Analytics · © 2026
-              </p>
+            <footer className="max-w-6xl mx-auto mt-auto py-8 text-center border-t border-white/5">
+              {(user?.rol || '').toUpperCase() === 'ADMIN' ? (
+                <p className="text-white/20 text-[10px] uppercase tracking-[0.2em] font-bold opacity-50">
+                  Brokergy Analytics · © 2026
+                </p>
+              ) : (
+                // Portal de partner (white-label): crédito "powered by BROKERGY" con el
+                // ámbar de marca inline (para que .partner-accent NO lo repinte).
+                <a href="https://www.brokergy.es" target="_blank" rel="noopener noreferrer"
+                  className="group inline-flex items-center gap-2 py-1 opacity-70 hover:opacity-100 transition-opacity">
+                  <span className="text-[9px] uppercase tracking-[0.3em] font-bold text-white/40">powered by</span>
+                  <span className="text-sm font-black tracking-tight leading-none">
+                    <span className="text-white">BROKER</span><span style={{ color: '#FFA000' }}>GY</span>
+                  </span>
+                  <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: '#FFA000', boxShadow: '0 0 8px 1px rgba(255,160,0,0.7)' }}></span>
+                </a>
+              )}
             </footer>
           </DashboardLayout>
         )}

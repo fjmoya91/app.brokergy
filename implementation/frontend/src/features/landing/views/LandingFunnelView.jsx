@@ -42,33 +42,9 @@ import { LandingResultView } from './LandingResultView';
 import { ReformaSubFlow } from './ReformaSubFlow';
 import { LeadDeliveryView } from './LeadDeliveryView';
 import { LandingPropertyReview } from './LandingPropertyReview';
+import { buildAccentVars } from '../../../utils/partnerTheme';
 
 const CATASTRO_API = '/api/catastro';
-
-// ── Tema de marca del partner (contraste accesible) ─────────────────────────
-// A partir del color del partner derivamos 3 variables CSS:
-//   --accent      → color crudo (rellenos de botones/badges)
-//   --accent-on   → texto SOBRE el relleno (blanco si el color es oscuro, casi
-//                   negro si es claro) para que el botón siempre se lea
-//   --accent-text → el color como TEXTO sobre el fondo oscuro de la landing,
-//                   aclarado hasta tener contraste suficiente (colores oscuros
-//                   como un azul marino quedaban ilegibles en crudo)
-const _hexRgb = (h) => { const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec((h || '').trim()); return m ? [parseInt(m[1], 16), parseInt(m[2], 16), parseInt(m[3], 16)] : null; };
-const _relLum = ([r, g, b]) => { const a = [r, g, b].map(v => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }); return 0.2126 * a[0] + 0.7152 * a[1] + 0.0722 * a[2]; };
-const _contrast = (L1, L2) => (Math.max(L1, L2) + 0.05) / (Math.min(L1, L2) + 0.05);
-const _toHex = ([r, g, b]) => '#' + [r, g, b].map(v => Math.round(v).toString(16).padStart(2, '0')).join('');
-const _mixWhite = ([r, g, b], t) => [r + (255 - r) * t, g + (255 - g) * t, b + (255 - b) * t];
-const BG_LUM = _relLum([8, 9, 12]); // fondo de la landing (#08090C)
-function buildAccentVars(hex) {
-    const rgb = _hexRgb(hex);
-    if (!rgb) return null;
-    const L = _relLum(rgb);
-    const onAccent = L > 0.4 ? '#08090C' : '#FFFFFF';
-    // Aclarar el color como texto hasta contraste AA (4.5:1) sobre el fondo.
-    let textRgb = rgb, t = 0;
-    while (_contrast(_relLum(textRgb), BG_LUM) < 4.5 && t < 0.92) { t = Math.min(t + 0.08, 0.92); textRgb = _mixWhite(rgb, t); }
-    return { '--accent': hex, '--accent-on': onAccent, '--accent-text': _toHex(textRgb) };
-}
 
 export default function LandingFunnelView({ route, mode = 'public', variant = 'default', onCreated, onCancel }) {
     const isInternal = mode === 'internal';

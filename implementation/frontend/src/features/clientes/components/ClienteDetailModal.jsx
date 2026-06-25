@@ -845,6 +845,9 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
                                     </div>
                                 )}
 
+                                {/* Expedientes: módulo INTERNO de Brokergy. Solo ADMIN puede
+                                    verlos y acceder a ellos; un partner no debe ni saber que existen. */}
+                                {isAdmin && (
                                 <div className="space-y-2">
                                     <p className="text-[10px] uppercase tracking-[0.2em] font-black text-white/30">Expedientes</p>
                                     {cliente.expedientes_vinculados?.length > 0 ? (
@@ -876,6 +879,7 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
                                         <p className="text-[10px] text-white/20 font-bold uppercase py-2">Sin expedientes</p>
                                     )}
                                 </div>
+                                )}
                             </div>
 
                             <div className="text-[10px] text-white/20 font-bold uppercase tracking-widest pt-2 border-t border-white/[0.04]">

@@ -439,52 +439,100 @@ input[type="email"],
     text-transform: lowercase;
 }
 
-/* ─── Tema de acento por partner (landing white-label /p/:slug) ───────────────
-   Con scope .partner-accent: SOLO afecta a la landing de un partner que tenga
-   color definido. Remapea las utilidades amber/brand de Tailwind a su color
-   (var(--accent)) sin tocar el JSX ni el resto de la app. */
+/* ─── Tema de acento por partner (white-label) ────────────────────────────────
+   Con scope .partner-accent: remapea las utilidades amber/brand/orange de
+   Tailwind al color del partner (var(--accent)) sin tocar el JSX ni el resto de
+   la app. Se usa en la landing del partner (/p/:slug) y en el portal interno
+   cuando el partner está logueado (DashboardLayout). */
 /* Texto en color de marca → versión ACLARADA y legible sobre el fondo oscuro */
-.partner-accent .text-amber-400,
 .partner-accent .text-amber-300,
+.partner-accent .text-amber-400,
 .partner-accent .text-amber-500,
+.partner-accent .text-orange-400,
+.partner-accent .text-orange-500,
 .partner-accent .text-brand,
+.partner-accent .text-brand-400,
 .partner-accent .hover\:text-amber-300:hover {
     color: var(--accent-text, var(--accent)) !important;
 }
 /* Rellenos sólidos (botones/badges) → color de marca */
-.partner-accent .bg-amber-500,
 .partner-accent .bg-amber-400,
+.partner-accent .bg-amber-500,
+.partner-accent .bg-orange-400,
+.partner-accent .bg-orange-500,
 .partner-accent .bg-brand,
+.partner-accent .bg-brand-700,
 .partner-accent .hover\:bg-amber-400:hover {
     background-color: var(--accent) !important;
 }
-/* Texto SOBRE el relleno de marca: los botones usan `text-bkg-deep` como color
-   de texto sobre el ámbar/brand; lo remapeamos al contraste calculado en JS
-   (blanco si el color del partner es oscuro) para que el botón siempre se lea. */
-.partner-accent .text-bkg-deep {
+/* Texto SOBRE el relleno de marca: los botones usan `text-bkg-deep`/`text-black`
+   como color de texto sobre el ámbar/brand; lo remapeamos al contraste calculado
+   en JS (blanco si el color del partner es oscuro) para que el botón se lea. */
+.partner-accent .text-bkg-deep,
+.partner-accent .text-black {
     color: var(--accent-on, #08090C) !important;
 }
-.partner-accent .border-amber-500,
 .partner-accent .border-amber-400,
+.partner-accent .border-amber-500,
+.partner-accent .border-orange-500,
 .partner-accent .border-brand {
     border-color: var(--accent) !important;
 }
-/* Botones con degradado (from-amber-500 to-amber-400, from-brand …) →
-   color de marca de extremo a extremo + texto de contraste para que se lea */
-.partner-accent .from-amber-500,
+.partner-accent .ring-brand,
+.partner-accent .ring-amber-400,
+.partner-accent .ring-amber-500 {
+    --tw-ring-color: var(--accent) !important;
+}
+/* Botones con degradado (from-amber-500 to-orange-500, from-brand to-brand-700 …)
+   → color de marca de extremo a extremo + texto de contraste para que se lea */
 .partner-accent .from-amber-400,
-.partner-accent .from-brand {
+.partner-accent .from-amber-500,
+.partner-accent .from-orange-500,
+.partner-accent .from-brand,
+.partner-accent .from-brand-700 {
     --tw-gradient-from: var(--accent) var(--tw-gradient-from-position) !important;
     --tw-gradient-to: var(--accent) var(--tw-gradient-to-position) !important;
     --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important;
     color: var(--accent-on, #08090C) !important;
 }
-.partner-accent .to-amber-400,
 .partner-accent .to-amber-300,
+.partner-accent .to-amber-400,
+.partner-accent .to-orange-400,
+.partner-accent .to-orange-500,
 .partner-accent .to-brand,
 .partner-accent .to-brand-700 {
     --tw-gradient-to: var(--accent) var(--tw-gradient-to-position) !important;
 }
+/* Tintes y glows con opacidad (fondos suaves, halos, sombras de marca) → mismo
+   color del partner a la misma opacidad, vía canales rgb (--accent-rgb). Esto
+   evita el "naranja claro" que quedaba detrás de los cuadros. */
+.partner-accent .bg-brand\/\[0\.03\] { background-color: rgba(var(--accent-rgb), 0.03) !important; }
+.partner-accent .bg-brand\/5        { background-color: rgba(var(--accent-rgb), 0.05) !important; }
+.partner-accent .bg-brand\/10       { background-color: rgba(var(--accent-rgb), 0.10) !important; }
+.partner-accent .bg-brand\/15       { background-color: rgba(var(--accent-rgb), 0.15) !important; }
+.partner-accent .bg-brand\/20       { background-color: rgba(var(--accent-rgb), 0.20) !important; }
+.partner-accent .bg-amber-500\/10   { background-color: rgba(var(--accent-rgb), 0.10) !important; }
+.partner-accent .bg-amber-500\/15   { background-color: rgba(var(--accent-rgb), 0.15) !important; }
+.partner-accent .bg-amber-500\/20   { background-color: rgba(var(--accent-rgb), 0.20) !important; }
+.partner-accent .border-brand\/20      { border-color: rgba(var(--accent-rgb), 0.20) !important; }
+.partner-accent .border-amber-500\/20  { border-color: rgba(var(--accent-rgb), 0.20) !important; }
+.partner-accent .border-amber-500\/30  { border-color: rgba(var(--accent-rgb), 0.30) !important; }
+/* Sombras de marca (glow de las tarjetas/botones) */
+.partner-accent .shadow-brand\/10,
+.partner-accent .shadow-brand\/20,
+.partner-accent .shadow-brand\/30,
+.partner-accent .shadow-amber-500\/20 {
+    --tw-shadow-color: rgba(var(--accent-rgb), 0.25) !important;
+    --tw-shadow: var(--tw-shadow-colored) !important;
+}
+/* Degradados CON opacidad (fondos de avatar, barras de hover…): from/via/to de
+   marca a opacidad parcial → mismo color del partner a la misma opacidad. */
+.partner-accent .from-brand\/0  { --tw-gradient-from: rgba(var(--accent-rgb), 0)    var(--tw-gradient-from-position) !important; --tw-gradient-to: rgba(var(--accent-rgb), 0) var(--tw-gradient-to-position); --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important; }
+.partner-accent .from-brand\/5  { --tw-gradient-from: rgba(var(--accent-rgb), 0.05) var(--tw-gradient-from-position) !important; --tw-gradient-to: rgba(var(--accent-rgb), 0) var(--tw-gradient-to-position); --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important; }
+.partner-accent .from-brand\/20 { --tw-gradient-from: rgba(var(--accent-rgb), 0.20) var(--tw-gradient-from-position) !important; --tw-gradient-to: rgba(var(--accent-rgb), 0) var(--tw-gradient-to-position); --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important; }
+.partner-accent .via-brand\/20  { --tw-gradient-stops: var(--tw-gradient-from), rgba(var(--accent-rgb), 0.20) var(--tw-gradient-via-position), var(--tw-gradient-to) !important; }
+.partner-accent .to-brand\/0    { --tw-gradient-to: rgba(var(--accent-rgb), 0)    var(--tw-gradient-to-position) !important; }
+.partner-accent .to-brand\/5    { --tw-gradient-to: rgba(var(--accent-rgb), 0.05) var(--tw-gradient-to-position) !important; }
 
 /* ===================================
    GEO LOCATING (RADAR) ANIMATIONS

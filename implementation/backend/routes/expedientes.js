@@ -3,7 +3,7 @@ const router = express.Router();
 const crypto = require('crypto');
 const axios = require('axios');
 const supabase = require('../services/supabaseClient');
-const { enforceAuth, adminOnly } = require('../middleware/auth');
+const { enforceAuth, adminOnly, internalOnly } = require('../middleware/auth');
 const { getCoordinatesByRC } = require('../services/catastroService');
 const { normalizeData } = require('../utils/normalization');
 const emailService = require('../services/emailService');
@@ -11,6 +11,90 @@ const whatsappService = require('../services/whatsappService');
 const reformaUploadService = require('../services/reformaUploadService');
 const { applyStatus, stampSeguimientoTimestamps, markCertContact } = require('../services/seguimientoTracking');
 const { partnerNotifyTargets, normalizeContactos } = require('../services/notifyContacts');
+
+// ─── Guard global del módulo Expedientes (INTERNO de Brokergy) ────────────────
+// Los expedientes son datos internos: VER y gestionar expedientes está reservado a
+// ADMIN y CERTIFICADOR (sus asignados). Los partners (PRESCRIPTOR / INSTALADOR /
+// DISTRIBUIDOR) quedan fuera de todo el módulo (lista, detalle, gestión), no solo
+// de la UI. Cualquier ruta nueva queda protegida por defecto.
+//
+// Dos tipos de excepción:
+//  1) PÚBLICAS: enlaces firmados de email / acuse del certificador y servido de
+//     contenido de ficheros vía Drive. No llevan sesión y validan por su cuenta.
+//  2) PARTNER: el único punto donde un partner toca este módulo es "aceptar su
+//     oportunidad", que crea el expediente (POST /). El propio handler valida la
+//     pertenencia de la oportunidad. NO puede ver ni gestionar el expediente luego.
+const PUBLIC_EXPEDIENTE_ROUTES = [
+    { method: 'POST', re: /^\/[^/]+\/cert-ack\/?$/ },
+    { method: 'GET',  re: /^\/[^/]+\/fichas-tecnicas\/[^/]+\/?$/ },
+    { method: 'GET',  re: /^\/[^/]+\/anexos-cifo\/[^/]+\/content\/?$/ },
+    { method: 'GET',  re: /^\/[^/]+\/notify-client\/?$/ },
+    { method: 'GET',  re: /^\/[^/]+\/approve-cee-from-email\/?$/ },
+];
+const PARTNER_ALLOWED_ROUTES = [
+    { method: 'POST', re: /^\/?$/ }, // POST /api/expedientes → aceptar oportunidad (crea expediente)
+];
+router.use((req, res, next) => {
+    const matches = (list) => list.some(r => r.method === req.method && r.re.test(req.path));
+    // Públicas y "aceptar oportunidad": dejamos que el middleware propio de cada
+    // ruta (ninguno / enforceAuth con check de pertenencia) resuelva el acceso.
+    if (matches(PUBLIC_EXPEDIENTE_ROUTES) || matches(PARTNER_ALLOWED_ROUTES)) return next();
+    // Resto del módulo: interno (ADMIN / CERTIFICADOR).
+    return internalOnly(req, res, next);
+});
+
+// ─── Ocultar IMPORTES a quien no sea ADMIN ────────────────────────────────────
+// Los importes (PRECIO CAE, BENEFICIO BROKERGY, presupuestos…) son SOLO ADMIN.
+// El CERTIFICADOR accede al expediente para certificar, pero NO debe ver cifras
+// económicas — y no basta con ocultarlas en la UI: hay que sacarlas del payload
+// (si no, se ven por DevTools). `datos_calculo` es el estado completo de la
+// calculadora y lleva dinero a nivel raíz, en `inputs`, en `result` y en
+// `html_propuesta`. Quitamos SOLO las claves de dinero; la energía/demanda
+// (surface, Q_net, zona…), la dirección y el estado quedan intactos.
+const MONEY_KEYS_DATOS = [
+    'caePriceClient', 'caePriceSO', 'caePricePrescriptor', 'prescriptorMode',
+    'presupuesto', 'presupuestoEnvolvente', 'presupuestoFotovoltaica',
+    'discountCertificates', 'includeCommission', 'includeIrpf', 'includeItp',
+    'includeIVA', 'includeLegalization', 'legalizationPrice', 'itpPercent',
+    'participation', 'aplicarIrpfCae', 'fuelPrice', 'gastoAnualReal',
+    'result', 'html_propuesta',
+];
+const MONEY_KEYS_INPUTS = [
+    'cae_client_rate', 'cae_so_rate', 'cae_prescriptor_rate', 'cae_prescriptor_mode',
+    'include_commission', 'discount_certificates', 'certificates_cost',
+    'include_legalization', 'legalization_mode', 'presupuesto', 'importe_total',
+];
+function stripFinancials(exp) {
+    if (!exp || typeof exp !== 'object') return exp;
+    const out = { ...exp };
+    // instalacion: override económico + presupuesto del expediente.
+    if (out.instalacion && typeof out.instalacion === 'object') {
+        const inst = { ...out.instalacion };
+        delete inst.economico_override;
+        delete inst.presupuesto_final;
+        out.instalacion = inst;
+    }
+    // datos_calculo: puede venir como objeto anidado en `oportunidades` (detalle)
+    // o directamente en la fila (lista RPC). Cubrimos ambos.
+    const scrubDatos = (dc) => {
+        if (!dc || typeof dc !== 'object') return dc;
+        const clean = { ...dc };
+        MONEY_KEYS_DATOS.forEach(k => { delete clean[k]; });
+        if (clean.inputs && typeof clean.inputs === 'object') {
+            const inp = { ...clean.inputs };
+            MONEY_KEYS_INPUTS.forEach(k => { delete inp[k]; });
+            clean.inputs = inp;
+        }
+        return clean;
+    };
+    if (out.oportunidades?.datos_calculo) {
+        out.oportunidades = { ...out.oportunidades, datos_calculo: scrubDatos(out.oportunidades.datos_calculo) };
+    }
+    if (out.datos_calculo) {
+        out.datos_calculo = scrubDatos(out.datos_calculo);
+    }
+    return out;
+}
 
 // Firma HMAC para el enlace "Dar visto bueno" del email de revisión.
 // STATELESS a propósito: NO guardamos el token en `seguimiento` porque el
@@ -219,6 +303,8 @@ async function notifyCeeFinalRegistrado(expediente, filters = {}) {
 // Lista todos los expedientes usando RPC (1 sola query con JOIN en BD, sin documentacion)
 router.get('/', enforceAuth, async (req, res) => {
     try {
+        // El guard global del módulo ya garantiza que aquí solo llegan ADMIN y
+        // CERTIFICADOR (los expedientes son internos de Brokergy).
         const canViewAll   = req.user.rol_nombre === 'ADMIN';
         const isCertificador = req.user.rol_nombre === 'CERTIFICADOR';
 
@@ -229,25 +315,11 @@ router.get('/', enforceAuth, async (req, res) => {
         let data = rpcData || [];
 
         // ── Filtros por rol ──────────────────────────────────────────────────
-        if (!canViewAll && !isCertificador) {
-            // PARTNER / INSTALADOR / DISTRIBUIDOR → solo sus clientes u oportunidades
-            if (!req.user.prescriptor_id) return res.json([]);
-
-            const [{ data: cliIds }, { data: opIds }] = await Promise.all([
-                supabase.from('clientes').select('id_cliente').eq('prescriptor_id', req.user.prescriptor_id),
-                supabase.from('oportunidades').select('id').eq('prescriptor_id', req.user.prescriptor_id)
-            ]);
-
-            const validCli = new Set((cliIds || []).map(c => c.id_cliente));
-            const validOp  = new Set((opIds  || []).map(o => o.id));
-            if (validCli.size === 0 && validOp.size === 0) return res.json([]);
-
-            data = data.filter(r => validCli.has(r.cliente_id) || validOp.has(r.oportunidad_id));
-        }
-
         if (isCertificador) {
             if (!req.user.prescriptor_id) return res.json([]);
             data = data.filter(r => String(r.cee?.certificador_id) === String(req.user.prescriptor_id));
+            // Importes solo para ADMIN: quitamos las cifras de cada fila al certificador.
+            data = data.map(stripFinancials);
         }
 
         // Contador ligero de incidencias ABIERTAS por expediente (solo ADMIN gestiona
@@ -290,6 +362,17 @@ router.get('/:id', enforceAuth, async (req, res) => {
 
         if (error || !simple) return res.status(404).json({ error: 'Expediente no encontrado' });
 
+        // Control de acceso: ADMIN ve todo; el CERTIFICADOR solo los expedientes que
+        // tiene asignados (mismo criterio que el listado). Los partners ya quedaron
+        // fuera por el guard global del módulo.
+        if (req.user.rol_nombre !== 'ADMIN') {
+            const ownsIt = String(simple.cee?.certificador_id) === String(req.user.prescriptor_id);
+            if (!ownsIt) {
+                console.warn(`[Expedientes] Acceso denegado a ${req.user.rol_nombre} (${req.user.prescriptor_id}) sobre expediente ${req.params.id}`);
+                return res.status(403).json({ error: 'No autorizado para ver este expediente' });
+            }
+        }
+
         // Recuperamos los datos relacionados
         const [{ data: cli }, { data: op }] = await Promise.all([
             supabase.from('clientes').select('*').eq('id_cliente', simple.cliente_id).single(),
@@ -331,13 +414,15 @@ router.get('/:id', enforceAuth, async (req, res) => {
             }
         }
 
-        return res.json({
+        const payload = {
             ...simple,
             clientes: cli || null,
             oportunidades: op || null,
             prescriptores: assignedPrescriptor,
             lote
-        });
+        };
+        // Importes solo para ADMIN: al CERTIFICADOR le quitamos las cifras del payload.
+        return res.json(req.user.rol_nombre === 'ADMIN' ? payload : stripFinancials(payload));
     } catch (err) {
         console.error('Error GET expedientes/:id:', err);
         res.status(500).json({ error: 'Error al obtener el expediente' });

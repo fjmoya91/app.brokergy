@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { useAuth } from '../../context/AuthContext';
+import { buildAccentVars } from '../../utils/partnerTheme';
+import { PrescriptorDetailModal } from '../../features/admin/views/PrescriptorDetailModal';
 
 export function DashboardLayout({ children, activeTab, onTabChange }) {
     const { user, signOut } = useAuth();
-    
+
     // Cache de roles para lógica más limpia e infalible
     const userRole = (user?.rol || '').toUpperCase();
     const userRoleId = user?.id_rol ? Number(user.id_rol) : null;
@@ -15,6 +17,20 @@ export function DashboardLayout({ children, activeTab, onTabChange }) {
     const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false); // Drawer off-canvas (solo móvil)
     const [wwaState, setWwaState] = useState('DISCONNECTED'); // DISCONNECTED | READY | QR | INITIALIZING | AUTH_FAILED
+
+    // Ficha propia del partner (para abrir su perfil + teñir el portal con su color de marca)
+    const [miPrescriptor, setMiPrescriptor] = useState(null);
+    const [showProfile, setShowProfile] = useState(false);
+    useEffect(() => {
+        if (!isPartner || !user?.prescriptor_id) { setMiPrescriptor(null); return; }
+        axios.get('/api/prescriptores')
+            .then(r => setMiPrescriptor((r.data || []).find(p => p.id_empresa === user.prescriptor_id) || r.data?.[0] || null))
+            .catch(() => setMiPrescriptor(null));
+    }, [isPartner, user?.prescriptor_id]);
+
+    // Tema de marca del portal: si el partner tiene color de landing, tiñe los
+    // botones/acentos del portal con su color (mismo mecanismo que la landing).
+    const accentVars = isPartner ? buildAccentVars(miPrescriptor?.landing_color_primary) : null;
 
     // Navegación en móvil: cambia de pestaña y cierra el drawer.
     // En desktop el drawer no existe, así que setMobileMenuOpen(false) es inocuo.
@@ -49,7 +65,8 @@ export function DashboardLayout({ children, activeTab, onTabChange }) {
     }, [user?.rol, user?.id_rol]);
 
     return (
-        <div className="flex h-screen w-full relative bg-bkg-base overflow-hidden">
+        <div className={`flex h-screen w-full relative bg-bkg-base overflow-hidden ${accentVars ? 'partner-accent' : ''}`}
+            style={accentVars || undefined}>
             {/* ====== BACKDROP MÓVIL (solo cuando el drawer está abierto) ====== */}
             {mobileMenuOpen && (
                 <div
@@ -248,10 +265,23 @@ export function DashboardLayout({ children, activeTab, onTabChange }) {
 
                 {/* ====== USER PROFILE AT BOTTOM ====== */}
                 <div className="p-4 mt-auto space-y-3">
-                    <div className={`border border-white/[0.06] bg-bkg-surface rounded-2xl p-4 shadow-lg ${isSidebarCollapsed ? 'flex items-center justify-center px-0' : ''}`}>
+                    {(() => {
+                        const canOpenProfile = isPartner && !!miPrescriptor;
+                        return (
+                    <div
+                        onClick={canOpenProfile ? () => setShowProfile(true) : undefined}
+                        title={canOpenProfile ? 'Ver / editar mi perfil' : undefined}
+                        className={`border border-white/[0.06] bg-bkg-surface rounded-2xl p-4 shadow-lg ${isSidebarCollapsed ? 'flex items-center justify-center px-0' : ''} ${canOpenProfile ? 'cursor-pointer hover:border-brand/30 hover:bg-bkg-hover transition-all group' : ''}`}>
                         {!isSidebarCollapsed && (
                             <>
-                                <div className="text-[10px] text-white/40 uppercase font-black tracking-[0.2em] mb-2.5">Usuario</div>
+                                <div className="text-[10px] text-white/40 uppercase font-black tracking-[0.2em] mb-2.5 flex items-center justify-between">
+                                    <span>Usuario</span>
+                                    {canOpenProfile && (
+                                        <svg className="w-3.5 h-3.5 text-white/30 group-hover:text-brand transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                                        </svg>
+                                    )}
+                                </div>
                                 <div className="flex flex-col gap-1 overflow-hidden">
                                     <span className="text-sm font-black text-brand uppercase tracking-tight truncate" title={user?.acronimo || user?.razon_social || user?.nombre}>
                                         {(user?.acronimo || user?.razon_social || `${user?.nombre || ''} ${user?.apellidos || ''}`).trim().toUpperCase() || 'USUARIO'}
@@ -283,8 +313,10 @@ export function DashboardLayout({ children, activeTab, onTabChange }) {
                             </div>
                         )}
                     </div>
+                        );
+                    })()}
 
-                    <button 
+                    <button
                         onClick={signOut}
                         className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl bg-[#1A0E12]/50 hover:bg-[#1A0E12] border border-red-500/10 hover:border-red-500/30 text-red-500 group transition-all ${isSidebarCollapsed ? 'justify-center px-0' : 'justify-start'}`}
                     >
@@ -329,6 +361,16 @@ export function DashboardLayout({ children, activeTab, onTabChange }) {
                 <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-brand/[0.03] rounded-full blur-[120px] pointer-events-none"></div>
                 {children}
             </main>
+
+            {/* ====== MI PERFIL (partner) ====== */}
+            {showProfile && miPrescriptor && (
+                <PrescriptorDetailModal
+                    isOpen={showProfile}
+                    prescriptor={miPrescriptor}
+                    onClose={() => setShowProfile(false)}
+                    onUpdated={(updated) => setMiPrescriptor(updated)}
+                />
+            )}
         </div>
     );
 }

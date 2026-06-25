@@ -176,7 +176,7 @@ function CalderaSection({ title, data, onChange, readOnly }) {
 
 // ─── Sección Aerotermia Nueva ─────────────────────────────────────────────────
 function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tipoEmisor, isAcs = false, readOnly = false }) {
-    const brandOptions = marcas.map(m => ({ value: m.nombre, label: m.nombre }));
+    const brandOptions = marcas.map(m => ({ value: m.nombre, label: m.nombre, logo: m.logo, acronimo: m.nombre }));
     const availableModels = data?.marca ? (modelosPorMarca[data.marca.toUpperCase()] || []) : [];
     const modelOptions = availableModels.map(m => ({
         value: String(m.id),
@@ -284,19 +284,23 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
             <h4 className="text-xs font-black text-brand/80 uppercase tracking-wider">{title}</h4>
             
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <SelectField
+                <SearchableSelect
                     label="Marca"
                     options={brandOptions}
                     value={data?.marca ?? ''}
                     onChange={handleMarcaChange}
-                    readOnly={readOnly}
+                    disabled={readOnly}
+                    searchPlaceholder="Buscar marca..."
                 />
-                <SelectField
+                <SearchableSelect
                     label="Modelo"
                     options={modelOptions}
                     value={String(data?.aerotermia_db_id ?? '')}
                     onChange={handleModeloChange}
-                    readOnly={readOnly || !data?.marca}
+                    disabled={readOnly || !data?.marca}
+                    showAvatar={false}
+                    searchPlaceholder="Buscar modelo..."
+                    placeholder={data?.marca ? '— Selecciona —' : '— Elige marca primero —'}
                 />
             </div>
 
@@ -443,7 +447,7 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
 }
 
 // ─── Combobox con búsqueda ────────────────────────────────────────────────────
-function SearchableSelect({ value, onChange, options, placeholder = '— Selecciona —', disabled = false }) {
+function SearchableSelect({ value, onChange, options, label, placeholder = '— Selecciona —', searchPlaceholder = 'Buscar...', disabled = false, showAvatar = true, dropUp = false }) {
     const [open, setOpen] = React.useState(false);
     const [query, setQuery] = React.useState('');
     const containerRef = React.useRef(null);
@@ -481,6 +485,7 @@ function SearchableSelect({ value, onChange, options, placeholder = '— Selecci
 
     return (
         <div ref={containerRef} className="relative">
+            {label && <label className="block text-xs text-white/40 uppercase tracking-wider mb-1 font-bold">{label}</label>}
             <button
                 type="button"
                 onClick={handleOpen}
@@ -493,12 +498,14 @@ function SearchableSelect({ value, onChange, options, placeholder = '— Selecci
             >
                 {selected ? (
                     <span className="flex items-center gap-2 min-w-0">
-                        <span className="w-5 h-5 rounded flex-shrink-0 flex items-center justify-center overflow-hidden bg-white/5 border border-white/10">
-                            {selected.logo
-                                ? <img src={selected.logo} alt="" className="w-full h-full object-contain" />
-                                : <span className="text-[8px] font-black text-white/40">{(selected.acronimo || selected.label || '?').slice(0, 2).toUpperCase()}</span>
-                            }
-                        </span>
+                        {showAvatar && (
+                            <span className="w-5 h-5 rounded flex-shrink-0 flex items-center justify-center overflow-hidden bg-white/5 border border-white/10">
+                                {selected.logo
+                                    ? <img src={selected.logo} alt="" className="w-full h-full object-contain" />
+                                    : <span className="text-[8px] font-black text-white/40">{(selected.acronimo || selected.label || '?').slice(0, 2).toUpperCase()}</span>
+                                }
+                            </span>
+                        )}
                         <span className="truncate">{selected.label}</span>
                     </span>
                 ) : (
@@ -510,14 +517,14 @@ function SearchableSelect({ value, onChange, options, placeholder = '— Selecci
             </button>
 
             {open && (
-                <div className="absolute z-50 bottom-full mb-1 w-full bg-bkg-elevated border border-white/10 rounded-xl shadow-xl overflow-hidden">
+                <div className={`absolute z-50 w-full bg-bkg-elevated border border-white/10 rounded-xl shadow-xl overflow-hidden ${dropUp ? 'bottom-full mb-1' : 'top-full mt-1'}`}>
                     <div className="p-2 border-b border-white/5">
                         <input
                             ref={inputRef}
                             type="text"
                             value={query}
                             onChange={e => setQuery(e.target.value)}
-                            placeholder="Buscar instalador..."
+                            placeholder={searchPlaceholder}
                             className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white placeholder-white/30 outline-none focus:border-brand/40"
                         />
                     </div>
@@ -543,12 +550,14 @@ function SearchableSelect({ value, onChange, options, placeholder = '— Selecci
                                     }`}
                                 >
                                     {/* Logo o avatar de iniciales */}
-                                    <div className="w-7 h-7 rounded-md flex-shrink-0 flex items-center justify-center overflow-hidden bg-white/5 border border-white/10">
-                                        {o.logo
-                                            ? <img src={o.logo} alt="" className="w-full h-full object-contain" />
-                                            : <span className="text-[9px] font-black text-white/40">{initials}</span>
-                                        }
-                                    </div>
+                                    {showAvatar && (
+                                        <div className="w-7 h-7 rounded-md flex-shrink-0 flex items-center justify-center overflow-hidden bg-white/5 border border-white/10">
+                                            {o.logo
+                                                ? <img src={o.logo} alt="" className="w-full h-full object-contain" />
+                                                : <span className="text-[9px] font-black text-white/40">{initials}</span>
+                                            }
+                                        </div>
+                                    )}
                                     <span className={`text-sm truncate ${isActive ? 'text-brand font-semibold' : 'text-white/70'}`}>
                                         {o.label}
                                     </span>
@@ -1118,6 +1127,8 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
                             onChange={v => setLocal(p => ({ ...p, instalador_id: v || null }))}
                             options={prescriptorOptions}
                             placeholder="— Selecciona instalador —"
+                            searchPlaceholder="Buscar instalador..."
+                            dropUp
                             disabled={readOnly}
                         />
                     </div>

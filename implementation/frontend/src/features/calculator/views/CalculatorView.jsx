@@ -289,12 +289,15 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
         fetchModels();
     }, []);
 
-    // Buscar expediente asociado
+    // Buscar expediente asociado. Los expedientes son INTERNOS de Brokergy: solo el
+    // ADMIN consulta el listado y ve el enlace al expediente. Un partner no debe ni
+    // saber que existe (el backend además rechaza /api/expedientes para no-admins).
     useEffect(() => {
-        if (inputs.id_oportunidad) {
+        const isAdmin = user?.rol?.toUpperCase() === 'ADMIN';
+        if (isAdmin && inputs.id_oportunidad) {
             axios.get('/api/expedientes')
                 .then(res => {
-                    const found = (res.data || []).find(e => 
+                    const found = (res.data || []).find(e =>
                         e.oportunidades?.id_oportunidad === inputs.id_oportunidad ||
                         e.id_oportunidad_ref === inputs.id_oportunidad
                     );
@@ -302,8 +305,10 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
                     else setAssociatedExpediente(null);
                 })
                 .catch(err => console.error('Error fetching associated expediente:', err));
+        } else {
+            setAssociatedExpediente(null);
         }
-    }, [inputs.id_oportunidad]);
+    }, [inputs.id_oportunidad, user?.rol]);
 
     // Cálculos en tiempo real cada vez que cambian los inputs o se cargan los modelos.
     // Recalculamos TAMBIÉN al cargar (no solo tras interacción) para que el resultado
@@ -770,26 +775,18 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
                             <span className="px-3 py-1 bg-brand/10 rounded-full border border-brand/20 text-[10px] font-mono text-brand font-bold uppercase tracking-widest">
                                 ID: {inputs.id_oportunidad}
                             </span>
-                            {associatedExpediente && (
-                                user?.rol?.toUpperCase() === 'ADMIN' ? (
-                                    <button
-                                        onClick={() => onNavigate('expedientes', { expediente_id: associatedExpediente.id })}
-                                        className="flex items-center gap-1.5 px-3 py-1 bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/30 rounded-full text-[9px] font-black text-indigo-400 uppercase tracking-widest transition-all"
-                                        title={`Ir al expediente ${associatedExpediente.numero_expediente}`}
-                                    >
-                                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                                        </svg>
-                                        {associatedExpediente.numero_expediente}
-                                    </button>
-                                ) : (
-                                    <span className="flex items-center gap-1.5 px-3 py-1 bg-indigo-500/10 border border-indigo-500/30 rounded-full text-[9px] font-black text-indigo-400 uppercase tracking-widest">
-                                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                                        </svg>
-                                        {associatedExpediente.numero_expediente}
-                                    </span>
-                                )
+                            {/* Enlace al expediente: INTERNO de Brokergy, solo ADMIN. */}
+                            {associatedExpediente && user?.rol?.toUpperCase() === 'ADMIN' && (
+                                <button
+                                    onClick={() => onNavigate('expedientes', { expediente_id: associatedExpediente.id })}
+                                    className="flex items-center gap-1.5 px-3 py-1 bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/30 rounded-full text-[9px] font-black text-indigo-400 uppercase tracking-widest transition-all"
+                                    title={`Ir al expediente ${associatedExpediente.numero_expediente}`}
+                                >
+                                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                    </svg>
+                                    {associatedExpediente.numero_expediente}
+                                </button>
                             )}
 
                         </div>
@@ -879,21 +876,24 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
                             </p>
 
                             <div className="space-y-6">
-                                {/* Selector de Modo */}
+                                {/* Selector de Modo (numeración manual = back-office, solo ADMIN).
+                                    Un partner solo auto-genera: no consulta el listado de expedientes. */}
+                                {user?.rol?.toUpperCase() === 'ADMIN' && (
                                 <div className="flex p-1 bg-white/5 rounded-xl border border-white/5">
-                                    <button 
+                                    <button
                                         onClick={() => setIsManualMode(false)}
                                         className={`flex-1 py-2 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all ${!isManualMode ? 'bg-emerald-600 text-white shadow-lg' : 'text-white/40 hover:text-white'}`}
                                     >
                                         Auto-Generar
                                     </button>
-                                    <button 
+                                    <button
                                         onClick={() => setIsManualMode(true)}
                                         className={`flex-1 py-2 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all ${isManualMode ? 'bg-brand text-bkg-deep shadow-lg' : 'text-white/40 hover:text-white'}`}
                                     >
                                         Manual
                                     </button>
                                 </div>
+                                )}
 
                                 {isManualMode ? (
                                     <div className="animate-slide-up">

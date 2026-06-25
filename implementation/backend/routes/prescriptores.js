@@ -116,8 +116,10 @@ router.get('/:id/expedientes', enforceAuth, async (req, res) => {
     try {
         const { id } = req.params;
 
-        // Seguridad: ADMIN ve todo; un partner solo puede consultar su propia ficha
-        if (req.user.rol_nombre !== 'ADMIN' && String(req.user.prescriptor_id) !== String(id)) {
+        // Seguridad: los expedientes son INTERNOS de Brokergy. La trazabilidad de
+        // expedientes de un instalador es solo para ADMIN; un partner no debe ver ni
+        // acceder a expedientes (ni siquiera a la lista de los suyos).
+        if (req.user.rol_nombre !== 'ADMIN') {
             return res.status(403).json({ error: 'No autorizado' });
         }
 
