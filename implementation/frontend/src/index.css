@@ -747,6 +747,7 @@ input[type="email"],
 .theme-light .text-pink-300, .theme-light .text-pink-400, .theme-light .text-pink-500 { color: #DB2777 !important; }
 .theme-light .text-emerald-300, .theme-light .text-emerald-400, .theme-light .text-emerald-500 { color: #059669 !important; }
 .theme-light .text-green-300, .theme-light .text-green-400, .theme-light .text-green-500 { color: #16A34A !important; }
+.theme-light .text-lime-300, .theme-light .text-lime-400, .theme-light .text-lime-500 { color: #4D7C0F !important; }
 .theme-light .text-teal-300, .theme-light .text-teal-400, .theme-light .text-teal-500 { color: #0D9488 !important; }
 .theme-light .text-cyan-300, .theme-light .text-cyan-400, .theme-light .text-cyan-500 { color: #0891B2 !important; }
 .theme-light .text-sky-300, .theme-light .text-sky-400, .theme-light .text-sky-500 { color: #0284C7 !important; }
@@ -786,6 +787,59 @@ input[type="email"],
 /* Variantes de foco habituales en inputs */
 .theme-light .focus\:bg-black\/40:focus { background-color: rgba(15, 23, 42, 0.06) !important; }
 .theme-light .focus\:bg-black\/60:focus { background-color: rgba(15, 23, 42, 0.08) !important; }
+
+/* ── Fondos NEUTROS oscuros (slate/gray/zinc/neutral 700–950), sólidos Y con
+   opacidad → superficie clara. Se usan en paneles, chips y botones (calculadora,
+   modales…). Selector por substring: cubre base y /opacidad de una vez (la
+   alpha exacta da igual, todas deben quedar claras). ── */
+.theme-light [class*="bg-slate-700"], .theme-light [class*="bg-slate-800"], .theme-light [class*="bg-slate-900"], .theme-light [class*="bg-slate-950"],
+.theme-light [class*="bg-gray-700"],  .theme-light [class*="bg-gray-800"],  .theme-light [class*="bg-gray-900"],  .theme-light [class*="bg-gray-950"],
+.theme-light [class*="bg-zinc-700"],  .theme-light [class*="bg-zinc-800"],  .theme-light [class*="bg-zinc-900"],  .theme-light [class*="bg-zinc-950"],
+.theme-light [class*="bg-neutral-700"], .theme-light [class*="bg-neutral-800"], .theme-light [class*="bg-neutral-900"], .theme-light [class*="bg-neutral-950"] {
+    background-color: rgba(15, 23, 42, 0.055) !important;
+}
+/* Bordes neutros oscuros → borde claro */
+.theme-light [class*="border-slate-700"], .theme-light [class*="border-slate-800"], .theme-light [class*="border-slate-900"],
+.theme-light [class*="border-gray-700"],  .theme-light [class*="border-gray-800"],  .theme-light [class*="border-gray-900"],
+.theme-light [class*="border-zinc-700"],  .theme-light [class*="border-zinc-800"],
+.theme-light [class*="border-neutral-700"], .theme-light [class*="border-neutral-800"] {
+    border-color: rgba(15, 23, 42, 0.10) !important;
+}
+
+/* ── Gradientes de COLOR oscuros (from/to/via-*-900 y -950) → tinte claro del
+   mismo tono. Usados en las tarjetas de viabilidad/márgenes de la calculadora. ── */
+.theme-light [class*="from-pink-900"], .theme-light [class*="from-pink-950"]   { --tw-gradient-from: rgba(236,72,153,0.08) var(--tw-gradient-from-position) !important; --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important; }
+.theme-light [class*="to-pink-900"],   .theme-light [class*="to-pink-950"]     { --tw-gradient-to: rgba(236,72,153,0.08) var(--tw-gradient-to-position) !important; }
+.theme-light [class*="from-rose-900"], .theme-light [class*="from-rose-950"]   { --tw-gradient-from: rgba(244,63,94,0.08) var(--tw-gradient-from-position) !important; --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important; }
+.theme-light [class*="to-rose-900"],   .theme-light [class*="to-rose-950"]     { --tw-gradient-to: rgba(244,63,94,0.08) var(--tw-gradient-to-position) !important; }
+.theme-light [class*="from-indigo-900"], .theme-light [class*="from-indigo-950"] { --tw-gradient-from: rgba(99,102,241,0.08) var(--tw-gradient-from-position) !important; --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important; }
+.theme-light [class*="to-indigo-900"], .theme-light [class*="to-indigo-950"]   { --tw-gradient-to: rgba(99,102,241,0.08) var(--tw-gradient-to-position) !important; }
+.theme-light [class*="from-blue-900"], .theme-light [class*="from-blue-950"]   { --tw-gradient-from: rgba(59,130,246,0.08) var(--tw-gradient-from-position) !important; --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important; }
+.theme-light [class*="to-blue-900"],   .theme-light [class*="to-blue-950"]     { --tw-gradient-to: rgba(59,130,246,0.08) var(--tw-gradient-to-position) !important; }
+.theme-light [class*="from-amber-900"], .theme-light [class*="from-amber-950"] { --tw-gradient-from: rgba(245,158,11,0.10) var(--tw-gradient-from-position) !important; --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important; }
+.theme-light [class*="to-amber-900"], .theme-light [class*="to-amber-950"]     { --tw-gradient-to: rgba(245,158,11,0.10) var(--tw-gradient-to-position) !important; }
+.theme-light [class*="from-orange-900"], .theme-light [class*="from-orange-950"] { --tw-gradient-from: rgba(249,115,22,0.10) var(--tw-gradient-from-position) !important; --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important; }
+.theme-light [class*="to-orange-900"], .theme-light [class*="to-orange-950"]   { --tw-gradient-to: rgba(249,115,22,0.10) var(--tw-gradient-to-position) !important; }
+.theme-light [class*="from-emerald-900"], .theme-light [class*="from-emerald-950"] { --tw-gradient-from: rgba(16,185,129,0.10) var(--tw-gradient-from-position) !important; --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important; }
+.theme-light [class*="to-emerald-900"], .theme-light [class*="to-emerald-950"] { --tw-gradient-to: rgba(16,185,129,0.10) var(--tw-gradient-to-position) !important; }
+.theme-light [class*="from-cyan-900"], .theme-light [class*="from-cyan-950"]   { --tw-gradient-from: rgba(6,182,212,0.10) var(--tw-gradient-from-position) !important; --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important; }
+.theme-light [class*="to-cyan-900"], .theme-light [class*="to-cyan-950"]       { --tw-gradient-to: rgba(6,182,212,0.10) var(--tw-gradient-to-position) !important; }
+
+/* ── Fondos ARBITRARIOS oscuros (bg-[#hex]) de modales/paneles → superficie
+   clara. Substring para cubrir también las variantes con opacidad (/90, etc.).
+   Los hex de COLOR (WhatsApp #25D366, brand #FF6D00, verdes/ámbar…) NO se tocan. */
+.theme-light [class*="bg-[#0F1013]"],
+.theme-light [class*="bg-[#16181D]"],
+.theme-light [class*="bg-[#0b0c11]"],
+.theme-light [class*="bg-[#0d1117]"],
+.theme-light [class*="bg-[#0F1117]"],
+.theme-light [class*="bg-[#0B0F17]"],
+.theme-light [class*="bg-[#06060a]"],
+.theme-light [class*="bg-[#08090C]"] {
+    background-color: #ffffff !important;
+}
+.theme-light [class*="bg-[#1c1e26]"] { background-color: #F5F6F8 !important; }
+.theme-light [class*="bg-[#1A0E12]"] { background-color: rgba(220, 38, 38, 0.06) !important; }
 
 /* ── Bordes blancos translúcidos → tinte oscuro translúcido ── */
 .theme-light .border-white { border-color: rgba(17, 21, 28, 0.18) !important; }
