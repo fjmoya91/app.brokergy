@@ -796,9 +796,19 @@ export default function LandingFunnelView({ route, mode = 'public', variant = 'd
                                             <strong className="text-amber-400">✉ Email:</strong>
                                             <a href={`mailto:${emailContact}`} className="text-white ml-2 font-bold">{emailContact}</a>
                                         </p>
+                                        {duplicateRcInfo.idOportunidad && (
+                                            <p className="text-white/70 text-xs leading-relaxed mt-2">
+                                                <strong className="text-amber-400">📋 Oportunidad:</strong>
+                                                <span className="text-white ml-2 font-mono font-bold">{duplicateRcInfo.idOportunidad}</span>
+                                            </p>
+                                        )}
                                         <p className="text-white/40 text-[10px] mt-3 leading-relaxed">
                                             Indica la referencia catastral{' '}
                                             <span className="font-mono text-white/60">{catastro?.rc}</span>
+                                            {duplicateRcInfo.idOportunidad && (
+                                                <>{' '}o el nº de oportunidad{' '}
+                                                <span className="font-mono text-white/60">{duplicateRcInfo.idOportunidad}</span></>
+                                            )}
                                             {' '}cuando contactes.
                                         </p>
                                     </div>

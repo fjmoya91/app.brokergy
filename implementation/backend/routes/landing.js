@@ -212,6 +212,7 @@ router.get('/check-rc/:rc', async (req, res) => {
         const diffDays = Math.floor((Date.now() - new Date(op.created_at).getTime()) / 86400000);
         return res.json({
             exists: true,
+            idOportunidad: op.id_oportunidad || null,
             createdAt: op.created_at,
             daysAgo: diffDays,
             ficha: op.ficha,

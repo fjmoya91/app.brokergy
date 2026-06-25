@@ -4,6 +4,7 @@
  * Fuente: códigos INE oficiales de provincia (2 dígitos).
  * Actualización 2026-05-15 — Castilla-La Mancha + Madrid + Comunidad
  * Valenciana + Andalucía.
+ * Actualización 2026-06-25 — Región de Murcia.
  *
  * Si BROKERGY expande operación, basta con añadir entradas aquí. El gate
  * geográfico (geoGate middleware) leerá la nueva lista al siguiente request.
@@ -33,7 +34,10 @@ const ALLOWED_PROVINCES = {
     // Comunidad Valenciana
     '03': { provincia: 'Alicante',    ccaa: 'Comunidad Valenciana' },
     '12': { provincia: 'Castellón',   ccaa: 'Comunidad Valenciana' },
-    '46': { provincia: 'Valencia',    ccaa: 'Comunidad Valenciana' }
+    '46': { provincia: 'Valencia',    ccaa: 'Comunidad Valenciana' },
+
+    // Región de Murcia
+    '30': { provincia: 'Murcia',      ccaa: 'Región de Murcia' }
 };
 
 /**
