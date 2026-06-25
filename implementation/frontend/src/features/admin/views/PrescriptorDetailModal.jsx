@@ -71,13 +71,51 @@ function estadoBadgeClass(estado) {
 }
 
 // ─── Sub-componentes ─────────────────────────────────────────────────────────
+// Etiqueta + valor (vista de lectura). Una sola tipografía para TODOS los valores
+// (sin monoespaciado): misma fuente, peso y color. Robusto frente a desbordamiento:
+// los valores largos (emails, direcciones) rompen línea en vez de salirse.
+// El prop `mono` se mantiene por compatibilidad con las llamadas pero ya no cambia el estilo.
 function FV({ label, value, mono = false, lower = false }) {
-    if (!value) return null;
+    if (value == null || value === '' || value === '--' || value === '—') return null;
     return (
-        <div>
-            <p className="text-[10px] uppercase tracking-widest font-black text-white/30 mb-0.5">{label}</p>
-            <p className={`text-sm text-white font-medium ${mono ? 'font-mono' : ''} ${lower ? 'lowercase' : 'uppercase'}`}>{value}</p>
+        <div className="min-w-0">
+            <p className="text-[9.5px] uppercase tracking-[0.16em] font-bold text-white/35 mb-1">{label}</p>
+            <p className={[
+                'text-[13.5px] leading-snug font-semibold text-white/90',
+                lower ? 'lowercase break-all' : 'uppercase break-words',
+            ].join(' ')}>
+                {value}
+            </p>
         </div>
+    );
+}
+
+// Icono de cabecera de sección (16px, hereda color por currentColor)
+function SecIcon({ d }) {
+    return (
+        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d={d} />
+        </svg>
+    );
+}
+
+// Panel de sección uniforme para la vista de lectura: cabecera con icono,
+// título, regla degradada y un badge opcional alineado a la derecha.
+function Section({ title, iconPath, badge, children, className = '' }) {
+    return (
+        <section className={`rounded-2xl border border-white/[0.07] bg-white/[0.02] px-4 sm:px-5 py-4 ${className}`}>
+            <div className="flex items-center gap-2.5 mb-4">
+                {iconPath && (
+                    <span className="grid place-items-center w-6 h-6 rounded-lg bg-white/[0.04] text-white/45 shrink-0">
+                        <SecIcon d={iconPath} />
+                    </span>
+                )}
+                <h3 className="text-[10px] uppercase tracking-[0.18em] font-black text-white/45 whitespace-nowrap">{title}</h3>
+                <span className="flex-1 h-px bg-gradient-to-r from-white/[0.08] to-transparent" />
+                {badge}
+            </div>
+            {children}
+        </section>
     );
 }
 
@@ -688,17 +726,17 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                             onChange={handleLogoChange}
                             className="hidden"
                         />
-                        <div>
-                            <div className="flex items-center gap-2">
-                                <h2 className="text-base font-black text-white uppercase tracking-wide">{displayName}</h2>
+                        <div className="min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                                <h2 className="text-lg font-black text-white uppercase tracking-wide leading-tight">{displayName}</h2>
                                 {!isCreating && (
                                     <span className={`text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded border ${TIPO_BADGE[p.tipo_empresa] || TIPO_BADGE.OTRO}`}>
                                         {p.tipo_empresa}
                                     </span>
                                 )}
                             </div>
-                            {!isCreating && p.cif && <p className="text-xs text-white/30 font-mono">{p.cif}</p>}
-                            {isCreating && <p className="text-xs text-white/30">Sin acceso al portal hasta activar el toggle</p>}
+                            {!isCreating && p.cif && <p className="text-[11px] text-white/35 font-semibold mt-0.5 tracking-wide">{p.cif}</p>}
+                            {isCreating && <p className="text-xs text-white/30 mt-0.5">Sin acceso al portal hasta activar el toggle</p>}
                         </div>
                     </div>
 
@@ -750,9 +788,8 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
 
                     {/* ── VISTA ── */}
                     {!editing && p && (
-                        <div className="space-y-5">
-                            <div className="space-y-2">
-                                <p className="text-[10px] uppercase tracking-[0.2em] font-black text-white/30">Datos de la Empresa</p>
+                        <div className="space-y-4">
+                            <Section title="Datos de la Empresa" iconPath="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z">
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
                                     <FV label="Razón Social" value={p.razon_social} />
                                     <FV label="Acrónimo" value={p.acronimo} />
@@ -769,7 +806,7 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
 
                                     {p.tipo_empresa === 'DISTRIBUIDOR' && form.instaladores_asociados?.length > 0 && (
                                         <div className="col-span-1 sm:col-span-2">
-                                            <p className="text-[10px] uppercase tracking-widest font-black text-white/30 mb-1.5">Instaladores Asociados</p>
+                                            <p className="text-[9.5px] uppercase tracking-[0.16em] font-bold text-white/35 mb-1.5">Instaladores Asociados</p>
                                             <div className="flex flex-wrap gap-2">
                                                 {form.instaladores_asociados.map(id => {
                                                     const inst = allInstaladores.find(x => x.id_empresa === id);
@@ -786,30 +823,28 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                                         </div>
                                     )}
                                 </div>
-                            </div>
+                            </Section>
 
                             {contactName && (
-                                <div className="space-y-2">
-                                    <p className="text-[10px] uppercase tracking-[0.2em] font-black text-white/30">{isEntidadCae ? 'Representante Legal' : 'Persona de Contacto'}</p>
+                                <Section title={isEntidadCae ? 'Representante Legal' : 'Persona de Contacto'} iconPath="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z">
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
                                         <FV label="Nombre" value={contactName} />
                                         {p.tipo_empresa === 'INSTALADOR' && <FV label="NIF / DNI" value={p.nif_responsable} mono />}
                                         <FV label="Cargo" value={p.cargo} />
                                         {p.tiene_carnet_rite && <FV label="N.º Empresa RITE" value={p.numero_carnet_rite} mono />}
                                     </div>
-                                </div>
+                                </Section>
                             )}
 
                             {/* Técnico Firmante de Memorias (Vista) */}
                             {p.tecnico_firmante_distinto && (
-                                <div className="space-y-2">
-                                    <p className="text-[10px] uppercase tracking-[0.2em] font-black text-white/30">Técnico Firmante de Memorias</p>
+                                <Section title="Técnico Firmante de Memorias" iconPath="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z">
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
                                         <FV label="Nombre" value={[p.tecnico_firmante_nombre, p.tecnico_firmante_apellidos].filter(Boolean).join(' ') || null} />
                                         <FV label="DNI" value={p.tecnico_firmante_dni} mono />
                                         <FV label="N.º Carnet RITE" value={p.tecnico_firmante_carnet_rite} mono />
                                     </div>
-                                </div>
+                                </Section>
                             )}
 
                             {/* Contactos para Notificaciones (Vista) */}
@@ -821,52 +856,51 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                                         : []);
                                 if (!lista.length) return null;
                                 return (
-                                    <div className="space-y-2">
-                                        <p className="text-[10px] uppercase tracking-[0.2em] font-black text-white/30 flex items-center gap-2">
-                                            {lista.length > 1 ? 'Contactos para Notificaciones' : 'Contacto para Notificaciones'}
-                                            {p.contacto_notificaciones_activas && (
-                                                <span className="text-[9px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-1.5 py-0.5 rounded uppercase tracking-tighter">Activo</span>
-                                            )}
-                                        </p>
-                                        <div className="space-y-2">
+                                    <Section
+                                        title={lista.length > 1 ? 'Contactos para Notificaciones' : 'Contacto para Notificaciones'}
+                                        iconPath="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"
+                                        badge={p.contacto_notificaciones_activas && (
+                                            <span className="text-[9px] font-black bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-1.5 py-0.5 rounded uppercase tracking-wider">Activo</span>
+                                        )}
+                                    >
+                                        <div className="space-y-2.5">
                                             {lista.map((c, i) => (
-                                                <div key={i} className="p-3 bg-bkg-surface rounded-xl border border-white/[0.06] grid grid-cols-1 sm:grid-cols-3 gap-x-4 gap-y-2">
+                                                <div key={i} className="p-3 bg-black/20 rounded-xl border border-white/[0.06] grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-3">
                                                     <FV label="Nombre" value={c.nombre} />
-                                                    <FV label="Teléfono" value={c.tlf} />
-                                                    <FV label="Email" value={c.email} lower />
+                                                    <FV label="Teléfono" value={c.tlf} mono />
+                                                    <div className="sm:col-span-2"><FV label="Email" value={c.email} lower /></div>
                                                 </div>
                                             ))}
                                         </div>
-                                    </div>
+                                    </Section>
                                 );
                             })()}
 
                             {(p.ccaa || p.provincia || p.municipio || p.direccion) && (
-                                <div className="space-y-2">
-                                    <p className="text-[10px] uppercase tracking-[0.2em] font-black text-white/30">Dirección</p>
-                                    <div className="p-4 bg-bkg-surface rounded-xl border border-white/[0.06] grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3">
+                                <Section title="Dirección" iconPath="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z">
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
                                         <FV label="CCAA" value={p.ccaa} />
                                         <FV label="Provincia" value={p.provincia} />
                                         <FV label="Municipio" value={p.municipio} />
                                         <FV label="CP" value={p.codigo_postal} mono />
                                         {p.direccion && <div className="col-span-1 sm:col-span-2"><FV label="Dirección" value={p.direccion} /></div>}
                                     </div>
-                                </div>
+                                </Section>
                             )}
 
                             {/* Landing de captación de leads (white-label) */}
                             {(p.tipo_empresa === 'INSTALADOR' || p.tipo_empresa === 'DISTRIBUIDOR') && (
-                                <div className="space-y-2">
-                                    <p className="text-[10px] uppercase tracking-[0.2em] font-black text-white/30 flex items-center gap-2">
-                                        Landing de Captación
-                                        {p.landing_slug && (
-                                            <span className={`text-[9px] font-black uppercase tracking-tighter px-1.5 py-0.5 rounded border ${p.landing_activa ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-white/5 text-white/40 border-white/10'}`}>
-                                                {p.landing_activa ? 'Activa' : 'Inactiva'}
-                                            </span>
-                                        )}
-                                    </p>
+                                <Section
+                                    title="Landing de Captación"
+                                    iconPath="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z"
+                                    badge={p.landing_slug && (
+                                        <span className={`text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded border ${p.landing_activa ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-white/5 text-white/40 border-white/10'}`}>
+                                            {p.landing_activa ? 'Activa' : 'Inactiva'}
+                                        </span>
+                                    )}
+                                >
                                     {p.landing_slug ? (
-                                        <div className="p-4 bg-bkg-surface rounded-xl border border-white/[0.06] space-y-3">
+                                        <div className="space-y-3">
                                             <div className="flex items-center gap-2">
                                                 <code className="flex-1 min-w-0 truncate text-sm text-cyan-400 font-mono bg-black/30 rounded-lg px-3 py-2 border border-white/[0.06]">
                                                     {landingBase}/p/{p.landing_slug}
@@ -887,25 +921,25 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                                             )}
                                         </div>
                                     ) : (
-                                        <p className="text-xs text-white/25 italic px-1 py-2">
+                                        <p className="text-xs text-white/25 italic">
                                             {isAdmin ? 'Sin landing configurada. Pulsa «Editar» para asignar un enlace.' : 'Sin landing configurada. Pídele a Brokergy que te active tu enlace de captación.'}
                                         </p>
                                     )}
-                                </div>
+                                </Section>
                             )}
 
                             {/* Expedientes en los que ha participado como instaladora asignada.
                                 INTERNO de Brokergy: solo ADMIN (un distribuidor no debe verlos). */}
                             {isAdmin && p.tipo_empresa === 'INSTALADOR' && (
-                                <div className="space-y-2">
-                                    <p className="text-[10px] uppercase tracking-[0.2em] font-black text-white/30 flex items-center gap-2">
-                                        Expedientes Asignados
-                                        {expedientes.length > 0 && (
-                                            <span className="text-[9px] bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 px-1.5 py-0.5 rounded tracking-tighter">
-                                                {expedientes.length}
-                                            </span>
-                                        )}
-                                    </p>
+                                <Section
+                                    title="Expedientes Asignados"
+                                    iconPath="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"
+                                    badge={expedientes.length > 0 && (
+                                        <span className="text-[9px] font-black bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 px-1.5 py-0.5 rounded">
+                                            {expedientes.length}
+                                        </span>
+                                    )}
+                                >
                                     {loadingExpedientes ? (
                                         <p className="text-xs text-white/30 italic px-1 py-2">Cargando expedientes...</p>
                                     ) : expedientes.length === 0 ? (
@@ -926,7 +960,7 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                                                             {exp.numero_expediente || '—'}
                                                         </p>
                                                         {(exp.cliente_nombre || exp.cliente_municipio) && (
-                                                            <p className="text-[11px] text-white/40 truncate mt-0.5">
+                                                            <p className="text-[11px] text-white/40 truncate mt-0.5 uppercase">
                                                                 {exp.cliente_nombre || 'Sin cliente'}
                                                                 {exp.cliente_municipio ? ` · ${exp.cliente_municipio}` : ''}
                                                             </p>
@@ -946,12 +980,12 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                                             ))}
                                         </div>
                                     )}
-                                </div>
+                                </Section>
                             )}
 
-                            <div className="text-[10px] text-white/20 font-bold uppercase tracking-widest pt-2 border-t border-white/[0.04]">
+                            <p className="text-[10px] text-white/20 font-bold uppercase tracking-widest text-center pt-1">
                                 Alta: {new Date(p.created_at).toLocaleDateString('es-ES', { year: 'numeric', month: 'long', day: 'numeric' })}
-                            </div>
+                            </p>
                         </div>
                     )}
 

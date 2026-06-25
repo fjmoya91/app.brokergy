@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth } from '../../../context/AuthContext';
+import { ThemeToggle } from '../../../components/ThemeToggle';
 import axios from 'axios';
 
 export function LoginView({ onBack, onSuccess }) {
@@ -46,6 +47,10 @@ export function LoginView({ onBack, onSuccess }) {
 
     return (
         <div className="w-full max-w-md relative z-10 px-4">
+                {/* Selector de tema día/noche (fijo arriba a la derecha) */}
+                <div className="fixed top-4 right-4 z-50">
+                    <ThemeToggle collapsed />
+                </div>
 
                 <div className="text-center mb-10 relative">
                     {/* Decorative background elements inside the title area too? No, mainly around card */}

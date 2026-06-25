@@ -3,6 +3,7 @@ import axios from 'axios';
 import { useAuth } from '../../context/AuthContext';
 import { buildAccentVars } from '../../utils/partnerTheme';
 import { PrescriptorDetailModal } from '../../features/admin/views/PrescriptorDetailModal';
+import { ThemeToggle } from '../ThemeToggle';
 
 export function DashboardLayout({ children, activeTab, onTabChange }) {
     const { user, signOut } = useAuth();
@@ -316,15 +317,19 @@ export function DashboardLayout({ children, activeTab, onTabChange }) {
                         );
                     })()}
 
-                    <button
-                        onClick={signOut}
-                        className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl bg-[#1A0E12]/50 hover:bg-[#1A0E12] border border-red-500/10 hover:border-red-500/30 text-red-500 group transition-all ${isSidebarCollapsed ? 'justify-center px-0' : 'justify-start'}`}
-                    >
-                        <svg className="w-5 h-5 transition-transform group-hover:-translate-x-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-                        </svg>
-                        {!isSidebarCollapsed && <span className="font-bold uppercase tracking-wider text-[11px]">Salir</span>}
-                    </button>
+                    {/* Salir + selector de tema día/noche en la misma fila */}
+                    <div className={`flex gap-2 ${isSidebarCollapsed ? 'flex-col items-center' : 'items-center'}`}>
+                        <button
+                            onClick={signOut}
+                            className={`flex items-center gap-3 px-4 py-3.5 rounded-xl bg-[#1A0E12]/50 hover:bg-[#1A0E12] border border-red-500/10 hover:border-red-500/30 text-red-500 group transition-all ${isSidebarCollapsed ? 'w-full justify-center px-0' : 'flex-1 justify-start'}`}
+                        >
+                            <svg className="w-5 h-5 transition-transform group-hover:-translate-x-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                            </svg>
+                            {!isSidebarCollapsed && <span className="font-bold uppercase tracking-wider text-[11px]">Salir</span>}
+                        </button>
+                        <ThemeToggle collapsed className="flex-shrink-0" />
+                    </div>
                 </div>
             </aside>
 
@@ -355,6 +360,8 @@ export function DashboardLayout({ children, activeTab, onTabChange }) {
                             </span>
                         )}
                     </div>
+                    {/* Selector de tema (acceso rápido en móvil) */}
+                    <ThemeToggle collapsed className="w-9 h-9 flex-shrink-0" />
                 </div>
 
                 {/* Subtle Background Accent */}

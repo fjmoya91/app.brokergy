@@ -1401,11 +1401,11 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
                         Reset columnas
                     </button>
                 </div>
-                <div className="hidden md:block rounded-2xl border border-white/[0.06] overflow-hidden shadow-2xl" style={{ background: 'rgba(19,21,26,0.6)' }}>
+                <div className="hidden md:block rounded-2xl border border-white/[0.06] overflow-hidden shadow-2xl bg-bkg-surface/60">
                     <div className="overflow-x-auto">
                         <table className="w-full text-left border-collapse table-fixed" style={{ minWidth: 680 }}>
                             <thead>
-                                <tr style={{ background: 'rgba(26,28,34,0.8)' }}>
+                                <tr className="bg-bkg-elevated/80">
                                     <th className="px-5 py-4 text-[10px] font-black uppercase tracking-[0.15em] text-white/25 border-b border-white/[0.06] relative overflow-visible" style={{ width: expColW.expediente }}>
                                         Número Expediente<ExpRH colKey="expediente" />
                                     </th>

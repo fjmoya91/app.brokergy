@@ -3,6 +3,17 @@
 
 <head>
   <meta charset="UTF-8" />
+  <!-- Tema día/noche: sembrar la clase antes de pintar para evitar el "flash"
+       de tema incorrecto. Por defecto (sin nada guardado) → oscuro. -->
+  <script>
+    (function () {
+      try {
+        if (localStorage.getItem('brokergy-theme') === 'light') {
+          document.documentElement.classList.add('theme-light');
+        }
+      } catch (e) { /* noop */ }
+    })();
+  </script>
   <link rel="icon" type="image/png" href="/logo-brokergy-admin.png" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>BROKERGY · Ingeniería Energética</title>

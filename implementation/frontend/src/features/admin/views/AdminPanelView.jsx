@@ -1109,11 +1109,11 @@ export function AdminPanelView({
                     Reset columnas
                 </button>
             </div>
-            <div className="hidden md:block rounded-2xl border border-white/[0.06] overflow-hidden" style={{ background: 'rgba(19,21,26,0.6)' }}>
+            <div className="hidden md:block rounded-2xl border border-white/[0.06] overflow-hidden bg-bkg-surface/60">
                 <div className="overflow-x-auto">
                     <table className="w-full text-left border-collapse table-fixed" style={{ minWidth: 680 }}>
                         <thead>
-                            <tr style={{ background: 'rgba(26,28,34,0.8)' }}>
+                            <tr className="bg-bkg-elevated/80">
                                 {/* Oportunidad */}
                                 <th className="p-3.5 text-[10px] font-black uppercase tracking-[0.15em] text-white/25 border-b border-white/[0.06] relative overflow-visible" style={{ width: colW.oportunidad }}>
                                     Oportunidad
@@ -1156,7 +1156,7 @@ export function AdminPanelView({
                                 </th>
                             </tr>
                             {/* Fila de Filtros */}
-                            <tr style={{ background: 'rgba(19,21,26,0.5)' }}>
+                            <tr className="bg-bkg-surface/50">
                                 <td className="p-2.5 border-b border-white/[0.06]">
                                     <input
                                         type="text"

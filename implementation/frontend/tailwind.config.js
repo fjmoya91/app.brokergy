@@ -20,12 +20,16 @@ export default {
                     800: '#E65100',
                     900: '#BF360C',
                 },
+                // Tokens de fondo definidos como canales RGB en variables CSS
+                // para poder cambiar de tema (oscuro/claro) sin tocar el JSX y
+                // manteniendo las utilidades de opacidad (bg-bkg-deep/90, etc.).
+                // Los valores viven en index.css (:root = oscuro, .theme-light = claro).
                 bkg: {
-                    deep: '#08090C',
-                    base: '#0C0E12',
-                    surface: '#13151A',
-                    elevated: '#1A1C22',
-                    hover: '#22242B',
+                    deep: 'rgb(var(--bkg-deep) / <alpha-value>)',
+                    base: 'rgb(var(--bkg-base) / <alpha-value>)',
+                    surface: 'rgb(var(--bkg-surface) / <alpha-value>)',
+                    elevated: 'rgb(var(--bkg-elevated) / <alpha-value>)',
+                    hover: 'rgb(var(--bkg-hover) / <alpha-value>)',
                 },
             },
         },

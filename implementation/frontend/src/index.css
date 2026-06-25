@@ -12,6 +12,18 @@
   --brand-secondary: #FF6D00;
   --brand-gradient: linear-gradient(135deg, #FFA000 0%, #FF6D00 100%);
 
+  /* ── Tokens de fondo (canales RGB) usados por Tailwind `bkg-*` ──
+     Estos son los que conmutan entre tema oscuro (aquí) y claro (.theme-light).
+     Se expresan como "R G B" para que rgb(var(--x) / <alpha>) soporte opacidad. */
+  --bkg-deep: 8 9 12;       /* #08090C */
+  --bkg-base: 12 14 18;     /* #0C0E12 */
+  --bkg-surface: 19 21 26;  /* #13151A */
+  --bkg-elevated: 26 28 34; /* #1A1C22 */
+  --bkg-hover: 34 36 43;    /* #22242B */
+
+  /* Fondo del <body> (conmuta con el tema) */
+  --app-bg: linear-gradient(135deg, #0C0E12 0%, #13151A 100%);
+
   /* ── Backgrounds (Warm Neutral Dark) ── */
   --bg-deep: #08090C;
   --bg-base: #0C0E12;
@@ -70,11 +82,12 @@ html {
 
 body {
   font-family: var(--font-family);
-  background: var(--gradient-dark);
+  background: var(--app-bg);
   min-height: 100vh;
   color: white;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  transition: background-color 0.25s ease, color 0.25s ease;
 }
 
 /* ===================================
@@ -598,4 +611,244 @@ input[type="email"],
 
 ::placeholder {
     text-transform: none;
+}
+
+/* =====================================================================
+   TEMA CLARO (DÍA) — se activa con la clase `theme-light` en <html>.
+   =====================================================================
+   Es ADITIVO: si la clase no está presente, todo queda EXACTAMENTE igual
+   que el tema oscuro original (cero riesgo para producción).
+
+   La app tiene los colores oscuros hardcodeados en miles de sitios
+   (text-white, bg-white/x, border-white/x, bkg-*). En lugar de tocar el
+   JSX, este bloque remapea esas utilidades a equivalentes legibles sobre
+   fondo claro — mismo mecanismo ya usado por `.partner-accent`.
+   Solo se remapean las clases BASE (sin prefijo). Las variantes hover/focus
+   degradan de forma suave (se mantiene legibilidad; ver excepción de
+   `hover:text-white`, que sí se corrige para que no quede texto blanco
+   sobre un hover claro). */
+
+.theme-light {
+    /* Tokens de fondo (canales RGB → conservan las utilidades /opacidad) */
+    --bkg-deep: 255 255 255;     /* sidebar / superficie superior */
+    --bkg-base: 237 240 244;     /* fondo de página */
+    --bkg-surface: 255 255 255;  /* tarjetas */
+    --bkg-elevated: 243 245 248; /* inputs / secundario */
+    --bkg-hover: 228 231 237;    /* hover */
+
+    /* Fondo del body */
+    --app-bg: linear-gradient(135deg, #EDF0F4 0%, #FFFFFF 100%);
+    --gradient-dark: linear-gradient(135deg, #EDF0F4 0%, #FFFFFF 100%);
+
+    /* Vars semánticas heredadas (por si algún sitio las usa directamente) */
+    --bg-deep: #FFFFFF;
+    --bg-base: #EDF0F4;
+    --bg-surface: #FFFFFF;
+    --bg-elevated: #F3F5F8;
+    --bg-hover: #E4E7ED;
+    --text-primary: #16181D;
+    --text-secondary: #51545F;
+    --text-muted: #6B6E78;
+    --border-subtle: rgba(15, 23, 42, 0.07);
+    --border-default: rgba(15, 23, 42, 0.11);
+    --border-strong: rgba(15, 23, 42, 0.16);
+
+    /* Sombras más suaves (las de producción son negras y muy marcadas) */
+    --shadow-sm: 0 1px 2px 0 rgba(15, 23, 42, 0.06);
+    --shadow-md: 0 4px 6px -1px rgba(15, 23, 42, 0.08), 0 2px 4px -1px rgba(15, 23, 42, 0.05);
+    --shadow-lg: 0 10px 15px -3px rgba(15, 23, 42, 0.08), 0 4px 6px -2px rgba(15, 23, 42, 0.05);
+    --shadow-xl: 0 20px 25px -5px rgba(15, 23, 42, 0.10), 0 10px 10px -5px rgba(15, 23, 42, 0.04);
+}
+
+.theme-light body {
+    color: #16181D;
+}
+
+/* ── Texto blanco → texto oscuro (primario + escala de opacidad) ── */
+.theme-light .text-white { color: #16181D !important; }
+.theme-light .text-white\/90 { color: rgba(22, 24, 29, 0.92) !important; }
+.theme-light .text-white\/85 { color: rgba(22, 24, 29, 0.88) !important; }
+.theme-light .text-white\/80 { color: rgba(22, 24, 29, 0.82) !important; }
+.theme-light .text-white\/75 { color: rgba(22, 24, 29, 0.78) !important; }
+.theme-light .text-white\/70 { color: rgba(22, 24, 29, 0.74) !important; }
+.theme-light .text-white\/65 { color: rgba(22, 24, 29, 0.70) !important; }
+.theme-light .text-white\/60 { color: rgba(22, 24, 29, 0.66) !important; }
+.theme-light .text-white\/55 { color: rgba(22, 24, 29, 0.62) !important; }
+.theme-light .text-white\/50 { color: rgba(22, 24, 29, 0.58) !important; }
+.theme-light .text-white\/45 { color: rgba(22, 24, 29, 0.55) !important; }
+.theme-light .text-white\/40 { color: rgba(22, 24, 29, 0.52) !important; }
+.theme-light .text-white\/35 { color: rgba(22, 24, 29, 0.48) !important; }
+.theme-light .text-white\/30 { color: rgba(22, 24, 29, 0.45) !important; }
+.theme-light .text-white\/25 { color: rgba(22, 24, 29, 0.42) !important; }
+.theme-light .text-white\/20 { color: rgba(22, 24, 29, 0.38) !important; }
+.theme-light .text-white\/15 { color: rgba(22, 24, 29, 0.32) !important; }
+.theme-light .text-white\/10 { color: rgba(22, 24, 29, 0.28) !important; }
+.theme-light .text-white\/5  { color: rgba(22, 24, 29, 0.22) !important; }
+
+/* Texto que va SOBRE el relleno de marca (botones naranja) → mantener oscuro */
+.theme-light .text-bkg-deep { color: #08090C !important; }
+
+/* Excepción: texto blanco sobre botones de color saturado (gradientes y sólidos
+   de estado) debe SEGUIR siendo blanco. Se usan clases EXACTAS (no substring)
+   para no afectar a los fondos con opacidad (bg-red-500/10, etc.). */
+.theme-light .from-red-500.text-white, .theme-light .from-red-600.text-white,
+.theme-light .from-rose-500.text-white, .theme-light .from-rose-600.text-white,
+.theme-light .from-orange-500.text-white, .theme-light .from-orange-600.text-white,
+.theme-light .from-amber-500.text-white, .theme-light .from-amber-600.text-white,
+.theme-light .from-emerald-500.text-white, .theme-light .from-emerald-600.text-white,
+.theme-light .from-green-500.text-white, .theme-light .from-green-600.text-white,
+.theme-light .from-teal-500.text-white, .theme-light .from-teal-600.text-white,
+.theme-light .from-cyan-500.text-white, .theme-light .from-cyan-600.text-white,
+.theme-light .from-sky-500.text-white, .theme-light .from-sky-600.text-white,
+.theme-light .from-blue-500.text-white, .theme-light .from-blue-600.text-white,
+.theme-light .from-indigo-500.text-white, .theme-light .from-indigo-600.text-white,
+.theme-light .from-violet-500.text-white, .theme-light .from-violet-600.text-white,
+.theme-light .from-purple-500.text-white, .theme-light .from-purple-600.text-white,
+.theme-light .from-pink-500.text-white, .theme-light .from-pink-600.text-white,
+.theme-light .bg-red-500.text-white, .theme-light .bg-red-600.text-white,
+.theme-light .bg-rose-500.text-white, .theme-light .bg-rose-600.text-white,
+.theme-light .bg-emerald-500.text-white, .theme-light .bg-emerald-600.text-white,
+.theme-light .bg-green-500.text-white, .theme-light .bg-green-600.text-white,
+.theme-light .bg-teal-500.text-white, .theme-light .bg-teal-600.text-white,
+.theme-light .bg-blue-500.text-white, .theme-light .bg-blue-600.text-white,
+.theme-light .bg-indigo-500.text-white, .theme-light .bg-indigo-600.text-white,
+.theme-light .bg-purple-500.text-white, .theme-light .bg-purple-600.text-white,
+.theme-light .bg-pink-500.text-white {
+    color: #fff !important;
+}
+
+/* Excepción inversa: hover:text-white sobre fondos claros → texto oscuro
+   (si no, al pasar el ratón el texto desaparecería). */
+.theme-light .hover\:text-white:hover { color: #16181D !important; }
+.theme-light .group:hover .group-hover\:text-white { color: #16181D !important; }
+
+/* ── Grises explícitos → tonos legibles sobre claro ── */
+.theme-light .text-gray-100, .theme-light .text-gray-200, .theme-light .text-gray-300,
+.theme-light .text-slate-100, .theme-light .text-slate-200, .theme-light .text-slate-300,
+.theme-light .text-zinc-100, .theme-light .text-zinc-200, .theme-light .text-zinc-300,
+.theme-light .text-neutral-100, .theme-light .text-neutral-200, .theme-light .text-neutral-300 {
+    color: #1f2937 !important;
+}
+.theme-light .text-gray-400, .theme-light .text-slate-400, .theme-light .text-zinc-400, .theme-light .text-neutral-400,
+.theme-light .text-gray-500, .theme-light .text-slate-500, .theme-light .text-zinc-500, .theme-light .text-neutral-500 {
+    color: #4b5563 !important;
+}
+
+/* ── Texto de COLOR (marca + estados) → tono oscurecido legible sobre blanco ──
+   Los acentos usan shades claros (-300/-400) pensados para fondo oscuro, que
+   sobre blanco quedan ilegibles. Se mantiene el tono pero se baja a ~600/700.
+   Los RELLENOS de color (bg-*) NO se tocan: siguen vivos. */
+.theme-light .text-brand, .theme-light .text-brand-300, .theme-light .text-brand-400, .theme-light .text-brand-500,
+.theme-light .text-amber-300, .theme-light .text-amber-400, .theme-light .text-amber-500,
+.theme-light .text-yellow-300, .theme-light .text-yellow-400, .theme-light .text-yellow-500 { color: #B45309 !important; }
+.theme-light .text-orange-300, .theme-light .text-orange-400, .theme-light .text-orange-500 { color: #C2410C !important; }
+.theme-light .text-red-300, .theme-light .text-red-400, .theme-light .text-red-500 { color: #DC2626 !important; }
+.theme-light .text-rose-300, .theme-light .text-rose-400, .theme-light .text-rose-500 { color: #E11D48 !important; }
+.theme-light .text-pink-300, .theme-light .text-pink-400, .theme-light .text-pink-500 { color: #DB2777 !important; }
+.theme-light .text-emerald-300, .theme-light .text-emerald-400, .theme-light .text-emerald-500 { color: #059669 !important; }
+.theme-light .text-green-300, .theme-light .text-green-400, .theme-light .text-green-500 { color: #16A34A !important; }
+.theme-light .text-teal-300, .theme-light .text-teal-400, .theme-light .text-teal-500 { color: #0D9488 !important; }
+.theme-light .text-cyan-300, .theme-light .text-cyan-400, .theme-light .text-cyan-500 { color: #0891B2 !important; }
+.theme-light .text-sky-300, .theme-light .text-sky-400, .theme-light .text-sky-500 { color: #0284C7 !important; }
+.theme-light .text-blue-300, .theme-light .text-blue-400, .theme-light .text-blue-500 { color: #2563EB !important; }
+.theme-light .text-indigo-300, .theme-light .text-indigo-400, .theme-light .text-indigo-500 { color: #4F46E5 !important; }
+.theme-light .text-violet-300, .theme-light .text-violet-400, .theme-light .text-violet-500 { color: #7C3AED !important; }
+.theme-light .text-purple-300, .theme-light .text-purple-400, .theme-light .text-purple-500 { color: #9333EA !important; }
+.theme-light .text-fuchsia-300, .theme-light .text-fuchsia-400, .theme-light .text-fuchsia-500 { color: #C026D3 !important; }
+
+/* ── Rellenos blancos translúcidos → tinte oscuro translúcido ── */
+.theme-light .bg-white\/\[0\.01\] { background-color: rgba(17, 21, 28, 0.02) !important; }
+.theme-light .bg-white\/\[0\.02\] { background-color: rgba(17, 21, 28, 0.025) !important; }
+.theme-light .bg-white\/\[0\.03\] { background-color: rgba(17, 21, 28, 0.035) !important; }
+.theme-light .bg-white\/\[0\.04\] { background-color: rgba(17, 21, 28, 0.04) !important; }
+.theme-light .bg-white\/\[0\.05\] { background-color: rgba(17, 21, 28, 0.045) !important; }
+.theme-light .bg-white\/\[0\.06\] { background-color: rgba(17, 21, 28, 0.05) !important; }
+.theme-light .bg-white\/\[0\.07\] { background-color: rgba(17, 21, 28, 0.055) !important; }
+.theme-light .bg-white\/\[0\.08\] { background-color: rgba(17, 21, 28, 0.06) !important; }
+.theme-light .bg-white\/\[0\.1\]  { background-color: rgba(17, 21, 28, 0.06) !important; }
+.theme-light .bg-white\/5  { background-color: rgba(17, 21, 28, 0.045) !important; }
+.theme-light .bg-white\/10 { background-color: rgba(17, 21, 28, 0.06) !important; }
+.theme-light .bg-white\/15 { background-color: rgba(17, 21, 28, 0.07) !important; }
+.theme-light .bg-white\/20 { background-color: rgba(17, 21, 28, 0.08) !important; }
+.theme-light .bg-white\/30 { background-color: rgba(17, 21, 28, 0.10) !important; }
+.theme-light .bg-white\/40 { background-color: rgba(17, 21, 28, 0.12) !important; }
+
+/* ── Rellenos NEGROS translúcidos (inputs, desplegables, chips, pestañas) →
+   tinte claro. Se EXCLUYEN los backdrops de modal (`fixed inset-0 bg-black/..`)
+   con :not(.fixed) para que sigan oscureciendo el fondo. Las opacidades altas
+   (/80+) se dejan tal cual (tooltips/popovers/visores que se ven bien oscuros). */
+.theme-light .bg-black\/20:not(.fixed) { background-color: rgba(15, 23, 42, 0.03) !important; }
+.theme-light .bg-black\/30:not(.fixed) { background-color: rgba(15, 23, 42, 0.04) !important; }
+.theme-light .bg-black\/40:not(.fixed) { background-color: rgba(15, 23, 42, 0.05) !important; }
+.theme-light .bg-black\/50:not(.fixed) { background-color: rgba(15, 23, 42, 0.06) !important; }
+.theme-light .bg-black\/60:not(.fixed) { background-color: rgba(15, 23, 42, 0.07) !important; }
+.theme-light .bg-black\/70:not(.fixed) { background-color: rgba(15, 23, 42, 0.08) !important; }
+/* Variantes de foco habituales en inputs */
+.theme-light .focus\:bg-black\/40:focus { background-color: rgba(15, 23, 42, 0.06) !important; }
+.theme-light .focus\:bg-black\/60:focus { background-color: rgba(15, 23, 42, 0.08) !important; }
+
+/* ── Bordes blancos translúcidos → tinte oscuro translúcido ── */
+.theme-light .border-white { border-color: rgba(17, 21, 28, 0.18) !important; }
+.theme-light .border-white\/5  { border-color: rgba(17, 21, 28, 0.07) !important; }
+.theme-light .border-white\/\[0\.02\] { border-color: rgba(17, 21, 28, 0.05) !important; }
+.theme-light .border-white\/\[0\.03\] { border-color: rgba(17, 21, 28, 0.06) !important; }
+.theme-light .border-white\/\[0\.04\] { border-color: rgba(17, 21, 28, 0.06) !important; }
+.theme-light .border-white\/\[0\.05\] { border-color: rgba(17, 21, 28, 0.07) !important; }
+.theme-light .border-white\/\[0\.06\] { border-color: rgba(17, 21, 28, 0.08) !important; }
+.theme-light .border-white\/\[0\.07\] { border-color: rgba(17, 21, 28, 0.08) !important; }
+.theme-light .border-white\/\[0\.08\] { border-color: rgba(17, 21, 28, 0.09) !important; }
+.theme-light .border-white\/10 { border-color: rgba(17, 21, 28, 0.10) !important; }
+.theme-light .border-white\/\[0\.1\]  { border-color: rgba(17, 21, 28, 0.10) !important; }
+.theme-light .border-white\/\[0\.15\] { border-color: rgba(17, 21, 28, 0.12) !important; }
+.theme-light .border-white\/15 { border-color: rgba(17, 21, 28, 0.12) !important; }
+.theme-light .border-white\/20 { border-color: rgba(17, 21, 28, 0.14) !important; }
+.theme-light .border-white\/25 { border-color: rgba(17, 21, 28, 0.16) !important; }
+.theme-light .border-white\/30 { border-color: rgba(17, 21, 28, 0.18) !important; }
+
+/* ── Placeholders ── */
+.theme-light input::placeholder,
+.theme-light textarea::placeholder { color: rgba(17, 21, 28, 0.40) !important; }
+
+/* ── Componentes de index.css ── */
+.theme-light .glass-card {
+    background: rgba(255, 255, 255, 0.92);
+    border-color: rgba(15, 23, 42, 0.08);
+    box-shadow: var(--shadow-xl);
+}
+.theme-light .input-glass {
+    background: #ffffff;
+    border-color: rgba(15, 23, 42, 0.15);
+    color: #16181D;
+}
+.theme-light .input-glass::placeholder { color: rgba(17, 21, 28, 0.40); }
+.theme-light .btn-secondary {
+    background: rgba(15, 23, 42, 0.05);
+    color: #16181D;
+    border-color: rgba(15, 23, 42, 0.12);
+}
+.theme-light .btn-secondary:hover { background: rgba(15, 23, 42, 0.08); }
+
+.theme-light .data-table th {
+    color: rgba(17, 21, 28, 0.55);
+    border-bottom-color: rgba(15, 23, 42, 0.10);
+}
+.theme-light .data-table td { border-bottom-color: rgba(15, 23, 42, 0.06); }
+.theme-light .data-table tr:hover td { background: rgba(15, 23, 42, 0.03); }
+
+/* ── Scrollbar ── */
+.theme-light ::-webkit-scrollbar-track { background: rgba(15, 23, 42, 0.04); }
+.theme-light ::-webkit-scrollbar-thumb { background: rgba(15, 23, 42, 0.20); }
+.theme-light ::-webkit-scrollbar-thumb:hover { background: rgba(15, 23, 42, 0.30); }
+
+/* ── Mapa (Leaflet) ── */
+.theme-light .leaflet-container { background: #E8EBEF; }
+.theme-light .leaflet-control-zoom a {
+    background-color: rgba(255, 255, 255, 0.95) !important;
+    color: #16181D !important;
+    border-color: rgba(15, 23, 42, 0.12) !important;
+}
+.theme-light .leaflet-control-zoom a:hover { background-color: rgba(237, 240, 244, 0.95) !important; }
+.theme-light .leaflet-control-attribution {
+    background: rgba(255, 255, 255, 0.8) !important;
+    color: rgba(17, 21, 28, 0.6) !important;
 }
