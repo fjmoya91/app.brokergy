@@ -730,43 +730,44 @@ input[type="email"],
 .theme-light .hover\:text-white:hover { color: #16181D !important; }
 .theme-light .group:hover .group-hover\:text-white { color: #16181D !important; }
 
-/* ── Grises explícitos → tonos legibles sobre claro ── */
-.theme-light .text-gray-100, .theme-light .text-gray-200, .theme-light .text-gray-300,
-.theme-light .text-slate-100, .theme-light .text-slate-200, .theme-light .text-slate-300,
-.theme-light .text-zinc-100, .theme-light .text-zinc-200, .theme-light .text-zinc-300,
-.theme-light .text-neutral-100, .theme-light .text-neutral-200, .theme-light .text-neutral-300 {
+/* ── Grises explícitos claros (100–400, sólidos y con opacidad) → legibles sobre
+   claro. Substring para captar también opacidad (text-slate-400/60…). Los shades
+   500–900 ya son oscuros/legibles sobre blanco y NO se tocan. ── */
+.theme-light [class*="text-gray-1"], .theme-light [class*="text-gray-2"], .theme-light [class*="text-gray-3"],
+.theme-light [class*="text-slate-1"], .theme-light [class*="text-slate-2"], .theme-light [class*="text-slate-3"],
+.theme-light [class*="text-zinc-1"], .theme-light [class*="text-zinc-2"], .theme-light [class*="text-zinc-3"],
+.theme-light [class*="text-neutral-1"], .theme-light [class*="text-neutral-2"], .theme-light [class*="text-neutral-3"] {
     color: #1f2937 !important;
 }
-.theme-light .text-gray-400, .theme-light .text-slate-400, .theme-light .text-zinc-400, .theme-light .text-neutral-400,
-.theme-light .text-gray-500, .theme-light .text-slate-500, .theme-light .text-zinc-500, .theme-light .text-neutral-500 {
+.theme-light [class*="text-gray-4"], .theme-light [class*="text-slate-4"], .theme-light [class*="text-zinc-4"], .theme-light [class*="text-neutral-4"] {
     color: #4b5563 !important;
 }
 
 /* ── Texto de COLOR (marca + estados) → tono oscurecido legible sobre blanco ──
-   Los acentos usan shades claros (-300/-400) pensados para fondo oscuro, que
-   sobre blanco quedan ilegibles. Se mantiene el tono pero se baja a ~600/700.
-   Los RELLENOS de color (bg-*) NO se tocan: siguen vivos. */
-.theme-light .text-brand, .theme-light .text-brand-300, .theme-light .text-brand-400, .theme-light .text-brand-500,
-.theme-light .text-amber-300, .theme-light .text-amber-400, .theme-light .text-amber-500,
-.theme-light .text-yellow-300, .theme-light .text-yellow-400, .theme-light .text-yellow-500 { color: #B45309 !important; }
-.theme-light .text-orange-300, .theme-light .text-orange-400, .theme-light .text-orange-500 { color: #C2410C !important; }
-.theme-light .text-red-300, .theme-light .text-red-400, .theme-light .text-red-500 { color: #DC2626 !important; }
-.theme-light .text-rose-300, .theme-light .text-rose-400, .theme-light .text-rose-500 { color: #E11D48 !important; }
-.theme-light .text-pink-300, .theme-light .text-pink-400, .theme-light .text-pink-500 { color: #DB2777 !important; }
-.theme-light .text-emerald-300, .theme-light .text-emerald-400, .theme-light .text-emerald-500 { color: #059669 !important; }
-.theme-light .text-green-300, .theme-light .text-green-400, .theme-light .text-green-500 { color: #16A34A !important; }
-.theme-light .text-lime-300, .theme-light .text-lime-400, .theme-light .text-lime-500 { color: #4D7C0F !important; }
+   Los acentos usan shades claros (-100..-500) pensados para fondo oscuro, que
+   sobre blanco quedan ilegibles (p.ej. text-amber-200 en avisos). Selector por
+   SUBSTRING para captar CUALQUIER shade y CUALQUIER opacidad (text-amber-200/90,
+   text-emerald-400/60…). Se mantiene el tono. Los RELLENOS bg-* NO se tocan. */
+.theme-light .text-brand, .theme-light [class*="text-brand-"],
+.theme-light [class*="text-amber-"], .theme-light [class*="text-yellow-"] { color: #B45309 !important; }
+.theme-light [class*="text-orange-"] { color: #C2410C !important; }
+.theme-light [class*="text-red-"]    { color: #DC2626 !important; }
+.theme-light [class*="text-rose-"]   { color: #E11D48 !important; }
+.theme-light [class*="text-pink-"]   { color: #DB2777 !important; }
+.theme-light [class*="text-emerald-"]{ color: #059669 !important; }
+.theme-light [class*="text-green-"]  { color: #16A34A !important; }
+.theme-light [class*="text-lime-"]   { color: #4D7C0F !important; }
+.theme-light [class*="text-teal-"]   { color: #0D9488 !important; }
+.theme-light [class*="text-cyan-"]   { color: #0891B2 !important; }
+.theme-light [class*="text-sky-"]    { color: #0284C7 !important; }
+.theme-light [class*="text-blue-"]   { color: #2563EB !important; }
+.theme-light [class*="text-indigo-"] { color: #4F46E5 !important; }
+.theme-light [class*="text-violet-"] { color: #7C3AED !important; }
+.theme-light [class*="text-purple-"] { color: #9333EA !important; }
+.theme-light [class*="text-fuchsia-"]{ color: #C026D3 !important; }
 /* Verdes/WhatsApp definidos como hex arbitrario → verde oscuro legible sobre blanco */
 .theme-light .text-\[\#25D366\], .theme-light .text-\[\#4ade80\], .theme-light .text-\[\#10b981\],
 .theme-light .text-\[\#0f8f66\], .theme-light .text-\[\#00C853\], .theme-light .text-\[\#1eb554\] { color: #0D7A40 !important; }
-.theme-light .text-teal-300, .theme-light .text-teal-400, .theme-light .text-teal-500 { color: #0D9488 !important; }
-.theme-light .text-cyan-300, .theme-light .text-cyan-400, .theme-light .text-cyan-500 { color: #0891B2 !important; }
-.theme-light .text-sky-300, .theme-light .text-sky-400, .theme-light .text-sky-500 { color: #0284C7 !important; }
-.theme-light .text-blue-300, .theme-light .text-blue-400, .theme-light .text-blue-500 { color: #2563EB !important; }
-.theme-light .text-indigo-300, .theme-light .text-indigo-400, .theme-light .text-indigo-500 { color: #4F46E5 !important; }
-.theme-light .text-violet-300, .theme-light .text-violet-400, .theme-light .text-violet-500 { color: #7C3AED !important; }
-.theme-light .text-purple-300, .theme-light .text-purple-400, .theme-light .text-purple-500 { color: #9333EA !important; }
-.theme-light .text-fuchsia-300, .theme-light .text-fuchsia-400, .theme-light .text-fuchsia-500 { color: #C026D3 !important; }
 
 /* ── Rellenos blancos translúcidos → tinte oscuro translúcido ── */
 .theme-light .bg-white\/\[0\.01\] { background-color: rgba(17, 21, 28, 0.02) !important; }
