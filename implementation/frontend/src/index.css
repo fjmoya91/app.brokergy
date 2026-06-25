@@ -24,6 +24,10 @@
   /* Fondo del <body> (conmuta con el tema) */
   --app-bg: linear-gradient(135deg, #0C0E12 0%, #13151A 100%);
 
+  /* Paneles del funnel de reforma (inline) — theme-aware para "Nueva simulación" */
+  --reforma-glass: rgba(10, 6, 0, 0.92);
+  --reforma-amber-panel: linear-gradient(150deg, rgba(245,158,11,0.14) 0%, rgba(14,9,1,0.98) 55%);
+
   /* ── Backgrounds (Warm Neutral Dark) ── */
   --bg-deep: #08090C;
   --bg-base: #0C0E12;
@@ -640,6 +644,10 @@ input[type="email"],
     --app-bg: linear-gradient(135deg, #EDF0F4 0%, #FFFFFF 100%);
     --gradient-dark: linear-gradient(135deg, #EDF0F4 0%, #FFFFFF 100%);
 
+    /* Paneles del funnel de reforma en claro */
+    --reforma-glass: rgba(255, 255, 255, 0.92);
+    --reforma-amber-panel: linear-gradient(150deg, rgba(245,158,11,0.12) 0%, rgba(255,250,235,0.98) 55%);
+
     /* Vars semánticas heredadas (por si algún sitio las usa directamente) */
     --bg-deep: #FFFFFF;
     --bg-base: #EDF0F4;
@@ -748,6 +756,9 @@ input[type="email"],
 .theme-light .text-emerald-300, .theme-light .text-emerald-400, .theme-light .text-emerald-500 { color: #059669 !important; }
 .theme-light .text-green-300, .theme-light .text-green-400, .theme-light .text-green-500 { color: #16A34A !important; }
 .theme-light .text-lime-300, .theme-light .text-lime-400, .theme-light .text-lime-500 { color: #4D7C0F !important; }
+/* Verdes/WhatsApp definidos como hex arbitrario → verde oscuro legible sobre blanco */
+.theme-light .text-\[\#25D366\], .theme-light .text-\[\#4ade80\], .theme-light .text-\[\#10b981\],
+.theme-light .text-\[\#0f8f66\], .theme-light .text-\[\#00C853\], .theme-light .text-\[\#1eb554\] { color: #0D7A40 !important; }
 .theme-light .text-teal-300, .theme-light .text-teal-400, .theme-light .text-teal-500 { color: #0D9488 !important; }
 .theme-light .text-cyan-300, .theme-light .text-cyan-400, .theme-light .text-cyan-500 { color: #0891B2 !important; }
 .theme-light .text-sky-300, .theme-light .text-sky-400, .theme-light .text-sky-500 { color: #0284C7 !important; }

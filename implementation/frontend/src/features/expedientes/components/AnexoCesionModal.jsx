@@ -310,7 +310,7 @@ export function AnexoCesionModal({ isOpen, onClose, expediente, results, onSaveD
                         </div>
                     </div>
 
-                    <div ref={containerRef} className="flex-1 overflow-y-auto py-8 px-4" style={{ background: '#16181D' }}>
+                    <div ref={containerRef} className="flex-1 overflow-y-auto py-8 px-4 bg-[#16181D]">
                         <div style={{ transform: `scale(${scale})`, transformOrigin: 'top center', width: 794, margin: '0 auto' }}>
                             <div 
                                 className="conv-wrap" 

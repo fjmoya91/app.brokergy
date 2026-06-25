@@ -8,11 +8,11 @@ function NoTieneModal({ onGoToReforma, onClose }) {
     return (
         <div
             className="fixed inset-0 z-50 flex items-center justify-center px-4"
-            style={{ background: 'rgba(10, 6, 0, 0.92)', backdropFilter: 'blur(6px)' }}
+            style={{ background: 'var(--reforma-glass)', backdropFilter: 'blur(6px)' }}
         >
             <div
                 className="w-full max-w-sm rounded-3xl p-6 animate-fade-in shadow-2xl shadow-amber-900/40"
-                style={{ background: 'linear-gradient(150deg, rgba(245,158,11,0.14) 0%, rgba(14,9,1,0.98) 55%)', border: '1px solid rgba(245,158,11,0.35)' }}
+                style={{ background: 'var(--reforma-amber-panel)', border: '1px solid rgba(245,158,11,0.35)' }}
             >
                 {mode === 'warning' ? (
                     <>
