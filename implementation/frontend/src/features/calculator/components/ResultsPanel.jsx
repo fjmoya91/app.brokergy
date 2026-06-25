@@ -261,6 +261,10 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
     // Plegado del Estudio de Viabilidad SOLO en móvil (en PC siempre visible vía md:block)
     const [showViability, setShowViability] = useState(false);
     const tableRef = useRef(null);
+    // Política "guardar antes de generar": acción pendiente que se reanuda tras guardar
+    // (PDF/Tabla) y bandera de si el modal de guardar terminó con éxito.
+    const pendingActionRef = useRef(null);
+    const didSaveRef = useRef(false);
 
     // Mostrar un número con coma decimal (ES). Cadena vacía si no hay valor.
     const toCommaStr = (v) => {
@@ -532,6 +536,37 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
         link.click();
     };
 
+    // ─── Política: guardar la oportunidad antes de producir entregables ──────────
+    const isAdmin = user?.rol?.toUpperCase() === 'ADMIN';
+
+    // Ejecuta la acción ya validada (no comprueba guardado).
+    const runAction = (action) => {
+        if (action === 'pdf') setShowProposal(true);
+        else if (action === 'tabla') handleGenerateImagePopup();
+    };
+
+    // Garantiza que la oportunidad quede registrada en el CRM antes de generar el
+    // PDF o la Tabla (Word/Excel):
+    //  - Sin id_oportunidad (nunca guardada) → obliga a guardar (sin escape).
+    //  - Con cambios sin guardar (isDirty) → modal de guardia.
+    // El ADMIN puede ver la TABLA libremente (tanteos rápidos) y, si la oportunidad
+    // ya existe pero está "sucia", saltarse el guardado en el modal de guardia.
+    // El PARTNER nunca puede saltárselo: así siempre registra la oportunidad.
+    const requestAction = (action) => {
+        if (isAdmin && action === 'tabla') { runAction(action); return; }
+        const needsSave = !inputs.id_oportunidad || isDirty;
+        if (!needsSave) { runAction(action); return; }
+        pendingActionRef.current = action;
+        didSaveRef.current = false;
+        if (!inputs.id_oportunidad) {
+            // Nunca guardada: directo a guardar, sin opción de "sin guardar".
+            setShowSaveOpportunity(true);
+        } else {
+            // Guardada pero con cambios: modal de guardia.
+            setShowPdfGuard(true);
+        }
+    };
+
 
     return (
         <div className="relative h-full">
@@ -652,7 +687,7 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
                         return (
                         <div className={`grid grid-cols-2 ${showRes080Button ? 'lg:grid-cols-5' : 'sm:grid-cols-4'} gap-2 mb-4 animate-fade-in`}>
                             <button
-                                onClick={handleGenerateImagePopup}
+                                onClick={() => requestAction('tabla')}
                                 disabled={generatingImage}
                                 className="flex flex-col items-center justify-center gap-1.5 py-3 px-2 bg-white/5 hover:bg-white/10 border border-white/10 text-white rounded-xl transition-all hover:scale-105 active:scale-95 group shadow-sm"
                             >
@@ -668,15 +703,7 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
                             </button>
 
                             <button
-                                onClick={() => {
-                                    if (!inputs.id_oportunidad) {
-                                        setShowSaveOpportunity(true);
-                                    } else if (isDirty) {
-                                        setShowPdfGuard(true);
-                                    } else {
-                                        setShowProposal(true);
-                                    }
-                                }}
+                                onClick={() => requestAction('pdf')}
                                 className="flex flex-col items-center justify-center gap-1.5 py-3 px-2 bg-blue-600/10 hover:bg-blue-600/20 border border-blue-500/20 text-blue-400 rounded-xl transition-all hover:scale-105 active:scale-95 group shadow-sm"
                             >
                                 <div className="w-10 h-10 rounded-lg bg-blue-500/20 flex items-center justify-center group-hover:bg-blue-500/30 transition-colors">
@@ -1085,7 +1112,18 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
 
             <SaveOpportunityModal
                 isOpen={showSaveOpportunity}
-                onClose={() => setShowSaveOpportunity(false)}
+                onClose={() => {
+                    setShowSaveOpportunity(false);
+                    // Tras guardar con éxito, reanudar la acción pendiente (PDF/Tabla)
+                    // que disparó la política de guardado.
+                    const action = pendingActionRef.current;
+                    const saved = didSaveRef.current;
+                    pendingActionRef.current = null;
+                    didSaveRef.current = false;
+                    if (saved && action) {
+                        setTimeout(() => runAction(action), 300);
+                    }
+                }}
                 onSaveSuccess={(ref, id, driveId, prescriptorId, instaladorId, codInterno, driveFolderLink) => {
                     const newInputs = {
                         ...inputs,
@@ -1100,6 +1138,8 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
                     onInputChange(newInputs);
                     // Actualizar snapshot con la misma lógica que currentSnapshot
                     setLastSavedSnapshot(getSnapshot(newInputs, result));
+                    // Marcar que el guardado fue correcto para reanudar la acción al cerrar.
+                    didSaveRef.current = true;
                 }}
                 onClientLinked={(cliente_id) => {
                     onInputChange({ ...inputs, cliente_id: cliente_id });
@@ -1261,14 +1301,14 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
             })()}
             {/* Modal de Guardia para PDF: Obliga/Sugiere guardar antes de generar */}
             {showPdfGuard && (
-                <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-bkg-deep/80 backdrop-blur-md animate-fade-in" onClick={() => setShowPdfGuard(false)}>
+                <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-bkg-deep/80 backdrop-blur-md animate-fade-in" onClick={() => { setShowPdfGuard(false); pendingActionRef.current = null; }}>
                     <div className="w-full max-w-md relative z-10">
                         <div className="bg-bkg-surface shadow-[0_20px_50px_rgba(0,0,0,0.5)] border border-white/[0.06] rounded-[2rem] p-10 relative overflow-hidden backdrop-blur-xl" onClick={e => e.stopPropagation()}>
                             <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-transparent via-brand/40 to-transparent"></div>
                             <div className="absolute top-0 right-0 w-64 h-64 bg-brand/5 rounded-full blur-[100px] pointer-events-none"></div>
-                            
+
                             <button
-                                onClick={() => setShowPdfGuard(false)}
+                                onClick={() => { setShowPdfGuard(false); pendingActionRef.current = null; }}
                                 className="absolute top-6 right-6 p-2 text-white/20 hover:text-white transition-colors z-20"
                             >
                                 <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1284,13 +1324,16 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
                                     Guardar Cambios
                                 </h3>
                                 <p className="text-sm text-white/40 mb-8 leading-relaxed">
-                                    Para asegurar que el PDF refleje los últimos cambios realizados, te recomendamos guardar la oportunidad antes de continuar.
+                                    {isAdmin
+                                        ? 'Para asegurar que el entregable refleje los últimos cambios realizados, te recomendamos guardar la oportunidad antes de continuar.'
+                                        : 'Has realizado cambios sin guardar. Guarda la oportunidad para que quede registrada y el entregable refleje los últimos datos.'}
                                 </p>
 
                                 <div className="space-y-4">
                                     <button
                                         onClick={() => {
                                             setShowPdfGuard(false);
+                                            didSaveRef.current = false;
                                             setShowSaveOpportunity(true);
                                         }}
                                         className="w-full py-4 bg-brand-600 hover:bg-brand-500 text-bkg-deep shadow-brand-500/20 shadow-lg font-black text-sm uppercase tracking-widest rounded-xl transition-all flex items-center justify-center gap-3 active:scale-[0.98]"
@@ -1300,19 +1343,24 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
                                         </svg>
                                         Guardar Oportunidad
                                     </button>
-                                    
+
+                                    {/* Escape "sin guardar": SOLO ADMIN. El partner debe guardar siempre. */}
+                                    {isAdmin && (
+                                        <button
+                                            onClick={() => {
+                                                setShowPdfGuard(false);
+                                                const action = pendingActionRef.current || 'pdf';
+                                                pendingActionRef.current = null;
+                                                runAction(action);
+                                            }}
+                                            className="w-full py-4 bg-white/5 hover:bg-white/10 text-white/60 hover:text-white text-xs font-black uppercase tracking-widest rounded-xl transition-all border border-white/10 active:scale-[0.98]"
+                                        >
+                                            Continuar sin guardar
+                                        </button>
+                                    )}
+
                                     <button
-                                        onClick={() => {
-                                            setShowPdfGuard(false);
-                                            setShowProposal(true);
-                                        }}
-                                        className="w-full py-4 bg-white/5 hover:bg-white/10 text-white/60 hover:text-white text-xs font-black uppercase tracking-widest rounded-xl transition-all border border-white/10 active:scale-[0.98]"
-                                    >
-                                        Generar PDF sin guardar
-                                    </button>
-                                    
-                                    <button
-                                        onClick={() => setShowPdfGuard(false)}
+                                        onClick={() => { setShowPdfGuard(false); pendingActionRef.current = null; }}
                                         className="w-full py-2 text-[10px] font-black uppercase tracking-[0.3em] text-white/20 hover:text-white transition-all mt-4"
                                     >
                                         Cancelar
