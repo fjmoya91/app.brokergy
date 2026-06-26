@@ -569,6 +569,23 @@ router.patch('/:id/estado', adminOnly, async (req, res) => {
 
         const { data: updated, error: upErr } = await supabase.from('lotes').update(update).eq('id', lote.id).select().single();
         if (upErr) throw upErr;
+
+        // Propagar el nuevo estado a todos los expedientes del lote si el estado
+        // también existe en la tabla de expedientes.
+        const EXPEDIENTE_ESTADOS = [
+            'PTE. CEE INICIAL', 'EN CERTIFICADOR CEE INICIAL', 'PTE. FIN OBRA',
+            'PTE. CEE FINAL', 'EN CERTIFICADOR CEE FINAL', 'PTE FIRMA ANEXOS',
+            'PTE. CIFO BROKERGY', 'PTE FIRMA CIFO', 'PTE FIN EXPTE', 'DOC. COMPLETA',
+            'PENDIENTE REVISAR EXPTE', 'ENVIADO A VERIFICADOR', 'REQUERIMIENTO VERIFICADOR',
+            'PTE. SUBIDA MITECO', 'REQUERIMIENTO G.A.', 'CAE EMITIDO – PTE PAGO BROKERGY',
+            'PTE. PAGO BROKERGY A CLIENTE', 'FINALIZADO',
+        ];
+        if (EXPEDIENTE_ESTADOS.includes(nuevo_estado)) {
+            await supabase.from('expedientes')
+                .update({ estado: nuevo_estado, updated_at: nowIso() })
+                .eq('lote_id', lote.id);
+        }
+
         const [enriched] = await enrichLotes([updated]);
         res.json(enriched);
     } catch (err) {

@@ -24,6 +24,7 @@ import { HistorialModal } from '../../../components/HistorialModal';
 import { IncidenciasModal } from '../components/IncidenciasModal';
 import { DocsAdminModal } from '../../calculator/components/DocsAdminModal';
 import { ClienteDetailModal } from '../../clientes/components/ClienteDetailModal';
+import { LoteDetailModal } from '../../lotes/components/LoteDetailModal';
 
 export const EXPEDIENTE_ESTADOS = [
     'PTE. CEE INICIAL',
@@ -117,6 +118,7 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
     const [showIncidencias, setShowIncidencias] = useState(false);
     const [showFotos, setShowFotos] = useState(false);
     const [showClienteModal, setShowClienteModal] = useState(false);
+    const [openLoteId, setOpenLoteId] = useState(null);
     const [localPrioridad, setLocalPrioridad] = useState('NORMAL');
 
     // Carga de certificadores (utilizado en Header CEE y CeeModule)
@@ -624,18 +626,23 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
                               </select>
                          </div>
 
-                         {/* Lote (solo lectura): código + estado + SO/Verificador */}
+                         {/* Lote: chip clicable que abre el modal del lote */}
                          {expediente.lote && (
-                            <div className="flex items-center gap-3 bg-white/[0.03] px-3 py-1.5 rounded-xl border border-white/[0.06] shadow-lg">
-                                <div>
+                            <button
+                                type="button"
+                                onClick={() => setOpenLoteId(expediente.lote.id)}
+                                className="flex items-center gap-3 bg-white/[0.03] px-3 py-1.5 rounded-xl border border-white/[0.06] shadow-lg hover:bg-white/[0.06] hover:border-brand/30 transition-all group"
+                                title="Ver lote"
+                            >
+                                <div className="text-left">
                                     <p className="text-[8px] uppercase tracking-widest font-black text-white/30">Lote</p>
-                                    <p className="text-[11px] font-black text-white whitespace-nowrap">
+                                    <p className="text-[11px] font-black text-white whitespace-nowrap group-hover:text-brand transition-colors">
                                         {expediente.lote.codigo || 'BORRADOR'}
                                         <span className="text-white/40 font-bold"> · {expediente.lote.estado}</span>
                                     </p>
                                 </div>
                                 <div className="h-6 w-px bg-white/10" />
-                                <div>
+                                <div className="text-left">
                                     <p className="text-[8px] uppercase tracking-widest font-black text-white/30">S.O. / Verificador</p>
                                     <p className="text-[11px] text-white/70 whitespace-nowrap">
                                         {expediente.lote.sujeto_obligado ? (expediente.lote.sujeto_obligado.acronimo || expediente.lote.sujeto_obligado.razon_social) : '—'}
@@ -643,7 +650,7 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
                                         {expediente.lote.verificador ? (expediente.lote.verificador.acronimo || expediente.lote.verificador.razon_social) : '—'}
                                     </p>
                                 </div>
-                            </div>
+                            </button>
                          )}
 
                          {/* Botón de Nota Rápida */}
@@ -1298,6 +1305,17 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
                     onClose={() => setShowClienteModal(false)}
                     onUpdated={() => fetchExpediente(true)}
                     onClienteSwapped={() => { setShowClienteModal(false); fetchExpediente(true); }}
+                />
+            )}
+
+            {openLoteId && (
+                <LoteDetailModal
+                    loteId={openLoteId}
+                    soList={[]}
+                    verList={[]}
+                    onClose={() => setOpenLoteId(null)}
+                    onChanged={() => fetchExpediente(true)}
+                    onNavigateExpediente={() => setOpenLoteId(null)}
                 />
             )}
         </div>

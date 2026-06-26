@@ -52,7 +52,7 @@ function ExpedienteCard({ exp, onClick, rightAction }) {
     );
 }
 
-export function LoteDetailModal({ loteId, soList, verList, onClose, onChanged, onNavigateExpediente }) {
+export function LoteDetailModal({ loteId, soList: soListProp, verList: verListProp, onClose, onChanged, onNavigateExpediente }) {
     const { showAlert, showConfirm } = useModal();
     const [lote, setLote] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -68,6 +68,20 @@ export function LoteDetailModal({ loteId, soList, verList, onClose, onChanged, o
     const [showAnexo, setShowAnexo] = useState(false);
     const [showSolicitud, setShowSolicitud] = useState(false);
     const [showFactura, setShowFactura] = useState(false);
+    const [showExpedientes, setShowExpedientes] = useState(true);
+    const [soList, setSoList] = useState(soListProp || []);
+    const [verList, setVerList] = useState(verListProp || []);
+
+    // Carga SO/Verificador si no se pasan como props (ej. apertura desde expediente).
+    useEffect(() => {
+        if ((soListProp || []).length || (verListProp || []).length) return;
+        axios.get('/api/prescriptores?tipo=SUJETO_OBLIGADO&limit=200')
+            .then(r => setSoList(Array.isArray(r.data) ? r.data : (r.data?.data || [])))
+            .catch(() => {});
+        axios.get('/api/prescriptores?tipo=VERIFICADOR&limit=200')
+            .then(r => setVerList(Array.isArray(r.data) ? r.data : (r.data?.data || [])))
+            .catch(() => {});
+    }, []); // eslint-disable-line
 
     const isBorrador = lote?.estado === 'BORRADOR';
     // La factura al S.O. se habilita a partir de "CAE EMITIDO – PTE PAGO BROKERGY".
@@ -182,19 +196,24 @@ export function LoteDetailModal({ loteId, soList, verList, onClose, onChanged, o
             <div className="bg-bkg-deep border border-white/[0.08] rounded-2xl w-full max-w-2xl my-8 shadow-2xl">
 
                 {/* Header */}
-                <div className="flex items-center justify-between gap-3 p-6 border-b border-white/[0.06]">
-                    <div className="min-w-0">
-                        <div className="flex items-center gap-3">
-                            <h2 className="text-lg font-black text-white truncate">{lote?.codigo || 'LOTE (sin código)'}</h2>
-                            {lote && <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded border ${loteEstadoBadge(lote.estado)}`}>{lote.estado}</span>}
+                <div className="flex items-start justify-between gap-3 p-6 border-b border-white/[0.06]">
+                    <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-3 mb-2 min-w-0">
+                            <h2 className="text-lg font-black text-white whitespace-nowrap shrink-0">{lote?.codigo || 'LOTE (sin código)'}</h2>
+                            {lote && (
+                                <select value={lote.estado} disabled={busy} onChange={e => changeEstado(e.target.value)}
+                                    className="flex-1 min-w-0 bg-bkg-surface border border-white/[0.08] rounded-xl px-3 py-1.5 text-sm text-white focus:border-brand/40 focus:outline-none">
+                                    {LOTE_ESTADOS.map(s => <option key={s} value={s}>{s}</option>)}
+                                </select>
+                            )}
                         </div>
                         {lote && (
-                            <p className="text-[11px] text-white/40 mt-1">
+                            <p className="text-[11px] text-white/40">
                                 {lote.anio_actuacion ? `Año ${lote.anio_actuacion}` : 'Año pendiente'} · {lote.ccaa || 'CCAA pendiente'} · {(lote.expedientes || []).length}/5 expedientes
                             </p>
                         )}
                     </div>
-                    <button onClick={onClose} className="p-2 text-white/30 hover:text-white transition-colors shrink-0">
+                    <button onClick={onClose} className="p-2 text-white/30 hover:text-white transition-colors shrink-0 mt-1">
                         <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                     </button>
                 </div>
@@ -254,14 +273,21 @@ export function LoteDetailModal({ loteId, soList, verList, onClose, onChanged, o
                                 </div>
                             </div>
 
-                            {/* Desglose €/MWh + beneficio actual (sin oferta de lote) */}
-                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-white/40 bg-white/[0.02] border border-white/[0.05] rounded-xl px-3 py-2">
-                                <span>Cliente <b className="text-white/60">{eco.mediaCliente.toLocaleString('es-ES', { maximumFractionDigits: 2 })}</b> €/MWh</span>
-                                <span>· Verif. <b className="text-white/60">{eco.costeVerifMwh.toLocaleString('es-ES', { maximumFractionDigits: 2 })}</b> €/MWh</span>
-                                <span>· Total <b className="text-white/60">{eco.totalMwh.toLocaleString('es-ES', { maximumFractionDigits: 2 })}</b> €/MWh</span>
-                                {eco.margen != null && <span>· Margen <b className="text-emerald-400">{eco.margen.toLocaleString('es-ES', { maximumFractionDigits: 2 })}</b> €/MWh</span>}
-                                <span className="ml-auto">Beneficio actual (sin oferta): <b className="text-white/60">{eur(eco.beneficioActual)}</b></span>
+                            {/* Desglose €/MWh */}
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                                {[
+                                    { label: 'Cliente', value: eco.mediaCliente, color: 'text-white/70' },
+                                    { label: 'Verificación', value: eco.costeVerifMwh, color: 'text-white/70' },
+                                    { label: 'Total', value: eco.totalMwh, color: 'text-white/70' },
+                                    { label: 'Margen', value: eco.margen, color: 'text-emerald-400' },
+                                ].map(({ label, value, color }) => value != null && (
+                                    <div key={label} className="bg-white/[0.02] border border-white/[0.05] rounded-xl px-3 py-2 text-center">
+                                        <p className="text-[8px] uppercase tracking-widest font-black text-white/25 mb-0.5">{label}</p>
+                                        <p className={`text-sm font-black ${color}`}>{value.toLocaleString('es-ES', { maximumFractionDigits: 2 })} <span className="text-[10px] font-normal text-white/30">€/MWh</span></p>
+                                    </div>
+                                ))}
                             </div>
+                            <p className="text-[10px] text-white/30 text-right">Beneficio sin oferta: <b className="text-white/50">{eur(eco.beneficioActual)}</b></p>
                         </div>
 
                         {/* Destinatarios */}
@@ -287,26 +313,41 @@ export function LoteDetailModal({ loteId, soList, verList, onClose, onChanged, o
                             </div>
                         </div>
 
-                        {/* Expedientes del lote */}
+                        {/* Expedientes del lote — colapsable */}
                         <div>
-                            <p className="text-[10px] uppercase tracking-[0.2em] font-black text-white/30 mb-2">Expedientes ({(lote.expedientes || []).length})</p>
-                            {(lote.expedientes || []).length === 0 ? (
-                                <p className="text-[12px] text-white/30 italic py-3">Sin expedientes. Añade el primero abajo; fijará el año y la CCAA del lote.</p>
-                            ) : (
-                                <div className="space-y-2">
-                                    {lote.expedientes.map(e => (
-                                        <ExpedienteCard
-                                            key={e.id}
-                                            exp={e}
-                                            onClick={() => onNavigateExpediente?.(e.id)}
-                                            rightAction={isBorrador ? (
-                                                <button onClick={() => removeExpediente(e.id)} disabled={busy} title="Quitar del lote"
-                                                    className="p-1.5 rounded-lg text-white/30 hover:text-red-400 hover:bg-red-500/10 transition-all shrink-0">
-                                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" /></svg>
-                                                </button>
-                                            ) : null}
-                                        />
-                                    ))}
+                            <button
+                                type="button"
+                                onClick={() => setShowExpedientes(v => !v)}
+                                className="w-full flex items-center justify-between gap-2 group"
+                            >
+                                <p className="text-[10px] uppercase tracking-[0.2em] font-black text-white/30 group-hover:text-white/50 transition-colors">
+                                    Expedientes ({(lote.expedientes || []).length})
+                                </p>
+                                <svg className={`w-4 h-4 text-white/30 group-hover:text-white/50 transition-all ${showExpedientes ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                </svg>
+                            </button>
+                            {showExpedientes && (
+                                <div className="mt-2">
+                                    {(lote.expedientes || []).length === 0 ? (
+                                        <p className="text-[12px] text-white/30 italic py-3">Sin expedientes. Añade el primero abajo; fijará el año y la CCAA del lote.</p>
+                                    ) : (
+                                        <div className="space-y-2">
+                                            {lote.expedientes.map(e => (
+                                                <ExpedienteCard
+                                                    key={e.id}
+                                                    exp={e}
+                                                    onClick={() => onNavigateExpediente?.(e.id)}
+                                                    rightAction={isBorrador ? (
+                                                        <button onClick={() => removeExpediente(e.id)} disabled={busy} title="Quitar del lote"
+                                                            className="p-1.5 rounded-lg text-white/30 hover:text-red-400 hover:bg-red-500/10 transition-all shrink-0">
+                                                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" /></svg>
+                                                        </button>
+                                                    ) : null}
+                                                />
+                                            ))}
+                                        </div>
+                                    )}
                                 </div>
                             )}
                         </div>
@@ -376,42 +417,55 @@ export function LoteDetailModal({ loteId, soList, verList, onClose, onChanged, o
                             </div>
                         )}
 
-                        {/* Documentos del lote */}
+                        {/* Acciones del lote */}
                         <div className="border-t border-white/5 pt-5">
-                            <p className="text-[10px] uppercase tracking-[0.2em] font-black text-white/30 mb-2">Documentos</p>
-                            <div className="flex flex-wrap gap-2">
+                            <p className="text-[10px] uppercase tracking-[0.2em] font-black text-white/30 mb-3">Acciones</p>
+                            <div className="space-y-2">
+                                {/* Anexo I + Cesión S.O. */}
                                 <button onClick={() => setShowAnexo(true)} disabled={!(lote.expedientes || []).length}
-                                    className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest bg-brand/15 text-brand border border-brand/30 hover:bg-brand/25 disabled:opacity-40 transition-all">
-                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-                                    Anexo I · Cesión (S.O.)
+                                    className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-bkg-surface border border-white/[0.06] hover:border-brand/30 hover:bg-brand/5 disabled:opacity-40 disabled:cursor-not-allowed transition-all group text-left">
+                                    <div className="shrink-0 w-8 h-8 rounded-lg bg-brand/10 border border-brand/20 flex items-center justify-center group-hover:bg-brand/20 transition-colors">
+                                        <svg className="w-4 h-4 text-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                                    </div>
+                                    <div className="min-w-0">
+                                        <p className="text-sm font-black text-white group-hover:text-brand transition-colors">Anexo I · Cesión S.O.</p>
+                                        <p className="text-[11px] text-white/40">Genera y envía el Anexo I y la Cesión de Ahorros al Sujeto Obligado</p>
+                                    </div>
+                                    <svg className="w-4 h-4 text-white/20 group-hover:text-brand/60 ml-auto shrink-0 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
                                 </button>
-                                <button onClick={() => setShowSolicitud(true)} disabled={!(lote.expedientes || []).length}
-                                    className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest bg-brand/15 text-brand border border-brand/30 hover:bg-brand/25 disabled:opacity-40 transition-all">
-                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /></svg>
-                                    Solicitud Verificación
-                                </button>
-                                <button onClick={() => setShowFactura(true)} disabled={!facturaEnabled || !(lote.expedientes || []).length || !lote.sujeto_obligado_id}
-                                    title={!facturaEnabled ? 'Disponible cuando el lote esté en "CAE EMITIDO – PTE PAGO BROKERGY"' : (!lote.sujeto_obligado_id ? 'Asigna primero el Sujeto Obligado' : 'Generar la factura de venta de CAEs al S.O.')}
-                                    className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest border transition-all disabled:opacity-40 ${lote.factura_so?.numero ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/25' : 'bg-brand/15 text-brand border-brand/30 hover:bg-brand/25'}`}>
-                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 14l6-6m-5.5.5h.01m4.99 5h.01M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16l3.5-2 3.5 2 3.5-2 3.5 2z" /></svg>
-                                    Factura S.O.{lote.factura_so?.numero ? ' ✓' : ''}
-                                </button>
-                            </div>
-                            {!facturaEnabled && (
-                                <p className="text-[10px] text-white/30 mt-1.5">La factura al S.O. se habilita cuando el lote esté en <b className="text-white/50">CAE EMITIDO – PTE PAGO BROKERGY</b>.</p>
-                            )}
-                        </div>
 
-                        {/* Estado del lote */}
-                        <div className="border-t border-white/5 pt-5">
-                            <p className="text-[10px] uppercase tracking-[0.2em] font-black text-white/30 mb-2">Estado del lote</p>
-                            <div className="flex items-center gap-2">
-                                <select value={lote.estado} disabled={busy} onChange={e => changeEstado(e.target.value)}
-                                    className="flex-1 bg-bkg-surface border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white focus:border-brand/40 focus:outline-none">
-                                    {LOTE_ESTADOS.map(s => <option key={s} value={s}>{s}</option>)}
-                                </select>
+                                {/* Solicitud Verificación */}
+                                <button onClick={() => setShowSolicitud(true)} disabled={!(lote.expedientes || []).length}
+                                    className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-bkg-surface border border-white/[0.06] hover:border-brand/30 hover:bg-brand/5 disabled:opacity-40 disabled:cursor-not-allowed transition-all group text-left">
+                                    <div className="shrink-0 w-8 h-8 rounded-lg bg-brand/10 border border-brand/20 flex items-center justify-center group-hover:bg-brand/20 transition-colors">
+                                        <svg className="w-4 h-4 text-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /></svg>
+                                    </div>
+                                    <div className="min-w-0">
+                                        <p className="text-sm font-black text-white group-hover:text-brand transition-colors">Solicitud de Verificación</p>
+                                        <p className="text-[11px] text-white/40">Genera y envía la solicitud formal al verificador</p>
+                                    </div>
+                                    <svg className="w-4 h-4 text-white/20 group-hover:text-brand/60 ml-auto shrink-0 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                                </button>
+
+                                {/* Factura S.O. */}
+                                <button onClick={() => setShowFactura(true)}
+                                    disabled={!facturaEnabled || !(lote.expedientes || []).length || !lote.sujeto_obligado_id}
+                                    title={!facturaEnabled ? 'Disponible a partir de "CAE EMITIDO – PTE PAGO BROKERGY"' : (!lote.sujeto_obligado_id ? 'Asigna primero el Sujeto Obligado' : '')}
+                                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl border disabled:opacity-40 disabled:cursor-not-allowed transition-all group text-left ${lote.factura_so?.numero ? 'bg-emerald-500/[0.06] border-emerald-500/20 hover:border-emerald-500/40 hover:bg-emerald-500/10' : 'bg-bkg-surface border-white/[0.06] hover:border-brand/30 hover:bg-brand/5'}`}>
+                                    <div className={`shrink-0 w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${lote.factura_so?.numero ? 'bg-emerald-500/15 border border-emerald-500/30 group-hover:bg-emerald-500/25' : 'bg-brand/10 border border-brand/20 group-hover:bg-brand/20'}`}>
+                                        <svg className={`w-4 h-4 ${lote.factura_so?.numero ? 'text-emerald-300' : 'text-brand'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 14l6-6m-5.5.5h.01m4.99 5h.01M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16l3.5-2 3.5 2 3.5-2 3.5 2z" /></svg>
+                                    </div>
+                                    <div className="min-w-0">
+                                        <p className={`text-sm font-black transition-colors ${lote.factura_so?.numero ? 'text-emerald-300' : 'text-white group-hover:text-brand'}`}>
+                                            Factura al S.O.{lote.factura_so?.numero ? ` · ${lote.factura_so.numero}` : ''}
+                                        </p>
+                                        <p className="text-[11px] text-white/40">
+                                            {lote.factura_so?.numero ? 'Factura emitida — ver o regenerar' : !facturaEnabled ? 'Se habilita en "CAE EMITIDO – PTE PAGO BROKERGY"' : 'Genera la factura de venta de CAEs al Sujeto Obligado'}
+                                        </p>
+                                    </div>
+                                    <svg className={`w-4 h-4 ml-auto shrink-0 transition-colors ${lote.factura_so?.numero ? 'text-emerald-300/40 group-hover:text-emerald-300/80' : 'text-white/20 group-hover:text-brand/60'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                                </button>
                             </div>
-                            <p className="text-[10px] text-white/30 mt-2">Para pasar a “Enviado a verificador” el lote necesita Verificador y al menos un expediente.</p>
                         </div>
 
                         {lote.notas && <p className="text-[12px] text-white/40 italic">📝 {lote.notas}</p>}
