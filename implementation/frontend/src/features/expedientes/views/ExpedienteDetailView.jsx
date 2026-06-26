@@ -443,9 +443,10 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
         const certificatesCost = overrides.certificates_cost ?? opInputs.certificates_cost ?? 250;
         const presupuesto = overrides.presupuesto ?? (parseFloat(opInputs.presupuesto || opInputs.importe_total) || 0);
 
-        const financials = calculateFinancials({
+        // Argumentos económicos comunes (todo menos el VOLUMEN de ahorro, que puede
+        // ser el ESTIMADO del CEE o el VERIFICADO por el verificador — ver abajo).
+        const finArgs = {
             presupuesto,
-            savingsKwh: savings.savingsKwh || 0,
             caePriceClient: caePriceClientBase,
             caePriceSO: caePriceSOBase,
             caePricePrescriptor: includeCommission ? (parseFloat(overrides.cae_prescriptor_rate ?? opInputs.cae_prescriptor_rate) || 0) : 0,
@@ -458,13 +459,33 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
             includeLegalization,
             legalizationMode,
             includeIrpf: true
-        });
+        };
+
+        // Economía ESTIMADA (dinámica): se calcula con el ahorro del CEE, exactamente
+        // como hasta ahora. Es read-only y se recalcula si cambia el CEE / SCOP / etc.
+        const financials = calculateFinancials({ ...finArgs, savingsKwh: savings.savingsKwh || 0 });
+
+        // ── Ahorro VERIFICADO (verificador, p. ej. Marwen) ───────────────────────
+        // Campo MANUAL e independiente. NO sustituye al estimado: es un dato aparte
+        // que persiste y sobre el que se calcula el pago real al cliente y el margen.
+        const verif = inst.verificacion || {};
+        const verifRaw = verif.ahorro_verificado_kwh;
+        const ahorroVerificadoKwh = (verifRaw !== null && verifRaw !== undefined && verifRaw !== '')
+            ? (parseFloat(verifRaw) || 0)
+            : null;
+        const financialsVerificado = ahorroVerificadoKwh != null
+            ? calculateFinancials({ ...finArgs, savingsKwh: ahorroVerificadoKwh })
+            : null;
 
         return {
             ...savings,
             ...financials,
             // Guardar para uso en UI
-            profit_neto: financials.profitBrokergy
+            profit_neto: financials.profitBrokergy,
+            // ── Verificación de ahorro (campo manual, mostrado junto al estimado) ──
+            savingsKwhVerificado: ahorroVerificadoKwh,
+            caeBonusVerificado: financialsVerificado ? financialsVerificado.caeBonus : null,
+            profitBrokergyVerificado: financialsVerificado ? financialsVerificado.profitBrokergy : null
         };
     }, [expediente, liveCee, liveInst]);
 
@@ -927,6 +948,38 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
                                 economico_override: {
                                     ...(base.economico_override || {}),
                                     cae_client_rate: newPrice
+                                }
+                            };
+                            setLiveInst(newInst);
+                            handleSave({ instalacion: newInst });
+                        }}
+                        onLiveVerified={(val) => {
+                            // Reflejo en vivo (sin persistir) del ahorro verificado mientras
+                            // se edita: recalcula pago al cliente y margen al momento. El dato
+                            // se introduce en kWh (= CAEs), tal cual lo da el verificador.
+                            const kwh = (val === null || val === '' || isNaN(val)) ? null : Math.round(parseFloat(val));
+                            setLiveInst(prev => {
+                                const base = prev || expediente.instalacion || {};
+                                return {
+                                    ...base,
+                                    verificacion: { ...(base.verificacion || {}), ahorro_verificado_kwh: kwh }
+                                };
+                            });
+                        }}
+                        onUpdateVerified={(val) => {
+                            // Confirmar = persistir el ahorro VERIFICADO (campo manual e
+                            // independiente del estimado), en kWh. Fuente del dato: verificador (Marwen).
+                            const base = liveInst || expediente.instalacion || {};
+                            const prevVerif = base.verificacion || {};
+                            const kwh = (val === null || val === '' || isNaN(val)) ? null : Math.round(parseFloat(val));
+                            const newInst = {
+                                ...base,
+                                verificacion: {
+                                    ...prevVerif,
+                                    ahorro_verificado_kwh: kwh,
+                                    fuente: 'MARWEN',
+                                    fecha: new Date().toISOString(),
+                                    registrado_por: user?.email || user?.nombre || null
                                 }
                             };
                             setLiveInst(newInst);

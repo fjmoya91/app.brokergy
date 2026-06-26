@@ -29,6 +29,7 @@ const setCachedProfile = (profile) => {
         prescriptor_id: profile.prescriptor_id,
         razon_social: profile.razon_social,
         logo_empresa: profile.logo_empresa,
+        avatar_url: profile.avatar_url,
         email: profile.email,
       };
       localStorage.setItem(PROFILE_CACHE_KEY, JSON.stringify(toCache));
@@ -167,6 +168,7 @@ export const AuthProvider = ({ children }) => {
                 razon_social: res.data.razon_social,
                 acronimo: res.data.acronimo,
                 logo_empresa: logo,
+                avatar_url: res.data.perfilCompleto?.avatar_url || null,
                 email: sessionData.user?.email,
             };
 

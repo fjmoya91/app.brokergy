@@ -24,6 +24,13 @@ function setCache(token, userData) {
     }
 }
 
+// Invalida la entrada cacheada de un token. Necesario cuando el propio usuario
+// edita su perfil (PATCH /api/usuarios/me): sin esto, el siguiente /me devolvería
+// el perfilCompleto stale hasta que caduque el TTL de 5 min.
+function invalidateAuthToken(token) {
+    if (token) authCache.delete(token);
+}
+
 const requireAuth = async (req, res, next) => {
     try {
         const authHeader = req.headers.authorization;
@@ -148,5 +155,6 @@ module.exports = {
     requireAuth,
     enforceAuth,
     adminOnly,
-    internalOnly
+    internalOnly,
+    invalidateAuthToken
 };

@@ -3,6 +3,8 @@ import axios from 'axios';
 import { useAuth } from '../../context/AuthContext';
 import { buildAccentVars } from '../../utils/partnerTheme';
 import { PrescriptorDetailModal } from '../../features/admin/views/PrescriptorDetailModal';
+import { AdminProfileModal } from '../../features/admin/views/AdminProfileModal';
+import { SidebarNetworkBackground } from '../SidebarNetworkBackground';
 import { ThemeToggle } from '../ThemeToggle';
 
 export function DashboardLayout({ children, activeTab, onTabChange }) {
@@ -22,6 +24,8 @@ export function DashboardLayout({ children, activeTab, onTabChange }) {
     // Ficha propia del partner (para abrir su perfil + teñir el portal con su color de marca)
     const [miPrescriptor, setMiPrescriptor] = useState(null);
     const [showProfile, setShowProfile] = useState(false);
+    // "Mi perfil" para usuarios internos (ADMIN/CERTIFICADOR), que no tienen ficha de prescriptor
+    const [showAdminProfile, setShowAdminProfile] = useState(false);
     useEffect(() => {
         if (!isPartner || !user?.prescriptor_id) { setMiPrescriptor(null); return; }
         axios.get('/api/prescriptores')
@@ -80,16 +84,28 @@ export function DashboardLayout({ children, activeTab, onTabChange }) {
             {/* ====== SIDEBAR ====== */}
             {/* Desktop: en el flujo flex, ancho fijo/colapsable (igual que siempre).
                 Móvil (max-md): drawer fijo off-canvas que se desliza con mobileMenuOpen. */}
-            <aside className={`bg-bkg-deep border-r border-white/[0.06] flex flex-col h-full flex-shrink-0 z-20 transition-all duration-300 ease-in-out ${isSidebarCollapsed ? 'w-20' : 'w-[280px]'} max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:z-50 max-md:w-[280px] max-md:shadow-2xl ${mobileMenuOpen ? 'max-md:translate-x-0' : 'max-md:-translate-x-full'}`}>
+            <aside className={`relative bg-bkg-deep border-r border-white/[0.06] flex flex-col h-full flex-shrink-0 z-20 transition-all duration-300 ease-in-out ${isSidebarCollapsed ? 'w-20' : 'w-[280px]'} max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:z-50 max-md:w-[280px] max-md:shadow-2xl ${mobileMenuOpen ? 'max-md:translate-x-0' : 'max-md:-translate-x-full'}`}>
+                {/* Fondo sutil de "red de partículas" (continuidad de marca con el login).
+                    Se tiñe con el color del partner si lo tiene; para admin es ámbar Brokergy. */}
+                <SidebarNetworkBackground color={isPartner ? (miPrescriptor?.landing_color_primary || null) : null} />
+
                 {/* ====== LOGO SECTION ====== */}
-                <div className={`p-4 ${isSidebarCollapsed ? 'sm:p-2' : 'sm:p-6'} flex items-center justify-center relative`}>
+                <div className={`relative z-10 p-4 ${isSidebarCollapsed ? 'sm:p-2' : 'sm:p-6'} flex items-center justify-center`}>
                     <div className={`w-full flex items-center justify-center transition-all ${isSidebarCollapsed ? 'h-10 w-10' : 'h-32'} relative`}>
                         {user?.rol?.toUpperCase() === 'ADMIN' ? (
-                            <img 
-                                src="/logo-brokergy-admin.png" 
-                                alt="Brokergy Admin" 
-                                className="max-w-full max-h-full object-contain transition-transform group-hover:scale-105"
-                            />
+                            user?.avatar_url ? (
+                                <img
+                                    src={user.avatar_url}
+                                    alt="Foto de perfil"
+                                    className={`object-cover rounded-full border border-white/10 transition-transform group-hover:scale-105 ${isSidebarCollapsed ? 'h-10 w-10' : 'h-28 w-28'}`}
+                                />
+                            ) : (
+                                <img
+                                    src="/logo-brokergy-admin.png"
+                                    alt="Brokergy Admin"
+                                    className="max-w-full max-h-full object-contain transition-transform group-hover:scale-105"
+                                />
+                            )
                         ) : user?.logo_empresa ? (
                             <img 
                                 src={user.logo_empresa} 
@@ -131,7 +147,7 @@ export function DashboardLayout({ children, activeTab, onTabChange }) {
                 </div>
 
                 {/* Tabs */}
-                <nav className="flex-1 px-4 space-y-3">
+                <nav className="relative z-10 flex-1 px-4 space-y-3">
                     {!isCertificador && (
                         <button
                             onClick={() => go('oportunidades')}
@@ -231,7 +247,7 @@ export function DashboardLayout({ children, activeTab, onTabChange }) {
 
                 {/* ====== WHATSAPP SECTION ====== */}
                 {user?.rol === 'ADMIN' && (
-                    <div className="px-4 pb-2">
+                    <div className="relative z-10 px-4 pb-2">
                         <button
                             onClick={() => go('whatsapp')}
                             className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all relative ${
@@ -265,12 +281,21 @@ export function DashboardLayout({ children, activeTab, onTabChange }) {
                 )}
 
                 {/* ====== USER PROFILE AT BOTTOM ====== */}
-                <div className="p-4 mt-auto space-y-3">
+                <div className="relative z-10 p-4 mt-auto space-y-3">
                     {(() => {
-                        const canOpenProfile = isPartner && !!miPrescriptor;
+                        // El partner abre su ficha de prescriptor; los usuarios internos
+                        // (ADMIN/CERTIFICADOR) abren su "Mi perfil" (tabla usuarios).
+                        const canOpenPartnerProfile = isPartner && !!miPrescriptor;
+                        const canOpenAdminProfile = (isAdmin || isCertificador) && !!user?.id_usuario;
+                        const canOpenProfile = canOpenPartnerProfile || canOpenAdminProfile;
+                        const openProfile = () => {
+                            if (canOpenPartnerProfile) setShowProfile(true);
+                            else if (canOpenAdminProfile) setShowAdminProfile(true);
+                        };
+                        const avatarUrl = user?.avatar_url;
                         return (
                     <div
-                        onClick={canOpenProfile ? () => setShowProfile(true) : undefined}
+                        onClick={canOpenProfile ? openProfile : undefined}
                         title={canOpenProfile ? 'Ver / editar mi perfil' : undefined}
                         className={`border border-white/[0.06] bg-bkg-surface rounded-2xl p-4 shadow-lg ${isSidebarCollapsed ? 'flex items-center justify-center px-0' : ''} ${canOpenProfile ? 'cursor-pointer hover:border-brand/30 hover:bg-bkg-hover transition-all group' : ''}`}>
                         {!isSidebarCollapsed && (
@@ -283,35 +308,44 @@ export function DashboardLayout({ children, activeTab, onTabChange }) {
                                         </svg>
                                     )}
                                 </div>
-                                <div className="flex flex-col gap-1 overflow-hidden">
-                                    <span className="text-sm font-black text-brand uppercase tracking-tight truncate" title={user?.acronimo || user?.razon_social || user?.nombre}>
-                                        {(user?.acronimo || user?.razon_social || `${user?.nombre || ''} ${user?.apellidos || ''}`).trim().toUpperCase() || 'USUARIO'}
-                                    </span>
-                                    {user?.razon_social && (
-                                        <div className="flex flex-col gap-1">
-                                            <span className="text-[9px] font-black text-white/30 lowercase tracking-widest bg-bkg-elevated px-1.5 py-0.5 rounded border border-white/[0.06] self-start truncate max-w-full">
-                                                {user?.email}
-                                            </span>
-                                            {/* Tag de rol auxiliar para depuración, solo si no es ADMIN puro */}
-                                            {userRole !== 'ADMIN' && (
-                                                <span className="text-[7px] font-black text-brand/40 uppercase tracking-[0.2em] self-start">
-                                                    {userRole || 'S/R'}
-                                                </span>
-                                            )}
-                                        </div>
+                                <div className="flex items-center gap-3 overflow-hidden">
+                                    {avatarUrl && (
+                                        <img src={avatarUrl} alt="" className="w-9 h-9 rounded-full object-cover border border-white/10 shrink-0" />
                                     )}
-                                    {!user?.razon_social && (
-                                        <span className="text-[9px] font-black text-brand uppercase tracking-widest bg-brand/10 px-1.5 py-0.5 rounded border border-brand/20 self-start truncate">
-                                            {userRole || 'USUARIO'}
+                                    <div className="flex flex-col gap-1 overflow-hidden min-w-0">
+                                        <span className="text-sm font-black text-brand uppercase tracking-tight truncate" title={user?.acronimo || user?.razon_social || user?.nombre}>
+                                            {(user?.acronimo || user?.razon_social || `${user?.nombre || ''} ${user?.apellidos || ''}`).trim().toUpperCase() || 'USUARIO'}
                                         </span>
-                                    )}
+                                        {user?.razon_social && (
+                                            <div className="flex flex-col gap-1">
+                                                <span className="text-[9px] font-black text-white/30 lowercase tracking-widest bg-bkg-elevated px-1.5 py-0.5 rounded border border-white/[0.06] self-start truncate max-w-full">
+                                                    {user?.email}
+                                                </span>
+                                                {/* Tag de rol auxiliar para depuración, solo si no es ADMIN puro */}
+                                                {userRole !== 'ADMIN' && (
+                                                    <span className="text-[7px] font-black text-brand/40 uppercase tracking-[0.2em] self-start">
+                                                        {userRole || 'S/R'}
+                                                    </span>
+                                                )}
+                                            </div>
+                                        )}
+                                        {!user?.razon_social && (
+                                            <span className="text-[9px] font-black text-brand uppercase tracking-widest bg-brand/10 px-1.5 py-0.5 rounded border border-brand/20 self-start truncate">
+                                                {userRole || 'USUARIO'}
+                                            </span>
+                                        )}
+                                    </div>
                                 </div>
                             </>
                         )}
                         {isSidebarCollapsed && (
-                            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-brand to-brand-700 flex items-center justify-center text-bkg-deep font-black text-[10px]" title={user?.acronimo || `${user?.nombre} ${user?.apellidos}`}>
-                                {user?.acronimo ? user.acronimo.substring(0, 2).toUpperCase() : `${user?.nombre?.charAt(0) || ''}${user?.apellidos?.charAt(0) || ''}`}
-                            </div>
+                            avatarUrl ? (
+                                <img src={avatarUrl} alt="" className="w-8 h-8 rounded-full object-cover border border-white/10" title={user?.acronimo || `${user?.nombre} ${user?.apellidos}`} />
+                            ) : (
+                                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-brand to-brand-700 flex items-center justify-center text-bkg-deep font-black text-[10px]" title={user?.acronimo || `${user?.nombre} ${user?.apellidos}`}>
+                                    {user?.acronimo ? user.acronimo.substring(0, 2).toUpperCase() : `${user?.nombre?.charAt(0) || ''}${user?.apellidos?.charAt(0) || ''}`}
+                                </div>
+                            )
                         )}
                     </div>
                         );
@@ -351,7 +385,11 @@ export function DashboardLayout({ children, activeTab, onTabChange }) {
                     </button>
                     <div className="flex items-center gap-2 min-w-0 flex-1">
                         {isAdmin ? (
-                            <img src="/logo-brokergy-admin.png" alt="Brokergy" className="h-7 w-auto object-contain" />
+                            user?.avatar_url ? (
+                                <img src={user.avatar_url} alt="Foto de perfil" className="h-8 w-8 object-cover rounded-full border border-white/10" />
+                            ) : (
+                                <img src="/logo-brokergy-admin.png" alt="Brokergy" className="h-7 w-auto object-contain" />
+                            )
                         ) : user?.logo_empresa ? (
                             <img src={user.logo_empresa} alt="" className="h-7 w-auto max-w-[140px] object-contain" />
                         ) : (
@@ -376,6 +414,14 @@ export function DashboardLayout({ children, activeTab, onTabChange }) {
                     prescriptor={miPrescriptor}
                     onClose={() => setShowProfile(false)}
                     onUpdated={(updated) => setMiPrescriptor(updated)}
+                />
+            )}
+
+            {/* ====== MI PERFIL (usuario interno: ADMIN / CERTIFICADOR) ====== */}
+            {showAdminProfile && (
+                <AdminProfileModal
+                    isOpen={showAdminProfile}
+                    onClose={() => setShowAdminProfile(false)}
                 />
             )}
         </div>

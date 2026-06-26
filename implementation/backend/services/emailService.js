@@ -1,9 +1,49 @@
 const nodemailer = require('nodemailer');
+const supabase = require('./supabaseClient');
 
 /**
  * Servicio de email para Brokergy
  * Usa SMTP de Hostinger con la cuenta brokergy@brokergy.es
  */
+
+// ─── Remitente configurable ──────────────────────────────────────────────────
+// El nombre visible y la dirección del remitente se pueden editar desde la ficha
+// de admin (tabla app_settings). Se autentica SIEMPRE con la cuenta SMTP de
+// process.env (SMTP_USER): la dirección "from" debe ser de ese mismo dominio para
+// que el correo no caiga en spam. Si no hay valor en BD, se usan los defaults.
+const DEFAULT_FROM_NAME = process.env.EMAIL_FROM_NAME || 'BROKERGY · Ingeniería Energética';
+const DEFAULT_FROM_ADDRESS = process.env.EMAIL_FROM || process.env.SMTP_USER || 'brokergy@brokergy.es';
+const SENDER_TTL_MS = 60 * 1000;
+let senderCache = null;
+let senderCachedAt = 0;
+
+async function getSender() {
+    if (senderCache && (Date.now() - senderCachedAt) < SENDER_TTL_MS) return senderCache;
+    let name = DEFAULT_FROM_NAME;
+    let address = DEFAULT_FROM_ADDRESS;
+    try {
+        const { data } = await supabase
+            .from('app_settings')
+            .select('key, value')
+            .in('key', ['email_from_name', 'email_from_address']);
+        if (data) {
+            const map = Object.fromEntries(data.map(r => [r.key, r.value]));
+            if (map.email_from_name) name = map.email_from_name;
+            if (map.email_from_address) address = map.email_from_address;
+        }
+    } catch (err) {
+        console.error('[Email] No se pudo leer el remitente configurado, usando defaults:', err.message);
+    }
+    senderCache = { name, address };
+    senderCachedAt = Date.now();
+    return senderCache;
+}
+
+// Invalida la caché del remitente (se llama tras editar el ajuste en /api/settings)
+function invalidateSenderCache() {
+    senderCache = null;
+    senderCachedAt = 0;
+}
 
 const escapeHtml = (str) => String(str ?? '')
     .replace(/&/g, '&amp;')
@@ -29,8 +69,9 @@ const transporter = nodemailer.createTransport({
  * Envía un email genérico
  */
 const sendMail = async ({ to, subject, html, text, attachments }) => {
-    const from = '"BROKERGY · Ingeniería Energética" <brokergy@brokergy.es>';
-    
+    const sender = await getSender();
+    const from = `"${sender.name}" <${sender.address}>`;
+
     try {
         const info = await transporter.sendMail({
             from,
@@ -173,28 +214,44 @@ const sendPasswordResetEmail = async (to, resetLink, userName) => {
  * Envía un resumen de propuesta al lead cuando elige "enviar por email"
  * en el funnel público. No requiere PDF, solo los números clave.
  */
-const sendLeadSummaryEmail = async ({ to, nombre, idOportunidad, cae, irpf, neta, ahorro, uploadLink }) => {
-    const fmtEur = (n) => `${new Intl.NumberFormat('es-ES', { maximumFractionDigits: 0 }).format(Math.abs(n || 0))} €`;
+const sendLeadSummaryEmail = async ({
+    to, nombre, idOportunidad,
+    cae = 0, irpf = 0, neta = 0, ahorro = 0,
+    uploadLink = null,
+    type = 'completa', isReforma = false,
+    fuelLabel = null, co2 = 0,
+    presupuestoEstimado = false, partner = null,
+    edadCaldera = null, timeline = null,
+}) => {
+    const { productNoun, fuelDependPhrase, co2Text, urgencyLine, AHORRO_LOW_THRESHOLD } = require('./leadMessages');
+    const fmtEur = (n) => `${new Intl.NumberFormat('es-ES', { maximumFractionDigits: 0 }).format(Math.abs(Number(n) || 0))} €`;
     const primerNombre = (nombre || '').split(' ')[0] || 'cliente';
-    const subject = `Tu propuesta Brokergy — ${idOportunidad}`;
-    const total = cae + irpf;
+    const total = Number(cae) + Number(irpf);
+    const esSuave = type === 'suave';
+    const prod = productNoun(isReforma);            // 'tu reforma' | 'el cambio a aerotermia'
+    const partnerName = partner && partner.nombre ? partner.nombre : null;
 
-    const html = `<!DOCTYPE html>
-<html lang="es">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-<body style="margin:0;padding:0;background:#0f172a;font-family:Arial,sans-serif;">
-  <table width="100%" cellpadding="0" cellspacing="0" style="background:#0f172a;padding:40px 16px;">
-    <tr><td align="center">
-      <table width="100%" style="max-width:560px;background:#1e293b;border-radius:24px;overflow:hidden;border:1px solid rgba(255,255,255,0.08);">
-        <!-- Header -->
-        <tr><td style="padding:32px 32px 20px;text-align:center;background:linear-gradient(135deg,#1e293b,#0f172a);">
-          <div style="font-size:22px;font-weight:900;letter-spacing:-0.5px;color:#fff;">
-            BROKER<span style="color:#f59e0b">GY</span>
-          </div>
-          <h1 style="color:#fff;font-size:20px;font-weight:900;margin:16px 0 6px;">¡Hola, ${primerNombre}!</h1>
-          <p style="color:rgba(255,255,255,0.55);font-size:14px;margin:0;">Tu estimación de ayudas energéticas</p>
-        </td></tr>
+    // Asunto según tipo / co-branding
+    const subject = esSuave
+        ? `Hemos recibido tu solicitud — ${idOportunidad}`
+        : (partnerName
+            ? `Tu propuesta de ayudas con ${partnerName} — ${idOportunidad}`
+            : `Tu propuesta de ayudas — ${idOportunidad}`);
 
+    const cobrandHeader = partnerName
+        ? `<p style="color:rgba(255,255,255,0.4);font-size:11px;margin:6px 0 0;">en colaboración con <strong style="color:#f59e0b;">${partnerName}</strong></p>`
+        : '';
+
+    const subtitle = esSuave
+        ? `Hemos recibido tu solicitud para ${prod}`
+        : (isReforma ? 'Tu estimación de ayudas por la reforma' : 'Tu estimación de ayudas energéticas');
+
+    // ── Bloque de cifras (solo propuesta completa) ──
+    const ahorroLabel = isReforma ? 'Ahorro en factura' : 'Ahorro en calefacción';
+    const showAhorro = Number(ahorro) >= AHORRO_LOW_THRESHOLD;
+    const urg = urgencyLine(edadCaldera, timeline);
+
+    const cifrasBlock = esSuave ? '' : `
         <!-- Cifras clave -->
         <tr><td style="padding:24px 32px;">
           <table width="100%" cellpadding="0" cellspacing="0">
@@ -202,16 +259,17 @@ const sendLeadSummaryEmail = async ({ to, nombre, idOportunidad, cae, irpf, neta
               <td width="48%" style="background:rgba(16,185,129,0.12);border:2px solid rgba(16,185,129,0.4);border-radius:16px;padding:16px;text-align:center;">
                 <div style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:1.5px;color:rgba(52,211,153,0.8);margin-bottom:6px;">Ayuda total estimada</div>
                 <div style="font-size:28px;font-weight:900;color:#34d399;">${fmtEur(total)}</div>
-                <div style="font-size:10px;color:rgba(52,211,153,0.6);margin-top:4px;font-weight:700;text-transform:uppercase;letter-spacing:1px;">incluye CAE${irpf > 0 ? ' + IRPF' : ''}</div>
+                <div style="font-size:10px;color:rgba(52,211,153,0.6);margin-top:4px;font-weight:700;text-transform:uppercase;letter-spacing:1px;">incluye CAE${Number(irpf) > 0 ? ' + IRPF' : ''}</div>
               </td>
               <td width="4%"></td>
               <td width="48%" style="background:rgba(245,158,11,0.12);border:2px solid rgba(245,158,11,0.4);border-radius:16px;padding:16px;text-align:center;">
                 <div style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:1.5px;color:rgba(251,191,36,0.8);margin-bottom:6px;">Tu inversión neta</div>
-                <div style="font-size:28px;font-weight:900;color:#fbbf24;">${fmtEur(neta)}</div>
+                <div style="font-size:28px;font-weight:900;color:#fbbf24;">${fmtEur(neta)}${presupuestoEstimado ? '<span style="font-size:16px;">*</span>' : ''}</div>
                 <div style="font-size:10px;color:rgba(251,191,36,0.6);margin-top:4px;font-weight:700;text-transform:uppercase;letter-spacing:1px;">tras todas las ayudas</div>
               </td>
             </tr>
           </table>
+          ${presupuestoEstimado ? `<p style="color:rgba(255,255,255,0.35);font-size:10px;margin:10px 2px 0;line-height:1.5;">* La inversión neta es orientativa: la hemos calculado con un presupuesto estimado de 15.000 €. Se ajustará con el presupuesto real de tu instalador.</p>` : ''}
         </td></tr>
 
         <!-- Desglose -->
@@ -225,12 +283,12 @@ const sendLeadSummaryEmail = async ({ to, nombre, idOportunidad, cae, irpf, neta
               <td style="padding:12px 16px;font-size:13px;color:rgba(255,255,255,0.8);">Bono Energético CAE</td>
               <td style="padding:12px 16px;font-size:13px;font-weight:700;color:#34d399;text-align:right;">${fmtEur(cae)}</td>
             </tr>
-            ${irpf > 0 ? `<tr style="border-top:1px solid rgba(255,255,255,0.06);">
+            ${Number(irpf) > 0 ? `<tr style="border-top:1px solid rgba(255,255,255,0.06);">
               <td style="padding:12px 16px;font-size:13px;color:rgba(255,255,255,0.8);">Deducción en el IRPF</td>
               <td style="padding:12px 16px;font-size:13px;font-weight:700;color:#34d399;text-align:right;">${fmtEur(irpf)}</td>
             </tr>` : ''}
-            ${ahorro > 0 ? `<tr style="border-top:1px solid rgba(255,255,255,0.06);">
-              <td style="padding:12px 16px;font-size:13px;color:rgba(255,255,255,0.8);">Ahorro en calefacción</td>
+            ${showAhorro ? `<tr style="border-top:1px solid rgba(255,255,255,0.06);">
+              <td style="padding:12px 16px;font-size:13px;color:rgba(255,255,255,0.8);">${ahorroLabel}</td>
               <td style="padding:12px 16px;font-size:13px;font-weight:700;color:#60a5fa;text-align:right;">${fmtEur(ahorro)}/año</td>
             </tr>` : ''}
             <tr style="background:rgba(0,0,0,0.3);border-top:1px solid rgba(255,255,255,0.1);">
@@ -238,13 +296,41 @@ const sendLeadSummaryEmail = async ({ to, nombre, idOportunidad, cae, irpf, neta
               <td style="padding:12px 16px;font-size:15px;font-weight:900;color:#34d399;text-align:right;">${fmtEur(total)}</td>
             </tr>
           </table>
-        </td></tr>
+          ${!showAhorro ? `<p style="color:rgba(255,255,255,0.5);font-size:12px;margin:12px 2px 0;line-height:1.6;">Además, ganas en confort estable todo el año y dejas de depender ${fuelDependPhrase(fuelLabel)} y de sus subidas de precio${co2Text(co2)}.</p>` : ''}
+          ${urg ? `<p style="color:rgba(251,191,36,0.85);font-size:12px;margin:12px 2px 0;line-height:1.6;">${urg}</p>` : ''}
+        </td></tr>`;
 
+    // ── Bloque suave (mensaje sin cifras) ──
+    const suaveBlock = esSuave ? `
+        <tr><td style="padding:24px 32px 8px;">
+          <div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.25);border-radius:16px;padding:22px;text-align:center;">
+            <p style="color:#fff;font-size:15px;font-weight:900;margin:0 0 8px;">Un técnico revisará tu expediente</p>
+            <p style="color:rgba(255,255,255,0.7);font-size:13px;margin:0;line-height:1.6;">Lo estudiará un especialista y te contactará lo antes posible para darte una propuesta de ayudas a tu medida.</p>
+          </div>
+        </td></tr>` : '';
+
+    const html = `<!DOCTYPE html>
+<html lang="es">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#0f172a;font-family:Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#0f172a;padding:40px 16px;">
+    <tr><td align="center">
+      <table width="100%" style="max-width:560px;background:#1e293b;border-radius:24px;overflow:hidden;border:1px solid rgba(255,255,255,0.08);">
+        <!-- Header -->
+        <tr><td style="padding:32px 32px 20px;text-align:center;background:linear-gradient(135deg,#1e293b,#0f172a);">
+          <div style="font-size:22px;font-weight:900;letter-spacing:-0.5px;color:#fff;">
+            BROKER<span style="color:#f59e0b">GY</span>
+          </div>
+          ${cobrandHeader}
+          <h1 style="color:#fff;font-size:20px;font-weight:900;margin:16px 0 6px;">¡Hola, ${primerNombre}!</h1>
+          <p style="color:rgba(255,255,255,0.55);font-size:14px;margin:0;">${subtitle}</p>
+        </td></tr>
+${cifrasBlock}${suaveBlock}
         ${uploadLink ? `
         <!-- CTA: Subir documentación -->
-        <tr><td style="padding:0 32px 16px;">
+        <tr><td style="padding:${esSuave ? '16px' : '0'} 32px 16px;">
           <div style="background:linear-gradient(135deg,rgba(37,211,102,0.18),rgba(37,211,102,0.06));border:2px solid rgba(37,211,102,0.4);border-radius:16px;padding:20px;text-align:center;">
-            <p style="color:#fff;font-size:14px;font-weight:900;margin:0 0 6px 0;">📸 Ayúdanos a afinar tu propuesta</p>
+            <p style="color:#fff;font-size:14px;font-weight:900;margin:0 0 6px 0;">📸 ${esSuave ? 'Adelanta el proceso' : 'Ayúdanos a afinar tu propuesta'}</p>
             <p style="color:rgba(255,255,255,0.7);font-size:12px;margin:0 0 14px 0;line-height:1.5;">
               Sube algunas fotos de tu vivienda e instalación actual. 2 minutos desde el móvil.
             </p>
@@ -258,16 +344,16 @@ const sendLeadSummaryEmail = async ({ to, nombre, idOportunidad, cae, irpf, neta
         <!-- Siguiente paso -->
         <tr><td style="padding:0 32px 32px;">
           <div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.25);border-radius:16px;padding:20px;text-align:center;">
-            <p style="color:rgba(255,255,255,0.7);font-size:13px;margin:0 0 6px 0;">
+            ${esSuave ? '' : `<p style="color:rgba(255,255,255,0.7);font-size:13px;margin:0 0 6px 0;">
               Un técnico de Brokergy revisará tu expediente y te contactará en breve con la propuesta definitiva.
-            </p>
+            </p>`}
             <p style="color:rgba(255,255,255,0.35);font-size:11px;margin:0;">Ref: <strong style="color:rgba(251,191,36,0.7);font-family:monospace;">${idOportunidad}</strong></p>
           </div>
         </td></tr>
 
         <!-- Footer -->
         <tr><td style="padding:16px 32px;border-top:1px solid rgba(255,255,255,0.06);text-align:center;">
-          <p style="color:rgba(255,255,255,0.2);font-size:10px;margin:0;text-transform:uppercase;letter-spacing:2px;font-weight:700;">Brokergy · Ingeniería Energética</p>
+          <p style="color:rgba(255,255,255,0.2);font-size:10px;margin:0;text-transform:uppercase;letter-spacing:2px;font-weight:700;">${partnerName ? `Enviado por Brokergy, partner energético de ${partnerName}` : 'Brokergy · Ingeniería Energética'}</p>
           <p style="color:rgba(255,255,255,0.15);font-size:10px;margin:6px 0 0;">Estimación teórica sujeta a verificación técnica. El bono CAE está garantizado por Brokergy.</p>
         </td></tr>
       </table>
@@ -276,7 +362,9 @@ const sendLeadSummaryEmail = async ({ to, nombre, idOportunidad, cae, irpf, neta
 </body>
 </html>`;
 
-    const text = `Tu propuesta de Brokergy\n\nHola ${primerNombre},\n\nAquí tienes tu estimación de ayudas:\n\nBono CAE: ${fmtEur(cae)}\n${irpf > 0 ? `Deducción IRPF: ${fmtEur(irpf)}\n` : ''}Ayuda total: ${fmtEur(total)}\nTu inversión neta: ${fmtEur(neta)}\n${ahorro > 0 ? `Ahorro anual: ${fmtEur(ahorro)}/año\n` : ''}\nRef: ${idOportunidad}\n\nBrokergy · brokergy.es`;
+    const text = esSuave
+        ? `Hemos recibido tu solicitud para ${prod}.\n\nHola ${primerNombre},\n\nUn técnico revisará tu expediente y te contactará lo antes posible para darte una propuesta de ayudas a tu medida.\n${uploadLink ? `\nPuedes adelantar el proceso subiendo fotos aquí: ${uploadLink}\n` : ''}\nRef: ${idOportunidad}\n\nBrokergy · brokergy.es`
+        : `Tu propuesta de Brokergy${partnerName ? ` (en colaboración con ${partnerName})` : ''}\n\nHola ${primerNombre},\n\nAquí tienes tu estimación de ayudas para ${prod}:\n\nBono CAE: ${fmtEur(cae)}\n${Number(irpf) > 0 ? `Deducción IRPF: ${fmtEur(irpf)}\n` : ''}Ayuda total: ${fmtEur(total)}\nTu inversión neta: ${fmtEur(neta)}${presupuestoEstimado ? ' (orientativa, presupuesto estimado 15.000 €)' : ''}\n${showAhorro ? `${ahorroLabel}: ${fmtEur(ahorro)}/año\n` : ''}\nRef: ${idOportunidad}\n\nBrokergy · brokergy.es`;
 
     return sendMail({ to, subject, html, text });
 };
@@ -1605,6 +1693,8 @@ const sendCeeRegistradoStaffEmail = async (to, isPartner, numExp, clientName, ub
 
 module.exports = {
     sendMail,
+    getSender,
+    invalidateSenderCache,
     verifySmtp,
     sendPasswordResetEmail,
     sendLeadSummaryEmail,

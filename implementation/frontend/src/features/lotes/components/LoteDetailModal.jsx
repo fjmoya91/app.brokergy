@@ -3,12 +3,16 @@ import axios from 'axios';
 import { useModal } from '../../../context/ModalContext';
 import { LOTE_ESTADOS, loteEstadoBadge } from '../loteConstants';
 import { computeExpedienteFinancials } from '../../expedientes/logic/expedienteFinancials';
+import { computeLoteEco } from '../logic/loteEco';
 import { AnexoListadoModal } from './AnexoListadoModal';
 import { SolicitudVerificacionModal } from './SolicitudVerificacionModal';
+import { FacturaSoModal } from './FacturaSoModal';
 
 const presName = (p) => p ? (p.acronimo || p.razon_social || '—') : null;
 const eur = (n) => (Number(n) || 0).toLocaleString('es-ES', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
 const mwh = (n) => `${((Number(n) || 0) / 1000).toLocaleString('es-ES', { maximumFractionDigits: 1 })} MWh`;
+// Verificado en kWh (= CAEs): la factura al S.O. se emite medida en kWh.
+const kwh = (n) => `${Math.round(Number(n) || 0).toLocaleString('es-ES')} kWh`;
 
 // Tarjeta de expediente compartida (idéntica en la lista del lote y en el picker):
 // nº + estado, nombre del cliente, dirección y los 3 importes. `rightAction` = botón
@@ -28,6 +32,14 @@ function ExpedienteCard({ exp, onClick, rightAction }) {
                 <span className="text-emerald-400">{eur(f.cae)}</span>
                 <span className="text-amber-400">▲ {eur(f.profit)}</span>
             </span>
+            {f.savingsKwhVerificado != null && (
+                <span className="flex items-center gap-2.5 text-[10px] font-black mt-0.5" title="Ahorro verificado (factura al S.O.)">
+                    <span className="text-[8px] uppercase tracking-widest text-amber-400/70">Verif</span>
+                    <span className="text-cyan-300">⚡ {kwh(f.savingsKwhVerificado)}</span>
+                    <span className="text-emerald-300">{eur(f.caeVerificado)}</span>
+                    <span className="text-amber-300">▲ {eur(f.profitVerificado)}</span>
+                </span>
+            )}
         </>
     );
     return (
@@ -55,8 +67,11 @@ export function LoteDetailModal({ loteId, soList, verList, onClose, onChanged, o
     const [ofertaInput, setOfertaInput] = useState('');
     const [showAnexo, setShowAnexo] = useState(false);
     const [showSolicitud, setShowSolicitud] = useState(false);
+    const [showFactura, setShowFactura] = useState(false);
 
     const isBorrador = lote?.estado === 'BORRADOR';
+    // La factura al S.O. se habilita a partir de "CAE EMITIDO – PTE PAGO BROKERGY".
+    const facturaEnabled = LOTE_ESTADOS.indexOf(lote?.estado) >= LOTE_ESTADOS.indexOf('CAE EMITIDO – PTE PAGO BROKERGY');
 
     const refresh = useCallback(async () => {
         const { data } = await axios.get(`/api/lotes/${loteId}`);
@@ -99,25 +114,7 @@ export function LoteDetailModal({ loteId, soList, verList, onClose, onChanged, o
     // Resumen económico del lote (modelo del Excel del usuario).
     //   beneficioLote = ofertaLote(€/MWh) × ahorro(MWh) − pagoCliente(€) − costeVerif(€)
     //   beneficioActual = Σ profitBrokergy por expediente (el "antes", sin oferta de lote)
-    const eco = useMemo(() => {
-        const exps = (lote && lote.expedientes) || [];
-        const base = exps.reduce((a, e) => {
-            const f = computeExpedienteFinancials(e);
-            a.ahorroKwh += f.savingsKwh || 0;
-            a.pagoCliente += f.cae || 0;
-            a.beneficioActual += f.profit || 0;
-            return a;
-        }, { ahorroKwh: 0, pagoCliente: 0, beneficioActual: 0 });
-        const ahorroMwh = base.ahorroKwh / 1000;
-        const costeVerif = Number(lote?.coste_verificacion) || 0;
-        const ofertaLote = (lote?.oferta_lote != null && lote?.oferta_lote !== '') ? Number(lote.oferta_lote) : null;
-        const mediaCliente = ahorroMwh > 0 ? base.pagoCliente / ahorroMwh : 0;
-        const costeVerifMwh = ahorroMwh > 0 ? costeVerif / ahorroMwh : 0;
-        const totalMwh = mediaCliente + costeVerifMwh;
-        const margen = ofertaLote != null ? ofertaLote - totalMwh : null;
-        const beneficioLote = ofertaLote != null ? (ofertaLote * ahorroMwh - base.pagoCliente - costeVerif) : null;
-        return { ...base, ahorroMwh, costeVerif, ofertaLote, mediaCliente, costeVerifMwh, totalMwh, margen, beneficioLote };
-    }, [lote?.expedientes, lote?.coste_verificacion, lote?.oferta_lote]);
+    const eco = useMemo(() => computeLoteEco(lote), [lote?.expedientes, lote?.coste_verificacion, lote?.oferta_lote]);
 
     // Sincroniza los inputs de coste/oferta con el lote cargado.
     useEffect(() => {
@@ -213,16 +210,24 @@ export function LoteDetailModal({ loteId, soList, verList, onClose, onChanged, o
                                 <div className="bg-bkg-surface border border-white/[0.06] rounded-xl px-2 py-2.5 text-center">
                                     <p className="text-[8px] uppercase tracking-widest font-black text-white/30">Ahorro generado</p>
                                     <p className="text-sm sm:text-base font-black text-white mt-0.5 leading-tight">{mwh(eco.ahorroKwh)}</p>
+                                    <p className="text-[8px] text-white/25 mt-0.5">estimado</p>
+                                    {eco.hasVerif && (
+                                        <p className="text-[9px] font-black text-amber-300 mt-0.5 leading-tight" title="Ahorro verificado (base de la factura al S.O., en kWh)">
+                                            Verif: {kwh(eco.ahorroKwhVerif)}{!eco.fullyVerif ? ` · ${eco.nVerif}/${eco.nTotal}` : ''}
+                                        </p>
+                                    )}
                                 </div>
                                 <div className="bg-emerald-500/[0.06] border border-emerald-500/15 rounded-xl px-2 py-2.5 text-center">
                                     <p className="text-[8px] uppercase tracking-widest font-black text-emerald-300/60">Pago cliente</p>
                                     <p className="text-sm sm:text-base font-black text-emerald-300 mt-0.5 leading-tight">{eur(eco.pagoCliente)}</p>
                                     <p className="text-[8px] text-white/25 mt-0.5">a pagar al cliente</p>
+                                    {eco.hasVerif && <p className="text-[9px] font-black text-amber-300 mt-0.5 leading-tight">Verif: {eur(eco.pagoClienteVerif)}</p>}
                                 </div>
                                 <div className="bg-brand/[0.06] border border-brand/20 rounded-xl px-2 py-2.5 text-center">
                                     <p className="text-[8px] uppercase tracking-widest font-black text-brand/60">Beneficio lote</p>
                                     <p className="text-sm sm:text-base font-black text-brand mt-0.5 leading-tight">{eco.beneficioLote != null ? eur(eco.beneficioLote) : '—'}</p>
                                     <p className="text-[8px] text-white/25 mt-0.5">con oferta</p>
+                                    {eco.hasVerif && eco.beneficioLoteVerif != null && <p className="text-[9px] font-black text-amber-300 mt-0.5 leading-tight">Verif: {eur(eco.beneficioLoteVerif)}</p>}
                                 </div>
                             </div>
 
@@ -385,7 +390,16 @@ export function LoteDetailModal({ loteId, soList, verList, onClose, onChanged, o
                                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /></svg>
                                     Solicitud Verificación
                                 </button>
+                                <button onClick={() => setShowFactura(true)} disabled={!facturaEnabled || !(lote.expedientes || []).length || !lote.sujeto_obligado_id}
+                                    title={!facturaEnabled ? 'Disponible cuando el lote esté en "CAE EMITIDO – PTE PAGO BROKERGY"' : (!lote.sujeto_obligado_id ? 'Asigna primero el Sujeto Obligado' : 'Generar la factura de venta de CAEs al S.O.')}
+                                    className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest border transition-all disabled:opacity-40 ${lote.factura_so?.numero ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/25' : 'bg-brand/15 text-brand border-brand/30 hover:bg-brand/25'}`}>
+                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 14l6-6m-5.5.5h.01m4.99 5h.01M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16l3.5-2 3.5 2 3.5-2 3.5 2z" /></svg>
+                                    Factura S.O.{lote.factura_so?.numero ? ' ✓' : ''}
+                                </button>
                             </div>
+                            {!facturaEnabled && (
+                                <p className="text-[10px] text-white/30 mt-1.5">La factura al S.O. se habilita cuando el lote esté en <b className="text-white/50">CAE EMITIDO – PTE PAGO BROKERGY</b>.</p>
+                            )}
                         </div>
 
                         {/* Estado del lote */}
@@ -420,6 +434,13 @@ export function LoteDetailModal({ loteId, soList, verList, onClose, onChanged, o
                     lote={lote}
                     onClose={() => setShowSolicitud(false)}
                     onSent={() => { refresh().catch(() => {}); onChanged?.(); }}
+                />
+            )}
+            {showFactura && lote && (
+                <FacturaSoModal
+                    lote={lote}
+                    onClose={() => { setShowFactura(false); refresh().catch(() => {}); onChanged?.(); }}
+                    onGenerated={() => { refresh().catch(() => {}); onChanged?.(); }}
                 />
             )}
         </div>

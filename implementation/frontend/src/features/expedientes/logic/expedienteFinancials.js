@@ -3,10 +3,12 @@
 //
 // FUENTE ÚNICA DE VERDAD del dinero de un expediente. Extraído de
 // ExpedientesView para poder reusarlo también en el resumen de un LOTE.
-// Devuelve { ficha, savingsKwh, cae, profit }:
-//   · savingsKwh = ahorro de energía (kWh)
-//   · cae        = CAE del cliente (lo que se le paga)  → caeBonus
-//   · profit     = beneficio de Brokergy               → profitBrokergy
+// Devuelve { ficha, savingsKwh, cae, profit, savingsKwhVerificado, caeVerificado, profitVerificado }:
+//   · savingsKwh = ahorro de energía ESTIMADO (kWh, del CEE)
+//   · cae        = CAE del cliente estimado (lo que se le paga)  → caeBonus
+//   · profit     = beneficio de Brokergy estimado               → profitBrokergy
+//   · *Verificado = los mismos importes pero sobre el ahorro VERIFICADO (manual, kWh).
+//                   null si el expediente aún no tiene verificado.
 // ============================================================
 import {
     calculateSavings,
@@ -31,6 +33,10 @@ export function computeExpedienteFinancials(exp) {
     let cae = null;
     let profit = null;
     let savingsKwh = null;
+    // Economía VERIFICADA (ahorro manual del verificador, en kWh) — en paralelo al estimado.
+    let savingsKwhVerificado = null;
+    let caeVerificado = null;
+    let profitVerificado = null;
 
     if (ficha === 'RES060' || ficha === 'RES093') {
         // Priorizar CEE inicial (la demanda debe ser la misma en inicial y final para RES060/RES093)
@@ -80,9 +86,8 @@ export function computeExpedienteFinancials(exp) {
                 const overrides = inst.economico_override || {};
                 const includeCommission = overrides.include_commission ?? !!opInputs.include_commission;
 
-                const fin = calculateFinancials({
+                const finArgs = {
                     presupuesto: overrides.presupuesto ?? (parseFloat(inst.presupuesto_final) || parseFloat(opInputs.presupuesto || opInputs.importe_total) || 0),
-                    savingsKwh: sv.savingsKwh,
                     caePriceClient: overrides.cae_client_rate ?? (parseFloat(opInputs.cae_client_rate) || 95),
                     caePriceSO: overrides.cae_so_rate ?? (parseFloat(opInputs.cae_so_rate) || 160),
                     caePricePrescriptor: includeCommission ? (parseFloat(overrides.cae_prescriptor_rate ?? opInputs.cae_prescriptor_rate) || 0) : 0,
@@ -92,11 +97,21 @@ export function computeExpedienteFinancials(exp) {
                     includeLegalization: overrides.include_legalization ?? !!opInputs.include_legalization,
                     legalizationMode: overrides.legalization_mode ?? opInputs.legalization_mode ?? 'client',
                     includeIrpf: true
-                });
+                };
 
+                const fin = calculateFinancials({ ...finArgs, savingsKwh: sv.savingsKwh });
                 cae = fin.caeBonus;
                 profit = fin.profitBrokergy;
                 savingsKwh = sv.savingsKwh;
+
+                // Ahorro VERIFICADO (manual, kWh) → economía verificada con los mismos parámetros.
+                const vRaw = inst.verificacion?.ahorro_verificado_kwh;
+                if (vRaw !== null && vRaw !== undefined && vRaw !== '') {
+                    savingsKwhVerificado = parseFloat(vRaw) || 0;
+                    const finV = calculateFinancials({ ...finArgs, savingsKwh: savingsKwhVerificado });
+                    caeVerificado = finV.caeBonus;
+                    profitVerificado = finV.profitBrokergy;
+                }
             }
         }
     } else if (ficha === 'RES080') {
@@ -115,19 +130,27 @@ export function computeExpedienteFinancials(exp) {
 
             if (res080) {
                 const overrides = inst.economico_override || {};
-                const fin = calculateFinancials({
+                const finArgs = {
                     presupuesto: overrides.presupuesto ?? (parseFloat(inst.presupuesto_final) || parseFloat(opInputs.presupuesto || opInputs.importe_total) || 0),
-                    savingsKwh: res080.ahorroEnergiaFinalTotal,
                     caePriceClient: overrides.cae_client_rate ?? 60,
                     caePriceSO: overrides.cae_so_rate ?? 140,
                     includeIrpf: true
-                });
+                };
+                const fin = calculateFinancials({ ...finArgs, savingsKwh: res080.ahorroEnergiaFinalTotal });
                 cae = fin.caeBonus;
                 profit = fin.profitBrokergy;
                 savingsKwh = res080.ahorroEnergiaFinalTotal;
+
+                const vRaw = inst.verificacion?.ahorro_verificado_kwh;
+                if (vRaw !== null && vRaw !== undefined && vRaw !== '') {
+                    savingsKwhVerificado = parseFloat(vRaw) || 0;
+                    const finV = calculateFinancials({ ...finArgs, savingsKwh: savingsKwhVerificado });
+                    caeVerificado = finV.caeBonus;
+                    profitVerificado = finV.profitBrokergy;
+                }
             }
         }
     }
 
-    return { ficha, savingsKwh, cae, profit };
+    return { ficha, savingsKwh, cae, profit, savingsKwhVerificado, caeVerificado, profitVerificado };
 }

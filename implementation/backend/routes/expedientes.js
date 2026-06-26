@@ -72,6 +72,7 @@ function stripFinancials(exp) {
         const inst = { ...out.instalacion };
         delete inst.economico_override;
         delete inst.presupuesto_final;
+        delete inst.verificacion; // ahorro verificado = base del margen → solo ADMIN
         out.instalacion = inst;
     }
     // datos_calculo: puede venir como objeto anidado en `oportunidades` (detalle)

@@ -219,6 +219,9 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
                 irpf:   ds.irpfDeduction       || 0,
                 neta:   ds.inversionNetaCliente || 0,
                 ahorro: ds.ahorroAnualEur      || 0,
+                // Para el copy del mensaje al cliente (ahorro cualitativo si es bajo)
+                fuelLabel: ds.fuelLabel || null,
+                co2:    ds.co2TonsAvoided || 0,
             };
 
             const payload = {

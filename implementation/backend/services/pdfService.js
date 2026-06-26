@@ -70,7 +70,36 @@ async function imageToPdf(base64Image, mimeType) {
     }
 }
 
+/**
+ * Renderiza un HTML a un Buffer de PDF A4 (mismo motor que POST /api/pdf/generate).
+ * Pensado para reutilizar la generación de PDF desde otras rutas (p. ej. la
+ * factura del lote) sin duplicar la lógica de Puppeteer.
+ */
+async function htmlToPdf(html) {
+    if (!html || typeof html !== 'string') throw new Error('htmlToPdf: se requiere html');
+    let browser = null;
+    let page = null;
+    try {
+        browser = await getBrowser();
+        page = await browser.newPage();
+        await page.setViewport({ width: 794, height: 1123, deviceScaleFactor: 2 });
+        await page.setContent(html, { waitUntil: 'domcontentloaded', timeout: 60000 });
+        await new Promise(r => setTimeout(r, 1000));
+        try { await page.evaluate(() => document.fonts.ready); } catch (_) { }
+        const pdfBuffer = await page.pdf({
+            format: 'A4',
+            printBackground: true,
+            margin: { top: 0, right: 0, bottom: 0, left: 0 }
+        });
+        return Buffer.from(pdfBuffer);
+    } finally {
+        if (page) { try { await page.close(); } catch (_) { } }
+        if (browser) { try { await browser.close(); } catch (_) { } }
+    }
+}
+
 module.exports = {
     getBrowser,
-    imageToPdf
+    imageToPdf,
+    htmlToPdf
 };

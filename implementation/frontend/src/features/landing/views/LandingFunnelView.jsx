@@ -391,6 +391,9 @@ export default function LandingFunnelView({ route, mode = 'public', variant = 'd
                     irpf:   deliverySummaryRef.current.irpfDeduction          || 0,
                     neta:   deliverySummaryRef.current.inversionNetaCliente   || 0,
                     ahorro: deliverySummaryRef.current.ahorroAnualEur         || 0,
+                    // Para el copy del mensaje al cliente (ahorro cualitativo si es bajo)
+                    fuelLabel: deliverySummaryRef.current.fuelLabel || null,
+                    co2:    deliverySummaryRef.current.co2TonsAvoided || 0,
                 } : null,
                 contacto,
                 catastro: {

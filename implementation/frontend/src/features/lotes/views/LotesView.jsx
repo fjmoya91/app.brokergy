@@ -8,6 +8,7 @@ import { computeLoteEco } from '../logic/loteEco';
 const presName = (p) => p ? (p.acronimo || p.razon_social || '—') : null;
 const eur = (n) => (Number(n) || 0).toLocaleString('es-ES', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
 const mwh = (n) => `${((Number(n) || 0) / 1000).toLocaleString('es-ES', { maximumFractionDigits: 1 })} MWh`;
+const kwh = (n) => `${Math.round(Number(n) || 0).toLocaleString('es-ES')} kWh`;
 
 // ─── Modal de creación ──────────────────────────────────────────────────────────
 function CrearLoteModal({ soList, onClose, onCreated }) {
@@ -185,14 +186,17 @@ export function LotesView({ onNavigate }) {
                                 <div className="bg-bkg-base/40 rounded-lg px-2 py-1.5 text-center">
                                     <p className="text-[8px] uppercase tracking-widest font-black text-white/30">Ahorro</p>
                                     <p className="text-[12px] font-black text-white leading-tight">{mwh(eco.ahorroKwh)}</p>
+                                    {eco.hasVerif && <p className="text-[8px] font-black text-amber-300 leading-tight mt-0.5">V: {kwh(eco.ahorroKwhVerif)}</p>}
                                 </div>
                                 <div className="bg-emerald-500/[0.06] rounded-lg px-2 py-1.5 text-center">
                                     <p className="text-[8px] uppercase tracking-widest font-black text-emerald-300/50">Pago cliente</p>
                                     <p className="text-[12px] font-black text-emerald-300 leading-tight">{eur(eco.pagoCliente)}</p>
+                                    {eco.hasVerif && <p className="text-[8px] font-black text-amber-300 leading-tight mt-0.5">V: {eur(eco.pagoClienteVerif)}</p>}
                                 </div>
                                 <div className="bg-brand/[0.06] rounded-lg px-2 py-1.5 text-center">
                                     <p className="text-[8px] uppercase tracking-widest font-black text-brand/50">Beneficio</p>
                                     <p className="text-[12px] font-black text-brand leading-tight">{eur(eco.beneficio)}</p>
+                                    {eco.hasVerif && eco.beneficioLoteVerif != null && <p className="text-[8px] font-black text-amber-300 leading-tight mt-0.5">V: {eur(eco.beneficioLoteVerif)}</p>}
                                 </div>
                             </div>
                             <div className="mt-3 pt-3 border-t border-white/5 flex items-center justify-between">

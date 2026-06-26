@@ -5,6 +5,8 @@ const { adminOnly } = require('../middleware/auth');
 const geoCcaa = require('../services/geoCcaa');
 const loteService = require('../services/loteService');
 const marwenService = require('../services/marwenService');
+const driveService = require('../services/driveService');
+const { htmlToPdf } = require('../services/pdfService');
 
 const {
     MAX_RECOMENDADO, ESTADOS_COMPLETO, LOTE_ESTADOS,
@@ -44,19 +46,79 @@ async function validarPrescriptorTipo(id, tipo) {
     return { ok: true, value: data };
 }
 
+// Carpeta del lote en Drive: {DRIVE_ROOT}/LOTES/{codigo}. Se crea bajo demanda y
+// se cachea en lotes.drive_folder_id. Reutilizable para todos los docs del lote.
+async function ensureLoteFolder(lote) {
+    if (lote.drive_folder_id) return lote.drive_folder_id;
+    const root = process.env.DRIVE_ROOT_FOLDER_ID;
+    if (!root) throw new Error('DRIVE_ROOT_FOLDER_ID no está configurado');
+    const lotesRoot = await driveService.getOrCreateSubfolder(root, 'LOTES');
+    const name = lote.codigo || `LOTE-${String(lote.id).slice(0, 8)}`;
+    const folderId = await driveService.getOrCreateSubfolder(lotesRoot, name);
+    if (!folderId) throw new Error('No se pudo crear la carpeta del lote en Drive');
+    await supabase.from('lotes').update({ drive_folder_id: folderId, updated_at: nowIso() }).eq('id', lote.id);
+    return folderId;
+}
+
+// Siguiente número de factura de CAE para un año concreto: F-{año}CAE_{N}.
+// (La primera factura de CAE de un año es F-{año}CAE_1.) Lee del registro `facturas_so`.
+async function nextFacturaNumero(year) {
+    const { data } = await supabase.from('facturas_so').select('numero').like('numero', `F-${year}CAE_%`);
+    const re = new RegExp(`^F-${year}CAE_(\\d+)$`);
+    let max = 0;
+    for (const r of (data || [])) {
+        const m = String(r.numero || '').match(re);
+        if (m) max = Math.max(max, parseInt(m[1], 10));
+    }
+    const n = max + 1;
+    return { n, numero: `F-${year}CAE_${n}` };
+}
+
+// Upsert de la factura del lote (UNA por lote → onConflict lote_id). En borrador
+// NO se incluye `estado` (para no degradar una EMITIDA); al emitir se marca EMITIDA.
+async function upsertFacturaSo(lote, fields, opts = {}) {
+    const num = (v) => (v === '' || v === null || v === undefined || isNaN(Number(v))) ? null : Number(v);
+    const row = {
+        lote_id: lote.id,
+        numero: fields.numero ? String(fields.numero).trim() : null,
+        fecha: fields.fecha || null,
+        vencimiento: fields.vencimiento || null,
+        cae_inicial: fields.cae_inicial || null,
+        cae_final: fields.cae_final || null,
+        unidades_kwh: num(fields.unidades_kwh),
+        precio_kwh: num(fields.precio_kwh),
+        base: num(fields.base),
+        iva: num(fields.iva),
+        total: num(fields.total),
+        sujeto_obligado_id: lote.sujeto_obligado_id || null,
+        updated_at: nowIso(),
+    };
+    if (opts.emit) {
+        row.estado = 'EMITIDA';
+        row.drive_link = opts.drive_link || null;
+        row.drive_file_id = opts.drive_file_id || null;
+        row.generada_por = opts.generada_por || null;
+    }
+    const { data, error } = await supabase.from('facturas_so').upsert(row, { onConflict: 'lote_id' }).select().single();
+    if (error) throw error;
+    return data;
+}
+
 // Enriquece lotes con nombres de SO/Verificador y nº de expedientes.
 async function enrichLotes(lotes) {
     if (!lotes.length) return [];
     const presIds = [...new Set(lotes.flatMap(l => [l.sujeto_obligado_id, l.verificador_id]).filter(Boolean))];
     const loteIds = lotes.map(l => l.id);
 
-    const [presRes, expRes] = await Promise.all([
+    const [presRes, expRes, facRes] = await Promise.all([
         presIds.length
-            ? supabase.from('prescriptores').select('id_empresa, razon_social, acronimo, precio_referencia, codigo_identificacion, email, cif, direccion, codigo_postal, municipio, provincia, nombre_responsable, apellidos_responsable, nif_responsable, contactos_notificacion, contacto_notificaciones_activas').in('id_empresa', presIds)
+            ? supabase.from('prescriptores').select('id_empresa, razon_social, acronimo, precio_referencia, codigo_identificacion, email, cif, direccion, codigo_postal, municipio, provincia, nombre_responsable, apellidos_responsable, nif_responsable, landing_telefono_contacto, contactos_notificacion, contacto_notificaciones_activas').in('id_empresa', presIds)
             : Promise.resolve({ data: [] }),
         supabase.from('expedientes').select('id, lote_id, numero_expediente, cee, instalacion, documentacion, oportunidad_id').in('lote_id', loteIds),
+        supabase.from('facturas_so').select('*').in('lote_id', loteIds),
     ]);
     const presMap = new Map((presRes.data || []).map(p => [p.id_empresa, p]));
+    const facturaMap = new Map((facRes.data || []).map(f => [f.lote_id, f]));
     const countByLote = {};
     for (const e of (expRes.data || [])) countByLote[e.lote_id] = (countByLote[e.lote_id] || 0) + 1;
 
@@ -82,6 +144,9 @@ async function enrichLotes(lotes) {
             verificador: verObj ? { ...verObj, notify_email: resolveNotifyEmail(verObj) } : null,
             num_expedientes: countByLote[l.id] || 0,
             expedientes_eco: expByLote[l.id] || [],
+            // Factura al S.O. desde el registro `facturas_so` (una por lote). Sustituye al
+            // antiguo JSONB lotes.factura_so (que queda vestigial).
+            factura_so: facturaMap.get(l.id) || null,
         };
     });
 }
@@ -153,6 +218,19 @@ router.get('/elegibles', adminOnly, async (req, res) => {
     } catch (err) {
         console.error('[GET /lotes/elegibles]', err.message);
         res.status(500).json({ error: 'Error al listar expedientes elegibles' });
+    }
+});
+
+// ─── GET /api/lotes/factura-so/next-number?year=YYYY — nº de factura CAE sugerido ─
+// DEBE ir antes de '/:id' para que no lo capture la ruta paramétrica.
+router.get('/factura-so/next-number', adminOnly, async (req, res) => {
+    try {
+        const year = parseInt(req.query.year, 10) || new Date().getFullYear();
+        const result = await nextFacturaNumero(year);
+        res.json({ year, ...result });
+    } catch (err) {
+        console.error('[GET /lotes/factura-so/next-number]', err.message);
+        res.status(500).json({ error: 'Error al calcular el número de factura' });
     }
 });
 
@@ -300,6 +378,62 @@ router.patch('/:id', adminOnly, async (req, res) => {
     } catch (err) {
         console.error('[PATCH /lotes/:id]', err.message);
         res.status(500).json({ error: 'Error al actualizar el lote' });
+    }
+});
+
+// ─── PUT /api/lotes/:id/factura-so/draft — auto-guardado del borrador de factura ──
+// Persiste los campos según se editan (estado BORRADOR). Nunca se pierde el dato
+// aunque no se llegue a generar el PDF. Devuelve la fila de `facturas_so`.
+router.put('/:id/factura-so/draft', adminOnly, async (req, res) => {
+    try {
+        const { factura } = req.body || {};
+        if (!factura) return res.status(400).json({ error: 'Faltan los datos de la factura' });
+        const { data: lote, error } = await supabase.from('lotes').select('*').eq('id', req.params.id).maybeSingle();
+        if (error) throw error;
+        if (!lote) return res.status(404).json({ error: 'Lote no encontrado' });
+        const saved = await upsertFacturaSo(lote, factura);
+        res.json(saved);
+    } catch (err) {
+        console.error('[PUT /lotes/:id/factura-so/draft]', err.message);
+        res.status(500).json({ error: err.message || 'Error al guardar el borrador de factura' });
+    }
+});
+
+// ─── POST /api/lotes/:id/factura-so — generar y guardar la factura al S.O. ───────
+// Recibe el HTML (construido en el frontend, previsualizado) + los metadatos de la
+// factura. Asegura la carpeta del lote en Drive, genera el PDF, lo guarda y marca
+// la factura como EMITIDA en `facturas_so`. Devuelve el lote enriquecido.
+router.post('/:id/factura-so', adminOnly, async (req, res) => {
+    try {
+        const { html, factura } = req.body || {};
+        if (!html || !factura || !factura.numero) {
+            return res.status(400).json({ error: 'Faltan el HTML o el número de factura' });
+        }
+        const { data: lote, error } = await supabase.from('lotes').select('*').eq('id', req.params.id).maybeSingle();
+        if (error) throw error;
+        if (!lote) return res.status(404).json({ error: 'Lote no encontrado' });
+
+        const folderId = await ensureLoteFolder(lote);
+        const pdfBuffer = await htmlToPdf(html);
+        const fileName = `${lote.codigo || 'LOTE'} - ${factura.numero} - Factura S.O.`
+            .trim().replace(/[\\/<>:"|?*]/g, '_') + '.pdf';
+        const saved = await driveService.saveFileToFolder(folderId, fileName, 'application/pdf', pdfBuffer);
+        if (!saved) throw new Error('No se pudo guardar la factura en Drive');
+
+        await upsertFacturaSo(lote, factura, {
+            emit: true,
+            drive_link: saved.link,
+            drive_file_id: saved.id || null,
+            generada_por: usuarioDe(req),
+        });
+        await supabase.from('lotes').update({ drive_folder_id: folderId, updated_at: nowIso() }).eq('id', lote.id);
+
+        const { data: updated } = await supabase.from('lotes').select('*').eq('id', lote.id).maybeSingle();
+        const [enriched] = await enrichLotes([updated]);
+        res.json(enriched);
+    } catch (err) {
+        console.error('[POST /lotes/:id/factura-so]', err.message);
+        res.status(500).json({ error: err.message || 'Error al generar la factura' });
     }
 });
 

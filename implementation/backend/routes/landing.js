@@ -24,6 +24,7 @@ const { verifyTurnstileToken, isEnabled: isTurnstileEnabled } = require('../serv
 const { createLead } = require('../services/leadService');
 const reformaUploadService = require('../services/reformaUploadService');
 const { sendLeadSummaryEmail } = require('../services/emailService');
+const leadMessages = require('../services/leadMessages');
 
 // Regex de validación del slug (mismo que en SQL CHECK constraint)
 const SLUG_REGEX = /^[a-z0-9]([a-z0-9-]{1,78}[a-z0-9])$/;
@@ -264,6 +265,7 @@ router.post('/lead', requireAuth, geoGate, async (req, res) => {
     //      → su prescriptor_id (auto-asignación, no se pregunta en el form)
     //    - Si es público con partner_slug → resolver desde slug (landing white-label)
     let prescriptorId = null;
+    let partnerInfo = null;   // { nombre, tel } para el co-branding del mensaje al cliente
     const rol = (req.user?.rol_nombre || req.user?.rol || '').toUpperCase();
     if (isInternalReq && req.user?.prescriptor_id && rol !== 'ADMIN') {
         prescriptorId = req.user.prescriptor_id;
@@ -273,11 +275,17 @@ router.post('/lead', requireAuth, geoGate, async (req, res) => {
         }
         const { data: partner } = await supabase
             .from('prescriptores')
-            .select('id_empresa')
+            .select('id_empresa, acronimo, razon_social, landing_telefono_contacto')
             .eq('landing_slug', partner_slug)
             .eq('landing_activa', true)
             .maybeSingle();
         prescriptorId = partner?.id_empresa || null;
+        if (partner) {
+            partnerInfo = {
+                nombre: partner.acronimo || partner.razon_social || 'tu instalador',
+                tel: partner.landing_telefono_contacto || null,
+            };
+        }
     }
 
     // 3. Delegar al servicio
@@ -300,8 +308,9 @@ router.post('/lead', requireAuth, geoGate, async (req, res) => {
         const deliveryArr = Array.isArray(delivery_preference)
             ? delivery_preference
             : (delivery_preference ? [delivery_preference] : ['tecnico']);
-        const wantsWA    = deliveryArr.includes('whatsapp');
-        const wantsEmail = deliveryArr.includes('email');
+        const wantsWA      = deliveryArr.includes('whatsapp');
+        const wantsEmail   = deliveryArr.includes('email');
+        const wantsTecnico = deliveryArr.includes('tecnico');
 
         console.log(`[landing/lead] LEAD creado: ${result.id_oportunidad} (score=${result.lead_score}, caliente=${result.lead_caliente}, delivery=${deliveryArr.join(',')})`);
 
@@ -328,71 +337,79 @@ router.post('/lead', requireAuth, geoGate, async (req, res) => {
         // Los valores financieros vienen pre-calculados desde el frontend en
         // delivery_summary. Se ejecuta en background (setImmediate) para no
         // bloquear la respuesta.
-        if (wantsWA || wantsEmail) {
+        //
+        // Lógica comercial (ver services/leadMessages.js):
+        //   - Eligió "técnico" O bono CAE < 1.000 € → mensaje SUAVE (sin cifras
+        //     flojas, "un técnico revisará tu expediente").
+        //   - Eligió WhatsApp/email y CAE ≥ 1.000 € → PROPUESTA COMPLETA con
+        //     cifras y, en WhatsApp, PDF adjunto.
+        //   - Si eligió "técnico" se envía igualmente un acuse por el canal que
+        //     haya facilitado (antes no recibía nada).
+        const ds = delivery_summary || {};
+        const caeN  = ds.cae  || 0;
+        const messageType = leadMessages.pickMessageType({ wantsTecnico, caeNeto: caeN });
+
+        // Canales destino: si pidió técnico, acusamos por lo que tengamos;
+        // si no, respetamos los canales que eligió.
+        const toWA    = wantsTecnico ? !!contacto?.tlf   : (wantsWA    && !!contacto?.tlf);
+        const toEmail = wantsTecnico ? !!contacto?.email : (wantsEmail && !!contacto?.email);
+
+        if (toWA || toEmail) {
+            const msgArgs = {
+                type: messageType,
+                nombre: contacto?.nombre,
+                idOportunidad: result.id_oportunidad,
+                isReforma: !!funnel?.isReforma,
+                cae:    caeN,
+                irpf:   ds.irpf   || 0,
+                neta:   ds.neta   || 0,
+                ahorro: ds.ahorro || 0,
+                fuelLabel: ds.fuelLabel || null,
+                co2:    ds.co2 || 0,
+                uploadLink,
+                presupuestoEstimado: !(funnel?.presupuesto_modo === 'tengo' && Number(funnel?.presupuesto_eur) > 0),
+                partner: partnerInfo,
+                edadCaldera: funnel?.edad_caldera || null,
+                timeline: funnel?.timeline || null,
+            };
+
             setImmediate(async () => {
                 try {
-                    const ds    = delivery_summary || {};
-                    const nombre = contacto?.nombre?.split(' ')[0] || 'cliente';
-                    const fmtEur = (n) => `${new Intl.NumberFormat('es-ES', { maximumFractionDigits: 0 }).format(Math.abs(n || 0))} €`;
-                    const caeN   = ds.cae   || 0;
-                    const irpfN  = ds.irpf  || 0;
-                    const totalN = caeN + irpfN;
-                    const netaN  = ds.neta  || 0;
-                    const ahorroN = ds.ahorro || 0;
-
-                    if (wantsWA && contacto?.tlf) {
+                    if (toWA) {
                         const whatsappService = require('../services/whatsappService');
-                        // NO comprobamos status?.ready aquí: sendText() ya tiene cola
-                        // persistente en Supabase. Si WhatsApp no está listo en este
-                        // momento, el mensaje queda PENDING y se envía en cuanto reconecte.
-                        // El guard anterior causaba que el mensaje se eliminase en lugar
-                        // de encolarse, de ahí que el cliente no recibiese nada.
-                        const lines = [
-                            `¡Hola ${nombre}! 👋`,
-                            ``,
-                            `Hemos calculado tu simulación de ayudas para cambiar a aerotermia (Ref. *${result.id_oportunidad}*).`,
-                            ``,
-                            `🔹 *A modo resumen:*`,
-                            ``,
-                            `Instalando el sistema de aerotermia, podrías obtener una ayuda de *${fmtEur(caeN)}* gracias al Bono Energético BROKERGY.`,
-                        ];
-                        if (irpfN > 0) {
-                            lines.push('');
-                            lines.push(`Además, si en tu caso puedes acogerte a las deducciones en el IRPF por contar con retenciones aplicables y siempre que estén vigentes, el importe estimado sería de *${fmtEur(irpfN)}*. (Nosotros dejaremos toda la parte técnica preparada para que las puedas solicitar).`);
+                        const text = leadMessages.buildWhatsAppMessage(msgArgs);
+                        // En propuesta completa adjuntamos el PDF one-pager. sendMedia
+                        // exige cliente WhatsApp listo y puede fallar (puppeteer / no
+                        // ready) → en ese caso caemos a sendText (cola persistente),
+                        // así el cliente SIEMPRE recibe al menos el texto.
+                        let sent = false;
+                        if (messageType === 'completa') {
+                            try {
+                                const pdfBase64 = await leadMessages.generateProposalPdfBase64(msgArgs);
+                                await whatsappService.sendMedia(
+                                    contacto.tlf,
+                                    { base64: pdfBase64, filename: `Propuesta_Brokergy_${result.id_oportunidad}.pdf`, mimetype: 'application/pdf' },
+                                    { caption: text, splitCaption: true }
+                                );
+                                sent = true;
+                            } catch (e) {
+                                console.warn('[landing/delivery] PDF/sendMedia falló, fallback a texto:', e.message);
+                            }
                         }
-                        lines.push('');
-                        lines.push(`💡 *Resumen total de ayudas:* hasta *${fmtEur(totalN)}*.`);
-                        lines.push(`🏠 *Tu inversión neta tras ayudas:* *${fmtEur(netaN)}*.`);
-                        if (ahorroN > 0) {
-                            lines.push(`⚡ *Ahorro estimado en factura:* *${fmtEur(ahorroN)}* al año.`);
+                        if (!sent) {
+                            // sendText tiene cola persistente: si WhatsApp no está listo,
+                            // el mensaje queda PENDING y se envía al reconectar.
+                            await whatsappService.sendText(contacto.tlf, text);
                         }
-                        if (uploadLink) {
-                            lines.push('');
-                            lines.push(`📸 *Ayúdanos a afinar la propuesta* subiendo algunas fotos de tu vivienda e instalación actual. Te llevará 2 minutos desde el móvil:`);
-                            lines.push(uploadLink);
-                        }
-                        lines.push('');
-                        lines.push(`Un técnico de Brokergy revisará tu caso y te contactará para concretar la propuesta definitiva.`);
-                        lines.push('');
-                        lines.push(`Un saludo,`);
-                        lines.push(`*BROKERGY — Ingeniería Energética*`);
-                        lines.push(`info@brokergy.es · 623 926 179`);
-                        await whatsappService.sendText(contacto.tlf, lines.join('\n'));
-                        console.log(`[landing/delivery] WhatsApp encolado para ${contacto.tlf}`);
+                        console.log(`[landing/delivery] WhatsApp (${messageType}) → ${contacto.tlf}`);
                     }
 
-                    if (wantsEmail && contacto?.email) {
+                    if (toEmail) {
                         await sendLeadSummaryEmail({
                             to: contacto.email,
-                            nombre: contacto.nombre,
-                            idOportunidad: result.id_oportunidad,
-                            cae:    caeN,
-                            irpf:   irpfN,
-                            neta:   netaN,
-                            ahorro: ahorroN,
-                            uploadLink,
+                            ...msgArgs,
                         });
-                        console.log(`[landing/delivery] Email enviado a ${contacto.email}`);
+                        console.log(`[landing/delivery] Email (${messageType}) → ${contacto.email}`);
                     }
                 } catch (e) {
                     console.error('[landing/delivery] Error entregando propuesta al cliente:', e.message);
