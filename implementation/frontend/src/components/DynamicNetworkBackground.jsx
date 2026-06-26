@@ -6,6 +6,9 @@ const hexToRgb = (hex) => {
     return m ? { r: parseInt(m[1], 16), g: parseInt(m[2], 16), b: parseInt(m[3], 16) } : null;
 };
 
+// Colores de los puntos del fondo Brokergy = los del círculo del logo.
+const BRAND_DOT_COLORS = ['#FFA000', '#EFE778', '#AECD33'];
+
 // `color` (opcional): hex del partner para teñir nodos y líneas en la landing
 // white-label. Sin color → comportamiento por defecto (ámbar + azul Brokergy).
 export const DynamicNetworkBackground = ({ color = null }) => {
@@ -16,9 +19,11 @@ export const DynamicNetworkBackground = ({ color = null }) => {
         const ctx = canvas.getContext('2d');
         let animationFrameId;
         let particles = [];
-        const particleCount = 60;
-        const connectionDistance = 150;
-        const mouseRadius = 200;
+        let pulses = [];                    // "energía" viajando por las conexiones (efecto WOW)
+        const particleCount = 75;
+        const connectionDistance = 160;
+        const mouseRadius = 220;
+        const MAX_PULSES = 14;
 
         // Paleta: si hay color de partner, los nodos son su color (con algunos
         // blancos para dar profundidad) y las líneas su color. Si no, ámbar+azul.
@@ -37,14 +42,16 @@ export const DynamicNetworkBackground = ({ color = null }) => {
             constructor() {
                 this.x = Math.random() * canvas.width;
                 this.y = Math.random() * canvas.height;
-                this.size = Math.random() * 2 + 1;
+                // Antes 1–3px. Ahora 2.5–5.5px para que se vean más.
+                this.size = Math.random() * 3 + 2.5;
                 this.baseX = this.x;
                 this.baseY = this.y;
                 this.dx = (Math.random() - 0.5) * 0.8;
                 this.dy = (Math.random() - 0.5) * 0.8;
+                // Partner (white-label) → su color. Brokergy → paleta del logo.
                 this.color = nodeColor
                     ? (Math.random() > 0.8 ? '#FFFFFF' : nodeColor)
-                    : (Math.random() > 0.85 ? '#29B6F6' : '#FFA000');
+                    : BRAND_DOT_COLORS[Math.floor(Math.random() * BRAND_DOT_COLORS.length)];
             }
 
             update() {
@@ -68,14 +75,14 @@ export const DynamicNetworkBackground = ({ color = null }) => {
             }
 
             draw() {
+                // Glow ANTES del relleno para que el nodo ilumine de verdad.
+                ctx.shadowBlur = 12;
+                ctx.shadowColor = this.color;
                 ctx.beginPath();
                 ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
                 ctx.fillStyle = this.color;
                 ctx.fill();
-
-                // Brillo del nodo
-                ctx.shadowBlur = 10;
-                ctx.shadowColor = this.color;
+                ctx.shadowBlur = 0;
             }
         }
 
@@ -88,34 +95,80 @@ export const DynamicNetworkBackground = ({ color = null }) => {
 
         const draw = () => {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-            ctx.shadowBlur = 0; // Reset shadow for lines
 
+            // 1) Actualizar posiciones
+            for (let i = 0; i < particles.length; i++) particles[i].update();
+
+            // 2) LÍNEAS DE UNIÓN — degradado entre los colores de los dos nodos.
+            //    Metáfora: Brokergy une piezas distintas en una sola red.
+            ctx.shadowBlur = 0;
             for (let i = 0; i < particles.length; i++) {
-                particles[i].update();
-                particles[i].draw();
-
+                const pi = particles[i];
                 for (let j = i + 1; j < particles.length; j++) {
-                    const dx = particles[i].x - particles[j].x;
-                    const dy = particles[i].y - particles[j].y;
-                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    const pj = particles[j];
+                    const distance = Math.hypot(pi.x - pj.x, pi.y - pj.y);
+                    if (distance >= connectionDistance) continue;
 
-                    if (distance < connectionDistance) {
-                        // El color de la línea es un degradado entre los dos nodos
-                        const opacity = 1 - (distance / connectionDistance);
-                        ctx.strokeStyle = `rgba(${accentRgb.r}, ${accentRgb.g}, ${accentRgb.b}, ${opacity * 0.15})`;
-                        ctx.lineWidth = 1;
-                        ctx.beginPath();
-                        ctx.moveTo(particles[i].x, particles[i].y);
-                        ctx.lineTo(particles[j].x, particles[j].y);
-                        ctx.stroke();
+                    const strength = 1 - distance / connectionDistance;
+                    const grad = ctx.createLinearGradient(pi.x, pi.y, pj.x, pj.y);
+                    grad.addColorStop(0, pi.color);
+                    grad.addColorStop(1, pj.color);
+                    ctx.strokeStyle = grad;
+                    ctx.globalAlpha = strength * 0.55;          // antes 0.15 → ahora se ven
+                    ctx.lineWidth = 1 + strength * 0.8;
+                    ctx.beginPath();
+                    ctx.moveTo(pi.x, pi.y);
+                    ctx.lineTo(pj.x, pj.y);
+                    ctx.stroke();
 
-                        // Pequeño pulso de luz ocasional en la conexión
-                        if (Math.random() > 0.9995) {
-                            // Aquí se podría animar un pulso, pero simplificamos por rendimiento
-                        }
+                    // Sembrar un pulso de "energía" en conexiones fuertes, de tanto en tanto.
+                    if (strength > 0.55 && pulses.length < MAX_PULSES && Math.random() > 0.9993) {
+                        pulses.push({ i, j, t: 0, speed: 0.012 + Math.random() * 0.02,
+                            color: Math.random() > 0.5 ? pi.color : pj.color });
                     }
                 }
             }
+            ctx.globalAlpha = 1;
+
+            // 3) CONSTELACIÓN CON EL CURSOR — el usuario "conecta" las piezas cercanas.
+            if (mouse.x != null) {
+                for (let i = 0; i < particles.length; i++) {
+                    const pi = particles[i];
+                    const d = Math.hypot(mouse.x - pi.x, mouse.y - pi.y);
+                    if (d >= mouseRadius) continue;
+                    const strength = 1 - d / mouseRadius;
+                    ctx.strokeStyle = pi.color;
+                    ctx.globalAlpha = strength * 0.5;
+                    ctx.lineWidth = 1 + strength;
+                    ctx.beginPath();
+                    ctx.moveTo(mouse.x, mouse.y);
+                    ctx.lineTo(pi.x, pi.y);
+                    ctx.stroke();
+                }
+                ctx.globalAlpha = 1;
+            }
+
+            // 4) NODOS (con brillo, por encima de las líneas)
+            for (let i = 0; i < particles.length; i++) particles[i].draw();
+
+            // 5) PULSOS DE ENERGÍA viajando por las conexiones (aparecen/desaparecen suave)
+            ctx.shadowBlur = 12;
+            for (let k = pulses.length - 1; k >= 0; k--) {
+                const p = pulses[k];
+                p.t += p.speed;
+                if (p.t >= 1) { pulses.splice(k, 1); continue; }
+                const a = particles[p.i], b = particles[p.j];
+                const x = a.x + (b.x - a.x) * p.t;
+                const y = a.y + (b.y - a.y) * p.t;
+                ctx.shadowColor = p.color;
+                ctx.fillStyle = p.color;
+                ctx.globalAlpha = Math.sin(p.t * Math.PI);
+                ctx.beginPath();
+                ctx.arc(x, y, 2.6, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            ctx.globalAlpha = 1;
+            ctx.shadowBlur = 0;
 
             animationFrameId = requestAnimationFrame(draw);
         };

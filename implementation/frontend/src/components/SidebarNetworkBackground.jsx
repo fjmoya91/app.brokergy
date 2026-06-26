@@ -6,13 +6,17 @@ const hexToRgb = (hex) => {
     return m ? { r: parseInt(m[1], 16), g: parseInt(m[2], 16), b: parseInt(m[3], 16) } : null;
 };
 
-// Fondo de "red de partículas" SUTIL para el sidebar — continuidad de marca con el login.
-// Diferencias deliberadas con DynamicNetworkBackground (ese es a pantalla completa para el login):
+// Colores de los puntos del fondo Brokergy = los del círculo del logo.
+const BRAND_DOT_COLORS = ['#FFA000', '#EFE778', '#AECD33'];
+
+// Fondo de "red de partículas" para el sidebar — mismo lenguaje que el login
+// (líneas con degradado entre nodos + pulsos de energía), pero CONTENIDO y discreto.
+// Diferencias deliberadas con DynamicNetworkBackground (ese es a pantalla completa):
 //  - Se CONTIENE en su contenedor (no `fixed`); se dimensiona al padre con ResizeObserver.
-//  - Pocas partículas, movimiento lento y baja opacidad → no distrae ni penaliza rendimiento.
+//  - Pocas partículas, movimiento lento → no distrae ni penaliza rendimiento.
 //  - Se PAUSA cuando la pestaña no está visible y respeta `prefers-reduced-motion`.
-//  - Sin listeners globales de ratón.
-// `color` (opcional): hex para teñir nodos/líneas (p.ej. color de marca del partner). Sin él → ámbar Brokergy.
+//  - Sin listeners de ratón (el contenido va por encima).
+// `color` (opcional): hex para teñir nodos (color de marca del partner). Sin él → paleta Brokergy.
 export const SidebarNetworkBackground = ({ color = null }) => {
     const canvasRef = useRef(null);
 
@@ -23,23 +27,30 @@ export const SidebarNetworkBackground = ({ color = null }) => {
         const ctx = canvas.getContext('2d');
         const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
 
-        const accent = hexToRgb(color) || { r: 255, g: 160, b: 0 };
-        const accentHex = (color && hexToRgb(color)) ? color : '#FFA000';
+        const isPartner = !!(color && hexToRgb(color));
+        const accentHex = isPartner ? color : '#FFA000';
 
-        const CONNECT = 110;
+        const CONNECT = 120;
+        const MAX_PULSES = 4;
         let particles = [];
+        let pulses = [];                 // "energía" viajando por las conexiones
         let raf = null;
         let w = 0;
         let h = 0;
+
+        // Partner → su color (con algún blanco). Brokergy → paleta del logo.
+        const pickColor = () => isPartner
+            ? (Math.random() > 0.85 ? '#FFFFFF' : accentHex)
+            : BRAND_DOT_COLORS[Math.floor(Math.random() * BRAND_DOT_COLORS.length)];
 
         class P {
             constructor() {
                 this.x = Math.random() * w;
                 this.y = Math.random() * h;
-                this.size = Math.random() * 1.6 + 0.6;
+                this.size = Math.random() * 2 + 1.4;     // antes 0.6–2.2 → ahora 1.4–3.4
                 this.dx = (Math.random() - 0.5) * 0.22;
                 this.dy = (Math.random() - 0.5) * 0.22;
-                this.color = Math.random() > 0.85 ? '#29B6F6' : accentHex;
+                this.color = pickColor();
             }
             update() {
                 this.x += this.dx;
@@ -57,30 +68,60 @@ export const SidebarNetworkBackground = ({ color = null }) => {
 
         const init = () => {
             // Densidad baja proporcional al área del sidebar, con tope.
-            const count = Math.max(8, Math.min(24, Math.round((w * h) / 16000)));
+            const count = Math.max(8, Math.min(26, Math.round((w * h) / 14000)));
             particles = Array.from({ length: count }, () => new P());
+            pulses = [];
         };
 
         const render = () => {
             if (w === 0 || h === 0) return;
             ctx.clearRect(0, 0, w, h);
-            ctx.globalAlpha = 0.5;
+
+            // 1) Líneas de unión — degradado entre los colores de los dos nodos.
             for (let i = 0; i < particles.length; i++) {
-                particles[i].draw();
+                const pi = particles[i];
                 for (let j = i + 1; j < particles.length; j++) {
-                    const dx = particles[i].x - particles[j].x;
-                    const dy = particles[i].y - particles[j].y;
-                    const dist = Math.hypot(dx, dy);
-                    if (dist < CONNECT) {
-                        const op = (1 - dist / CONNECT) * 0.13;
-                        ctx.strokeStyle = `rgba(${accent.r}, ${accent.g}, ${accent.b}, ${op})`;
-                        ctx.lineWidth = 1;
-                        ctx.beginPath();
-                        ctx.moveTo(particles[i].x, particles[i].y);
-                        ctx.lineTo(particles[j].x, particles[j].y);
-                        ctx.stroke();
+                    const pj = particles[j];
+                    const dist = Math.hypot(pi.x - pj.x, pi.y - pj.y);
+                    if (dist >= CONNECT) continue;
+                    const strength = 1 - dist / CONNECT;
+                    const grad = ctx.createLinearGradient(pi.x, pi.y, pj.x, pj.y);
+                    grad.addColorStop(0, pi.color);
+                    grad.addColorStop(1, pj.color);
+                    ctx.strokeStyle = grad;
+                    ctx.globalAlpha = strength * 0.4;        // antes 0.13 → ahora se ven
+                    ctx.lineWidth = 1;
+                    ctx.beginPath();
+                    ctx.moveTo(pi.x, pi.y);
+                    ctx.lineTo(pj.x, pj.y);
+                    ctx.stroke();
+
+                    if (!reduceMotion && strength > 0.55 && pulses.length < MAX_PULSES && Math.random() > 0.9985) {
+                        pulses.push({ i, j, t: 0, speed: 0.01 + Math.random() * 0.015,
+                            color: Math.random() > 0.5 ? pi.color : pj.color });
                     }
                 }
+            }
+            ctx.globalAlpha = 1;
+
+            // 2) Nodos.
+            ctx.globalAlpha = 0.9;
+            for (let i = 0; i < particles.length; i++) particles[i].draw();
+            ctx.globalAlpha = 1;
+
+            // 3) Pulsos de energía viajando por las conexiones (suaves).
+            for (let k = pulses.length - 1; k >= 0; k--) {
+                const p = pulses[k];
+                p.t += p.speed;
+                const a = particles[p.i], b = particles[p.j];
+                if (p.t >= 1 || !a || !b) { pulses.splice(k, 1); continue; }
+                const x = a.x + (b.x - a.x) * p.t;
+                const y = a.y + (b.y - a.y) * p.t;
+                ctx.fillStyle = p.color;
+                ctx.globalAlpha = Math.sin(p.t * Math.PI) * 0.9;
+                ctx.beginPath();
+                ctx.arc(x, y, 2, 0, Math.PI * 2);
+                ctx.fill();
             }
             ctx.globalAlpha = 1;
         };
