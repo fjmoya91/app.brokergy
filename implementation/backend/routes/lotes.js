@@ -415,7 +415,14 @@ router.post('/:id/factura-so', adminOnly, async (req, res) => {
 
         const folderId = await ensureLoteFolder(lote);
         const pdfBuffer = await htmlToPdf(html);
-        const fileName = `${lote.codigo || 'LOTE'} - ${factura.numero} - Factura S.O.`
+        // Nombre del fichero: "{nº factura} - {nombre lote} - {acrónimo S.O.}.pdf".
+        // El acrónimo del S.O. no viene en el lote crudo (solo el id) → se busca.
+        let acronimoSO = 'SO';
+        if (lote.sujeto_obligado_id) {
+            const { data: soRow } = await supabase.from('prescriptores').select('acronimo, razon_social').eq('id_empresa', lote.sujeto_obligado_id).maybeSingle();
+            if (soRow) acronimoSO = soRow.acronimo || soRow.razon_social || 'SO';
+        }
+        const fileName = `${factura.numero} - ${lote.codigo || 'LOTE'} - ${acronimoSO}`
             .trim().replace(/[\\/<>:"|?*]/g, '_') + '.pdf';
         const saved = await driveService.saveFileToFolder(folderId, fileName, 'application/pdf', pdfBuffer);
         if (!saved) throw new Error('No se pudo guardar la factura en Drive');
