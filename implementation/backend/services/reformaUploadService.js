@@ -61,7 +61,7 @@ function getReformaSlots(funnel = {}) {
     if (ej) slots.push({ key: 'DOC_CEE_POSTERIOR', label: 'Certificado energético posterior', help: 'El emitido tras la reforma.', accept: 'application/pdf,image/*,.cex,.xml', required: false, multiple: true });
     if (funnel.reforma_facturas === 'si' || ej) slots.push({ key: 'DOC_FACTURAS', label: 'Facturas de la reforma', accept: 'application/pdf,image/*', required: false, multiple: true });
 
-    slots.push({ key: 'OTROS', label: 'Otros documentos', help: 'Cualquier otra cosa que quieras aportar.', accept: 'application/pdf,image/*,.cex,.xml', required: false, multiple: true });
+    slots.push({ key: 'OTROS', label: 'Otros documentos', help: 'Cualquier otra cosa que quieras aportar.', accept: 'application/pdf,image/*,.cex,.xml', required: false, multiple: true, named: true });
     return slots;
 }
 
@@ -82,7 +82,7 @@ function getAerotermiaSlots(funnel = {}) {
     slots.push({ key: 'FOTO_FACHADA_PRINCIPAL', label: 'Foto de la fachada principal', help: 'Para valorar dónde podría ir la unidad exterior.', accept: ACCEPT_FOTO, required: false, multiple: true });
     slots.push({ key: 'FOTO_PATIOS_INTERIORES', label: 'Foto de patios interiores', help: 'Si tu vivienda tiene patios interiores, una foto de cada uno.', accept: ACCEPT_FOTO, required: false, multiple: true });
     slots.push({ key: 'FOTO_PATIO_LUCES', label: 'Foto del patio de luces (si lo hay)', help: 'Solo si tu edificio tiene patio de luces.', accept: ACCEPT_FOTO, required: false, multiple: true });
-    slots.push({ key: 'OTROS', label: 'Otros documentos o fotos', help: 'Cualquier cosa más que quieras aportar.', accept: 'application/pdf,image/*', required: false, multiple: true });
+    slots.push({ key: 'OTROS', label: 'Otros documentos o fotos', help: 'Cualquier cosa más que quieras aportar.', accept: 'application/pdf,image/*', required: false, multiple: true, named: true });
     return slots;
 }
 
@@ -211,8 +211,8 @@ function buildDocChecklist(datosCalculo = {}) {
     if (want('FOTO_FACHADA_ANTES', sel.reforma.paredes))  push({ key: 'FOTO_FACHADA_ANTES', fase: PHASE.ANTES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Fachada a aislar (antes)' });
     if (want('FOTO_SUELO_ANTES', sel.reforma.suelo))    push({ key: 'FOTO_SUELO_ANTES', fase: PHASE.ANTES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Suelo (antes)' });
     if (want('FOTO_ACS_ANTES', sel.changeAcs))        push({ key: 'FOTO_ACS_ANTES', fase: PHASE.ANTES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Sistema de ACS actual', help: 'Termo eléctrico o conexión de ACS de la caldera.' });
-    push({ key: 'OTROS_ANTES', fase: PHASE.ANTES, required: false, multiple: true, accept: 'image/*,application/pdf,video/*',
-           label: 'Otros (antes de la obra)', help: 'PDF, fotos, vídeos u otros archivos que no encajen en las categorías anteriores.' });
+    push({ key: 'OTROS_ANTES', fase: PHASE.ANTES, required: false, multiple: true, named: true, accept: 'image/*,application/pdf,video/*',
+           label: 'Otros (antes de la obra)', help: 'PDF, fotos, vídeos u otros archivos que no encajen en las categorías anteriores. Al subirlos se te pedirá un nombre para guardarlos identificados.' });
 
     // ───────── DESPUÉS DE LA OBRA ─────────
     push({ key: 'FOTO_UNIDAD_EXTERIOR', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO,
@@ -234,8 +234,8 @@ function buildDocChecklist(datosCalculo = {}) {
     push({ key: 'VIDEO_REFORMA', fase: PHASE.DESPUES, required: false, multiple: false, accept: ACCEPT_VIDEO, label: 'Vídeo de la reforma (opcional)', help: 'Recorrido en vídeo de la instalación ya terminada.' });
     push({ key: 'DOC_FACTURAS', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_DOC, label: 'Facturas de la instalación', help: 'Las facturas de los materiales y de la instalación (en PDF o foto).' });
     push({ key: 'DOC_RITE', fase: PHASE.DESPUES, required: false, multiple: false, accept: ACCEPT_DOC, label: 'Certificado RITE', help: 'Lo emite el instalador: es el certificado de la instalación térmica (RITE) que debe entregar al terminar la obra.' });
-    push({ key: 'OTROS_DESPUES', fase: PHASE.DESPUES, required: false, multiple: true, accept: 'image/*,application/pdf,video/*',
-           label: 'Otros (después de la obra)', help: 'PDF, fotos, vídeos u otros archivos que no encajen en las categorías anteriores.' });
+    push({ key: 'OTROS_DESPUES', fase: PHASE.DESPUES, required: false, multiple: true, named: true, accept: 'image/*,application/pdf,video/*',
+           label: 'Otros (después de la obra)', help: 'PDF, fotos, vídeos u otros archivos que no encajen en las categorías anteriores. Al subirlos se te pedirá un nombre para guardarlos identificados.' });
 
     // Tras ACEPTAR (ya es expediente), TODA la documentación de ANTES pasa a ser
     // obligatoria (es imprescindible para emitir el CEE inicial / tramitar el CAE).
@@ -349,15 +349,65 @@ async function ensureDriveFolder(oportunidadUuid) {
     return folder.id;
 }
 
-/** ¿El fichero `fileName` pertenece al slot `slotKey`? (exacto o `slotKey_N`) */
+/** ¿El fichero `fileName` pertenece al slot `slotKey`?
+ *   - exacto:        `OTROS_ANTES.pdf`
+ *   - numerado:      `OTROS_ANTES_3.jpg`  (slot múltiple legacy)
+ *   - con etiqueta:  `OTROS_ANTES__Presupuesto de ventanas.pdf`  (slots `named`)
+ * El doble guion bajo separa la clave del slot de la etiqueta legible que el
+ * usuario escribió al subir. Ningún slot legacy genera esa forma, así que no
+ * colisiona con slots cuya clave sea prefijo de otra (p.ej. FOTO_UNIDAD_EXTERIOR
+ * vs FOTO_UNIDAD_EXTERIOR_PLACA, que el sufijo solo-dígitos ya distinguía). */
 function fileBelongsToSlot(fileName, slotKey) {
     const base = String(fileName || '').replace(/\.[a-z0-9]+$/i, '');
     if (base === slotKey) return true;
+    if (base.startsWith(slotKey + '__')) return true; // etiqueta legible (slots named)
     if (base.startsWith(slotKey + '_')) {
         const rest = base.slice(slotKey.length + 1);
         return /^\d+$/.test(rest); // solo sufijo numérico (_1, _2…); evita colisión con slots más largos
     }
     return false;
+}
+
+/**
+ * Saneamiento de la etiqueta legible que el usuario da a un documento "Otros".
+ * Se conserva tal cual para mostrarla (acentos, espacios, mayúsculas), solo se
+ * quitan los caracteres que romperían un nombre de fichero o el separador `__`.
+ */
+function sanitizeOtrosLabel(label) {
+    return String(label || '')
+        .replace(/[\\/:*?"<>|\r\n\t]+/g, ' ') // caracteres ilegales en nombres de fichero
+        .replace(/_{2,}/g, '_')               // el doble guion bajo es el separador → colápsalo
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 80);
+}
+
+/** Extrae la etiqueta legible del nombre `slotKey__etiqueta.ext`, o null. */
+function parseOtrosLabel(fileName, slotKey) {
+    const base = String(fileName || '').replace(/\.[a-z0-9]+$/i, '');
+    const sep = slotKey + '__';
+    if (!base.startsWith(sep)) return null;
+    return base.slice(sep.length) || null;
+}
+
+/**
+ * Construye el nombre de fichero de un documento "Otros" con etiqueta legible,
+ * garantizando que no colisione con los ya presentes en el slot (`prevEntries`).
+ * Devuelve solo la base (sin extensión); el llamador añade `.${ext}`.
+ */
+function buildNamedFileBase(slotKey, label, prevEntries = []) {
+    const safe = sanitizeOtrosLabel(label) || 'documento';
+    const taken = new Set(
+        (prevEntries || [])
+            .map(e => String(e?.name || '').replace(/\.[a-z0-9]+$/i, ''))
+    );
+    let candidate = `${slotKey}__${safe}`;
+    if (!taken.has(candidate)) return candidate;
+    for (let n = 2; n < 1000; n++) {
+        candidate = `${slotKey}__${safe} (${n})`;
+        if (!taken.has(candidate)) return candidate;
+    }
+    return `${slotKey}__${safe} (${Date.now()})`;
 }
 
 /**
@@ -415,6 +465,7 @@ async function buildDocsView(opp, opts = {}) {
                 const db = dbByName.get(f.name) || {};
                 return {
                     name: f.name,
+                    label: s.named ? parseOtrosLabel(f.name, s.key) : null,
                     link: f.webViewLink || db.link || null,
                     at: db.at || null,
                     driveId: f.id,
@@ -426,7 +477,9 @@ async function buildDocsView(opp, opts = {}) {
                 };
             })
             : (uploads[s.key] || []).map(it => ({
-                name: it.name, link: it.link, at: it.at,
+                name: it.name,
+                label: s.named ? parseOtrosLabel(it.name, s.key) : null,
+                link: it.link, at: it.at,
                 driveId: it.driveId || null, thumb: driveThumb(it.driveId),
                 mimeType: it.mimeType || null,
                 estado: it.estado || 'subida', motivo: it.motivo || null, subido_por: it.subido_por || null
@@ -451,6 +504,7 @@ async function buildDocsView(opp, opts = {}) {
             const db = dbByName.get(f.name) || {};
             return {
                 name: f.name,
+                label: String(f.name || '').replace(/\.[a-z0-9]+$/i, '') || null,
                 link: f.webViewLink || db.link || null,
                 at: db.at || null,
                 driveId: f.id,
@@ -737,6 +791,9 @@ module.exports = {
     getSlotDef,
     isValidSlot,
     fileBelongsToSlot,
+    sanitizeOtrosLabel,
+    parseOtrosLabel,
+    buildNamedFileBase,
     buildDocChecklist,
     buildDocsView,
     syncRiteToExpediente,

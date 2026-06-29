@@ -78,10 +78,17 @@ export const buildInstalacionAddress = (expediente) => {
     const opIn = { ...dc, ...(dc.inputs || {}) };
     const isNum = (v) => /^\d+$/.test(String(v ?? '').trim());
 
-    const calle = inst.direccion || opIn.direccion || opIn.address || loc.direccion || '';
+    // Cuando la instalación comparte domicilio con el cliente (misma_direccion = SI),
+    // la dirección NO se replica en `instalacion`: vive en la ficha del cliente, que
+    // pasa a ser la fuente de respaldo. Si misma_direccion === false, la instalación
+    // tiene dirección propia y NO se debe usar la del cliente.
+    const cli = exp.clientes || {};
+    const cliAddr = inst.misma_direccion === false ? {} : cli;
+
+    const calle = inst.direccion || opIn.direccion || opIn.address || cliAddr.direccion || loc.direccion || '';
     const num = inst.num || loc.num || '';
-    const cp = inst.codigo_postal || opIn.cp || opIn.codigo_postal || loc.cp || '';
-    const municipio = inst.municipio || opIn.municipio || loc.municipio || '';
+    const cp = inst.codigo_postal || opIn.cp || opIn.codigo_postal || cliAddr.codigo_postal || loc.cp || '';
+    const municipio = inst.municipio || opIn.municipio || cliAddr.municipio || loc.municipio || '';
 
     // Código de provincia: de un campo de código, de una provincia que llega como
     // número, o de los 2 primeros dígitos del CP.
@@ -93,12 +100,12 @@ export const buildInstalacionAddress = (expediente) => {
 
     // Nombre de provincia (nunca un código). geoContext deja el nombre en
     // datos_calculo.provincia; si no, lo derivamos del código.
-    const provincia = [inst.provincia, opIn.provincia_nombre, dc.provincia, opIn.provincia, loc.provincia]
+    const provincia = [inst.provincia, opIn.provincia_nombre, dc.provincia, opIn.provincia, cliAddr.provincia, loc.provincia]
         .find(v => v && !isNum(v)) || PROVINCE_CODE_TO_NAME[provCode] || '';
 
     // CCAA: el Catastro no la da; preferimos lo guardado y, si no, la derivamos
     // del código de provincia.
-    const ccaa = inst.ccaa || dc.ccaa || opIn.ccaa || PROVINCE_CODE_TO_CCAA[provCode] || '';
+    const ccaa = inst.ccaa || dc.ccaa || opIn.ccaa || cliAddr.ccaa || PROVINCE_CODE_TO_CCAA[provCode] || '';
     const refCatastral = inst.ref_catastral || op.ref_catastral || opIn.rc || opIn.ref_catastral || loc.ref_catastral || '';
 
     // Si `calle` ya es una dirección COMPLETA (contiene un CP de 5 dígitos), la
@@ -115,6 +122,31 @@ export const buildInstalacionAddress = (expediente) => {
         ].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
 
     return { calle, num, cp, municipio, provincia, provinciaCod: provCode, ccaa, refCatastral, full };
+};
+
+/**
+ * Precio CAE (€/MWh) que se ofrece al cliente. Fuentes por prioridad:
+ *   1. Override explícito de la pestaña Económico (lo que el usuario fija a mano).
+ *   2. Valor capturado en la oportunidad. OJO: la clave real es `caePriceClient`;
+ *      `cae_client_rate` se mantiene como alias legacy.
+ *   3. Default por ficha (95 €/MWh RES060/RES093, 60 €/MWh RES080), EL MISMO que usa
+ *      expedienteFinancials, para que el documento y la pestaña Económico no se
+ *      contradigan (antes el Anexo caía a 0 y mostraba '___').
+ * `explicit` indica si el precio viene de un override puesto a mano (para avisar en
+ * la validación de envío cuando solo se está usando el valor por defecto).
+ */
+export const getClientCaeRate = (expediente) => {
+    const exp = expediente || {};
+    const inst = exp.instalacion || {};
+    const opIn = exp.oportunidades?.datos_calculo?.inputs || {};
+    const numexp = String(exp.numero_expediente || '');
+    const isRes080 = numexp.includes('RES080') || exp.oportunidades?.ficha === 'RES080';
+    const defaultRate = isRes080 ? 60 : 95;
+
+    const override = inst.economico_override?.cae_client_rate;
+    const explicit = override !== undefined && override !== null && override !== '';
+    const rate = parseFloat(override ?? opIn.caePriceClient ?? opIn.cae_client_rate) || defaultRate;
+    return { rate, explicit, defaultRate };
 };
 
 export const ANEXO_I_TEXTS = {
@@ -405,8 +437,8 @@ export const buildAnexoCesionHtml = (expediente, results) => {
     const aeKwh = Math.round(aeRaw).toLocaleString('es-ES', { useGrouping: true });
     const caeVolStr = (aeRaw / 1000).toLocaleString('es-ES', { minimumFractionDigits: 3, maximumFractionDigits: 3 }).replace(',', '.');
     const opInputs = op?.datos_calculo?.inputs || {};
-    const rateMwh = parseFloat(inst.economico_override?.cae_client_rate ?? opInputs.cae_client_rate) || 0;
-    const rateMWhStr = rateMwh ? Math.round(rateMwh).toString() : '___';
+    const { rate: rateMwh } = getClientCaeRate(expediente);
+    const rateMWhStr = Math.round(rateMwh).toString();
     const beneficioRaw = results?.caeBonus ?? (aeRaw && rateMwh ? aeRaw / 1000 * rateMwh : null);
     const beneficioStr = beneficioRaw ? Math.round(beneficioRaw).toLocaleString('es-ES', { useGrouping: true }) : '___________';
     // Localización de la INSTALACIÓN (Catastro), independiente del domicilio del

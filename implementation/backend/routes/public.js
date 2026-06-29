@@ -785,7 +785,15 @@ router.post('/reforma-docs/:uuid/:slot', requireAuth, uploadDocsSingle, async (r
         // Nombre por slot-key (compatible con scan-photos del Anexo Fotográfico)
         const ext = (req.file.originalname.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '');
         const prev = Array.isArray(dc.reforma_uploads?.[slot]) ? dc.reforma_uploads[slot] : [];
-        const fileName = slotDef.multiple ? `${slot}_${prev.length + 1}.${ext}` : `${slot}.${ext}`;
+        // Slots "named" (Otros…): el usuario da una etiqueta legible que se usa como
+        // nombre del fichero en Drive → `SLOT__Etiqueta.ext` (reconciliable y reconocible).
+        const rawLabel = (req.body?.label || '').toString().trim();
+        let fileName;
+        if (slotDef.named && rawLabel) {
+            fileName = `${reformaUploadService.buildNamedFileBase(slot, rawLabel, prev)}.${ext}`;
+        } else {
+            fileName = slotDef.multiple ? `${slot}_${prev.length + 1}.${ext}` : `${slot}.${ext}`;
+        }
 
         // Slot único: borrar versión previa en Drive para no acumular duplicados
         if (!slotDef.multiple) {
@@ -825,6 +833,7 @@ router.post('/reforma-docs/:uuid/:slot', requireAuth, uploadDocsSingle, async (r
 
         return res.json({
             success: true, slot, name: fileName, link: saved.link,
+            label: slotDef.named ? reformaUploadService.parseOtrosLabel(fileName, slot) : null,
             driveId: saved.id,
             thumb: reformaUploadService.driveThumb(saved.id),
             estado: 'subida', count: (slotDef.multiple ? prev.length + 1 : 1)

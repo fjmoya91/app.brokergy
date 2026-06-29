@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import confetti from 'canvas-confetti';
-import { buildAnexoIHtml, buildAnexoCesionHtml, getDualMessage } from '../utils/docGenerators';
+import { buildAnexoIHtml, buildAnexoCesionHtml, getDualMessage, getClientCaeRate, buildInstalacionAddress } from '../utils/docGenerators';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Envío unificado de los anexos del cliente (Anexo I + Anexo de Cesión de Ahorros).
@@ -29,7 +29,7 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
     const numexpte = expediente?.numero_expediente || '';
 
     const opInputs   = op?.datos_calculo?.inputs || {};
-    const rateMwh    = parseFloat(inst.economico_override?.cae_client_rate ?? opInputs.cae_client_rate) || 0;
+    const { rate: rateMwh, explicit: rateExplicit } = getClientCaeRate(expediente);
     const aeRaw      = results?.savingsKwh || 0;
     let beneficioRaw = results?.caeBonus;
     if (beneficioRaw == null && aeRaw && rateMwh) beneficioRaw = (aeRaw / 1000) * rateMwh;
@@ -194,7 +194,15 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
     const missingAnexoI = (!rc || String(rc).includes('___')) ? ['Referencia Catastral'] : [];
     const hasIban = !!(cli.numero_cuenta && !String(cli.numero_cuenta).includes('_'));
     const hasUtms = !!(inst.coord_x && inst.coord_y && !String(inst.coord_x).includes('_'));
-    const missingCesion = [...(!hasIban ? ['IBAN (Nº de cuenta)'] : []), ...(!hasUtms ? ['Coordenadas UTM'] : [])];
+    // El municipio de la instalación es motivo de rechazo si sale en blanco en el
+    // Anexo. Con misma_direccion se toma del cliente; comprobamos el valor EFECTIVO.
+    const hasInstMuni = !!buildInstalacionAddress(expediente).municipio;
+    const missingCesion = [
+        ...(!hasIban ? ['IBAN (Nº de cuenta)'] : []),
+        ...(!hasUtms ? ['Coordenadas UTM'] : []),
+        ...(!hasInstMuni ? ['Localidad de la instalación'] : []),
+        ...(!rateExplicit ? ['Precio CAE (usando valor por defecto)'] : []),
+    ];
     const selectedMissing = [
         ...(docs.includes('anexo1') ? missingAnexoI : []),
         ...(docs.includes('cesion') ? missingCesion : []),

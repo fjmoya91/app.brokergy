@@ -1584,7 +1584,7 @@ const sendCertificadorApproveNotification = async (to, certName, numExp, phaseLa
             <h2 style="color:#10b981; margin-top:0;">Certificado Validado</h2>
             ${bodyHtml}
             <div style="margin-top:30px; text-align:center;">
-                ${portalLink ? `<a href="${portalLink}" style="display:inline-block; margin-right:10px; padding:12px 24px; background-color:#10b981; color:#000000; font-weight:bold; text-decoration:none; border-radius:10px;">Ir al Portal</a>` : ''}
+                ${portalLink ? `<a href="${portalLink}" style="display:inline-block; margin-right:10px; padding:12px 24px; background-color:#10b981; color:#000000; font-weight:bold; text-decoration:none; border-radius:10px;">📂 Abrir Expediente</a>` : ''}
                 ${folderLink ? `<a href="${folderLink}" style="display:inline-block; padding:12px 24px; border:1px solid #10b981; color:#10b981; font-weight:bold; text-decoration:none; border-radius:10px;">Abrir Carpeta</a>` : ''}
             </div>
             <p style="font-size:10px; color:#475569; margin-top:30px; text-align:center;">Notificación automática de BROKERGY ERP</p>

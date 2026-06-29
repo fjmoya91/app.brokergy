@@ -4,6 +4,9 @@ import { useAuth } from '../../../context/AuthContext';
 import { useModal } from '../../../context/ModalContext';
 import { readPhaseTime, SUBESTADO_LABELS, STALE_CLASSES, fmtDate, humanDays, daysSince } from '../logic/seguimientoTime';
 import { buildCertDefaultMessage } from '../logic/certMessages';
+import { SolicitarFaltantesModal } from './SolicitarFaltantesModal';
+import { SendActionOverlay } from '../../../components/SendActionOverlay';
+import { WhatsappConnectModal } from '../../whatsapp/components/WhatsappConnectModal';
 
 // Pill compacto de estado por fase CEE: subestado actual + días-en-estado + última comunicación.
 function CeeStatusPill({ expediente, section }) {
@@ -222,11 +225,13 @@ export function CeeDocumentsGrid({
 
     // Enlace a la carpeta "12. DOCUMENTOS PARA CEE" del expediente (la persiste el backend en cee.cee_folder_link).
     const ceeFolderLink = expediente?.cee?.cee_folder_link || null;
+    // Deep-link al expediente para incrustarlo en los mensajes al certificador.
+    const expedienteId = expediente?.id || null;
 
     // Al abrir el modal, sembramos el cuadro con la plantilla por defecto del tipo activo.
     useEffect(() => {
         if (!certNotifyModal) return;
-        const def = buildCertDefaultMessage(certTemplate, certNotifyModal.section, certName, clienteNombre, numExp, ceeFolderLink);
+        const def = buildCertDefaultMessage(certTemplate, certNotifyModal.section, certName, clienteNombre, numExp, ceeFolderLink, expedienteId);
         setCertNotifyMessage(def);
         lastCertDefaultRef.current = def;
         // Solo al abrir el modal (no en cada cambio de tipo: eso lo gestiona handleCertTemplateChange).
@@ -240,7 +245,7 @@ export function CeeDocumentsGrid({
         // Al elegir un tipo de mensaje regeneramos SIEMPRE el texto de esa plantilla.
         // (La lógica anterior de "preservar la edición" hacía que al pulsar "Visto bueno"
         //  el texto se quedara en el de "Encargo").
-        const def = buildCertDefaultMessage(id, certNotifyModal.section, certName, clienteNombre, numExp, ceeFolderLink);
+        const def = buildCertDefaultMessage(id, certNotifyModal.section, certName, clienteNombre, numExp, ceeFolderLink, expedienteId);
         setCertNotifyMessage(def);
         lastCertDefaultRef.current = def;
     };
@@ -249,6 +254,16 @@ export function CeeDocumentsGrid({
     const [resendNotifModal, setResendNotifModal] = useState(null); // { section: 'inicial'|'final' }
     const [resendTargets, setResendTargets] = useState(['CLIENTE', 'PARTNER', 'ADMIN']);
     const [resendChannels, setResendChannels] = useState(['email', 'whatsapp']);
+    // Previsualización editable por destinatario (lo que se enviará por WhatsApp).
+    const [resendMessages, setResendMessages] = useState({}); // { CLIENTE, PARTNER, ADMIN }
+    const [resendPreviewLoading, setResendPreviewLoading] = useState(false);
+    // Acceso directo al modal "Solicitar lo que falta" desde la tarjeta CEE.
+    const [showSolicitarModal, setShowSolicitarModal] = useState(false);
+    // Estado de WhatsApp (barrido previo al envío) + overlay estándar + puerta de conexión.
+    const [waStatus, setWaStatus] = useState(null); // { state, ready, ... }
+    const [sendPhase, setSendPhase] = useState(null); // null | 'sending' | 'done'
+    const [sendOutcome, setSendOutcome] = useState({ ok: false, text: '', items: [] });
+    const [showWaConnect, setShowWaConnect] = useState(false);
 
     // ── Auto-make-public al abrir modal: silenciosamente hace público el archivo
     //    para garantizar que el iframe /preview cargue, sin que el admin tenga que
@@ -355,44 +370,85 @@ export function CeeDocumentsGrid({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [expediente?.id]);
 
-    const handleResendCeeNotifications = (section) => {
+    const handleResendCeeNotifications = async (section) => {
         // Pre-seleccionar todos según datos disponibles
         const hasPartner = expediente?.oportunidades?.prescriptor_id && String(expediente?.oportunidades?.prescriptor_id) !== '1';
         setResendTargets(['CLIENTE', ...(hasPartner ? ['PARTNER'] : []), 'ADMIN']);
         setResendChannels(['email', 'whatsapp']);
+        setResendMessages({});
+        setWaStatus(null);
         setResendNotifModal({ section });
+        // Cargar la previsualización (textos por destinatario) sin enviar nada.
+        setResendPreviewLoading(true);
+        try {
+            const phase = section === 'final' ? 'final' : 'inicial';
+            const [{ data }, waRes] = await Promise.all([
+                axios.post(`/api/expedientes/${expediente.id}/resend-cee-notifications`, { phase, preview: true }),
+                axios.get('/api/whatsapp/status').catch(() => null),
+            ]);
+            if (data?.preview) setResendMessages(data.preview);
+            if (waRes?.data) setWaStatus(waRes.data);
+        } catch (err) {
+            console.warn('[resend-cee-notifications preview]', err.message);
+        } finally {
+            setResendPreviewLoading(false);
+        }
     };
 
-    const handleConfirmResend = async () => {
-        const section = resendNotifModal.section;
+    // Envío real (tras pasar el barrido de WhatsApp). Usa el overlay estándar.
+    const doResendSend = async () => {
+        const section = resendNotifModal?.section;
+        if (!section) return;
         const phase = section === 'final' ? 'final' : 'inicial';
+        setShowWaConnect(false);
+        setResendNotifModal(null);
         setResendingNotif(section);
+        setSendOutcome({ ok: false, text: '', items: [] });
+        setSendPhase('sending');
         try {
+            // Overrides editados en la preview (solo afectan al texto de WhatsApp).
+            const overrides = {};
+            resendTargets.forEach(t => { if (resendMessages[t]) overrides[t] = resendMessages[t]; });
             const res = await axios.post(`/api/expedientes/${expediente.id}/resend-cee-notifications`, {
                 phase,
                 targets: resendTargets,
                 channels: resendChannels,
+                overrides,
             });
             const r = res.data || {};
-            setResendNotifModal(null);
             if (r.ok) {
-                const wa = r.channels?.whatsapp?.join(', ') || '—';
-                const em = r.channels?.email?.join(', ') || '—';
-                showAlert(
-                    `Notificaciones reenviadas.\nWhatsApp [${wa}] (estado: ${r.whatsappState || '?'})\nEmail [${em}]`,
-                    'Reenvío OK',
-                    'success'
-                );
+                const items = [];
+                const wa = r.channels?.whatsapp || [];
+                const em = r.channels?.email || [];
+                if (wa.length) items.push(`WhatsApp: ${wa.join(', ')}`);
+                if (em.length) items.push(`Email: ${em.join(', ')}`);
+                if (!items.length) items.push('Aviso: ningún destinatario tenía datos del canal elegido');
+                setSendOutcome({ ok: true, text: '', items });
             } else {
-                showAlert(`No se pudo completar el reenvío: ${r.reason || 'error desconocido'}`, 'Error', 'error');
+                setSendOutcome({ ok: false, text: r.reason || 'Error desconocido', items: [] });
             }
         } catch (err) {
             console.error('[resend-cee-notifications]', err);
-            setResendNotifModal(null);
-            showAlert(err.response?.data?.error || err.message || 'Error de red', 'Error reenviando', 'error');
+            setSendOutcome({ ok: false, text: err.response?.data?.error || err.message || 'Error de red', items: [] });
         } finally {
             setResendingNotif(null);
+            setSendPhase('done');
         }
+    };
+
+    // Barrido previo: si se va a usar WhatsApp y NO está conectado, abrir la puerta
+    // de conexión (pregunta + QR); al conectar, se envía automáticamente.
+    const handleConfirmResend = async () => {
+        if (resendChannels.includes('whatsapp')) {
+            let ready = waStatus?.state === 'READY';
+            try {
+                const { data } = await axios.get('/api/whatsapp/status');
+                setWaStatus(data);
+                ready = data?.state === 'READY';
+            } catch { /* si no se puede consultar, asumimos que hay que conectar */ ready = false; }
+            if (!ready) { setShowWaConnect(true); return; }
+        }
+        doResendSend();
     };
 
     const toggleResendTarget = (t) => setResendTargets(prev => prev.includes(t) ? prev.filter(x => x !== t) : [...prev, t]);
@@ -736,7 +792,7 @@ export function CeeDocumentsGrid({
                                                                 setCertTemplate(tpl);
                                                                 setCertChannels(['email']);
                                                                 // Sembramos el texto correcto YA (no dependemos solo del efecto de apertura).
-                                                                const def = buildCertDefaultMessage(tpl, section, certName, clienteNombre, numExp, ceeFolderLink);
+                                                                const def = buildCertDefaultMessage(tpl, section, certName, clienteNombre, numExp, ceeFolderLink, expedienteId);
                                                                 setCertNotifyMessage(def);
                                                                 lastCertDefaultRef.current = def;
                                                                 setCertNotifyModal({ section });
@@ -1283,7 +1339,7 @@ export function CeeDocumentsGrid({
                             <button
                                 type="button"
                                 onClick={() => {
-                                    const def = buildCertDefaultMessage(certTemplate, certNotifyModal.section, certName, clienteNombre, numExp, ceeFolderLink);
+                                    const def = buildCertDefaultMessage(certTemplate, certNotifyModal.section, certName, clienteNombre, numExp, ceeFolderLink, expedienteId);
                                     setCertNotifyMessage(def);
                                     lastCertDefaultRef.current = def;
                                 }}
@@ -1506,10 +1562,14 @@ export function CeeDocumentsGrid({
                 const op  = expediente?.oportunidades;
                 const pres = expediente?.prescriptores;
                 const cliName = cli ? `${cli.nombre_razon_social || ''} ${cli.apellidos || ''}`.trim() : 'Cliente';
-                const cliContact = cli?.tlf || cli?.persona_contacto_tlf || cli?.email || null;
+                // Teléfono respetando la persona de notificaciones (mismo criterio que el backend).
+                const cliPhone = (cli?.notificaciones_contacto_activas && cli?.persona_contacto_tlf) ? cli.persona_contacto_tlf : (cli?.tlf || cli?.persona_contacto_tlf);
+                const cliContact = cliPhone || cli?.email || null;
                 const hasPartner = op?.prescriptor_id && String(op.prescriptor_id) !== '1';
                 const presName   = pres?.razon_social || pres?.acronimo || 'Partner';
-                const presContact = pres?.telefono || pres?.movil || pres?.email || null;
+                // OJO: prescriptores NO tiene columnas telefono/movil → usar tlf/tlf_contacto/landing.
+                const presPhone = pres?.tlf || pres?.tlf_contacto || pres?.landing_telefono_contacto || null;
+                const presContact = presPhone || pres?.email || null;
                 const phaseLabel = resendNotifModal.section === 'final' ? 'CEE FINAL' : 'CEE INICIAL';
 
                 const RecipientRow = ({ id, label, detail }) => (
@@ -1543,7 +1603,7 @@ export function CeeDocumentsGrid({
                         onClick={() => { if (!resendingNotif) setResendNotifModal(null); }}
                     >
                         <div
-                            className="bg-[#0b0c11] border border-white/10 rounded-[2.5rem] w-full max-w-md p-8 shadow-2xl relative overflow-hidden"
+                            className="bg-[#0b0c11] border border-white/10 rounded-[2.5rem] w-full max-w-lg p-8 shadow-2xl relative overflow-x-hidden overflow-y-auto max-h-[92vh]"
                             onClick={e => e.stopPropagation()}
                         >
                             <div className="absolute top-0 right-0 w-40 h-40 bg-brand/10 blur-[60px] rounded-full -translate-y-1/2 translate-x-1/2 pointer-events-none" />
@@ -1611,6 +1671,55 @@ export function CeeDocumentsGrid({
                                     </button>
                                 </div>
 
+                                {/* Barrido de WhatsApp: estado del servicio (siempre visible si se eligió WhatsApp) */}
+                                {resendChannels.includes('whatsapp') && (
+                                    <div className="w-full -mt-6 mb-8 flex items-center gap-2 pl-1">
+                                        <span className={`w-2 h-2 rounded-full ${waStatus?.state === 'READY' ? 'bg-emerald-400' : 'bg-red-400'}`} />
+                                        <span className={`text-[10px] font-bold ${waStatus?.state === 'READY' ? 'text-emerald-400/80' : 'text-red-400/80'}`}>
+                                            {waStatus == null ? 'Comprobando WhatsApp…' : waStatus.state === 'READY' ? 'WhatsApp conectado' : 'WhatsApp desconectado · se pedirá conectar al enviar'}
+                                        </span>
+                                    </div>
+                                )}
+
+                                {/* Previsualización editable (texto del WhatsApp por destinatario) */}
+                                <p className="text-xs text-white/40 font-bold uppercase tracking-widest mb-3 self-start pl-1 text-left">
+                                    3. Mensaje (editable)
+                                </p>
+                                <div className="w-full mb-8">
+                                    {resendPreviewLoading ? (
+                                        <div className="flex items-center justify-center gap-2 text-white/30 text-[11px] py-6">
+                                            <div className="w-4 h-4 border-2 border-white/10 border-t-white/40 rounded-full animate-spin" />
+                                            Cargando previsualización…
+                                        </div>
+                                    ) : (
+                                        <div className="flex flex-col gap-3">
+                                            {['CLIENTE', 'PARTNER', 'ADMIN']
+                                                .filter(t => resendTargets.includes(t) && resendMessages[t] != null)
+                                                .map(t => (
+                                                    <div key={t} className="text-left">
+                                                        <p className="text-[9px] font-black uppercase tracking-widest text-white/30 mb-1.5 pl-1">
+                                                            {t === 'CLIENTE' ? 'Cliente' : t === 'PARTNER' ? 'Partner / Instalador' : 'Admin'}
+                                                        </p>
+                                                        <textarea
+                                                            value={resendMessages[t] || ''}
+                                                            onChange={e => setResendMessages(prev => ({ ...prev, [t]: e.target.value }))}
+                                                            rows={t === 'ADMIN' ? 4 : 8}
+                                                            className="w-full bg-black/30 border border-white/10 rounded-xl p-3 text-[11px] text-white/90 leading-relaxed focus:outline-none focus:border-brand/40 resize-y font-mono no-uppercase"
+                                                        />
+                                                    </div>
+                                                ))}
+                                            {resendTargets.length === 0 && (
+                                                <p className="text-[10px] text-white/25 py-4 text-center">Selecciona un destinatario para ver el mensaje.</p>
+                                            )}
+                                            {resendChannels.includes('email') && resendTargets.length > 0 && (
+                                                <p className="text-[9px] text-white/25 leading-relaxed pl-1">
+                                                    ℹ️ La edición afecta al <strong className="text-white/40">WhatsApp</strong>. El email se envía con su plantilla con formato.
+                                                </p>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+
                                 {/* Actions */}
                                 <div className="grid grid-cols-1 gap-3 w-full">
                                     <button
@@ -1633,6 +1742,13 @@ export function CeeDocumentsGrid({
                                         )}
                                     </button>
                                     <button
+                                        onClick={() => { setResendNotifModal(null); setShowSolicitarModal(true); }}
+                                        disabled={!!resendingNotif}
+                                        className="w-full py-3 rounded-2xl border border-brand/30 text-brand text-[10px] font-black uppercase tracking-[0.2em] hover:bg-brand/10 transition-all flex items-center justify-center gap-2 disabled:opacity-40"
+                                    >
+                                        📨 ¿Falta documentación? Solicitar lo que falta
+                                    </button>
+                                    <button
                                         onClick={() => setResendNotifModal(null)}
                                         disabled={!!resendingNotif}
                                         className="w-full py-4 text-white/30 text-[10px] font-black uppercase tracking-[0.2em] hover:text-white transition-all"
@@ -1645,6 +1761,36 @@ export function CeeDocumentsGrid({
                     </div>
                 );
             })()}
+
+            {/* Acceso directo a "Solicitar lo que falta" (preview + enlaces de subida por rol) */}
+            {showSolicitarModal && (
+                <SolicitarFaltantesModal
+                    isOpen={showSolicitarModal}
+                    onClose={() => setShowSolicitarModal(false)}
+                    expedienteId={expediente.id}
+                    numeroExpediente={numExp}
+                />
+            )}
+
+            {/* Puerta de conexión de WhatsApp: si no está READY, pregunta + QR y al
+                conectar dispara el envío automáticamente. */}
+            <WhatsappConnectModal
+                isOpen={showWaConnect}
+                onClose={() => setShowWaConnect(false)}
+                onConnected={doResendSend}
+                actionLabel="Al conectar, las notificaciones se enviarán automáticamente."
+            />
+
+            {/* Overlay estándar de envío (enviando → ✓/✗ + confeti). */}
+            <SendActionOverlay
+                phase={sendPhase}
+                ok={sendOutcome.ok}
+                subtitle={numExp}
+                items={sendOutcome.items}
+                errorText={sendOutcome.text}
+                okTitle="¡Notificaciones enviadas!"
+                onClose={() => setSendPhase(null)}
+            />
         </div>
     );
 }

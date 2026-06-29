@@ -1230,8 +1230,8 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                             </div>
                             )}
 
-                            {/* Técnico firmante de memorias — solo INSTALADOR empresa */}
-                            {!form.es_autonomo && form.tipo_empresa === 'INSTALADOR' && (
+                            {/* Técnico firmante de memorias — cualquier INSTALADOR (autónomo o empresa) */}
+                            {form.tipo_empresa === 'INSTALADOR' && (
                             <div className="pt-4 border-t border-white/5 space-y-4">
                                 <div className="flex items-center justify-between gap-3">
                                     <div>

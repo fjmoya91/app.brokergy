@@ -19,11 +19,22 @@ export const firstNameProper = (s) => {
 const carpetaLine = (ceeFolderLink) =>
     ceeFolderLink ? `\n\n📁 Carpeta de documentos del expediente:\n${ceeFolderLink}` : '';
 
+// Dominio de producción del portal. Se fija aquí (no window.location.origin) para que
+// el enlace que recibe el certificador sea SIEMPRE el de producción, aunque el admin
+// esté trabajando en localhost al pulsar "enviar".
+const APP_BASE = 'https://app.brokergy.es';
+
+// Enlace directo al expediente dentro de la app. El deep-link ?exp=<id> está soportado
+// por App.jsx: si el certificador no está logueado, tras iniciar sesión se abre
+// automáticamente el expediente; si ya lo está, entra directamente.
+const expedienteLine = (expedienteId) =>
+    expedienteId ? `\n\n🔗 Abre el expediente directamente en la app:\n${APP_BASE}/?exp=${expedienteId}` : '';
+
 // Mensaje de ENCARGO / RECORDATORIO / URGENTE / VISTO BUENO (popup "Notificar Certificador").
-export function buildCertDefaultMessage(template, section, certName, clienteNombre, numExp, ceeFolderLink) {
+export function buildCertDefaultMessage(template, section, certName, clienteNombre, numExp, ceeFolderLink, expedienteId) {
     // El "visto bueno" se redacta igual que el popup dedicado de Validar.
     if (template === 'approve') {
-        return buildCertApproveMessage(section, certName, clienteNombre, numExp, ceeFolderLink);
+        return buildCertApproveMessage(section, certName, clienteNombre, numExp, ceeFolderLink, expedienteId);
     }
     const tecnico = firstNameProper(certName) || 'técnico';
     const cli = clienteNombre ? ` (${toTitleCase(clienteNombre)})` : '';
@@ -39,14 +50,14 @@ export function buildCertDefaultMessage(template, section, certName, clienteNomb
     } else {
         body = `¡Hola ${tecnico}! 👋\n\nTe hemos asignado el expediente ${numExp}${cli} para la emisión del CEE Inicial.\n\nTienes toda la documentación del cliente en la carpeta compartida y en el portal.\n\n¡Gracias!`;
     }
-    return body + carpetaLine(ceeFolderLink);
+    return body + expedienteLine(expedienteId) + carpetaLine(ceeFolderLink);
 }
 
 // Mensaje de VISTO BUENO / luz verde para registrar (popup "Validar").
-export function buildCertApproveMessage(section, certName, clienteNombre, numExp, ceeFolderLink) {
+export function buildCertApproveMessage(section, certName, clienteNombre, numExp, ceeFolderLink, expedienteId) {
     const tecnico = firstNameProper(certName) || 'técnico';
     const cli = clienteNombre ? ` (${toTitleCase(clienteNombre)})` : '';
     const fase = section === 'final' ? 'CEE Final' : 'CEE Inicial';
     const body = `¡Hola ${tecnico}! 👋\n\nHemos revisado el ${fase} del expediente ${numExp}${cli} y tiene nuestro visto bueno. Ya puedes proceder a registrarlo en Industria.\n\nUna vez registrado, sube por favor la etiqueta energética y el justificante de registro a la carpeta compartida o al portal.\n\n¡Gracias!`;
-    return body + carpetaLine(ceeFolderLink);
+    return body + expedienteLine(expedienteId) + carpetaLine(ceeFolderLink);
 }

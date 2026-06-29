@@ -520,7 +520,7 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
             setCertAdminMessage('');
             setCertChannels(['email']);
             // Previsualización editable del mensaje de encargo (igual que el popup de la campana).
-            setCertAssignMessage(buildCertDefaultMessage('standard', 'inicial', selectedCertName, clienteNombre, numExp, ceeFolderLink));
+            setCertAssignMessage(buildCertDefaultMessage('standard', 'inicial', selectedCertName, clienteNombre, numExp, ceeFolderLink, expedienteId));
         } else {
             onSave({ cee: local });
             setEditMode(false);
@@ -625,13 +625,15 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
     })();
     const ceeFolderLink = expediente?.cee?.cee_folder_link || null;
     const numExp = expediente?.numero_expediente || 'S-EXP';
+    // Deep-link al expediente para incrustarlo en los mensajes al certificador.
+    const expedienteId = expediente?.id || null;
 
     // Abre el popup de "Validar" prerellenando el mensaje editable de visto bueno.
     const openApprovePopup = (phase) => {
         const section = phase === 'final' ? 'final' : 'inicial';
         setApprovePendingPhase(phase);
         setApproveChannels(['email']);
-        setApproveMessage(buildCertApproveMessage(section, selectedCertName, clienteNombre, numExp, ceeFolderLink));
+        setApproveMessage(buildCertApproveMessage(section, selectedCertName, clienteNombre, numExp, ceeFolderLink, expedienteId));
         setApproveResult(null);
         setShowApprovePopup(true);
     };
@@ -1020,7 +1022,7 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                                     <p className="text-[9px] font-black text-white/30 uppercase tracking-widest">Mensaje al certificador</p>
                                     <button
                                         type="button"
-                                        onClick={() => setApproveMessage(buildCertApproveMessage(approvePendingPhase === 'final' ? 'final' : 'inicial', selectedCertName, clienteNombre, numExp, ceeFolderLink))}
+                                        onClick={() => setApproveMessage(buildCertApproveMessage(approvePendingPhase === 'final' ? 'final' : 'inicial', selectedCertName, clienteNombre, numExp, ceeFolderLink, expedienteId))}
                                         disabled={approveLoading}
                                         className="text-[9px] font-black uppercase tracking-widest text-white/30 hover:text-emerald-400 transition-colors disabled:opacity-40"
                                         title="Restaurar el texto por defecto"
@@ -1148,7 +1150,7 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                                     <p className="text-[9px] font-black text-white/30 uppercase tracking-widest">Mensaje al certificador</p>
                                     <button
                                         type="button"
-                                        onClick={() => setCertAssignMessage(buildCertDefaultMessage('standard', 'inicial', selectedCertName, clienteNombre, numExp, ceeFolderLink))}
+                                        onClick={() => setCertAssignMessage(buildCertDefaultMessage('standard', 'inicial', selectedCertName, clienteNombre, numExp, ceeFolderLink, expedienteId))}
                                         disabled={certNotifLoading}
                                         className="text-[9px] font-black uppercase tracking-widest text-white/30 hover:text-brand transition-colors disabled:opacity-40"
                                         title="Restaurar el texto por defecto"

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import confetti from 'canvas-confetti';
+import { SendActionOverlay } from '../../../components/SendActionOverlay';
+import { WhatsappConnectModal } from '../../whatsapp/components/WhatsappConnectModal';
 
 // ─── SolicitarFaltantesModal ─────────────────────────────────────────────────
 // Genera un mensaje (editable, para revisar) por destinatario —Cliente / Instalador—
@@ -54,6 +55,7 @@ export function SolicitarFaltantesModal({ isOpen, onClose, expedienteId, numeroE
     const [dest, setDest] = useState({ CLIENTE: { nombre: '', tlf: '', email: '' }, INSTALADOR: { nombre: '', tlf: '', email: '' } });
     // Contactos del instalador marcados como destinatarios (puede haber varios).
     const [selectedInstIds, setSelectedInstIds] = useState([]);
+    const [showWaConnect, setShowWaConnect] = useState(false);
     const [sendPhase, setSendPhase] = useState(null); // null | 'sending' | 'done'
     const [sendOutcome, setSendOutcome] = useState({ ok: false, text: '', sentTo: [] });
     const [result, setResult] = useState({ CLIENTE: null, INSTALADOR: null });
@@ -146,22 +148,25 @@ export function SolicitarFaltantesModal({ isOpen, onClose, expedienteId, numeroE
         setMessages(m => ({ ...m, [active]: buildMessage({ nombre: dest[active]?.nombre, numExp, acciones: acc, obra: info?.obra, target: active }) }));
     };
 
-    const fireSuccessConfetti = () => {
-        if (typeof window === 'undefined') return;
-        if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
-        const scalar = 3.6;
-        let shapes;
-        try { shapes = ['📄', '📃', '📑', '📋'].map(text => confetti.shapeFromText({ text, scalar })); } catch { shapes = undefined; }
-        const burst = (x, delay = 0) => setTimeout(() => {
-            confetti({ particleCount: 22, spread: 65, startVelocity: 34, gravity: 0.8, decay: 0.92, ticks: 220, scalar, origin: { x, y: 0.5 }, zIndex: 10000, disableForReducedMotion: true, ...(shapes ? { shapes, flat: true } : { colors: ['#f2a640', '#34d399', '#fcd34d', '#ffffff'] }) });
-        }, delay);
-        burst(0.2, 0); burst(0.8, 140); burst(0.5, 300);
-    };
-
+    // Barrido previo: si se envía por WhatsApp y NO está conectado, abrir la puerta
+    // de conexión (pregunta + QR); al conectar, se envía automáticamente.
     const handleSend = async () => {
         const eff = actChannels.filter(ch => ch === 'whatsapp' ? anyTlf : anyEmail);
         if (!recipientsActive.length) { setResult(p => ({ ...p, [active]: { type: 'error', text: 'Selecciona al menos un destinatario.' } })); return; }
         if (!eff.length) { setResult(p => ({ ...p, [active]: { type: 'error', text: 'Indica un teléfono o email y selecciona el canal.' } })); return; }
+        if (eff.includes('whatsapp')) {
+            try {
+                const { data } = await axios.get('/api/whatsapp/status');
+                if (data?.state !== 'READY') { setShowWaConnect(true); return; }
+            } catch { setShowWaConnect(true); return; }
+        }
+        doSend();
+    };
+
+    const doSend = async () => {
+        setShowWaConnect(false);
+        const eff = actChannels.filter(ch => ch === 'whatsapp' ? anyTlf : anyEmail);
+        if (!recipientsActive.length || !eff.length) return;
         setSendPhase('sending');
         setResult(p => ({ ...p, [active]: null }));
         try {
@@ -187,7 +192,6 @@ export function SolicitarFaltantesModal({ isOpen, onClose, expedienteId, numeroE
                 setSendOutcome({ ok: false, text: 'Ningún destinatario tiene el dato del canal elegido.', sentTo: [] });
             } else {
                 setSendOutcome({ ok: true, text: '', sentTo });
-                fireSuccessConfetti();
             }
         } catch (e) {
             setSendOutcome({ ok: false, text: e.response?.data?.error || 'Error al enviar.', sentTo: [] });
@@ -368,64 +372,23 @@ export function SolicitarFaltantesModal({ isOpen, onClose, expedienteId, numeroE
                 )}
             </div>
 
-                {/* ── Overlay de envío / resultado ── */}
-                {sendPhase && (
-                    <div className="fixed inset-0 z-[600] flex items-center justify-center bg-black/85 backdrop-blur-md p-4 animate-fade-in">
-                        <div className="relative w-full max-w-sm bg-[#0F1013] border border-white/10 rounded-3xl shadow-2xl overflow-hidden animate-scale-in">
-                            <div className={`absolute -top-20 left-1/2 -translate-x-1/2 w-64 h-64 rounded-full blur-3xl pointer-events-none ${sendPhase === 'done' ? (sendOutcome.ok ? 'bg-emerald-500/25' : 'bg-red-500/20') : 'bg-brand/20'}`} />
-                            <div className="relative px-8 py-9 flex flex-col items-center text-center">
-                                {sendPhase === 'sending' ? (
-                                    <>
-                                        <div className="relative w-24 h-24 mb-6 flex items-center justify-center">
-                                            <span className="absolute inset-0 rounded-full bg-brand/20 animate-ping" />
-                                            <span className="absolute inset-4 rounded-full bg-brand/20 animate-ping" style={{ animationDelay: '0.5s' }} />
-                                            <div className="relative w-16 h-16 rounded-full bg-brand/15 border border-brand/40 flex items-center justify-center">
-                                                <svg className="w-8 h-8 text-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8} style={{ animation: 'float 1.8s ease-in-out infinite' }}><path strokeLinecap="round" strokeLinejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>
-                                            </div>
-                                        </div>
-                                        <h3 className="text-xl font-black uppercase tracking-tight text-white">Enviando mensaje…</h3>
-                                        <p className="text-white/40 text-[10px] font-bold uppercase tracking-[0.2em] mt-1">{info?.numero_expediente || numeroExpediente || ''}</p>
-                                        <p className="mt-6 text-[10px] text-white/25 uppercase tracking-widest font-bold">No cierres esta ventana</p>
-                                    </>
-                                ) : (
-                                    <>
-                                        <div className="relative w-24 h-24 mb-6 flex items-center justify-center">
-                                            <span className={`absolute inset-0 rounded-full animate-ping ${sendOutcome.ok ? 'bg-emerald-500/20' : 'bg-red-500/20'}`} />
-                                            <div className={`relative w-20 h-20 rounded-full flex items-center justify-center border-2 ${sendOutcome.ok ? 'bg-emerald-500/15 border-emerald-400/50 text-emerald-400' : 'bg-red-500/15 border-red-400/50 text-red-400'}`}>
-                                                <svg className="w-10 h-10 animate-scale-in" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d={sendOutcome.ok ? 'M5 13l4 4L19 7' : 'M6 18L18 6M6 6l12 12'} /></svg>
-                                            </div>
-                                        </div>
-                                        <h3 className="text-xl font-black uppercase tracking-tight text-white">
-                                            {sendOutcome.ok ? '¡Mensaje enviado!' : 'No se pudo enviar'}
-                                        </h3>
-                                        <p className="text-white/40 text-[10px] font-bold uppercase tracking-[0.2em] mt-1">
-                                            {info?.numero_expediente || numeroExpediente || ''} · {active === 'CLIENTE' ? 'Cliente' : 'Instalador'}
-                                        </p>
-                                        {sendOutcome.sentTo.length > 0 && (
-                                            <div className="mt-5 w-full space-y-1.5">
-                                                {sendOutcome.sentTo.map((name, i) => (
-                                                    <div key={i} className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-500/[0.06] border border-emerald-400/25">
-                                                        <svg className="w-4 h-4 text-emerald-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
-                                                        <span className="text-[11px] text-white font-bold no-uppercase">{name}</span>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        )}
-                                        {!sendOutcome.ok && sendOutcome.text && (
-                                            <p className="mt-4 text-[11px] text-red-400/80">{sendOutcome.text}</p>
-                                        )}
-                                        <div className="mt-7 w-full">
-                                            <button onClick={() => setSendPhase(null)}
-                                                className="w-full py-3 rounded-xl bg-brand text-black text-[11px] font-black uppercase tracking-widest hover:brightness-110 active:scale-95 transition-all">
-                                                {sendOutcome.ok ? 'Cerrar' : 'Volver e intentar de nuevo'}
-                                            </button>
-                                        </div>
-                                    </>
-                                )}
-                            </div>
-                        </div>
-                    </div>
-                )}
+                {/* ── Puerta de conexión de WhatsApp (conectar → autoenvío) ── */}
+                <WhatsappConnectModal
+                    isOpen={showWaConnect}
+                    onClose={() => setShowWaConnect(false)}
+                    onConnected={doSend}
+                    actionLabel="Al conectar, la solicitud se enviará automáticamente."
+                />
+
+                {/* ── Overlay estándar de envío / resultado ── */}
+                <SendActionOverlay
+                    phase={sendPhase}
+                    ok={sendOutcome.ok}
+                    subtitle={`${info?.numero_expediente || numeroExpediente || ''} · ${active === 'CLIENTE' ? 'Cliente' : 'Instalador'}`}
+                    items={sendOutcome.sentTo}
+                    errorText={sendOutcome.text}
+                    onClose={() => setSendPhase(null)}
+                />
         </div>
     );
 }

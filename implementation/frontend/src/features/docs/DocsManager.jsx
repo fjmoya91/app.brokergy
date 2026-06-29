@@ -135,6 +135,8 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
     const [waiving, setWaiving] = useState(null); // slot.key cuyo "no necesario" se está cambiando
     const [merging, setMerging] = useState(null); // slot.key cuyas fotos se están uniendo en un PDF
     const [dragOver, setDragOver] = useState(null); // slot.key sobre el que se arrastra
+    const [namePrompt, setNamePrompt] = useState(null); // { slot, files } al subir a un slot "Otros"
+    const [nameValue, setNameValue] = useState('');     // texto del nombre que escribe el usuario
     const [bulkValidating, setBulkValidating] = useState(null); // slot.key | '__antes__' | '__despues__' en validación masiva
     const [conceptPanel, setConceptPanel] = useState(false); // panel "Añadir apartado" abierto
     const [conceptBusy, setConceptBusy] = useState(null);    // concept.id en proceso de habilitar/quitar
@@ -218,15 +220,24 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
 
     // Devuelve true si todas las subidas fueron OK (lo usa "Cambiar foto" para no
     // borrar la antigua si la nueva falló).
-    const uploadFiles = async (slot, fileList) => {
+    // `label` (opcional): nombre legible para los slots "Otros". Si se suben varios
+    // archivos a la vez con la misma etiqueta, se numeran _1, _2… en el fichero.
+    const uploadFiles = async (slot, fileList, label = null) => {
         const files = Array.from(fileList || []);
         if (!files.length) return false;
         let ok = true;
         setBusySlot(slot.key);
         setSlotError(prev => ({ ...prev, [slot.key]: null }));
         try {
-            for (const file of files) {
+            for (let i = 0; i < files.length; i++) {
+                const file = files[i];
                 const form = new FormData();
+                // La etiqueta va ANTES del fichero para que multer la deje en req.body.
+                let fileLabel = null;
+                if (label) {
+                    fileLabel = files.length > 1 ? `${label}_${i + 1}` : label;
+                    form.append('label', fileLabel);
+                }
                 form.append('file', file);
                 const res = await axios.post(
                     `/api/public/reforma-docs/${uuidRef.current}/${slot.key}`,
@@ -234,7 +245,7 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
                     { params: { token: tokenRef.current }, headers: { 'Content-Type': 'multipart/form-data' } }
                 );
                 const localUrl = file.type?.startsWith('image/') ? URL.createObjectURL(file) : null;
-                const entry = { name: res.data.name, link: res.data.link, thumb: res.data.thumb, driveId: res.data.driveId, localUrl, estado: 'subida', at: new Date().toISOString() };
+                const entry = { name: res.data.name, label: res.data.label ?? fileLabel, link: res.data.link, thumb: res.data.thumb, driveId: res.data.driveId, localUrl, estado: 'subida', at: new Date().toISOString() };
                 patchSlot(slot.key, s => {
                     const items = s.multiple ? [...(s.items || []), entry] : [entry];
                     return { ...s, items, estado: rollup(items) };
@@ -248,6 +259,30 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
             setBusySlot(null);
         }
         return ok;
+    };
+
+    // Punto de entrada de TODAS las subidas (botón e input + arrastrar y soltar).
+    // En slots "Otros" (slot.named) primero pedimos un nombre legible; el resto
+    // sube directo. Conserva la lista de ficheros para subirla al confirmar.
+    const requestUpload = (slot, fileList) => {
+        const files = Array.from(fileList || []);
+        if (!files.length) return;
+        if (slot.named) {
+            setNameValue('');
+            setNamePrompt({ slot, files });
+        } else {
+            uploadFiles(slot, files);
+        }
+    };
+
+    const confirmNamePrompt = async () => {
+        if (!namePrompt) return;
+        const label = nameValue.trim();
+        if (!label) return;
+        const { slot, files } = namePrompt;
+        setNamePrompt(null);
+        setNameValue('');
+        await uploadFiles(slot, files, label);
     };
 
     const deleteItem = async (slot, item) => {
@@ -271,7 +306,8 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
         if (!file) return;
         setLbReplacing(true);
         try {
-            const ok = await uploadFiles(slot, [file]);
+            // Conserva el nombre legible en los slots "Otros" al sustituir.
+            const ok = await uploadFiles(slot, [file], slot.named ? (item.label || null) : null);
             if (ok) {
                 await deleteItem(slot, item);
                 setLightbox(null);
@@ -448,7 +484,7 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
             onDrop: (e) => {
                 e.preventDefault(); e.stopPropagation();
                 setDragOver(null);
-                if (!busy) { const files = e.dataTransfer.files; if (files?.length) uploadFiles(slot, files); }
+                if (!busy) { const files = e.dataTransfer.files; if (files?.length) requestUpload(slot, files); }
             },
         };
 
@@ -564,6 +600,10 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
                                                         className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-red-500 text-white text-xs font-black flex items-center justify-center shadow-lg max-md:opacity-100 opacity-0 group-hover:opacity-100 transition-all disabled:opacity-50">✕</button>
                                                 )}
                                             </div>
+                                            {/* Nombre legible del documento (slots "Otros") */}
+                                            {it.label && (
+                                                <span className="text-[9px] text-white/55 font-bold max-w-[72px] text-center leading-tight break-words" title={it.label}>{it.label}</span>
+                                            )}
                                             {/* Controles de validación (solo admin) */}
                                             {canValidate && (
                                                 <div className="flex items-center gap-1.5">
@@ -599,7 +639,7 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
                             <input type="file" accept={slot.accept}
                                 {...(slot.multiple ? { multiple: true } : {})}
                                 disabled={busy}
-                                onChange={e => { uploadFiles(slot, e.target.files); e.target.value = ''; }}
+                                onChange={e => { requestUpload(slot, e.target.files); e.target.value = ''; }}
                                 className="hidden" />
                         </label>
                     )}
@@ -787,6 +827,43 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
                         </div>
                         <div className="px-5 py-4 bg-black/30 flex justify-end">
                             <button onClick={() => setConceptPanel(false)} className="px-6 py-2 text-xs font-bold text-white/60 hover:text-white uppercase tracking-widest">Cerrar</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Popup "¿Qué documento es?" — slots Otros (pide nombre antes de subir) */}
+            {namePrompt && (
+                <div className="fixed inset-0 z-[460] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4" onClick={() => { setNamePrompt(null); setNameValue(''); }}>
+                    <div className="bg-[#16181D] border border-white/10 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl" onClick={e => e.stopPropagation()}>
+                        <div className="px-5 py-4 border-b border-white/10">
+                            <h3 className="text-white font-black uppercase tracking-widest text-xs">¿Qué documento es?</h3>
+                            <p className="text-white/50 text-xs mt-1">
+                                {namePrompt.files.length > 1
+                                    ? <>Vas a subir <strong className="text-white/80">{namePrompt.files.length} archivos</strong>. Se guardarán con este nombre y numerados (_1, _2…).</>
+                                    : <>Ponle un nombre para guardarlo identificado en Drive.</>}
+                            </p>
+                        </div>
+                        <div className="p-5 space-y-2">
+                            <label className="block text-[10px] font-black uppercase tracking-widest text-white/40 mb-1">Nombre del documento</label>
+                            <input
+                                autoFocus
+                                type="text"
+                                value={nameValue}
+                                onChange={e => setNameValue(e.target.value)}
+                                onKeyDown={e => { if (e.key === 'Enter') confirmNamePrompt(); }}
+                                placeholder="Ej: Presupuesto de ventanas"
+                                maxLength={80}
+                                className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-4 py-3 text-white text-sm placeholder:text-white/20 focus:outline-none focus:border-amber-400/50 transition-all"
+                            />
+                            <p className="text-white/30 text-[11px]">Por ejemplo: «Presupuesto de ventanas», «Escritura», «Nota simple»…</p>
+                        </div>
+                        <div className="px-5 py-4 bg-black/30 flex justify-end gap-3">
+                            <button onClick={() => { setNamePrompt(null); setNameValue(''); }} className="px-5 py-2 text-xs font-bold text-white/50 hover:text-white uppercase tracking-widest">Cancelar</button>
+                            <button onClick={confirmNamePrompt} disabled={!nameValue.trim()}
+                                className="px-6 py-2 bg-gradient-to-r from-amber-500 to-amber-400 text-black text-xs font-black rounded-xl uppercase tracking-widest hover:from-amber-400 hover:to-amber-300 transition-all disabled:opacity-30 disabled:cursor-not-allowed">
+                                Subir
+                            </button>
                         </div>
                     </div>
                 </div>

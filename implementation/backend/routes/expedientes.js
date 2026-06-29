@@ -135,15 +135,45 @@ async function loadNotificationContext(expediente) {
 
     let partnerPhone = null;
     let partnerEmail = null;
-    if (op?.prescriptor_id && String(op.prescriptor_id) !== '1') {
-        const { data: pData } = await supabase.from('prescriptores').select('telefono, email').eq('id_empresa', op.prescriptor_id).maybeSingle();
+    // Preferimos el INSTALADOR asociado de la obra; si no, el prescriptor genérico.
+    const partnerId = op?.instalador_asociado_id || op?.prescriptor_id;
+    if (partnerId && String(partnerId) !== '1') {
+        // OJO: prescriptores NO tiene columnas `telefono`/`movil` — seleccionarlas hace
+        // que supabase-js devuelva error y pData=null (el partner se quedaba sin avisar).
+        const { data: pData } = await supabase.from('prescriptores')
+            .select('tlf, tlf_contacto, landing_telefono_contacto, email, email_contacto, nombre_contacto, contacto_notificaciones_activas')
+            .eq('id_empresa', partnerId).maybeSingle();
         if (pData) {
-            partnerPhone = pData.telefono;
-            partnerEmail = pData.email;
+            const useContact = pData.contacto_notificaciones_activas === true || pData.contacto_notificaciones_activas === 'true';
+            partnerPhone = (useContact ? (pData.tlf_contacto || pData.tlf) : (pData.tlf || pData.tlf_contacto)) || pData.landing_telefono_contacto || null;
+            partnerEmail = (useContact ? (pData.email_contacto || pData.email) : (pData.email || pData.email_contacto)) || null;
         }
     }
 
     return { cli, op, techName, partnerPhone, partnerEmail };
+}
+
+// Construye los textos de WhatsApp de la notificación de "CEE registrado", por
+// destinatario (CLIENTE / PARTNER / ADMIN). Lo usan el envío y la PREVISUALIZACIÓN
+// (POST resend-cee-notifications con preview:true) → única fuente de verdad.
+// Nota: el email del cliente/staff se envía con su plantilla HTML; estos textos son
+// los del canal WhatsApp (y los que se muestran en el preview).
+function buildCeeRegistradoMessages(phase, { numExp, clienteName, clienteFull, portalLink, expedienteLink }) {
+    if (phase === 'final') {
+        const clientMsg = `¡Hola *${clienteName}*! 👋\n\nTe comunicamos que ya ha sido presentado el *Certificado de Eficiencia Energética FINAL* de tu expediente *${numExp}*.\n\n¡Muchas gracias!\n*BROKERGY — Ingeniería Energética*`;
+        const staffMsg = `✅ *REGISTRO CEE FINAL PRESENTADO*\nExpediente: ${numExp}\nCliente: ${clienteFull}\n\nSe ha subido el justificante de registro del CEE Final al sistema.\n\nVer expediente:\n🔗 ${expedienteLink}`;
+        return { CLIENTE: clientMsg, PARTNER: staffMsg, ADMIN: staffMsg };
+    }
+    // ── CEE INICIAL ──
+    const clientMsg = `¡Hola *${clienteName}*! 👋\n\nTe escribimos para comunicarte que ya ha sido presentado el *Certificado de Eficiencia Energética INICIAL* de tu expediente *${numExp}*.\n\n*Desde este momento ya se pueden emitir facturas y pagos*\n\n📸 Recuerda hacerle fotografías a todo:\n• *Caldera existente y placa de fabricación.*\n• *Desmontaje de la caldera.*\n• *Montaje de la aerotermia.*\n• *Fotos de las nuevas placas de fabricación* (tanto de la unidad exterior como de la interior).\n\nLas fotos son la parte más importante del proceso para que podamos argumentar ante el ministerio que se ha realizado la reforma.\n\nPuedes subirlas directamente al expediente a través de este enlace:\n🔗 ${portalLink}\n\nUna vez finalizada la obra, debes comunicárnoslo por aquí para proceder con el CEE Final y el resto de la documentación.\n\n¡Muchas gracias!\n*BROKERGY — Ingeniería Energética*`;
+    const staffMsg = `✅ *REGISTRO CEE INICIAL PRESENTADO*\nExpediente: ${numExp}\nCliente: ${clienteFull}\n\nSe ha subido el justificante de registro del CEE Inicial al sistema. Desde este momento ya se pueden emitir facturas y pagos.\n\nVer expediente:\n🔗 ${expedienteLink}`;
+    // Mensaje específico para el INSTALADOR: además de avisar, le pedimos las fotos
+    // de la obra terminada y la factura, con el enlace de subida acotado a su rol.
+    const installerLink = portalLink
+        ? `${portalLink}${portalLink.includes('?') ? '&' : '?'}rol=instalador`
+        : expedienteLink;
+    const partnerMsg = `✅ *CEE INICIAL REGISTRADO* — Expediente ${numExp}\nObra: ${clienteFull}\n\nYa está presentado el CEE Inicial: ya se pueden emitir facturas y pagos. 🎉\n\nPara poder seguir tramitando el expediente necesitamos que nos subas:\n\n📸 *Fotos de la obra terminada* (unidad exterior e interior ya instaladas y sus placas de fabricación).\n🧾 *Factura(s)* de la instalación.\n\nPuedes subirlo de forma rápida y sencilla aquí:\n🔗 ${installerLink}\n\n¡Gracias!\n*BROKERGY — Ingeniería Energética*`;
+    return { CLIENTE: clientMsg, PARTNER: partnerMsg, ADMIN: staffMsg };
 }
 
 async function notifyCeeInicialRegistrado(expediente, filters = {}) {
@@ -165,7 +195,7 @@ async function notifyCeeInicialRegistrado(expediente, filters = {}) {
         const portalLink = op?.id
             ? await reformaUploadService.ensureUploadLink(op.id)
             : `https://app.brokergy.es/firma/${expediente.id}`;
-        const expedienteLink = `https://app.brokergy.es/expedientes/${expediente.id}`;
+        const expedienteLink = `https://app.brokergy.es/?exp=${expediente.id}`;
 
         const waState = whatsappService.getStatus?.()?.state || 'unknown';
         const cliPhone = (cli.notificaciones_contacto_activas && cli.persona_contacto_tlf) ? cli.persona_contacto_tlf : cli.tlf;
@@ -173,8 +203,14 @@ async function notifyCeeInicialRegistrado(expediente, filters = {}) {
 
         const channels = { whatsapp: [], email: [] };
 
-        const clientMsg = `¡Hola *${clienteName}*! 👋\n\nTe escribimos para comunicarte que ya ha sido presentado el *Certificado de Eficiencia Energética INICIAL* de tu expediente *${numExp}*.\n\n*Desde este momento ya se pueden emitir facturas y pagos*\n\n📸 Recuerda hacerle fotografías a todo:\n• *Caldera existente y placa de fabricación.*\n• *Desmontaje de la caldera.*\n• *Montaje de la aerotermia.*\n• *Fotos de las nuevas placas de fabricación* (tanto de la unidad exterior como de la interior).\n\nLas fotos son la parte más importante del proceso para que podamos argumentar ante el ministerio que se ha realizado la reforma.\n\nPuedes subirlas directamente al expediente a través de este enlace:\n🔗 ${portalLink}\n\nUna vez finalizada la obra, debes comunicárnoslo por aquí para proceder con el CEE Final y el resto de la documentación.\n\n¡Muchas gracias!\n*BROKERGY — Ingeniería Energética*`;
-        const staffMsg = `✅ *REGISTRO CEE INICIAL PRESENTADO*\nExpediente: ${numExp}\nCliente: ${clienteFull}\n\nSe ha subido el justificante de registro del CEE Inicial al sistema. Desde este momento ya se pueden emitir facturas y pagos.\n\nVer expediente:\n🔗 ${expedienteLink}`;
+        // Textos por destinatario (compartidos con la previsualización). El admin puede
+        // sobrescribirlos desde el modal de reenvío (filters.overrides).
+        const msgs = buildCeeRegistradoMessages('inicial', { numExp, clienteName, clienteFull, portalLink, expedienteLink });
+        const overrides = filters.overrides || {};
+        if (filters.preview) return { ok: true, preview: msgs };
+        const clientMsg = overrides.CLIENTE || msgs.CLIENTE;
+        const adminMsg  = overrides.ADMIN  || msgs.ADMIN;
+        const partnerMsg = overrides.PARTNER || msgs.PARTNER;
 
         // --- WHATSAPP ---
         if (chFilter.includes('whatsapp')) {
@@ -189,13 +225,13 @@ async function notifyCeeInicialRegistrado(expediente, filters = {}) {
             if (targets.includes('ADMIN')) {
                 const adminPhone = process.env.WHATSAPP_ADMIN_CHAT || '34623926179';
                 channels.whatsapp.push('admin');
-                whatsappService.sendText(adminPhone, staffMsg)
+                whatsappService.sendText(adminPhone, adminMsg)
                     .catch(e => console.error(`${tag} WhatsApp Admin:`, e.message));
             }
 
             if (targets.includes('PARTNER') && partnerPhone) {
                 channels.whatsapp.push('partner');
-                whatsappService.sendText(partnerPhone, staffMsg)
+                whatsappService.sendText(partnerPhone, partnerMsg)
                     .catch(e => console.error(`${tag} WhatsApp Partner:`, e.message));
             }
         }
@@ -242,7 +278,7 @@ async function notifyCeeFinalRegistrado(expediente, filters = {}) {
         const clienteName = (cli.nombre_razon_social || 'Cliente').trim();
         const clienteFull = `${cli.nombre_razon_social || ''} ${cli.apellidos || ''}`.trim();
         const ubicacion = `${cli.direccion || ''} - ${cli.codigo_postal || ''} ${cli.municipio || ''} (${cli.provincia || ''})`;
-        const expedienteLink = `https://app.brokergy.es/expedientes/${expediente.id}`;
+        const expedienteLink = `https://app.brokergy.es/?exp=${expediente.id}`;
 
         const waState = whatsappService.getStatus?.()?.state || 'unknown';
         const cliPhone = (cli.notificaciones_contacto_activas && cli.persona_contacto_tlf) ? cli.persona_contacto_tlf : cli.tlf;
@@ -250,8 +286,13 @@ async function notifyCeeFinalRegistrado(expediente, filters = {}) {
 
         const channels = { whatsapp: [], email: [] };
 
-        const clientMsg = `¡Hola *${clienteName}*! 👋\n\nTe comunicamos que ya ha sido presentado el *Certificado de Eficiencia Energética FINAL* de tu expediente *${numExp}*.\n\n¡Muchas gracias!\n*BROKERGY — Ingeniería Energética*`;
-        const staffMsg = `✅ *REGISTRO CEE FINAL PRESENTADO*\nExpediente: ${numExp}\nCliente: ${clienteFull}\n\nSe ha subido el justificante de registro del CEE Final al sistema.\n\nVer expediente:\n🔗 ${expedienteLink}`;
+        // Textos por destinatario (compartidos con la previsualización) + overrides del admin.
+        const msgs = buildCeeRegistradoMessages('final', { numExp, clienteName, clienteFull, portalLink: null, expedienteLink });
+        const overrides = filters.overrides || {};
+        if (filters.preview) return { ok: true, preview: msgs };
+        const clientMsg = overrides.CLIENTE || msgs.CLIENTE;
+        const adminMsg  = overrides.ADMIN  || msgs.ADMIN;
+        const partnerMsg = overrides.PARTNER || msgs.PARTNER;
 
         // --- WHATSAPP ---
         if (chFilter.includes('whatsapp')) {
@@ -266,13 +307,13 @@ async function notifyCeeFinalRegistrado(expediente, filters = {}) {
             if (targets.includes('ADMIN')) {
                 const adminPhone = process.env.WHATSAPP_ADMIN_CHAT || '34623926179';
                 channels.whatsapp.push('admin');
-                whatsappService.sendText(adminPhone, staffMsg)
+                whatsappService.sendText(adminPhone, adminMsg)
                     .catch(e => console.error(`${tag} WhatsApp Admin:`, e.message));
             }
 
             if (targets.includes('PARTNER') && partnerPhone) {
                 channels.whatsapp.push('partner');
-                whatsappService.sendText(partnerPhone, staffMsg)
+                whatsappService.sendText(partnerPhone, partnerMsg)
                     .catch(e => console.error(`${tag} WhatsApp Partner:`, e.message));
             }
         }
@@ -3551,9 +3592,12 @@ router.post('/:id/approve-cee', adminOnly, async (req, res) => {
             } else {
                 const hasUrl = bodyMsg && /https?:\/\//i.test(bodyMsg);
                 const carpetaWa = (ceeFolderLink && !hasUrl) ? `\n\n📁 Carpeta de documentos:\n${ceeFolderLink}` : '';
+                // Si el admin no editó el mensaje (fallback), incrustamos el deep-link al
+                // expediente. Cuando hay bodyMsg, el enlace ya viene dentro (buildCertApproveMessage).
+                const expedienteWa = bodyMsg ? '' : `\n\n🔗 Abre el expediente directamente en la app:\n${portalLink}`;
                 const waMsg = bodyMsg
                     ? `${bodyMsg}${carpetaWa}\n\n*BROKERGY · Ingeniería Energética*`
-                    : `✅ *Visto bueno* — ${phaseLabel}\n\nHola ${certName}, ya tienes luz verde para registrar el ${phaseLabel} del expediente ${exp.numero_expediente} en Industria.${carpetaWa}\n\n*BROKERGY · Ingeniería Energética*`;
+                    : `✅ *Visto bueno* — ${phaseLabel}\n\nHola ${certName}, ya tienes luz verde para registrar el ${phaseLabel} del expediente ${exp.numero_expediente} en Industria.${expedienteWa}${carpetaWa}\n\n*BROKERGY · Ingeniería Energética*`;
                 try {
                     const waRes = await whatsappService.sendText(certPhone, waMsg);
                     whatsAppSent = true; // se ha encolado/enviado correctamente
@@ -3606,6 +3650,8 @@ router.post('/:id/resend-cee-notifications', enforceAuth, async (req, res) => {
         // Filtros opcionales enviados por el frontend
         const targets  = req.body?.targets  || ['CLIENTE', 'PARTNER', 'ADMIN'];
         const channels = req.body?.channels || ['email', 'whatsapp'];
+        const preview  = req.body?.preview === true; // solo devolver los textos, sin enviar
+        const overrides = (req.body?.overrides && typeof req.body.overrides === 'object') ? req.body.overrides : null;
 
         const { data: exp, error } = await supabase.from('expedientes').select('*').eq('id', req.params.id).single();
         if (error || !exp) return res.status(404).json({ error: 'Expediente no encontrado' });
@@ -3615,9 +3661,10 @@ router.post('/:id/resend-cee-notifications', enforceAuth, async (req, res) => {
             return res.status(400).json({ error: `El ${seguimientoKey} no está en estado REGISTRADO` });
         }
 
+        const opts = { targets, channels, preview, overrides };
         const result = phase === 'final'
-            ? await notifyCeeFinalRegistrado(exp, { targets, channels })
-            : await notifyCeeInicialRegistrado(exp, { targets, channels });
+            ? await notifyCeeFinalRegistrado(exp, opts)
+            : await notifyCeeInicialRegistrado(exp, opts);
 
         return res.json(result);
     } catch (err) {
@@ -4163,7 +4210,8 @@ router.get('/:id/approve-cee-from-email', async (req, res) => {
             ? ' (' + clienteNombre.toLowerCase().split(/\s+/).filter(Boolean).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ') + ')'
             : '';
         const carpeta = ceeFolderLink ? `\n\n📁 Carpeta de documentos del expediente:\n${ceeFolderLink}` : '';
-        const vistoBuenoMsg = `¡Hola ${tecnico}! 👋\n\nHemos revisado el ${phaseLabel} del expediente ${exp.numero_expediente}${cliProper} y tiene nuestro visto bueno. Ya puedes proceder a registrarlo en Industria.\n\nUna vez registrado, sube por favor la etiqueta energética y el justificante de registro a la carpeta compartida o al portal.\n\n¡Gracias!${carpeta}`;
+        const expedienteLink = `\n\n🔗 Abre el expediente directamente en la app:\n${portalLink}`;
+        const vistoBuenoMsg = `¡Hola ${tecnico}! 👋\n\nHemos revisado el ${phaseLabel} del expediente ${exp.numero_expediente}${cliProper} y tiene nuestro visto bueno. Ya puedes proceder a registrarlo en Industria.\n\nUna vez registrado, sube por favor la etiqueta energética y el justificante de registro a la carpeta compartida o al portal.\n\n¡Gracias!${expedienteLink}${carpeta}`;
 
         // EMAIL + WhatsApp al certificador (automático, ambos canales)
         let emailSent = false, waSent = false;

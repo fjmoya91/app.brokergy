@@ -1,6 +1,6 @@
 import React, { useRef, useState, useCallback, useEffect } from 'react';
 import axios from 'axios';
-import { buildAnexoCesionHtml, buildAnexoIHtml, getDualMessage, ANEXO_CESION_CSS } from '../utils/docGenerators';
+import { buildAnexoCesionHtml, buildAnexoIHtml, getDualMessage, getClientCaeRate, ANEXO_CESION_CSS } from '../utils/docGenerators';
 import { useAuth } from '../../../context/AuthContext';
 import AppConfirm from '../../../components/AppConfirm';
 
@@ -45,7 +45,7 @@ export function AnexoCesionModal({ isOpen, onClose, expediente, results, onSaveD
 
     // Simplificando lógica de beneficio para evitar errores de sintaxis
     const opInputs = op?.datos_calculo?.inputs || {};
-    const rateMwh = parseFloat(inst.economico_override?.cae_client_rate ?? opInputs.cae_client_rate) || 0;
+    const { rate: rateMwh } = getClientCaeRate(expediente);
     const rateMWhStr = rateMwh ? Math.round(rateMwh).toString() : '___';
     
     let beneficioRaw = results?.caeBonus;

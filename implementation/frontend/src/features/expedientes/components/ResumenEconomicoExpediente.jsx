@@ -11,12 +11,12 @@ const AHORRO_DELTA_PCT = 10;   // % — variación de ahorro que pide revisar la
 // Movido fuera para evitar que React desmonte el componente en cada renderizado de ResumenEconomicoExpediente
 const Metric = ({ label, value, sub, icon, color = 'text-white', tag, proposalValue, proposalDiff, verified, onDoubleClick, isEditingVal, editValue, onEditChange, handleKeyDown, handleSaveLocal, onCancel, inputRef }) => (
     <div
-        className={`flex-1 min-w-[200px] p-4 border-r border-white/5 last:border-0 group hover:bg-white/[0.02] transition-colors relative max-md:min-w-0 max-md:p-3 max-md:border-0 max-md:rounded-xl max-md:bg-white/[0.03] ${onDoubleClick && !isEditingVal ? 'cursor-pointer' : ''}`}
+        className={`flex-1 min-w-[220px] p-5 border-r border-white/5 last:border-0 group hover:bg-white/[0.02] transition-colors relative max-md:min-w-0 max-md:p-3 max-md:border-0 max-md:rounded-xl max-md:bg-white/[0.03] ${onDoubleClick && !isEditingVal ? 'cursor-pointer' : ''}`}
         onDoubleClick={isEditingVal ? null : onDoubleClick}
     >
-        <div className="flex items-center gap-2 mb-1">
+        <div className="flex items-center gap-2 mb-2 max-md:mb-1">
             <span className="text-white/30 group-hover:text-brand/50 transition-colors">{icon}</span>
-            <span className="text-[10px] font-black uppercase tracking-widest text-white/30">{label}</span>
+            <span className="text-[11px] font-black uppercase tracking-widest text-white/35 max-md:text-[10px]">{label}</span>
             {tag && (
                 <span className={`ml-auto text-[7px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full border ${tag.tone === 'ok' ? 'text-amber-400 bg-amber-400/10 border-amber-400/30' : 'text-white/30 bg-white/[0.04] border-white/10'}`}>
                     {tag.text}
@@ -38,9 +38,9 @@ const Metric = ({ label, value, sub, icon, color = 'text-white', tag, proposalVa
                         value={editValue}
                         onChange={e => onEditChange(e.target.value)}
                         onKeyDown={handleKeyDown}
-                        className="bg-bkg-elevated border border-brand/50 rounded-lg px-2 py-1 text-lg font-black text-brand w-24 focus:outline-none focus:ring-2 focus:ring-brand/20 shadow-xl"
+                        className="bg-bkg-elevated border border-brand/50 rounded-lg px-2.5 py-1.5 text-3xl font-black text-brand w-36 focus:outline-none focus:ring-2 focus:ring-brand/20 shadow-xl max-md:text-2xl max-md:w-32"
                     />
-                    <span className="ml-2 text-[10px] font-black text-brand/50 uppercase tracking-tighter">€/MWh</span>
+                    <span className="ml-2 text-[11px] font-black text-brand/50 uppercase tracking-tighter">€/MWh</span>
                 </div>
 
                 <button
@@ -65,17 +65,17 @@ const Metric = ({ label, value, sub, icon, color = 'text-white', tag, proposalVa
                 </button>
             </div>
         ) : (
-            <div className={`text-lg font-black tracking-tight ${color} flex items-baseline gap-1.5`}>
+            <div className={`text-3xl font-black tracking-tight leading-none ${color} flex items-baseline gap-1.5 max-md:text-2xl`}>
                 {value}
                 {onDoubleClick && (
-                    <svg className="w-3.5 h-3.5 text-white/10 group-hover:text-brand/40 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <svg className="w-4 h-4 text-white/10 group-hover:text-brand/40 transition-colors max-md:w-3.5 max-md:h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
                     </svg>
                 )}
             </div>
         )}
 
-        {sub && <div className="text-[10px] font-bold text-white/20 uppercase tracking-tighter mt-0.5 max-md:hidden">{sub}</div>}
+        {sub && <div className="text-[11px] font-bold text-white/25 uppercase tracking-tight mt-1.5 max-md:hidden">{sub}</div>}
 
         {/* Línea VERIFICADO: dato manual e independiente del estimado (read-only en
             Ayuda/Ganancia; editable en Volumen). */}
@@ -308,6 +308,10 @@ export function ResumenEconomicoExpediente({ results, proposal, onUpdatePrice, o
             key: 'volumen',
             label: 'Volumen CAEs',
             value: `${(savingsKwh / 1000).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MWh`,
+            num: `${(savingsKwh / 1000).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+            unit: 'MWh',
+            accent: 'via-green-400/60',
+            unitColor: 'text-green-400/50',
             sub: `${Math.round(savingsKwh).toLocaleString('es-ES')} CAEs (1 kWh = 1 CAE)`,
             proposalValue: prop ? fmtMwh(prop.savingsKwh) : null,
             proposalDiff: prop ? fmtMwh(prop.savingsKwh) !== fmtMwh(savingsKwh) : false,
@@ -320,7 +324,7 @@ export function ResumenEconomicoExpediente({ results, proposal, onUpdatePrice, o
             },
             color: 'text-green-400',
             icon: (
-                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <svg className="w-4 h-4 max-md:w-3.5 max-md:h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 10V3L4 14h7v7l9-11h-7z" />
                 </svg>
             ),
@@ -329,6 +333,10 @@ export function ResumenEconomicoExpediente({ results, proposal, onUpdatePrice, o
             key: 'ayuda',
             label: 'Ayuda Cliente',
             value: `${Math.round(caeBonus).toLocaleString('es-ES')} €`,
+            num: `${Math.round(caeBonus).toLocaleString('es-ES')}`,
+            unit: '€',
+            accent: 'via-amber-400/70',
+            unitColor: 'text-brand/60',
             sub: 'Bono CAE Directo',
             proposalValue: prop ? fmtEur(prop.caeBonus) : null,
             proposalDiff: prop ? fmtEur(prop.caeBonus) !== fmtEur(caeBonus) : false,
@@ -339,7 +347,7 @@ export function ResumenEconomicoExpediente({ results, proposal, onUpdatePrice, o
             } : null,
             color: 'text-brand',
             icon: (
-                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <svg className="w-4 h-4 max-md:w-3.5 max-md:h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
             ),
@@ -348,13 +356,17 @@ export function ResumenEconomicoExpediente({ results, proposal, onUpdatePrice, o
             key: 'precio',
             label: 'Precio CAE',
             value: `${Math.round(finalPriceClient).toLocaleString('es-ES')} €/MWh`,
+            num: `${Math.round(finalPriceClient).toLocaleString('es-ES')}`,
+            unit: '€/MWh',
+            accent: 'via-white/30',
+            unitColor: 'text-white/50',
             sub: 'Precio pagado al cliente',
             proposalValue: prop ? fmtPrice(prop.finalPriceClient) : null,
             proposalDiff: prop ? fmtPrice(prop.finalPriceClient) !== fmtPrice(finalPriceClient) : false,
             color: 'text-white',
             editable: true,
             icon: (
-                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <svg className="w-4 h-4 max-md:w-3.5 max-md:h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
                 </svg>
             ),
@@ -363,6 +375,10 @@ export function ResumenEconomicoExpediente({ results, proposal, onUpdatePrice, o
             key: 'ganancia',
             label: 'Ganancia BRKRGY',
             value: `${Math.round(profitBrokergy).toLocaleString('es-ES')} €`,
+            num: `${Math.round(profitBrokergy).toLocaleString('es-ES')}`,
+            unit: '€',
+            accent: 'via-cyan-400/60',
+            unitColor: 'text-cyan-400/50',
             sub: 'Margen tras ajuste',
             proposalValue: prop ? fmtEur(prop.profitBrokergy) : null,
             proposalDiff: prop ? fmtEur(prop.profitBrokergy) !== fmtEur(profitBrokergy) : false,
@@ -373,7 +389,7 @@ export function ResumenEconomicoExpediente({ results, proposal, onUpdatePrice, o
             } : null,
             color: 'text-cyan-400',
             icon: (
-                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <svg className="w-4 h-4 max-md:w-3.5 max-md:h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                 </svg>
             ),
@@ -431,40 +447,49 @@ export function ResumenEconomicoExpediente({ results, proposal, onUpdatePrice, o
                 </div>
             )}
 
-            {/* Móvil: control de plegado. Plegado = tira compacta (1 línea); expandido = cabecera "Ocultar". */}
-            <div className="md:hidden">
+            {/* ═══ MÓVIL: banner flotante con el MISMO formato que el de la oportunidad ═══
+                Tarjeta única redondeada (overflow-hidden → esquinas limpias, sin picos).
+                Plegado = 4 columnas (nº grande + unidad + etiqueta).
+                Al pulsar → se abre el desplegable editable (matriz 2×2). */}
+            <div className="md:hidden rounded-2xl overflow-hidden border border-white/10 bg-bkg-surface backdrop-blur-2xl shadow-[0_10px_40px_rgba(0,0,0,0.35)]">
                 {showFull ? (
-                    <button
-                        type="button"
-                        onClick={() => setCollapsed(true)}
-                        className="w-full flex items-center justify-center gap-1.5 py-1.5 text-white/30 active:text-white/60 transition-colors"
-                    >
-                        <span className="text-[9px] font-black uppercase tracking-widest">Ocultar resumen</span>
-                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7" />
-                        </svg>
-                    </button>
-                ) : (
-                    <button
-                        type="button"
-                        onClick={() => setCollapsed(false)}
-                        className="w-full flex items-center gap-3 px-1 py-2.5 overflow-x-auto scrollbar-hide"
-                    >
-                        {metrics.map((m) => (
-                            <span key={m.key} className="flex items-center gap-1.5 shrink-0">
-                                <span className={m.color}>{m.icon}</span>
-                                <span className={`text-[11px] font-black tracking-tight whitespace-nowrap ${m.color}`}>{m.value}</span>
-                            </span>
-                        ))}
-                        <svg className="w-4 h-4 ml-auto shrink-0 text-white/30" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 15l7-7 7 7" />
-                        </svg>
-                    </button>
-                )}
+                        <>
+                            <button
+                                type="button"
+                                onClick={() => setCollapsed(true)}
+                                className="w-full flex items-center justify-center gap-1.5 py-2 text-white/40 active:text-white/70 transition-colors border-b border-white/[0.06]"
+                            >
+                                <span className="text-[9px] font-black uppercase tracking-widest">Ocultar resumen</span>
+                                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7" />
+                                </svg>
+                            </button>
+                            <div className="grid grid-cols-2 gap-2 p-2">
+                                {metrics.map(renderMetric)}
+                            </div>
+                        </>
+                    ) : (
+                        <button
+                            type="button"
+                            onClick={() => setCollapsed(false)}
+                            className="w-full flex items-stretch divide-x divide-white/[0.06] overflow-x-auto scrollbar-hide"
+                        >
+                            {metrics.map((m) => (
+                                <div key={m.key} className="flex-1 min-w-[84px] relative flex flex-col items-center justify-center px-2 py-2.5 shrink-0">
+                                    <div className={`absolute top-0 left-5 right-5 h-px bg-gradient-to-r from-transparent ${m.accent} to-transparent`} />
+                                    <div className="flex items-baseline gap-0.5 relative">
+                                        <span className={`text-[19px] font-black tracking-tight tabular-nums leading-none ${m.color}`}>{m.num}</span>
+                                        <span className={`text-[11px] font-bold ml-0.5 ${m.unitColor}`}>{m.unit}</span>
+                                    </div>
+                                    <span className="text-[8px] font-bold uppercase tracking-[0.16em] text-white/40 mt-1 relative whitespace-nowrap">{m.label}</span>
+                                </div>
+                            ))}
+                        </button>
+                    )}
             </div>
 
-            {/* Métricas: fila de 4 en escritorio (sin cambios) · matriz 2×2 en móvil expandido. */}
-            <div className={`flex-wrap divide-x divide-white/5 max-md:grid-cols-2 max-md:gap-2 max-md:p-2 max-md:pt-0 max-md:divide-x-0 ${showFull ? 'grid md:flex' : 'hidden md:flex'}`}>
+            {/* ═══ ESCRITORIO: fila de 4 métricas (sin cambios) ═══ */}
+            <div className="hidden md:flex divide-x divide-white/5">
                 {metrics.map(renderMetric)}
             </div>
         </div>

@@ -1,6 +1,6 @@
 import React, { useRef, useState, useCallback, useEffect } from 'react';
 import axios from 'axios';
-import { buildAnexoIHtml, buildAnexoCesionHtml, getDualMessage, DOC_WIDTH, ANEXO_I_CSS } from '../utils/docGenerators';
+import { buildAnexoIHtml, buildAnexoCesionHtml, getDualMessage, getClientCaeRate, DOC_WIDTH, ANEXO_I_CSS } from '../utils/docGenerators';
 import { useAuth } from '../../../context/AuthContext';
 import AppConfirm from '../../../components/AppConfirm';
 
@@ -120,7 +120,7 @@ export function AnexoIModal({ isOpen, onClose, expediente, results, onSaveDrive,
     const { oportunidades: op = {}, clientes: cliente = {}, instalacion: inst = {}, numero_expediente: numexpte = '' } = expediente;
     const aeKwh = Math.round(results?.savingsKwh || 0).toLocaleString('es-ES');
     const opInputs     = op?.datos_calculo?.inputs || {};
-    const rateMwh      = parseFloat(inst.economico_override?.cae_client_rate ?? opInputs.cae_client_rate) || 0;
+    const { rate: rateMwh } = getClientCaeRate(expediente);
     const rateMWhStr   = Math.round(rateMwh).toString();
     const aeRaw        = results?.savingsKwh || 0;
     const beneficioRaw = results?.caeBonus ?? (aeRaw && rateMwh ? aeRaw / 1000 * rateMwh : null);

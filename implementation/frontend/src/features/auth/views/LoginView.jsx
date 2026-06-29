@@ -119,6 +119,10 @@ export function LoginView({ onBack, onSuccess }) {
                                 id="email"
                                 type="email"
                                 required
+                                autoCapitalize="none"
+                                autoCorrect="off"
+                                spellCheck={false}
+                                autoComplete="username"
                                 className="w-full bg-bkg-elevated border border-white/[0.1] rounded-xl px-4 py-3 text-white placeholder-white/30 focus:outline-none focus:border-brand focus:ring-1 focus:ring-brand transition-colors"
                                 placeholder="mi@email.com"
                                 value={email}
@@ -144,7 +148,11 @@ export function LoginView({ onBack, onSuccess }) {
                                         id="password"
                                         type={showPassword ? 'text' : 'password'}
                                         required
-                                        className="w-full bg-bkg-elevated border border-white/[0.1] rounded-xl px-4 py-3 pr-11 text-white placeholder-white/30 focus:outline-none focus:border-brand focus:ring-1 focus:ring-brand transition-colors"
+                                        autoCapitalize="none"
+                                        autoCorrect="off"
+                                        spellCheck={false}
+                                        autoComplete="current-password"
+                                        className="w-full bg-bkg-elevated border border-white/[0.1] rounded-xl px-4 py-3 pr-11 text-white placeholder-white/30 focus:outline-none focus:border-brand focus:ring-1 focus:ring-brand transition-colors normal-case"
                                         placeholder="••••••••"
                                         value={password}
                                         onChange={(e) => setPassword(e.target.value)}
