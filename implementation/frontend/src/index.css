@@ -836,6 +836,22 @@ input[type="email"],
     border-color: rgba(15, 23, 42, 0.10) !important;
 }
 
+/* ── Toggles (pills) de la calculadora en tema CLARO ──────────────────────────
+   El track APAGADO de estos switches es `bg-slate-700/800`, que arriba se
+   remapea a #F1F3F6 (gris casi blanco) y queda INVISIBLE sobre el fondo claro.
+   Los pintamos en naranja de marca (brand-600) para que se vean siempre; el
+   círculo blanco (knob) sigue indicando el estado on/off por su posición.
+   Selector acotado por tamaño de pill (w-8 h-4 / w-9 h-5) + rounded-full, así
+   solo afecta a estos switches y NO a otras superficies bg-slate-* ni al tema
+   oscuro. Mayor especificidad (+!important) que las reglas de remapeo de arriba. */
+.theme-light .w-8.h-4.rounded-full.bg-slate-800,
+.theme-light .w-8.h-4.rounded-full.bg-slate-700,
+.theme-light .w-9.h-5.rounded-full.bg-slate-800,
+.theme-light .w-9.h-5.rounded-full.bg-slate-700 {
+    background-color: #FF8F00 !important;   /* brand-600 (naranja Brokergy) */
+    border-color: #E65100 !important;       /* brand-800 */
+}
+
 /* ── Gradientes de COLOR oscuros (from/to/via-*-900 y -950) → tinte claro del
    mismo tono. Usados en las tarjetas de viabilidad/márgenes de la calculadora. ── */
 .theme-light [class*="from-pink-900"], .theme-light [class*="from-pink-950"]   { --tw-gradient-from: rgba(236,72,153,0.08) var(--tw-gradient-from-position) !important; --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important; }
