@@ -17,8 +17,35 @@ import re
 import zipfile
 import shutil
 import os
+import struct
 
 DOC_XML = "word/document.xml"
+RELS_XML = "word/_rels/document.xml.rels"
+# La plantilla incrusta el esquema hidráulico de la página 4 como `media/image1.emf`
+# (VML <v:imagedata r:id="rId7">). Lo sustituimos por la imagen que toque según si
+# se cambia o no el ACS.
+ESQUEMA_MEDIA_EMF = "word/media/image1.emf"
+
+
+def _png_size(data: bytes):
+    """Ancho/alto de un PNG leyendo la cabecera IHDR (sin dependencias externas)."""
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        w, h = struct.unpack(">II", data[16:24])
+        return w, h
+    return None, None
+
+
+def _ajustar_esquema(xml: str, img_w: int, img_h: int) -> str:
+    """Reescala la altura del hueco del esquema para respetar el ratio de la nueva
+    imagen (mantiene el ancho en pt). Evita que el PNG salga deformado."""
+    if not img_w or not img_h:
+        return xml
+    m = re.search(r'(<v:shape\b[^>]*style="width:)([\d.]+)(pt;height:)([\d.]+)(pt")', xml)
+    if not m:
+        return xml
+    width_pt = float(m.group(2))
+    new_h = round(width_pt * img_h / img_w, 1)
+    return xml[:m.start()] + f"{m.group(1)}{m.group(2)}{m.group(3)}{new_h}{m.group(5)}" + xml[m.end():]
 
 
 def _esc(s: str) -> str:
@@ -83,8 +110,22 @@ def rellenar_xml(xml: str, text_by_pos: dict, check_positions) -> str:
 
 
 def generar_memoria(plantilla_path: str, text_by_pos: dict,
-                    check_positions, salida_path: str) -> str:
-    """Genera el .docx final copiando la plantilla y reescribiendo document.xml."""
+                    check_positions, salida_path: str,
+                    esquema_img_path: str = None) -> str:
+    """Genera el .docx final copiando la plantilla y reescribiendo document.xml.
+
+    Si se pasa `esquema_img_path` (PNG), sustituye el esquema hidráulico de la
+    página 4 por esa imagen: la escribe como `media/image1.png`, reapunta la
+    relación rId7 (emf→png) y reajusta la altura del hueco al ratio de la imagen.
+    Degrada con elegancia: si el fichero no existe, se mantiene el esquema original.
+    """
+    swap = None
+    if esquema_img_path and os.path.exists(esquema_img_path):
+        with open(esquema_img_path, "rb") as fh:
+            img_bytes = fh.read()
+        w, h = _png_size(img_bytes)
+        swap = {"bytes": img_bytes, "w": w, "h": h}
+
     # Copiamos la plantilla a la salida y editamos en sitio dentro del ZIP
     tmp = salida_path + ".tmp.zip"
     with zipfile.ZipFile(plantilla_path, "r") as zin:
@@ -95,8 +136,16 @@ def generar_memoria(plantilla_path: str, text_by_pos: dict,
                 if n == DOC_XML:
                     xml = data.decode("utf-8")
                     xml = rellenar_xml(xml, text_by_pos, check_positions)
+                    if swap:
+                        xml = _ajustar_esquema(xml, swap["w"], swap["h"])
                     data = xml.encode("utf-8")
+                elif swap and n == RELS_XML:
+                    data = data.replace(b"media/image1.emf", b"media/image1.png")
+                elif swap and n == ESQUEMA_MEDIA_EMF:
+                    continue  # se reemplaza por el PNG (escrito tras el bucle)
                 zout.writestr(n, data)
+            if swap:
+                zout.writestr("word/media/image1.png", swap["bytes"])
     shutil.move(tmp, salida_path)
     return salida_path
 

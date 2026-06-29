@@ -76,9 +76,11 @@ def normalizar(raw: dict, fecha_firma: str = None) -> dict:
     doc = exp.get("documentacion") or {}
     instalador = raw.get("instalador") or {}
 
-    # Fecha de pruebas = fecha de factura
+    # Fecha de pruebas = fecha de factura; si no hay factura, se usa la fecha de
+    # pruebas introducida a mano en la app (documentacion.fecha_pruebas_cert_instalacion).
     facturas = doc.get("facturas") or []
     fecha_factura = facturas[0].get("fecha_factura") if facturas else None
+    fecha_pruebas = fecha_factura or doc.get("fecha_pruebas_cert_instalacion")
 
     superficie = dc.get("superficie")
     zona = dc.get("zona", "D3")
@@ -179,11 +181,11 @@ def normalizar(raw: dict, fecha_firma: str = None) -> dict:
             "num_empresa_rite": num_empresa_rite,   # Nº Registro Integrado Industrial (EMPRESA)
             "carnet_personal": carnet_personal,      # Nº de Carné del instalador/técnico firmante
             "localidad": instalador.get("municipio", ""),
-            "fecha_firma": _fmt(fecha_firma) if fecha_firma else _fmt(fecha_factura),
+            "fecha_firma": _fmt(fecha_firma) if fecha_firma else _fmt(fecha_pruebas),
         },
         "potencia": {"calor": pot_cal, "frio": 0, "acs": pot_acs,
                      "total": round(pot_cal + pot_acs, 2)},
-        "pruebas_fecha": fecha_factura,
+        "pruebas_fecha": fecha_pruebas,
         "_meta": {"emisor": emisor},
     }
 

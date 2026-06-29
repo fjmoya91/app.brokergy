@@ -2053,9 +2053,11 @@ function validateMemoriaRite({ exp, cli, op, pres }) {
         if (!P(pres.municipio)) missing.push('Municipio Instalador (ficha Partner)');
     }
 
-    // Fecha de factura (= fecha de las pruebas en la memoria)
-    if (!Array.isArray(doc.facturas) || !doc.facturas.length || !P(doc.facturas[0]?.fecha_factura)) {
-        missing.push('Fecha de Factura (Documentación)');
+    // Fecha de pruebas: se toma de la factura; si no hay factura, vale la fecha
+    // de pruebas introducida a mano (documentacion.fecha_pruebas_cert_instalacion).
+    const tieneFechaFactura = Array.isArray(doc.facturas) && doc.facturas.length && P(doc.facturas[0]?.fecha_factura);
+    if (!tieneFechaFactura && !P(doc.fecha_pruebas_cert_instalacion)) {
+        missing.push('Fecha de Factura o Fecha de Pruebas (Documentación)');
     }
 
     return missing;

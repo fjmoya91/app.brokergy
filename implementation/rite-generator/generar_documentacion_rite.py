@@ -33,7 +33,11 @@ from lib import generar_guia_je6 as guia
 from lib import generar_borrador_certificado as borrador
 from lib import supabase_client as sc
 
-PLANTILLA = os.path.join(os.path.dirname(__file__), "assets", "plantilla_rite_jccm.docx")
+ASSETS = os.path.join(os.path.dirname(__file__), "assets")
+PLANTILLA = os.path.join(ASSETS, "plantilla_rite_jccm.docx")
+# Esquema hidráulico de la página 4 — según se cambie o no el ACS.
+ESQUEMA_CON_ACS = os.path.join(ASSETS, "esquema_con_acs.png")
+ESQUEMA_SIN_ACS = os.path.join(ASSETS, "esquema_sin_acs.png")
 
 
 def _docx_to_pdf(docx_path, salida_dir):
@@ -70,7 +74,9 @@ def generar(datos: dict, salida_dir: str):
     nombres = _nombres_campos(PLANTILLA)
     text_by_pos, check_positions = construir_relleno(datos, nombres)
     out_docx = os.path.join(salida_dir, f"MEMORIA_RITE_{exp}.docx")
-    generar_memoria(PLANTILLA, text_by_pos, check_positions, out_docx)
+    # Esquema de la página 4 según se cambie o no el ACS (objeto.acs = cambio_acs).
+    esquema = ESQUEMA_CON_ACS if datos.get("objeto", {}).get("acs") else ESQUEMA_SIN_ACS
+    generar_memoria(PLANTILLA, text_by_pos, check_positions, out_docx, esquema_img_path=esquema)
     print(f"  [OK] Memoria: {out_docx}  ({len(text_by_pos)} campos, {len(check_positions)} casillas)")
 
     # 1b) MEMORIA .pdf (conversión del .docx con LibreOffice; opcional)

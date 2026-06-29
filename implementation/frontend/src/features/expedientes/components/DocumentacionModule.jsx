@@ -666,8 +666,9 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
             if (!isPresent(pres.numero_carnet_rite)) missing.push('Nº Empresa RITE (ficha Partner)');
             if (!isPresent(pres.municipio)) missing.push('Municipio Instalador (ficha Partner)');
 
-            // Fecha de factura (= fecha de pruebas en la memoria)
-            if (!doc.facturas?.length || !isPresent(doc.facturas[0]?.fecha_factura)) missing.push('Fecha de Factura (Documentación)');
+            // Fecha de pruebas: de la factura o, si no hay factura, la introducida a
+            // mano. NO se lista aquí como "campo faltante": si no hay ninguna, al
+            // generar se pide en un popup dedicado (fecha_pruebas_cert_instalacion).
         }
 
         return missing;
@@ -768,8 +769,42 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
     const cliId = expediente?.clientes?.id_cliente || expediente?.cliente_id || null;
     const [sexoPopup, setSexoPopup] = useState({ isOpen: false, saving: null, error: null });
 
-    // Llamado tras pasar la validación: abre el popup de sexo (no genera directo).
-    const abrirSexoThenBorrador = () => setSexoPopup({ isOpen: true, saving: null, error: null });
+    // ── Fecha de pruebas (cuando NO hay factura) ──────────────────────────────
+    // La fecha de pruebas de la Memoria RITE se toma de la factura. Si el
+    // expediente aún no tiene factura, se pide a mano en un popup y se persiste en
+    // documentacion.fecha_pruebas_cert_instalacion (el backend la usa como
+    // fallback → no salta el error de "Subir a Drive").
+    const [fechaPruebasPopup, setFechaPruebasPopup] = useState({ isOpen: false, value: null, saving: false, error: null });
+
+    const tieneFechaPruebas = () =>
+        (!!local.facturas?.length && !!local.facturas[0]?.fecha_factura) || !!local.fecha_pruebas_cert_instalacion;
+
+    // Llamado tras pasar la validación: si falta la fecha de pruebas (sin factura),
+    // la pide antes; en cuanto la tiene, sigue al popup de sexo.
+    const abrirSexoThenBorrador = () => {
+        if (!tieneFechaPruebas()) {
+            setFechaPruebasPopup({ isOpen: true, value: null, saving: false, error: null });
+            return;
+        }
+        setSexoPopup({ isOpen: true, saving: null, error: null });
+    };
+
+    // Confirma la fecha de pruebas elegida, la persiste y continúa al popup de sexo.
+    const confirmarFechaPruebas = async () => {
+        const fecha = fechaPruebasPopup.value;
+        if (!fecha) { setFechaPruebasPopup(p => ({ ...p, error: 'Selecciona una fecha de pruebas.' })); return; }
+        setFechaPruebasPopup(p => ({ ...p, saving: true, error: null }));
+        try {
+            // Persistir igual que el resto de campos de documentación (merge + PUT).
+            const merged = { ...local, fecha_pruebas_cert_instalacion: fecha };
+            setLocal(merged);
+            await onSave({ documentacion: merged });
+            setFechaPruebasPopup({ isOpen: false, value: null, saving: false, error: null });
+            setSexoPopup({ isOpen: true, saving: null, error: null });
+        } catch (e) {
+            setFechaPruebasPopup(p => ({ ...p, saving: false, error: e.response?.data?.error || 'No se pudo guardar la fecha de pruebas' }));
+        }
+    };
 
     // Elige sexo (o lo omite), lo persiste en el cliente y abre el modal de generación.
     const elegirSexoYGenerar = async (value) => {
@@ -1200,6 +1235,49 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
             />
 
             {/* Popup: sexo del titular antes de generar la Memoria RITE */}
+            {fechaPruebasPopup.isOpen && (() => {
+                const busy = fechaPruebasPopup.saving;
+                const close = () => !busy && setFechaPruebasPopup({ isOpen: false, value: null, saving: false, error: null });
+                return (
+                    <div className="fixed inset-0 z-[320] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4" onClick={close}>
+                        <div className="bg-[#0F1013] border border-white/[0.07] rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-200" onClick={e => e.stopPropagation()}>
+                            <div className="px-6 py-5 border-b border-white/[0.07] bg-brand/5">
+                                <h2 className="text-lg font-black uppercase tracking-tight text-white">Fecha de pruebas</h2>
+                                <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest mt-0.5">
+                                    Este expediente aún no tiene factura
+                                </p>
+                            </div>
+                            <div className="px-6 py-6 space-y-4">
+                                <p className="text-sm text-white/60 leading-relaxed">
+                                    La fecha de pruebas de la Memoria RITE se toma de la factura. Como aún no hay factura cargada,
+                                    indica la fecha de pruebas a mano. Se guardará en el expediente y se usará para generar la documentación.
+                                </p>
+                                <DateField
+                                    label="Fecha de pruebas"
+                                    value={fechaPruebasPopup.value}
+                                    onChange={v => setFechaPruebasPopup(p => ({ ...p, value: v, error: null }))}
+                                />
+                                {fechaPruebasPopup.error && (
+                                    <p className="text-[11px] text-red-400">❌ {fechaPruebasPopup.error}</p>
+                                )}
+                            </div>
+                            <div className="px-6 py-4 bg-white/[0.02] border-t border-white/[0.07] flex items-center justify-between gap-3">
+                                <button type="button" disabled={busy} onClick={close}
+                                    className="px-4 py-2.5 rounded-xl border border-white/10 text-white/50 text-[10px] font-black uppercase tracking-widest hover:text-white hover:border-white/30 transition-all disabled:opacity-40">
+                                    Cancelar
+                                </button>
+                                <button type="button" disabled={busy} onClick={confirmarFechaPruebas}
+                                    className="px-5 py-2.5 rounded-xl bg-brand/15 border border-brand/50 text-brand text-[10px] font-black uppercase tracking-widest hover:bg-brand hover:text-bkg-deep transition-all disabled:opacity-50 flex items-center gap-2">
+                                    {busy ? (
+                                        <><svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.4 0 0 5.4 0 12h4z" /></svg>Guardando…</>
+                                    ) : 'Continuar →'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                );
+            })()}
+
             {sexoPopup.isOpen && (() => {
                 const current = (expediente?.clientes?.sexo || '').toUpperCase();
                 const cliNombre = [expediente?.clientes?.nombre_razon_social, expediente?.clientes?.apellidos].filter(Boolean).join(' ').trim();
