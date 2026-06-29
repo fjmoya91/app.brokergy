@@ -44,7 +44,10 @@ WHERE e.numero_expediente = %s;
 SQL_INSTALADOR = """
 SELECT razon_social, cif, numero_carnet_rite,
        nombre_responsable, apellidos_responsable, nif_responsable,
-       tecnico_firmante_dni, cargo, municipio
+       es_autonomo, tecnico_firmante_distinto,
+       tecnico_firmante_nombre, tecnico_firmante_apellidos,
+       tecnico_firmante_dni, tecnico_firmante_carnet_rite,
+       cargo, municipio
 FROM prescriptores WHERE id_empresa = %s;
 """
 
@@ -99,25 +102,27 @@ def normalizar(raw: dict, fecha_firma: str = None) -> dict:
     acs_distinto = bool(_acs_mod) and _acs_mod != _cal_mod
     pot_acs = _f(acs.get("potencia")) if acs_distinto else 0.0
 
-    # FIRMANTE del RITE (memoria + certificado). Si el instalador (empresa) marca
-    # "técnico firmante distinto", el que firma el RITE es el TÉCNICO habilitado
-    # (con su propio DNI y Nº de Carné), no el representante legal. El Nº Registro
-    # Integrado Industrial de la EMPRESA es siempre `numero_carnet_rite`.
-    # Nº Registro Integrado Industrial de la EMPRESA = numero_carnet_rite.
+    # FIRMANTE del RITE (memoria + certificado). Si el instalador marca "técnico
+    # firmante distinto", el que firma el RITE es el TÉCNICO habilitado (con su
+    # propio DNI y Nº de Carné), no el representante legal — y esto aplica tanto a
+    # empresas como a autónomos (un autónomo puede delegar la firma en otro técnico
+    # con carné). Por eso `tecnico_firmante_distinto` tiene PRIORIDAD sobre
+    # `es_autonomo`. El Nº Registro Integrado Industrial de la EMPRESA es siempre
+    # `numero_carnet_rite`.
     num_empresa_rite = instalador.get("numero_carnet_rite", "") or ""
     _rep_nombre = " ".join(filter(None, [instalador.get("nombre_responsable"),
                                          instalador.get("apellidos_responsable")]))
-    if instalador.get("es_autonomo"):
-        # El autónomo ES el instalador: su numero_carnet_rite es su carné personal.
-        nombre_firma = _rep_nombre
-        nif_firma = instalador.get("nif_responsable") or instalador.get("tecnico_firmante_dni", "") or ""
-        carnet_personal = num_empresa_rite
-    elif instalador.get("tecnico_firmante_distinto"):
-        # Empresa con técnico firmante distinto: firma el TÉCNICO con su carné.
+    if instalador.get("tecnico_firmante_distinto"):
+        # Técnico firmante distinto (empresa o autónomo): firma el TÉCNICO con su carné.
         nombre_firma = " ".join(filter(None, [instalador.get("tecnico_firmante_nombre"),
                                               instalador.get("tecnico_firmante_apellidos")]))
         nif_firma = instalador.get("tecnico_firmante_dni", "") or ""
         carnet_personal = instalador.get("tecnico_firmante_carnet_rite", "") or ""
+    elif instalador.get("es_autonomo"):
+        # El autónomo ES el instalador: su numero_carnet_rite es su carné personal.
+        nombre_firma = _rep_nombre
+        nif_firma = instalador.get("nif_responsable") or instalador.get("tecnico_firmante_dni", "") or ""
+        carnet_personal = num_empresa_rite
     else:
         # Empresa sin técnico distinto: firma el representante legal; el Nº de Carné
         # personal NO se rellena (el nº de empresa va solo en Nº Reg. Integrado Industrial).
