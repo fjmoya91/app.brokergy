@@ -175,15 +175,18 @@ export function AdminPanelView({
     // la lista de tarjetas móvil sin tocar el render de la tabla.
     const getOpMeta = (op) => {
         const calcInputs = op.datos_calculo?.inputs || {};
-        const isReforma = calcInputs.isReforma === true || op.datos_calculo?.isReforma === true ||
-            (calcInputs.reformaType && calcInputs.reformaType !== 'none') ||
-            (op.ficha === 'RES080') ||
-            (op.referencia_cliente?.toUpperCase().includes('RES080')) ||
-            (op.id_oportunidad?.toUpperCase().includes('RES080'));
-        const isHybrid = calcInputs.hibridacion === true || op.datos_calculo?.hibridacion === true ||
-            (op.ficha === 'RES093') ||
-            (op.referencia_cliente?.toUpperCase().includes('RES093')) ||
-            (op.id_oportunidad?.toUpperCase().includes('RES093'));
+        const fichaExplicita = op.ficha?.toUpperCase();
+        const isReforma = fichaExplicita === 'RES080' ? true
+                         : fichaExplicita === 'RES060' || fichaExplicita === 'RES093' ? false
+                         : (calcInputs.isReforma === true || op.datos_calculo?.isReforma === true ||
+                            (calcInputs.reformaType && calcInputs.reformaType !== 'none') ||
+                            (op.referencia_cliente?.toUpperCase().includes('RES080')) ||
+                            (op.id_oportunidad?.toUpperCase().includes('RES080')));
+        const isHybrid = fichaExplicita === 'RES093' ? true
+                         : fichaExplicita === 'RES080' || fichaExplicita === 'RES060' ? false
+                         : (calcInputs.hibridacion === true || op.datos_calculo?.hibridacion === true ||
+                            (op.referencia_cliente?.toUpperCase().includes('RES093')) ||
+                            (op.id_oportunidad?.toUpperCase().includes('RES093')));
         const currentFicha = isReforma ? 'RES080' : (isHybrid ? 'RES093' : 'RES060');
         const financials = (isReforma && op.datos_calculo?.result?.financialsRes080)
             ? op.datos_calculo.result.financialsRes080
@@ -645,12 +648,14 @@ export function AdminPanelView({
             })()) &&
             (filters.ref_catastral === '' || norm(op.ref_catastral).includes(norm(filters.ref_catastral))) &&
             (filters.ficha === '' || (() => {
-                const isReforma = (op.datos_calculo?.isReforma === true) || 
-                                (op.datos_calculo?.reformaType && op.datos_calculo?.reformaType !== 'none') ||
-                                (op.ficha === 'RES080') ||
-                                (op.referencia_cliente?.includes('RES080')) ||
-                                (op.id_oportunidad?.includes('RES080'));
-                const isHybrid = !isReforma && ((op.datos_calculo?.hibridacion === true) || (op.ficha === 'RES093'));
+                const _fe = op.ficha?.toUpperCase();
+                const isReforma = _fe === 'RES080' ? true
+                                 : _fe === 'RES060' || _fe === 'RES093' ? false
+                                 : ((op.datos_calculo?.isReforma === true) ||
+                                    (op.datos_calculo?.reformaType && op.datos_calculo?.reformaType !== 'none') ||
+                                    (op.referencia_cliente?.includes('RES080')) ||
+                                    (op.id_oportunidad?.includes('RES080')));
+                const isHybrid = !isReforma && (_fe === 'RES093' || (op.datos_calculo?.hibridacion === true));
                 const fichaValue = isReforma ? 'RES080' : (isHybrid ? 'RES093' : 'RES060');
                 return fichaValue === filters.ficha;
             })()) &&
@@ -703,12 +708,14 @@ export function AdminPanelView({
 
     // Cálculos financieros dinámicos basados en filtros
     const financialStats = filteredOportunidades.reduce((acc, op) => {
-        const isReforma = (op.datos_calculo?.isReforma === true) || 
-                         (op.datos_calculo?.reformaType && op.datos_calculo?.reformaType !== 'none') ||
-                         (op.ficha === 'RES080') ||
-                         (op.referencia_cliente?.includes('RES080')) ||
-                         (op.id_oportunidad?.includes('RES080'));
-                         
+        const _fe = op.ficha?.toUpperCase();
+        const isReforma = _fe === 'RES080' ? true
+                         : _fe === 'RES060' || _fe === 'RES093' ? false
+                         : ((op.datos_calculo?.isReforma === true) ||
+                            (op.datos_calculo?.reformaType && op.datos_calculo?.reformaType !== 'none') ||
+                            (op.referencia_cliente?.includes('RES080')) ||
+                            (op.id_oportunidad?.includes('RES080')));
+
         const financials = isReforma ? op.datos_calculo?.result?.financialsRes080 : op.datos_calculo?.result?.financials;
         const cae = financials?.caeBonus || 0;
         const profit = financials?.profitBrokergy || 0;
@@ -1244,15 +1251,20 @@ export function AdminPanelView({
                             ) : (
                                 paginatedOportunidades.map((op) => {
                                     const calcInputs = op.datos_calculo?.inputs || {};
-                                    const isReforma = calcInputs.isReforma === true || op.datos_calculo?.isReforma === true || 
-                                                     (calcInputs.reformaType && calcInputs.reformaType !== 'none') ||
-                                                     (op.ficha === 'RES080') ||
-                                                     (op.referencia_cliente?.toUpperCase().includes('RES080')) ||
-                                                     (op.id_oportunidad?.toUpperCase().includes('RES080'));
-                                    const isHybrid = calcInputs.hibridacion === true || op.datos_calculo?.hibridacion === true || 
-                                                     (op.ficha === 'RES093') ||
-                                                     (op.referencia_cliente?.toUpperCase().includes('RES093')) ||
-                                                     (op.id_oportunidad?.toUpperCase().includes('RES093'));
+                                    // op.ficha es la fuente de verdad si está definida — el ID puede contener
+                                    // "RES080" aunque la oportunidad se haya recalculado como RES060.
+                                    const fichaExplicita = op.ficha?.toUpperCase();
+                                    const isReforma = fichaExplicita === 'RES080' ? true
+                                                     : fichaExplicita === 'RES060' || fichaExplicita === 'RES093' ? false
+                                                     : (calcInputs.isReforma === true || op.datos_calculo?.isReforma === true ||
+                                                        (calcInputs.reformaType && calcInputs.reformaType !== 'none') ||
+                                                        (op.referencia_cliente?.toUpperCase().includes('RES080')) ||
+                                                        (op.id_oportunidad?.toUpperCase().includes('RES080')));
+                                    const isHybrid = fichaExplicita === 'RES093' ? true
+                                                     : fichaExplicita === 'RES080' || fichaExplicita === 'RES060' ? false
+                                                     : (calcInputs.hibridacion === true || op.datos_calculo?.hibridacion === true ||
+                                                        (op.referencia_cliente?.toUpperCase().includes('RES093')) ||
+                                                        (op.id_oportunidad?.toUpperCase().includes('RES093')));
                                     
                                     const currentFicha = isReforma ? 'RES080' : (isHybrid ? 'RES093' : 'RES060');
                                     
