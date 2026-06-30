@@ -268,7 +268,7 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
     const [p, setP] = useState(null);
     const [editing, setEditing] = useState(false);
     const emptyForm = {
-        razon_social: '', acronimo: '', cif: '', email: '', tlf: '',
+        razon_social: '', acronimo: '', cif: '', email: '', tlf: '', sitio_web: '',
         tipo_empresa: 'DISTRIBUIDOR', marca_referencia: '', marca_secundaria: '',
         tiene_carnet_rite: false, numero_carnet_rite: '', cargo: '',
         nombre_responsable: '', apellidos_responsable: '', nif_responsable: '', precio_referencia: '', codigo_identificacion: '',
@@ -417,6 +417,7 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                 cif:                  p.cif || '',
                 email:                p.email || p.usuarios?.email || '',
                 tlf:                  p.tlf || p.usuarios?.tlf || '',
+                sitio_web:            p.sitio_web || '',
                 tipo_empresa:         p.tipo_empresa || 'INSTALADOR',
                 marca_referencia:     p.marca_referencia || '',
                 marca_secundaria:     p.marca_secundaria || '',
@@ -541,6 +542,7 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                 cif:                   form.cif.trim().toUpperCase() || null,
                 email:                 form.email.trim().toLowerCase() || null,
                 tlf:                   form.tlf.trim() || null,
+                sitio_web:             form.sitio_web.trim() || null,
                 tipo_empresa:          form.tipo_empresa,
                 marca_referencia:      form.marcas_aerotermia?.length > 0 ? form.marcas_aerotermia.join(',') : null,
                 marca_secundaria:      null,
@@ -797,6 +799,16 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                                     <FV label="Tipo" value={p.tipo_empresa} />
                                     <FV label="Email" value={p.email || p.usuarios?.email} lower />
                                     <FV label="Teléfono" value={p.tlf || p.usuarios?.tlf} />
+                                    {p.sitio_web && (
+                                        <div className="min-w-0">
+                                            <p className="text-[9.5px] uppercase tracking-[0.16em] font-bold text-white/35 mb-1">Página Web</p>
+                                            <a href={/^https?:\/\//i.test(p.sitio_web) ? p.sitio_web : `https://${p.sitio_web}`}
+                                                target="_blank" rel="noopener noreferrer"
+                                                className="text-[13.5px] leading-snug font-semibold text-cyan-400 hover:text-cyan-300 lowercase break-all underline decoration-cyan-400/30 hover:decoration-cyan-300 transition-colors">
+                                                {p.sitio_web}
+                                            </a>
+                                        </div>
+                                    )}
                                     {isAdmin && (
                                         <>
                                             <FV label="Marca Principal" value={p.marca_referencia} />
@@ -1056,6 +1068,12 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                                     <FI label="Teléfono">
                                         <Inp value={form.tlf} onChange={e => upd({ tlf: e.target.value })} />
                                     </FI>
+                                    <div className="sm:col-span-2">
+                                        <FI label="Página Web">
+                                            <Inp type="url" value={form.sitio_web} placeholder="https://www.ejemplo.es"
+                                                onChange={e => upd({ sitio_web: e.target.value })} />
+                                        </FI>
+                                    </div>
                                     {isAdmin ? (
                                         <FI label="Tipo / Rol">
                                             <Sel value={form.tipo_empresa} onChange={e => upd({ tipo_empresa: e.target.value })}>
