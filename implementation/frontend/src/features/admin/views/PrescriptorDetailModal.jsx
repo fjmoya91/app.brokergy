@@ -759,8 +759,8 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                                 style={{ width: '44px', height: '24px' }}
                                 className="relative shrink-0 rounded-full disabled:opacity-50 transition-all"
                             >
-                                <div className={`w-full h-full rounded-full transition-all duration-300 ${accesoActivo ? 'bg-emerald-500' : 'bg-white/10 border border-white/10'}`}>
-                                    <div className={`absolute top-[2px] bg-white rounded-full shadow transition-transform duration-300 ${accesoActivo ? 'translate-x-[22px]' : 'translate-x-[2px]'}`}
+                                <div className={`w-full h-full rounded-full transition-all duration-300 border border-orange-500 ${accesoActivo ? 'bg-orange-500' : 'bg-transparent'}`}>
+                                    <div className={`absolute top-[2px] rounded-full shadow transition-transform duration-300 ${accesoActivo ? 'bg-white translate-x-[22px]' : 'bg-orange-500 translate-x-[2px]'}`}
                                         style={{ width: '20px', height: '20px' }}></div>
                                 </div>
                             </button>
@@ -1013,7 +1013,7 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                                         <input type="checkbox" checked={form.es_autonomo}
                                             onChange={e => upd({ es_autonomo: e.target.checked })}
                                             className="sr-only peer" />
-                                        <div className="w-full h-full bg-white/10 border border-white/5 peer-focus:ring-2 peer-focus:ring-brand/50 rounded-full peer peer-checked:after:translate-x-[20px] after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand shadow-inner"></div>
+                                        <div className="w-full h-full bg-transparent border border-orange-500 peer-focus:ring-2 peer-focus:ring-brand/50 rounded-full peer peer-checked:after:translate-x-[20px] peer-checked:after:bg-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-orange-500 after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-orange-500 shadow-inner"></div>
                                     </div>
                                     <div>
                                         <span className="font-black text-white text-xs uppercase tracking-wider block">Es Trabajador Autónomo</span>
@@ -1238,7 +1238,7 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                                                 <input type="checkbox" checked={form.tiene_carnet_rite}
                                                     onChange={e => upd({ tiene_carnet_rite: e.target.checked })}
                                                     className="sr-only peer" />
-                                                <div className="w-full h-full bg-white/10 border border-white/10 rounded-full peer peer-checked:bg-emerald-500 peer-checked:after:translate-x-[16px] after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all"></div>
+                                                <div className="w-full h-full bg-transparent border border-orange-500 rounded-full peer peer-checked:bg-orange-500 peer-checked:after:translate-x-[16px] peer-checked:after:bg-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-orange-500 after:rounded-full after:h-4 after:w-4 after:transition-all"></div>
                                             </div>
                                             <span className="text-[10px] font-black uppercase tracking-widest text-white/40">Habilitada en Industria (RITE)</span>
                                         </label>
@@ -1262,8 +1262,8 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                                         style={{ width: '40px', height: '22px' }}
                                         className="relative shrink-0 rounded-full transition-all"
                                     >
-                                        <div className={`w-full h-full rounded-full transition-all duration-300 ${form.tecnico_firmante_distinto ? 'bg-brand' : 'bg-white/10 border border-white/10'}`}>
-                                            <div className={`absolute top-[2px] bg-white rounded-full shadow transition-transform duration-300 ${form.tecnico_firmante_distinto ? 'translate-x-[20px]' : 'translate-x-[2px]'}`}
+                                        <div className={`w-full h-full rounded-full transition-all duration-300 border border-orange-500 ${form.tecnico_firmante_distinto ? 'bg-orange-500' : 'bg-transparent'}`}>
+                                            <div className={`absolute top-[2px] rounded-full shadow transition-transform duration-300 ${form.tecnico_firmante_distinto ? 'bg-white translate-x-[20px]' : 'bg-orange-500 translate-x-[2px]'}`}
                                                 style={{ width: '16px', height: '16px' }}></div>
                                         </div>
                                     </button>
@@ -1309,7 +1309,7 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                                                 <input type="checkbox" checked={form.tiene_carnet_rite}
                                                     onChange={e => upd({ tiene_carnet_rite: e.target.checked })}
                                                     className="sr-only peer" />
-                                                <div className="w-full h-full bg-white/10 border border-white/10 rounded-full peer peer-checked:bg-emerald-500 peer-checked:after:translate-x-[16px] after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all"></div>
+                                                <div className="w-full h-full bg-transparent border border-orange-500 rounded-full peer peer-checked:bg-orange-500 peer-checked:after:translate-x-[16px] peer-checked:after:bg-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-orange-500 after:rounded-full after:h-4 after:w-4 after:transition-all"></div>
                                             </div>
                                             <span className="text-[10px] font-black uppercase tracking-widest text-white/40">Habilitada en Industria (RITE)</span>
                                         </label>
@@ -1331,8 +1331,8 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                                         style={{ width: '40px', height: '22px' }}
                                         className="relative shrink-0 rounded-full transition-all"
                                     >
-                                        <div className={`w-full h-full rounded-full transition-all duration-300 ${form.contacto_alternativo_activo ? 'bg-brand' : 'bg-white/10 border border-white/10'}`}>
-                                            <div className={`absolute top-[2px] bg-white rounded-full shadow transition-transform duration-300 ${form.contacto_alternativo_activo ? 'translate-x-[20px]' : 'translate-x-[2px]'}`}
+                                        <div className={`w-full h-full rounded-full transition-all duration-300 border border-orange-500 ${form.contacto_alternativo_activo ? 'bg-orange-500' : 'bg-transparent'}`}>
+                                            <div className={`absolute top-[2px] rounded-full shadow transition-transform duration-300 ${form.contacto_alternativo_activo ? 'bg-white translate-x-[20px]' : 'bg-orange-500 translate-x-[2px]'}`}
                                                 style={{ width: '16px', height: '16px' }}></div>
                                         </div>
                                     </button>
@@ -1383,7 +1383,7 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                                                     <input type="checkbox" checked={form.contacto_notificaciones_activas}
                                                         onChange={e => upd({ contacto_notificaciones_activas: e.target.checked })}
                                                         className="sr-only peer" />
-                                                    <div className="w-full h-full bg-white/10 border border-white/10 rounded-full peer peer-checked:bg-emerald-500 peer-checked:after:translate-x-[16px] after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all"></div>
+                                                    <div className="w-full h-full bg-transparent border border-orange-500 rounded-full peer peer-checked:bg-orange-500 peer-checked:after:translate-x-[16px] peer-checked:after:bg-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-orange-500 after:rounded-full after:h-4 after:w-4 after:transition-all"></div>
                                                 </div>
                                                 <div>
                                                     <span className="text-[10px] font-black uppercase tracking-widest text-white/40 group-hover:text-white/60 transition-colors">Enviar notificaciones a estos contactos</span>
@@ -1435,7 +1435,7 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                                                     disabled={!form.landing_slug || !slugValido}
                                                     onChange={e => upd({ landing_activa: e.target.checked })}
                                                     className="sr-only peer" />
-                                                <div className="w-full h-full bg-white/10 border border-white/10 rounded-full peer peer-checked:bg-emerald-500 peer-checked:after:translate-x-[16px] after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all"></div>
+                                                <div className="w-full h-full bg-transparent border border-orange-500 rounded-full peer peer-checked:bg-orange-500 peer-checked:after:translate-x-[16px] peer-checked:after:bg-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-orange-500 after:rounded-full after:h-4 after:w-4 after:transition-all"></div>
                                             </div>
                                             <div>
                                                 <span className="text-[10px] font-black uppercase tracking-widest text-white/40">Landing activa</span>

@@ -529,8 +529,8 @@ export function CalculatorForm({
                                     onChange={e => onInputChange(prev => ({ ...prev, comparativaReforma: e.target.checked }))} 
                                     className="sr-only"
                                 />
-                                <div className={`w-8 h-4 rounded-full transition-colors ${inputs.comparativaReforma !== false ? 'bg-cyan-500/50 border border-cyan-500/50' : 'bg-slate-800 border border-slate-700'}`}></div>
-                                <div className={`absolute w-3 h-3 bg-white rounded-full transition-transform shadow-sm ${inputs.comparativaReforma !== false ? 'translate-x-2 shadow-[0_0_8px_cyan]' : '-translate-x-2'}`}></div>
+                                <div className={`w-8 h-4 rounded-full transition-colors border border-orange-500 ${inputs.comparativaReforma !== false ? 'bg-orange-500' : 'bg-transparent'}`}></div>
+                                <div className={`absolute w-3 h-3 rounded-full transition-transform shadow-sm ${inputs.comparativaReforma !== false ? 'bg-white translate-x-2' : 'bg-orange-500 -translate-x-2'}`}></div>
                             </div>
                             <span className={`text-[9px] font-black tracking-widest uppercase transition-colors ${inputs.comparativaReforma !== false ? 'text-cyan-400' : 'text-slate-500'}`}>
                                 {inputs.comparativaReforma !== false ? 'Comparativa PDF' : 'Solo Reforma PDF'}
@@ -889,7 +889,7 @@ export function CalculatorForm({
                                                     onChange={e => handleChange(item.id, e.target.checked)}
                                                     className="peer sr-only"
                                                 />
-                                                <div className="w-8 h-4 bg-slate-800 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-orange-500 shadow-sm"></div>
+                                                <div className="w-8 h-4 bg-transparent rounded-full peer border border-orange-500 peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-orange-500 after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-orange-500 peer-checked:after:bg-white shadow-sm"></div>
                                             </div>
                                             <span className="text-[11px] font-bold text-slate-400 group-hover:text-white transition-colors">{item.label}</span>
                                         </label>
@@ -2032,7 +2032,7 @@ export function CalculatorForm({
                                                     checked={inputs.includeIVA || false}
                                                     onChange={e => toggleIVA(e.target.checked)}
                                                 />
-                                                <div className="w-8 h-4 bg-slate-800 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-lime-500"></div>
+                                                <div className="w-8 h-4 bg-transparent rounded-full peer border border-orange-500 peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-orange-500 after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-orange-500 peer-checked:after:bg-white"></div>
                                             </div>
                                         </label>
                                     </div>
@@ -2185,7 +2185,7 @@ export function CalculatorForm({
                                                             checked={inputs.aplicarIrpfCae === true || inputs.aplicarIrpfCae === 'true'}
                                                             onChange={e => handleChange('aplicarIrpfCae', e.target.checked)}
                                                         />
-                                                        <div className="w-8 h-4 bg-slate-700 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-pink-500"></div>
+                                                        <div className="w-8 h-4 bg-transparent rounded-full peer border border-orange-500 peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-orange-500 after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-orange-500 peer-checked:after:bg-white"></div>
                                                     </div>
                                                 </label>
                                                 
@@ -2266,7 +2266,7 @@ export function CalculatorForm({
                                                             checked={inputs.includeIrpf}
                                                             onChange={e => handleChange('includeIrpf', e.target.checked)}
                                                         />
-                                                        <div className="w-8 h-4 bg-slate-700 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-indigo-500"></div>
+                                                        <div className="w-8 h-4 bg-transparent rounded-full peer border border-orange-500 peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-orange-500 after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-orange-500 peer-checked:after:bg-white"></div>
                                                     </div>
                                                 </label>
                                             </div>
@@ -2293,7 +2293,7 @@ export function CalculatorForm({
                                                         checked={inputs.discountCertificates}
                                                         onChange={e => handleChange('discountCertificates', e.target.checked)}
                                                     />
-                                                    <div className="w-8 h-4 bg-slate-700 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-amber-500"></div>
+                                                    <div className="w-8 h-4 bg-transparent rounded-full peer border border-orange-500 peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-orange-500 after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-orange-500 peer-checked:after:bg-white"></div>
                                                 </div>
                                             </label>
                                         </div>
@@ -2326,7 +2326,7 @@ export function CalculatorForm({
                                                         checked={inputs.includeLegalization}
                                                         onChange={e => handleChange('includeLegalization', e.target.checked)}
                                                     />
-                                                    <div className="w-8 h-4 bg-slate-700 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-amber-500"></div>
+                                                    <div className="w-8 h-4 bg-transparent rounded-full peer border border-orange-500 peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-orange-500 after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-orange-500 peer-checked:after:bg-white"></div>
                                                 </div>
                                             </label>
                                         </div>
@@ -2354,7 +2354,7 @@ export function CalculatorForm({
                                                                     checked={inputs.installerNoCard}
                                                                     onChange={e => handleChange('installerNoCard', e.target.checked)}
                                                                 />
-                                                                <div className="w-8 h-4 bg-slate-700 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-amber-600"></div>
+                                                                <div className="w-8 h-4 bg-transparent rounded-full peer border border-orange-500 peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-orange-500 after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-orange-500 peer-checked:after:bg-white"></div>
                                                             </div>
                                                             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest group-hover:text-amber-400 transition-colors">
                                                                 INSTALADOR SIN CARNET (+100€)
@@ -2383,7 +2383,7 @@ export function CalculatorForm({
                                                         checked={inputs.includeAnnualSavings}
                                                         onChange={e => handleChange('includeAnnualSavings', e.target.checked)}
                                                     />
-                                                    <div className="w-8 h-4 bg-slate-700 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500"></div>
+                                                    <div className="w-8 h-4 bg-transparent rounded-full peer border border-orange-500 peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-orange-500 after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-orange-500 peer-checked:after:bg-white"></div>
                                                 </div>
                                             </label>
                                         </div>
@@ -2531,7 +2531,7 @@ export function CalculatorForm({
                                                                 checked={inputs.includeItp}
                                                                 onChange={e => handleChange('includeItp', e.target.checked)}
                                                             />
-                                                            <div className="w-9 h-5 bg-slate-800 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-orange-500"></div>
+                                                            <div className="w-9 h-5 bg-transparent rounded-full peer border border-orange-500 peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-orange-500 after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-orange-500 peer-checked:after:bg-white"></div>
                                                         </div>
                                                         <span className="text-[10px] font-black uppercase tracking-[0.1em] text-slate-400 group-hover:text-orange-400 transition-colors">
                                                             ¿Reducir ITP?
@@ -2551,7 +2551,7 @@ export function CalculatorForm({
                                                                 checked={inputs.includeCommission}
                                                                 onChange={e => handleChange('includeCommission', e.target.checked)}
                                                             />
-                                                            <div className="w-9 h-5 bg-slate-800 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-orange-500"></div>
+                                                            <div className="w-9 h-5 bg-transparent rounded-full peer border border-orange-500 peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-orange-500 after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-orange-500 peer-checked:after:bg-white"></div>
                                                         </div>
                                                         <span className="text-[10px] font-black uppercase tracking-[0.1em] text-slate-400 group-hover:text-orange-400 transition-colors">
                                                             ¿Incluir Comisión?

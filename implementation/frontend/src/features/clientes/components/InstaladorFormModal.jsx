@@ -92,7 +92,7 @@ export default function InstaladorFormModal({ isOpen, onClose, onSuccess }) {
                                             checked={form.es_autonomo}
                                             onChange={e => setForm({ ...form, es_autonomo: e.target.checked })}
                                         />
-                                        <div className="w-8 h-4 bg-white/10 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-brand"></div>
+                                        <div className="w-8 h-4 bg-transparent rounded-full peer border border-orange-500 peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-orange-500 after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-orange-500 peer-checked:after:bg-white"></div>
                                     </div>
                                     <span className="text-xs font-bold uppercase tracking-wider text-white/50 group-hover:text-white transition-colors">
                                         Es Trabajador Autónomo

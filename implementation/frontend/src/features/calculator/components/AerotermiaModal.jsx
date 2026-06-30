@@ -139,8 +139,8 @@ export function AerotermiaModal({ isOpen, onClose, demand, surface, zone }) {
                             <span className="text-xs font-bold text-white group-hover:text-emerald-300 transition-colors">Factor de Seguridad (1.20)</span>
                             <span className="text-[9px] text-white/30 font-medium">Incluir consumo ACS y pérdidas</span>
                         </div>
-                        <div className={`w-8 h-4 rounded-full p-0.5 transition-colors ${applySafetyFactor ? 'bg-emerald-500' : 'bg-white/10'}`}>
-                            <div className={`w-3 h-3 bg-white rounded-full shadow-sm transition-transform ${applySafetyFactor ? 'translate-x-4' : 'translate-x-0'}`}></div>
+                        <div className={`w-8 h-4 rounded-full p-0.5 transition-colors border border-orange-500 ${applySafetyFactor ? 'bg-orange-500' : 'bg-transparent'}`}>
+                            <div className={`w-3 h-3 rounded-full shadow-sm transition-transform ${applySafetyFactor ? 'bg-white translate-x-4' : 'bg-orange-500 translate-x-0'}`}></div>
                         </div>
                     </div>
 

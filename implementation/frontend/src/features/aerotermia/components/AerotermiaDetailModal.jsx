@@ -301,7 +301,7 @@ export function AerotermiaDetailModal({ isOpen, equipo: equipoProp, isNew = fals
                                         checked={form.is_validated}
                                         onChange={e => upd({ is_validated: e.target.checked })}
                                     />
-                                    <div className="w-11 h-6 bg-white/10 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white/40 after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600 after:shadow-sm"></div>
+                                    <div className="w-11 h-6 bg-transparent border border-orange-500 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-orange-500 after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-orange-500 peer-checked:after:bg-white after:shadow-sm"></div>
                                 </label>
                             </div>
                         )}
@@ -484,7 +484,7 @@ export function AerotermiaDetailModal({ isOpen, equipo: equipoProp, isNew = fals
                                                     <input type="checkbox" checked={form.deposito_acs_incluido}
                                                         onChange={e => upd({ deposito_acs_incluido: e.target.checked })}
                                                         className="sr-only peer" />
-                                                    <div className="w-full h-full bg-white/10 border border-white/5 rounded-full peer peer-checked:after:translate-x-[20px] after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand" />
+                                                    <div className="w-full h-full bg-transparent border border-orange-500 rounded-full peer peer-checked:after:translate-x-[20px] peer-checked:after:bg-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-orange-500 after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-orange-500" />
                                                 </div>
                                                 <span className="text-[11px] font-black uppercase tracking-widest text-white/40">
                                                     {form.deposito_acs_incluido ? 'Sí' : 'No'}

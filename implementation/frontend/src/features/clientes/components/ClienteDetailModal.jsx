@@ -942,7 +942,7 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
                                                     checked={showNotas}
                                                     onChange={e => setShowNotas(e.target.checked)}
                                                 />
-                                                <div className="w-8 h-4 bg-white/10 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-brand"></div>
+                                                <div className="w-8 h-4 bg-transparent rounded-full peer border border-orange-500 peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-orange-500 after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-orange-500 peer-checked:after:bg-white"></div>
                                             </div>
                                             <span className="text-[10px] font-black uppercase tracking-widest text-white/30 group-hover:text-white/60 transition-colors">
                                                 ¿Añadir/editar notas sobre el cliente?
@@ -973,7 +973,7 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
                                                 checked={!!(form.persona_contacto_nombre || form.persona_contacto_tlf || form.persona_contacto_email || form.showContact)}
                                                 onChange={e => updateForm({ showContact: e.target.checked })}
                                             />
-                                            <div className="w-8 h-4 bg-white/10 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-brand"></div>
+                                            <div className="w-8 h-4 bg-transparent rounded-full peer border border-orange-500 peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-orange-500 after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-orange-500 peer-checked:after:bg-white"></div>
                                         </div>
                                         <span className="text-[10px] font-black uppercase tracking-widest text-white/30 group-hover:text-white/60 transition-colors">
                                             ¿Persona de contacto distinta al titular?
@@ -1017,7 +1017,7 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
                                                         checked={!!form.notificaciones_contacto_activas}
                                                         onChange={e => updateForm({ notificaciones_contacto_activas: e.target.checked })}
                                                     />
-                                                    <div className="w-8 h-4 bg-white/10 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500"></div>
+                                                    <div className="w-8 h-4 bg-transparent rounded-full peer border border-orange-500 peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-orange-500 after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-orange-500 peer-checked:after:bg-white"></div>
                                                 </div>
                                                 <span className="text-[10px] font-black uppercase tracking-widest text-white/30 group-hover:text-white/60 transition-colors">
                                                     Enviar notificaciones WhatsApp a este contacto
