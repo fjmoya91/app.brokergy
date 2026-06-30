@@ -275,15 +275,19 @@ router.post('/lead', requireAuth, geoGate, async (req, res) => {
         }
         const { data: partner } = await supabase
             .from('prescriptores')
-            .select('id_empresa, acronimo, razon_social, landing_telefono_contacto')
+            .select('id_empresa, acronimo, razon_social, landing_telefono_contacto, landing_email_contacto')
             .eq('landing_slug', partner_slug)
             .eq('landing_activa', true)
             .maybeSingle();
         prescriptorId = partner?.id_empresa || null;
         if (partner) {
+            // El cliente es del instalador → la referencia de contacto de los
+            // mensajes (tel/email) es la del instalador; la marca lidera Brokergy
+            // ("BROKERGY · en colaboración con {Instalador}").
             partnerInfo = {
                 nombre: partner.acronimo || partner.razon_social || 'tu instalador',
                 tel: partner.landing_telefono_contacto || null,
+                email: partner.landing_email_contacto || null,
             };
         }
     }

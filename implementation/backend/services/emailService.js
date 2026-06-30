@@ -68,7 +68,7 @@ const transporter = nodemailer.createTransport({
 /**
  * Envía un email genérico
  */
-const sendMail = async ({ to, subject, html, text, attachments }) => {
+const sendMail = async ({ to, subject, html, text, attachments, replyTo }) => {
     const sender = await getSender();
     const from = `"${sender.name}" <${sender.address}>`;
 
@@ -76,6 +76,7 @@ const sendMail = async ({ to, subject, html, text, attachments }) => {
         const info = await transporter.sendMail({
             from,
             to,
+            replyTo: replyTo || undefined,
             subject,
             html,
             text: text || subject,
@@ -223,13 +224,17 @@ const sendLeadSummaryEmail = async ({
     presupuestoEstimado = false, partner = null,
     edadCaldera = null, timeline = null,
 }) => {
-    const { productNoun, fuelDependPhrase, co2Text, urgencyLine, AHORRO_LOW_THRESHOLD } = require('./leadMessages');
-    const fmtEur = (n) => `${new Intl.NumberFormat('es-ES', { maximumFractionDigits: 0 }).format(Math.abs(Number(n) || 0))} €`;
+    const { productNoun, fuelDependPhrase, urgencyLine, presupuestoNote, AHORRO_LOW_THRESHOLD } = require('./leadMessages');
+    const fmtEur = (n) => `${new Intl.NumberFormat('es-ES', { maximumFractionDigits: 0, useGrouping: 'always' }).format(Math.abs(Number(n) || 0))} €`;
     const primerNombre = (nombre || '').split(' ')[0] || 'cliente';
     const total = Number(cae) + Number(irpf);
     const esSuave = type === 'suave';
     const prod = productNoun(isReforma);            // 'tu reforma' | 'el cambio a aerotermia'
     const partnerName = partner && partner.nombre ? partner.nombre : null;
+    // El cliente es del instalador → el contacto del email es el del instalador.
+    const partnerContact = partnerName
+        ? [partner.tel, partner.email || 'info@brokergy.es'].filter(Boolean).join(' · ')
+        : null;
 
     // Asunto según tipo / co-branding
     const subject = esSuave
@@ -239,7 +244,7 @@ const sendLeadSummaryEmail = async ({
             : `Tu propuesta de ayudas — ${idOportunidad}`);
 
     const cobrandHeader = partnerName
-        ? `<p style="color:rgba(255,255,255,0.4);font-size:11px;margin:6px 0 0;">en colaboración con <strong style="color:#f59e0b;">${partnerName}</strong></p>`
+        ? `<p style="color:#64748b;font-size:11px;margin:6px 0 0;">en colaboración con <strong style="color:#d97706;">${partnerName}</strong></p>`
         : '';
 
     const subtitle = esSuave
@@ -256,82 +261,82 @@ const sendLeadSummaryEmail = async ({
         <tr><td style="padding:24px 32px;">
           <table width="100%" cellpadding="0" cellspacing="0">
             <tr>
-              <td width="48%" style="background:rgba(16,185,129,0.12);border:2px solid rgba(16,185,129,0.4);border-radius:16px;padding:16px;text-align:center;">
-                <div style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:1.5px;color:rgba(52,211,153,0.8);margin-bottom:6px;">Ayuda total estimada</div>
-                <div style="font-size:28px;font-weight:900;color:#34d399;">${fmtEur(total)}</div>
-                <div style="font-size:10px;color:rgba(52,211,153,0.6);margin-top:4px;font-weight:700;text-transform:uppercase;letter-spacing:1px;">incluye CAE${Number(irpf) > 0 ? ' + IRPF' : ''}</div>
+              <td width="48%" style="background:#ecfdf5;border:2px solid #a7f3d0;border-radius:16px;padding:16px;text-align:center;">
+                <div style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:1.5px;color:#059669;margin-bottom:6px;">Ayuda total estimada</div>
+                <div style="font-size:28px;font-weight:900;color:#059669;">${fmtEur(total)}</div>
+                <div style="font-size:10px;color:#10b981;margin-top:4px;font-weight:700;text-transform:uppercase;letter-spacing:1px;">incluye CAE${Number(irpf) > 0 ? ' + IRPF' : ''}</div>
               </td>
               <td width="4%"></td>
-              <td width="48%" style="background:rgba(245,158,11,0.12);border:2px solid rgba(245,158,11,0.4);border-radius:16px;padding:16px;text-align:center;">
-                <div style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:1.5px;color:rgba(251,191,36,0.8);margin-bottom:6px;">Tu inversión neta</div>
-                <div style="font-size:28px;font-weight:900;color:#fbbf24;">${fmtEur(neta)}${presupuestoEstimado ? '<span style="font-size:16px;">*</span>' : ''}</div>
-                <div style="font-size:10px;color:rgba(251,191,36,0.6);margin-top:4px;font-weight:700;text-transform:uppercase;letter-spacing:1px;">tras todas las ayudas</div>
+              <td width="48%" style="background:#fffbeb;border:2px solid #fde68a;border-radius:16px;padding:16px;text-align:center;">
+                <div style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:1.5px;color:#d97706;margin-bottom:6px;">Tu inversión neta</div>
+                <div style="font-size:28px;font-weight:900;color:#d97706;">${fmtEur(neta)}${presupuestoEstimado ? '<span style="font-size:16px;">*</span>' : ''}</div>
+                <div style="font-size:10px;color:#f59e0b;margin-top:4px;font-weight:700;text-transform:uppercase;letter-spacing:1px;">tras todas las ayudas</div>
               </td>
             </tr>
           </table>
-          ${presupuestoEstimado ? `<p style="color:rgba(255,255,255,0.35);font-size:10px;margin:10px 2px 0;line-height:1.5;">* La inversión neta es orientativa: la hemos calculado con un presupuesto estimado de 15.000 €. Se ajustará con el presupuesto real de tu instalador.</p>` : ''}
+          ${presupuestoEstimado ? `<p style="color:#94a3b8;font-size:10px;margin:10px 2px 0;line-height:1.5;">* ${presupuestoNote(partner)}</p>` : ''}
         </td></tr>
 
         <!-- Desglose -->
         <tr><td style="padding:0 32px 24px;">
-          <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid rgba(255,255,255,0.1);border-radius:16px;overflow:hidden;">
-            <tr style="background:rgba(255,165,0,0.1);">
-              <td style="padding:10px 16px;font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:1.5px;color:rgba(251,191,36,0.8);">Concepto</td>
-              <td style="padding:10px 16px;font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:1.5px;color:rgba(251,191,36,0.8);text-align:right;">Importe</td>
+          <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e2e8f0;border-radius:16px;overflow:hidden;">
+            <tr style="background:#fff7ed;">
+              <td style="padding:10px 16px;font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:1.5px;color:#d97706;">Concepto</td>
+              <td style="padding:10px 16px;font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:1.5px;color:#d97706;text-align:right;">Importe</td>
             </tr>
-            <tr style="border-top:1px solid rgba(255,255,255,0.06);">
-              <td style="padding:12px 16px;font-size:13px;color:rgba(255,255,255,0.8);">Bono Energético CAE</td>
-              <td style="padding:12px 16px;font-size:13px;font-weight:700;color:#34d399;text-align:right;">${fmtEur(cae)}</td>
+            <tr style="border-top:1px solid #e2e8f0;">
+              <td style="padding:12px 16px;font-size:13px;color:#475569;">Bono Energético CAE</td>
+              <td style="padding:12px 16px;font-size:13px;font-weight:700;color:#059669;text-align:right;">${fmtEur(cae)}</td>
             </tr>
-            ${Number(irpf) > 0 ? `<tr style="border-top:1px solid rgba(255,255,255,0.06);">
-              <td style="padding:12px 16px;font-size:13px;color:rgba(255,255,255,0.8);">Deducción en el IRPF</td>
-              <td style="padding:12px 16px;font-size:13px;font-weight:700;color:#34d399;text-align:right;">${fmtEur(irpf)}</td>
+            ${Number(irpf) > 0 ? `<tr style="border-top:1px solid #e2e8f0;">
+              <td style="padding:12px 16px;font-size:13px;color:#475569;">Deducción en el IRPF</td>
+              <td style="padding:12px 16px;font-size:13px;font-weight:700;color:#059669;text-align:right;">${fmtEur(irpf)}</td>
             </tr>` : ''}
-            ${showAhorro ? `<tr style="border-top:1px solid rgba(255,255,255,0.06);">
-              <td style="padding:12px 16px;font-size:13px;color:rgba(255,255,255,0.8);">${ahorroLabel}</td>
-              <td style="padding:12px 16px;font-size:13px;font-weight:700;color:#60a5fa;text-align:right;">${fmtEur(ahorro)}/año</td>
+            ${showAhorro ? `<tr style="border-top:1px solid #e2e8f0;">
+              <td style="padding:12px 16px;font-size:13px;color:#475569;">${ahorroLabel}</td>
+              <td style="padding:12px 16px;font-size:13px;font-weight:700;color:#2563eb;text-align:right;">${fmtEur(ahorro)}/año</td>
             </tr>` : ''}
-            <tr style="background:rgba(0,0,0,0.3);border-top:1px solid rgba(255,255,255,0.1);">
-              <td style="padding:12px 16px;font-size:13px;font-weight:900;color:#fff;">Ayuda total estimada</td>
-              <td style="padding:12px 16px;font-size:15px;font-weight:900;color:#34d399;text-align:right;">${fmtEur(total)}</td>
+            <tr style="background:#f8fafc;border-top:2px solid #e2e8f0;">
+              <td style="padding:12px 16px;font-size:13px;font-weight:900;color:#0f172a;">Ayuda total estimada</td>
+              <td style="padding:12px 16px;font-size:15px;font-weight:900;color:#059669;text-align:right;">${fmtEur(total)}</td>
             </tr>
           </table>
-          ${!showAhorro ? `<p style="color:rgba(255,255,255,0.5);font-size:12px;margin:12px 2px 0;line-height:1.6;">Además, ganas en confort estable todo el año y dejas de depender ${fuelDependPhrase(fuelLabel)} y de sus subidas de precio${co2Text(co2)}.</p>` : ''}
-          ${urg ? `<p style="color:rgba(251,191,36,0.85);font-size:12px;margin:12px 2px 0;line-height:1.6;">${urg}</p>` : ''}
+          ${!showAhorro ? `<p style="color:#475569;font-size:12px;margin:12px 2px 0;line-height:1.6;">Además, ganas en confort estable todo el año y dejas de depender ${fuelDependPhrase(fuelLabel)} y de sus subidas de precio.</p>` : ''}
+          ${urg ? `<p style="color:#b45309;font-size:12px;margin:12px 2px 0;line-height:1.6;">${urg}</p>` : ''}
         </td></tr>`;
 
     // ── Bloque suave (mensaje sin cifras) ──
     const suaveBlock = esSuave ? `
         <tr><td style="padding:24px 32px 8px;">
-          <div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.25);border-radius:16px;padding:22px;text-align:center;">
-            <p style="color:#fff;font-size:15px;font-weight:900;margin:0 0 8px;">Un técnico revisará tu expediente</p>
-            <p style="color:rgba(255,255,255,0.7);font-size:13px;margin:0;line-height:1.6;">Lo estudiará un especialista y te contactará lo antes posible para darte una propuesta de ayudas a tu medida.</p>
+          <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:16px;padding:22px;text-align:center;">
+            <p style="color:#0f172a;font-size:15px;font-weight:900;margin:0 0 8px;">Un técnico revisará tu expediente</p>
+            <p style="color:#475569;font-size:13px;margin:0;line-height:1.6;">Lo estudiará un especialista y te contactará lo antes posible para darte una propuesta de ayudas a tu medida.</p>
           </div>
         </td></tr>` : '';
 
     const html = `<!DOCTYPE html>
 <html lang="es">
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-<body style="margin:0;padding:0;background:#0f172a;font-family:Arial,sans-serif;">
-  <table width="100%" cellpadding="0" cellspacing="0" style="background:#0f172a;padding:40px 16px;">
+<body style="margin:0;padding:0;background:#ffffff;font-family:Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#ffffff;padding:40px 16px;">
     <tr><td align="center">
-      <table width="100%" style="max-width:560px;background:#1e293b;border-radius:24px;overflow:hidden;border:1px solid rgba(255,255,255,0.08);">
+      <table width="100%" style="max-width:560px;background:#ffffff;border-radius:24px;overflow:hidden;border:1px solid #e5e7eb;">
         <!-- Header -->
-        <tr><td style="padding:32px 32px 20px;text-align:center;background:linear-gradient(135deg,#1e293b,#0f172a);">
-          <div style="font-size:22px;font-weight:900;letter-spacing:-0.5px;color:#fff;">
+        <tr><td style="padding:32px 32px 18px;text-align:center;border-bottom:3px solid #f59e0b;">
+          <div style="font-size:22px;font-weight:900;letter-spacing:-0.5px;color:#0f172a;">
             BROKER<span style="color:#f59e0b">GY</span>
           </div>
           ${cobrandHeader}
-          <h1 style="color:#fff;font-size:20px;font-weight:900;margin:16px 0 6px;">¡Hola, ${primerNombre}!</h1>
-          <p style="color:rgba(255,255,255,0.55);font-size:14px;margin:0;">${subtitle}</p>
+          <h1 style="color:#0f172a;font-size:20px;font-weight:900;margin:16px 0 6px;">¡Hola, ${primerNombre}!</h1>
+          <p style="color:#64748b;font-size:14px;margin:0;">${subtitle}</p>
         </td></tr>
 ${cifrasBlock}${suaveBlock}
         ${uploadLink ? `
         <!-- CTA: Subir documentación -->
         <tr><td style="padding:${esSuave ? '16px' : '0'} 32px 16px;">
-          <div style="background:linear-gradient(135deg,rgba(37,211,102,0.18),rgba(37,211,102,0.06));border:2px solid rgba(37,211,102,0.4);border-radius:16px;padding:20px;text-align:center;">
-            <p style="color:#fff;font-size:14px;font-weight:900;margin:0 0 6px 0;">📸 ${esSuave ? 'Adelanta el proceso' : 'Ayúdanos a afinar tu propuesta'}</p>
-            <p style="color:rgba(255,255,255,0.7);font-size:12px;margin:0 0 14px 0;line-height:1.5;">
+          <div style="background:#ecfdf5;border:2px solid #a7f3d0;border-radius:16px;padding:20px;text-align:center;">
+            <p style="color:#0f172a;font-size:14px;font-weight:900;margin:0 0 6px 0;">📸 ${esSuave ? 'Adelanta el proceso' : 'Ayúdanos a afinar tu propuesta'}</p>
+            <p style="color:#475569;font-size:12px;margin:0 0 14px 0;line-height:1.5;">
               Sube algunas fotos de tu vivienda e instalación actual. 2 minutos desde el móvil.
             </p>
             <a href="${uploadLink}" style="display:inline-block;background:#25D366;color:#fff;padding:12px 28px;border-radius:12px;text-decoration:none;font-weight:900;font-size:13px;text-transform:uppercase;letter-spacing:1px;">
@@ -343,18 +348,20 @@ ${cifrasBlock}${suaveBlock}
 
         <!-- Siguiente paso -->
         <tr><td style="padding:0 32px 32px;">
-          <div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.25);border-radius:16px;padding:20px;text-align:center;">
-            ${esSuave ? '' : `<p style="color:rgba(255,255,255,0.7);font-size:13px;margin:0 0 6px 0;">
+          <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:16px;padding:20px;text-align:center;">
+            ${esSuave ? '' : `<p style="color:#475569;font-size:13px;margin:0 0 6px 0;">
               Un técnico de Brokergy revisará tu expediente y te contactará en breve con la propuesta definitiva.
             </p>`}
-            <p style="color:rgba(255,255,255,0.35);font-size:11px;margin:0;">Ref: <strong style="color:rgba(251,191,36,0.7);font-family:monospace;">${idOportunidad}</strong></p>
+            <p style="color:#94a3b8;font-size:11px;margin:0;">Ref: <strong style="color:#b45309;font-family:monospace;">${idOportunidad}</strong></p>
           </div>
         </td></tr>
 
         <!-- Footer -->
-        <tr><td style="padding:16px 32px;border-top:1px solid rgba(255,255,255,0.06);text-align:center;">
-          <p style="color:rgba(255,255,255,0.2);font-size:10px;margin:0;text-transform:uppercase;letter-spacing:2px;font-weight:700;">${partnerName ? `Enviado por Brokergy, partner energético de ${partnerName}` : 'Brokergy · Ingeniería Energética'}</p>
-          <p style="color:rgba(255,255,255,0.15);font-size:10px;margin:6px 0 0;">Estimación teórica sujeta a verificación técnica. El bono CAE está garantizado por Brokergy.</p>
+        <tr><td style="padding:16px 32px;border-top:1px solid #e2e8f0;text-align:center;">
+          ${partnerName
+            ? `<p style="color:#475569;font-size:11px;margin:0;font-weight:700;letter-spacing:0.5px;">BROKERGY · en colaboración con ${partnerName}</p>${partnerContact ? `<p style="color:#64748b;font-size:11px;margin:4px 0 0;">${partnerContact}</p>` : ''}`
+            : `<p style="color:#94a3b8;font-size:10px;margin:0;text-transform:uppercase;letter-spacing:2px;font-weight:700;">Brokergy · Ingeniería Energética</p>`}
+          <p style="color:#cbd5e1;font-size:10px;margin:6px 0 0;">Estimación teórica sujeta a verificación técnica.</p>
         </td></tr>
       </table>
     </td></tr>
@@ -364,9 +371,9 @@ ${cifrasBlock}${suaveBlock}
 
     const text = esSuave
         ? `Hemos recibido tu solicitud para ${prod}.\n\nHola ${primerNombre},\n\nUn técnico revisará tu expediente y te contactará lo antes posible para darte una propuesta de ayudas a tu medida.\n${uploadLink ? `\nPuedes adelantar el proceso subiendo fotos aquí: ${uploadLink}\n` : ''}\nRef: ${idOportunidad}\n\nBrokergy · brokergy.es`
-        : `Tu propuesta de Brokergy${partnerName ? ` (en colaboración con ${partnerName})` : ''}\n\nHola ${primerNombre},\n\nAquí tienes tu estimación de ayudas para ${prod}:\n\nBono CAE: ${fmtEur(cae)}\n${Number(irpf) > 0 ? `Deducción IRPF: ${fmtEur(irpf)}\n` : ''}Ayuda total: ${fmtEur(total)}\nTu inversión neta: ${fmtEur(neta)}${presupuestoEstimado ? ' (orientativa, presupuesto estimado 15.000 €)' : ''}\n${showAhorro ? `${ahorroLabel}: ${fmtEur(ahorro)}/año\n` : ''}\nRef: ${idOportunidad}\n\nBrokergy · brokergy.es`;
+        : `Tu propuesta de Brokergy${partnerName ? ` (en colaboración con ${partnerName})` : ''}\n\nHola ${primerNombre},\n\nAquí tienes tu estimación de ayudas para ${prod}:\n\nBono CAE: ${fmtEur(cae)}\n${Number(irpf) > 0 ? `Deducción IRPF: ${fmtEur(irpf)}\n` : ''}Ayuda total: ${fmtEur(total)}\nTu inversión neta: ${fmtEur(neta)}\n${showAhorro ? `${ahorroLabel}: ${fmtEur(ahorro)}/año\n` : ''}${presupuestoEstimado ? `\n${presupuestoNote(partner)}\n` : ''}\nRef: ${idOportunidad}\n\nBrokergy · brokergy.es`;
 
-    return sendMail({ to, subject, html, text });
+    return sendMail({ to, subject, html, text, replyTo: partner && partner.email ? partner.email : undefined });
 };
 
 /**

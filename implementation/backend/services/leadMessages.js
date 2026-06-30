@@ -25,7 +25,7 @@ const CAE_PDF_THRESHOLD = 1000;     // bono CAE neto a partir del cual se manda 
 const AHORRO_LOW_THRESHOLD = 200;   // €/año por debajo del cual el ahorro se muestra cualitativo
 
 const fmtEur = (n) =>
-    `${new Intl.NumberFormat('es-ES', { maximumFractionDigits: 0 }).format(Math.abs(Number(n) || 0))} €`;
+    `${new Intl.NumberFormat('es-ES', { maximumFractionDigits: 0, useGrouping: 'always' }).format(Math.abs(Number(n) || 0))} €`;
 
 const firstName = (nombre) => (String(nombre || '').trim().split(/\s+/)[0] || 'cliente');
 
@@ -51,6 +51,15 @@ const co2Text = (co2) => {
     return ` (evitas ~${n.toLocaleString('es-ES', { maximumFractionDigits: 1 })} t de CO₂ al año)`;
 };
 
+// Nota cuando la simulación se calculó con el presupuesto por defecto (15.000 €).
+// Invita a pedir un presupuesto real (al instalador en co-branding, a nosotros si no).
+function presupuestoNote(partner) {
+    const quien = (partner && partner.nombre)
+        ? `ponte en contacto con ${partner.nombre} y pídele un presupuesto real de la instalación`
+        : 'ponte en contacto con nosotros para obtener un presupuesto real de la instalación';
+    return `Esta simulación se ha calculado con un presupuesto estimado de 15.000 €. Para obtener una simulación más ajustada, ${quien}.`;
+}
+
 // Línea de urgencia opcional según caldera antigua / prisa del cliente
 function urgencyLine(edadCaldera, timeline) {
     if (edadCaldera === '>20') {
@@ -71,13 +80,17 @@ function pickMessageType({ wantsTecnico, caeNeto }) {
     return (Number(caeNeto) || 0) >= CAE_PDF_THRESHOLD ? 'completa' : 'suave';
 }
 
-// Firma del mensaje (Brokergy puro o co-branding con el partner)
+// Firma del mensaje. Como el cliente es del instalador, en co-branding el
+// CONTACTO (tel + email) es el del instalador; la marca lidera Brokergy.
 function signatureLines(partner) {
     if (partner && partner.nombre) {
+        const contacto = [];
+        if (partner.tel) contacto.push(partner.tel);
+        contacto.push(partner.email || 'info@brokergy.es');
         return [
             'Un saludo,',
-            `*${partner.nombre}* · en colaboración con *BROKERGY*`,
-            `${partner.tel ? partner.tel + ' · ' : ''}info@brokergy.es`,
+            `*BROKERGY* · en colaboración con *${partner.nombre}*`,
+            contacto.join(' · '),
         ];
     }
     return [
@@ -132,7 +145,7 @@ function buildWhatsAppMessage({
     lines.push('');
     lines.push('🔹 *Resumen de tus ayudas:*');
     lines.push('');
-    lines.push(`✅ Bono Energético BROKERGY (CAE): *${fmtEur(cae)}* — garantizado por nosotros.`);
+    lines.push(`✅ Bono Energético BROKERGY (CAE): *${fmtEur(cae)}*.`);
     if (Number(irpf) > 0) {
         lines.push('');
         lines.push(`✅ Deducción estimada en tu IRPF: *${fmtEur(irpf)}*, si puedes acogerte a ella (dejamos toda la parte técnica lista para que la solicites).`);
@@ -144,7 +157,7 @@ function buildWhatsAppMessage({
     if (Number(ahorro) >= AHORRO_LOW_THRESHOLD) {
         lines.push(`⚡ *Ahorro estimado en factura: ${fmtEur(ahorro)} al año.*`);
     } else {
-        lines.push(`🌱 Además, ganas en confort estable todo el año y dejas de depender ${fuelDependPhrase(fuelLabel)} y de sus subidas de precio${co2Text(co2)}.`);
+        lines.push(`🌱 Además, ganas en confort estable todo el año y dejas de depender ${fuelDependPhrase(fuelLabel)} y de sus subidas de precio.`);
     }
 
     const urg = urgencyLine(edadCaldera, timeline);
@@ -160,13 +173,11 @@ function buildWhatsAppMessage({
     }
 
     lines.push('');
-    lines.push('Ayudas garantizadas por Brokergy, especialistas en rehabilitación energética. ✅');
-    lines.push('');
     signatureLines(partner).forEach(l => lines.push(l));
 
     if (presupuestoEstimado) {
         lines.push('');
-        lines.push('ℹ️ La inversión neta es orientativa: la hemos calculado con un presupuesto estimado de 15.000 €. Se ajustará con el presupuesto real de tu instalador.');
+        lines.push('ℹ️ ' + presupuestoNote(partner));
     }
 
     return lines.join('\n');
@@ -202,12 +213,12 @@ function buildProposalPdfHtml({
         : '';
     const cualitativo = Number(ahorro) < AHORRO_LOW_THRESHOLD
         ? `<p style="margin:14px 0 0;font-size:12px;color:#475569;line-height:1.6;">
-             Además, ganas en confort estable todo el año y dejas de depender ${fuelDependPhrase(fuelLabel)} y de sus subidas de precio${co2Text(co2)}.
+             Además, ganas en confort estable todo el año y dejas de depender ${fuelDependPhrase(fuelLabel)} y de sus subidas de precio.
            </p>`
         : '';
     const notaPresupuesto = presupuestoEstimado
         ? `<p style="margin:8px 0 0;font-size:10px;color:#94a3b8;line-height:1.5;">
-             * La inversión neta es orientativa: calculada con un presupuesto estimado de 15.000 €. Se ajustará con el presupuesto real de tu instalador.
+             * ${presupuestoNote(partner)}
            </p>`
         : '';
 
@@ -256,7 +267,7 @@ function buildProposalPdfHtml({
         <td style="padding:11px 18px;font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:1.5px;color:#d97706;text-align:right;">Importe</td>
       </tr>
       <tr>
-        <td style="padding:12px 18px;font-size:13px;color:#475569;">Bono Energético CAE <span style="color:#94a3b8;">(garantizado por Brokergy)</span></td>
+        <td style="padding:12px 18px;font-size:13px;color:#475569;">Bono Energético CAE</td>
         <td style="padding:12px 18px;font-size:13px;font-weight:700;color:#059669;text-align:right;">${fmtEur(cae)}</td>
       </tr>
       ${irpfRow}
@@ -280,7 +291,7 @@ function buildProposalPdfHtml({
     <!-- Footer -->
     <div style="margin-top:40px;padding-top:18px;border-top:1px solid #e2e8f0;text-align:center;">
       <div style="font-size:11px;color:#94a3b8;text-transform:uppercase;letter-spacing:2px;font-weight:700;">Brokergy · info@brokergy.es · 623 926 179</div>
-      <div style="font-size:10px;color:#cbd5e1;margin-top:6px;">Estimación teórica sujeta a verificación técnica. El bono CAE está garantizado por Brokergy.</div>
+      <div style="font-size:10px;color:#cbd5e1;margin-top:6px;">Estimación teórica sujeta a verificación técnica.</div>
     </div>
   </div>
 </body></html>`;
@@ -323,6 +334,7 @@ module.exports = {
     fuelDependPhrase,
     co2Text,
     urgencyLine,
+    presupuestoNote,
     pickMessageType,
     buildWhatsAppMessage,
     buildProposalPdfHtml,
