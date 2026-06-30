@@ -16,6 +16,46 @@ import { fireSuccessConfetti } from '../../expedientes/utils/successConfetti';
 const phoneValid = (ph) => (ph || '').replace(/[^0-9]/g, '').length >= 9;
 const MODE_ORDER = ['CLIENTE', 'PARTNER', 'INSTALADOR', 'OTRO'];
 
+// ── Nota adicional: se inserta en el cuerpo tras el "resumen de ayudas".
+//    Cada línea se envuelve en *...* por separado: WhatsApp (y el email, que
+//    convierte *texto* → <b>) NO aplican negrita a través de saltos de línea,
+//    así que un único par de asteriscos alrededor de un bloque multipárrafo
+//    saldría literal. Idempotente: stripNote quita la nota previa (bloque de
+//    líneas en negrita que arranca en "*Nota adicional:") antes de recomponer.
+const isBoldLine = (l) => /^\*.*\*$/.test(l.trim());
+const stripNote = (msg) => {
+    const lines = (msg || '').split('\n');
+    const start = lines.findIndex(l => /^\*Nota adicional:/.test(l.trim()));
+    if (start < 0) return (msg || '').replace(/\s+$/, '');
+    let end = start;
+    for (let i = start + 1; i < lines.length; i++) {
+        const l = lines[i].trim();
+        if (l === '' || isBoldLine(l)) end = i; else break;
+    }
+    lines.splice(start, end - start + 1);
+    return lines.join('\n').replace(/\n{3,}/g, '\n\n').replace(/\s+$/, '');
+};
+const composeNote = (base, note) => {
+    const clean = stripNote(base);
+    const t = (note || '').trim();
+    if (!t) return clean;
+    // Negrita línea a línea (cada párrafo no vacío). El "label" va pegado a la
+    // primera línea con contenido; las líneas en blanco se conservan.
+    let labeled = false;
+    const block = t.split('\n').map(line => {
+        const l = line.trim().replace(/^\*+|\*+$/g, '').trim();
+        if (!l) return '';
+        if (!labeled) { labeled = true; return `*Nota adicional: ${l}*`; }
+        return `*${l}*`;
+    }).join('\n');
+    const lines = clean.split('\n');
+    const resumenIdx = lines.findIndex(l => /Resumen total de las ayudas/i.test(l));
+    if (resumenIdx >= 0) { lines.splice(resumenIdx + 1, 0, '', block); return lines.join('\n'); }
+    const anchorIdx = lines.findIndex(l => /^(Quedo a|En caso de conformidad|Para avanzar|Siguientes pasos)/i.test(l.trim()));
+    if (anchorIdx >= 0) { lines.splice(anchorIdx, 0, block, ''); return lines.join('\n'); }
+    return `${clean}\n\n${block}`;
+};
+
 export function EnviarPropuestaModal({
     isOpen, onClose,
     numexpte,
@@ -31,6 +71,8 @@ export function EnviarPropuestaModal({
     const [manualContact, setManualContact] = useState({ name: '', phone: '', email: '' });
     const [channels, setChannels] = useState({ email: true, whatsapp: true });
     const [message, setMessage] = useState('');
+    const [extraNote, setExtraNote] = useState('');
+    const [noteInMessage, setNoteInMessage] = useState(true);
     const [waReady, setWaReady] = useState(null);
     const [status, setStatus] = useState(null);
     const [sendPhase, setSendPhase] = useState(null);   // null | 'sending' | 'done'
@@ -54,7 +96,23 @@ export function EnviarPropuestaModal({
         if (userEditedRef.current) return;
         const pm = MODE_ORDER.find(m => modes.includes(m)) || (candidates[0]?.mode || 'CLIENTE');
         const c = resolveContact(pm);
-        setMessage(buildDefaultMessage ? buildDefaultMessage(pm, c.label) : '');
+        let base = buildDefaultMessage ? buildDefaultMessage(pm, c.label) : '';
+        if (noteInMessage && extraNote.trim()) base = composeNote(base, extraNote);
+        setMessage(base);
+    };
+
+    // Nota adicional: refleja en la previsualización (mensaje del destinatario
+    // principal) y mantiene el bloque sincronizado al teclear / togglear.
+    const handleNoteChange = (val) => {
+        setExtraNote(val);
+        if (noteInMessage) setMessage(prev => composeNote(prev, val));
+    };
+    const toggleNoteInMessage = () => {
+        setNoteInMessage(prev => {
+            const next = !prev;
+            setMessage(m => next ? composeNote(m, extraNote) : stripNote(m));
+            return next;
+        });
     };
 
     // Inicialización al abrir
@@ -64,6 +122,8 @@ export function EnviarPropuestaModal({
         userEditedRef.current = false;
         setSelectedModes(start);
         setManualContact({ name: '', phone: '', email: '' });
+        setExtraNote('');
+        setNoteInMessage(true);
         const sel = start.map(resolveContact);
         setChannels({ email: sel.some(c => c.email), whatsapp: sel.some(c => phoneValid(c.phone)) });
         const pm = MODE_ORDER.find(m => start.includes(m)) || (candidates[0]?.mode || 'CLIENTE');
@@ -130,7 +190,18 @@ export function EnviarPropuestaModal({
         const out = [];
         let clienteOk = false;
 
+        // Mensaje POR destinatario: el principal usa el texto editado en la caja;
+        // el resto regenera el suyo (cliente recibe el de cliente, partner el de
+        // partner, etc.). La nota adicional se inserta en todos si está marcada.
+        const messageFor = (c) => {
+            const base = (c.mode === primaryMode)
+                ? stripNote(message)
+                : (buildDefaultMessage ? buildDefaultMessage(c.mode, c.label) : stripNote(message));
+            return noteInMessage ? composeNote(base, extraNote) : base;
+        };
+
         for (const c of selectedContacts) {
+            const msg = messageFor(c);
             // EMAIL
             if (doEmail && c.email) {
                 try {
@@ -139,7 +210,7 @@ export function EnviarPropuestaModal({
                         to: c.email,
                         userName: c.label,
                         summaryData: buildSummaryData ? buildSummaryData(c.mode, c.label) : { id: numexpte },
-                        customMessage: message,
+                        customMessage: msg,
                     }, { timeout: 90000 });
                     out.push({ channel: 'email', status: 'ok', text: `${c.label} → ${c.email}` });
                     if (c.mode === 'CLIENTE') clienteOk = true;
@@ -155,7 +226,7 @@ export function EnviarPropuestaModal({
                     try {
                         await axios.post('/api/whatsapp/send-media', {
                             phone: String(c.phone).replace(/[^0-9]/g, ''),
-                            caption: message,
+                            caption: msg,
                             media: { base64: waPdf, filename, mimetype: 'application/pdf' },
                             asDocument: true,
                         });
@@ -173,6 +244,12 @@ export function EnviarPropuestaModal({
         // Marcar la oportunidad como ENVIADA si la propuesta llegó al cliente.
         if (clienteOk && expedienteId) {
             try { await axios.patch(`/api/oportunidades/${expedienteId}/estado`, { nuevo_estado: 'ENVIADA' }); } catch (e) { /* no romper */ }
+        }
+
+        // Guardar la nota adicional en el historial del expediente (siempre que
+        // exista, vaya o no en el mensaje). Se registra como comentario.
+        if (extraNote.trim() && expedienteId) {
+            try { await axios.post(`/api/oportunidades/${expedienteId}/comentarios`, { comentario: `📝 Nota de la propuesta: ${extraNote.trim()}` }); } catch (e) { /* no romper */ }
         }
 
         setSendResults(out);
@@ -256,6 +333,32 @@ export function EnviarPropuestaModal({
                             className="w-full no-uppercase bg-bkg-elevated border border-white/5 rounded-xl px-4 py-3 text-white text-[12px] leading-relaxed focus:outline-none focus:border-brand/40 transition-all resize-y"
                         />
                         <p className="mt-1.5 text-[9px] text-white/25">Se usa como cuerpo del email y como mensaje de WhatsApp. Edítalo libremente.</p>
+                    </div>
+
+                    {/* Nota adicional */}
+                    <div>
+                        <div className="flex items-center justify-between mb-2">
+                            <label className="block text-[9px] font-black text-white/30 uppercase tracking-[0.2em]">Nota adicional</label>
+                            <button type="button" onClick={toggleNoteInMessage}
+                                className={`flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest transition-colors ${noteInMessage ? 'text-brand' : 'text-white/30 hover:text-white/60'}`}>
+                                <span className={`w-3.5 h-3.5 rounded border-2 flex items-center justify-center shrink-0 ${noteInMessage ? 'border-brand bg-brand' : 'border-white/20'}`}>
+                                    {noteInMessage && <svg className="w-2.5 h-2.5 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
+                                </span>
+                                Añadir al mensaje
+                            </button>
+                        </div>
+                        <textarea
+                            value={extraNote}
+                            onChange={e => handleNoteChange(e.target.value)}
+                            rows={3}
+                            placeholder="Ej: En la parte que indica comercio, debemos justificar con fotos y vídeos que realmente es una vivienda."
+                            className="w-full no-uppercase bg-bkg-elevated border border-white/5 rounded-xl px-4 py-3 text-white text-[12px] leading-relaxed focus:outline-none focus:border-brand/40 transition-all resize-y"
+                        />
+                        <p className="mt-1.5 text-[9px] text-white/25">
+                            {noteInMessage
+                                ? 'Se inserta en el mensaje tras el resumen de ayudas y se guarda en las notas del expediente.'
+                                : 'Solo se guarda en las notas del expediente (no se envía en el mensaje).'}
+                        </p>
                     </div>
 
                     {/* Canal de envío */}
