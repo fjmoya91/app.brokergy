@@ -1,7 +1,12 @@
 const express = require('express');
 const router = express.Router();
-const { requireAuth, enforceAuth, invalidateAuthToken } = require('../middleware/auth');
+const { requireAuth, enforceAuth, adminOnly, invalidateAuthToken } = require('../middleware/auth');
 const supabase = require('../services/supabaseClient');
+
+// id_rol del rol TRABAJADOR (ver scripts/rol_trabajador.sql). El panel de usuarios
+// internos crea y gestiona SOLO trabajadores; los ADMIN se gestionan aparte.
+const ROL_TRABAJADOR = 8;
+const ROLES_INTERNOS = [1, ROL_TRABAJADOR]; // ADMIN + TRABAJADOR
 
 router.get('/me', requireAuth, (req, res) => {
     // Si no hay req.user validado por el middleware (no token o token inválido)
@@ -113,6 +118,132 @@ router.patch('/me', enforceAuth, async (req, res) => {
     } catch (err) {
         console.error('[PATCH /usuarios/me] Error:', err);
         res.status(500).json({ error: err.message || 'Error al actualizar el perfil' });
+    }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Gestión de USUARIOS INTERNOS (ADMIN + TRABAJADOR) — solo ADMIN.
+// El TRABAJADOR opera como el ADMIN pero sin ver el margen/beneficio de Brokergy
+// y sin poder borrar. Se dan de alta desde el panel de admin.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// GET /api/usuarios — lista de usuarios internos (ADMIN + TRABAJADOR)
+router.get('/', adminOnly, async (req, res) => {
+    try {
+        const { data, error } = await supabase
+            .from('usuarios')
+            .select('id_usuario, auth_user_id, id_rol, nombre, apellidos, email, tlf, nif, activo, created_at, avatar_url, roles ( nombre_rol )')
+            .in('id_rol', ROLES_INTERNOS)
+            .order('created_at', { ascending: true });
+        if (error) throw error;
+        res.json((data || []).map(u => ({ ...u, rol_nombre: u.roles?.nombre_rol || null })));
+    } catch (err) {
+        console.error('[GET /usuarios] Error:', err);
+        res.status(500).json({ error: 'Error al listar los usuarios internos' });
+    }
+});
+
+// POST /api/usuarios — crear un TRABAJADOR (auth + fila en `usuarios`)
+router.post('/', adminOnly, async (req, res) => {
+    let createdAuthId = null;
+    try {
+        const body = req.body || {};
+        const nombre = (body.nombre || '').trim();
+        const apellidos = (body.apellidos || '').trim();
+        const email = (body.email || '').trim().toLowerCase();
+        const password = body.password ? String(body.password) : '';
+        const nif = (body.nif || '').trim().toUpperCase() || null;
+        const tlf = (body.tlf || '').trim() || null;
+
+        if (!nombre) return res.status(400).json({ error: 'El nombre es obligatorio.' });
+        if (!email) return res.status(400).json({ error: 'El email es obligatorio.' });
+        if (!password || password.length < 6) {
+            return res.status(400).json({ error: 'La contraseña debe tener al menos 6 caracteres.' });
+        }
+
+        // 1. Crear el usuario en Supabase Auth (email confirmado, sin email de invitación).
+        const { data: authRes, error: authErr } = await supabase.auth.admin.createUser({
+            email,
+            password,
+            email_confirm: true,
+            user_metadata: { nombre, apellidos, rol: 'TRABAJADOR' },
+        });
+        if (authErr) {
+            const msg = /already been registered|already exists/i.test(authErr.message || '')
+                ? 'Ya existe un usuario con ese email.'
+                : `Error en el sistema de autenticación: ${authErr.message}`;
+            return res.status(400).json({ error: msg });
+        }
+        createdAuthId = authRes.user.id;
+
+        // 2. Crear la fila en `usuarios` con el rol TRABAJADOR.
+        const { data: perfil, error: dbErr } = await supabase
+            .from('usuarios')
+            .insert({
+                auth_user_id: createdAuthId,
+                id_rol: ROL_TRABAJADOR,
+                nombre,
+                apellidos: apellidos || null,
+                email,
+                nif,
+                tlf,
+                activo: true,
+            })
+            .select('id_usuario, auth_user_id, id_rol, nombre, apellidos, email, tlf, nif, activo, created_at, roles ( nombre_rol )')
+            .single();
+        if (dbErr) {
+            // Rollback del usuario de Auth para no dejar cuentas huérfanas.
+            await supabase.auth.admin.deleteUser(createdAuthId).catch(() => {});
+            throw new Error(dbErr.message);
+        }
+
+        res.status(201).json({ ...perfil, rol_nombre: perfil.roles?.nombre_rol || 'TRABAJADOR' });
+    } catch (err) {
+        console.error('[POST /usuarios] Error:', err);
+        res.status(500).json({ error: err.message || 'Error al crear el usuario' });
+    }
+});
+
+// PATCH /api/usuarios/:id/activo — activar / desactivar un TRABAJADOR
+router.patch('/:id/activo', adminOnly, async (req, res) => {
+    try {
+        const activar = req.body?.activar === true || req.body?.activar === 'true';
+
+        const { data: target, error: getErr } = await supabase
+            .from('usuarios')
+            .select('id_usuario, auth_user_id, id_rol')
+            .eq('id_usuario', req.params.id)
+            .maybeSingle();
+        if (getErr) throw getErr;
+        if (!target) return res.status(404).json({ error: 'Usuario no encontrado.' });
+
+        // Guardarraíl: este endpoint solo gestiona TRABAJADORES (no toca ADMIN ni otros).
+        if (target.id_rol !== ROL_TRABAJADOR) {
+            return res.status(400).json({ error: 'Solo se puede activar/desactivar a un trabajador desde aquí.' });
+        }
+        if (target.id_usuario === req.user.id_usuario) {
+            return res.status(400).json({ error: 'No puedes cambiar el estado de tu propia cuenta.' });
+        }
+
+        // Banear / desbanear en Auth (mismo patrón que prescriptores) + flag `activo`.
+        if (target.auth_user_id) {
+            const banDuration = activar ? 'none' : '876000h'; // ~100 años
+            const { error: authErr } = await supabase.auth.admin.updateUserById(target.auth_user_id, { ban_duration: banDuration });
+            if (authErr) console.warn('[PATCH /usuarios/:id/activo] Auth ban:', authErr.message);
+        }
+
+        const { data: updated, error: upErr } = await supabase
+            .from('usuarios')
+            .update({ activo: activar })
+            .eq('id_usuario', target.id_usuario)
+            .select('id_usuario, id_rol, nombre, apellidos, email, activo, roles ( nombre_rol )')
+            .single();
+        if (upErr) throw upErr;
+
+        res.json({ ...updated, rol_nombre: updated.roles?.nombre_rol || 'TRABAJADOR' });
+    } catch (err) {
+        console.error('[PATCH /usuarios/:id/activo] Error:', err);
+        res.status(500).json({ error: err.message || 'Error al actualizar el estado del usuario' });
     }
 });
 

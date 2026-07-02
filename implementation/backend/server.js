@@ -67,6 +67,7 @@ app.use('/api/aerotermia', aerotermiaRoutes);
 app.use('/api/expedientes', expedientesRoutes);
 app.use('/api/lotes', require('./routes/lotes'));
 app.use('/api/auth', authRoutes);
+app.use('/api/public/portal', require('./routes/portal'));
 app.use('/api/public', require('./routes/public'));
 app.use('/api/landing', require('./routes/landing'));
 app.use('/api/settings', require('./routes/settings'));

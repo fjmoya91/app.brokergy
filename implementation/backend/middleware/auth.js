@@ -125,7 +125,9 @@ const enforceAuth = (req, res, next) => {
 };
 
 /**
- * Middleware estricto para rutas solo accesibles por ADMINISTRADORES
+ * Middleware estricto para rutas solo accesibles por ADMINISTRADORES.
+ * Reservado para acciones que un TRABAJADOR NO debe poder hacer:
+ * borrados, gestión de usuarios y ajustes globales.
  */
 const adminOnly = (req, res, next) => {
     enforceAuth(req, res, () => {
@@ -137,24 +139,57 @@ const adminOnly = (req, res, next) => {
 };
 
 /**
+ * Middleware para acciones OPERATIVAS internas de Brokergy: lo que hace el
+ * equipo del día a día (crear/editar oportunidades y expedientes, generar y
+ * enviar documentos, gestionar clientes, operar lotes…). Accesible por ADMIN
+ * y por TRABAJADOR. El TRABAJADOR opera igual que un ADMIN, pero NO ve el
+ * margen/beneficio de Brokergy (eso se capa en los payloads con los strips)
+ * y NO puede borrar ni tocar ajustes globales (eso sigue en `adminOnly`).
+ */
+const staffOnly = (req, res, next) => {
+    enforceAuth(req, res, () => {
+        const rol = req.user.rol_nombre;
+        if (rol !== 'ADMIN' && rol !== 'TRABAJADOR') {
+            return res.status(403).json({ error: 'Acceso denegado. Solo el equipo interno de Brokergy puede realizar esta acción.' });
+        }
+        next();
+    });
+};
+
+/**
  * Middleware para módulos INTERNOS de Brokergy (p.ej. Expedientes).
- * Solo ADMIN y CERTIFICADOR. Los partners (PRESCRIPTOR / INSTALADOR /
+ * ADMIN, TRABAJADOR y CERTIFICADOR. Los partners (PRESCRIPTOR / INSTALADOR /
  * DISTRIBUIDOR) quedan completamente fuera: no son datos de su ámbito.
+ * OJO: esto es solo control de ACCESO. El dinero se capa aparte por rol
+ * (ADMIN ve todo; TRABAJADOR ve bono/presupuesto sin margen; CERTIFICADOR
+ * no ve ninguna cifra).
  */
 const internalOnly = (req, res, next) => {
     enforceAuth(req, res, () => {
         const rol = req.user.rol_nombre;
-        if (rol !== 'ADMIN' && rol !== 'CERTIFICADOR') {
+        if (rol !== 'ADMIN' && rol !== 'CERTIFICADOR' && rol !== 'TRABAJADOR') {
             return res.status(403).json({ error: 'Acceso denegado. Este recurso es interno de Brokergy.' });
         }
         next();
     });
 };
 
+// ─── Helpers de rol (para usar dentro de handlers, no como middleware) ────────
+// Único que ve el margen/beneficio de Brokergy: ADMIN.
+const canSeeBrokergyMargin = (req) => !!(req.user && req.user.rol_nombre === 'ADMIN');
+const isAdmin = (req) => !!(req.user && req.user.rol_nombre === 'ADMIN');
+const isTrabajador = (req) => !!(req.user && req.user.rol_nombre === 'TRABAJADOR');
+const isStaff = (req) => !!(req.user && (req.user.rol_nombre === 'ADMIN' || req.user.rol_nombre === 'TRABAJADOR'));
+
 module.exports = {
     requireAuth,
     enforceAuth,
     adminOnly,
+    staffOnly,
     internalOnly,
-    invalidateAuthToken
+    invalidateAuthToken,
+    canSeeBrokergyMargin,
+    isAdmin,
+    isTrabajador,
+    isStaff,
 };

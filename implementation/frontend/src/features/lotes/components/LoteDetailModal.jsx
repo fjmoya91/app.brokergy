@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import axios from 'axios';
 import { useModal } from '../../../context/ModalContext';
+import { useAuth } from '../../../context/AuthContext';
+import { getRoleFlags } from '../../../utils/roleFlags';
 import { LOTE_ESTADOS, loteEstadoBadge } from '../loteConstants';
 import { computeExpedienteFinancials } from '../../expedientes/logic/expedienteFinancials';
 import { computeLoteEco } from '../logic/loteEco';
@@ -18,6 +20,8 @@ const kwh = (n) => `${Math.round(Number(n) || 0).toLocaleString('es-ES')} kWh`;
 // nº + estado, nombre del cliente, dirección y los 3 importes. `rightAction` = botón
 // (× quitar / + añadir). Si `onClick`, el bloque de texto navega al expediente.
 function ExpedienteCard({ exp, onClick, rightAction }) {
+    const { user } = useAuth();
+    const { canSeeMargin } = getRoleFlags(user); // el ▲ beneficio Brokergy solo lo ve el ADMIN
     const f = computeExpedienteFinancials(exp);
     const inner = (
         <>
@@ -30,14 +34,14 @@ function ExpedienteCard({ exp, onClick, rightAction }) {
             <span className="flex items-center gap-2.5 text-[10px] font-black mt-1">
                 <span className="text-cyan-400">⚡ {mwh(f.savingsKwh)}</span>
                 <span className="text-emerald-400">{eur(f.cae)}</span>
-                <span className="text-amber-400">▲ {eur(f.profit)}</span>
+                {canSeeMargin && <span className="text-amber-400">▲ {eur(f.profit)}</span>}
             </span>
             {f.savingsKwhVerificado != null && (
                 <span className="flex items-center gap-2.5 text-[10px] font-black mt-0.5" title="Ahorro verificado (factura al S.O.)">
                     <span className="text-[8px] uppercase tracking-widest text-amber-400/70">Verif</span>
                     <span className="text-cyan-300">⚡ {kwh(f.savingsKwhVerificado)}</span>
                     <span className="text-emerald-300">{eur(f.caeVerificado)}</span>
-                    <span className="text-amber-300">▲ {eur(f.profitVerificado)}</span>
+                    {canSeeMargin && <span className="text-amber-300">▲ {eur(f.profitVerificado)}</span>}
                 </span>
             )}
         </>
@@ -54,6 +58,11 @@ function ExpedienteCard({ exp, onClick, rightAction }) {
 
 export function LoteDetailModal({ loteId, soList: soListProp, verList: verListProp, onClose, onChanged, onNavigateExpediente }) {
     const { showAlert, showConfirm } = useModal();
+    const { user } = useAuth();
+    // Solo ADMIN ve el margen (beneficio, oferta €/MWh, coste verif., factura al S.O.).
+    // El TRABAJADOR opera el lote (expedientes, SO/verificador, envío) sin ver precios,
+    // y no puede borrar el lote (canDelete).
+    const { canSeeMargin, canDelete } = getRoleFlags(user);
     const [lote, setLote] = useState(null);
     const [loading, setLoading] = useState(true);
     const [elegibles, setElegibles] = useState([]);
@@ -223,9 +232,10 @@ export function LoteDetailModal({ loteId, soList: soListProp, verList: verListPr
                 ) : (
                     <div className="p-6 space-y-6">
 
-                        {/* Resumen económico del lote (modelo Excel) */}
+                        {/* Resumen económico del lote (modelo Excel).
+                            El TRABAJADOR ve ahorro + pago al cliente, pero NO el margen Brokergy. */}
                         <div className="space-y-3">
-                            <div className="grid grid-cols-3 gap-2">
+                            <div className={`grid ${canSeeMargin ? 'grid-cols-3' : 'grid-cols-2'} gap-2`}>
                                 <div className="bg-bkg-surface border border-white/[0.06] rounded-xl px-2 py-2.5 text-center">
                                     <p className="text-[8px] uppercase tracking-widest font-black text-white/30">Ahorro generado</p>
                                     <p className="text-sm sm:text-base font-black text-white mt-0.5 leading-tight">{mwh(eco.ahorroKwh)}</p>
@@ -242,14 +252,17 @@ export function LoteDetailModal({ loteId, soList: soListProp, verList: verListPr
                                     <p className="text-[8px] text-white/25 mt-0.5">a pagar al cliente</p>
                                     {eco.hasVerif && <p className="text-[9px] font-black text-amber-300 mt-0.5 leading-tight">Verif: {eur(eco.pagoClienteVerif)}</p>}
                                 </div>
+                                {canSeeMargin && (
                                 <div className="bg-brand/[0.06] border border-brand/20 rounded-xl px-2 py-2.5 text-center">
                                     <p className="text-[8px] uppercase tracking-widest font-black text-brand/60">Beneficio lote</p>
                                     <p className="text-sm sm:text-base font-black text-brand mt-0.5 leading-tight">{eco.beneficioLote != null ? eur(eco.beneficioLote) : '—'}</p>
                                     <p className="text-[8px] text-white/25 mt-0.5">con oferta</p>
                                     {eco.hasVerif && eco.beneficioLoteVerif != null && <p className="text-[9px] font-black text-amber-300 mt-0.5 leading-tight">Verif: {eur(eco.beneficioLoteVerif)}</p>}
                                 </div>
+                                )}
                             </div>
 
+                            {canSeeMargin && (<>
                             {/* Inputs manuales: coste de verificación (€) + oferta del lote (€/MWh) */}
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                 <div>
@@ -288,6 +301,7 @@ export function LoteDetailModal({ loteId, soList: soListProp, verList: verListPr
                                 ))}
                             </div>
                             <p className="text-[10px] text-white/30 text-right">Beneficio sin oferta: <b className="text-white/50">{eur(eco.beneficioActual)}</b></p>
+                            </>)}
                         </div>
 
                         {/* Destinatarios */}
@@ -447,7 +461,8 @@ export function LoteDetailModal({ loteId, soList: soListProp, verList: verListPr
                                     <svg className="w-4 h-4 text-white/20 group-hover:text-brand/60 ml-auto shrink-0 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
                                 </button>
 
-                                {/* Factura S.O. */}
+                                {/* Factura S.O. — venta de CAEs al Sujeto Obligado = margen: SOLO ADMIN */}
+                                {canSeeMargin && (
                                 <button onClick={() => setShowFactura(true)}
                                     disabled={!facturaEnabled || !(lote.expedientes || []).length || !lote.sujeto_obligado_id}
                                     title={!facturaEnabled ? 'Disponible a partir de "CAE EMITIDO – PTE PAGO BROKERGY"' : (!lote.sujeto_obligado_id ? 'Asigna primero el Sujeto Obligado' : '')}
@@ -465,13 +480,14 @@ export function LoteDetailModal({ loteId, soList: soListProp, verList: verListPr
                                     </div>
                                     <svg className={`w-4 h-4 ml-auto shrink-0 transition-colors ${lote.factura_so?.numero ? 'text-emerald-300/40 group-hover:text-emerald-300/80' : 'text-white/20 group-hover:text-brand/60'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
                                 </button>
+                                )}
                             </div>
                         </div>
 
                         {lote.notas && <p className="text-[12px] text-white/40 italic">📝 {lote.notas}</p>}
 
-                        {/* Borrar */}
-                        {isBorrador && (
+                        {/* Borrar lote — SOLO ADMIN (el trabajador no borra) */}
+                        {isBorrador && canDelete && (
                             <div className="border-t border-white/5 pt-4 flex justify-end">
                                 <button onClick={borrarLote} disabled={busy}
                                     className="text-[11px] font-black uppercase tracking-widest text-red-400/70 hover:text-red-400 transition-colors">

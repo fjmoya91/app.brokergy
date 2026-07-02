@@ -23,7 +23,11 @@ import { SubirCifoView } from './features/public/views/SubirCifoView';
 import { SubirRiteView } from './features/public/views/SubirRiteView';
 import { FirmarAnexosView } from './features/public/views/FirmarAnexosView';
 import { SubirDocsReformaView } from './features/public/views/SubirDocsReformaView';
+import { PortalLoginView } from './features/public/views/PortalLoginView';
+import { MiExpedienteView } from './features/public/views/MiExpedienteView';
 import { WhatsappSettingsView } from './features/whatsapp/views/WhatsappSettingsView';
+import { UsuariosView } from './features/admin/views/UsuariosView';
+import { getRoleFlags } from './utils/roleFlags';
 
 // Landing pública — chunk separado (lazy) para que admin/partners no lo descarguen
 const LandingFunnelView = lazy(() => import('./features/landing/views/LandingFunnelView'));
@@ -32,6 +36,7 @@ const API_URL = '/api/catastro'; // Vercel force redeploy v3
 
 function App() {
   const { user, loading: authLoading } = useAuth();
+  const { isAdmin: isAdminUser, isStaff: isStaffUser, isCertificador: isCertificadorUser } = getRoleFlags(user);
   const [step, setStep] = useState('ADMIN');
 
   // 0. Detección de landing pública (/calcula-tu-ayuda y /p/[slug]).
@@ -127,6 +132,19 @@ function App() {
     return null;
   });
 
+  // Portal del cliente: /portal (login) y /mi-expediente/:uuid?token= (home).
+  const [portalRoute] = useState(() => {
+    const path = window.location.pathname;
+    const sp = new URLSearchParams(window.location.search);
+    if (path.startsWith('/mi-expediente/')) {
+      const uuid = path.split('/mi-expediente/')[1]?.split('/')[0] || null;
+      const token = sp.get('token');
+      if (uuid && token) return { view: 'home', uuid, token };
+    }
+    if (path === '/mi-expediente' || path === '/portal') return { view: 'login' };
+    return null;
+  });
+
   // 2. Inicializar navegación basada en los parámetros detectados
   const [activeTab, setActiveTab] = useState(() => {
     if (initialExpediente) return 'expedientes';
@@ -135,17 +153,14 @@ function App() {
 
   // Ajustar pestaña inicial cuando el usuario carga
   useEffect(() => {
-    const userRole = (user?.rol || '').toUpperCase();
-    const userRoleId = user?.id_rol ? Number(user.id_rol) : null;
-    const isCertificador = userRole === 'CERTIFICADOR' || userRoleId === 4;
-    const isAdmin = userRole === 'ADMIN' || userRoleId === 1;
+    const { isAdmin, isCertificador, isStaff } = getRoleFlags(user);
     if (isCertificador && activeTab !== 'expedientes') {
       setActiveTab('expedientes');
     }
-    // Expedientes son INTERNOS de Brokergy (solo ADMIN/CERTIFICADOR). Si un partner
-    // llega a la pestaña (p.ej. abriendo una URL ?exp=<id> a mano), lo devolvemos a
-    // su vista por defecto. El backend además rechaza la petición con 403.
-    if (user && activeTab === 'expedientes' && !isAdmin && !isCertificador) {
+    // Expedientes son INTERNOS de Brokergy (ADMIN/TRABAJADOR/CERTIFICADOR). Si un
+    // partner llega a la pestaña (p.ej. abriendo una URL ?exp=<id> a mano), lo
+    // devolvemos a su vista por defecto. El backend además rechaza con 403.
+    if (user && activeTab === 'expedientes' && !isStaff && !isCertificador) {
       setActiveTab('oportunidades');
     }
   }, [user?.id, user?.rol, user?.id_rol, activeTab]);
@@ -696,8 +711,8 @@ function App() {
 
   // Rutas públicas con su propio layout full-bleed → sin red decorativa y
   // sin padding del contenedor padre (el componente cubre 100% del viewport).
-  const isPublicRoute = !!(landingRoute || reformaDocsData || firmaOportunidadId || certAckData || cifoUploadId || riteUploadId || firmarAnexosId);
-  const isLoggedDashboard = user && !firmaOportunidadId && !resetToken && !certAckData && !cifoUploadId && !riteUploadId && !firmarAnexosId && !reformaDocsData && !landingRoute;
+  const isPublicRoute = !!(landingRoute || reformaDocsData || firmaOportunidadId || certAckData || cifoUploadId || riteUploadId || firmarAnexosId || portalRoute);
+  const isLoggedDashboard = user && !firmaOportunidadId && !resetToken && !certAckData && !cifoUploadId && !riteUploadId && !firmarAnexosId && !reformaDocsData && !landingRoute && !portalRoute;
   const wrapperPadding = (isLoggedDashboard || isPublicRoute) ? 'p-0' : 'px-4 py-8';
   const wrapperHeight = isLoggedDashboard ? 'h-screen overflow-hidden' : '';
 
@@ -715,6 +730,10 @@ function App() {
           }>
             <LandingFunnelView route={landingRoute} variant={landingRoute.variant || 'default'} />
           </Suspense>
+        ) : portalRoute ? (
+          portalRoute.view === 'home'
+            ? <MiExpedienteView uuid={portalRoute.uuid} token={portalRoute.token} />
+            : <PortalLoginView />
         ) : reformaDocsData ? (
           <SubirDocsReformaView uuid={reformaDocsData.uuid} token={reformaDocsData.token} rol={reformaDocsData.rol} need={reformaDocsData.need} />
         ) : cifoUploadId ? (
@@ -745,14 +764,16 @@ function App() {
           <DashboardLayout 
             activeTab={activeTab} 
             onTabChange={(tab) => {
+              const { isAdmin, isStaff, isCertificador } = getRoleFlags(user);
               const uRole = (user?.rol || '').toUpperCase();
-              const uRoleId = user?.id_rol ? Number(user.id_rol) : null;
-              
+
               // Bloqueos de seguridad por pestaña
-              if (tab === 'aerotermia' && uRole !== 'ADMIN') return;
-              if (tab === 'whatsapp' && uRole !== 'ADMIN') return;
-              if (tab === 'prescriptores' && uRole !== 'ADMIN' && uRole !== 'DISTRIBUIDOR') return;
-              if ((uRole === 'CERTIFICADOR' || uRoleId === 4) && tab !== 'expedientes') return;
+              if (tab === 'aerotermia' && !isAdmin) return;   // ajustes globales: solo ADMIN
+              if (tab === 'whatsapp' && !isAdmin) return;      // ajustes globales: solo ADMIN
+              if (tab === 'usuarios' && !isAdmin) return;      // gestión de usuarios: solo ADMIN
+              if (tab === 'lotes' && !isStaff) return;         // operativa interna: ADMIN + TRABAJADOR
+              if (tab === 'prescriptores' && !isStaff && uRole !== 'DISTRIBUIDOR') return;
+              if (isCertificador && tab !== 'expedientes') return;
               
               setActiveTab(tab);
               setStep('ADMIN'); // Volver a la lista al cambiar de pestaña
@@ -795,8 +816,10 @@ function App() {
                 </div>
               </div>
             )}
-            {step === 'ADMIN' && activeTab === 'whatsapp' && user?.rol === 'ADMIN' ? (
+            {step === 'ADMIN' && activeTab === 'whatsapp' && isAdminUser ? (
               <WhatsappSettingsView key={`wwa-${navNonce}`} />
+            ) : step === 'ADMIN' && activeTab === 'usuarios' && isAdminUser ? (
+              <UsuariosView key={`usuarios-${navNonce}`} />
             ) : step === 'ADMIN' && activeTab === 'expedientes' ? (
               <ExpedientesView 
                 key={`exp-${navNonce}`}
@@ -804,9 +827,9 @@ function App() {
                 initialSelectedId={selectedExpedienteId}
                 onClearInitialSelection={() => setSelectedExpedienteId(null)}
               />
-            ) : step === 'ADMIN' && activeTab === 'lotes' && user?.rol === 'ADMIN' ? (
+            ) : step === 'ADMIN' && activeTab === 'lotes' && isStaffUser ? (
               <LotesView key={`lotes-${navNonce}`} onNavigate={handleNavigate} />
-            ) : step === 'ADMIN' && activeTab === 'aerotermia' && user?.rol === 'ADMIN' ? (
+            ) : step === 'ADMIN' && activeTab === 'aerotermia' && isAdminUser ? (
               <AerotermiaView key={`aero-${navNonce}`} />
             ) : step === 'ADMIN' && activeTab === 'clientes' ? (
               <ClientesView 

@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const supabase = require('../services/supabaseClient');
-const { requireAuth, enforceAuth } = require('../middleware/auth');
+const { requireAuth, enforceAuth, adminOnly } = require('../middleware/auth');
 const { normalizeContactos } = require('../services/notifyContacts');
 
 // Validación del slug de la landing white-label (mismo patrón que el CHECK de
@@ -117,9 +117,10 @@ router.get('/:id/expedientes', enforceAuth, async (req, res) => {
         const { id } = req.params;
 
         // Seguridad: los expedientes son INTERNOS de Brokergy. La trazabilidad de
-        // expedientes de un instalador es solo para ADMIN; un partner no debe ver ni
-        // acceder a expedientes (ni siquiera a la lista de los suyos).
-        if (req.user.rol_nombre !== 'ADMIN') {
+        // expedientes de un instalador es solo para el equipo interno (ADMIN o
+        // TRABAJADOR); un partner no debe ver ni acceder a expedientes (ni
+        // siquiera a la lista de los suyos).
+        if (req.user.rol_nombre !== 'ADMIN' && req.user.rol_nombre !== 'TRABAJADOR') {
             return res.status(403).json({ error: 'No autorizado' });
         }
 
@@ -872,12 +873,9 @@ router.patch('/:id', enforceAuth, async (req, res) => {
 });
 
 // 4. Eliminar Prescriptor (Sólo ADMIN)
-router.delete('/:id', requireAuth, async (req, res) => {
-    // Seguridad: Solo ADMIN puede borrar
-    if (req.user.rol_nombre !== 'ADMIN') {
-        return res.status(403).json({ error: 'No tienes permisos para esta acción.' });
-    }
-
+// DELETE /:id — SOLO ADMIN. Un TRABAJADOR recibe 403 y la UI le pide contactar
+// con el administrador (igual que oportunidades/expedientes/clientes).
+router.delete('/:id', adminOnly, async (req, res) => {
     try {
         const { id } = req.params;
         console.log(`[DELETE] Petición de eliminación para prescriptor: ${id}`);

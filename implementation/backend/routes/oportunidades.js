@@ -4,7 +4,8 @@ const supabase = require('../services/supabaseClient');
 const driveService = require('../services/driveService');
 const reformaUploadService = require('../services/reformaUploadService');
 const pdfService = require('../services/pdfService');
-const { requireAuth, enforceAuth, adminOnly } = require('../middleware/auth');
+const { requireAuth, enforceAuth, adminOnly, staffOnly, isStaff } = require('../middleware/auth');
+const { stripDatosCalculoMargin } = require('../utils/financialScrub');
 const { normalizeData } = require('../utils/normalization');
 const expedienteService = require('../services/expedienteService');
 const whatsappService = require('../services/whatsappService');
@@ -28,27 +29,12 @@ const PARTNER_MARGIN_FINANCIALS = ['profitBrokergy', 'caePriceBrokergy', 'totalP
 // algunos registros, también hay variantes snake_case. Quitamos AMBAS de `inputs`.
 const PARTNER_MARGIN_INPUTS_ALL = [...PARTNER_MARGIN_DATOS, ...PARTNER_MARGIN_INPUTS];
 
+// Capado PROFUNDO (recursivo) del margen: cubre también el snapshot anidado
+// que algunos registros guardan en datos_calculo.inputs.{inputs,result}.
+// Conserva caePriceClient (bono del cliente) y el presupuesto.
 function stripPartnerMargin(op) {
     if (!op || typeof op !== 'object' || !op.datos_calculo || typeof op.datos_calculo !== 'object') return op;
-    const dc = { ...op.datos_calculo };
-    PARTNER_MARGIN_DATOS.forEach(k => { delete dc[k]; });
-    if (dc.inputs && typeof dc.inputs === 'object') {
-        const inp = { ...dc.inputs };
-        PARTNER_MARGIN_INPUTS_ALL.forEach(k => { delete inp[k]; });
-        dc.inputs = inp;
-    }
-    if (dc.result && typeof dc.result === 'object') {
-        const r = { ...dc.result };
-        for (const fk of ['financials', 'financialsRes080']) {
-            if (r[fk] && typeof r[fk] === 'object') {
-                const f = { ...r[fk] };
-                PARTNER_MARGIN_FINANCIALS.forEach(k => { delete f[k]; });
-                r[fk] = f;
-            }
-        }
-        dc.result = r;
-    }
-    return { ...op, datos_calculo: dc };
+    return { ...op, datos_calculo: stripDatosCalculoMargin(op.datos_calculo) };
 }
 
 // Devuelve true si el usuario NO es ADMIN (incluye sin sesión → tratamos como externo).
@@ -380,11 +366,12 @@ router.get('/', requireAuth, async (req, res) => {
             .select('id, id_oportunidad, ref_catastral, ficha, referencia_cliente, prescriptor, demanda_calefaccion, datos_calculo, created_at, updated_at, creador_id, prescriptor_id, cliente_id, instalador_asociado_id')
             .order('updated_at', { ascending: false });
 
-        // Seguridad Node-Level: Si está autenticado y NO es ADMIN, filtramos por su ID/Empresa
-        if (req.user && req.user.rol_nombre !== 'ADMIN') {
+        // Seguridad Node-Level: el equipo interno (ADMIN/TRABAJADOR) ve TODAS las
+        // oportunidades; un partner solo las suyas (creadas por él o de su empresa).
+        if (req.user && !isStaff(req)) {
             const userId = req.user.id_usuario;
             const empresaId = req.user.prescriptor_id;
-            
+
             if (empresaId) {
                 query = query.or(`creador_id.eq.${userId},prescriptor_id.eq.${empresaId}`);
             } else {
@@ -404,8 +391,8 @@ router.get('/', requireAuth, async (req, res) => {
                     .select('id, id_oportunidad, ref_catastral, referencia_cliente, prescriptor, demanda_calefaccion, datos_calculo, created_at, creador_id, prescriptor_id, cliente_id, instalador_asociado_id')
                     .order('created_at', { ascending: false });
                 
-                // Aplicar mismos filtros si no es ADMIN
-                if (req.user && req.user.rol_nombre !== 'ADMIN') {
+                // Aplicar mismos filtros si no es equipo interno (ADMIN/TRABAJADOR)
+                if (req.user && !isStaff(req)) {
                     const userId = req.user.id_usuario;
                     const empresaId = req.user.prescriptor_id;
                     if (empresaId) {
@@ -707,7 +694,7 @@ router.patch('/:id/vincular-cliente', requireAuth, async (req, res) => {
 });
 
 // Borrar historial completo (DELETE /api/oportunidades/:id/historial)
-router.delete('/:id/historial', async (req, res) => {
+router.delete('/:id/historial', adminOnly, async (req, res) => {
     const { id } = req.params;
     try {
         const { data: op, error: getErr } = await supabase.from('oportunidades').select('datos_calculo').eq('id_oportunidad', id).single();
@@ -724,7 +711,7 @@ router.delete('/:id/historial', async (req, res) => {
 });
 
 // Borrar entrada específica (DELETE /api/oportunidades/:id/historial/:entryId)
-router.delete('/:id/historial/:entryId', async (req, res) => {
+router.delete('/:id/historial/:entryId', adminOnly, async (req, res) => {
     const { id, entryId } = req.params;
     try {
         const { data: op, error: getErr } = await supabase.from('oportunidades').select('datos_calculo').eq('id_oportunidad', id).single();
@@ -1044,10 +1031,11 @@ router.delete('/:id/anexos/:fileId', async (req, res) => {
     }
 });
 
-// Eliminar una (DELETE /api/oportunidades/:id)
+// Eliminar una (DELETE /api/oportunidades/:id) — SOLO ADMIN.
+// Un TRABAJADOR recibe 403 y la UI le pide contactar con el administrador.
 // Al borrar la oportunidad, también se mueve su carpeta Drive a la papelera
 // (no se borra permanentemente — Drive la mantiene 30 días por seguridad).
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', adminOnly, async (req, res) => {
     try {
         const { id } = req.params;
 
@@ -1200,7 +1188,7 @@ router.get('/:id/docs', enforceAuth, async (req, res) => {
 });
 
 // POST /api/oportunidades/:id/docs/:slot/validar  body { name }
-router.post('/:id/docs/:slot/validar', adminOnly, async (req, res) => {
+router.post('/:id/docs/:slot/validar', staffOnly, async (req, res) => {
     try {
         const { slot } = req.params;
         const { name } = req.body;
@@ -1219,7 +1207,7 @@ router.post('/:id/docs/:slot/validar', adminOnly, async (req, res) => {
 // POST /api/oportunidades/:id/docs/:slot/waive  body { waived }
 // Marca un documento obligatorio como "no necesario" (o lo reactiva). Solo admin.
 // Útil cuando el vídeo del recorrido ya cubre fachada/patios/ventanas, etc.
-router.post('/:id/docs/:slot/waive', adminOnly, async (req, res) => {
+router.post('/:id/docs/:slot/waive', staffOnly, async (req, res) => {
     try {
         const { slot } = req.params;
         const waived = req.body?.waived !== false; // default: true
@@ -1238,7 +1226,7 @@ router.post('/:id/docs/:slot/waive', adminOnly, async (req, res) => {
 // Habilita/quita un APARTADO de foto extra (ventanas, cubierta, fachada, suelo, ACS)
 // para este expediente cuando el alcance cambió a posteriori. Marca
 // docs_overrides[slot].enabled en cada slot del concepto (sin tocar el cálculo). Admin.
-router.post('/:id/docs/concept', adminOnly, async (req, res) => {
+router.post('/:id/docs/concept', staffOnly, async (req, res) => {
     try {
         const { conceptId } = req.body;
         const enabled = req.body?.enabled !== false; // default: true
@@ -1259,7 +1247,7 @@ router.post('/:id/docs/concept', adminOnly, async (req, res) => {
 
 // POST /api/oportunidades/:id/docs/:slot/rechazar  body { name, motivo, notifyTarget? }
 // notifyTarget: 'cliente' | 'instalador' | 'ninguno' (si omitido, se deduce de subido_por)
-router.post('/:id/docs/:slot/rechazar', adminOnly, async (req, res) => {
+router.post('/:id/docs/:slot/rechazar', staffOnly, async (req, res) => {
     try {
         const { slot } = req.params;
         const { name, motivo, notifyTarget } = req.body;
@@ -1297,7 +1285,7 @@ router.post('/:id/docs/:slot/rechazar', adminOnly, async (req, res) => {
 // contacto manual) por WhatsApp o email. El mensaje lo construye el frontend
 // (incluye enlace + lo que falta) y aquí solo resolvemos el contacto y enviamos.
 // body: { recipients: [{ type:'cliente'|'instalador'|'otro', value? }], channel:'whatsapp'|'email', message }
-router.post('/:id/docs/enviar-enlace', adminOnly, async (req, res) => {
+router.post('/:id/docs/enviar-enlace', staffOnly, async (req, res) => {
     try {
         const { recipients, channel, message } = req.body;
         if (!message || !message.trim()) return res.status(400).json({ error: 'El mensaje es obligatorio' });

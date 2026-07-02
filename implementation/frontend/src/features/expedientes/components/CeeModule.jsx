@@ -357,7 +357,8 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
     const [xmlFinalError, setXmlFinalError] = useState(null);
     const [isDragging, setIsDragging] = useState(false);
     const [isDraggingFinal, setIsDraggingFinal] = useState(false);
-    const [editMode, setEditMode] = useState(false);
+    // Autoguardado: el módulo siempre está editable, sin botón "Editar Módulo".
+    const editMode = true;
     const [xmlWarning, setXmlWarning] = useState(null);
 
     // ─── Estado para popup de notificación al certificador ─────────────────
@@ -510,20 +511,24 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
         reader.readAsText(file, 'UTF-8');
     };
 
-    const handleSave = () => {
-        const certChanged = local.certificador_id && local.certificador_id !== savedCertId.current;
-        if (certChanged) {
-            // Mostrar popup de confirmación antes de guardar
+    // Cambio de certificador: si es distinto del ya guardado, abre el popup de
+    // notificación (asignar + avisar) en vez de guardar directamente.
+    const handleCertificadorChange = (v) => {
+        const newCertId = v || null;
+        const nextLocal = { ...local, certificador_id: newCertId };
+        setLocal(nextLocal);
+        if (newCertId && newCertId !== savedCertId.current) {
+            const certObj = certificadores.find(c => String(c.id_empresa) === String(newCertId));
+            const certName = certObj ? (certObj.razon_social || certObj.acronimo) : '';
             setShowCertPopup(true);
             setCertNotifResult(null);
             setCertPriority('normal');
             setCertAdminMessage('');
             setCertChannels(['email']);
             // Previsualización editable del mensaje de encargo (igual que el popup de la campana).
-            setCertAssignMessage(buildCertDefaultMessage('standard', 'inicial', selectedCertName, clienteNombre, numExp, ceeFolderLink, expedienteId));
+            setCertAssignMessage(buildCertDefaultMessage('standard', 'inicial', certName, clienteNombre, numExp, ceeFolderLink, expedienteId));
         } else {
-            onSave({ cee: local });
-            setEditMode(false);
+            onSave({ cee: nextLocal });
         }
     };
 
@@ -605,7 +610,6 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                     : 'Certificador asignado correctamente.';
                 setCertNotifResult({ type: 'ok', text: driveMsg });
             }
-            setEditMode(false);
             // Refrescar para que cee_folder_link aparezca en la UI (botón "Carpeta CEE")
             if (onRefresh) onRefresh();
         } catch (err) {
@@ -1210,15 +1214,18 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                 <div className="flex items-center gap-5">
                     <h3 className="text-xs font-black text-white uppercase tracking-widest border-l-2 border-brand pl-4">Certs. Energéticos</h3>
                     {!isReforma && (
-                        <div className={`flex items-center gap-1 bg-white/[0.03] p-1 rounded-xl border border-white/[0.06] ${!editMode ? 'opacity-50' : ''}`}>
+                        <div className="flex items-center gap-1 bg-white/[0.03] p-1 rounded-xl border border-white/[0.06]">
                             {['xml', 'aportado'].map(t => (
                                 <button
                                     key={t}
-                                    disabled={!editMode}
-                                    onClick={() => setLocal(p => ({ ...p, tipo: t }))}
-                                    className={`px-4 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${
+                                    onClick={() => {
+                                        const nextLocal = { ...local, tipo: t };
+                                        setLocal(nextLocal);
+                                        onSave({ cee: nextLocal });
+                                    }}
+                                    className={`px-4 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all cursor-pointer ${
                                         local.tipo === t ? 'bg-brand text-black' : 'text-white/30'
-                                    } ${!editMode ? 'cursor-not-allowed' : 'cursor-pointer'}`}
+                                    }`}
                                 >
                                     {t === 'xml' ? 'Auto XML' : 'Manual'}
                                 </button>
@@ -1227,15 +1234,18 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                     )}
                     {/* Reforma RES080: fuente del cálculo — desde .xml o emisiones a mano */}
                     {isReforma && (
-                        <div className={`flex items-center gap-1 bg-white/[0.03] p-1 rounded-xl border border-white/[0.06] ${!editMode ? 'opacity-50' : ''}`}>
+                        <div className="flex items-center gap-1 bg-white/[0.03] p-1 rounded-xl border border-white/[0.06]">
                             {[{ id: 'xml', label: 'Auto XML' }, { id: 'manual', label: 'Manual' }].map(t => (
                                 <button
                                     key={t.id}
-                                    disabled={!editMode}
-                                    onClick={() => setLocal(p => ({ ...p, cee_source: t.id }))}
-                                    className={`px-4 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${
+                                    onClick={() => {
+                                        const nextLocal = { ...local, cee_source: t.id };
+                                        setLocal(nextLocal);
+                                        onSave({ cee: nextLocal });
+                                    }}
+                                    className={`px-4 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all cursor-pointer ${
                                         (String(local.cee_source || '').toLowerCase() === t.id) ? 'bg-brand text-black' : 'text-white/30'
-                                    } ${!editMode ? 'cursor-not-allowed' : 'cursor-pointer'}`}
+                                    }`}
                                 >
                                     {t.label}
                                 </button>
@@ -1244,59 +1254,14 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                     )}
                     <SearchableSelect
                         value={local.certificador_id || ''}
-                        onChange={v => setLocal(p => ({ ...p, certificador_id: v || null }))}
-                        disabled={!editMode}
+                        onChange={handleCertificadorChange}
                         placeholder="Certificador no asignado"
                         options={certificadores.map(c => ({ value: c.id_empresa, label: c.razon_social || c.acronimo }))}
                     />
                 </div>
-                <div className="flex gap-2">
-                    {editMode ? (
-                        <>
-                            <button
-                                onClick={() => {
-                                    // Revertir cambios locales y volver a estado guardado
-                                    setLocal({
-                                        tipo: 'xml',
-                                        is_reforma: isReforma,
-                                        cee_inicial: null,
-                                        cee_final: null,
-                                        acs_method: 'xml',
-                                        num_rooms: 4,
-                                        certificador_id: null,
-                                        comb_acs_inicial: 'Gasoleo Calefacción',
-                                        comb_acs_final: 'Electricidad peninsular',
-                                        comb_cal_inicial: 'Gasoleo Calefacción',
-                                        comb_cal_final: 'Electricidad peninsular',
-                                        comb_ref_inicial: 'Electricidad peninsular',
-                                        comb_ref_final: 'Electricidad peninsular',
-                                        cee_source: 'xml',
-                                        emisiones_manual: { acs_ini: '', acs_fin: '', cal_ini: '', cal_fin: '', ref_ini: '', ref_fin: '' },
-                                        superficie_manual: '',
-                                        superficie_manual_inicial: '',
-                                        superficie_manual_final: '',
-                                        cee_files: {
-                                            inicial: { pdf: null, xml: null, cex: null, registro: null, etiqueta: null, otros: [] },
-                                            final: { pdf: null, xml: null, cex: null, registro: null, etiqueta: null, otros: [] }
-                                        },
-                                        ...(expediente?.cee || {})
-                                    });
-                                    setXmlError(null);
-                                    setXmlFinalError(null);
-                                    setEditMode(false);
-                                }}
-                                className="px-5 py-2 text-[10px] font-black uppercase text-white/40 hover:text-white transition-all"
-                            >
-                                Cancelar
-                            </button>
-                            <button onClick={handleSave} disabled={saving} className="px-7 py-3 bg-brand text-black text-[11px] font-black uppercase rounded-xl shadow-lg transition-all active:scale-95 disabled:opacity-50">
-                                {saving ? 'Guardando...' : 'Guardar Cambios'}
-                            </button>
-                        </>
-                    ) : (
-                        <button onClick={() => setEditMode(true)} className="px-6 py-3 bg-white/[0.02] border border-white/10 text-white/40 hover:text-white hover:border-white/20 rounded-xl text-[11px] font-black uppercase transition-all">Editar Módulo</button>
-                    )}
-                </div>
+                {saving && (
+                    <span className="text-[10px] font-black uppercase tracking-widest text-white/30">Guardando…</span>
+                )}
             </div>
 
             {isReforma ? renderRes080() : renderRes060()}

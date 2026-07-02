@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const supabase = require('../services/supabaseClient');
-const { enforceAuth, adminOnly } = require('../middleware/auth');
+const { enforceAuth, adminOnly, isStaff } = require('../middleware/auth');
 const { normalizeData } = require('../utils/normalization');
 
 // GET /api/clientes -> Listar clientes
@@ -14,8 +14,8 @@ router.get('/', enforceAuth, async (req, res) => {
             usuarios (id_usuario, nombre, apellidos, email)
         `).order('created_at', { ascending: false });
  
-        // Filtro por prescriptor si no es admin
-        if (req.user.rol_nombre !== 'ADMIN') {
+        // Filtro por prescriptor si no es equipo interno (ADMIN/TRABAJADOR)
+        if (!isStaff(req)) {
             if (!req.user.prescriptor_id) return res.json([]);
             
             // 1.1 Obtener IDs de clientes vinculados a través de oportunidades de este partner
@@ -40,7 +40,7 @@ router.get('/', enforceAuth, async (req, res) => {
 
         // Máscara de seguridad para no-admins
         const processedClientes = clientes.map(c => {
-            if (req.user.rol_nombre !== 'ADMIN') {
+            if (!isStaff(req)) {
                 return { ...c, numero_cuenta: c.numero_cuenta ? '**** **** **** ****' : null };
             }
             return c;
@@ -86,8 +86,8 @@ router.get('/:id', enforceAuth, async (req, res) => {
 
         if (error || !data) return res.status(404).json({ error: 'Cliente no encontrado' });
 
-        // Verificar acceso: admin o prescriptor propietario
-        if (req.user.rol_nombre !== 'ADMIN' && data.prescriptor_id !== req.user.prescriptor_id) {
+        // Verificar acceso: equipo interno (ADMIN/TRABAJADOR) o prescriptor propietario
+        if (!isStaff(req) && data.prescriptor_id !== req.user.prescriptor_id) {
             // FALLBACK: Verificar si tiene alguna oportunidad vinculada que pertenezca a este partner
             const { count, error: countErr } = await supabase
                 .from('oportunidades')
@@ -113,7 +113,7 @@ router.get('/:id', enforceAuth, async (req, res) => {
         // Los expedientes son INTERNOS de Brokergy: solo se exponen al ADMIN.
         // Un partner no debe ver ni poder acceder a los expedientes de sus clientes.
         let exps = [];
-        if (req.user.rol_nombre === 'ADMIN') {
+        if (isStaff(req)) {
             const { data } = await supabase
                 .from('expedientes')
                 .select(`
@@ -130,8 +130,8 @@ router.get('/:id', enforceAuth, async (req, res) => {
             exps = data || [];
         }
 
-        // Máscara de seguridad para no-admins
-        if (req.user.rol_nombre !== 'ADMIN') {
+        // Máscara de seguridad para no-staff (partners)
+        if (!isStaff(req)) {
             data.numero_cuenta = data.numero_cuenta ? '**** **** **** ****' : null;
         }
 
@@ -164,7 +164,7 @@ router.post('/', enforceAuth, async (req, res) => {
 
         // Determinar prescriptor_id según rol
         let finalPrescriptorId = prescriptor_id || null;
-        if (req.user.rol_nombre !== 'ADMIN') {
+        if (!isStaff(req)) {
             // Prescriptor/Partner: se asigna automáticamente a sí mismo
             finalPrescriptorId = req.user.prescriptor_id || null;
         }
@@ -274,7 +274,7 @@ router.put('/:id', enforceAuth, async (req, res) => {
         if (fetchErr || !existingData) return res.status(404).json({ error: 'Cliente no encontrado' });
         
         // Verificar permiso: admin o el prescriptor propietario
-        if (req.user.rol_nombre !== 'ADMIN' && existingData.prescriptor_id !== req.user.prescriptor_id) {
+        if (!isStaff(req) && existingData.prescriptor_id !== req.user.prescriptor_id) {
             // FALLBACK: Permitir si el partner tiene al menos una oportunidad vinculada a este cliente
             const { count } = await supabase
                 .from('oportunidades')
@@ -307,14 +307,14 @@ router.put('/:id', enforceAuth, async (req, res) => {
         if (municipio !== undefined) updates.municipio = municipio;
         if (direccion !== undefined) updates.direccion = direccion;
         if (codigo_postal !== undefined) updates.codigo_postal = codigo_postal;
-        if (numero_cuenta !== undefined && req.user.rol_nombre === 'ADMIN') updates.numero_cuenta = numero_cuenta;
+        if (numero_cuenta !== undefined && isStaff(req)) updates.numero_cuenta = numero_cuenta;
         if (persona_contacto_nombre !== undefined) updates.persona_contacto_nombre = persona_contacto_nombre;
         if (persona_contacto_tlf !== undefined) updates.persona_contacto_tlf = persona_contacto_tlf;
         if (notificaciones_contacto_activas !== undefined) updates.notificaciones_contacto_activas = notificaciones_contacto_activas === true || notificaciones_contacto_activas === 'true' || false;
 
         if (notas !== undefined) updates.notas = notas;
-        // Solo ADMIN puede reasignar prescriptor
-        if (req.user.rol_nombre === 'ADMIN' && prescriptor_id !== undefined) {
+        // Solo el equipo interno (ADMIN/TRABAJADOR) puede reasignar prescriptor
+        if (isStaff(req) && prescriptor_id !== undefined) {
             updates.prescriptor_id = prescriptor_id || null;
         }
 

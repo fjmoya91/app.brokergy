@@ -1,7 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const supabase = require('../services/supabaseClient');
-const { adminOnly } = require('../middleware/auth');
+const { adminOnly, staffOnly, isAdmin } = require('../middleware/auth');
+const { stripDatosCalculoMargin } = require('../utils/financialScrub');
 const geoCcaa = require('../services/geoCcaa');
 const loteService = require('../services/loteService');
 const marwenService = require('../services/marwenService');
@@ -151,13 +152,50 @@ async function enrichLotes(lotes) {
     });
 }
 
+// ─── Capado de PRECIOS/MARGEN del lote para el TRABAJADOR ────────────────────────
+// El TRABAJADOR opera lotes (agrupar expedientes, asignar SO/verificador, enviar a
+// verificar) pero NO ve lo que gana Brokergy: oferta del lote (€/MWh de venta al
+// S.O.), coste de verificación, factura al S.O., precio de referencia del S.O. y el
+// margen embebido en el datos_calculo de cada expediente. El ADMIN lo ve todo.
+function scrubExpedienteEco(e) {
+    if (!e || typeof e !== 'object') return e;
+    const out = { ...e };
+    if (out.instalacion && typeof out.instalacion === 'object') {
+        const inst = { ...out.instalacion };
+        delete inst.economico_override;
+        delete inst.verificacion;
+        out.instalacion = inst;
+    }
+    if (out.oportunidades?.datos_calculo) {
+        out.oportunidades = { ...out.oportunidades, datos_calculo: stripDatosCalculoMargin(out.oportunidades.datos_calculo) };
+    }
+    return out;
+}
+
+function scrubLoteForUser(lote, req) {
+    if (!lote || isAdmin(req)) return lote;
+    const out = { ...lote };
+    delete out.oferta_lote;
+    delete out.coste_verificacion;
+    out.factura_so = null;
+    if (out.sujeto_obligado && typeof out.sujeto_obligado === 'object') {
+        const so = { ...out.sujeto_obligado };
+        delete so.precio_referencia;
+        out.sujeto_obligado = so;
+    }
+    if (Array.isArray(out.expedientes_eco)) out.expedientes_eco = out.expedientes_eco.map(scrubExpedienteEco);
+    if (Array.isArray(out.expedientes)) out.expedientes = out.expedientes.map(scrubExpedienteEco);
+    return out;
+}
+
 // ─── GET /api/lotes — lista de lotes ────────────────────────────────────────────
-router.get('/', adminOnly, async (req, res) => {
+router.get('/', staffOnly, async (req, res) => {
     try {
         const { data: lotes, error } = await supabase
             .from('lotes').select('*').order('created_at', { ascending: false });
         if (error) throw error;
-        res.json(await enrichLotes(lotes || []));
+        const enriched = await enrichLotes(lotes || []);
+        res.json(enriched.map(l => scrubLoteForUser(l, req)));
     } catch (err) {
         console.error('[GET /lotes]', err.message);
         res.status(500).json({ error: 'Error al listar lotes' });
@@ -167,7 +205,7 @@ router.get('/', adminOnly, async (req, res) => {
 // ─── GET /api/lotes/elegibles — expedientes listos para lotear ───────────────────
 // Sin lote, con CIFO (año) y CCAA de instalación resoluble. Filtro opcional por
 // ?anio= y ?ccaa= para el panel de "añadir al lote".
-router.get('/elegibles', adminOnly, async (req, res) => {
+router.get('/elegibles', staffOnly, async (req, res) => {
     try {
         const { anio, ccaa } = req.query;
         const { data: rows, error } = await supabase
@@ -207,14 +245,15 @@ router.get('/elegibles', adminOnly, async (req, res) => {
                 instalador_id: r.instalador_asociado_id || (r.instalacion && r.instalacion.instalador_id) || null,
                 cliente_nombre: cli ? [cli.nombre_razon_social, cli.apellidos].filter(Boolean).join(' ') : null,
                 cliente_direccion: cli ? ([cli.direccion, [cli.codigo_postal, cli.municipio].filter(Boolean).join(' ')].filter(Boolean).join(' · ') || null) : null,
-                // Datos para el cálculo económico por fila (misma fórmula que la lista/lote)
+                // Datos para el cálculo económico por fila (misma fórmula que la lista/lote).
+                // Para el TRABAJADOR se capa el margen embebido en instalacion/datos_calculo.
                 cee: r.cee || null,
                 instalacion: r.instalacion || null,
                 oportunidades: opMap.get(r.oportunidad_id) || null,
             });
         }
         out.sort((a, b) => (a.anio_actuacion - b.anio_actuacion) || a.numero_expediente.localeCompare(b.numero_expediente, 'es'));
-        res.json(out);
+        res.json(isAdmin(req) ? out : out.map(scrubExpedienteEco));
     } catch (err) {
         console.error('[GET /lotes/elegibles]', err.message);
         res.status(500).json({ error: 'Error al listar expedientes elegibles' });
@@ -235,7 +274,7 @@ router.get('/factura-so/next-number', adminOnly, async (req, res) => {
 });
 
 // ─── GET /api/lotes/:id — detalle + expedientes del lote ─────────────────────────
-router.get('/:id', adminOnly, async (req, res) => {
+router.get('/:id', staffOnly, async (req, res) => {
     try {
         const { data: lote, error } = await supabase
             .from('lotes').select('*').eq('id', req.params.id).maybeSingle();
@@ -274,7 +313,7 @@ router.get('/:id', adminOnly, async (req, res) => {
             cliente_direccion: fmtDir(cliMap[e.cliente_id]),
         }));
 
-        res.json({ ...enriched, expedientes: expedientesFull });
+        res.json(scrubLoteForUser({ ...enriched, expedientes: expedientesFull }, req));
     } catch (err) {
         console.error('[GET /lotes/:id]', err.message);
         res.status(500).json({ error: 'Error al obtener el lote' });
@@ -282,7 +321,7 @@ router.get('/:id', adminOnly, async (req, res) => {
 });
 
 // ─── POST /api/lotes — crear lote (BORRADOR, solo SO obligatorio) ────────────────
-router.post('/', adminOnly, async (req, res) => {
+router.post('/', staffOnly, async (req, res) => {
     try {
         const { sujeto_obligado_id, verificador_id, expediente_ids = [], notas } = req.body || {};
 
@@ -329,7 +368,7 @@ router.post('/', adminOnly, async (req, res) => {
         }
 
         const [enriched] = await enrichLotes([lote]);
-        res.status(201).json(enriched);
+        res.status(201).json(scrubLoteForUser(enriched, req));
     } catch (err) {
         console.error('[POST /lotes]', err.message);
         res.status(500).json({ error: 'Error al crear el lote' });
@@ -337,7 +376,7 @@ router.post('/', adminOnly, async (req, res) => {
 });
 
 // ─── PATCH /api/lotes/:id — actualizar SO / Verificador / notas ──────────────────
-router.patch('/:id', adminOnly, async (req, res) => {
+router.patch('/:id', staffOnly, async (req, res) => {
     try {
         const { data: lote, error } = await supabase.from('lotes').select('*').eq('id', req.params.id).maybeSingle();
         if (error) throw error;
@@ -346,11 +385,15 @@ router.patch('/:id', adminOnly, async (req, res) => {
         const { sujeto_obligado_id, verificador_id, notas, coste_verificacion, oferta_lote } = req.body || {};
         const update = { updated_at: nowIso() };
 
-        if (coste_verificacion !== undefined) {
-            update.coste_verificacion = (coste_verificacion === '' || coste_verificacion === null) ? null : Number(coste_verificacion);
-        }
-        if (oferta_lote !== undefined) {
-            update.oferta_lote = (oferta_lote === '' || oferta_lote === null) ? null : Number(oferta_lote);
+        // La oferta del lote y el coste de verificación son MARGEN Brokergy: solo el
+        // ADMIN puede fijarlos. El TRABAJADOR ni los ve ni los edita (se ignoran).
+        if (isAdmin(req)) {
+            if (coste_verificacion !== undefined) {
+                update.coste_verificacion = (coste_verificacion === '' || coste_verificacion === null) ? null : Number(coste_verificacion);
+            }
+            if (oferta_lote !== undefined) {
+                update.oferta_lote = (oferta_lote === '' || oferta_lote === null) ? null : Number(oferta_lote);
+            }
         }
 
         if (sujeto_obligado_id !== undefined) {
@@ -374,7 +417,7 @@ router.patch('/:id', adminOnly, async (req, res) => {
         const { data: updated, error: upErr } = await supabase.from('lotes').update(update).eq('id', lote.id).select().single();
         if (upErr) throw upErr;
         const [enriched] = await enrichLotes([updated]);
-        res.json(enriched);
+        res.json(scrubLoteForUser(enriched, req));
     } catch (err) {
         console.error('[PATCH /lotes/:id]', err.message);
         res.status(500).json({ error: 'Error al actualizar el lote' });
@@ -447,7 +490,7 @@ router.post('/:id/factura-so', adminOnly, async (req, res) => {
 // ─── POST /api/lotes/:id/expedientes — añadir expediente ─────────────────────────
 // Validación dura: mismo año + CCAA y con CIFO. Aviso blando: 6º expediente
 // (requiere force=true para confirmar). Devuelve sugerencias del mismo instalador.
-router.post('/:id/expedientes', adminOnly, async (req, res) => {
+router.post('/:id/expedientes', staffOnly, async (req, res) => {
     try {
         const { expediente_id, force } = req.body || {};
         if (!expediente_id) return res.status(400).json({ error: 'Falta expediente_id' });
@@ -498,7 +541,7 @@ router.post('/:id/expedientes', adminOnly, async (req, res) => {
         });
 
         const [enriched] = await enrichLotes([updatedLote]);
-        res.json({ added: true, lote: enriched, sugerencias });
+        res.json({ added: true, lote: scrubLoteForUser(enriched, req), sugerencias });
     } catch (err) {
         console.error('[POST /lotes/:id/expedientes]', err.message);
         res.status(500).json({ error: 'Error al añadir el expediente al lote' });
@@ -506,7 +549,7 @@ router.post('/:id/expedientes', adminOnly, async (req, res) => {
 });
 
 // ─── DELETE /api/lotes/:id/expedientes/:expId — quitar expediente ────────────────
-router.delete('/:id/expedientes/:expId', adminOnly, async (req, res) => {
+router.delete('/:id/expedientes/:expId', staffOnly, async (req, res) => {
     try {
         const { data: lote, error } = await supabase.from('lotes').select('*').eq('id', req.params.id).maybeSingle();
         if (error) throw error;
@@ -531,7 +574,7 @@ router.delete('/:id/expedientes/:expId', adminOnly, async (req, res) => {
         if (upLote) throw upLote;
 
         const [enriched] = await enrichLotes([updatedLote]);
-        res.json(enriched);
+        res.json(scrubLoteForUser(enriched, req));
     } catch (err) {
         console.error('[DELETE /lotes/:id/expedientes/:expId]', err.message);
         res.status(500).json({ error: 'Error al quitar el expediente del lote' });
@@ -539,7 +582,7 @@ router.delete('/:id/expedientes/:expId', adminOnly, async (req, res) => {
 });
 
 // ─── PATCH /api/lotes/:id/estado — cambiar estado del lote ───────────────────────
-router.patch('/:id/estado', adminOnly, async (req, res) => {
+router.patch('/:id/estado', staffOnly, async (req, res) => {
     try {
         const { nuevo_estado, comentario } = req.body || {};
         if (!LOTE_ESTADOS.includes(nuevo_estado)) {
@@ -587,7 +630,7 @@ router.patch('/:id/estado', adminOnly, async (req, res) => {
         }
 
         const [enriched] = await enrichLotes([updated]);
-        res.json(enriched);
+        res.json(scrubLoteForUser(enriched, req));
     } catch (err) {
         console.error('[PATCH /lotes/:id/estado]', err.message);
         res.status(500).json({ error: 'Error al cambiar el estado del lote' });
@@ -631,7 +674,7 @@ function toIsoDate(d) {
     return s;
 }
 
-router.post('/:id/enviar-verificador-api', adminOnly, async (req, res) => {
+router.post('/:id/enviar-verificador-api', staffOnly, async (req, res) => {
     try {
         if (!marwenService.isConfigured()) {
             return res.status(503).json({ error: 'La integración con Marwen no está configurada (falta MARWEN_API_KEY en el backend).' });
@@ -744,7 +787,7 @@ router.post('/:id/enviar-verificador-api', adminOnly, async (req, res) => {
             num_solicitud: result.num_solicitud,
             tipo_solicitud: result.tipo_solicitud,
             message: result.message,
-            lote: enriched,
+            lote: scrubLoteForUser(enriched, req),
         });
     } catch (err) {
         console.error('[POST /lotes/:id/enviar-verificador-api]', err.message);

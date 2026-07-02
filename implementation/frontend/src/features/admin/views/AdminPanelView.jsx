@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import axios from 'axios';
 import { useAuth } from '../../../context/AuthContext';
+import { getRoleFlags, DELETE_FORBIDDEN_MSG } from '../../../utils/roleFlags';
 import { PrescriptoresList } from './PrescriptoresList';
 import { ClienteFormModal } from '../../clientes/components/ClienteFormModal';
 import { ClienteDetailModal } from '../../clientes/components/ClienteDetailModal';
@@ -17,6 +18,7 @@ export function AdminPanelView({
     onReturnToExpediente
 }) {
     const { user } = useAuth();
+    const { canDelete } = getRoleFlags(user);
 
     // ─── Columnas redimensionables (Excel-style) ──────────────────────────────
     const COL_DEFAULTS = {
@@ -422,8 +424,19 @@ export function AdminPanelView({
         }
     };
 
+    // Abre el modal de confirmación de borrado. Solo ADMIN puede borrar: a un
+    // trabajador (o partner) le mostramos el aviso de contactar con el administrador.
+    const requestDelete = (op) => {
+        if (!canDelete) {
+            setError(DELETE_FORBIDDEN_MSG);
+            return;
+        }
+        setOportunidadToDelete(op);
+    };
+
     const handleDelete = async () => {
         if (!oportunidadToDelete) return;
+        if (!canDelete) { setError(DELETE_FORBIDDEN_MSG); setOportunidadToDelete(null); return; }
         setDeleting(true);
         try {
             await axios.delete(`/api/oportunidades/${oportunidadToDelete.id_oportunidad}`);
@@ -1507,7 +1520,7 @@ export function AdminPanelView({
                                                     <button
                                                         onClick={(e) => {
                                                             e.stopPropagation();
-                                                            setOportunidadToDelete(op);
+                                                            requestDelete(op);
                                                         }}
                                                         className="p-1 text-white/10 hover:text-red-400 transition-all rounded-lg hover:bg-red-500/10 opacity-0 group-hover:opacity-100"
                                                         title="Eliminar Oportunidad"
@@ -1690,7 +1703,7 @@ export function AdminPanelView({
                                         </button>
                                     )}
                                     <button
-                                        onClick={(e) => { e.stopPropagation(); setOportunidadToDelete(op); }}
+                                        onClick={(e) => { e.stopPropagation(); requestDelete(op); }}
                                         className="w-9 h-9 flex items-center justify-center text-white/30 hover:text-red-400 rounded-lg hover:bg-red-500/10 transition-all"
                                         title="Eliminar Oportunidad"
                                     >

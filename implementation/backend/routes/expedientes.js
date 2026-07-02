@@ -3,7 +3,8 @@ const router = express.Router();
 const crypto = require('crypto');
 const axios = require('axios');
 const supabase = require('../services/supabaseClient');
-const { enforceAuth, adminOnly, internalOnly } = require('../middleware/auth');
+const { enforceAuth, adminOnly, staffOnly, internalOnly } = require('../middleware/auth');
+const { stripDatosCalculoMargin } = require('../utils/financialScrub');
 const { getCoordinatesByRC } = require('../services/catastroService');
 const { normalizeData } = require('../utils/normalization');
 const emailService = require('../services/emailService');
@@ -97,6 +98,48 @@ function stripFinancials(exp) {
     return out;
 }
 
+// ─── Ocultar SOLO el MARGEN BROKERGY (para el rol TRABAJADOR) ─────────────────
+// El TRABAJADOR opera como ADMIN pero NO debe saber lo que gana Brokergy. A
+// diferencia de `stripFinancials` (que quita TODAS las cifras y usa el
+// CERTIFICADOR), aquí se CONSERVA lo de cara al cliente (bono CAE del cliente,
+// presupuesto de la obra, energía/demanda, propuesta) y se quita únicamente el
+// margen: precio CAE de venta al S.O., comisión de prescriptor y beneficio
+// Brokergy. Mismas claves que `stripPartnerMargin` de oportunidades.
+function stripBrokergyMargin(exp) {
+    if (!exp || typeof exp !== 'object') return exp;
+    const out = { ...exp };
+    // instalacion: override económico manual y ahorro VERIFICADO (base del
+    // margen — lleva beneficio Brokergy) → fuera. El presupuesto de la obra
+    // (presupuesto_final) es de cara al cliente y se conserva.
+    if (out.instalacion && typeof out.instalacion === 'object') {
+        const inst = { ...out.instalacion };
+        delete inst.economico_override;
+        delete inst.verificacion;
+        out.instalacion = inst;
+    }
+    // Capado PROFUNDO del margen en el datos_calculo (raíz y anidado en la
+    // oportunidad). Conserva bono del cliente + presupuesto.
+    if (out.oportunidades?.datos_calculo) {
+        out.oportunidades = { ...out.oportunidades, datos_calculo: stripDatosCalculoMargin(out.oportunidades.datos_calculo) };
+    }
+    if (out.datos_calculo) out.datos_calculo = stripDatosCalculoMargin(out.datos_calculo);
+    return out;
+}
+
+// Capa el expediente según el rol del usuario:
+//   ADMIN       → completo (ve el margen)
+//   TRABAJADOR  → sin margen Brokergy (conserva bono cliente + presupuesto)
+//   resto (CERTIFICADOR) → sin ninguna cifra económica
+function scrubExpedienteForUser(exp, req) {
+    const rol = req.user?.rol_nombre;
+    if (rol === 'ADMIN') return exp;
+    if (rol === 'TRABAJADOR') return stripBrokergyMargin(exp);
+    // CERTIFICADOR (u otros): sin ninguna cifra. Aplicamos también el capado
+    // PROFUNDO del margen para que no escape por el snapshot anidado que
+    // stripFinancials (borrado plano) no alcanza.
+    return stripBrokergyMargin(stripFinancials(exp));
+}
+
 // Firma HMAC para el enlace "Dar visto bueno" del email de revisión.
 // STATELESS a propósito: NO guardamos el token en `seguimiento` porque el
 // autoguardado del módulo (PUT /:id) reemplaza la columna completa desde una copia
@@ -165,7 +208,7 @@ function buildCeeRegistradoMessages(phase, { numExp, clienteName, clienteFull, p
         return { CLIENTE: clientMsg, PARTNER: staffMsg, ADMIN: staffMsg };
     }
     // ── CEE INICIAL ──
-    const clientMsg = `¡Hola *${clienteName}*! 👋\n\nTe escribimos para comunicarte que ya ha sido presentado el *Certificado de Eficiencia Energética INICIAL* de tu expediente *${numExp}*.\n\n*Desde este momento ya se pueden emitir facturas y pagos*\n\n📸 Recuerda hacerle fotografías a todo:\n• *Caldera existente y placa de fabricación.*\n• *Desmontaje de la caldera.*\n• *Montaje de la aerotermia.*\n• *Fotos de las nuevas placas de fabricación* (tanto de la unidad exterior como de la interior).\n\nLas fotos son la parte más importante del proceso para que podamos argumentar ante el ministerio que se ha realizado la reforma.\n\nPuedes subirlas directamente al expediente a través de este enlace:\n🔗 ${portalLink}\n\nUna vez finalizada la obra, debes comunicárnoslo por aquí para proceder con el CEE Final y el resto de la documentación.\n\n¡Muchas gracias!\n*BROKERGY — Ingeniería Energética*`;
+    const clientMsg = `¡Hola *${clienteName}*! 👋\n\nTe escribimos para comunicarte que ya ha sido presentado el *Certificado de Eficiencia Energética INICIAL* de tu expediente *${numExp}*.\n\n*Desde este momento ya se pueden emitir facturas y pagos*\n\n📸 Recuerda hacerle fotografías a todo:\n• *Caldera existente y placa de fabricación.*\n• *Desmontaje de la caldera.*\n• *Montaje de la aerotermia.*\n• *Fotos de las nuevas placas de fabricación* (tanto de la unidad exterior como de la interior).\n\nLas fotos son la parte más importante del proceso para que podamos argumentar ante el ministerio que se ha realizado la reforma.\n\nPuedes subirlas directamente al expediente a través de este enlace:\n🔗 ${portalLink}\n\nUna vez finalizada la obra, debes comunicárnoslo por aquí para proceder con el CEE Final y el resto de la documentación.\n\n📄 Y cuando quieras, puedes *consultar el estado de tu expediente* y el bono que cobrarás aquí:\n🔗 ${(portalLink || '').replace('/subir-docs/', '/mi-expediente/')}\n\n¡Muchas gracias!\n*BROKERGY — Ingeniería Energética*`;
     const staffMsg = `✅ *REGISTRO CEE INICIAL PRESENTADO*\nExpediente: ${numExp}\nCliente: ${clienteFull}\n\nSe ha subido el justificante de registro del CEE Inicial al sistema. Desde este momento ya se pueden emitir facturas y pagos.\n\nVer expediente:\n🔗 ${expedienteLink}`;
     // Mensaje específico para el INSTALADOR: además de avisar, le pedimos las fotos
     // de la obra terminada y la factura, con el enlace de subida acotado a su rol.
@@ -345,10 +388,11 @@ async function notifyCeeFinalRegistrado(expediente, filters = {}) {
 // Lista todos los expedientes usando RPC (1 sola query con JOIN en BD, sin documentacion)
 router.get('/', enforceAuth, async (req, res) => {
     try {
-        // El guard global del módulo ya garantiza que aquí solo llegan ADMIN y
-        // CERTIFICADOR (los expedientes son internos de Brokergy).
-        const canViewAll   = req.user.rol_nombre === 'ADMIN';
-        const isCertificador = req.user.rol_nombre === 'CERTIFICADOR';
+        // El guard global del módulo ya garantiza que aquí solo llegan ADMIN,
+        // TRABAJADOR y CERTIFICADOR (los expedientes son internos de Brokergy).
+        const rol = req.user.rol_nombre;
+        const canViewAll   = rol === 'ADMIN' || rol === 'TRABAJADOR';
+        const isCertificador = rol === 'CERTIFICADOR';
 
         // RPC: un solo JOIN en BD — evita 3 round-trips y el timeout por documentacion pesada
         const { data: rpcData, error: rpcErr } = await supabase.rpc('get_expedientes_list_v2');
@@ -360,8 +404,12 @@ router.get('/', enforceAuth, async (req, res) => {
         if (isCertificador) {
             if (!req.user.prescriptor_id) return res.json([]);
             data = data.filter(r => String(r.cee?.certificador_id) === String(req.user.prescriptor_id));
-            // Importes solo para ADMIN: quitamos las cifras de cada fila al certificador.
-            data = data.map(stripFinancials);
+        }
+
+        // Capado de cifras por rol: ADMIN completo; TRABAJADOR sin margen
+        // Brokergy; CERTIFICADOR sin ninguna cifra económica.
+        if (rol !== 'ADMIN') {
+            data = data.map(r => scrubExpedienteForUser(r, req));
         }
 
         // Contador ligero de incidencias ABIERTAS por expediente (solo ADMIN gestiona
@@ -404,10 +452,10 @@ router.get('/:id', enforceAuth, async (req, res) => {
 
         if (error || !simple) return res.status(404).json({ error: 'Expediente no encontrado' });
 
-        // Control de acceso: ADMIN ve todo; el CERTIFICADOR solo los expedientes que
-        // tiene asignados (mismo criterio que el listado). Los partners ya quedaron
-        // fuera por el guard global del módulo.
-        if (req.user.rol_nombre !== 'ADMIN') {
+        // Control de acceso: ADMIN y TRABAJADOR ven todo; el CERTIFICADOR solo los
+        // expedientes que tiene asignados (mismo criterio que el listado). Los
+        // partners ya quedaron fuera por el guard global del módulo.
+        if (req.user.rol_nombre !== 'ADMIN' && req.user.rol_nombre !== 'TRABAJADOR') {
             const ownsIt = String(simple.cee?.certificador_id) === String(req.user.prescriptor_id);
             if (!ownsIt) {
                 console.warn(`[Expedientes] Acceso denegado a ${req.user.rol_nombre} (${req.user.prescriptor_id}) sobre expediente ${req.params.id}`);
@@ -463,8 +511,9 @@ router.get('/:id', enforceAuth, async (req, res) => {
             prescriptores: assignedPrescriptor,
             lote
         };
-        // Importes solo para ADMIN: al CERTIFICADOR le quitamos las cifras del payload.
-        return res.json(req.user.rol_nombre === 'ADMIN' ? payload : stripFinancials(payload));
+        // Capado de cifras por rol: ADMIN completo; TRABAJADOR sin margen
+        // Brokergy; CERTIFICADOR sin ninguna cifra económica.
+        return res.json(scrubExpedienteForUser(payload, req));
     } catch (err) {
         console.error('Error GET expedientes/:id:', err);
         res.status(500).json({ error: 'Error al obtener el expediente' });
@@ -1711,7 +1760,7 @@ async function saveIncidencias(id, docObj, incidencias) {
 }
 
 // GET lista de incidencias (ligero — lo usa el modal para refrescar)
-router.get('/:id/incidencias', adminOnly, async (req, res) => {
+router.get('/:id/incidencias', staffOnly, async (req, res) => {
     try {
         const loaded = await loadIncidencias(req.params.id);
         if (!loaded) return res.status(404).json({ error: 'No encontrado.' });
@@ -1722,7 +1771,7 @@ router.get('/:id/incidencias', adminOnly, async (req, res) => {
 });
 
 // Crear incidencia
-router.post('/:id/incidencias', adminOnly, async (req, res) => {
+router.post('/:id/incidencias', staffOnly, async (req, res) => {
     try {
         // Sin normalizeData: el texto de la incidencia debe conservar mayúsculas/minúsculas tal cual.
         const body = req.body || {};
@@ -1753,7 +1802,7 @@ router.post('/:id/incidencias', adminOnly, async (req, res) => {
 });
 
 // Marcar como SUBSANADA (botón OK)
-router.patch('/:id/incidencias/:incId/resolver', adminOnly, async (req, res) => {
+router.patch('/:id/incidencias/:incId/resolver', staffOnly, async (req, res) => {
     try {
         const loaded = await loadIncidencias(req.params.id);
         if (!loaded) return res.status(404).json({ error: 'No encontrado.' });
@@ -1773,7 +1822,7 @@ router.patch('/:id/incidencias/:incId/resolver', adminOnly, async (req, res) => 
 });
 
 // Reabrir (volver a ABIERTA)
-router.patch('/:id/incidencias/:incId/reabrir', adminOnly, async (req, res) => {
+router.patch('/:id/incidencias/:incId/reabrir', staffOnly, async (req, res) => {
     try {
         const loaded = await loadIncidencias(req.params.id);
         if (!loaded) return res.status(404).json({ error: 'No encontrado.' });
@@ -1793,7 +1842,7 @@ router.patch('/:id/incidencias/:incId/reabrir', adminOnly, async (req, res) => {
 });
 
 // Editar texto de una incidencia
-router.put('/:id/incidencias/:incId', adminOnly, async (req, res) => {
+router.put('/:id/incidencias/:incId', staffOnly, async (req, res) => {
     try {
         // Sin normalizeData: el texto de la incidencia debe conservar mayúsculas/minúsculas tal cual.
         const body = req.body || {};
@@ -2508,7 +2557,7 @@ router.get('/:id/documents/scan-cee', enforceAuth, async (req, res) => {
 // escritorio) de la carpeta del expediente, subiendo por la cadena de carpetas
 // padre en Drive. El frontend la usa para abrir la carpeta con el protocolo
 // brokergylocal: y/o copiarla al portapapeles. Configurable con LOCAL_DRIVE_BASE.
-router.get('/:id/local-path', adminOnly, async (req, res) => {
+router.get('/:id/local-path', staffOnly, async (req, res) => {
     try {
         let { data: exp } = await supabase
             .from('expedientes').select('*').eq('id', req.params.id).maybeSingle();
@@ -3486,7 +3535,7 @@ router.post('/:id/notify-review', enforceAuth, async (req, res) => {
 
 // ─── POST /api/expedientes/:id/approve-cee ────────────────────────────────
 // Admin aprueba el CEX y autoriza presentación
-router.post('/:id/approve-cee', adminOnly, async (req, res) => {
+router.post('/:id/approve-cee', staffOnly, async (req, res) => {
     try {
         const { phase } = req.body;
         const adminMessage = (req.body?.adminMessage || '').trim() || null;

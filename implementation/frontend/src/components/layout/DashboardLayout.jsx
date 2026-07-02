@@ -6,16 +6,16 @@ import { PrescriptorDetailModal } from '../../features/admin/views/PrescriptorDe
 import { AdminProfileModal } from '../../features/admin/views/AdminProfileModal';
 import { SidebarNetworkBackground } from '../SidebarNetworkBackground';
 import { ThemeToggle } from '../ThemeToggle';
+import { getRoleFlags } from '../../utils/roleFlags';
 
 export function DashboardLayout({ children, activeTab, onTabChange }) {
     const { user, signOut } = useAuth();
 
     // Cache de roles para lógica más limpia e infalible
     const userRole = (user?.rol || '').toUpperCase();
-    const userRoleId = user?.id_rol ? Number(user.id_rol) : null;
-    const isAdmin = userRole === 'ADMIN' || userRoleId === 1;
-    const isCertificador = userRole === 'CERTIFICADOR' || userRoleId === 4;
-    const isPartner = ['DISTRIBUIDOR', 'INSTALADOR', 'PARTNER'].includes(userRole) || [2, 3].includes(userRoleId);
+    // isStaff = equipo interno (ADMIN + TRABAJADOR); canSeeMargin/canDelete = solo ADMIN.
+    const { isAdmin, isCertificador, isStaff, isTrabajador } = getRoleFlags(user);
+    const isPartner = ['DISTRIBUIDOR', 'INSTALADOR', 'PARTNER'].includes(userRole) || [2, 3].includes(user?.id_rol ? Number(user.id_rol) : null);
 
     const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false); // Drawer off-canvas (solo móvil)
@@ -92,7 +92,7 @@ export function DashboardLayout({ children, activeTab, onTabChange }) {
                 {/* ====== LOGO SECTION ====== */}
                 <div className={`relative z-10 p-4 ${isSidebarCollapsed ? 'sm:p-2' : 'sm:p-6'} flex items-center justify-center`}>
                     <div className={`w-full flex items-center justify-center transition-all ${isSidebarCollapsed ? 'h-10 w-10' : 'h-32'} relative`}>
-                        {user?.rol?.toUpperCase() === 'ADMIN' ? (
+                        {isStaff ? (
                             user?.avatar_url ? (
                                 <img
                                     src={user.avatar_url}
@@ -180,7 +180,7 @@ export function DashboardLayout({ children, activeTab, onTabChange }) {
                         </button>
                     )}
 
-                    {(user?.rol?.toUpperCase() === 'ADMIN' || user?.rol?.toUpperCase() === 'DISTRIBUIDOR') && (
+                    {(isStaff || user?.rol?.toUpperCase() === 'DISTRIBUIDOR') && (
                         <button
                             onClick={() => go('prescriptores')}
                             className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all ${
@@ -212,7 +212,7 @@ export function DashboardLayout({ children, activeTab, onTabChange }) {
                         </button>
                     )}
 
-                    {(isAdmin || isCertificador) && (
+                    {(isStaff || isCertificador) && (
                         <button
                             onClick={() => go('expedientes')}
                             className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all ${
@@ -228,7 +228,7 @@ export function DashboardLayout({ children, activeTab, onTabChange }) {
                         </button>
                     )}
 
-                    {isAdmin && (
+                    {isStaff && (
                         <button
                             onClick={() => go('lotes')}
                             className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all ${
@@ -241,6 +241,23 @@ export function DashboardLayout({ children, activeTab, onTabChange }) {
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
                             </svg>
                             {!isSidebarCollapsed && <span>Lotes</span>}
+                        </button>
+                    )}
+
+                    {/* Gestión de usuarios internos: SOLO ADMIN */}
+                    {isAdmin && (
+                        <button
+                            onClick={() => go('usuarios')}
+                            className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all ${
+                                activeTab === 'usuarios'
+                                    ? 'bg-gradient-to-r from-brand to-brand-700 text-bkg-deep shadow-lg shadow-brand/20'
+                                    : 'text-white/50 hover:bg-bkg-hover hover:text-white border border-transparent'
+                            } ${isSidebarCollapsed ? 'justify-center px-0' : ''}`}
+                        >
+                            <svg className="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+                            </svg>
+                            {!isSidebarCollapsed && <span>Usuarios</span>}
                         </button>
                     )}
                 </nav>
@@ -286,7 +303,7 @@ export function DashboardLayout({ children, activeTab, onTabChange }) {
                         // El partner abre su ficha de prescriptor; los usuarios internos
                         // (ADMIN/CERTIFICADOR) abren su "Mi perfil" (tabla usuarios).
                         const canOpenPartnerProfile = isPartner && !!miPrescriptor;
-                        const canOpenAdminProfile = (isAdmin || isCertificador) && !!user?.id_usuario;
+                        const canOpenAdminProfile = (isStaff || isCertificador) && !!user?.id_usuario;
                         const canOpenProfile = canOpenPartnerProfile || canOpenAdminProfile;
                         const openProfile = () => {
                             if (canOpenPartnerProfile) setShowProfile(true);
@@ -384,7 +401,7 @@ export function DashboardLayout({ children, activeTab, onTabChange }) {
                         </svg>
                     </button>
                     <div className="flex items-center gap-2 min-w-0 flex-1">
-                        {isAdmin ? (
+                        {isStaff ? (
                             user?.avatar_url ? (
                                 <img src={user.avatar_url} alt="Foto de perfil" className="h-8 w-8 object-cover rounded-full border border-white/10" />
                             ) : (

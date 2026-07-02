@@ -4,6 +4,7 @@ const norm = s => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '
 import axios from 'axios';
 import { useAuth } from '../../../context/AuthContext';
 import { useModal } from '../../../context/ModalContext';
+import { getRoleFlags, DELETE_FORBIDDEN_MSG } from '../../../utils/roleFlags';
 import { ExpedienteDetailView, EXPEDIENTE_ESTADOS } from './ExpedienteDetailView';
 import { parseCeeXml } from '../../calculator/logic/xmlCeeParser';
 import { ClienteFormModal } from '../../clientes/components/ClienteFormModal';
@@ -513,9 +514,8 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const userRole = (user?.rol || '').toUpperCase();
-    const userRoleId = user?.id_rol ? Number(user.id_rol) : null;
-    const isCertificador = userRole === 'CERTIFICADOR' || userRoleId === 4;
-    
+    const { isAdmin, isStaff, isCertificador, canSeeMargin, canDelete } = getRoleFlags(user);
+
     const getFicha = (exp) => {
         if (exp.numero_expediente?.includes('RES080')) return 'RES080';
         if (exp.numero_expediente?.includes('RES093')) return 'RES093';
@@ -799,6 +799,10 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
     };
 
     const handleDelete = async (id) => {
+        if (!canDelete) {
+            showAlert(DELETE_FORBIDDEN_MSG, 'Acción no permitida', 'error');
+            return;
+        }
         const confirmed = await showConfirm(
             '¿Estás seguro de que deseas eliminar este expediente?\n\n' +
             'Se eliminarán todos los datos asociados al expediente en la app.\n\n' +

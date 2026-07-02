@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import axios from 'axios';
-import confetti from 'canvas-confetti';
 import { buildSolicitudVerificacionPayload } from '../logic/solicitudVerificacion';
+import { SendActionOverlay } from '../../../components/SendActionOverlay';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // EnviarApiVerificadorModal — envío del lote al VERIFICADOR (Marwen) por API.
@@ -21,10 +21,13 @@ import { buildSolicitudVerificacionPayload } from '../logic/solicitudVerificacio
 export function EnviarApiVerificadorModal({ lote, payloadOpts, onClose, onSent }) {
     const base = useMemo(() => buildSolicitudVerificacionPayload(lote, payloadOpts || {}), [lote, payloadOpts]);
 
-    const [phase, setPhase] = useState('loading'); // loading | ready | sending | done | error
+    const [phase, setPhase] = useState('loading'); // loading | ready | error (dry-run)
     const [preview, setPreview] = useState(null);
     const [error, setError] = useState(null);
     const [result, setResult] = useState(null);
+    const [sendPhase, setSendPhase] = useState(null); // null | 'sending' | 'done'
+    const [sendOk, setSendOk] = useState(false);
+    const [sendError, setSendError] = useState('');
 
     const body = useMemo(() => ({
         contacto: base.contacto,
@@ -50,28 +53,21 @@ export function EnviarApiVerificadorModal({ lote, payloadOpts, onClose, onSent }
     const blocking = preview?.blocking || [];
     const warnings = preview?.warnings || [];
     const canSend = phase === 'ready' && blocking.length === 0;
+    const sending = sendPhase === 'sending';
 
     const handleSend = async () => {
-        setPhase('sending'); setError(null);
+        setSendPhase('sending'); setSendError('');
         try {
             const r = await axios.post(`/api/lotes/${lote.id}/enviar-verificador-api`, body);
             setResult(r.data);
-            setPhase('done');
-            fireConfetti();
+            setSendOk(true);
+            setSendPhase('done');
             if (onSent && r.data?.lote) onSent(r.data.lote);
         } catch (err) {
-            setError(err.response?.data?.error || err.message);
-            setPhase('error');
+            setSendError(err.response?.data?.error || err.message);
+            setSendOk(false);
+            setSendPhase('done');
         }
-    };
-
-    const fireConfetti = () => {
-        if (typeof window === 'undefined') return;
-        if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
-        const burst = (x, delay = 0) => setTimeout(() => {
-            confetti({ particleCount: 28, spread: 70, startVelocity: 36, gravity: 0.85, ticks: 220, origin: { x, y: 0.5 }, zIndex: 10000, disableForReducedMotion: true, colors: ['#f2a640', '#34d399', '#fcd34d', '#ffffff'] });
-        }, delay);
-        burst(0.25, 0); burst(0.75, 120); burst(0.5, 260);
     };
 
     const sol = preview?.solicitante || {};
@@ -111,28 +107,13 @@ export function EnviarApiVerificadorModal({ lote, payloadOpts, onClose, onSent }
                         </div>
                     )}
 
-                    {phase === 'error' && !result && (
+                    {phase === 'error' && (
                         <div className="rounded-xl border border-red-400/30 bg-red-500/10 px-4 py-3 text-[12px] text-red-300">
                             ❌ {error}
                         </div>
                     )}
 
-                    {phase === 'done' && result && (
-                        <div className="text-center py-4">
-                            <div className="mx-auto w-16 h-16 rounded-full bg-emerald-500/15 border-2 border-emerald-400/50 flex items-center justify-center mb-4">
-                                <svg className="w-8 h-8 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
-                            </div>
-                            <h3 className="text-lg font-black uppercase tracking-tight text-white">¡Solicitud enviada!</h3>
-                            <p className="text-white/50 text-[12px] mt-1">{result.message || 'Creada en Marwen correctamente.'}</p>
-                            <div className="mt-4 inline-flex flex-col items-center gap-1 px-5 py-3 rounded-xl bg-white/[0.04] border border-white/10">
-                                <span className="text-[9px] uppercase tracking-[0.2em] font-black text-white/35">Nº de solicitud</span>
-                                <span className="text-2xl font-black text-brand tracking-tight">{result.num_solicitud || '—'}</span>
-                                <span className="text-[10px] text-white/40 uppercase">{result.tipo_solicitud || 'estandarizada'}</span>
-                            </div>
-                        </div>
-                    )}
-
-                    {(phase === 'ready' || phase === 'sending') && preview && (
+                    {phase === 'ready' && preview && (
                         <>
                             {/* Solicitante (Sujeto Obligado) */}
                             <div className="space-y-1.5">
@@ -170,23 +151,27 @@ export function EnviarApiVerificadorModal({ lote, payloadOpts, onClose, onSent }
 
                 {/* Footer */}
                 <div className="px-6 py-4 bg-white/[0.02] border-t border-white/[0.07] flex items-center justify-end gap-3">
-                    {phase === 'done' ? (
-                        <button onClick={onClose} className="px-6 py-2.5 rounded-xl bg-brand text-black text-[11px] font-black uppercase tracking-widest hover:brightness-110 active:scale-95 transition-all">Cerrar</button>
-                    ) : (
-                        <>
-                            <button onClick={onClose} className="px-4 py-2.5 rounded-xl border border-white/10 text-white/50 text-[10px] font-black uppercase tracking-widest hover:text-white hover:border-white/30 transition-all">Cancelar</button>
-                            <button onClick={handleSend} disabled={!canSend || phase === 'sending'}
-                                title={!canSend ? 'No se puede enviar: faltan datos del solicitante' : 'Enviar por API'}
-                                className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-brand text-black text-[11px] font-black uppercase tracking-widest hover:brightness-110 active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed transition-all">
-                                {phase === 'sending'
-                                    ? <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.4 0 0 5.4 0 12h4z" /></svg>
-                                    : <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>}
-                                {phase === 'sending' ? 'Enviando…' : 'Confirmar y enviar por API'}
-                            </button>
-                        </>
-                    )}
+                    <button onClick={onClose} disabled={sending} className="px-4 py-2.5 rounded-xl border border-white/10 text-white/50 text-[10px] font-black uppercase tracking-widest hover:text-white hover:border-white/30 transition-all disabled:opacity-40">Cancelar</button>
+                    <button onClick={handleSend} disabled={!canSend || sending}
+                        title={!canSend ? 'No se puede enviar: faltan datos del solicitante' : 'Enviar por API'}
+                        className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-brand text-black text-[11px] font-black uppercase tracking-widest hover:brightness-110 active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed transition-all">
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                        Confirmar y enviar por API
+                    </button>
                 </div>
             </div>
+
+            <SendActionOverlay
+                phase={sendPhase}
+                ok={sendOk}
+                subtitle={`${lote.codigo || 'Lote'} · Verificador`}
+                items={sendOk && result ? [`Nº de solicitud: ${result.num_solicitud || '—'}`] : []}
+                errorText={sendError}
+                onClose={() => { if (sendOk) { onClose(); } else { setSendPhase(null); } }}
+                sendingTitle="Enviando al verificador…"
+                okTitle="¡Solicitud enviada!"
+                errorTitle="No se pudo enviar"
+            />
         </div>,
         document.body
     );

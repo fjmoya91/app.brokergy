@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import axios from 'axios';
 import { useAuth } from '../../../context/AuthContext';
 import { useModal } from '../../../context/ModalContext';
@@ -151,6 +151,17 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
     }, [expedienteId]);
 
     useEffect(() => { fetchExpediente(); }, [fetchExpediente]);
+
+    // Al entrar en un expediente, el contenedor <main> (scroll del layout) puede seguir
+    // en la posición donde se dejó la lista — forzamos que la vista empiece arriba.
+    const rootRef = useRef(null);
+    const scrolledRef = useRef(null);
+    useEffect(() => {
+        if (!loading && expediente && scrolledRef.current !== expedienteId) {
+            scrolledRef.current = expedienteId;
+            rootRef.current?.scrollIntoView({ block: 'start' });
+        }
+    }, [expedienteId, loading, expediente]);
 
     const handleSave = useCallback(async (patch) => {
         setSaving(true);
@@ -553,7 +564,7 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
     })();
 
     return (
-        <div className="p-6 sm:p-8 lg:p-10 min-h-full max-md:pb-24">
+        <div ref={rootRef} className="p-6 sm:p-8 lg:p-10 min-h-full max-md:pb-24">
             {/* Aviso de incidencias abiertas (solo ADMIN) */}
             {isAdmin && incidenciasAbiertas > 0 && (
                 <button
