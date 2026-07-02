@@ -132,7 +132,7 @@ router.get('/', adminOnly, async (req, res) => {
     try {
         const { data, error } = await supabase
             .from('usuarios')
-            .select('id_usuario, auth_user_id, id_rol, nombre, apellidos, email, tlf, nif, activo, created_at, avatar_url, roles ( nombre_rol )')
+            .select('id_usuario, auth_user_id, id_rol, nombre, apellidos, email, tlf, nif, ccaa, provincia, municipio, direccion, codigo_postal, activo, created_at, avatar_url, roles ( nombre_rol )')
             .in('id_rol', ROLES_INTERNOS)
             .order('created_at', { ascending: true });
         if (error) throw error;
@@ -201,6 +201,101 @@ router.post('/', adminOnly, async (req, res) => {
     } catch (err) {
         console.error('[POST /usuarios] Error:', err);
         res.status(500).json({ error: err.message || 'Error al crear el usuario' });
+    }
+});
+
+// PATCH /api/usuarios/:id — el ADMIN edita los datos de un TRABAJADOR
+// (nombre, contacto, dirección, foto, email y contraseña). Mismo modelo que
+// PATCH /me pero apuntando a otro usuario. Solo aplica a TRABAJADORES.
+router.patch('/:id', adminOnly, async (req, res) => {
+    try {
+        const { data: target, error: getErr } = await supabase
+            .from('usuarios')
+            .select('id_usuario, auth_user_id, id_rol, email')
+            .eq('id_usuario', req.params.id)
+            .maybeSingle();
+        if (getErr) throw getErr;
+        if (!target) return res.status(404).json({ error: 'Usuario no encontrado.' });
+        if (target.id_rol !== ROL_TRABAJADOR) {
+            return res.status(400).json({ error: 'Solo se pueden editar trabajadores desde aquí.' });
+        }
+
+        const body = req.body || {};
+        const update = {};
+        const setStr = (key, val, { upper = false, lower = false } = {}) => {
+            if (val === undefined) return;
+            let v = (val === null) ? null : String(val).trim();
+            if (v === '') v = null;
+            if (v && upper) v = v.toUpperCase();
+            if (v && lower) v = v.toLowerCase();
+            update[key] = v;
+        };
+        setStr('nombre', body.nombre);
+        setStr('apellidos', body.apellidos);
+        setStr('nif', body.nif, { upper: true });
+        setStr('tlf', body.tlf);
+        setStr('ccaa', body.ccaa);
+        setStr('provincia', body.provincia);
+        setStr('municipio', body.municipio);
+        setStr('direccion', body.direccion, { upper: true });
+        setStr('codigo_postal', body.codigo_postal);
+        if (body.avatar_url !== undefined) update.avatar_url = body.avatar_url || null;
+
+        if (update.nombre === null) {
+            return res.status(400).json({ error: 'El nombre es obligatorio.' });
+        }
+
+        // Email: si cambia, se sincroniza también con Supabase Auth.
+        let nuevoEmail = null;
+        if (typeof body.email === 'string') {
+            const e = body.email.trim().toLowerCase();
+            if (e && e !== (target.email || '').toLowerCase()) {
+                nuevoEmail = e;
+                update.email = e;
+            }
+        }
+
+        // Contraseña: opcional (el ADMIN puede fijar una nueva).
+        let nuevaPassword = null;
+        if (body.password) {
+            if (String(body.password).length < 6) {
+                return res.status(400).json({ error: 'La contraseña debe tener al menos 6 caracteres.' });
+            }
+            nuevaPassword = String(body.password);
+        }
+
+        if (Object.keys(update).length > 0) {
+            const { error: dbErr } = await supabase.from('usuarios').update(update).eq('id_usuario', target.id_usuario);
+            if (dbErr) throw new Error(`Error al guardar los datos: ${dbErr.message}`);
+        }
+
+        const authUpdates = {};
+        if (nuevoEmail) authUpdates.email = nuevoEmail;
+        if (nuevaPassword) authUpdates.password = nuevaPassword;
+        if (Object.keys(authUpdates).length > 0) {
+            if (!target.auth_user_id) {
+                return res.status(400).json({ error: 'El trabajador no tiene un acceso vinculado correctamente.' });
+            }
+            const { error: authErr } = await supabase.auth.admin.updateUserById(target.auth_user_id, authUpdates);
+            if (authErr) {
+                const msg = /already been registered|already exists/i.test(authErr.message || '')
+                    ? 'Ya existe un usuario con ese email.'
+                    : `Error en el sistema de autenticación: ${authErr.message}`;
+                return res.status(400).json({ error: msg });
+            }
+        }
+
+        const { data: fresh, error: freshErr } = await supabase
+            .from('usuarios')
+            .select('id_usuario, auth_user_id, id_rol, nombre, apellidos, email, tlf, nif, ccaa, provincia, municipio, direccion, codigo_postal, activo, avatar_url, created_at, roles ( nombre_rol )')
+            .eq('id_usuario', target.id_usuario)
+            .maybeSingle();
+        if (freshErr) throw freshErr;
+
+        res.json({ ...fresh, rol_nombre: fresh?.roles?.nombre_rol || 'TRABAJADOR' });
+    } catch (err) {
+        console.error('[PATCH /usuarios/:id] Error:', err);
+        res.status(500).json({ error: err.message || 'Error al actualizar el trabajador' });
     }
 });
 

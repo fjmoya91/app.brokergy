@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
+import { TrabajadorDetailModal } from './TrabajadorDetailModal';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Panel de USUARIOS INTERNOS (solo ADMIN).
@@ -13,6 +14,7 @@ export function UsuariosView() {
     const [showForm, setShowForm] = useState(false);
     const [saving, setSaving] = useState(false);
     const [form, setForm] = useState({ nombre: '', apellidos: '', email: '', password: '', nif: '', tlf: '' });
+    const [selected, setSelected] = useState(null);
 
     const load = async () => {
         setLoading(true);
@@ -47,13 +49,14 @@ export function UsuariosView() {
         }
     };
 
-    const toggleActivo = async (u) => {
-        try {
-            await axios.patch(`/api/usuarios/${u.id_usuario}/activo`, { activar: !u.activo });
-            await load();
-        } catch (e) {
-            setError(e.response?.data?.error || 'Error al cambiar el estado');
+    // Cuando el modal actualiza un trabajador (datos o acceso), refrescamos la lista
+    // y sincronizamos el trabajador seleccionado para que el modal muestre lo último.
+    const handleUpdated = (updated) => {
+        if (updated?.id_usuario) {
+            setUsuarios(prev => prev.map(u => u.id_usuario === updated.id_usuario ? { ...u, ...updated } : u));
+            setSelected(prev => prev && prev.id_usuario === updated.id_usuario ? { ...prev, ...updated } : prev);
         }
+        load();
     };
 
     const roleBadge = (rol) => {
@@ -140,9 +143,22 @@ export function UsuariosView() {
                             </tr>
                         </thead>
                         <tbody>
-                            {usuarios.map(u => (
-                                <tr key={u.id_usuario} className="border-b border-white/[0.04] hover:bg-bkg-hover/50 transition-colors">
-                                    <td className="px-5 py-4 text-white/90 text-sm font-bold">{[u.nombre, u.apellidos].filter(Boolean).join(' ') || '—'}</td>
+                            {usuarios.map(u => {
+                                const isTrab = u.rol_nombre === 'TRABAJADOR';
+                                return (
+                                <tr
+                                    key={u.id_usuario}
+                                    onClick={isTrab ? () => setSelected(u) : undefined}
+                                    className={`border-b border-white/[0.04] transition-colors ${isTrab ? 'cursor-pointer hover:bg-bkg-hover/50' : ''}`}
+                                >
+                                    <td className="px-5 py-4 text-white/90 text-sm font-bold">
+                                        <div className="flex items-center gap-3">
+                                            {u.avatar_url
+                                                ? <img src={u.avatar_url} alt="" className="w-8 h-8 rounded-full object-cover border border-white/10 shrink-0" />
+                                                : <span className="w-8 h-8 rounded-full bg-gradient-to-br from-brand/30 to-brand-700/20 flex items-center justify-center text-brand font-black text-xs shrink-0">{(u.nombre || u.email || '?').charAt(0).toUpperCase()}</span>}
+                                            <span>{[u.nombre, u.apellidos].filter(Boolean).join(' ') || '—'}</span>
+                                        </div>
+                                    </td>
                                     <td className="px-5 py-4 text-white/60 text-sm">{u.email || '—'}</td>
                                     <td className="px-5 py-4">{roleBadge(u.rol_nombre)}</td>
                                     <td className="px-5 py-4">
@@ -151,27 +167,31 @@ export function UsuariosView() {
                                         }`}>{u.activo ? 'Activo' : 'Inactivo'}</span>
                                     </td>
                                     <td className="px-5 py-4 text-right">
-                                        {u.rol_nombre === 'TRABAJADOR' ? (
+                                        {isTrab ? (
                                             <button
-                                                onClick={() => toggleActivo(u)}
-                                                className={`px-3 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest border transition-all ${
-                                                    u.activo
-                                                        ? 'text-red-300 border-red-500/20 hover:bg-red-500/10'
-                                                        : 'text-emerald-300 border-emerald-500/20 hover:bg-emerald-500/10'
-                                                }`}
+                                                onClick={(e) => { e.stopPropagation(); setSelected(u); }}
+                                                className="px-3 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest border border-brand/20 text-brand hover:bg-brand/10 transition-all"
                                             >
-                                                {u.activo ? 'Desactivar' : 'Activar'}
+                                                Ver / editar
                                             </button>
                                         ) : (
                                             <span className="text-[10px] text-white/25 uppercase tracking-widest">—</span>
                                         )}
                                     </td>
                                 </tr>
-                            ))}
+                                );
+                            })}
                         </tbody>
                     </table>
                 )}
             </div>
+
+            <TrabajadorDetailModal
+                isOpen={!!selected}
+                trabajador={selected}
+                onClose={() => setSelected(null)}
+                onUpdated={handleUpdated}
+            />
         </div>
     );
 }

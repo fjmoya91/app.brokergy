@@ -74,6 +74,7 @@ function Inp({ className = '', uppercase = false, onChange, ...props }) {
 const ROL_BADGE = {
     ADMIN:        'bg-brand/10 text-brand border-brand/20',
     CERTIFICADOR: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
+    TRABAJADOR:   'bg-sky-500/10 text-sky-300 border-sky-500/20',
 };
 
 // ─── Modal principal ───────────────────────────────────────────────────────────
