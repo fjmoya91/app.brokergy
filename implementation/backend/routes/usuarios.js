@@ -154,6 +154,7 @@ router.post('/', adminOnly, async (req, res) => {
         const password = body.password ? String(body.password) : '';
         const nif = (body.nif || '').trim().toUpperCase() || null;
         const tlf = (body.tlf || '').trim() || null;
+        const avatar_url = body.avatar_url || null;
 
         if (!nombre) return res.status(400).json({ error: 'El nombre es obligatorio.' });
         if (!email) return res.status(400).json({ error: 'El email es obligatorio.' });
@@ -187,9 +188,10 @@ router.post('/', adminOnly, async (req, res) => {
                 email,
                 nif,
                 tlf,
+                avatar_url,
                 activo: true,
             })
-            .select('id_usuario, auth_user_id, id_rol, nombre, apellidos, email, tlf, nif, activo, created_at, roles ( nombre_rol )')
+            .select('id_usuario, auth_user_id, id_rol, nombre, apellidos, email, tlf, nif, avatar_url, activo, created_at, roles ( nombre_rol )')
             .single();
         if (dbErr) {
             // Rollback del usuario de Auth para no dejar cuentas huérfanas.

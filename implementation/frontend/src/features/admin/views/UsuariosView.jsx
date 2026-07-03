@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import axios from 'axios';
 import { TrabajadorDetailModal } from './TrabajadorDetailModal';
 
@@ -13,8 +13,17 @@ export function UsuariosView() {
     const [error, setError] = useState(null);
     const [showForm, setShowForm] = useState(false);
     const [saving, setSaving] = useState(false);
-    const [form, setForm] = useState({ nombre: '', apellidos: '', email: '', password: '', nif: '', tlf: '' });
+    const [form, setForm] = useState({ nombre: '', apellidos: '', email: '', password: '', nif: '', tlf: '', avatar_url: '' });
     const [selected, setSelected] = useState(null);
+    const avatarInputRef = useRef(null);
+
+    const handleAvatarChange = (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onloadend = () => setForm(f => ({ ...f, avatar_url: reader.result }));
+        reader.readAsDataURL(file);
+    };
 
     const load = async () => {
         setLoading(true);
@@ -31,7 +40,7 @@ export function UsuariosView() {
 
     useEffect(() => { load(); }, []);
 
-    const resetForm = () => setForm({ nombre: '', apellidos: '', email: '', password: '', nif: '', tlf: '' });
+    const resetForm = () => setForm({ nombre: '', apellidos: '', email: '', password: '', nif: '', tlf: '', avatar_url: '' });
 
     const handleCreate = async (e) => {
         e.preventDefault();
@@ -99,6 +108,33 @@ export function UsuariosView() {
             {showForm && (
                 <form onSubmit={handleCreate} className="mb-8 bg-bkg-surface border border-white/[0.06] rounded-3xl p-6 shadow-xl">
                     <h2 className="text-white font-black uppercase tracking-widest text-xs mb-5">Alta de trabajador</h2>
+
+                    {/* Foto (opcional) — clic en el círculo para subirla */}
+                    <div className="flex items-center gap-4 mb-6">
+                        <div
+                            onClick={() => avatarInputRef.current?.click()}
+                            title="Subir foto"
+                            className="w-16 h-16 rounded-full border border-brand/40 overflow-hidden shrink-0 relative group cursor-pointer"
+                        >
+                            {form.avatar_url ? (
+                                <img src={form.avatar_url} alt="avatar" className="w-full h-full object-cover" />
+                            ) : (
+                                <div className="w-full h-full bg-gradient-to-br from-brand/30 to-brand-700/20 flex items-center justify-center">
+                                    <span className="text-brand font-black text-lg">{(form.nombre || '?').charAt(0).toUpperCase()}</span>
+                                </div>
+                            )}
+                            <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-0.5">
+                                <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                                <span className="text-[8px] text-white font-black uppercase tracking-wider">Foto</span>
+                            </div>
+                        </div>
+                        <input ref={avatarInputRef} type="file" accept="image/png,image/jpeg,image/gif,image/svg+xml,image/webp" onChange={handleAvatarChange} className="hidden" />
+                        <div className="text-[11px] text-white/40 leading-relaxed">
+                            <p className="font-black uppercase tracking-widest text-white/50 mb-0.5">Foto (opcional)</p>
+                            Haz clic en el círculo para subir una imagen.{form.avatar_url && <button type="button" onClick={() => setForm(f => ({ ...f, avatar_url: '' }))} className="ml-2 text-red-400/70 hover:text-red-400 font-black uppercase tracking-widest">Quitar</button>}
+                        </div>
+                    </div>
+
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <Field label="Nombre *" value={form.nombre} onChange={v => setForm(f => ({ ...f, nombre: v }))} required />
                         <Field label="Apellidos" value={form.apellidos} onChange={v => setForm(f => ({ ...f, apellidos: v }))} />
