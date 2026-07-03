@@ -587,7 +587,10 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
                     const scopAcs = inst.misma_aerotermia_acs ? scopHeating : (parseFloat(inst.aerotermia_acs?.scop) || 2.5);
                     
                     let cb = 1;
-                    if (ficha === 'RES093' || inst.hibridacion || opInputs.hibridacion) {
+                    // El toggle explícito (activado/desactivado por el usuario) manda sobre el default de la ficha.
+                    // Solo si no hay toggle explícito guardado, RES093 activa hibridación por defecto.
+                    const hibridActive = (inst.hibridacion ?? opInputs.hibridacion) ?? (ficha === 'RES093');
+                    if (hibridActive) {
                         const hybridRes = calculateHybridization({
                             demandAnnual: q_net_heating,
                             zone: op.datos_calculo?.zona || 'D3',

@@ -381,8 +381,10 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
                 // LOGICA HIBRIDACION
                 let cb = 1;
                 const calcInputs = op.datos_calculo?.inputs || {};
-                // Si la ficha es RES093 o se ha activado el toggle localmente (en inputs o manual)
-                if (ficha === 'RES093' || inst.hibridacion || calcInputs.hibridacion) {
+                // El toggle explícito (activado/desactivado por el usuario) manda sobre el default de la ficha.
+                // Solo si no hay toggle explícito guardado, RES093 activa hibridación por defecto.
+                const hibridActive = (inst.hibridacion ?? calcInputs.hibridacion) ?? (ficha === 'RES093');
+                if (hibridActive) {
                     const hybridRes = calculateHybridization({
                         demandAnnual: q_net_heating,
                         zone: op.datos_calculo?.zona || 'D3',
