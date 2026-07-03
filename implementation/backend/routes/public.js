@@ -6,6 +6,7 @@ const expedienteService = require('../services/expedienteService');
 const whatsappService = require('../services/whatsappService');
 const driveService = require('../services/driveService');
 const reformaUploadService = require('../services/reformaUploadService');
+const anexoFotograficoService = require('../services/anexoFotograficoService');
 const { requireAuth } = require('../middleware/auth');
 const axios = require('axios');
 const multer = require('multer');
@@ -1121,57 +1122,9 @@ router.get('/anexo-photos/:id', async (req, res) => {
             .maybeSingle();
         if (error || !opp) return res.status(404).json({ error: 'Oportunidad no encontrada' });
 
-        const dc = opp.datos_calculo || {};
-        const driveFolderId = dc.drive_folder_id || dc.inputs?.drive_folder_id;
-        if (!driveFolderId) return res.json({ success: true, groups: [] });
-        const subfolderId = await driveService.findSubfolderByName(driveFolderId, '12. DOCUMENTOS PARA CEE');
-        if (!subfolderId) return res.json({ success: true, groups: [] });
-
-        const driveFiles = await driveService.listFiles(subfolderId);
-        const IMG_EXT = /\.(jpe?g|png|gif|webp|heic|heif|bmp|tiff?)$/i;
-        const isImg = (f) => (f.mimeType || '').startsWith('image/') || IMG_EXT.test(f.name || '');
-
-        // Conceptos: todas las actuaciones (DESPUÉS) + el estado inicial de cada una
-        // (ANTES). En ANTES se excluyen solo las fotos de CONTEXTO (no son actuación):
-        // fachada de la calle y patios. Así, las ventanas/cubierta/etc. de ANTES
-        // habilitadas a posteriori sí entran. Sin vídeos/docs/otros.
-        const ANTES_CONTEXTO = new Set(['FOTO_FACHADA_PRINCIPAL', 'FOTO_PATIOS_INTERIORES']);
-        const concepts = reformaUploadService.buildDocChecklist(dc)
-            .filter(s => !/^(VIDEO_|DOC_|OTROS_)/.test(s.key) && (s.fase === 'DESPUES' || !ANTES_CONTEXTO.has(s.key)))
-            .map(s => ({ key: s.key, label: s.label, fase: s.fase }));
-        // Legacy: "unidad interior / ACS" suelto (expedientes antiguos del anexo previo).
-        if (!concepts.some(c => c.key === 'FOTO_UNIDAD_INTERIOR')) {
-            concepts.push({ key: 'FOTO_UNIDAD_INTERIOR', label: 'Unidad interior / ACS', fase: 'DESPUES' });
-        }
-
-        const extToMime = (filename) => {
-            const ext = (String(filename).split('.').pop() || '').toLowerCase();
-            const map = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', heic: 'image/heic', heif: 'image/heif', gif: 'image/gif', bmp: 'image/bmp' };
-            return map[ext] || 'image/jpeg';
-        };
-        const toB64 = async (file) => {
-            const buffer = await driveService.getFileContent(file.id);
-            if (!buffer) return null;
-            let mt = file.mimeType;
-            if (!mt || !mt.startsWith('image/')) mt = extToMime(file.name);
-            return { name: file.name, data: `data:${mt};base64,${buffer.toString('base64')}` };
-        };
-
-        const groups = [];
-        for (const c of concepts) {
-            const matches = driveFiles
-                .filter(f => isImg(f) && reformaUploadService.fileBelongsToSlot(f.name, c.key))
-                .sort((a, b) => String(a.name).localeCompare(String(b.name), 'es', { numeric: true }));
-            if (!matches.length) continue;
-            const photos = [];
-            for (const f of matches) {
-                // eslint-disable-next-line no-await-in-loop
-                const p = await toB64(f);
-                if (p) photos.push(p);
-            }
-            if (photos.length) groups.push({ key: c.key, label: c.label, fase: c.fase, photos });
-        }
-
+        // Recopilación centralizada (misma lógica que usa la generación automática
+        // server-side del anexo, en anexoFotograficoService).
+        const { groups } = await anexoFotograficoService.collectPhotoGroups(opp.datos_calculo || {});
         console.log(`[AnexoPhotos] ${id}: ${groups.length} concepto(s) con foto`);
         res.json({ success: true, groups });
     } catch (e) {

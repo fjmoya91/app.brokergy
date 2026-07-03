@@ -10,6 +10,7 @@ const { normalizeData } = require('../utils/normalization');
 const emailService = require('../services/emailService');
 const whatsappService = require('../services/whatsappService');
 const reformaUploadService = require('../services/reformaUploadService');
+const anexoFotograficoService = require('../services/anexoFotograficoService');
 const { applyStatus, stampSeguimientoTimestamps, markCertContact } = require('../services/seguimientoTracking');
 const { partnerNotifyTargets, normalizeContactos } = require('../services/notifyContacts');
 
@@ -31,6 +32,10 @@ const PUBLIC_EXPEDIENTE_ROUTES = [
     { method: 'GET',  re: /^\/[^/]+\/anexos-cifo\/[^/]+\/content\/?$/ },
     { method: 'GET',  re: /^\/[^/]+\/notify-client\/?$/ },
     { method: 'GET',  re: /^\/[^/]+\/approve-cee-from-email\/?$/ },
+    // Anexo fotográfico (generar/estado): su propio middleware (internalKeyOrAuth)
+    // exige sesión interna O la clave interna del MCP.
+    { method: 'POST', re: /^\/[^/]+\/anexo-fotografico\/generar\/?$/ },
+    { method: 'GET',  re: /^\/[^/]+\/anexo-fotografico\/estado\/?$/ },
 ];
 const PARTNER_ALLOWED_ROUTES = [
     { method: 'POST', re: /^\/?$/ }, // POST /api/expedientes → aceptar oportunidad (crea expediente)
@@ -1001,6 +1006,65 @@ router.post('/:id/documentos/rechazar', enforceAuth, async (req, res) => {
     } catch (err) {
         console.error('[rechazar-doc]', err.message);
         res.status(500).json({ error: 'Error al rechazar el documento' });
+    }
+});
+
+// ─── POST /api/expedientes/:id/anexo-fotografico/generar ──────────────────────
+// Genera el Anexo Fotográfico DESDE las fotos ya nombradas por slot en Drive
+// ("12. DOCUMENTOS PARA CEE"), lo guarda en "6. ANEXOS CAE" y deja el enlace en
+// documentacion.anexo_fotografico_drive_link. Pensado para el flujo AUTOMÁTICO
+// (skill de Cowork vía herramienta MCP) y también accesible por el equipo interno.
+//
+// Guard: sesión interna (ADMIN/CERTIFICADOR/TRABAJADOR) O la clave interna
+// compartida con el servidor MCP (cabecera x-internal-key === INTERNAL_API_KEY).
+// La ruta queda protegida en ambos casos (regla de seguridad de rutas).
+const internalKeyOrAuth = (req, res, next) => {
+    const key = req.headers['x-internal-key'];
+    if (key && process.env.INTERNAL_API_KEY && key === process.env.INTERNAL_API_KEY) {
+        req.internalCall = true;
+        return next();
+    }
+    return internalOnly(req, res, next);
+};
+
+router.post('/:id/anexo-fotografico/generar', internalKeyOrAuth, async (req, res) => {
+    try {
+        const result = await anexoFotograficoService.generateAndSaveAnexo(req.params.id);
+        if (!result.ok) return res.status(422).json(result);
+        res.json(result);
+    } catch (e) {
+        console.error('[anexo-fotografico/generar]', e);
+        res.status(500).json({ ok: false, message: 'Error interno al generar el anexo fotográfico', error: e.message });
+    }
+});
+
+// ─── GET /api/expedientes/:id/anexo-fotografico/estado ─────────────────────────
+// Estado ligero (sin descargar imágenes): qué slots de foto espera el expediente
+// según sus actuaciones, cuáles ya tienen fotos en "12. DOCUMENTOS PARA CEE" y
+// cuáles faltan. Orienta a la skill sobre con qué nombre renombrar cada foto.
+router.get('/:id/anexo-fotografico/estado', internalKeyOrAuth, async (req, res) => {
+    try {
+        const { data: exp, error } = await supabase
+            .from('expedientes')
+            .select('id, numero_expediente, documentacion, oportunidad_id')
+            .eq('id', req.params.id)
+            .maybeSingle();
+        if (error || !exp) return res.status(404).json({ ok: false, message: 'Expediente no encontrado' });
+
+        const { data: op } = exp.oportunidad_id
+            ? await supabase.from('oportunidades').select('datos_calculo').eq('id', exp.oportunidad_id).maybeSingle()
+            : { data: null };
+
+        const status = await anexoFotograficoService.getAnexoStatus(op?.datos_calculo || {});
+        res.json({
+            ok: true,
+            numero_expediente: exp.numero_expediente,
+            anexo_link_actual: exp.documentacion?.anexo_fotografico_drive_link || null,
+            ...status,
+        });
+    } catch (e) {
+        console.error('[anexo-fotografico/estado]', e);
+        res.status(500).json({ ok: false, message: 'Error interno', error: e.message });
     }
 });
 

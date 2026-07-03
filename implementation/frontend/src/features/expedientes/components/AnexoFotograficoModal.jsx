@@ -3,345 +3,9 @@ import axios from 'axios';
 import { useAuth } from '../../../context/AuthContext';
 import { useModal } from '../../../context/ModalContext';
 import { buildInstalacionAddress } from '../utils/docGenerators';
+import { buildAnexoPages, buildAnexoFullHtml, ANEXO_SCREEN_CSS } from './anexoFotograficoDoc';
 import ReactCrop, { centerCrop, makeAspectCrop } from 'react-image-crop';
 import 'react-image-crop/dist/ReactCrop.css';
-
-// ── COVER CSS (shared styles for the cover) ─────────────────────────────────
-const COVER_STYLES = `
-    .cover-page {
-        font-family: 'Arial MT', Arial, Helvetica, sans-serif;
-        position: relative;
-        overflow: hidden;
-    }
-    .cover-top-band {
-        width: 100%;
-        height: 70px;
-        background: linear-gradient(135deg, #ee8f1f 0%, #f5a623 50%, #ee8f1f 100%);
-        position: relative;
-    }
-    .cover-top-band::after {
-        content: '';
-        position: absolute;
-        bottom: -30px;
-        left: 0;
-        width: 100%;
-        height: 60px;
-        background: white;
-        transform: skewY(-2deg);
-    }
-    .cover-accent-bar {
-        position: absolute;
-        top: 0;
-        left: 0;
-        width: 8px;
-        height: 100%;
-        background: linear-gradient(180deg, #ee8f1f 0%, #d97706 100%);
-    }
-    .cover-logo-area {
-        position: absolute;
-        top: 10px;
-        right: 30px;
-        z-index: 10;
-    }
-    .cover-logo-area img {
-        height: 180px;
-    }
-    .cover-title-section {
-        margin-top: 80px;
-        padding: 0 70px;
-        text-align: left;
-        position: relative;
-    }
-    .cover-title-section::before {
-        content: '';
-        display: block;
-        width: 80px;
-        height: 4px;
-        background: linear-gradient(90deg, #ee8f1f, #f5a623);
-        margin-bottom: 20px;
-        border-radius: 2px;
-    }
-    .cover-title-section h1 {
-        font-size: 24pt;
-        font-weight: 900;
-        color: #1a1a1a;
-        line-height: 1.15;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-        margin: 0 0 8px 0;
-    }
-    .cover-subtitle {
-        font-size: 10pt;
-        color: #888;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 3px;
-        margin: 0;
-    }
-    .cover-photo-frame {
-        margin: 30px 70px 0 70px;
-        border-radius: 10px;
-        overflow: hidden;
-        border: 1px solid #e5e5e5;
-        background: #fafafa;
-        box-shadow: 0 4px 20px rgba(0,0,0,0.08);
-        height: 280px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-    }
-    .cover-photo-frame img {
-        max-width: 100%;
-        max-height: 280px;
-        object-fit: contain;
-    }
-    .cover-info-table {
-        margin: 25px 70px 0 70px;
-    }
-    .cover-info-table table {
-        width: 100%;
-        border-collapse: separate;
-        border-spacing: 0;
-        font-size: 9.5pt;
-        table-layout: fixed;
-        border: 1px solid #ccc;
-        border-radius: 12px;
-        overflow: hidden;
-    }
-    .cover-info-table td {
-        border-bottom: 1px solid #ccc;
-        border-right: 1px solid #ccc;
-        padding: 7px 10px;
-        vertical-align: middle;
-        line-height: 1.3;
-        word-wrap: break-word;
-    }
-    .cover-info-table tr:last-child td {
-        border-bottom: none;
-    }
-    .cover-info-table td:last-child {
-        border-right: none;
-    }
-    .cover-info-table .tbl-heading {
-        background: #1a1a1a;
-        color: #fff;
-        font-weight: bold;
-        text-align: center;
-        text-transform: uppercase;
-        font-size: 8.5pt;
-        padding: 8px;
-        letter-spacing: 2px;
-    }
-    .cover-info-table .tbl-label {
-        background: #ee8f1f;
-        color: #fff;
-        font-weight: bold;
-        font-size: 8.5pt;
-        width: 40%;
-    }
-    .cover-info-table .tbl-value {
-        background: #fff;
-        color: #333;
-        font-size: 9pt;
-    }
-    .cover-bottom-band {
-        position: absolute;
-        bottom: 0;
-        left: 0;
-        right: 0;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: 12px 50px;
-        border-top: 3px solid #ee8f1f;
-        background: white;
-    }
-    .cover-bottom-band img {
-        height: 35px;
-    }
-    .cover-decorative-circle {
-        position: absolute;
-        bottom: 80px;
-        right: -40px;
-        width: 180px;
-        height: 180px;
-        border: 3px solid rgba(238,143,31,0.12);
-        border-radius: 50%;
-    }
-    .cover-decorative-circle-sm {
-        position: absolute;
-        bottom: 120px;
-        right: 20px;
-        width: 80px;
-        height: 80px;
-        border: 2px solid rgba(238,143,31,0.08);
-        border-radius: 50%;
-    }
-`;
-
-const DOC_CSS = `
-    .doc-wrap { background: #e8e8e8; width: 794px; }
-    .doc-page {
-        font-family: 'Arial MT', Arial, Helvetica, sans-serif;
-        font-size: 11pt;
-        color: #000;
-        background: white;
-        width: 794px;
-        min-height: 1123px;
-        padding: 0;
-        box-sizing: border-box;
-        display: flex;
-        flex-direction: column;
-        page-break-after: always;
-        margin-bottom: 12px;
-        box-shadow: 0 2px 16px rgba(0,0,0,0.18);
-        position: relative;
-        overflow: hidden;
-    }
-    .doc-page:last-child { page-break-after: avoid; }
-    .doc-page-content {
-        padding: 60px 70px 80px 70px;
-        flex: 1;
-    }
-    .photo-container {
-        border: 1px solid #ddd;
-        margin-bottom: 0;
-        page-break-inside: avoid;
-        border-radius: 6px;
-        overflow: hidden;
-    }
-    .photo-img-wrapper {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        overflow: hidden;
-        background: #fafafa;
-    }
-    .photo-img-wrapper img {
-        max-width: 100%;
-        max-height: 100%;
-        object-fit: contain;
-    }
-    .photo-label {
-        background: linear-gradient(135deg, #ee8f1f, #f5a623);
-        color: #fff;
-        font-weight: bold;
-        text-align: center;
-        text-transform: uppercase;
-        font-size: 9pt;
-        padding: 7px 10px;
-        letter-spacing: 2px;
-    }
-    .footer-bar {
-        position: absolute;
-        bottom: 0;
-        left: 0;
-        right: 0;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: 12px 50px;
-        border-top: 3px solid #ee8f1f;
-    }
-    .footer-bar img {
-        height: 35px;
-    }
-    .footer-bar .page-num {
-        font-size: 9pt;
-        color: #666;
-        font-weight: bold;
-    }
-    ${COVER_STYLES}
-`;
-
-const PDF_CSS = `
-    @page { size: A4; margin: 0; }
-    body { margin: 0; padding: 0; background: #fff; -webkit-print-color-adjust: exact; }
-    .doc-page {
-        font-family: 'Arial MT', Arial, sans-serif;
-        font-size: 10.5pt;
-        color: #1a1a1a;
-        width: 210mm;
-        min-height: 297mm;
-        padding: 0;
-        box-sizing: border-box;
-        page-break-after: always;
-        position: relative;
-        overflow: hidden;
-        display: flex;
-        flex-direction: column;
-    }
-    .doc-page:last-child { page-break-after: avoid; }
-    .doc-page-content {
-        padding: 50px 60px 80px 60px;
-        flex: 1;
-    }
-    .photo-container {
-        border: 1px solid #ddd;
-        margin-bottom: 0;
-        page-break-inside: avoid;
-        border-radius: 6px;
-        overflow: hidden;
-    }
-    .photo-img-wrapper {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        overflow: hidden;
-        background: #fafafa;
-    }
-    .photo-img-wrapper img {
-        max-width: 100%;
-        max-height: 100%;
-        object-fit: contain;
-    }
-    .photo-label {
-        background: linear-gradient(135deg, #ee8f1f, #f5a623);
-        color: #fff;
-        font-weight: bold;
-        text-align: center;
-        text-transform: uppercase;
-        font-size: 9pt;
-        padding: 7px 10px;
-        letter-spacing: 2px;
-    }
-    .footer-bar {
-        position: absolute;
-        bottom: 0;
-        left: 0;
-        right: 0;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: 12px 50px;
-        border-top: 3px solid #ee8f1f;
-    }
-    .footer-bar img {
-        height: 35px;
-    }
-    .footer-bar .page-num {
-        font-size: 9pt;
-        color: #666;
-        font-weight: bold;
-    }
-    ${COVER_STYLES}
-`;
-
-const PROV_CCAA = {
-    '04':'Andalucía','11':'Andalucía','14':'Andalucía','18':'Andalucía',
-    '21':'Andalucía','23':'Andalucía','29':'Andalucía','41':'Andalucía',
-    '22':'Aragón','44':'Aragón','50':'Aragón','33':'Asturias','07':'Islas Baleares',
-    '35':'Canarias','38':'Canarias','39':'Cantabria','02':'Castilla-La Mancha',
-    '13':'Castilla-La Mancha','16':'Castilla-La Mancha','19':'Castilla-La Mancha',
-    '45':'Castilla-La Mancha','05':'Castilla y León','09':'Castilla y León',
-    '24':'Castilla y León','34':'Castilla y León','37':'Castilla y León',
-    '40':'Castilla y León','42':'Castilla y León','47':'Castilla y León',
-    '49':'Castilla y León','08':'Cataluña','17':'Cataluña','25':'Cataluña',
-    '43':'Cataluña','51':'Ceuta', '03':'Comunidad Valenciana','12':'Comunidad Valenciana',
-    '46':'Comunidad Valenciana','06':'Extremadura','10':'Extremadura','15':'Galicia',
-    '27':'Galicia','32':'Galicia','36':'Galicia','26':'La Rioja','28':'Comunidad de Madrid',
-    '52':'Melilla','30':'Región de Murcia','31':'Navarra','01':'País Vasco','20':'País Vasco','48':'País Vasco',
-};
 
 const Spinner = () => (
     <svg className="animate-spin h-4 w-4 text-current inline-block" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -375,7 +39,7 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
     const [zoomedPhoto, setZoomedPhoto] = useState(null);
     const [zoomLevel, setZoomLevel] = useState(1);
 
-    const [b64Logos, setB64Logos] = useState({ admin: '', doc: '' });
+    const [b64Logos, setB64Logos] = useState({ doc: '' });
 
     useEffect(() => {
         const fetchBase64 = async (url) => {
@@ -394,9 +58,8 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
         };
 
         const loadLogos = async () => {
-            const adminLogo = await fetchBase64('/logo-brokergy-admin.png');
             const docLogo = await fetchBase64('/logo_brokergy_doc.png');
-            setB64Logos({ admin: adminLogo, doc: docLogo });
+            setB64Logos({ doc: docLogo });
         };
         if (isOpen) {
             loadLogos();
@@ -426,9 +89,10 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
                             const label = i === 0 ? g.label : `${g.label} (${i + 1})`;
                             const existing = prevById.get(id);
                             // Conserva la fila previa (recorte/tamaño) si ya existía con foto.
+                            // slotKey/fase alimentan la agrupación por actuación del documento.
                             rows.push(existing?.file
-                                ? { ...existing, label }
-                                : { id, label, file: { name: ph.name, data: ph.data }, required: false });
+                                ? { ...existing, label, slotKey: g.key, fase: g.fase }
+                                : { id, label, slotKey: g.key, fase: g.fase, file: { name: ph.name, data: ph.data }, required: false });
                         });
                     }
                     // Mantener las filas añadidas a mano (no provienen de Drive).
@@ -638,105 +302,34 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
     const numexpte = expediente.numero_expediente || '';
 
     // Dirección de la INSTALACIÓN (Catastro/oportunidad), nunca la del cliente.
+    // buildInstalacionAddress ya deriva la CCAA del código de provincia/CP.
     const instAddr = buildInstalacionAddress(expediente);
-    const cp = instAddr.cp || opInputs.ccaa_cp || opInputs.cp || '';
-    const provCode = cp ? String(cp).substring(0, 2).padStart(2, '0') : '';
 
-    const locCA = (
-        instAddr.ccaa ||
-        (provCode ? PROV_CCAA[provCode] : '') || '—'
-    ).toUpperCase();
+    const locUtmX = inst.coord_x || loc.coord_x || opInputs.coordX || opInputs.coord_x || '';
+    const locUtmY = inst.coord_y || loc.coord_y || opInputs.coordY || opInputs.coord_y || '';
 
-    const locFullDir = instAddr.full || '—';
-    const locRefCat = instAddr.refCatastral || '—';
-    const locUtmX = inst.coord_x || loc.coord_x || opInputs.coordX || opInputs.coord_x || '—';
-    const locUtmY = inst.coord_y || loc.coord_y || opInputs.coordY || opInputs.coord_y || '—';
-
-    // Fallback to static URLs in preview if base64 not yet loaded
-    const logoAdminSrc = b64Logos.admin || '/logo-brokergy-admin.png';
+    // Fallback to static URL in preview if base64 not yet loaded
     const logoDocSrc = b64Logos.doc || '/logo_brokergy_doc.png';
 
     // ── LIGHTBOX ZOOM ─────────────────────────────────────────────────
     const handleCloseLightbox = () => { setZoomedPhoto(null); setZoomLevel(1); };
 
-    // ── COVER PAGE HTML ────────────────────────────────────────────────
-    const buildCoverHtml = () => {
-        const coverPhoto = photos.find(p => /unidad exterior/i.test(p.label || '') && p.file) || photos.find(p => p.file);
-        const coverImgHtml = coverPhoto
-            ? `<img src="${coverPhoto.file.data}" alt="Vista instalación" />`
-            : '<div style="width:200px;height:200px;background:#f0f0f0;border-radius:12px;display:flex;align-items:center;justify-content:center;color:#ccc;font-size:12pt;">Sin imagen</div>';
-
-        return `
-            <div class="doc-page cover-page" style="padding:0;">
-                <div class="cover-accent-bar"></div>
-                <div class="cover-top-band"></div>
-                <div class="cover-logo-area">
-                    <img src="${logoAdminSrc}" alt="Brokergy" />
-                </div>
-                <div class="cover-title-section">
-                    <p class="cover-subtitle">Documentación técnica</p>
-                    <h1>Reportaje<br/>Fotográfico<br/>de las Actuaciones</h1>
-                </div>
-                <div class="cover-photo-frame">
-                    ${coverImgHtml}
-                </div>
-                <div class="cover-info-table">
-                    <table>
-                        <tr><td colspan="2" class="tbl-heading">Identificación de la actuación de ahorro de energía</td></tr>
-                        <tr><td class="tbl-label">Comunidad Autónoma</td><td class="tbl-value">${locCA}</td></tr>
-                        <tr><td class="tbl-label">Dirección Postal</td><td class="tbl-value">${locFullDir}</td></tr>
-                        <tr><td class="tbl-label">Referencia Catastral</td><td class="tbl-value">${locRefCat}</td></tr>
-                        <tr><td class="tbl-label">Coordenadas UTM</td><td class="tbl-value">X: ${locUtmX} &nbsp;;&nbsp; Y: ${locUtmY}</td></tr>
-                    </table>
-                </div>
-                <div class="cover-decorative-circle"></div>
-                <div class="cover-decorative-circle-sm"></div>
-                <div class="cover-bottom-band">
-                    <img src="${logoDocSrc}" alt="Brokergy" />
-                </div>
-            </div>
-        `;
+    // ── DATOS DEL DOCUMENTO (portada + pies de página) ─────────────────
+    const docMeta = {
+        ca: instAddr.ccaa || '',
+        direccion: instAddr.full || '',
+        refCatastral: instAddr.refCatastral || '',
+        utmX: locUtmX,
+        utmY: locUtmY,
+        municipioLine: [instAddr.municipio, instAddr.provincia ? `(${instAddr.provincia})` : ''].filter(Boolean).join(' '),
+        numexpte,
+        logoSrc: logoDocSrc,
+        clienteNombre: [cli.nombre_razon_social, cli.apellidos].filter(Boolean).join(' '),
+        clienteDni: cli.dni || cli.nif || '',
     };
 
     // ── HTML GENERATION (FOR PDF) ──────────────────────────────────────
-    const buildHtml = () => {
-        const pages = [];
-        pages.push(buildCoverHtml());
-
-        // PHOTO PAGES
-        const photosWithFiles = photos.filter(p => p.file);
-        for (let i = 0; i < photosWithFiles.length; i += 2) {
-            const photo1 = photosWithFiles[i];
-            const photo2 = photosWithFiles[i + 1];
-            pages.push(`
-                <div class="doc-page">
-                    <div class="doc-page-content" style="display: flex; flex-direction: column; gap: 20px; padding-bottom: 70px;">
-                        <div class="photo-container" style="flex: 1;">
-                            <div class="photo-img-wrapper" style="height: ${photo2 ? '410px' : '820px'}; display: flex; align-items: center; justify-content: center;">
-                                <img src="${photo1.file.data}" style="max-width: ${getPhotoSize(photo1.id)}%; max-height: 100%; object-fit: contain;" />
-                            </div>
-                            <div class="photo-label">${photo1.label}</div>
-                        </div>
-                        ${photo2 ? `
-                        <div class="photo-container" style="flex: 1;">
-                            <div class="photo-img-wrapper" style="height: 410px; display: flex; align-items: center; justify-content: center;">
-                                <img src="${photo2.file.data}" style="max-width: ${getPhotoSize(photo2.id)}%; max-height: 100%; object-fit: contain;" />
-                            </div>
-                            <div class="photo-label">${photo2.label}</div>
-                        </div>
-                        ` : ''}
-                    </div>
-                    <div class="footer-bar">
-                        <img src="${logoDocSrc}" alt="Brokergy" />
-                        <span class="page-num">PAGE_X_OF_Y</span>
-                    </div>
-                </div>
-            `);
-        }
-        const totalPages = pages.length;
-        const finalPages = pages.map((p, i) => p.replace(/PAGE_X_OF_Y/g, `Página ${i + 1} | ${totalPages}`));
-        return `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>${PDF_CSS}</style></head><body>${finalPages.join('')}</body></html>`;
-    };
+    const buildHtml = () => buildAnexoFullHtml(photos, docMeta, { photoSizes });
 
     const handleDownloadPdf = async () => {
         setGenerating(true);
@@ -845,39 +438,8 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
         }
     };
 
-    const buildPreviewHtml = () => {
-        const pages = [];
-        // PORTADA (same cover as PDF)
-        pages.push(buildCoverHtml());
-
-        // PHOTO PAGES (with click-to-edit)
-        const photosWithFiles = photos.filter(p => p.file);
-        for (let i = 0; i < photosWithFiles.length; i += 2) {
-            const photo1 = photosWithFiles[i]; const photo2 = photosWithFiles[i + 1];
-            pages.push(`
-                <div class="doc-page">
-                    <div class="doc-page-content" style="display: flex; flex-direction: column; gap: 20px; padding-bottom: 70px;">
-                        <div class="photo-container" style="flex: 1; cursor: pointer;" onclick="window.__editPhoto && window.__editPhoto('${photo1.id}')" title="Haz clic para recortar">
-                            <div class="photo-img-wrapper" style="height: ${photo2 ? '410px' : '820px'}; display: flex; align-items: center; justify-content: center; position: relative;">
-                                <img src="${photo1.file.data}" style="max-width: ${getPhotoSize(photo1.id)}%; max-height: 100%; object-fit: contain;" />
-                                <div style="position:absolute;top:8px;right:8px;background:rgba(0,0,0,0.6);color:#fff;padding:4px 10px;border-radius:20px;font-size:8pt;font-weight:bold;text-transform:uppercase;letter-spacing:1px;opacity:0.7;">✂ Recortar</div>
-                            </div>
-                            <div class="photo-label">${photo1.label}</div>
-                        </div>
-                        ${photo2 ? `
-                        <div class="photo-container" style="flex: 1; cursor: pointer;" onclick="window.__editPhoto && window.__editPhoto('${photo2.id}')" title="Haz clic para recortar">
-                            <div class="photo-img-wrapper" style="height: 410px; display: flex; align-items: center; justify-content: center; position: relative;">
-                                <img src="${photo2.file.data}" style="max-width: ${getPhotoSize(photo2.id)}%; max-height: 100%; object-fit: contain;" />
-                                <div style="position:absolute;top:8px;right:8px;background:rgba(0,0,0,0.6);color:#fff;padding:4px 10px;border-radius:20px;font-size:8pt;font-weight:bold;text-transform:uppercase;letter-spacing:1px;opacity:0.7;">✂ Recortar</div>
-                            </div>
-                            <div class="photo-label">${photo2.label}</div>
-                        </div>` : ''}
-                    </div>
-                </div>
-            `);
-        }
-        return pages.join('');
-    };
+    // Preview: mismas páginas que el PDF, con clic-para-recortar en cada foto.
+    const buildPreviewHtml = () => buildAnexoPages(photos, docMeta, { preview: true, photoSizes });
 
     const loadedCount = photos.filter(p => p.file).length;
     const aeKwh = Math.round(results?.savingsKwh || results?.ahorroEnergiaFinalTotal || 0).toLocaleString('es-ES');
@@ -976,7 +538,7 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
                 {/* PREVIEW AREA */}
                 <div ref={containerRef} className="flex-1 overflow-auto bg-[#16181D] py-8 px-4 text-center">
                     <div className="inline-block text-left shadow-2xl" id="pdf-preview-canvas" style={{ transform: `scale(${scale})`, transformOrigin: 'top center', width: 794, flexShrink: 0 }}>
-                        <style dangerouslySetInnerHTML={{ __html: DOC_CSS }} />
+                        <style dangerouslySetInnerHTML={{ __html: ANEXO_SCREEN_CSS }} />
                         <div className="doc-wrap" dangerouslySetInnerHTML={{ __html: buildPreviewHtml() }} />
                     </div>
                 </div>

@@ -237,6 +237,112 @@ function createMcpServer() {
         }
     );
 
+    // ── Tool 7: Generar el Anexo Fotográfico (ESCRITURA / genera PDF) ──────────
+    // Delega en el backend (que tiene Drive + Puppeteer + el diseño). El MCP solo
+    // resuelve el número → id y dispara la generación con la clave interna
+    // compartida. NO clasifica fotos: exige que ya estén nombradas por slot.
+    mcp.tool(
+        'generar_anexo_fotografico',
+        'Genera el Anexo Fotográfico (reportaje fotográfico de las actuaciones) de un expediente a partir de las fotos YA nombradas por slot en la carpeta de Drive "12. DOCUMENTOS PARA CEE", lo guarda como PDF en "6. ANEXOS CAE" y lo deja enlazado en el expediente, listo para revisar/firmar. Úsalo cuando el usuario pida "genera/crea el anexo fotográfico del expediente NNN". Requiere que las fotos ya estén subidas y nombradas (FOTO_CALDERA_ANTES, FOTO_PLACA_CALDERA_ANTES, FOTO_UNIDAD_EXTERIOR_1, FOTO_VENTANAS_ANTES_1, FOTO_VENTANAS_DESPUES_1, ...). Este tool NO clasifica ni renombra fotos: si faltan, primero hay que subirlas con su nombre de slot.',
+        { numero: z.string().describe('Número del expediente, ej: 26RES080_51') },
+        async ({ numero }) => {
+            // Resolver número → id en la tabla base (como registrar_incidencia).
+            const { data: matches, error: findErr } = await supabase
+                .from('expedientes')
+                .select('id, numero_expediente')
+                .ilike('numero_expediente', `%${numero.replace(/\s/g, '')}%`);
+            if (findErr) return err(findErr.message);
+            if (!matches || matches.length === 0) {
+                return ok({ ok: false, message: `No se encontró ningún expediente que coincida con "${numero}".` });
+            }
+            if (matches.length > 1) {
+                return ok({
+                    ok: false,
+                    message: `Hay ${matches.length} expedientes que coinciden con "${numero}". Indica el número completo.`,
+                    coincidencias: matches.map(m => m.numero_expediente)
+                });
+            }
+            const exp = matches[0];
+
+            const base = process.env.BACKEND_INTERNAL_URL || 'http://backend:3000';
+            const key = process.env.INTERNAL_API_KEY;
+            if (!key) return err('INTERNAL_API_KEY no está configurada en el servidor MCP (añádela al .env).');
+
+            let resp, data;
+            try {
+                resp = await fetch(`${base}/api/expedientes/${exp.id}/anexo-fotografico/generar`, {
+                    method: 'POST',
+                    headers: { 'x-internal-key': key, 'Content-Type': 'application/json' },
+                    body: '{}',
+                });
+                data = await resp.json().catch(() => ({}));
+            } catch (e) {
+                return err(`No se pudo contactar con el backend para generar el anexo: ${e.message}`);
+            }
+            if (!resp.ok || !data.ok) {
+                return ok({
+                    ok: false,
+                    expediente: exp.numero_expediente,
+                    message: data.message || `Error ${resp.status} al generar el anexo fotográfico.`
+                });
+            }
+            return ok({
+                ok: true,
+                expediente: exp.numero_expediente,
+                link: data.link,
+                fotos: data.numPhotos,
+                actuaciones: data.numActuaciones,
+                grupos: data.groups,
+                message: `Anexo Fotográfico generado con ${data.numPhotos} foto(s) en ${data.numActuaciones} actuación(es) y guardado en "6. ANEXOS CAE". Enlazado en el expediente y listo para revisar/firmar.`
+            });
+        }
+    );
+
+    // ── Tool 8: Estado del Anexo Fotográfico (LECTURA) ────────────────────────
+    // Devuelve qué slots de foto espera el expediente (según sus actuaciones),
+    // cuáles ya tienen fotos en "12. DOCUMENTOS PARA CEE", cuáles faltan y el
+    // drive_folder_id. La skill lo usa para saber con qué NOMBRE renombrar cada
+    // foto y qué falta antes de generar.
+    mcp.tool(
+        'estado_anexo_fotografico',
+        'Consulta el estado del Anexo Fotográfico de un expediente ANTES de generarlo: qué slots de foto espera (según sus actuaciones: caldera/aerotermia, ventanas, cubierta, fachada...), cuáles YA tienen foto en "12. DOCUMENTOS PARA CEE", cuáles faltan, y el drive_folder_id del expediente. Úsalo para saber con qué nombre de slot renombrar cada foto y decidir si hace falta clasificar fotos de "2. FOTOS Y VIDEOS".',
+        { numero: z.string().describe('Número del expediente, ej: 26RES080_51') },
+        async ({ numero }) => {
+            const { data: matches, error: findErr } = await supabase
+                .from('expedientes')
+                .select('id, numero_expediente')
+                .ilike('numero_expediente', `%${numero.replace(/\s/g, '')}%`);
+            if (findErr) return err(findErr.message);
+            if (!matches || matches.length === 0) {
+                return ok({ ok: false, message: `No se encontró ningún expediente que coincida con "${numero}".` });
+            }
+            if (matches.length > 1) {
+                return ok({
+                    ok: false,
+                    message: `Hay ${matches.length} expedientes que coinciden con "${numero}". Indica el número completo.`,
+                    coincidencias: matches.map(m => m.numero_expediente)
+                });
+            }
+            const exp = matches[0];
+            const base = process.env.BACKEND_INTERNAL_URL || 'http://backend:3000';
+            const key = process.env.INTERNAL_API_KEY;
+            if (!key) return err('INTERNAL_API_KEY no está configurada en el servidor MCP (añádela al .env).');
+            let resp, data;
+            try {
+                resp = await fetch(`${base}/api/expedientes/${exp.id}/anexo-fotografico/estado`, {
+                    headers: { 'x-internal-key': key },
+                });
+                data = await resp.json().catch(() => ({}));
+            } catch (e) {
+                return err(`No se pudo contactar con el backend: ${e.message}`);
+            }
+            if (!resp.ok || !data.ok) {
+                return ok({ ok: false, expediente: exp.numero_expediente, message: data.message || `Error ${resp.status}.` });
+            }
+            return ok(data);
+        }
+    );
+
     return mcp;
 }
 
