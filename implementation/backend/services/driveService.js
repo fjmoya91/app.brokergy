@@ -118,47 +118,79 @@ async function setupOpportunityFolder(opportunityId, clientRef) {
 /**
  * Guarda un archivo (buffer) en una carpeta específica de Drive
  */
-async function saveFileToFolder(folderId, fileName, mimeType, fileBuffer) {
+// Detecta errores TRANSITORIOS de Drive/red que merecen reintento (no un fallo
+// permanente como "File not found" o "insufficient permissions").
+function isTransientDriveError(err) {
+    const status = Number(err?.code ?? err?.response?.status);
+    if ([429, 500, 502, 503, 504].includes(status)) return true;
+    const msg = `${err?.message || ''} ${err?.code || ''}`.toLowerCase();
+    return /\b(rate ?limit|ratelimitexceeded|userratelimit|quota|backenderror|backend error|internalerror|internal error|try again|timeout|econnreset|etimedout|eai_again|socket hang up|network)\b/.test(msg);
+}
+
+const _driveSleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Sube un archivo a una carpeta de Drive, con reintento automático ante errores
+ * transitorios (5xx / rate limit / red). El stream se recrea en cada intento
+ * porque un Readable solo puede consumirse una vez.
+ *
+ * @param {object} [opts]
+ * @param {boolean} [opts.throwOnError=false] Si true, lanza el error real de Drive
+ *        en vez de devolver null (para que el llamador muestre la causa exacta).
+ *        Por defecto false → mantiene el contrato histórico (null si falla).
+ * @param {number} [opts.retries=2] Número de reintentos ante errores transitorios.
+ */
+async function saveFileToFolder(folderId, fileName, mimeType, fileBuffer, opts = {}) {
+    const { throwOnError = false, retries = 2 } = opts;
+
     if (!fileBuffer || fileBuffer.length === 0) {
         console.error(`[DriveService] Error: Intento de guardar archivo vacío '${fileName}'`);
+        if (throwOnError) throw new Error(`El archivo '${fileName}' está vacío (0 bytes) y no se puede subir`);
         return null;
     }
     console.log(`[DriveService] Guardando archivo '${fileName}' en carpeta ${folderId}...`);
-    
+
     if (fileName.toLowerCase().includes('test')) {
         console.warn(`[DriveService] ALERTA: Detectada creación de archivo '${fileName}'. Stack trace:`);
         console.warn(new Error().stack);
     }
-    try {
-        const { Readable } = require('stream');
-        const readableStream = new Readable();
-        readableStream.push(fileBuffer);
-        readableStream.push(null);
 
-        const fileMetadata = {
-            name: fileName,
-            parents: [folderId]
-        };
-        const media = {
-            mimeType: mimeType,
-            body: readableStream
-        };
+    const { Readable } = require('stream');
+    let lastErr;
 
-        const file = await drive.files.create({
-            resource: fileMetadata,
-            media: media,
-            fields: 'id, webViewLink'
-        });
+    for (let attempt = 0; attempt <= retries; attempt++) {
+        try {
+            // Recrear el stream en CADA intento (un Readable es de un solo uso).
+            const readableStream = new Readable();
+            readableStream.push(fileBuffer);
+            readableStream.push(null);
 
-        console.log(`✅ Archivo guardado con éxito en Drive ID: ${file.data.id}`);
-        return {
-            id: file.data.id,
-            link: file.data.webViewLink
-        };
-    } catch (err) {
-        console.error('❌ Error fatal al subir archivo a Drive:', err.message);
-        return null;
+            const file = await drive.files.create({
+                resource: { name: fileName, parents: [folderId] },
+                media: { mimeType: mimeType, body: readableStream },
+                fields: 'id, webViewLink'
+            });
+
+            if (attempt > 0) {
+                console.log(`✅ Archivo '${fileName}' subido en el reintento ${attempt + 1}/${retries + 1}`);
+            }
+            console.log(`✅ Archivo guardado con éxito en Drive ID: ${file.data.id}`);
+            return { id: file.data.id, link: file.data.webViewLink };
+        } catch (err) {
+            lastErr = err;
+            const transient = isTransientDriveError(err);
+            console.error(`❌ Error al subir archivo a Drive '${fileName}' (intento ${attempt + 1}/${retries + 1}${transient ? ', transitorio' : ', permanente'}): ${err.message}`);
+            if (attempt < retries && transient) {
+                const wait = 600 * Math.pow(2, attempt); // 600ms, 1200ms, ...
+                await _driveSleep(wait);
+                continue;
+            }
+            break; // error permanente o sin reintentos restantes
+        }
     }
+
+    if (throwOnError) throw lastErr || new Error('Fallo desconocido al subir a Drive');
+    return null;
 }
 
 /**

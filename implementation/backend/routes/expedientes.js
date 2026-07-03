@@ -2010,7 +2010,13 @@ router.post('/:id/documents/upload', enforceAuth, async (req, res) => {
         }
 
         const fileBuffer = Buffer.from(base64, 'base64');
-        const result = await saveFileToFolder(currentFolderId, fileName, mimeType || 'application/octet-stream', fileBuffer);
+        let result;
+        try {
+            result = await saveFileToFolder(currentFolderId, fileName, mimeType || 'application/octet-stream', fileBuffer, { throwOnError: true });
+        } catch (driveErr) {
+            console.error(`[POST /documents/upload] Fallo al subir '${fileName}' a Drive (folder ${currentFolderId}): ${driveErr.message}`);
+            return res.status(502).json({ error: `Error al subir el archivo a Drive: ${driveErr.message}` });
+        }
 
         if (!result) return res.status(500).json({ error: 'Error al subir el archivo a Drive' });
 
