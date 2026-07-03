@@ -290,9 +290,6 @@ function buildCoverPage(actuaciones, meta) {
             </div>`;
     }).join('');
 
-    const clienteNombre = esc(meta.clienteNombre || '');
-    const clienteDni = esc(meta.clienteDni || '');
-
     return `
         <div class="doc-page">
             <div class="af-cover-ring"></div>
@@ -329,11 +326,7 @@ function buildCoverPage(actuaciones, meta) {
                     <div class="af-sec-head"><div class="chip"></div><h2>Firma del anexo fotográfico</h2></div>
                     <div class="af-firma-box">
                         <div style="flex:1">
-                            <div class="lbl">Firmado por el cliente</div>
-                            ${clienteNombre ? `<div class="val">${clienteNombre}${clienteDni ? ` · ${clienteDni}` : ''}</div>` : ''}
-                        </div>
-                        <div style="width:45mm">
-                            <div class="lbl">Fecha</div>
+                            <div class="lbl">Firmado por</div>
                         </div>
                     </div>
                     <div class="af-cover-footer">
