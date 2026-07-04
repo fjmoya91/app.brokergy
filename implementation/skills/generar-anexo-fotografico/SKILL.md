@@ -4,11 +4,12 @@ description: >-
   Genera el ANEXO FOTOGRÁFICO (reportaje fotográfico de las actuaciones) de un expediente CAE de
   BROKERGY y lo deja listo para firma. Úsalo cuando el usuario pida "genera/crea/prepara el anexo
   fotográfico del expediente NNN", "monta el reportaje fotográfico", o "deja las fotos del anexo listas
-  para firmar". La skill: (1) mira las fotos ya nombradas por slot en "12. DOCUMENTOS PARA CEE"; (2) si
-  faltan, CLASIFICA las fotos sueltas de "2. FOTOS Y VIDEOS" distinguiendo ANTES (situación inicial) de
-  DESPUÉS (actuación ejecutada) y las renombra al slot correcto; (3) dispara la generación del PDF, que
-  se guarda en "6. ANEXOS CAE" y queda enlazado en el expediente. NO rellena datos del expediente (eso
-  es rellenar-expediente) ni audita (eso es auditar-expediente).
+  para firmar". La skill resuelve la tipología (RES060/RES080/RES093), cruza cada actuación contra la
+  factura (o el presupuesto si aún no hay factura) para saber qué fotos corresponden de verdad, clasifica
+  y renombra al slot correcto las fotos sueltas de "2. FOTOS Y VIDEOS" que estén justificadas, registra
+  como incidencia LEVE cualquier anomalía (falta foto obligatoria, fotos sin respaldo en factura, o
+  factura sin fotos), y genera el PDF en "6. ANEXOS CAE" enlazado en el expediente. NO rellena datos del
+  expediente (eso es rellenar-expediente) ni audita (eso es auditar-expediente).
 ---
 
 # Generar Anexo Fotográfico (reportaje de actuaciones)
@@ -21,16 +22,24 @@ ventanas, aislamiento de cubierta/fachada…), y dentro de cada una por **fase A
 lo único que de verdad importa es que cada foto acabe en su **slot** correcto dentro de
 `12. DOCUMENTOS PARA CEE`. La maquetación (portada, índice, rejillas, pies) la hace el backend.
 
+**Principio rector (nuevo):** el anexo NO es solo un álbum de fotos — es un documento que se presenta al
+ministerio. Por eso **cada actuación fotografiada debe poder justificarse con la factura** (o, si aún no
+hay factura, con el presupuesto). Si hay fotos de algo que la factura no respalda, o al revés — factura
+que respalda algo sin fotos —, eso es una anomalía y hay que dejarlo **registrado como incidencia**, no
+resuelto por intuición.
+
 ## Herramientas
 - **MCP de BROKERGY** (canal con la app): `estado_anexo_fotografico` (lectura: qué slots espera el
-  expediente y cuáles ya tienen foto) y `generar_anexo_fotografico` (genera el PDF y lo enlaza). Es el
-  camino preferente porque no necesita ninguna clave.
+  expediente y cuáles ya tienen foto), `generar_anexo_fotografico` (genera el PDF y lo enlaza), y
+  `registrar_incidencia(numero, texto, severidad?, procedencia?)` para dejar constancia de cualquier cosa
+  rara. Es el camino preferente porque no necesita ninguna clave.
+- **MCP de Supabase** (`execute_sql`, project_id `okfeopwetlxdffrsbfqw`): para resolver la **tipología**
+  del expediente (`oportunidades.ficha`) y leer `documentacion.facturas` (conceptos ya extraídos por
+  `rellenar-expediente`, si se ha ejecutado antes).
 - **MCP de Google Drive**: `search_files`, `get_file_metadata`, `read_file_content` /
   `download_file_content`, `copy_file`, `create_file`. ⚠️ **Drive solo COPIA y CREA: no mueve ni borra.**
   Puedes copiar una foto a `12. DOCUMENTOS PARA CEE` con su nombre de slot, pero NO borrar duplicados ni
   limpiar (eso lo hace la app o el usuario; repórtalo como pendiente).
-- **MCP de Supabase** (`execute_sql`, project_id `okfeopwetlxdffrsbfqw`): solo como respaldo para
-  resolver el `drive_folder_id` si hiciera falta.
 
 ## Entrada
 El usuario indica el expediente por `numero_expediente` (ej. `26RES080_58`). Si no lo da, pídelo en una
@@ -39,6 +48,40 @@ línea.
 ---
 
 ## Procedimiento
+
+### 0. Resolver tipología y base económica de justificación
+
+**0.1 Tipología.** Consulta:
+```sql
+select e.id exp_id, e.numero_expediente, o.ficha, e.documentacion->'facturas' as facturas,
+       e.datos_calculo, o.datos_calculo as op_datos_calculo
+from expedientes e join oportunidades o on o.id = e.oportunidad_id
+where e.numero_expediente = :num;
+```
+- `RES060` = **solo aerotermia** (sustitución del generador). No hay envolvente que justificar: la
+  aerotermia ES la actuación, siempre.
+- `RES080` = **envolvente + instalaciones térmicas**. Puede incluir aerotermia, ventanas, cubierta,
+  fachada, suelo, placas solares — pero solo las que la factura/presupuesto realmente recoja.
+- `RES093` (hibridación) = trátalo como aerotermia (mismas reglas que RES060) salvo que detectes en el
+  CIFO/factura que hay además una actuación de envolvente; si tienes dudas sobre si la caldera coexiste o
+  se retira, no lo asumas — repórtalo como algo a revisar en vez de decidirlo tú.
+
+**0.2 Base de justificación (factura, o presupuesto si aún no hay factura).**
+- Primero mira `documentacion.facturas` (columna JSONB ya leída en la query anterior). Si tiene entradas
+  con `concepto`, esa es tu fuente: únelas en un solo texto y razona semánticamente sobre qué actuaciones
+  cubren (no hace falta match literal de palabra — "sustitución de generador de calor por bomba
+  aerotérmica Toshiba Estia" SÍ justifica aerotermia).
+- Si `documentacion.facturas` está vacío o sin conceptos útiles, busca el presupuesto: subcarpeta
+  `0. PRESUPUESTO` en Drive, léelo con `read_file_content` y razona igual sobre sus líneas.
+- **Si NINGUNA de las dos existe o es legible** (expediente muy inicial, sin factura ni presupuesto
+  aportado): **para aquí**. No clasifiques fotos ni generes el anexo — sin una base económica no hay
+  forma de justificar qué actuación corresponde a qué foto. Registra una incidencia LEVE
+  (`registrar_incidencia`) con texto tipo *"No se encontró factura ni presupuesto legible; no se puede
+  generar el Anexo Fotográfico hasta que se aporte uno de los dos."* e informa al usuario. Fin del
+  procedimiento.
+
+Guarda mentalmente, para cada actuación posible (aerotermia/caldera, ACS, ventanas, cubierta, fachada,
+suelo, placas solares), si la factura/presupuesto la **justifica** o no. Esto gobierna todo lo que sigue.
 
 ### 1. Leer el estado del anexo
 Llama a `estado_anexo_fotografico(numero)`. Te devuelve:
@@ -50,8 +93,11 @@ Llama a `estado_anexo_fotografico(numero)`. Te devuelve:
 - `faltan[]` — slots sin ninguna foto todavía.
 - `anexo_link_actual` — si ya había un anexo generado (se regenerará/actualizará).
 
-Si `faltan` está vacío y `presentes` cubre lo esperado → salta al paso 4 (generar). Si faltan slots,
-sigue al paso 2 para intentar completarlos desde las fotos sueltas.
+Cruza `slots[]`/`presentes[]` con lo que decidiste en el paso 0: si algún slot **presente** pertenece a
+una actuación que la factura/presupuesto **no** justifica, márcalo para excluir del anexo (ver paso 3).
+
+Si `faltan` está vacío y todo lo presente está justificado → salta al paso 4 (chequeo de completitud) y
+luego al 5 (generar). Si faltan slots de actuaciones justificadas, sigue al paso 2.
 
 ### 2. Localizar las fotos candidatas en Drive
 Bajo `drive_folder_id`, lista las subcarpetas con `search_files`
@@ -65,9 +111,22 @@ Lista los ficheros de imagen de cada carpeta (`search_files parentId=...`, quéd
 webp/heic). Ignora vídeos (`.mp4`, `.mov`) para el anexo.
 
 ### 3. Clasificar y renombrar (el núcleo de la skill)
-Para cada slot en `faltan` (y solo esos: **no dupliques** lo que ya está en `presentes`), busca entre
-las candidatas la(s) foto(s) que le correspondan. **Mira la imagen** (`read_file_content` /
-`download_file_content`) cuando el nombre no lo deje claro.
+
+**Filtro previo (justificación económica):** antes de clasificar nada, agrupa las fotos candidatas por
+qué actuación parecen mostrar (a ojo: caldera vieja, unidad de aerotermia, ventanas, termo/ACS…). Para
+cada grupo:
+- Si la actuación **está justificada** (paso 0.2) → sigue clasificando ese grupo normalmente.
+- Si la actuación **NO está justificada** por factura/presupuesto → **no la copies a ningún slot ni la
+  incluyas en el anexo**, aunque las fotos existan y estén claras. Anótala para la incidencia del paso 4
+  (ej.: "hay fotos de ventanas nuevas pero la factura no incluye ninguna partida de carpintería/ventanas
+  — revisar si falta facturar o si no debían fotografiarse").
+- **Caso ACS explícito** (lo pidió el usuario, aunque ya se cubre por la regla general): si encuentras
+  fotos de ACS (termo antiguo, depósito nuevo) pero ni la factura/presupuesto ni los datos del expediente
+  mencionan una actuación de ACS, **no las metas** en el anexo. Anótalo igual que el resto.
+
+Para cada slot en `faltan` **cuya actuación SÍ está justificada** (y solo esos: **no dupliques** lo que
+ya está en `presentes`), busca entre las candidatas ya filtradas la(s) foto(s) que le correspondan. **Mira
+la imagen** (`read_file_content` / `download_file_content`) cuando el nombre no lo deje claro.
 
 **ANTES (situación inicial) vs DESPUÉS (actuación ejecutada):**
 - **ANTES** = lo viejo que se retira: caldera antigua (de gasóleo/gas, chapa esmaltada, quemador,
@@ -84,15 +143,17 @@ habituales):
 - `FOTO_CALDERA_ANTES` = foto general de la caldera/generador antiguo.
 - `FOTO_PLACA_CALDERA_ANTES` = primer plano de la **placa/etiqueta** de la caldera (marca, modelo,
   potencia, nº de serie). Distínguela de la foto general: la placa es un plano cercano de la etiqueta.
-- `FOTO_ACS_ANTES` = sistema de agua caliente anterior (termo eléctrico o conexión de ACS).
+- `FOTO_ACS_ANTES` = sistema de agua caliente anterior (termo eléctrico o conexión de ACS). Solo si ACS
+  está justificado (ver filtro previo).
 - `FOTO_UNIDAD_EXTERIOR` = unidad exterior nueva instalada.
 - `FOTO_UNIDAD_EXTERIOR_PLACA` = placa/etiqueta de la unidad exterior.
 - `FOTO_UNIDAD_INTERIOR` / `FOTO_UNIDAD_INTERIOR_PLACA` = unidad interior/hidrokit y su placa.
-- `FOTO_ACS_DEPOSITO` = depósito de ACS nuevo.
+- `FOTO_ACS_DEPOSITO` = depósito de ACS nuevo. Solo si ACS está justificado.
 - `FOTO_CALDERA_DESMONTADA` = hueco/estado tras retirar la caldera antigua.
-- `FOTO_VENTANAS_ANTES` / `FOTO_VENTANAS_DESPUES` = ventanas a sustituir / ventanas nuevas.
+- `FOTO_VENTANAS_ANTES` / `FOTO_VENTANAS_DESPUES` = ventanas a sustituir / ventanas nuevas. Solo si la
+  factura/presupuesto incluye partida de ventanas/carpintería.
 - `FOTO_CUBIERTA_ANTES/DESPUES`, `FOTO_FACHADA_ANTES/DESPUES`, `FOTO_SUELO_ANTES`, `FOTO_PLACAS_SOLARES`
-  según lo que devuelva `slots[]`.
+  según lo que devuelva `slots[]` — cada uno solo si su actuación está justificada.
 
 **Regla de oro:** ante la duda de fase o de slot, **no adivines**: deja esa foto fuera y anótala como
 "revisar". Etiquetar mal una foto corrompe un documento que se firma y se presenta al ministerio; es
@@ -110,21 +171,49 @@ peor que dejar el slot vacío.
 Ve marcando qué has colocado. Cuando termines, **relee** el estado con `estado_anexo_fotografico` para
 confirmar que los slots que querías completar ya figuran en `presentes`.
 
-### 4. Generar el anexo
+### 4. Chequeo de completitud y registro de incidencias
+
+Antes de generar, registra una incidencia **LEVE** (`registrar_incidencia(numero, texto, severidad:
+'LEVE', procedencia:'AGENTE_IA')`) por cada anomalía que detectes. Una incidencia por anomalía, texto
+claro y accionable. No bloquea la generación (genera igualmente con lo que sí está limpio), pero deja
+constancia para que el equipo revise.
+
+**Obligatorio siempre en RES060 (y en la parte de aerotermia de cualquier ficha):** la aerotermia es la
+actuación por definición, así que si tras el paso 3 siguen faltando estos slots, es SIEMPRE una
+incidencia (no una opción, no depende de la factura):
+- `FOTO_CALDERA_ANTES` — falta foto de la caldera antigua.
+- `FOTO_PLACA_CALDERA_ANTES` — falta foto de la placa de la caldera antigua.
+- `FOTO_UNIDAD_EXTERIOR` — falta foto de la unidad exterior nueva.
+- `FOTO_UNIDAD_EXTERIOR_PLACA` — falta foto de la placa de la unidad exterior.
+
+**Para el resto de actuaciones (RES080: ventanas, cubierta, fachada, suelo, placas solares, ACS):**
+registra incidencia si:
+- La factura/presupuesto **justifica** la actuación pero no hay ninguna foto ANTES o DESPUÉS de ella en
+  Drive (ni en `12. DOCUMENTOS PARA CEE` ni en `2. FOTOS Y VIDEOS`) → *"Factura indica <actuación> pero no
+  hay fotos que lo documenten — falta aportarlas."*
+- Hay fotos de una actuación que la factura/presupuesto **no** justifica (las que excluiste en el paso 3)
+  → *"Hay fotos de <actuación> en Drive pero no aparece en factura/presupuesto — no se han incluido en el
+  anexo. Revisar si falta facturar la partida o si las fotos están mal ubicadas."*
+- Encontraste fotos que no supiste clasificar con confianza (regla de oro del paso 3) →
+  *"Fotos sin clasificar en <carpeta>: <nombres>. Revisar manualmente fase/slot."*
+
+### 5. Generar el anexo
 Llama a `generar_anexo_fotografico(numero)`. El backend recopila las fotos de `12. DOCUMENTOS PARA CEE`,
 construye el PDF con el diseño oficial, lo guarda en **`6. ANEXOS CAE`** como `<numExpte> - Anexo
 Fotografico.pdf` y deja el enlace en el expediente (`documentacion.anexo_fotografico_drive_link`).
 Devuelve `link`, `numPhotos`, `numActuaciones` y el desglose por grupo.
 
 Si responde que **no hay fotos** por slot, es que el paso 3 no colocó ninguna: revisa que copiaste a la
-carpeta correcta con el nombre de slot exacto.
+carpeta correcta con el nombre de slot exacto, o que no excluiste todo por falta de justificación (en ese
+caso el paso 0.2 ya debería haber parado el procedimiento).
 
-### 5. Informe final
+### 6. Informe final
 Resume al usuario:
 - Enlace al PDF generado (el de `6. ANEXOS CAE`).
-- Qué actuaciones y cuántas fotos por fase entraron.
-- Qué slots quedaron **sin cubrir** y por qué (no había foto / foto dudosa dejada para revisar), para
-  que el usuario complete o valide antes de enviar a firma.
+- Qué actuaciones y cuántas fotos por fase entraron (y cuáles se dejaron fuera por falta de
+  justificación).
+- Cuántas incidencias LEVE se han registrado en el expediente (con un resumen de una línea cada una) para
+  que el usuario las revise en la ficha del expediente.
 - Recuerda que la firma se recoge por el flujo existente de la app (`/firmar-anexos/:id`): esta skill
   deja el anexo **generado y enlazado**, listo para enviarlo a firmar; no lo envía por sí sola salvo que
   el usuario lo pida.
@@ -135,5 +224,7 @@ Resume al usuario:
   puedes limpiarlos desde aquí.
 - **Solo actuaciones**: las fotos de contexto (fachada de la calle, patios interiores, patio de luces)
   NO van al anexo aunque existan; el backend ya las excluye.
+- **La factura/presupuesto manda sobre las fotos**: aunque haya fotos claras y bien etiquetadas de una
+  actuación, si no está en la factura/presupuesto NO entra en el anexo — se avisa en su lugar.
 - Si el expediente aún no tiene fotos del DESPUÉS (obra sin ejecutar/terminar), el anexo saldrá solo con
-  el ANTES: es correcto, avísalo.
+  el ANTES: es correcto, avísalo (no es una incidencia si la factura tampoco refleja aún esa fase).
