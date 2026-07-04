@@ -1,0 +1,47 @@
+name: Mobile Android (APK)
+
+# Genera un APK instalable directamente en cualquier Android (distribución interna).
+# Lanzar a mano desde GitHub → Actions → "Mobile Android (APK)" → Run workflow.
+on:
+  workflow_dispatch:
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: implementation/frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: implementation/frontend/package-lock.json
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Install deps
+        run: npm ci
+
+      # Fase 1: la app carga https://app.brokergy.es (server.url en capacitor.config.json),
+      # así que el contenido de dist/ no se usa en runtime; el build solo alimenta cap sync.
+      - name: Build web
+        run: npm run build
+
+      - name: Capacitor sync
+        run: npx cap sync android
+
+      - name: Build debug APK
+        run: ./gradlew assembleDebug
+        working-directory: implementation/frontend/android
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: brokergy-debug-apk
+          path: implementation/frontend/android/app/build/outputs/apk/debug/app-debug.apk

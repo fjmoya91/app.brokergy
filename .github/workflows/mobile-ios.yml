@@ -1,0 +1,48 @@
+name: Mobile iOS
+
+# Compila la app iOS en un runner macOS de GitHub (no hace falta Mac propio).
+# SIN cuenta Apple Developer: este workflow valida la compilación (sin firma).
+# CON cuenta: descomentar el bloque de firma + TestFlight y crear los secrets indicados.
+on:
+  workflow_dispatch:
+
+jobs:
+  build-ios:
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: implementation/frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: implementation/frontend/package-lock.json
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Build web
+        run: npm run build
+
+      - name: Capacitor sync (instala Pods)
+        run: npx cap sync ios
+
+      - name: Build (sin firma, valida compilación)
+        run: |
+          xcodebuild -workspace ios/App/App.xcworkspace \
+            -scheme App -configuration Release -sdk iphoneos \
+            CODE_SIGNING_ALLOWED=NO build
+
+      # ── FIRMA + TESTFLIGHT (requiere cuenta Apple Developer, 99 €/año) ──
+      # Secrets necesarios en GitHub → Settings → Secrets and variables → Actions:
+      #   IOS_CERT_P12_BASE64        certificado de distribución (.p12 en base64)
+      #   IOS_CERT_PASSWORD          contraseña del .p12
+      #   IOS_PROVISIONING_PROFILE   perfil de aprovisionamiento App Store (base64)
+      #   APPSTORE_ISSUER_ID / APPSTORE_KEY_ID / APPSTORE_PRIVATE_KEY  (API key de App Store Connect)
+      # Pasos (descomentar cuando existan los secrets):
+      #   1. Importar cert y perfil al keychain (apple-actions/import-codesign-certs).
+      #   2. xcodebuild archive + exportArchive con método app-store.
+      #   3. Subir a TestFlight con apple-actions/upload-testflight-build.

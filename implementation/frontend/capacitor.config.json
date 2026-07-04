@@ -1,0 +1,25 @@
+{
+  "appId": "es.brokergy.app",
+  "appName": "Brokergy",
+  "webDir": "dist",
+  "server": {
+    "url": "https://app.brokergy.es",
+    "allowNavigation": ["app.brokergy.es"]
+  },
+  "ios": {
+    "contentInset": "always",
+    "backgroundColor": "#08090C"
+  },
+  "android": {
+    "backgroundColor": "#08090C",
+    "allowMixedContent": false
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 1500,
+      "launchAutoHide": true,
+      "backgroundColor": "#08090C",
+      "showSpinner": false
+    }
+  }
+}

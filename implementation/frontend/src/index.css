@@ -88,10 +88,24 @@ body {
   font-family: var(--font-family);
   background: var(--app-bg);
   min-height: 100vh;
+  /* dvh: en móvil (Safari/WebView) 100vh no descuenta las barras dinámicas del sistema */
+  min-height: 100dvh;
   color: white;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   transition: background-color 0.25s ease, color 0.25s ease;
+}
+
+/* Safe areas (notch / Dynamic Island / home indicator) — solo aplican cuando la app
+   corre a pantalla completa (PWA instalada o WebView Capacitor con viewport-fit=cover).
+   En navegador de escritorio env() vale 0 y esto es inerte. */
+@media (display-mode: standalone), (display-mode: fullscreen) {
+  body {
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
 }
 
 /* ===================================

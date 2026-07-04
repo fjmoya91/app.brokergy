@@ -5,6 +5,10 @@ import App from './App.jsx'
 import { AuthProvider } from './context/AuthContext'
 import { ModalProvider } from './context/ModalContext'
 import { ThemeProvider } from './context/ThemeContext'
+import { initNativeBridge } from './native/nativeBridge'
+
+// Repara descargas/enlaces dentro de la app nativa (Capacitor). Inerte en web/PWA.
+initNativeBridge()
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
