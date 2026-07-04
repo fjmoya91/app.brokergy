@@ -37,7 +37,9 @@ jobs:
         run: npx cap sync android
 
       - name: Build debug APK
-        run: ./gradlew assembleDebug
+        run: |
+          chmod +x ./gradlew
+          ./gradlew assembleDebug
         working-directory: implementation/frontend/android
 
       - name: Upload APK
