@@ -191,12 +191,21 @@ async function createExpediente(uuid_oportunidad, id_cliente, manualNumber = nul
 
         const programa = isReformaInternal ? 'RES080' : (isHybridInternal ? 'RES093' : 'RES060');
 
+        // Decisión del cliente en la firma sobre el CEE inicial (si aportó uno):
+        // 'usar_cee_aportado' → NO se pide un CEE nuevo al certificador; queda para revisión interna.
+        // 'calcular_cee_nuevo' (o sin decisión) → flujo normal (se solicita CEE al certificador).
+        const ceeDecision = op.datos_calculo?.cee_decision || null;
+        const clienteAportaCee = ceeDecision === 'usar_cee_aportado' && !!opInputs.cee_previo;
+
         const cee = {
             tipo: opInputs.demandMode === 'real' ? 'xml' : 'aportado',
             is_reforma: programa === 'RES080',
             cee_inicial: opInputs.xmlDemandData || null,
             cee_final: null,
-            demanda_calefaccion_manual: opInputs.demandaCalefaccionManual || null
+            demanda_calefaccion_manual: opInputs.demandaCalefaccionManual || null,
+            cee_decision: ceeDecision,
+            cliente_aporta_cee: clienteAportaCee,
+            cee_previo_data: clienteAportaCee ? (opInputs.cee_previo || null) : null
         };
 
         // 4. Generar Número de Expediente Oficial (YYPROGRAMA_XXXX) o usar el manual
@@ -269,7 +278,9 @@ async function createExpediente(uuid_oportunidad, id_cliente, manualNumber = nul
                 photo_attachments: op.datos_calculo?.inputs?.photo_attachments || null
             },
             seguimiento: {
-                cee_inicial: 'PTE_ENVIO_CERT',
+                // Si el cliente aporta su CEE inicial, NO se solicita uno nuevo al certificador:
+                // queda pendiente de REVISIÓN interna por Brokergy en lugar de envío al certificador.
+                cee_inicial: clienteAportaCee ? 'PTE_REVISION' : 'PTE_ENVIO_CERT',
                 cee_final: 'PTE_ENVIO_CERT',
                 anexos: 'PTE_EMITIR'
             }

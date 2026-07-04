@@ -277,7 +277,9 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, a
                 fecha_inicio: toDdMmYyyy(doc.fecha_inicio_res080 || doc.fecha_inicio_cifo || doc.fecha_visita_cee_inicial),
                 fecha_fin: toDdMmYyyy(doc.fecha_fin_res080 || doc.fecha_fin_cifo || doc.fecha_firma_cee_final),
                 descripcion_ventanas: env.descripcion_ventanas || editableRef.current.descripcion_ventanas || 'Se sustituyen las ventanas actuales por unas con mejores prestaciones térmicas y hermeticidad.',
-                descripcion_termica: doc.descripcion_termica || editableRef.current.descripcion_termica,
+                descripcion_termica: doc.descripcion_termica || (inst.cambio_acs === false
+                    ? 'Sustitución del sistema de calefacción existente por bomba de calor aerotérmica de alta eficiencia. La instalación de ACS existente se mantiene sin cambios.'
+                    : editableRef.current.descripcion_termica),
                 descripcion_envolvente: env.descripcion_cerramientos || editableRef.current.descripcion_envolvente || 'Se ha llevado a cabo la rehabilitación energética...',
                 aislamiento_muros_sn: env.aislamiento_muros === true ? 'SÍ' : 'NO',
                 aislamiento_muros_tipo: env.aislamiento_muros_tipo || editableRef.current.aislamiento_muros_tipo || '—',
@@ -620,12 +622,14 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, a
     const calExBrand = inst.caldera_antigua_cal?.marca || '—';
     const calExMod   = inst.caldera_antigua_cal?.modelo || '—';
     const calExSerie = inst.caldera_antigua_cal?.numero_serie || '—';
+    const calExTipoEq = inst.caldera_antigua_cal?.tipo_equipo || 'Caldera';
     // Rendimiento/combustible de la caldera antigua derivados de rendimiento_id
     // (BOILER_EFFICIENCIES), igual que el CIFO RES060 — no hay campos combustible/rendimiento.
     const calEffEntry = BOILER_EFFICIENCIES.find(b => b.id === (inst.caldera_antigua_cal?.rendimiento_id || 'default')) || BOILER_EFFICIENCIES[0];
-    const calExFuel  = calEffEntry.id !== 'default' ? calEffEntry.label.split(',')[0].trim() : (inst.caldera_antigua_cal?.combustible || '—');
-    const calExEff   = calEffEntry.value;
-    
+    const calExFuel  = calEffEntry.id === 'electric' ? 'Electricidad'
+        : calEffEntry.id !== 'default' ? calEffEntry.label.split(',')[0].trim()
+        : (inst.caldera_antigua_cal?.combustible || '—');
+
     const calNuBrand = inst.aerotermia_cal?.marca || '—';
     const calNuMod   = inst.aerotermia_cal?.modelo || '—';
     const calNuScop  = inst.aerotermia_cal?.scop || '—';
@@ -634,9 +638,13 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, a
     const acsExBrand = inst.caldera_antigua_acs?.marca || calExBrand;
     const acsExMod   = inst.caldera_antigua_acs?.modelo || calExMod;
     const acsExSerie = inst.caldera_antigua_acs?.numero_serie || calExSerie;
+    const acsExTipoEq = inst.caldera_antigua_acs?.tipo_equipo || calExTipoEq;
     const acsEffEntry = BOILER_EFFICIENCIES.find(b => b.id === (inst.caldera_antigua_acs?.rendimiento_id || inst.caldera_antigua_cal?.rendimiento_id || 'default')) || calEffEntry;
-    const acsExFuel  = acsEffEntry.id !== 'default' ? acsEffEntry.label.split(',')[0].trim() : (inst.caldera_antigua_acs?.combustible || calExFuel);
-    const acsExEff   = acsEffEntry.value;
+    const acsExFuel  = acsEffEntry.id === 'electric' ? 'Electricidad'
+        : acsEffEntry.id !== 'default' ? acsEffEntry.label.split(',')[0].trim()
+        : (inst.caldera_antigua_acs?.combustible || calExFuel);
+    // ¿Se actúa sobre el ACS? Si cambio_acs === false, se conserva la instalación existente (no se sustituye).
+    const acsSeActua = inst.cambio_acs !== false;
 
     const sameAero = !!inst.misma_aerotermia_acs;
     const acsNuBrand = sameAero ? calNuBrand : (inst.aerotermia_acs?.marca || '—');
@@ -863,22 +871,31 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, a
                 <table class="doc-table">
                     <tr><td colspan="3" class="heading">Datos de la instalación térmica (Calefacción)</td></tr>
                     <tr class="text-center font-bold bg-gray"><td>COMPARATIVA</td><td>EXISTENTE</td><td>NUEVA</td></tr>
-                    <tr><td class="lbl">Tipo de equipo</td><td>${calExBrand === '—' ? 'Caldera estándar' : 'Caldera'}</td><td>Bomba de Calor (Aerotermia)</td></tr>
+                    <tr><td class="lbl">Tipo de equipo</td><td>${calExTipoEq}</td><td>Bomba de Calor (Aerotermia)</td></tr>
                     <tr><td class="lbl">Marca</td><td>${calExBrand}</td><td>${calNuBrand}</td></tr>
                     <tr><td class="lbl">Modelo</td><td>${calExMod}</td><td>${calNuMod}</td></tr>
                     <tr><td class="lbl">Combustible</td><td>${calExFuel}</td><td>Electricidad</td></tr>
                     <tr><td class="lbl">Nº serie unidad exterior</td><td>${calExSerie}</td><td>${calNuSerieOut}</td></tr>
-                    <tr><td class="lbl">SCOP / Rendimiento</td><td class="text-center">${calExEff.toFixed(2)} <sup>(1)</sup></td><td class="text-center">${calNuScop} <sup>(2)</sup></td></tr>
+                    <tr><td class="lbl">SCOP / Rendimiento</td><td class="text-center">Según CEE inicial <sup>(1)</sup></td><td class="text-center">${calNuScop} <sup>(2)</sup></td></tr>
                 </table>
                 <table class="doc-table">
                     <tr><td colspan="3" class="heading">Datos de la instalación Agua Caliente Sanitaria (ACS)</td></tr>
                     <tr class="text-center font-bold bg-gray"><td>COMPARATIVA</td><td>EXISTENTE</td><td>NUEVA</td></tr>
-                    <tr><td class="lbl">Tipo de equipo</td><td>${acsExBrand === '—' ? 'Caldera estándar' : 'Caldera'}</td><td>${inst.cambio_acs === false ? 'No se cambia' : 'Bomba de Calor'}</td></tr>
+                    ${acsSeActua ? `
+                    <tr><td class="lbl">Tipo de equipo</td><td>${acsExTipoEq}</td><td>Bomba de Calor</td></tr>
                     <tr><td class="lbl">Marca</td><td>${acsExBrand}</td><td>${acsNuBrand}</td></tr>
                     <tr><td class="lbl">Modelo</td><td>${acsExMod}</td><td>${acsNuMod}</td></tr>
                     <tr><td class="lbl">Combustible</td><td>${acsExFuel}</td><td>Electricidad</td></tr>
                     <tr><td class="lbl">Nº serie Equipo de ACS</td><td>${acsExSerie}</td><td>${acsNuSerie}</td></tr>
-                    <tr><td class="lbl">SCOP / Rendimiento</td><td class="text-center">${acsExEff.toFixed(2)} <sup>(1)</sup></td><td class="text-center">${acsNuScop} <sup>(3)</sup></td></tr>
+                    <tr><td class="lbl">SCOP / Rendimiento</td><td class="text-center">Según CEE inicial <sup>(1)</sup></td><td class="text-center">${acsNuScop} <sup>(3)</sup></td></tr>
+                    ` : `
+                    <tr><td class="lbl">Tipo de equipo</td><td>${acsExTipoEq}</td><td rowspan="6" class="text-center" style="vertical-align: middle; font-weight: bold; font-style: italic; color: #444;">Se mantiene la instalación existente</td></tr>
+                    <tr><td class="lbl">Marca</td><td>${acsExBrand}</td></tr>
+                    <tr><td class="lbl">Modelo</td><td>${acsExMod}</td></tr>
+                    <tr><td class="lbl">Combustible</td><td>${acsExFuel}</td></tr>
+                    <tr><td class="lbl">Nº serie Equipo de ACS</td><td>${acsExSerie}</td></tr>
+                    <tr><td class="lbl">SCOP / Rendimiento</td><td class="text-center">Según CEE inicial <sup>(1)</sup></td></tr>
+                    `}
                 </table>
                 <table class="doc-table">
                     <tr><td colspan="2" class="heading">Datos de la empresa instaladora</td></tr>
@@ -889,11 +906,9 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, a
                 <div style="margin-top: 12px; font-size: 8.5pt; line-height: 1.5;">
                     <strong>Observaciones:</strong>
                     <ul style="margin: 4px 0 0 0; padding-left: 16px; list-style: none;">
-                        <li><sup>(1)</sup> ${calEffEntry.id === acsEffEntry.id
-                            ? `Se ha utilizado un rendimiento estacional de <strong>${calExEff.toFixed(2).replace('.', ',')}</strong>, al tratarse de una caldera de <strong>${calEffEntry.label}</strong>`
-                            : `Se han utilizado rendimientos estacionales de <strong>${calExEff.toFixed(2).replace('.', ',')}</strong> (calefacción, caldera de ${calEffEntry.label}) y <strong>${acsExEff.toFixed(2).replace('.', ',')}</strong> (ACS, caldera de ${acsEffEntry.label})`}, según el programa oficial de Certificación Energética CE3X y conforme a las indicaciones del Ministerio para la Transición Ecológica y el Reto Demográfico recogidas en los criterios de verificación <em>"24/11.03: Rendimientos estacionales vs. nominales en fichas IND040, RES060, RES090-099, TER100 y TER170-179"</em>.</li>
+                        <li><sup>(1)</sup> El rendimiento estacional de la caldera existente es el que consta en el Certificado de Eficiencia Energética Inicial, determinado por el programa oficial de Certificación Energética CE3X en función de su tipología, antigüedad y aislamiento indicados por el técnico certificador.</li>
                         <li style="margin-top: 4px;"><sup>(2)</sup> Según ficha técnica aportada por el fabricante y/o para unos cálculos realizados según indican los anexos III y IV de la ficha RES060 de la Orden TED/845/2023, de 18 de julio.</li>
-                        <li style="margin-top: 4px;"><sup>(3)</sup> Según ficha técnica aportada por el fabricante y/o para unos cálculos realizados según indican los anexos III, V y VI de la ficha RES060 de la Orden TED/845/2023, de 18 de julio.</li>
+                        ${acsSeActua ? `<li style="margin-top: 4px;"><sup>(3)</sup> Según ficha técnica aportada por el fabricante y/o para unos cálculos realizados según indican los anexos III, V y VI de la ficha RES060 de la Orden TED/845/2023, de 18 de julio.</li>` : ''}
                         <li style="margin-top: 4px;">- La duración indicativa de la actuación (Di) es de 15 años según Recomendación (UE) 2019/1658, de la Comisión, de 25 de septiembre, relativa a la transposición de la obligación de ahorro de energía en virtud de la Directiva de eficiencia energética.</li>
                         <li style="margin-top: 4px;">- Se adjunta anexo al presente certificado las fichas técnicas de los nuevos equipos instalados.</li>
                     </ul>
@@ -1653,7 +1668,10 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, a
                 <div className="flex-shrink-0 flex items-center justify-between px-5 py-3 border-b border-white/[0.07]">
                     <div className="flex items-center gap-3">
                         <button onClick={onClose} className="text-white/30 hover:text-white transition-colors p-1"><svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg></button>
-                        <div className="border-l border-white/10 pl-3"><h2 className="text-sm font-black text-white tracking-widest uppercase mb-0.5">Certificado RES080</h2><p className="text-white/30 text-[10px] uppercase font-bold tracking-wider">{numExpte}</p></div>
+                        <div className="border-l border-white/10 pl-3">
+                            <h2 className="text-sm font-black text-white tracking-wider uppercase">Certificado RES080</h2>
+                            <p className="text-white/30 text-xs mt-0.5">{numExpte}</p>
+                        </div>
                     </div>
                     <div className="flex items-center gap-3">
                         {/* Métricas rápidas */}
@@ -1668,19 +1686,22 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, a
                             </div>
                         </div>
 
-                        <button onClick={() => setIsAnexosOpen(true)} className="flex items-center gap-2 px-4 py-2 rounded-xl border border-white/10 text-white/50 text-[10px] font-black uppercase hover:text-white hover:border-white/30 transition-all"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>Anexos</button>
+                        <button onClick={() => setIsAnexosOpen(true)} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white/[0.03] border border-white/10 text-white/50 text-xs font-bold hover:text-brand hover:border-brand/30 transition-all">
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>
+                            Gestionar Anexos
+                        </button>
                         {user?.rol?.toUpperCase() === 'ADMIN' && (
                             <button
                                 onClick={handleSaveToDrive}
                                 disabled={savingDrive || generating || sendingEmail || sendingWhatsapp}
-                                title="Guardar en Drive"
+                                title="Subir a Drive"
                                 className="text-white/40 hover:text-blue-400 w-10 h-10 flex items-center justify-center transition-all hover:bg-white/5 rounded-xl border border-transparent hover:border-white/10 shrink-0 active:scale-95 disabled:opacity-20"
                             >
                                 {savingDrive ? (
                                     <div className="w-5 h-5 border-2 border-blue-400/20 border-t-blue-400 rounded-full animate-spin" />
                                 ) : (
-                                    <svg className="w-6 h-6" viewBox="0 0 24 24" fill="currentColor">
-                                        <path d="M7.71 3.5L1.15 15l3.43 6l6.55-11.5H22.85l-3.44-6H7.71zM10.31 16.5l-3.44 6H21.15l3.44-6H10.31z"/>
+                                    <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
                                     </svg>
                                 )}
                             </button>
@@ -1704,8 +1725,9 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, a
                         </button>
 
                         <button onClick={handleDownloadPdf} disabled={generating || savingDrive || sendingEmail || sendingWhatsapp}
-                                className="px-5 py-2 bg-brand text-black text-xs font-black rounded-xl uppercase tracking-wider transition-all hover:brightness-110 active:scale-95 disabled:opacity-30">
-                            {generating ? <Spinner /> : 'Generar PDF'}
+                                className="flex items-center gap-2 px-5 py-2 bg-brand text-black text-xs font-black rounded-xl uppercase tracking-wider hover:brightness-110 active:scale-95 transition-all disabled:opacity-30">
+                            {generating ? <Spinner /> : <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>}
+                            {generating ? 'Generando...' : 'Descargar PDF'}
                         </button>
                     </div>
                 </div>

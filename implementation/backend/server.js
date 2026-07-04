@@ -71,6 +71,7 @@ app.use('/api/public/portal', require('./routes/portal'));
 app.use('/api/public', require('./routes/public'));
 app.use('/api/landing', require('./routes/landing'));
 app.use('/api/settings', require('./routes/settings'));
+app.use('/api/cee-ocr', require('./routes/ceeOcr'));
 
 // WhatsApp (opcional): cargar e inicializar de forma automática al arrancar
 try {

@@ -66,6 +66,9 @@ export function EnviarPropuestaModal({
     buildSummaryData,           // (mode, name) => summaryData (plantilla email)
     expedienteId,               // id_oportunidad (para marcar ENVIADA)
     onSent,                     // (results) => void  (opcional)
+    ceeComparisonAvailable = false, // el cliente aportó CEE → ofrecer la variante comparativa
+    includeCee = false,             // controlado por el padre (ProposalModal): toggle comparativa CEE
+    onIncludeCeeChange,             // (bool) => void — sincroniza el toggle con el PDF
 }) {
     const [selectedModes, setSelectedModes] = useState([]);
     const [manualContact, setManualContact] = useState({ name: '', phone: '', email: '' });
@@ -92,12 +95,24 @@ export function EnviarPropuestaModal({
     // Destinatario principal (para el mensaje por defecto): el de mayor prioridad seleccionado.
     const primaryMode = MODE_ORDER.find(m => selectedModes.includes(m)) || (candidates[0]?.mode || 'CLIENTE');
 
-    const applyDefaultMessage = (modes) => {
+    const applyDefaultMessage = (modes, ceeFlag = includeCee) => {
         if (userEditedRef.current) return;
         const pm = MODE_ORDER.find(m => modes.includes(m)) || (candidates[0]?.mode || 'CLIENTE');
         const c = resolveContact(pm);
-        let base = buildDefaultMessage ? buildDefaultMessage(pm, c.label) : '';
+        let base = buildDefaultMessage ? buildDefaultMessage(pm, c.label, { cee: ceeFlag }) : '';
         if (noteInMessage && extraNote.trim()) base = composeNote(base, extraNote);
+        setMessage(base);
+    };
+
+    // Toggle "Incluir comparativa CEE": sincroniza con el PDF (padre) y regenera el mensaje.
+    const toggleIncludeCee = () => {
+        const next = !includeCee;
+        if (onIncludeCeeChange) onIncludeCeeChange(next);
+        const pm = MODE_ORDER.find(m => selectedModes.includes(m)) || (candidates[0]?.mode || 'CLIENTE');
+        const c = resolveContact(pm);
+        let base = buildDefaultMessage ? buildDefaultMessage(pm, c.label, { cee: next }) : '';
+        if (noteInMessage && extraNote.trim()) base = composeNote(base, extraNote);
+        userEditedRef.current = false;
         setMessage(base);
     };
 
@@ -128,7 +143,9 @@ export function EnviarPropuestaModal({
         setChannels({ email: sel.some(c => c.email), whatsapp: sel.some(c => phoneValid(c.phone)) });
         const pm = MODE_ORDER.find(m => start.includes(m)) || (candidates[0]?.mode || 'CLIENTE');
         const pc = candidates.find(c => c.mode === pm);
-        setMessage(buildDefaultMessage ? buildDefaultMessage(pm, pc?.label || '') : '');
+        // includeCee lo controla el padre (ProposalModal); usamos su valor para el mensaje inicial.
+        const initCee = !!ceeComparisonAvailable && !!includeCee;
+        setMessage(buildDefaultMessage ? buildDefaultMessage(pm, pc?.label || '', { cee: initCee }) : '');
         setStatus(null);
         setSendPhase(null);
         setSendResults([]);
@@ -316,6 +333,23 @@ export function EnviarPropuestaModal({
                             )}
                         </div>
                     </div>
+
+                    {/* Toggle: comparativa CEE aportado (solo si el cliente aportó CEE) */}
+                    {ceeComparisonAvailable && (
+                        <button type="button" onClick={toggleIncludeCee}
+                            className={`w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl border transition-colors ${includeCee ? 'bg-amber-500/10 border-amber-500/30' : 'bg-bkg-elevated border-white/5 hover:border-white/15'}`}>
+                            <span className="flex items-center gap-2 text-left">
+                                <svg className="w-4 h-4 text-amber-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17V7m4 10V11m4 6V4M4 21h16" /></svg>
+                                <span className="text-[11px] font-bold text-white/80">Incluir comparativa CEE <span className="text-white/35 font-normal">— con tu CEE vs. CEE nuevo BROKERGY</span></span>
+                            </span>
+                            <span className={`flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest shrink-0 ${includeCee ? 'text-brand' : 'text-white/30'}`}>
+                                <span className={`w-3.5 h-3.5 rounded border-2 flex items-center justify-center ${includeCee ? 'border-brand bg-brand' : 'border-white/20'}`}>
+                                    {includeCee && <svg className="w-2.5 h-2.5 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
+                                </span>
+                                {includeCee ? 'Incluida' : 'Añadir'}
+                            </span>
+                        </button>
+                    )}
 
                     {/* Mensaje (previsualización editable) */}
                     <div>

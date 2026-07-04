@@ -246,6 +246,9 @@ router.get('/cliente/:id', async (req, res) => {
             tiene_instalador: true,
             fecha_aceptacion: acceptanceEntry?.fecha || null,
             aceptado_por: acceptanceEntry?.usuario || null,
+            // El cliente aportó un CEE inicial → la firma ofrecerá elegir usarlo o hacer uno nuevo.
+            cee_aportado: !!(opp.datos_calculo?.cee_previo || opp.datos_calculo?.inputs?.cee_previo),
+            cee_decision: opp.datos_calculo?.cee_decision || null,
         });
 
     } catch (e) {
@@ -364,6 +367,11 @@ router.post('/aceptar/:id', upload.single('justificante'), async (req, res) => {
         
         console.log(`[Public] Procesando aceptación para ${id}. Estado previo: ${prevEstado}`);
 
+        // Decisión del cliente sobre el CEE inicial (solo si aportó uno): 'aportado' | 'nuevo'.
+        const ceeChoice = formFields.cee_choice;
+        const ceeDecision = ceeChoice === 'aportado' ? 'usar_cee_aportado'
+            : (ceeChoice === 'nuevo' ? 'calcular_cee_nuevo' : null);
+
         if (prevEstado !== 'ACEPTADA') {
             const clienteNombre = [formFields.nombre_razon_social, formFields.apellidos].filter(Boolean).join(' ');
             const newHistorial = [...currentHistorial, {
@@ -371,14 +379,21 @@ router.post('/aceptar/:id', upload.single('justificante'), async (req, res) => {
                 tipo: 'cambio_estado',
                 estado: 'ACEPTADA',
                 fecha: new Date().toISOString(),
-                usuario: `Firma Cliente (${clienteNombre})`
+                usuario: `Firma Cliente (${clienteNombre})`,
+                ...(ceeDecision ? { cee_decision: ceeDecision } : {})
             }];
-            
-            const newData = { ...(opp.datos_calculo || {}), estado: 'ACEPTADA', historial: newHistorial };
+
+            const newData = { ...(opp.datos_calculo || {}), estado: 'ACEPTADA', historial: newHistorial, ...(ceeDecision ? { cee_decision: ceeDecision } : {}) };
             await supabase.from('oportunidades')
                 .update({ datos_calculo: newData })
                 .eq('id_oportunidad', id);
-            console.log(`[Public] Oportunidad ${id} marcada como ACEPTADA`);
+            console.log(`[Public] Oportunidad ${id} marcada como ACEPTADA${ceeDecision ? ` (CEE: ${ceeDecision})` : ''}`);
+        } else if (ceeDecision && opp.datos_calculo?.cee_decision !== ceeDecision) {
+            // Re-aceptación o cambio de decisión CEE cuando ya estaba ACEPTADA.
+            const newData = { ...(opp.datos_calculo || {}), cee_decision: ceeDecision };
+            await supabase.from('oportunidades').update({ datos_calculo: newData }).eq('id_oportunidad', id);
+            opp.datos_calculo = newData; // reflejar para createExpediente
+            console.log(`[Public] Oportunidad ${id}: decisión CEE actualizada a ${ceeDecision}`);
         } else {
             console.log(`[Public] La oportunidad ${id} ya estaba en estado ACEPTADA`);
         }

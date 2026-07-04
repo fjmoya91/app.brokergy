@@ -1,9 +1,10 @@
-import React, { useRef, useState, useEffect, useCallback } from 'react';
+import React, { useRef, useState, useEffect, useCallback, useMemo } from 'react';
 import axios from 'axios';
 import { useModal } from '../../../context/ModalContext';
 import { useAuth } from '../../../context/AuthContext';
 import AppConfirm from '../../../components/AppConfirm';
 import { EnviarPropuestaModal } from './EnviarPropuestaModal';
+import { computeCeeComparison } from '../logic/ceeComparison';
 
 const APP_URL = import.meta.env.VITE_APP_URL || window.location.origin;
 
@@ -319,6 +320,7 @@ export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }
     const [recipientSelections, setRecipientSelections] = useState(new Set());
     const [emailChoice, setEmailChoice] = useState(false);
     const [enviarOpen, setEnviarOpen] = useState(false); // popup unificado de envío (homogéneo con anexos)
+    const [includeCeeComp, setIncludeCeeComp] = useState(true); // incluir la comparativa CEE en PDF + mensaje
     const [emailSelections, setEmailSelections] = useState(new Set());
     const [manualContact, setManualContact] = useState({ name: '', phone: '', email: '' });
 
@@ -1097,13 +1099,34 @@ info@brokergy.es · 623 926 179`;
         }
     }, [inputs, result, displayId, urlId, proposalRef]);
 
-    const buildCaption = useCallback((mode, targetName) => {
+    // Comparativa "con tu CEE vs. CEE nuevo BROKERGY" — solo si el cliente aportó CEE.
+    const ceeComparison = useMemo(() => (inputs?.cee_previo ? computeCeeComparison(inputs) : null), [inputs]);
+
+    const buildCaption = useCallback((mode, targetName, opts = {}) => {
         const f = result || {};
         const fAero = f.financials || {};
         const fReforma = f.financialsRes080 || {};
         const isReforma = !!inputs?.isReforma;
         const isOnlyReforma = isReforma && inputs?.comparativaReforma === false;
         const isBoth = isReforma && inputs?.comparativaReforma !== false;
+
+        // ── VARIANTE "CEE APORTADO": comparativa con tu CEE vs. un CEE nuevo BROKERGY ──
+        if (opts.cee && ceeComparison) {
+            const conCee = Math.round(ceeComparison.conCee?.cae || 0);
+            const ceeNuevo = Math.round(ceeComparison.ceeNuevo?.cae || 0);
+            const irpf = Math.round(ceeComparison.irpf || 0);
+            const conCeeTotal = Math.round(ceeComparison.conCee?.total || 0);
+            const ceeNuevoTotal = Math.round(ceeComparison.ceeNuevo?.total || 0);
+            const explica = 'El Bono Energético CAE se calcula sobre el ahorro de energía que refleja el Certificado de Eficiencia Energética (CEE) inicial. Con el CEE que ya se tiene se parte de sus valores; si emitimos nosotros un CEE inicial nuevo antes de la obra, reflejamos el estado real de partida de la vivienda, lo que puede aumentar el ahorro certificado y, por tanto, el bono. La deducción del IRPF es la misma en ambos casos.';
+            if (mode === 'PARTNER' || mode === 'INSTALADOR') {
+                const clientNameForPartner = inputs?.referenciaCliente || 'cliente';
+                const pName = (targetName || (mode === 'INSTALADOR' ? 'Instalador' : 'Partner')).split(/\s+/)[0];
+                return `¡Hola ${pName}! 👋\n\nTe adjunto la simulación de las ayudas para ${clientNameForPartner} (Exp. ${displayId}). Como el cliente ya cuenta con un CEE inicial, hay dos opciones y decide él:\n\n🔹 *Opción A — Con el CEE aportado:*\nBono Energético CAE de *${formatNumber(conCee)} €*.\n\n🔹 *Opción B — Emitiendo un CEE inicial nuevo (BROKERGY):*\nBono Energético CAE de *${formatNumber(ceeNuevo)} €*.\n\n_¿Por qué la diferencia?_ ${explica}\n\nAdemás, si el cliente puede acogerse a las deducciones del IRPF (retenciones aplicables y normativa vigente), el importe estimado sería de *${formatNumber(irpf)} €*, igual en ambas opciones. Dejaremos toda la parte técnica preparada.\n\n💡 *Total de ayudas (bono + IRPF):*\n• Con su CEE: *${formatNumber(conCeeTotal)} €*\n• Con un CEE nuevo: *${formatNumber(ceeNuevoTotal)} €*\n\nPara avanzar, los pasos serían:\n\n• Aceptar el presupuesto de instalación.\n• Indicarnos si usamos el CEE existente o hacemos uno nuevo.\n• Aceptar la propuesta adjunta en PDF para presentar cuanto antes el CEE Inicial antes de que se emita ninguna factura, evitando retrasos.\n\nFirma de aceptación con el botón *"✍️ FIRMAR Y ACEPTAR PROPUESTA"* del PDF o aquí:\n🔗 ${APP_URL}/firma/${urlId}\n\nQuedo a vuestra disposición para cualquier duda.\n\nUn saludo,\nFran Moya · BROKERGY`;
+            }
+            const firstName = (targetName || '').split(/\s+/)[0] || '';
+            const saludo = `¡Hola ${firstName || 'cliente'}!`;
+            return `${saludo}\n\nTal y como acordamos, te adjunto la simulación de las ayudas para tu expediente (Nº ${displayId}). Como ya cuentas con un Certificado de Eficiencia Energética (CEE) inicial, te presento *dos opciones* para que elijas la que prefieras:\n\n🔹 *Opción A — Usando el CEE que nos has aportado:*\nEl Bono Energético CAE sería de *${formatNumber(conCee)} €*.\n\n🔹 *Opción B — Emitiendo nosotros un CEE inicial nuevo:*\nEl Bono Energético CAE sería de *${formatNumber(ceeNuevo)} €* gracias al Bono Energético BROKERGY.\n\n_¿Por qué la diferencia?_ ${explica.replace('ya se tiene', 'nos aportas').replace('la vivienda', 'tu vivienda')} *Tú eliges* qué opción usar.\n\nAdemás, si en tu caso puedes acogerte a las deducciones en el IRPF (por contar con retenciones aplicables y siempre que la normativa esté vigente), el importe estimado sería de *${formatNumber(irpf)} €*, *el mismo en ambas opciones*. Dejaremos toda la parte técnica preparada para que las puedas solicitar.\n\n💡 *Resumen total de las ayudas (bono + IRPF):*\n• Con tu CEE: *${formatNumber(conCeeTotal)} €*\n• Con un CEE nuevo: *${formatNumber(ceeNuevoTotal)} €*\n\nEn caso de conformidad, los siguientes pasos serían:\n\n• Aceptar el presupuesto al instalador (si no lo has aceptado ya).\n• Indicarnos si usamos el CEE existente o hacemos uno nuevo.\n• Aceptar la propuesta que te adjuntamos en PDF para que podamos planificar el trabajo y presentar cuanto antes el Certificado de Eficiencia Energética Inicial antes de que os emitan alguna factura, para que el trámite pueda seguir su curso de manera ágil y sin retrasos.\n\nEl presupuesto lo puedes aceptar pulsando sobre el botón del PDF *"✍️ FIRMAR Y ACEPTAR PROPUESTA"* o bien directamente accediendo a ${APP_URL}/firma/${urlId}\n\nQuedo a tu disposición para cualquier duda o aclaración.\n\nUn saludo, Fran Moya\n\nBROKERGY — Especialistas en Eficiencia Energética\n\n\ninfo@brokergy.es · 623 926 179`;
+        }
 
         if (mode === 'PARTNER' || mode === 'INSTALADOR') {
             const clientNameForPartner = inputs?.referenciaCliente || 'cliente';
@@ -1133,7 +1156,7 @@ info@brokergy.es · 623 926 179`;
                 return `${saludo}\n\nTal y como acordamos, te adjunto la simulación de las ayudas para tu expediente (Nº ${displayId}), presentando las siguientes opciones para tu caso:\n\n🔹 *A modo resumen:*\n\n*Opción 1:* Instalando el sistema de aerotermia, podrías obtener una ayuda de *${formatNumber(Math.round(fAero.caeBonus || 0))} €* gracias al Bono Energético BROKERGY.\n\nAdemás, si en tu caso puedes acogerte a las deducciones en el IRPF por contar con retenciones aplicables y siempre y cuando estén vigentes, el importe estimado de estas sería de *${formatNumber(Math.round(fAero.irpfDeduction || 0))} €*. (Nosotros dejaremos toda la parte técnica preparada para que las puedas solicitar).\n\n💡 *Resumen total de las ayudas:* Podrías obtener hasta *${formatNumber(Math.round(fAero.totalAyuda || 0))} €* combinando ambas opciones.\n\nEn caso de conformidad, los siguientes pasos serían:\n\n• Aceptar el presupuesto al instalador (si no lo has aceptado ya)\n• Aceptar la propuesta que te adjuntamos en PDF para que podamos planificar el trabajo y presentar cuanto antes el Certificado de Eficiencia Energética Inicial antes de que os emitan alguna factura, para que el trámite pueda seguir su curso de manera ágil y sin retrasos.\n\nEl presupuesto lo puedes aceptar pulsando sobre el botón del PDF *"✍️ FIRMAR Y ACEPTAR PROPUESTA"* o bien directamente accediendo a ${APP_URL}/firma/${urlId}\n\nQuedo a tu disposición para cualquier duda o aclaración.\n\nUn saludo, Fran Moya\n\nBROKERGY — Especialistas en Eficiencia Energética\n\n\ninfo@brokergy.es · 623 926 179`;
             }
         }
-    }, [inputs, result, displayId, urlId]);
+    }, [inputs, result, displayId, urlId, ceeComparison]);
 
     const sendToMultiple = useCallback(async (selectedModes, customMessages = {}) => {
         setRecipientChoice(false);
@@ -1779,8 +1802,8 @@ info@brokergy.es · 623 926 179`;
                                                         {f.presupuestoFotovoltaica > 0 && (
                                                             <div className="prop-ftr"><span className="prop-fl">Instalación fotovoltaica {ivaSuffix(f)}</span><span className="prop-fv">{formatNumber(f.presupuestoFotovoltaica)} €</span></div>
                                                         )}
-                                                        <div className="prop-ftr"><span className="prop-fl">Bono Energético CAE <small>(Ingreso Bruto)</small> {ivaSuffixCae(f)}</span><span className="prop-fv grn">– {formatNumber(f.caeBonus)} €</span></div>
-                                                        
+                                                        <div className="prop-ftr"><span className="prop-fl">Bono Energético CAE <small>(Ingreso Bruto)</small> {ivaSuffixCae(f)}{ceeComparison && includeCeeComp && !inputs?.isReforma && (<><br /><small style={{ color: 'var(--orange)', fontWeight: 700 }}>Con tu CEE: {formatNumber(Math.round(ceeComparison.conCee.cae))} € · con un CEE nuevo BROKERGY: {formatNumber(Math.round(ceeComparison.ceeNuevo.cae))} € (tú eliges)</small></>)}</span><span className="prop-fv grn">– {formatNumber(f.caeBonus)} €</span></div>
+
                                                         {f.irpfCaeAmount > 0 && (
                                                             <div className="prop-ftr">
                                                                 <span className="prop-fl">Impuestos aplicables por cobro de ayuda CAE <small>(Estimado)</small></span>
@@ -1835,7 +1858,7 @@ info@brokergy.es · 623 926 179`;
                                                         {f80.presupuestoFotovoltaica > 0 && (
                                                             <div className="prop-ftr"><span className="prop-fl">Instalación fotovoltaica {ivaSuffix(f80)}</span><span className="prop-fv">{formatNumber(f80.presupuestoFotovoltaica)} €</span></div>
                                                         )}
-                                                        <div className="prop-ftr"><span className="prop-fl">Bono Energético CAE <small>(Ingreso Bruto)</small> {ivaSuffixCae(f80)}</span><span className="prop-fv grn">– {formatNumber(f80.caeBonus)} €</span></div>
+                                                        <div className="prop-ftr"><span className="prop-fl">Bono Energético CAE <small>(Ingreso Bruto)</small> {ivaSuffixCae(f80)}{ceeComparison && includeCeeComp && inputs?.isReforma && (<><br /><small style={{ color: 'var(--orange)', fontWeight: 700 }}>Con tu CEE: {formatNumber(Math.round(ceeComparison.conCee.cae))} € · con un CEE nuevo BROKERGY: {formatNumber(Math.round(ceeComparison.ceeNuevo.cae))} € (tú eliges)</small></>)}</span><span className="prop-fv grn">– {formatNumber(f80.caeBonus)} €</span></div>
                                                         
                                                         {f80.irpfCaeAmount > 0 && (
                                                             <div className="prop-ftr">
@@ -1882,6 +1905,9 @@ info@brokergy.es · 623 926 179`;
                                         )}
                                     </div>
                                     <div className="prop-nsm">
+                                        {ceeComparison && includeCeeComp && (
+                                            <p style={{ background: 'rgba(255,157,77,0.10)', borderLeft: '3px solid var(--orange)', padding: '6px 10px', borderRadius: '4px' }}><b>OPCIÓN CEE:</b> Has aportado un CEE inicial. Según cuál usemos, el Bono Energético y la ayuda total serían: <b>con tu CEE</b> {formatNumber(Math.round(ceeComparison.conCee.cae))} € de bono (ayuda total {formatNumber(Math.round(ceeComparison.conCee.total))} €); <b>con un CEE nuevo BROKERGY</b> {formatNumber(Math.round(ceeComparison.ceeNuevo.cae))} € de bono (ayuda total {formatNumber(Math.round(ceeComparison.ceeNuevo.total))} €). La deducción del IRPF es la misma en ambos casos. Elegirás qué CEE usar al aceptar la propuesta.</p>
+                                        )}
                                         <p><b>NOTA 1:</b> La ayuda Bono Energético CAE está garantizada por Brokergy. El importe es una estimación técnica que se ajustará tras emitir los CEE inicial y final.</p>
                                         {f.irpfCap > 0 && (
                                             <p><b>NOTA 2:</b> Las deducciones en el IRPF no suponen un descuento directo, sino un derecho a deducción en la renta. El ahorro dependerá de la situación fiscal del contribuyente.</p>
@@ -2459,6 +2485,9 @@ info@brokergy.es · 623 926 179`;
                 getEmailHtml={getProposalEmailHtml}
                 buildSummaryData={buildPropSummaryData}
                 expedienteId={inputs?.id_oportunidad}
+                ceeComparisonAvailable={!!ceeComparison}
+                includeCee={includeCeeComp}
+                onIncludeCeeChange={setIncludeCeeComp}
             />
         </div>
     );

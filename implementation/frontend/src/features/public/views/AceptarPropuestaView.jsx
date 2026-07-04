@@ -196,14 +196,19 @@ export function AceptarPropuestaView({ idOportunidad }) {
 
     const [generatedExpediente, setGeneratedExpediente] = useState(null);
     const [displayId, setDisplayId] = useState(idOportunidad);
+    // CEE aportado: si el cliente entregó un CEE inicial, la firma le deja elegir usarlo o hacer uno nuevo.
+    const [ceeAportado, setCeeAportado] = useState(false);
+    const [ceeChoice, setCeeChoice] = useState(''); // '' | 'aportado' | 'nuevo'
 
     useEffect(() => {
         const fetchCliente = async () => {
             try {
                 const res = await axios.get(`${API_URL}/cliente/${idOportunidad}`);
-                const { estado, numero_expediente, id_oportunidad: readableId, tiene_instalador, fecha_aceptacion, aceptado_por, ...rest } = res.data;
+                const { estado, numero_expediente, id_oportunidad: readableId, tiene_instalador, fecha_aceptacion, aceptado_por, cee_aportado, cee_decision, ...rest } = res.data;
 
                 setFormData(prev => ({ ...prev, ...rest }));
+                setCeeAportado(!!cee_aportado);
+                if (cee_decision) setCeeChoice(cee_decision === 'usar_cee_aportado' ? 'aportado' : 'nuevo');
                 if (readableId) setDisplayId(readableId);
 
                 if (estado === 'ACEPTADA') {
@@ -229,12 +234,17 @@ export function AceptarPropuestaView({ idOportunidad }) {
 
     const handleSubmit = async (e) => {
         e.preventDefault();
+        if (ceeAportado && !ceeChoice) {
+            setError('Por favor, indícanos si usamos tu CEE actual o hacemos uno nuevo.');
+            return;
+        }
         setSubmitting(true);
         setError(null);
         try {
             const fd = new FormData();
             Object.entries(formData).forEach(([k, v]) => fd.append(k, v || ''));
             if (justificanteFile) fd.append('justificante', justificanteFile);
+            if (ceeAportado && ceeChoice) fd.append('cee_choice', ceeChoice);
             const res = await axios.post(`${API_URL}/aceptar/${idOportunidad}`, fd, {
                 headers: { 'Content-Type': 'multipart/form-data' }
             });
@@ -726,6 +736,28 @@ export function AceptarPropuestaView({ idOportunidad }) {
                                             </div>
                                         </div>
                                     </div>
+
+                                    {/* Decisión sobre el CEE inicial (solo si el cliente aportó uno) */}
+                                    {ceeAportado && (
+                                        <div className="space-y-3 pt-2">
+                                            <label className="block text-xs font-black uppercase tracking-widest text-white/40 ml-1">
+                                                Certificado de Eficiencia Energética inicial <span className="text-brand">*</span>
+                                            </label>
+                                            <p className="text-[11px] text-white/30 leading-relaxed ml-1">Nos has aportado un CEE. Indícanos qué prefieres para tu expediente:</p>
+                                            {[
+                                                { v: 'aportado', t: 'Usar el CEE que ya tengo', d: 'Usamos el certificado que nos has aportado.' },
+                                                { v: 'nuevo', t: 'Que BROKERGY emita un CEE nuevo', d: 'Emitimos un CEE inicial nuevo antes de la obra (puede optimizar la ayuda).' },
+                                            ].map(opt => (
+                                                <label key={opt.v} className={`flex items-start gap-3 p-4 rounded-xl border cursor-pointer transition-all ${ceeChoice === opt.v ? 'border-brand bg-brand/10' : 'border-white/10 bg-bkg-elevated hover:border-white/20'}`}>
+                                                    <input type="radio" name="cee_choice" value={opt.v} checked={ceeChoice === opt.v} onChange={() => setCeeChoice(opt.v)} className="mt-1 accent-brand" />
+                                                    <div>
+                                                        <div className="text-sm font-bold text-white">{opt.t}</div>
+                                                        <div className="text-xs text-white/40">{opt.d}</div>
+                                                    </div>
+                                                </label>
+                                            ))}
+                                        </div>
+                                    )}
 
                                     <div className="pt-6">
                                         <button

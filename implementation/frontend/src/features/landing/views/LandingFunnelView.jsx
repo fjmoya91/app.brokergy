@@ -46,7 +46,7 @@ import { buildAccentVars } from '../../../utils/partnerTheme';
 
 const CATASTRO_API = '/api/catastro';
 
-export default function LandingFunnelView({ route, mode = 'public', variant = 'default', onCreated, onCancel }) {
+export default function LandingFunnelView({ route, mode = 'public', variant = 'default', onCreated, onCancel, initialCeeData = null }) {
     const isInternal = mode === 'internal';
     const isReformaVariant = variant === 'reforma';
     // Tras resolver el catastro, /reforma muestra primero "¿estado de la obra?".
@@ -191,6 +191,18 @@ export default function LandingFunnelView({ route, mode = 'public', variant = 'd
             setCatastroLoading(false);
         }
     };
+
+    // Nueva simulación (admin) con CEE aportado: autocompletamos la búsqueda con la
+    // referencia catastral del CEE, para saltar directos a la ficha de la vivienda.
+    const ceePrefillRan = useRef(false);
+    useEffect(() => {
+        if (!isInternal || ceePrefillRan.current) return;
+        const rc = initialCeeData?.referencia_catastral;
+        if (!rc) return;
+        ceePrefillRan.current = true;
+        handleSearch(String(rc).trim());
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isInternal, initialCeeData]);
 
     const handleAddressSelect = async (suggestion) => {
         setCatastroLoading(true);
@@ -679,6 +691,7 @@ export default function LandingFunnelView({ route, mode = 'public', variant = 'd
                             updateFunnel={updateFunnel}
                             partnerBranding={partnerBranding}
                             mode={mode}
+                            initialCeeData={initialCeeData}
                             onCreated={onCreated}
                             onNoEmpezada={() => { setCurrentStep(0); setPhase('FUNNEL'); }}
                             onRestart={() => { resetFunnel(); setCatastro(null); setPhase('HOME'); }}

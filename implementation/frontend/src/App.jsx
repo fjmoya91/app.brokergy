@@ -31,6 +31,8 @@ import { getRoleFlags } from './utils/roleFlags';
 
 // Landing pública — chunk separado (lazy) para que admin/partners no lo descarguen
 const LandingFunnelView = lazy(() => import('./features/landing/views/LandingFunnelView'));
+// Puerta "¿Tienes el CEE anterior?" previa a Nueva simulación (SOLO ADMIN) — chunk lazy
+const CeePrevioGate = lazy(() => import('./features/cee/CeePrevioGate'));
 
 const API_URL = '/api/catastro'; // Vercel force redeploy v3
 
@@ -166,6 +168,12 @@ function App() {
   }, [user?.id, user?.rol, user?.id_rol, activeTab]);
 
   const [showSearchModal, setShowSearchModal] = useState(false);
+  // Nueva simulación (admin): puerta previa "¿Tienes el CEE anterior?".
+  // ceeResolved=false → mostramos la puerta; true → pasamos al funnel normal.
+  const [ceeResolved, setCeeResolved] = useState(false);
+  const [ceePrevioData, setCeePrevioData] = useState(null);
+  const openNewSimulation = () => { setCeeResolved(false); setCeePrevioData(null); setShowSearchModal(true); };
+  const closeNewSimulation = () => { setShowSearchModal(false); setCeeResolved(false); setCeePrevioData(null); };
 
   // Efecto para limpiar el parámetro de la URL tras cargar el deep link
   useEffect(() => {
@@ -851,7 +859,7 @@ function App() {
                 key={`admin-${navNonce}`}
                 activeTab={activeTab}
                 onNavigate={handleNavigate}
-                onBackToCalculator={() => setShowSearchModal(true)}
+                onBackToCalculator={openNewSimulation}
                 onLoadOpportunity={loadOpportunity}
                 returnToExpediente={returnToExpediente}
                 onReturnToExpediente={() => {
@@ -976,10 +984,18 @@ function App() {
               <div className="animate-pulse text-amber-500 font-bold tracking-widest text-sm uppercase">Cargando…</div>
             </div>
           }>
+            {isAdminUser && !ceeResolved ? (
+              <CeePrevioGate
+                onCancel={closeNewSimulation}
+                onSkip={() => { setCeePrevioData(null); setCeeResolved(true); }}
+                onDone={(cee) => { setCeePrevioData(cee); setCeeResolved(true); }}
+              />
+            ) : (
             <LandingFunnelView
               mode="internal"
               variant="reforma"
-              onCancel={() => setShowSearchModal(false)}
+              initialCeeData={ceePrevioData}
+              onCancel={closeNewSimulation}
               onCreated={async (opResult) => {
                 setShowSearchModal(false);
                 if (!opResult?.id_oportunidad) return;
@@ -994,6 +1010,7 @@ function App() {
                 }
               }}
             />
+            )}
           </Suspense>
         </div>
       )}

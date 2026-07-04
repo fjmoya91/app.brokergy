@@ -95,6 +95,13 @@ function Toggle({ label, value, onChange, readOnly = false }) {
 }
 
 // ─── Sección Caldera Antigua ──────────────────────────────────────────────────
+const TIPO_EQUIPO_OPTIONS = [
+    { value: 'Caldera', label: 'Caldera' },
+    { value: 'Termo eléctrico', label: 'Termo eléctrico' },
+    { value: 'Bomba de calor', label: 'Bomba de calor' },
+    { value: 'Otro', label: 'Otro' },
+];
+
 function CalderaSection({ title, data, onChange, readOnly }) {
     const rendimientoOptions = BOILER_EFFICIENCIES.map(b => ({
         value: b.id,
@@ -105,12 +112,30 @@ function CalderaSection({ title, data, onChange, readOnly }) {
         <div className="bg-bkg-surface/60 rounded-xl p-4 border border-white/[0.06] space-y-3">
             <h4 className="text-xs font-black text-amber-400/80 uppercase tracking-wider">{title}</h4>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1 sm:col-span-2">
+                    <label className="flex items-center gap-1.5 text-xs text-white/40 uppercase tracking-wider font-bold">
+                        <svg className="w-3 h-3 text-amber-500/50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                        </svg>
+                        Tipo de equipo existente
+                    </label>
+                    <select
+                        value={data?.tipo_equipo ?? 'Caldera'}
+                        onChange={v => onChange({ ...data, tipo_equipo: v.target.value })}
+                        disabled={readOnly}
+                        className="w-full bg-bkg-elevated border border-white/10 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-brand/50 appearance-none"
+                    >
+                        {TIPO_EQUIPO_OPTIONS.map(o => (
+                            <option key={o.value} value={o.value}>{o.label}</option>
+                        ))}
+                    </select>
+                </div>
                 <div className="space-y-1">
                     <label className="flex items-center gap-1.5 text-xs text-white/40 uppercase tracking-wider font-bold">
                         <svg className="w-3 h-3 text-amber-500/50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
                         </svg>
-                        Marca caldera antigua
+                        Marca equipo antiguo
                     </label>
                     <input
                         type="text"
@@ -599,9 +624,9 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
         provincia_cod: '',
         ccaa: '',
 
-        caldera_antigua_cal: { marca: '', modelo: '', numero_serie: '', rendimiento_id: 'default' },
+        caldera_antigua_cal: { tipo_equipo: 'Caldera', marca: '', modelo: '', numero_serie: '', rendimiento_id: 'default' },
         misma_caldera_acs: true,
-        caldera_antigua_acs: { marca: '', modelo: '', numero_serie: '', rendimiento_id: 'default' },
+        caldera_antigua_acs: { tipo_equipo: 'Caldera', marca: '', modelo: '', numero_serie: '', rendimiento_id: 'default' },
         aerotermia_cal: { aerotermia_db_id: null, marca: '', modelo: '', numero_serie: '', scop: null, metodo_scop: 'ficha' },
         potencia_bomba: '',
         cambio_acs: true,
@@ -992,6 +1017,22 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
                         />
                     )}
                 </div>
+
+                {/* ── ACS EXISTENTE (cuando NO se actúa sobre el ACS) ── */}
+                {!local.cambio_acs && (
+                    <div className="space-y-2">
+                        <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-[10px] font-black text-brand/70 uppercase tracking-widest px-2 py-0.5 rounded bg-brand/10 border border-brand/20">ACS — no se actúa</span>
+                            <span className="text-[10px] text-white/40">Se conserva la instalación de ACS existente. Indica sus datos (p. ej. termo eléctrico) para reflejarlos en el certificado RES080.</span>
+                        </div>
+                        <CalderaSection
+                            title="Instalación ACS existente (se mantiene)"
+                            data={local.caldera_antigua_acs}
+                            readOnly={readOnly}
+                            onChange={v => setLocal(p => ({ ...p, caldera_antigua_acs: v, misma_caldera_acs: false }))}
+                        />
+                    </div>
+                )}
 
                 {/* ── TIPO EMISOR ── */}
                 <div className="bg-bkg-surface/60 rounded-xl p-4 border border-white/[0.06]">

@@ -19,6 +19,7 @@ import {
     getVentanaYACHByYear,
     AEROTHERMIA_MODELS
 } from '../logic/calculation';
+import { ceeToEmisionesInputs } from '../logic/ceeSeed';
 import axios from 'axios';
 
 const INITIAL_INPUTS = {
@@ -186,6 +187,21 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
         ['combustibleAcsInicial', 'combustibleAcsFinal', 'combustibleCalefaccionInicial', 'combustibleCalefaccionFinal', 'combustibleRefrigeracionInicial', 'combustibleRefrigeracionFinal'].forEach(key => {
             if (base[key]) base[key] = renormCombustible(base[key]);
         });
+
+        // CEE anterior aportado: si la oportunidad guardó `cee_previo` pero aún NO tiene
+        // sembrados los campos del modo "CEE aportado" (por emisiones), los derivamos aquí
+        // para que la tabla aparezca rellena. Cubre oportunidades creadas antes de esta
+        // funcionalidad (solo se sembraban en creación). No pisa valores ya presentes.
+        const _emiIni = base.manualEmisionesCalefaccionInicial;
+        const _sinSembrar = _emiIni === undefined || _emiIni === '' || _emiIni === null || Number(_emiIni) === 0;
+        if (base.cee_previo && _sinSembrar) {
+            Object.assign(base, ceeToEmisionesInputs(base.cee_previo, {
+                scopHeating: base.scopHeating,
+                scopAcs: base.scopAcs,
+                changeAcs: base.changeAcs || base.incluir_acs,
+                manualDemandAcs: base.manualDemandAcs,
+            }));
+        }
 
         if (initialData) {
             // Aseguramos conversiones de tipo para campos críticos que puedan venir como strings del catastro

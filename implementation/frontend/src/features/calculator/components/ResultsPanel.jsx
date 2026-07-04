@@ -11,8 +11,10 @@ import { SaveOpportunityModal } from './SaveOpportunityModal';
 import { ClienteFormModal } from '../../clientes/components/ClienteFormModal';
 import { ClienteDetailModal } from '../../clientes/components/ClienteDetailModal';
 import { generateBrokergyReport } from '../logic/pdfGenerator';
-import { calculateSavings, calculateFinancials, calculateRes080FromEmissions, getFactorPaso } from '../logic/calculation';
+import { calculateSavings, calculateFinancials, calculateRes080FromEmissions, calculateRes080Estimated, getFactorPaso } from '../logic/calculation';
 import { EfficiencyTable } from './EfficiencyTable';
+import ComparativaCeeModal from '../../cee/ComparativaCeeModal';
+import { computeCeeComparison } from '../logic/ceeComparison';
 import realCasesData from '../data/real_cases_db.json';
 import { DocsAdminModal } from './DocsAdminModal';
 import { ErrorBoundary } from '../../../components/ErrorBoundary';
@@ -249,6 +251,7 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
     const setShowEfficiency = setShowEficiencia || setShowEfficiencyInternal;
     // Borrador editable (solo modo emisiones). Al confirmar se vuelca a inputs.
     const [emiDraft, setEmiDraft] = React.useState(null);
+    const [showComparativaCee, setShowComparativaCee] = React.useState(false);
     const isEmisionesMode = inputs?.demandMode === 'manual' && inputs?.isReforma;
     const [clienteModalOp, setClienteModalOp] = React.useState(null);
     const [clienteDetailId, setClienteDetailId] = React.useState(null);
@@ -774,6 +777,25 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
                         <div className="mt-3">
                             <Divider />
 
+                            {inputs?.cee_previo && (
+                                <div className="mb-5 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 flex flex-col sm:flex-row items-center justify-between gap-3">
+                                    <div className="flex items-center gap-3">
+                                        <svg className="w-7 h-7 text-amber-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9 17V7m4 10V11m4 6V4M4 21h16" /></svg>
+                                        <div>
+                                            <div className="text-sm font-bold text-white">Este cliente aportó un CEE inicial</div>
+                                            <div className="text-xs text-white/50">Genera la comparativa "con tu CEE" vs. "CEE nuevo BROKERGY" para enviársela.</div>
+                                        </div>
+                                    </div>
+                                    <button
+                                        onClick={() => setShowComparativaCee(true)}
+                                        className="px-5 py-2.5 rounded-xl font-bold text-black text-sm whitespace-nowrap transition-transform hover:scale-[1.03]"
+                                        style={{ backgroundColor: '#FFA000' }}
+                                    >
+                                        Comparativa para el cliente →
+                                    </button>
+                                </div>
+                            )}
+
                             <button
                                 type="button"
                                 onClick={() => setShowViability(v => !v)}
@@ -1010,6 +1032,70 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
                                  <EfficiencyTable res080={result.res080} />
                             </div>
                         )}
+                        {/* Comparativa: ahorro con el CEE aportado (baseline real) vs método estimado.
+                            Misma reforma; solo cambia la demanda de calefacción inicial: real (CEE) vs
+                            estimada. Reusa calculateRes080Estimated con manualDemandOverride. */}
+                        {inputs?.cee_previo && inputs?.isReforma && result.res080 && (() => {
+                            try {
+                                const cee = inputs.cee_previo;
+                                const ceeHeatDemand = Number(cee?.demandas?.calefaccion_kwh_m2_ano);
+                                if (!isFinite(ceeHeatDemand) || ceeHeatDemand <= 0) return null;
+                                // "Estimado" = el número canónico que ya muestra la app (nunca recalculamos).
+                                const estAhorro = Number(result.res080?.ahorroEnergiaFinalTotal) || 0;
+                                const estCae = Number(result.financialsRes080?.caeBonus) || 0;
+                                // "Con CEE" = misma reforma pero con la demanda de calefacción REAL del CEE.
+                                const ceeRes = calculateRes080Estimated({ ...inputs, manualDemandOverride: ceeHeatDemand });
+                                const ceeAhorro = Number(ceeRes?.ahorroEnergiaFinalTotal) || 0;
+                                if (estAhorro <= 0 && ceeAhorro <= 0) return null;
+                                const effPrice = estAhorro > 0 && estCae > 0
+                                    ? estCae / (estAhorro / 1000)
+                                    : (Number(inputs.caePriceClient) || 0);
+                                const ceeCae = (ceeAhorro / 1000) * effPrice;
+                                const diffCae = ceeCae - estCae;
+                                const Col = ({ title, tag, ahorro, cae, highlight }) => (
+                                    <div className={`flex-1 rounded-2xl border p-5 ${highlight ? 'border-amber-400 bg-amber-50' : 'border-slate-200 bg-white'}`}>
+                                        <div className="flex items-center justify-between mb-3">
+                                            <span className="text-[11px] font-bold uppercase tracking-widest text-slate-500">{title}</span>
+                                            {tag && <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${highlight ? 'bg-amber-400 text-black' : 'bg-slate-200 text-slate-600'}`}>{tag}</span>}
+                                        </div>
+                                        <div className="text-3xl font-black text-slate-900">{formatNumber(cae)} €</div>
+                                        <div className="text-xs text-slate-500 mt-1">Bono CAE estimado</div>
+                                        <div className="mt-3 pt-3 border-t border-slate-200 text-sm text-slate-600">
+                                            Ahorro: <b className="text-slate-800">{formatNumber(ahorro)}</b> kWh/año
+                                        </div>
+                                    </div>
+                                );
+                                return (
+                                    <div className="mt-8 px-8 pb-8 bg-slate-100">
+                                        <div className="mb-4">
+                                            <h4 className="text-lg font-black text-slate-800">Comparativa: CEE aportado vs método estimado</h4>
+                                            <p className="text-xs text-slate-500">Misma reforma. La única diferencia es el punto de partida: la demanda de calefacción <b>real del CEE</b> ({formatNumber(ceeHeatDemand)} kWh/m²·año) frente a nuestra <b>estimación</b>.</p>
+                                        </div>
+                                        <div className="flex flex-col sm:flex-row gap-4">
+                                            <Col title="Método estimado" tag="Nuestro modelo" ahorro={estAhorro} cae={estCae} highlight={false} />
+                                            <Col title="Con CEE aportado" tag="Baseline real" ahorro={ceeAhorro} cae={ceeCae} highlight={true} />
+                                        </div>
+                                        <div className="mt-3 text-sm text-slate-600">
+                                            {Math.abs(diffCae) < 1
+                                                ? 'Ambos métodos dan prácticamente el mismo resultado: la estimación queda validada por el CEE.'
+                                                : <>Usar el CEE aportado {diffCae > 0 ? 'aumenta' : 'reduce'} el bono CAE en <b className={diffCae > 0 ? 'text-emerald-600' : 'text-red-600'}>{formatNumber(Math.abs(diffCae))} €</b> frente a la estimación.</>}
+                                        </div>
+                                        <div className="mt-4">
+                                            <button
+                                                onClick={() => setShowComparativaCee(true)}
+                                                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-sm transition-colors"
+                                            >
+                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17V7m4 10V11m4 6V4M4 21h16" /></svg>
+                                                Comparativa para el cliente
+                                            </button>
+                                        </div>
+                                    </div>
+                                );
+                            } catch (e) {
+                                console.warn('[Comparativa CEE] no se pudo calcular:', e?.message);
+                                return null;
+                            }
+                        })()}
                     </div>
                 );
             })()}
@@ -1376,6 +1462,13 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
                 onClose={() => setShowHistorial(false)}
                 idOportunidad={inputs.id_oportunidad}
                 referenciaCliente={inputs.referenciaCliente}
+            />
+
+            <ComparativaCeeModal
+                isOpen={showComparativaCee}
+                onClose={() => setShowComparativaCee(false)}
+                comparison={showComparativaCee ? computeCeeComparison(inputs) : null}
+                clienteNombre={inputs.referenciaCliente}
             />
         </div>
 

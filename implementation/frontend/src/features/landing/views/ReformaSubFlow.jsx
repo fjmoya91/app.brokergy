@@ -30,6 +30,7 @@ import { Step9_Contacto } from '../steps/Step9_Contacto';
 import { LandingResultView } from './LandingResultView';
 import { LeadDeliveryView } from './LeadDeliveryView';
 import { funnelToCalculatorInputs } from '../data/funnelToInputs';
+import { ceeToEmisionesInputs } from '../../calculator/logic/ceeSeed';
 import { computeFullCalculatorResult, computeLandingResult } from '../data/landingCalculation';
 
 const BOILER_COMBUSTIBLE = ['gas', 'gasoleo', 'carbon', 'biomasa'];
@@ -54,7 +55,7 @@ const MONEY_MILESTONES = [
     { emoji: '🤑', label: 'Propuesta',  threshold: 0.92 },
 ];
 
-export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding, mode = 'public', onCreated, onNoEmpezada, onRestart }) {
+export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding, mode = 'public', initialCeeData = null, onCreated, onNoEmpezada, onRestart }) {
     // Modo internal (partner/admin "nueva simulación"): mismas pantallas que el
     // flujo público pero con textos neutros (el partner pregunta por su cliente),
     // sin elementos comerciales y terminando en la pantalla de identificación de
@@ -286,6 +287,20 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
                 timeline: contacto.timeline || 'explorando'
             };
             const calculatorInputs = funnelToCalculatorInputs(funnelConContacto, catastro, { mode: 'internal' });
+            // CEE anterior aportado (admin): lo guardamos en calculatorInputs y SEMBRAMOS
+            // el modo "CEE aportado" (por emisiones) para que la tabla aparezca rellena con
+            // los datos reales del CEE (columna INICIAL) + un FINAL estimado (demanda/SCOP).
+            // El pdfBase64 (pesado) no va a la BD; el PDF se sube al slot DOC_CEE_PREVIO aparte.
+            if (initialCeeData && (initialCeeData.referencia_catastral || initialCeeData.demandas || initialCeeData.emisiones)) {
+                const { pdfBase64, ...ceeFields } = initialCeeData;
+                calculatorInputs.cee_previo = ceeFields;
+                Object.assign(calculatorInputs, ceeToEmisionesInputs(ceeFields, {
+                    scopHeating: calculatorInputs.scopHeating,
+                    scopAcs: calculatorInputs.scopAcs,
+                    changeAcs: calculatorInputs.changeAcs || calculatorInputs.incluir_acs,
+                    manualDemandAcs: calculatorInputs.manualDemandAcs,
+                }));
+            }
             let precomputedResult = null;
             let demandaCalefaccionPorM2 = null;
             try {
