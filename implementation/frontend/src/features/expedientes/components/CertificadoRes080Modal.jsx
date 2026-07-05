@@ -473,6 +473,22 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, a
         return btoa(binary);
     };
 
+    // Páginas de preview de un buffer de anexo. Si es una IMAGEN (JPEG/PNG) devuelve
+    // una única "página" con la imagen como data-URL; si es un PDF, las páginas
+    // rasterizadas con pdf.js. Necesario porque pdf.js falla sobre bytes de imagen:
+    // maneja tanto los anexos nuevos (ya convertidos a PDF en backend) como los
+    // antiguos que se guardaron como imagen cruda con content-type application/pdf.
+    const bufferToPreviewPages = async (arrayBuffer) => {
+        const b = new Uint8Array(arrayBuffer.slice(0, 4));
+        const isJpg = b[0] === 0xFF && b[1] === 0xD8 && b[2] === 0xFF;
+        const isPng = b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4E && b[3] === 0x47;
+        if (isJpg || isPng) {
+            const mime = isPng ? 'image/png' : 'image/jpeg';
+            return [`data:${mime};base64,${arrayBufferToBase64(arrayBuffer)}`];
+        }
+        return renderPdfBufferToImages(arrayBuffer);
+    };
+
     const handleManualFixedUpload = async (slotId, file) => {
         if (!file || !expediente?.id) return;
         const type = slotId === 'aerotermia_cal' ? 'cal' : 'acs';
@@ -506,7 +522,7 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, a
             const { data } = await axios.post(`/api/expedientes/${expediente.id}/anexos-cifo/upload`, {
                 base64, fileName: file.name, label: labelOverride || file.name
             });
-            const previewPages = await renderPdfBufferToImages(arrayBuffer);
+            const previewPages = await bufferToPreviewPages(arrayBuffer);
             setAttachments(prev => [...prev, {
                 id: `extra_${data.driveId}`,
                 label: data.label,
@@ -567,7 +583,7 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, a
                     responseType: 'arraybuffer',
                     validateStatus: s => s === 200
                 });
-                const imgs = await renderPdfBufferToImages(res.data);
+                const imgs = await bufferToPreviewPages(res.data);
                 if (imgs.length > 0) {
                     setAttachments(prev => prev.map(a => a.id === extra.id
                         ? { ...a, file: { ...a.file, previewPages: imgs } }
@@ -1502,6 +1518,7 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, a
                             <div key={item.id}
                                  draggable={!isLoading && !isResyncing}
                                  onDragStart={() => setDraggedIndex(idx)}
+                                 onDragEnd={() => setDraggedIndex(null)}
                                  onDragOver={(e) => { e.preventDefault(); e.currentTarget.style.backgroundColor = 'rgba(242, 166, 64, 0.1)'; }}
                                  onDragLeave={(e) => { e.currentTarget.style.backgroundColor = ''; }}
                                  onDrop={(e) => {
@@ -1605,7 +1622,7 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, a
                                         ) : (
                                             <label className={`p-2.5 bg-white/5 text-white/40 border border-white/10 rounded-xl cursor-pointer hover:bg-brand hover:text-black hover:border-brand transition-all shadow-xl ${uploadingExtra ? 'opacity-40 pointer-events-none' : ''}`}>
                                                 <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M12 4v16m8-8H4"/></svg>
-                                                <input type="file" className="hidden" accept=".pdf" onChange={(e) => { const f = e.target.files[0]; if (f) handleManualExtraUpload(f, row.label); }} />
+                                                <input type="file" className="hidden" accept=".pdf,.jpg,.jpeg,.png" onChange={(e) => { const f = e.target.files[0]; if (f) handleManualExtraUpload(f, row.label); }} />
                                             </label>
                                         )}
                                     </div>
@@ -1630,14 +1647,14 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, a
                             ) : (
                                 <svg className={`w-8 h-8 transition-transform ${isGlobalDragging ? 'scale-110 text-brand' : 'text-white/10'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
                             )}
-                            <p className="text-[10px] font-black uppercase tracking-widest text-white/20">{uploadingExtra ? 'Subiendo…' : 'Suelta un PDF aquí para anexarlo'}</p>
+                            <p className="text-[10px] font-black uppercase tracking-widest text-white/20">{uploadingExtra ? 'Subiendo…' : 'Suelta un PDF o imagen aquí para anexarlo'}</p>
                         </div>
 
                         <button
                             onClick={() => {
                                 const input = document.createElement('input');
                                 input.type = 'file';
-                                input.accept = '.pdf';
+                                input.accept = '.pdf,.jpg,.jpeg,.png';
                                 input.onchange = (e) => { if (e.target.files[0]) handleManualExtraUpload(e.target.files[0]); };
                                 input.click();
                             }}

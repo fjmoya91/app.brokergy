@@ -4038,8 +4038,30 @@ router.post('/:id/anexos-cifo/upload', enforceAuth, async (req, res) => {
         let ftFolderId = await findSubfolderByName(driveFolderId, '3. FICHAS TÉCNICAS Y CERTIFICACIONES');
         if (!ftFolderId) ftFolderId = await createSubfolder(driveFolderId, '3. FICHAS TÉCNICAS Y CERTIFICACIONES');
 
-        const safeName = String(fileName).trim().replace(/[\\/<>:"|?*]/g, '_');
-        const buffer = Buffer.from(base64.split(',')[1] || base64, 'base64');
+        let safeName = String(fileName).trim().replace(/[\\/<>:"|?*]/g, '_');
+        let buffer = Buffer.from(base64.split(',')[1] || base64, 'base64');
+
+        // Si el anexo es una IMAGEN (JPEG/PNG), la convertimos a una página PDF antes
+        // de subir, para que se concatene y previsualice EXACTAMENTE igual que el resto
+        // de anexos (que son PDF). Antes se guardaba con mimetype 'application/pdf'
+        // forzado aunque el archivo fuese una imagen: el merge sí la embebía (por magic
+        // bytes) pero la previsualización con pdf.js fallaba y la imagen quedaba
+        // "invisible" en el modal → parecía que la imagen no se anexaba. Mismo patrón
+        // que /:id/justificante y la subida de facturas.
+        const sig = buffer.subarray(0, 4);
+        const isJpg = sig[0] === 0xFF && sig[1] === 0xD8 && sig[2] === 0xFF;
+        const isPng = sig[0] === 0x89 && sig[1] === 0x50 && sig[2] === 0x4E && sig[3] === 0x47;
+        if (isJpg || isPng) {
+            const { PDFDocument } = require('pdf-lib');
+            const imgPdf = await PDFDocument.create();
+            const img = isPng ? await imgPdf.embedPng(buffer) : await imgPdf.embedJpg(buffer);
+            const { width, height } = img.scale(1);
+            const page = imgPdf.addPage([width, height]);
+            page.drawImage(img, { x: 0, y: 0, width, height });
+            buffer = Buffer.from(await imgPdf.save());
+            safeName = safeName.replace(/\.(jpe?g|png)$/i, '') + '.pdf';
+        }
+
         const result = await saveFileToFolder(ftFolderId, safeName, 'application/pdf', buffer);
         if (!result) return res.status(500).json({ error: 'upload_failed' });
 

@@ -513,6 +513,7 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
     const [expedientes, setExpedientes] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
+    const [localPathLoadingId, setLocalPathLoadingId] = useState(null); // id del expediente cuyo botón "carpeta local" está cargando
     const userRole = (user?.rol || '').toUpperCase();
     const { isAdmin, isStaff, isCertificador, canSeeMargin, canDelete } = getRoleFlags(user);
 
@@ -545,6 +546,34 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
 
     // Delegado al helper compartido (fuente única de verdad del cálculo económico).
     const getExpedienteFinancials = (exp) => computeExpedienteFinancials(exp);
+
+    // Abrir la carpeta LOCAL de Windows del expediente (solo ADMIN), directamente
+    // desde el listado sin entrar al detalle — igual que en el panel de oportunidades.
+    // El backend reconstruye la ruta (espejo de Google Drive Desktop) subiendo por las
+    // carpetas padre y lanzamos el protocolo brokergylocal: (abre directo, sin modal);
+    // la ruta se copia al portapapeles en silencio como respaldo. Requiere
+    // brokergylocal_setup.reg instalado una vez por PC.
+    const handleOpenLocalFolder = async (exp) => {
+        try {
+            setLocalPathLoadingId(exp.id);
+            const { data } = await axios.get(`/api/expedientes/${exp.id}/local-path`);
+            const path = data?.path;
+            if (!path) { showAlert('No se pudo obtener la ruta local del expediente.', 'Carpeta local', 'error'); return; }
+            try { await navigator.clipboard.writeText(path); } catch (e) { /* contexto no seguro */ }
+            const b64url = btoa(unescape(encodeURIComponent(path))).replace(/\+/g, '-').replace(/\//g, '_');
+            const a = document.createElement('a');
+            a.href = `brokergylocal:${b64url}`;
+            a.style.display = 'none';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+        } catch (err) {
+            const msg = err?.response?.data?.error || 'No se pudo resolver la ruta local.';
+            showAlert(msg, 'Carpeta local', 'error');
+        } finally {
+            setLocalPathLoadingId(null);
+        }
+    };
     // eslint-disable-next-line no-unused-vars
     const _getExpedienteFinancialsLegacy = (exp) => {
         const op = exp.oportunidades;
@@ -1699,6 +1728,18 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
                                         {/* Acciones */}
                                         <td className="px-4 py-3 whitespace-nowrap">
                                             <div className="flex items-center gap-2 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
+                                                {isAdmin && (
+                                                    <button
+                                                        onClick={(e) => { e.stopPropagation(); handleOpenLocalFolder(exp); }}
+                                                        disabled={localPathLoadingId === exp.id}
+                                                        className="text-emerald-400/50 hover:text-emerald-400 transition-colors disabled:opacity-40 disabled:cursor-wait"
+                                                        title="Abrir la carpeta local en el Explorador de Windows"
+                                                    >
+                                                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" />
+                                                        </svg>
+                                                    </button>
+                                                )}
                                                 <button
                                                     onClick={async (e) => {
                                                         e.stopPropagation();
