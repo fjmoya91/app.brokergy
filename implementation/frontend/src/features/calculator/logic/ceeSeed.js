@@ -24,6 +24,30 @@ export function mapCeeCombustible(c) {
 }
 
 /**
+ * Traduce UN CEE cargado (objeto normalizado de ceeExtract) a los valores de UNA columna
+ * de la tabla de emisiones (inicial o final). No decide inicial/final: el consumidor lo
+ * aplica a la columna que corresponda. Refrigeración vacía → electricidad (siempre eléctrica).
+ * @param {object} cee objeto CEE normalizado { emisiones, servicios, demandas, superficie_habitable_m2 }
+ * @returns {object} { emiCal, emiAcs, emiRef, combCal, combAcs, combRef, sup, demCal }
+ */
+export function ceeToColumn(cee) {
+  const numOr = (v) => { const n = Number(v); return isFinite(n) ? n : ''; };
+  const em = cee?.emisiones || {};
+  const sv = cee?.servicios || {};
+  const dm = cee?.demandas || {};
+  return {
+    emiCal: numOr(em.calefaccion),
+    emiAcs: numOr(em.acs),
+    emiRef: numOr(em.refrigeracion),
+    combCal: mapCeeCombustible(sv.calefaccion?.combustible) || 'Gas Natural',
+    combAcs: mapCeeCombustible(sv.acs?.combustible) || 'Gas Natural',
+    combRef: mapCeeCombustible(sv.refrigeracion?.combustible) || 'Electricidad peninsular',
+    sup: numOr(cee?.superficie_habitable_m2),
+    demCal: numOr(dm.calefaccion_kwh_m2_ano),
+  };
+}
+
+/**
  * @param {object} cee   objeto cee_previo { emisiones, servicios, demandas, superficie_habitable_m2 }
  * @param {object} ctx   { scopHeating, scopAcs, changeAcs, manualDemandAcs } de los inputs de la calculadora
  * @returns {object} campos manualEmisiones / combustible / manualSup / manualDemand listos para inputs
@@ -48,7 +72,9 @@ export function ceeToEmisionesInputs(cee, ctx = {}) {
 
   const combCalIni = mapCeeCombustible(sv.calefaccion?.combustible);
   const combAcsIni = mapCeeCombustible(sv.acs?.combustible);
-  const combRefIni = mapCeeCombustible(sv.refrigeracion?.combustible);
+  // Refrigeración: en España es SIEMPRE eléctrica. Si el CEE no declara combustible de
+  // frío, caemos a electricidad para no dejar el factor de paso en 1 (consumo erróneo).
+  const combRefIni = mapCeeCombustible(sv.refrigeracion?.combustible) || 'Electricidad peninsular';
   const sup = numOr(cee.superficie_habitable_m2);
 
   return {

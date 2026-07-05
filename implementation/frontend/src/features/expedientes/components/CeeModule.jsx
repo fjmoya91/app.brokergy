@@ -3,6 +3,8 @@ import { createPortal } from 'react-dom';
 import axios from 'axios';
 import { parseCeeXml } from '../../calculator/logic/xmlCeeParser';
 import { FACTORES_PASO, calculateRes080, calculateRes080FromEmissions } from '../../calculator/logic/calculation';
+import { ceeToColumn } from '../../calculator/logic/ceeSeed';
+import CeeUploadModal from '../../cee/CeeUploadModal';
 import { EfficiencyTable } from '../../calculator/components/EfficiencyTable';
 import { CeeDocumentsGrid } from './CeeDocumentsGrid';
 import { buildCertApproveMessage, buildCertDefaultMessage } from '../logic/certMessages';
@@ -355,6 +357,8 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
     const [showXmlModal, setShowXmlModal] = useState(false);
     const [xmlError, setXmlError] = useState(null);
     const [xmlFinalError, setXmlFinalError] = useState(null);
+    // Carga de CEE por fichero (XML/OCR) para el modo manual: 'inicial' | 'final' | null.
+    const [ceeLoadTarget, setCeeLoadTarget] = useState(null);
     const [isDragging, setIsDragging] = useState(false);
     const [isDraggingFinal, setIsDraggingFinal] = useState(false);
     // Autoguardado: el módulo siempre está editable, sin botón "Editar Módulo".
@@ -761,6 +765,52 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
         fin: ceeComma(local.superficie_manual_final),
     };
 
+    // Cargar un CEE por fichero (XML exacto u OCR IA) y volcarlo a la columna (inicial/final)
+    // del expediente. La tabla pasa a modo manual (editable) porque rellenamos emisiones_manual.
+    // IMPORTANTE: si la otra columna venía de un XML cargado, migramos SUS emisiones a manual
+    // para no perderla (el path manual solo lee emisiones_manual). No pisa datos ya presentes.
+    const applyCeeToExpediente = (data, target) => {
+        const has = (v) => v !== undefined && v !== '' && v !== null;
+        const isFinal = target === 'final';
+        const em = { ...(local.emisiones_manual || {}) };
+        const next = { ...local, cee_source: 'manual' };
+
+        // Vuelca los valores de una columna (obj con emiAcs/emiCal/emiRef/combAcs/... /sup) al
+        // lado 'ini'|'fin'. Solo escribe lo que tenga valor; refrigeración vacía → electricidad.
+        const setCol = (col, side) => {
+            if (!col) return;
+            const sufComb = side === 'fin' ? 'final' : 'inicial';
+            if (has(col.emiAcs)) em[`acs_${side}`] = ceeComma(col.emiAcs);
+            if (has(col.emiCal)) em[`cal_${side}`] = ceeComma(col.emiCal);
+            if (has(col.emiRef)) em[`ref_${side}`] = ceeComma(col.emiRef);
+            next[`comb_acs_${sufComb}`] = col.combAcs || 'Gas Natural';
+            next[`comb_cal_${sufComb}`] = col.combCal || 'Gas Natural';
+            next[`comb_ref_${sufComb}`] = col.combRef || 'Electricidad peninsular';
+            if (has(col.sup)) next[`superficie_manual_${sufComb}`] = ceeComma(col.sup);
+        };
+        // Emisiones de una columna a partir de un objeto XML ya cargado (parseCeeXml).
+        const colFromXml = (xmlObj) => xmlObj ? {
+            emiAcs: xmlObj.emisionesACS, emiCal: xmlObj.emisionesCalefaccion, emiRef: xmlObj.emisionesRefrigeracion,
+            combAcs: xmlObj.combustibleACS, combCal: xmlObj.combustibleCalefaccion, combRef: xmlObj.combustibleRefrigeracion,
+            sup: xmlObj.superficieHabitable,
+        } : null;
+
+        // Columna cargada (nueva).
+        const c = ceeToColumn(data);
+        setCol(c, isFinal ? 'fin' : 'ini');
+
+        // Otra columna: si aún no tiene emisiones manuales pero había un XML, migrarlo.
+        const otherSide = isFinal ? 'ini' : 'fin';
+        const otherHasManual = ['acs', 'cal', 'ref'].some(k => has(em[`${k}_${otherSide}`]));
+        if (!otherHasManual) {
+            setCol(colFromXml(isFinal ? local.cee_inicial : local.cee_final), otherSide);
+        }
+
+        next.emisiones_manual = em;
+        setLocal(next);
+        onSave({ cee: next });
+    };
+
     const renderRes060 = () => (
         <CeeDocumentsGrid
             expediente={expediente}
@@ -929,6 +979,46 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                     </p>
                 </div>
             )}
+
+            {/* Cargar CEE por fichero (XML exacto u OCR IA) — disponible en cualquier modo.
+                Al cargar, la tabla pasa a modo manual (editable) y la otra columna se conserva. */}
+            {isReforma && (
+                <div className="bg-white/[0.02] border border-white/10 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center gap-3">
+                    <div className="flex items-center gap-2 text-slate-300 text-[10px] font-black uppercase tracking-widest shrink-0">
+                        <svg className="w-4 h-4 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.9A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" /></svg>
+                        Cargar CEE por fichero
+                    </div>
+                    <p className="text-[10px] text-slate-500 leading-relaxed flex-1">
+                        Sube el CEE de una columna (<b className="text-slate-300">.xml exacto</b>, o <b className="text-slate-300">PDF/fotos con OCR</b>) y rellenamos emisiones, combustible y superficie. Útil si solo tienes el PDF.
+                    </p>
+                    <div className="flex gap-2 shrink-0">
+                        <button
+                            type="button"
+                            onClick={() => setCeeLoadTarget('inicial')}
+                            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-white text-[9px] font-black uppercase tracking-widest transition-all active:scale-95"
+                        >
+                            <svg className="w-3.5 h-3.5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+                            CEE inicial
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setCeeLoadTarget('final')}
+                            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-white text-[9px] font-black uppercase tracking-widest transition-all active:scale-95"
+                        >
+                            <svg className="w-3.5 h-3.5 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+                            CEE final
+                        </button>
+                    </div>
+                </div>
+            )}
+
+            <CeeUploadModal
+                isOpen={!!ceeLoadTarget}
+                onClose={() => setCeeLoadTarget(null)}
+                title={ceeLoadTarget === 'final' ? 'Cargar CEE final' : 'Cargar CEE inicial'}
+                subtitle="Sube el CEE (.xml exacto, o PDF/fotos con OCR). Rellenaremos las emisiones, el combustible y la superficie de esta columna."
+                onLoaded={(data) => { applyCeeToExpediente(data, ceeLoadTarget); setCeeLoadTarget(null); }}
+            />
 
             {res080Data ? (
                 <div className="bg-slate-900 border border-white/10 rounded-[2rem] p-8 shadow-2xl overflow-hidden">

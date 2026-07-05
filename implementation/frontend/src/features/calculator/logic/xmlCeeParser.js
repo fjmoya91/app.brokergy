@@ -70,6 +70,11 @@ export function parseCeeXml(xmlString) {
         identificacion: null,
         fechaFirma: null,            // YYYY-MM-DD (de <Fecha>)
         fechaVisita: null,           // YYYY-MM-DD (de <FechaVisita>)
+        acsLitrosDia: null,          // litros/día (de <DemandaDiariaACS>)
+        rendimientoCalefaccion: null,   // % (RendimientoEstacional × 100)
+        rendimientoACS: null,           // % (RendimientoEstacional × 100)
+        rendimientoRefrigeracion: null, // % (RendimientoEstacional × 100)
+        combustibleRefrigeracion: null,
     };
 
     // Intentar extraer datos de <Demanda><EdificioObjeto>
@@ -95,6 +100,13 @@ export function parseCeeXml(xmlString) {
         result.emisionesCalefaccion = getValidNumber(emisionesNode, 'Calefaccion');
         result.emisionesACS = getValidNumber(emisionesNode, 'ACS');
         result.emisionesRefrigeracion = getValidNumber(emisionesNode, 'Refrigeracion');
+    }
+
+    // Intentar extraer demanda diaria de ACS (litros/día)
+    const acsDemandaNodes = xmlDoc.getElementsByTagName('DemandaDiariaACS');
+    if (acsDemandaNodes.length > 0) {
+        const val = parseFloat(acsDemandaNodes[0].textContent.replace(',', '.'));
+        if (!isNaN(val) && val > 0 && val < 9999999) result.acsLitrosDia = val;
     }
 
     // Intentar extraer superficie habitable
@@ -137,23 +149,46 @@ export function parseCeeXml(xmlString) {
     const rawFechaVisita = getBestDate(['FechaVisita', 'FechaInspeccion']);
     if (rawFechaVisita) result.fechaVisita = parseDMY(rawFechaVisita);
 
-    // Intentar extraer vectores energéticos (combustibles)
+    // Intentar extraer vectores energéticos (combustibles) + rendimiento estacional.
+    // El XML expresa el rendimiento como fracción de 1.0 (0.44 = 44%, 1.26 = 126%);
+    // lo normalizamos a porcentaje para que sea consistente con el OCR (623.0 = 623%).
+    const getRendimientoPct = (node) => {
+        const rend = node.getElementsByTagName('RendimientoEstacional');
+        if (rend.length === 0) return null;
+        const val = parseFloat(rend[0].textContent.replace(',', '.'));
+        if (isNaN(val) || val <= 0 || val >= 9999999) return null;
+        return Math.round(val * 1000) / 10; // ×100 con 1 decimal
+    };
+
     const thermalNodes = xmlDoc.getElementsByTagName('InstalacionesTermicas');
     if (thermalNodes.length > 0) {
         const thermal = thermalNodes[0];
-        
-        // Calefacción
+
+        // Calefacción — <GeneradoresDeCalefaccion><Generador>...
         const cal = thermal.getElementsByTagName('GeneradoresDeCalefaccion');
         if (cal.length > 0) {
             const vector = cal[0].getElementsByTagName('VectorEnergetico');
             if (vector.length > 0) result.combustibleCalefaccion = mapVectorEnergetico(vector[0].textContent.trim());
+            const generador = cal[0].getElementsByTagName('Generador');
+            if (generador.length > 0) result.rendimientoCalefaccion = getRendimientoPct(generador[0]);
         }
 
-        // ACS
+        // ACS — <InstalacionesACS><Instalacion>...
         const acs = thermal.getElementsByTagName('InstalacionesACS');
         if (acs.length > 0) {
             const vector = acs[0].getElementsByTagName('VectorEnergetico');
             if (vector.length > 0) result.combustibleACS = mapVectorEnergetico(vector[0].textContent.trim());
+            const instalacion = acs[0].getElementsByTagName('Instalacion');
+            if (instalacion.length > 0) result.rendimientoACS = getRendimientoPct(instalacion[0]);
+        }
+
+        // Refrigeración — <GeneradoresDeRefrigeracion><Generador>... (no siempre presente)
+        const ref = thermal.getElementsByTagName('GeneradoresDeRefrigeracion');
+        if (ref.length > 0) {
+            const vector = ref[0].getElementsByTagName('VectorEnergetico');
+            if (vector.length > 0) result.combustibleRefrigeracion = mapVectorEnergetico(vector[0].textContent.trim());
+            const generador = ref[0].getElementsByTagName('Generador');
+            if (generador.length > 0) result.rendimientoRefrigeracion = getRendimientoPct(generador[0]);
         }
     }
 

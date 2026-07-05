@@ -18,6 +18,7 @@ import {
 import { PROVINCE_CLIMATE_MAP } from '../data/provinceMapping';
 import { useAuth } from '../../../context/AuthContext';
 import { parseCeeXml } from '../logic/xmlCeeParser';
+import CeeUploadModal from '../../cee/CeeUploadModal';
 export function CalculatorForm({
     inputs,
     onInputChange,
@@ -35,6 +36,7 @@ export function CalculatorForm({
     const isAdmin = user?.rol?.toUpperCase() === 'ADMIN';
 
     const [showXmlModal, setShowXmlModal] = useState(false);
+    const [showCeeLoad, setShowCeeLoad] = useState(false);
     const [xmlError, setXmlError] = useState(null);
     const [xmlFinalError, setXmlFinalError] = useState(null);
     const [isDragging, setIsDragging] = useState(false);
@@ -45,6 +47,24 @@ export function CalculatorForm({
     const openEmisionesTable = () => {
         onInputChange(prev => ({ ...prev, manualCeeMode: 'emisiones' }));
         if (onOpenEmisionesTable) onOpenEmisionesTable();
+    };
+
+    // CEE aportado (RES060, sin reforma): cargar el CEE por fichero rellena la demanda de
+    // calefacción y guarda `cee_previo` (habilita la comparativa "con tu CEE vs estimado").
+    // Auto-rellena RC/dirección/superficie de la oportunidad si están vacías (no pisa lo puesto).
+    const applyCeePrevio = (data) => {
+        const dem = Number(data?.demandas?.calefaccion_kwh_m2_ano);
+        const sup = Number(data?.superficie_habitable_m2);
+        const rc = data?.referencia_catastral;
+        const dir = data?.identificacion?.direccion;
+        onInputChange(prev => ({
+            ...prev,
+            cee_previo: data,
+            ...(isFinite(dem) && dem > 0 ? { manualDemand: dem } : {}),
+            ...(isFinite(sup) && sup > 0 && !prev.superficie ? { superficie: sup, superficieCalefactable: sup } : {}),
+            ...(rc && !prev.refCatastral ? { refCatastral: rc } : {}),
+            ...(dir && !prev.direccion ? { direccion: dir } : {}),
+        }));
     };
 
 
@@ -630,9 +650,19 @@ export function CalculatorForm({
                                     <span>año</span>
                                 </div>
                             </div>
-                            <p className="text-[9px] text-slate-500 leading-relaxed">
-                                Introduce la demanda de calefacción que figura en el CEE. El cálculo de ahorros y CAE se actualizará automáticamente.
-                            </p>
+                            <div className="flex flex-col gap-2 sm:ml-auto">
+                                <p className="text-[9px] text-slate-500 leading-relaxed">
+                                    Introduce la demanda de calefacción que figura en el CEE, o cárgalo directamente y lo leemos por ti.
+                                </p>
+                                <button
+                                    type="button"
+                                    onClick={() => setShowCeeLoad(true)}
+                                    className="self-start flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-[10px] font-black uppercase tracking-widest transition-all active:scale-95"
+                                >
+                                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.9A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" /></svg>
+                                    Cargar CEE
+                                </button>
+                            </div>
                         </div>
                     )}
 
@@ -2710,6 +2740,15 @@ export function CalculatorForm({
             </div>
         </SectionCard>
 
+
+        {/* CARGA DE CEE (CEE aportado RES060): popup que lee XML/PDF/fotos */}
+        <CeeUploadModal
+            isOpen={showCeeLoad}
+            onClose={() => setShowCeeLoad(false)}
+            title="Cargar CEE aportado"
+            subtitle="Sube el CEE del cliente (.xml exacto, o PDF/fotos con OCR). Rellenaremos la demanda de calefacción y guardaremos sus datos para la comparativa."
+            onLoaded={(data) => { applyCeePrevio(data); setShowCeeLoad(false); }}
+        />
 
         {/* PANTALLA CARGA XML (MODAL PREMIUM CENTRADO) */}
         {showXmlModal && (

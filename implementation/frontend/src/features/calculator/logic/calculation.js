@@ -138,6 +138,25 @@ export function getFactorPaso(combustible) {
     return 1;
 }
 
+// Mapea el tipo de caldera/sistema inicial del flujo ESTIMADO (valores del <select>
+// de "Situación Inicial": Termo/Gasoil/Gas/Carbon/Butano/Propano/BIOMASA) al combustible
+// (clave de FACTORES_PASO). Sirve para derivar las emisiones del CEE estimado:
+// emisiones = consumo (kWh/m²·año) × factor de paso — el inverso de calculateRes080.
+const BOILER_TYPE_TO_FUEL = {
+    'Termo': 'Electricidad peninsular',
+    'Electricidad': 'Electricidad peninsular',
+    'Gasoil': 'Gasoleo Calefacción',
+    'Gas': 'Gas Natural',
+    'Carbon': 'Carbón',
+    'Butano': 'GLP',
+    'Propano': 'GLP',
+    'BIOMASA': 'Biomasa no densificada',
+    'No tiene Calefacción': 'Gas Natural',
+};
+export function boilerTypeToFuel(type) {
+    return BOILER_TYPE_TO_FUEL[type] || 'Gas Natural';
+}
+
 // ============================================================================
 // RENDIMIENTOS DE CALDERAS (Base IDAE/CTE)
 // ============================================================================
@@ -255,11 +274,26 @@ export function calculateRes080Estimated(inputs) {
 
     const ahorroTotal = Math.max(0, energyTotalIni - energyTotalFin);
 
+    // Detalles para la tabla de eficiencia (DESGLOSE ENERGÉTICO RES080) también en modo
+    // ESTIMADO: combustible inicial = tipo de caldera de la situación actual; final =
+    // electricidad (aerotermia). Emisiones (kgCO2/m²·año) = consumo (kWh/m²·año) × factor
+    // de paso — el inverso exacto de calculateRes080 (consumo = emisiones / factor).
+    const fuelAcsIni = boilerTypeToFuel(boilerAcsType);
+    const fuelCalIni = boilerTypeToFuel(boilerHeatingType);
+    const fuelElec = 'Electricidad peninsular';
+    const fAcsIni = getFactorPaso(fuelAcsIni);
+    const fCalIni = getFactorPaso(fuelCalIni);
+    const fElec = getFactorPaso(fuelElec);
+    const energyAcsIniM2 = energyAcsIni / S;
+    const energyAcsFinM2 = energyAcsFin / S;
+    const energyCalIniM2 = energyCalIni / S;
+    const energyCalFinM2 = energyCalFin / S;
+
     return {
-        energiaAcsInicial: energyAcsIni / S,
-        energiaAcsFinal: energyAcsFin / S,
-        energiaCalefInicial: energyCalIni / S,
-        energiaCalefFinal: energyCalFin / S,
+        energiaAcsInicial: energyAcsIniM2,
+        energiaAcsFinal: energyAcsFinM2,
+        energiaCalefInicial: energyCalIniM2,
+        energiaCalefFinal: energyCalFinM2,
         energiaRefInicial: 0,
         energiaRefFinal: 0,
         totalEnergiaInicialM2: energyTotalIni / S,
@@ -271,9 +305,26 @@ export function calculateRes080Estimated(inputs) {
         superficieAplicada: S,
         isEstimated: true,
         details: {
-            acs: { energyIni: energyAcsIni / S, energyFin: energyAcsFin / S },
-            cal: { energyIni: energyCalIni / S, energyFin: energyCalFin / S },
-            ref: { energyIni: 0, energyFin: 0 }
+            acs: {
+                fuelIni: fuelAcsIni, fuelFin: fuelElec,
+                factorIni: fAcsIni, factorFin: fElec,
+                emissionsIni: energyAcsIniM2 * fAcsIni,
+                emissionsFin: energyAcsFinM2 * fElec,
+                energyIni: energyAcsIniM2, energyFin: energyAcsFinM2,
+            },
+            cal: {
+                fuelIni: fuelCalIni, fuelFin: fuelElec,
+                factorIni: fCalIni, factorFin: fElec,
+                emissionsIni: energyCalIniM2 * fCalIni,
+                emissionsFin: energyCalFinM2 * fElec,
+                energyIni: energyCalIniM2, energyFin: energyCalFinM2,
+            },
+            ref: {
+                fuelIni: fuelElec, fuelFin: fuelElec,
+                factorIni: fElec, factorFin: fElec,
+                emissionsIni: 0, emissionsFin: 0,
+                energyIni: 0, energyFin: 0,
+            },
         }
     };
 }
@@ -621,12 +672,19 @@ export function calculateRes080({
 
     const getE = (val) => typeof val === 'number' ? val : 0;
 
+    // Refrigeración: en España es SIEMPRE eléctrica. Muchos CEE no declaran combustible
+    // de refrigeración (no hay generador de frío activo) aunque sí traigan emisiones; si el
+    // combustible viene vacío, caemos a electricidad para no aplicar factor 1 (consumo
+    // erróneo = emisiones/1 en vez de emisiones/0,331).
+    const refIni = combRefrigeracionInicial || 'Electricidad peninsular';
+    const refFin = combRefrigeracionFinal || 'Electricidad peninsular';
+
     const fAcsIni = getFactorPaso(combAcsInicial);
     const fAcsFin = getFactorPaso(combAcsFinal);
     const fCalIni = getFactorPaso(combCalefaccionInicial);
     const fCalFin = getFactorPaso(combCalefaccionFinal);
-    const fRefIni = getFactorPaso(combRefrigeracionInicial);
-    const fRefFin = getFactorPaso(combRefrigeracionFinal);
+    const fRefIni = getFactorPaso(refIni);
+    const fRefFin = getFactorPaso(refFin);
 
     const energiaAcsInicial = getE(xmlInicial.emisionesACS) / fAcsIni;
     const energiaAcsFinal = getE(xmlFinal.emisionesACS) / fAcsFin;
@@ -691,8 +749,8 @@ export function calculateRes080({
                 energyFin: energiaCalefFinal
             },
             ref: {
-                fuelIni: combRefrigeracionInicial,
-                fuelFin: combRefrigeracionFinal,
+                fuelIni: refIni,
+                fuelFin: refFin,
                 factorIni: fRefIni,
                 factorFin: fRefFin,
                 emissionsIni: getE(xmlInicial.emisionesRefrigeracion),

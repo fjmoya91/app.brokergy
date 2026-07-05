@@ -14,6 +14,8 @@ import { generateBrokergyReport } from '../logic/pdfGenerator';
 import { calculateSavings, calculateFinancials, calculateRes080FromEmissions, calculateRes080Estimated, getFactorPaso } from '../logic/calculation';
 import { EfficiencyTable } from './EfficiencyTable';
 import ComparativaCeeModal from '../../cee/ComparativaCeeModal';
+import CeeUploadModal from '../../cee/CeeUploadModal';
+import { ceeToColumn } from '../logic/ceeSeed';
 import { computeCeeComparison } from '../logic/ceeComparison';
 import realCasesData from '../data/real_cases_db.json';
 import { DocsAdminModal } from './DocsAdminModal';
@@ -252,6 +254,8 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
     // Borrador editable (solo modo emisiones). Al confirmar se vuelca a inputs.
     const [emiDraft, setEmiDraft] = React.useState(null);
     const [showComparativaCee, setShowComparativaCee] = React.useState(false);
+    // Carga de CEE por fichero dentro del modal de emisiones: 'inicial' | 'final' | null.
+    const [ceeLoadTarget, setCeeLoadTarget] = React.useState(null);
     const isEmisionesMode = inputs?.demandMode === 'manual' && inputs?.isReforma;
     const [clienteModalOp, setClienteModalOp] = React.useState(null);
     const [clienteDetailId, setClienteDetailId] = React.useState(null);
@@ -289,7 +293,9 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
                 comb: {
                     acsIni: inputs.combustibleAcsInicial, acsFin: inputs.combustibleAcsFinal,
                     calIni: inputs.combustibleCalefaccionInicial, calFin: inputs.combustibleCalefaccionFinal,
-                    refIni: inputs.combustibleRefrigeracionInicial, refFin: inputs.combustibleRefrigeracionFinal,
+                    // Refrigeración siempre eléctrica en ES: si viene vacía, electricidad.
+                    refIni: inputs.combustibleRefrigeracionInicial || 'Electricidad peninsular',
+                    refFin: inputs.combustibleRefrigeracionFinal || 'Electricidad peninsular',
                 },
                 supIni: toCommaStr(inputs.manualSupInicial || supBase),
                 supFin: toCommaStr(inputs.manualSupFinal || inputs.manualSupInicial || supBase),
@@ -348,6 +354,35 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
                     // Refrigeración: se mantiene la inicial
                     refFin: d.emi.refIni,
                 },
+            };
+        });
+    };
+
+    // Vuelca un CEE cargado por fichero (XML/OCR) a la columna INICIAL o FINAL del borrador.
+    // No pisa la otra columna: "cargar CEE final real" mantiene el CEE inicial aportado.
+    const applyCeeToColumn = (ceeData, target) => {
+        const c = ceeToColumn(ceeData);
+        const isFinal = target === 'final';
+        setEmiDraft(d => {
+            const base = d || {};
+            const supStr = c.sup !== '' ? toCommaStr(c.sup) : (isFinal ? base.supFin : base.supIni);
+            return {
+                ...base,
+                emi: {
+                    ...base.emi,
+                    [isFinal ? 'acsFin' : 'acsIni']: c.emiAcs !== '' ? toCommaStr(c.emiAcs) : base.emi?.[isFinal ? 'acsFin' : 'acsIni'],
+                    [isFinal ? 'calFin' : 'calIni']: c.emiCal !== '' ? toCommaStr(c.emiCal) : base.emi?.[isFinal ? 'calFin' : 'calIni'],
+                    [isFinal ? 'refFin' : 'refIni']: c.emiRef !== '' ? toCommaStr(c.emiRef) : base.emi?.[isFinal ? 'refFin' : 'refIni'],
+                },
+                comb: {
+                    ...base.comb,
+                    [isFinal ? 'acsFin' : 'acsIni']: c.combAcs,
+                    [isFinal ? 'calFin' : 'calIni']: c.combCal,
+                    [isFinal ? 'refFin' : 'refIni']: c.combRef,
+                },
+                [isFinal ? 'supFin' : 'supIni']: supStr,
+                // La demanda del CEE inicial alimenta el estimador de FINAL (demanda/SCOP).
+                est: !isFinal && c.demCal !== '' ? { ...(base.est || {}), demCal: toCommaStr(c.demCal) } : base.est,
             };
         });
     };
@@ -685,7 +720,10 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
                     {result.financials && (() => {
                         const showRes080Button = result.res080 && (
                             inputs.demandMode === 'real' ||
-                            (inputs.demandMode === 'manual' && inputs.isReforma)
+                            (inputs.demandMode === 'manual' && inputs.isReforma) ||
+                            // Estimado + reforma: la tabla se deriva de los datos ya
+                            // introducidos (calderas, aerotermia, envolvente).
+                            (inputs.isReforma && inputs.reformaType === 'estimated')
                         );
                         return (
                         <div className={`grid grid-cols-2 ${showRes080Button ? 'lg:grid-cols-5' : 'sm:grid-cols-4'} gap-2 mb-4 animate-fade-in`}>
@@ -1311,6 +1349,25 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
                                     Edita combustible, <b>emisiones</b> y <b>superficie</b> (inicial/final) en la tabla. La superficie es la base del ahorro (emisiones × superficie) y puede diferir entre el CEE inicial y el final. Al confirmar se actualiza todo el cálculo.
                                 </p>
                              )}
+                             {/* Cargar CEE por fichero (XML exacto u OCR IA) para rellenar la columna */}
+                             {editable && (
+                                <div className="mb-5 flex flex-col sm:flex-row gap-3">
+                                    <button
+                                        onClick={() => setCeeLoadTarget('inicial')}
+                                        className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-[11px] font-black uppercase tracking-widest transition-all active:scale-95"
+                                    >
+                                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.9A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" /></svg>
+                                        Cargar CEE inicial
+                                    </button>
+                                    <button
+                                        onClick={() => setCeeLoadTarget('final')}
+                                        className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl border-2 border-slate-300 hover:border-slate-400 text-slate-700 text-[11px] font-black uppercase tracking-widest transition-all active:scale-95"
+                                    >
+                                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.9A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" /></svg>
+                                        Cargar CEE final (real)
+                                    </button>
+                                </div>
+                             )}
                              {/* Estimar el CEE FINAL si aún no lo tenemos (con la aerotermia) */}
                              {editable && emiDraft?.est && (
                                 <div className="mb-5 p-4 rounded-xl bg-blue-50 border border-blue-200">
@@ -1365,7 +1422,9 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
                              {!editable && (
                                 <div className="mt-8 p-4 bg-slate-50 rounded-xl border border-slate-200">
                                    <p className="text-[11px] text-slate-500 italic leading-relaxed text-center font-medium">
-                                       Este desglose corresponde a la comparativa técnica entre los certificados energéticos (XML) aportados para la situación inicial y propuesta de reforma.
+                                       {inputs?.demandMode === 'real'
+                                           ? 'Este desglose corresponde a la comparativa técnica entre los certificados energéticos (XML) aportados para la situación inicial y propuesta de reforma.'
+                                           : 'Este desglose es una estimación técnica a partir de los datos introducidos (sistema actual, aerotermia y mejoras de envolvente). Las emisiones se derivan del consumo estimado y el factor de paso de cada combustible.'}
                                    </p>
                                 </div>
                              )}
@@ -1469,6 +1528,16 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
                 onClose={() => setShowComparativaCee(false)}
                 comparison={showComparativaCee ? computeCeeComparison(inputs) : null}
                 clienteNombre={inputs.referenciaCliente}
+            />
+
+            <CeeUploadModal
+                isOpen={!!ceeLoadTarget}
+                onClose={() => setCeeLoadTarget(null)}
+                title={ceeLoadTarget === 'final' ? 'Cargar CEE final (real)' : 'Cargar CEE inicial'}
+                subtitle={ceeLoadTarget === 'final'
+                    ? 'Sube el CEE FINAL real para rellenar la columna FINAL. El CEE inicial aportado se mantiene; se recalcula el ahorro real medido.'
+                    : 'Sube el CEE (situación inicial) para rellenar la columna INICIAL: emisiones, combustible, superficie y demanda.'}
+                onLoaded={(data) => { applyCeeToColumn(data, ceeLoadTarget); setCeeLoadTarget(null); }}
             />
         </div>
 

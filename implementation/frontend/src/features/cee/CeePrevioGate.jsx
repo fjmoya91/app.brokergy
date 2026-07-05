@@ -59,9 +59,13 @@ function fromXml(xml) {
     acs: xml?.emisionesACS ?? '',
     refrigeracion: xml?.emisionesRefrigeracion ?? '',
   };
-  // El XML no trae litros ACS/día ni rendimiento estacional
+  d.acs_litros_dia = xml?.acsLitrosDia ?? '';
   d.servicios.calefaccion.combustible = xml?.combustibleCalefaccion || '';
+  d.servicios.calefaccion.rendimiento_estacional_pct = xml?.rendimientoCalefaccion ?? '';
   d.servicios.acs.combustible = xml?.combustibleACS || '';
+  d.servicios.acs.rendimiento_estacional_pct = xml?.rendimientoACS ?? '';
+  d.servicios.refrigeracion.combustible = xml?.combustibleRefrigeracion || '';
+  d.servicios.refrigeracion.rendimiento_estacional_pct = xml?.rendimientoRefrigeracion ?? '';
   return d;
 }
 
@@ -95,6 +99,55 @@ function fromOcr(ocr, pdfBase64) {
     merged.servicios[k].rendimiento_estacional_pct = nz(merged.servicios[k].rendimiento_estacional_pct);
   });
   return merged;
+}
+
+// Componentes a nivel de módulo (NO definidos dentro de CeePrevioGate): si se
+// definen dentro del cuerpo del componente, React los trata como un tipo nuevo
+// en cada render (cada tecla) y REMONTA el <input>, perdiendo el foco tras cada
+// carácter. Reciben todo por props, sin depender de closures del padre.
+function Shell({ children, onCancel }) {
+  return (
+    <div className="min-h-screen w-full flex flex-col items-center px-4 py-8 overflow-y-auto">
+      <div className="w-full max-w-3xl">
+        <div className="flex items-center justify-between mb-6">
+          <div className="text-2xl font-black tracking-tight">
+            <span className="text-white">BROKER</span><span style={{ color: BRAND }}>GY</span>
+          </div>
+          <button onClick={onCancel} className="text-white/40 hover:text-white text-xs font-bold uppercase tracking-widest flex items-center gap-2">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" /></svg>
+            Cancelar
+          </button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function Field({ label, value, onChange, unit, type = 'text', wide }) {
+  return (
+    <div className={wide ? 'sm:col-span-2' : ''}>
+      <label className="block text-[10px] uppercase tracking-widest text-white/40 mb-1 font-bold">{label}</label>
+      <div className="flex items-center gap-2">
+        <input
+          type={type}
+          value={value ?? ''}
+          onChange={(e) => onChange(e.target.value)}
+          className="w-full bg-white/[0.04] border border-white/10 focus:border-amber-500/50 rounded-lg px-3 py-2 text-white text-sm outline-none"
+        />
+        {unit && <span className="text-white/30 text-xs whitespace-nowrap">{unit}</span>}
+      </div>
+    </div>
+  );
+}
+
+function ServRow({ label, servicio, onChange }) {
+  return (
+    <div className="grid grid-cols-2 gap-3 items-end">
+      <Field label={`${label} — combustible`} value={servicio.combustible} onChange={(v) => onChange('combustible', v)} />
+      <Field label={`${label} — rend. estacional`} value={servicio.rendimiento_estacional_pct} onChange={(v) => onChange('rendimiento_estacional_pct', v)} unit="%" type="number" />
+    </div>
+  );
 }
 
 export default function CeePrevioGate({ onSkip, onDone, onCancel }) {
@@ -166,28 +219,10 @@ export default function CeePrevioGate({ onSkip, onDone, onCancel }) {
   const setNested = (group, k, v) => setData((d) => ({ ...d, [group]: { ...d[group], [k]: v } }));
   const setServ = (s, k, v) => setData((d) => ({ ...d, servicios: { ...d.servicios, [s]: { ...d.servicios[s], [k]: v } } }));
 
-  // ────────────────────────────────────────────────────────────────────────
-  const Shell = ({ children }) => (
-    <div className="min-h-screen w-full flex flex-col items-center px-4 py-8 overflow-y-auto">
-      <div className="w-full max-w-3xl">
-        <div className="flex items-center justify-between mb-6">
-          <div className="text-2xl font-black tracking-tight">
-            <span className="text-white">BROKER</span><span style={{ color: BRAND }}>GY</span>
-          </div>
-          <button onClick={onCancel} className="text-white/40 hover:text-white text-xs font-bold uppercase tracking-widest flex items-center gap-2">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" /></svg>
-            Cancelar
-          </button>
-        </div>
-        {children}
-      </div>
-    </div>
-  );
-
   // ── Pantalla 1: gate ──
   if (stage === 'gate') {
     return (
-      <Shell>
+      <Shell onCancel={onCancel}>
         <div className="text-center mt-6 mb-10 animate-slide-down">
           <h1 className="text-3xl md:text-5xl font-bold tracking-tight mb-4">
             <span className="text-white">Nueva </span><span className="text-gradient">simulación</span>
@@ -220,7 +255,7 @@ export default function CeePrevioGate({ onSkip, onDone, onCancel }) {
   // ── Pantalla 2: upload ──
   if (stage === 'upload') {
     return (
-      <Shell>
+      <Shell onCancel={onCancel}>
         <div className="text-center mt-6 mb-8">
           <h1 className="text-2xl md:text-4xl font-bold tracking-tight mb-3">
             <span className="text-white">Cargar </span><span className="text-gradient">CEE anterior</span>
@@ -270,7 +305,7 @@ export default function CeePrevioGate({ onSkip, onDone, onCancel }) {
   // ── Pantalla intermedia: processing ──
   if (stage === 'processing') {
     return (
-      <Shell>
+      <Shell onCancel={onCancel}>
         <div className="flex flex-col items-center justify-center mt-20 gap-6">
           <div className="relative w-16 h-16">
             <div className="absolute inset-0 border-4 border-amber-500/15 rounded-full" />
@@ -303,30 +338,8 @@ export default function CeePrevioGate({ onSkip, onDone, onCancel }) {
   }
 
   // ── Pantalla 3: review (editable) ──
-  const Field = ({ label, value, onChange, unit, type = 'text', wide }) => (
-    <div className={wide ? 'sm:col-span-2' : ''}>
-      <label className="block text-[10px] uppercase tracking-widest text-white/40 mb-1 font-bold">{label}</label>
-      <div className="flex items-center gap-2">
-        <input
-          type={type}
-          value={value ?? ''}
-          onChange={(e) => onChange(e.target.value)}
-          className="w-full bg-white/[0.04] border border-white/10 focus:border-amber-500/50 rounded-lg px-3 py-2 text-white text-sm outline-none"
-        />
-        {unit && <span className="text-white/30 text-xs whitespace-nowrap">{unit}</span>}
-      </div>
-    </div>
-  );
-
-  const ServRow = ({ label, s }) => (
-    <div className="grid grid-cols-2 gap-3 items-end">
-      <Field label={`${label} — combustible`} value={data.servicios[s].combustible} onChange={(v) => setServ(s, 'combustible', v)} />
-      <Field label={`${label} — rend. estacional`} value={data.servicios[s].rendimiento_estacional_pct} onChange={(v) => setServ(s, 'rendimiento_estacional_pct', v)} unit="%" type="number" />
-    </div>
-  );
-
   return (
-    <Shell>
+    <Shell onCancel={onCancel}>
       <div className="text-center mt-4 mb-6">
         <h1 className="text-2xl md:text-4xl font-bold tracking-tight mb-2">
           <span className="text-white">Datos del </span><span className="text-gradient">CEE</span>
@@ -368,9 +381,9 @@ export default function CeePrevioGate({ onSkip, onDone, onCancel }) {
         <div>
           <div className="text-amber-400/80 text-xs font-bold uppercase tracking-widest mb-3">Instalaciones (combustible + rendimiento estacional)</div>
           <div className="space-y-3">
-            <ServRow label="Calefacción" s="calefaccion" />
-            <ServRow label="ACS" s="acs" />
-            <ServRow label="Refrigeración" s="refrigeracion" />
+            <ServRow label="Calefacción" servicio={data.servicios.calefaccion} onChange={(field, v) => setServ('calefaccion', field, v)} />
+            <ServRow label="ACS" servicio={data.servicios.acs} onChange={(field, v) => setServ('acs', field, v)} />
+            <ServRow label="Refrigeración" servicio={data.servicios.refrigeracion} onChange={(field, v) => setServ('refrigeracion', field, v)} />
           </div>
         </div>
       </div>
