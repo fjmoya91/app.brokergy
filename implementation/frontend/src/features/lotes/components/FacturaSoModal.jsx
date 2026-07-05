@@ -94,7 +94,9 @@ export function FacturaSoModal({ lote, onClose, onGenerated }) {
         }
     };
 
-    const fileNameFactura = `${lote.codigo || 'LOTE'} - ${numero || 'Factura'} - Factura S.O.`;
+    // Nombre del PDF: "{nº factura} - {nombre lote} - {acrónimo S.O.}" (igual que en Drive).
+    const soAcronimo = lote.sujeto_obligado?.acronimo || lote.sujeto_obligado?.razon_social || '';
+    const fileNameFactura = [numero || 'Factura', lote.codigo || 'LOTE', soAcronimo].filter(Boolean).join(' - ');
 
     // Descarga directa del PDF (sin guardar en Drive) — ruta existente /api/pdf/generate.
     const handleDownloadPdf = async () => {
