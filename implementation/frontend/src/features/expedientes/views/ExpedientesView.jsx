@@ -507,6 +507,86 @@ const CCAA_MAP = {
     '48': 'País Vasco', '49': 'Castilla y León', '50': 'Aragón', '51': 'Ceuta', '52': 'Melilla'
 };
 
+// Código de provincia INE a 2 dígitos ('9' → '09'), o null.
+const pad2 = (v) => { const s = String(v ?? '').trim(); return s ? s.padStart(2, '0') : null; };
+
+// ─── Modal de creación de lote desde la selección de expedientes ──────────────
+// Reutiliza POST /api/lotes { sujeto_obligado_id, expediente_ids, notas }. El SO es
+// obligatorio; el año y la CCAA del lote se fijan con los expedientes seleccionados.
+function CrearLoteDesdeSeleccionModal({ soList, count, anio, ccaa, totals, canSeeMargin, onClose, onConfirm }) {
+    const [soId, setSoId] = useState('');
+    const [notas, setNotas] = useState('');
+    const [saving, setSaving] = useState(false);
+    const eur0 = n => (Number(n) || 0).toLocaleString('es-ES', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
+    const presName = p => p ? (p.acronimo || p.razon_social || '—') : '—';
+
+    const confirm = async () => {
+        if (!soId || saving) return;
+        setSaving(true);
+        try {
+            await onConfirm(soId, notas.trim() || null);
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    return (
+        <div className="fixed inset-0 z-[300] flex items-start justify-center p-4 bg-black/75 backdrop-blur-md animate-fade-in overflow-y-auto">
+            <div className="bg-bkg-deep border border-white/[0.08] rounded-2xl w-full max-w-lg my-12 shadow-2xl">
+                <div className="flex items-center justify-between p-6 border-b border-white/[0.06]">
+                    <h2 className="text-sm font-black text-white uppercase tracking-wider">Nuevo Lote — {count} expediente{count === 1 ? '' : 's'}</h2>
+                    <button onClick={onClose} className="p-2 text-white/30 hover:text-white transition-colors">
+                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                    </button>
+                </div>
+                <div className="p-6 space-y-4">
+                    {/* Resumen de la selección */}
+                    <div className="grid grid-cols-2 gap-3">
+                        <div className="rounded-xl border border-white/[0.06] bg-bkg-surface/50 px-3 py-2">
+                            <span className="text-[9px] uppercase tracking-widest font-black text-white/30 block">Año Actuación</span>
+                            <span className="text-sm font-black text-white">{anio ?? '—'}</span>
+                        </div>
+                        <div className="rounded-xl border border-white/[0.06] bg-bkg-surface/50 px-3 py-2">
+                            <span className="text-[9px] uppercase tracking-widest font-black text-white/30 block">CCAA</span>
+                            <span className="text-sm font-black text-white truncate block">{ccaa ?? '—'}</span>
+                        </div>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] font-mono tabular-nums px-1">
+                        <span className="inline-flex items-center gap-1 text-blue-400 font-black"><span className="text-blue-400/50 text-[9px]">⚡</span>{((totals.savingsKwh || 0) / 1000).toLocaleString('es-ES', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} MWh</span>
+                        <span className="inline-flex items-center gap-1 text-emerald-400 font-black"><span className="text-emerald-400/50 text-[9px]">€</span>{eur0(totals.cae)}</span>
+                        {canSeeMargin && <span className="inline-flex items-center gap-1 text-cyan-400 font-black"><span className="text-cyan-400/50 text-[9px]">▲</span>{eur0(totals.profit)}</span>}
+                    </div>
+
+                    <div>
+                        <label className="block text-[10px] uppercase tracking-[0.2em] font-black text-white/30 mb-2">Sujeto Obligado</label>
+                        <select value={soId} onChange={e => setSoId(e.target.value)}
+                            className="w-full bg-bkg-surface border border-white/[0.08] rounded-xl px-4 py-3 text-sm text-white focus:border-brand/40 focus:outline-none">
+                            <option value="">— Selecciona Sujeto Obligado —</option>
+                            {soList.map(p => <option key={p.id_empresa} value={p.id_empresa}>{presName(p)} {p.cif ? `(${p.cif})` : ''}</option>)}
+                        </select>
+                        {soList.length === 0 && (
+                            <p className="text-[11px] text-amber-400/80 mt-2">No hay ningún prescriptor de tipo SUJETO OBLIGADO dado de alta. Créalo primero en Prescriptores.</p>
+                        )}
+                    </div>
+                    <div>
+                        <label className="block text-[10px] uppercase tracking-[0.2em] font-black text-white/30 mb-2">Notas (opcional)</label>
+                        <textarea value={notas} onChange={e => setNotas(e.target.value)} rows={2}
+                            className="w-full bg-bkg-surface border border-white/[0.08] rounded-xl px-4 py-3 text-sm text-white focus:border-brand/40 focus:outline-none resize-none" />
+                    </div>
+                    <p className="text-[11px] text-white/30">El lote se crea con los expedientes seleccionados ya asignados. El Verificador se asigna después desde la pestaña Lotes.</p>
+                </div>
+                <div className="flex items-center justify-end gap-3 p-6 border-t border-white/[0.06]">
+                    <button onClick={onClose} className="px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest text-white/50 hover:text-white transition-colors">Cancelar</button>
+                    <button onClick={confirm} disabled={saving || !soId}
+                        className="px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest bg-gradient-to-r from-brand to-brand-700 text-bkg-deep disabled:opacity-40 transition-all">
+                        {saving ? 'Creando…' : 'Crear Lote'}
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+}
+
 export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialSelection }) {
     const { showAlert, showConfirm } = useModal();
     const { user } = useAuth();
@@ -530,17 +610,22 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
         return isNaN(y) ? null : y;
     };
 
+    // CCAA de la ACTUACIÓN (instalación), NO la del cliente. Mismo criterio que el
+    // backend (geoCcaa.resolveCcaaInstalacion): así el filtro, la selección de lote y
+    // la validación del servidor coinciden. El cliente solo es último recurso.
     const getCCAA = (exp) => {
-        // 1. Intentar del campo ccaa del cliente (si existe en BD)
+        const inst = exp.instalacion || {};
+        // 1. Instalación con dirección propia → su provincia manda.
+        if (inst.misma_direccion === false) {
+            const cod = pad2(inst.provincia_cod);
+            if (cod && CCAA_MAP[cod]) return CCAA_MAP[cod];
+        }
+        // 2. Código de provincia del funnel de la oportunidad (el dato más fiable).
+        const opCod = pad2(exp.oportunidades?.datos_calculo?.inputs?.provincia);
+        if (opCod && CCAA_MAP[opCod]) return CCAA_MAP[opCod];
+        // 3. Fallbacks al cliente: CCAA guardada o provincia textual.
         if (exp.clientes?.ccaa) return exp.clientes.ccaa;
-        
-        // 2. Fallback: Derivar del código de provincia de la oportunidad (como en AdminPanelView)
-        const provCode = exp.oportunidades?.datos_calculo?.inputs?.provincia;
-        if (provCode && CCAA_MAP[provCode]) return CCAA_MAP[provCode];
-        
-        // 3. Si no, provincia textual del cliente
         if (exp.clientes?.provincia) return exp.clientes.provincia;
-
         return '—';
     };
 
@@ -741,6 +826,13 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
     const [showStats, setShowStats] = useState(true);
     const [showMobileFilters, setShowMobileFilters] = useState(false); // Panel de filtros en móvil
 
+    // ─── Selección de expedientes para crear lote desde este panel ────────────
+    const [selectMode, setSelectMode] = useState(false);
+    const [selectedIds, setSelectedIds] = useState(() => new Set());
+    const [soList, setSoList] = useState([]);            // Sujetos Obligados (para el modal)
+    const [showCrearLote, setShowCrearLote] = useState(false);
+    const [creatingLote, setCreatingLote] = useState(false);
+
     // ─── Columnas redimensionables (Excel-style) ──────────────────────────────
     const EXP_COL_DEFAULTS = {
         expediente: 360, ccaa: 140, estado: 156,
@@ -818,8 +910,9 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
         // Cargar lista de certificadores para el filtro y mapeo de nombres
         axios.get('/api/prescriptores')
             .then(res => {
-                const list = (res.data || []).filter(p => p.tipo_empresa === 'CERTIFICADOR' || p.tipo_empresa === 'OTRO');
-                setCertificadores(list);
+                const all = res.data || [];
+                setCertificadores(all.filter(p => p.tipo_empresa === 'CERTIFICADOR' || p.tipo_empresa === 'OTRO'));
+                setSoList(all.filter(p => p.tipo_empresa === 'SUJETO_OBLIGADO'));
             })
             .catch(err => console.error('Error fetching certificadores list:', err));
     }, [fetchExpedientes]);
@@ -1047,8 +1140,51 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
         (PRIORITY_ORDER[a.prioridad || 'NORMAL'] ?? 2) - (PRIORITY_ORDER[b.prioridad || 'NORMAL'] ?? 2)
     );
 
-    // Cálculos financieros dinámicos basados en filtros (CÁLCULO REAL DE EXPEDIENTE)
-    const financialStats = filtered.reduce((acc, exp) => {
+    // ─── Selección de expedientes para lote (mismo criterio que la pestaña Lotes) ─
+    // Elegible: DOC. COMPLETA, sin lote asignado y con año (CIFO) + CCAA resolubles.
+    // Cohesión: una vez elegido el primero, solo casan los del mismo año + CCAA.
+    const MAX_LOTE = 5;
+    const anchorExp = expedientes.find(e => selectedIds.has(e.id)) || null;
+    const anchorYear = anchorExp ? getCifoYear(anchorExp) : null;
+    const anchorCcaa = anchorExp ? getCCAA(anchorExp) : null;
+    const isLoteable = (exp) =>
+        (exp.estado === 'DOC. COMPLETA') && !exp.lote_id &&
+        getCifoYear(exp) != null && !!getCCAA(exp) && getCCAA(exp) !== '—';
+    // La CCAA llega con formas distintas según la fuente ("Castilla-La Mancha" vs
+    // "Castilla La Mancha"): normalizamos (sin tildes, guion=espacio) para comparar.
+    const ccaaKey = (v) => norm(v).replace(/-/g, ' ').replace(/\s+/g, ' ').trim();
+    const matchesAnchor = (exp) =>
+        !anchorExp || (getCifoYear(exp) === anchorYear && ccaaKey(getCCAA(exp)) === ccaaKey(anchorCcaa));
+    const canSelect = (exp) => isLoteable(exp) && matchesAnchor(exp);
+    const toggleSelect = (exp) => {
+        if (!selectedIds.has(exp.id) && !canSelect(exp)) return;
+        setSelectedIds(prev => {
+            const next = new Set(prev);
+            if (next.has(exp.id)) next.delete(exp.id); else next.add(exp.id);
+            return next;
+        });
+    };
+    const toggleSelectAll = () => {
+        if (selectedIds.size > 0) { setSelectedIds(new Set()); return; }
+        const first = sortedFiltered.find(isLoteable);
+        if (!first) return;
+        const y = getCifoYear(first), c = ccaaKey(getCCAA(first));
+        const batch = sortedFiltered
+            .filter(e => isLoteable(e) && getCifoYear(e) === y && ccaaKey(getCCAA(e)) === c)
+            .slice(0, MAX_LOTE)
+            .map(e => e.id);
+        setSelectedIds(new Set(batch));
+    };
+    const exitSelectMode = () => { setSelectMode(false); setSelectedIds(new Set()); };
+    const selectedExps = expedientes.filter(e => selectedIds.has(e.id));
+    const selectedCount = selectedExps.length;
+
+    // Cálculos financieros dinámicos (CÁLCULO REAL DE EXPEDIENTE).
+    // Con selección activa, el resumen suma SOLO los expedientes seleccionados.
+    const useSelectionSummary = selectMode && selectedCount > 0;
+    const summarySource = useSelectionSummary ? selectedExps : filtered;
+    const summaryCount = summarySource.length;
+    const financialStats = summarySource.reduce((acc, exp) => {
         const fin = getExpedienteFinancials(exp);
         return {
             totalCae: acc.totalCae + fin.cae,
@@ -1056,6 +1192,33 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
             totalSavings: acc.totalSavings + fin.savingsKwh
         };
     }, { totalCae: 0, totalProfit: 0, totalSavings: 0 });
+
+    // Crear el lote con la selección actual (mismo endpoint que la pestaña Lotes).
+    const crearLoteDesdeSeleccion = async (soId, notas) => {
+        setCreatingLote(true);
+        try {
+            const ids = selectedExps.map(e => e.id);
+            const { data } = await axios.post('/api/lotes', {
+                sujeto_obligado_id: soId,
+                expediente_ids: ids,
+                notas: notas || null,
+            });
+            setShowCrearLote(false);
+            exitSelectMode();
+            await fetchExpedientes();
+            showAlert(
+                `Lote ${data?.codigo || ''} creado con ${ids.length} expediente${ids.length === 1 ? '' : 's'}.`.trim(),
+                'Lote creado', 'success'
+            );
+            onNavigate?.('lotes');
+        } catch (err) {
+            // El backend valida elegibilidad y cohesión año/CCAA; mostramos su mensaje.
+            showAlert(err.response?.data?.error || 'No se pudo crear el lote.', 'Error al crear lote', 'error');
+            throw err; // mantiene el modal abierto para reintentar
+        } finally {
+            setCreatingLote(false);
+        }
+    };
 
     const stats = {
         total: expedientes.length,
@@ -1120,6 +1283,23 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
 
                     {!isCertificador && (
                         <button
+                            onClick={() => selectMode ? exitSelectMode() : setSelectMode(true)}
+                            className={`flex items-center gap-2 px-3 py-2 rounded-xl border transition-all text-[10px] font-black uppercase tracking-wider ${
+                                selectMode
+                                    ? 'bg-brand/10 border-brand/30 text-brand'
+                                    : 'bg-bkg-surface border-white/[0.06] text-white/40 hover:text-white hover:bg-bkg-hover'
+                            }`}
+                            title="Seleccionar expedientes para crear un lote"
+                        >
+                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            <span className="hidden sm:inline">{selectMode ? 'Cancelar selección' : 'Seleccionar'}</span>
+                        </button>
+                    )}
+
+                    {!isCertificador && (
+                        <button
                             onClick={() => setShowModal(true)}
                             className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-brand to-brand-700 text-bkg-deep font-black text-xs uppercase tracking-wider rounded-xl hover:opacity-90 transition-all hover:scale-105 active:scale-95 shadow-lg shadow-brand/20"
                         >
@@ -1155,8 +1335,8 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
                                         </div>
                                     </div>
                                     <div className="text-right">
-                                        <span className="text-[10px] text-white/20 font-medium block">{filtered.length} exp.</span>
-                                        <span className="text-[8px] text-emerald-400/40 uppercase font-bold tracking-widest">Global</span>
+                                        <span className={`text-[10px] font-medium block ${useSelectionSummary ? 'text-brand/80' : 'text-white/20'}`}>{summaryCount} exp.</span>
+                                        <span className="text-[8px] text-emerald-400/40 uppercase font-bold tracking-widest">{useSelectionSummary ? 'Selección' : 'Global'}</span>
                                     </div>
                                 </div>
                             </div>
@@ -1179,8 +1359,8 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
                                         </div>
                                     </div>
                                     <div className="text-right">
-                                        <span className="text-[10px] text-white/20 font-medium block">{filtered.length} exp.</span>
-                                        <span className="text-[8px] text-cyan-400/40 uppercase font-bold tracking-widest">Live</span>
+                                        <span className={`text-[10px] font-medium block ${useSelectionSummary ? 'text-brand/80' : 'text-white/20'}`}>{summaryCount} exp.</span>
+                                        <span className="text-[8px] text-cyan-400/40 uppercase font-bold tracking-widest">{useSelectionSummary ? 'Selección' : 'Live'}</span>
                                     </div>
                                 </div>
                             </div>
@@ -1203,8 +1383,8 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
                                         </div>
                                     </div>
                                     <div className="text-right">
-                                        <span className="text-[10px] text-white/20 font-medium block">{filtered.length} exp.</span>
-                                        <span className="text-[8px] text-blue-400/40 uppercase font-bold tracking-widest">Total</span>
+                                        <span className={`text-[10px] font-medium block ${useSelectionSummary ? 'text-brand/80' : 'text-white/20'}`}>{summaryCount} exp.</span>
+                                        <span className="text-[8px] text-blue-400/40 uppercase font-bold tracking-widest">{useSelectionSummary ? 'Selección' : 'Total'}</span>
                                     </div>
                                 </div>
                             </div>
@@ -1442,6 +1622,18 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
                         <table className="w-full text-left border-collapse table-fixed" style={{ minWidth: 680 }}>
                             <thead>
                                 <tr className="bg-bkg-elevated/80">
+                                    {selectMode && (
+                                        <th className="px-3 py-4 border-b border-white/[0.06] text-center" style={{ width: 44 }}>
+                                            <input
+                                                type="checkbox"
+                                                checked={selectedCount > 0}
+                                                ref={el => { if (el) el.indeterminate = selectedCount > 0 && selectedCount < MAX_LOTE; }}
+                                                onChange={toggleSelectAll}
+                                                title={selectedCount > 0 ? 'Vaciar selección' : 'Seleccionar el primer grupo elegible (hasta 5)'}
+                                                className="w-4 h-4 accent-brand cursor-pointer align-middle"
+                                            />
+                                        </th>
+                                    )}
                                     <th className="px-5 py-4 text-[10px] font-black uppercase tracking-[0.15em] text-white/25 border-b border-white/[0.06] relative overflow-visible" style={{ width: expColW.expediente }}>
                                         Número Expediente<ExpRH colKey="expediente" />
                                     </th>
@@ -1478,6 +1670,7 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
                                 </tr>
                                 {/* Fila de Filtros */}
                                 <tr className="bg-white/[0.01]">
+                                    {selectMode && <td className="px-3 py-3 border-b border-white/[0.04]"></td>}
                                     <td className="px-5 py-3 border-b border-white/[0.04]">
                                         <select
                                             value={prioridadFilter}
@@ -1580,8 +1773,12 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
                             <tbody className="divide-y divide-white/[0.04]">
                                 {sortedFiltered.map((exp) => {
                                     const fin = getExpedienteFinancials(exp);
+                                    const isSel = selectedIds.has(exp.id);
+                                    const selectable = canSelect(exp);
                                     const rowAccent =
-                                        exp.incidencias_graves_abiertas > 0
+                                        isSel ? 'bg-brand/[0.08] ring-1 ring-inset ring-brand/60 hover:bg-brand/[0.12]'
+                                        : selectMode && !selectable ? 'opacity-40'
+                                        : exp.incidencias_graves_abiertas > 0
                                             ? 'bg-red-500/[0.06] ring-1 ring-inset ring-red-500/70 shadow-[0_0_14px_rgba(239,68,68,0.35)] hover:bg-red-500/[0.1]'
                                         : exp.incidencias_abiertas > 0
                                             ? 'bg-amber-500/[0.05] ring-1 ring-inset ring-amber-500/60 shadow-[0_0_12px_rgba(245,158,11,0.25)] hover:bg-amber-500/[0.08]'
@@ -1591,9 +1788,21 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
                                     return (
                                     <tr
                                         key={exp.id}
-                                        onClick={() => setSelectedExpediente(exp)}
+                                        onClick={() => selectMode ? toggleSelect(exp) : setSelectedExpediente(exp)}
                                         className={`border-b border-white/[0.04] cursor-pointer transition-all group ${rowAccent}`}
                                     >
+                                        {selectMode && (
+                                            <td className="px-3 py-3 text-center" onClick={e => e.stopPropagation()}>
+                                                <input
+                                                    type="checkbox"
+                                                    checked={isSel}
+                                                    disabled={!selectable && !isSel}
+                                                    onChange={() => toggleSelect(exp)}
+                                                    title={selectable || isSel ? '' : 'Solo expedientes DOC. COMPLETA sin lote y del mismo año/CCAA que la selección'}
+                                                    className="w-4 h-4 accent-brand cursor-pointer align-middle disabled:cursor-not-allowed"
+                                                />
+                                            </td>
+                                        )}
                                         {/* Número Expediente */}
                                         <td className="px-5 py-3">
                                             <div className="flex flex-col">
@@ -1805,12 +2014,16 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
                     const dirText = [dir, mun].filter(Boolean).join(', ');
                     const cifoYear = getCifoYear(exp);
                     const cert = certificadores.find(c => String(c.id_empresa) === String(exp.cee?.certificador_id));
+                    const isSel = selectedIds.has(exp.id);
+                    const selectable = canSelect(exp);
                     return (
                         <div
                             key={exp.id}
-                            onClick={() => setSelectedExpediente(exp)}
+                            onClick={() => selectMode ? toggleSelect(exp) : setSelectedExpediente(exp)}
                             className={`rounded-2xl p-4 active:scale-[0.99] transition-transform border ${
-                                exp.incidencias_graves_abiertas > 0 ? 'bg-red-500/[0.07] border-red-500/70 shadow-[0_0_14px_rgba(239,68,68,0.35)]'
+                                isSel ? 'bg-brand/[0.1] border-brand/60 ring-1 ring-brand/40'
+                                    : selectMode && !selectable ? 'bg-bkg-surface/60 border-white/[0.06] opacity-40'
+                                    : exp.incidencias_graves_abiertas > 0 ? 'bg-red-500/[0.07] border-red-500/70 shadow-[0_0_14px_rgba(239,68,68,0.35)]'
                                     : exp.incidencias_abiertas > 0 ? 'bg-amber-500/[0.06] border-amber-500/60 shadow-[0_0_12px_rgba(245,158,11,0.25)]'
                                     : exp.prioridad === 'URGENTE' ? 'bg-bkg-surface/60 border-white/[0.06] border-l-2 border-l-red-500/70'
                                     : exp.prioridad === 'ALTA' ? 'bg-bkg-surface/60 border-white/[0.06] border-l-2 border-l-amber-500/70'
@@ -1819,6 +2032,16 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
                         >
                             {/* Cabecera: nº expediente + ficha */}
                             <div className="flex items-start justify-between gap-2">
+                                {selectMode && (
+                                    <input
+                                        type="checkbox"
+                                        checked={isSel}
+                                        disabled={!selectable && !isSel}
+                                        onClick={e => e.stopPropagation()}
+                                        onChange={() => toggleSelect(exp)}
+                                        className="mt-0.5 w-5 h-5 accent-brand cursor-pointer shrink-0 disabled:cursor-not-allowed"
+                                    />
+                                )}
                                 <div className="min-w-0 flex-1">
                                     {exp.prioridad && exp.prioridad !== 'NORMAL' && (
                                         <span className={`inline-flex items-center gap-1 text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded border mb-1 ${
@@ -1953,10 +2176,63 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
         )}
 
         {showModal && (
-            <NuevoExpedienteModal 
+            <NuevoExpedienteModal
                 onClose={() => setShowModal(false)}
                 onCreated={handleCreated}
                 existingOportunidadIds={expedientes.map(e => e.oportunidad_id)}
+            />
+        )}
+
+        {/* ─── Barra flotante de selección para crear lote ─── */}
+        {selectMode && (
+            <div className="fixed bottom-4 inset-x-0 z-[120] flex justify-center px-4 pointer-events-none">
+                <div className="pointer-events-auto flex items-center gap-3 sm:gap-4 max-w-3xl w-full sm:w-auto bg-bkg-deep/95 backdrop-blur-md border border-white/[0.1] rounded-2xl shadow-2xl px-4 sm:px-5 py-3">
+                    <div className="flex items-center gap-2 shrink-0">
+                        <span className="inline-flex items-center justify-center min-w-[28px] h-7 px-2 rounded-lg bg-brand/15 text-brand text-sm font-black">{selectedCount}</span>
+                        <span className="text-[10px] uppercase tracking-widest font-black text-white/40 hidden sm:inline">sel.</span>
+                    </div>
+                    {selectedCount > 0 && (
+                        <div className="hidden md:flex items-center gap-3 text-[11px] font-mono tabular-nums border-l border-white/10 pl-3">
+                            {anchorYear && <span className="text-white/50 font-black">{anchorYear} · <span className="truncate max-w-[120px] inline-block align-bottom">{anchorCcaa}</span></span>}
+                            <span className="inline-flex items-center gap-1 text-blue-400 font-black"><span className="text-blue-400/50 text-[9px]">⚡</span>{(financialStats.totalSavings / 1000).toLocaleString('es-ES', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}</span>
+                            <span className="inline-flex items-center gap-1 text-emerald-400 font-black"><span className="text-emerald-400/50 text-[9px]">€</span>{financialStats.totalCae.toLocaleString('es-ES', { maximumFractionDigits: 0 })}</span>
+                        </div>
+                    )}
+                    {selectedCount > MAX_LOTE && (
+                        <span className="text-[10px] font-black uppercase tracking-wider text-amber-400 shrink-0">⚠ Máx. recomendado {MAX_LOTE}</span>
+                    )}
+                    <div className="flex items-center gap-2 ml-auto shrink-0">
+                        <button
+                            onClick={exitSelectMode}
+                            className="px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest text-white/50 hover:text-white transition-colors"
+                        >
+                            Cancelar
+                        </button>
+                        <button
+                            onClick={() => setShowCrearLote(true)}
+                            disabled={selectedCount === 0}
+                            className="flex items-center gap-2 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest bg-gradient-to-r from-brand to-brand-700 text-bkg-deep disabled:opacity-40 transition-all"
+                        >
+                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
+                            </svg>
+                            Crear lote
+                        </button>
+                    </div>
+                </div>
+            </div>
+        )}
+
+        {showCrearLote && (
+            <CrearLoteDesdeSeleccionModal
+                soList={soList}
+                count={selectedCount}
+                anio={anchorYear}
+                ccaa={anchorCcaa}
+                totals={{ cae: financialStats.totalCae, profit: financialStats.totalProfit, savingsKwh: financialStats.totalSavings }}
+                canSeeMargin={canSeeMargin}
+                onClose={() => setShowCrearLote(false)}
+                onConfirm={crearLoteDesdeSeleccion}
             />
         )}
 
