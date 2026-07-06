@@ -18,6 +18,13 @@ const PROVIDER = (process.env.CEE_OCR_PROVIDER || 'gemini').toLowerCase();
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4.1-mini';
 
+// Reintentos con backoff ante errores TRANSITORIOS del proveedor (rate limit / modelo
+// sobrecargado). El free tier de Gemini devuelve 503 "high demand" con cierta frecuencia
+// bajo carga — sin esto, cada pico obligaba al usuario a repetir la subida a mano.
+const RETRYABLE_STATUS = new Set([429, 500, 503]);
+const MAX_RETRIES = 3;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Prompt de extracción (validado contra CEE real, procedimiento CEXv2.x / CE3X)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -172,12 +179,20 @@ async function extractWithGemini(pdfBuffer) {
     },
   };
 
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
-    body: JSON.stringify(body),
-  });
-  const text = await res.text();
+  let res, text;
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+      body: JSON.stringify(body),
+    });
+    text = await res.text();
+    if (res.ok) break;
+    if (!RETRYABLE_STATUS.has(res.status) || attempt === MAX_RETRIES) break;
+    const waitMs = Math.round(900 * 2 ** attempt + Math.random() * 300);
+    console.warn(`[ceeOcr] Gemini ${res.status} (intento ${attempt + 1}/${MAX_RETRIES + 1}), reintentando en ${waitMs}ms…`);
+    await sleep(waitMs);
+  }
   if (!res.ok) {
     let msg = text.slice(0, 300);
     try { msg = JSON.parse(text)?.error?.message || msg; } catch { /* noop */ }
@@ -199,22 +214,32 @@ async function extractWithOpenAI(pdfBuffer) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error('Falta OPENAI_API_KEY en el entorno.');
 
-  const res = await fetch('https://api.openai.com/v1/responses', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-    body: JSON.stringify({
-      model: OPENAI_MODEL,
-      temperature: 0,
-      input: [{
-        role: 'user',
-        content: [
-          { type: 'input_text', text: EXTRACTION_PROMPT + '\n\nDevuelve SOLO el JSON, sin texto adicional.' },
-          { type: 'input_file', filename: 'cee.pdf', file_data: `data:application/pdf;base64,${pdfBuffer.toString('base64')}` },
-        ],
-      }],
-    }),
+  const payload = JSON.stringify({
+    model: OPENAI_MODEL,
+    temperature: 0,
+    input: [{
+      role: 'user',
+      content: [
+        { type: 'input_text', text: EXTRACTION_PROMPT + '\n\nDevuelve SOLO el JSON, sin texto adicional.' },
+        { type: 'input_file', filename: 'cee.pdf', file_data: `data:application/pdf;base64,${pdfBuffer.toString('base64')}` },
+      ],
+    }],
   });
-  const text = await res.text();
+
+  let res, text;
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    res = await fetch('https://api.openai.com/v1/responses', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      body: payload,
+    });
+    text = await res.text();
+    if (res.ok) break;
+    if (!RETRYABLE_STATUS.has(res.status) || attempt === MAX_RETRIES) break;
+    const waitMs = Math.round(900 * 2 ** attempt + Math.random() * 300);
+    console.warn(`[ceeOcr] OpenAI ${res.status} (intento ${attempt + 1}/${MAX_RETRIES + 1}), reintentando en ${waitMs}ms…`);
+    await sleep(waitMs);
+  }
   if (!res.ok) {
     let msg = text.slice(0, 300);
     try { msg = JSON.parse(text)?.error?.message || msg; } catch { /* noop */ }
