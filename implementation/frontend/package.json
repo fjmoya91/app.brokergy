@@ -28,6 +28,8 @@
     "html2pdf.js": "^0.14.0",
     "jspdf": "^4.2.0",
     "jspdf-autotable": "^5.0.7",
+    "leaflet": "^1.9.4",
+    "leaflet.markercluster": "^1.5.3",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-easy-crop": "^5.5.7",

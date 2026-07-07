@@ -21,6 +21,39 @@ const DOC_DEFS = {
     cesion: { key: 'cesion', label: 'Anexo de Cesión', sublabel: 'Convenio de Cesión CAE', file: '_Anexo_Cesion.pdf' },
 };
 
+// ── Bloque de "Observaciones" en el cuerpo del mensaje ────────────────────────
+// Mismo mecanismo que la nota adicional de la propuesta: se inserta como un bloque
+// en negrita (WhatsApp/email convierten *texto* → negrita) antes del cierre del
+// mensaje. Idempotente: stripNote quita el bloque previo antes de recomponer, así
+// que togglear incidencias o teclear no lo duplica.
+const isBoldLine = (l) => /^\*.*\*$/.test(l.trim());
+const stripNote = (msg) => {
+    const lines = (msg || '').split('\n');
+    const start = lines.findIndex(l => /^\*Observaciones:/.test(l.trim()));
+    if (start < 0) return (msg || '');
+    let end = start;
+    for (let i = start + 1; i < lines.length; i++) {
+        const l = lines[i].trim();
+        if (l === '' || isBoldLine(l)) end = i; else break;
+    }
+    lines.splice(start, end - start + 1);
+    return lines.join('\n').replace(/\n{3,}/g, '\n\n');
+};
+const composeNote = (base, note) => {
+    const clean = stripNote(base);
+    const contentLines = (note || '')
+        .split('\n')
+        .map(l => l.trim().replace(/^\*+|\*+$/g, '').replace(/^[•-]\s*/, '').trim())
+        .filter(Boolean);
+    if (!contentLines.length) return clean;
+    const block = ['*Observaciones:*', ...contentLines.map(l => `*${l}*`)].join('\n');
+    const lines = clean.split('\n');
+    // Insertar antes del cierre del mensaje ("Quedamos a…", "Quedo a…", "Un saludo").
+    const anchorIdx = lines.findIndex(l => /^(Quedamos a|Quedo a|Un saludo)/i.test(l.trim()));
+    if (anchorIdx >= 0) { lines.splice(anchorIdx, 0, block, ''); return lines.join('\n'); }
+    return `${clean}\n\n${block}`;
+};
+
 export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results, initialDocs, overrides, onMarkSent, onEditCliente }) {
     const op       = expediente?.oportunidades || {};
     const cli      = expediente?.clientes || {};
@@ -81,6 +114,11 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
     }
     const phoneValid = (ph) => (ph || '').replace(/[^0-9]/g, '').length >= 9;
 
+    // Incidencias detectadas y aún abiertas (control de calidad). Se ofrecen para
+    // copiarlas al mensaje como "observaciones". Viven en documentacion.incidencias[].
+    const openIncidencias = (expediente?.documentacion?.incidencias || [])
+        .filter(i => i && i.estado !== 'SUBSANADA');
+
     // ── Estado ───────────────────────────────────────────────────────────────
     const [docs, setDocs]               = useState(['anexo1', 'cesion']);
     const [target, setTarget]           = useState('cliente'); // 'cliente' | 'instalador'
@@ -88,6 +126,9 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
     const [manualContact, setManualContact] = useState({ name: '', phone: '', email: '' });
     const [channels, setChannels]       = useState({ email: true, whatsapp: true });
     const [message, setMessage]         = useState('');
+    const [selectedIncIds, setSelectedIncIds] = useState([]);    // incidencias marcadas para el mensaje
+    const [extraNote, setExtraNote]     = useState('');          // observaciones libres
+    const [noteInMessage, setNoteInMessage] = useState(true);    // insertar observaciones en el mensaje
     const [waReady, setWaReady]         = useState(null);
     const [status, setStatus]           = useState(null);
     const [sendPhase, setSendPhase]     = useState(null);   // null | 'sending' | 'done'
@@ -139,6 +180,16 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
             + footerInstalador;
     };
 
+    // Texto de "observaciones" = incidencias marcadas + nota libre (una por línea).
+    const buildObservaciones = (ids = selectedIncIds, note = extraNote) => {
+        const incTexts = openIncidencias
+            .filter(i => ids.includes(i.id))
+            .map(i => (i.texto || '').trim())
+            .filter(Boolean);
+        const noteLines = (note || '').split('\n').map(s => s.trim()).filter(Boolean);
+        return [...incTexts, ...noteLines].join('\n');
+    };
+
     const pickDefaultIds = (tgt) => {
         if (tgt === 'instalador') {
             const alt = instContacts.filter(c => c.id !== 'rep').map(c => c.id);
@@ -161,6 +212,9 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
         setSelectedIds(defIds);
         setManualContact({ name: '', phone: '', email: '' });
         setChannels({ email: sel.some(c => c.email), whatsapp: sel.some(c => phoneValid(c.phone)) });
+        setSelectedIncIds([]);
+        setExtraNote('');
+        setNoteInMessage(true);
         setMessage(buildDefaultMessage(startTarget, startDocs));
         setStatus(null);
         setSendPhase(null);
@@ -210,7 +264,32 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
 
     // ── Handlers de selección ────────────────────────────────────────────────
     const applyMessage = (tgt, docKeys) => {
-        if (!userEditedRef.current) setMessage(buildDefaultMessage(tgt, docKeys));
+        if (userEditedRef.current) return;
+        let base = buildDefaultMessage(tgt, docKeys);
+        if (noteInMessage) base = composeNote(base, buildObservaciones());
+        setMessage(base);
+    };
+
+    // Marcar/desmarcar una incidencia detectada → la copia (o quita) del mensaje.
+    const toggleIncidencia = (id) => {
+        setSelectedIncIds(prev => {
+            const next = prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id];
+            if (noteInMessage) setMessage(m => composeNote(m, buildObservaciones(next, extraNote)));
+            return next;
+        });
+    };
+    // Observaciones libres: reflejar en el mensaje según se teclea.
+    const handleNoteChange = (val) => {
+        setExtraNote(val);
+        if (noteInMessage) setMessage(m => composeNote(m, buildObservaciones(selectedIncIds, val)));
+    };
+    // Toggle "añadir al mensaje": inserta o retira el bloque de observaciones.
+    const toggleNoteInMessage = () => {
+        setNoteInMessage(prev => {
+            const next = !prev;
+            setMessage(m => next ? composeNote(m, buildObservaciones()) : stripNote(m));
+            return next;
+        });
     };
     const toggleDoc = (k) => {
         setDocs(prev => {
@@ -402,7 +481,7 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
 
     return (
         <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4" onClick={onClose}>
-            <div className="bg-[#0F1013] border border-white/[0.07] rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in duration-200" onClick={e => e.stopPropagation()}>
+            <div className="bg-[#0F1013] border border-white/[0.07] rounded-2xl shadow-2xl w-full max-w-lg md:max-w-2xl overflow-hidden animate-in fade-in zoom-in duration-200" onClick={e => e.stopPropagation()}>
                 <div className="px-6 py-5 border-b border-white/[0.07] bg-brand/5 flex items-center justify-between">
                     <div>
                         <h2 className="text-lg font-black uppercase tracking-tight text-white">Enviar anexos</h2>
@@ -526,7 +605,7 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
                         <div className="flex items-center justify-between mb-2">
                             <label className="block text-[9px] font-black text-white/30 uppercase tracking-[0.2em]">Mensaje (email / WhatsApp)</label>
                             {userEditedRef.current && (
-                                <button type="button" onClick={() => { userEditedRef.current = false; setMessage(buildDefaultMessage(target, docs)); }}
+                                <button type="button" onClick={() => { userEditedRef.current = false; let base = buildDefaultMessage(target, docs); if (noteInMessage) base = composeNote(base, buildObservaciones()); setMessage(base); }}
                                     className="text-[9px] font-black uppercase tracking-widest text-white/30 hover:text-brand transition-colors">↻ Restablecer</button>
                             )}
                         </div>
@@ -538,6 +617,57 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
                         />
                         <p className="mt-1.5 text-[9px] text-white/25">
                             Dirigido a <span className="text-white/50 font-bold">{target === 'cliente' ? 'el cliente final' : 'el instalador'}</span>. El texto se adapta al destinatario y a los documentos; edítalo libremente.
+                        </p>
+                    </div>
+
+                    {/* Observaciones + incidencias detectadas */}
+                    <div>
+                        <div className="flex items-center justify-between mb-2">
+                            <label className="block text-[9px] font-black text-white/30 uppercase tracking-[0.2em]">Observaciones</label>
+                            <button type="button" onClick={toggleNoteInMessage}
+                                className={`flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest transition-colors ${noteInMessage ? 'text-brand' : 'text-white/30 hover:text-white/60'}`}>
+                                <span className={`w-3.5 h-3.5 rounded border-2 flex items-center justify-center shrink-0 ${noteInMessage ? 'border-brand bg-brand' : 'border-white/20'}`}>
+                                    {noteInMessage && <svg className="w-2.5 h-2.5 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
+                                </span>
+                                Añadir al mensaje
+                            </button>
+                        </div>
+
+                        {openIncidencias.length > 0 && (
+                            <div className="mb-2.5">
+                                <p className="text-[9px] text-white/30 px-1 mb-1.5">Incidencias detectadas — marca las que quieras copiar al mensaje:</p>
+                                <div className="space-y-1.5">
+                                    {openIncidencias.map(inc => {
+                                        const on = selectedIncIds.includes(inc.id);
+                                        const grave = inc.severidad === 'GRAVE';
+                                        return (
+                                            <button key={inc.id} type="button" onClick={() => toggleIncidencia(inc.id)}
+                                                className={`w-full flex items-start gap-2.5 p-2.5 rounded-xl border text-left transition-all ${on ? 'border-brand/50 bg-brand/5' : 'border-white/10 bg-white/[0.02] hover:border-white/20'}`}>
+                                                <span className={`mt-0.5 w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 ${on ? 'border-brand bg-brand' : 'border-white/20'}`}>
+                                                    {on && <svg className="w-3 h-3 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
+                                                </span>
+                                                <div className="min-w-0 flex-1">
+                                                    <span className={`text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded border mr-1.5 align-middle ${grave ? 'text-red-400 bg-red-500/10 border-red-500/40' : 'text-amber-400 bg-amber-500/10 border-amber-500/40'}`}>{grave ? 'Grave' : 'Leve'}</span>
+                                                    <span className="text-[11px] text-white/80 leading-snug align-middle">{inc.texto}</span>
+                                                </div>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        )}
+
+                        <textarea
+                            value={extraNote}
+                            onChange={e => handleNoteChange(e.target.value)}
+                            rows={3}
+                            placeholder="Escribe aquí cualquier observación para el destinatario…"
+                            className="w-full no-uppercase bg-bkg-elevated border border-white/5 rounded-xl px-4 py-3 text-white text-[12px] leading-relaxed focus:outline-none focus:border-brand/40 transition-all resize-y"
+                        />
+                        <p className="mt-1.5 text-[9px] text-white/25">
+                            {noteInMessage
+                                ? 'Las incidencias marcadas y este texto se insertan en el mensaje como «Observaciones».'
+                                : 'No se añadirá al mensaje — marca «Añadir al mensaje» para incluirlo.'}
                         </p>
                     </div>
 

@@ -49,9 +49,12 @@ export function CalculatorForm({
         if (onOpenEmisionesTable) onOpenEmisionesTable();
     };
 
-    // CEE aportado (RES060, sin reforma): cargar el CEE por fichero rellena la demanda de
-    // calefacción y guarda `cee_previo` (habilita la comparativa "con tu CEE vs estimado").
-    // Auto-rellena RC/dirección/superficie de la oportunidad si están vacías (no pisa lo puesto).
+    // Cálculo Real (RES060, sin reforma): cargar el CEE por fichero rellena demanda +
+    // superficie y guarda `cee_previo` (habilita la comparativa "con tu CEE vs estimado").
+    // La superficie del CEE SIEMPRE sustituye a la anterior (aunque ya hubiera una estimada
+    // del precálculo/catastro): en este modo el cálculo debe usar la real, no la estimada.
+    // Se guarda en un campo dedicado (manualSuperficie) para no pisar la superficie de
+    // catastro que sigue viva si el usuario vuelve a "Cálculo Estimado".
     const applyCeePrevio = (data) => {
         const dem = Number(data?.demandas?.calefaccion_kwh_m2_ano);
         const sup = Number(data?.superficie_habitable_m2);
@@ -61,7 +64,7 @@ export function CalculatorForm({
             ...prev,
             cee_previo: data,
             ...(isFinite(dem) && dem > 0 ? { manualDemand: dem } : {}),
-            ...(isFinite(sup) && sup > 0 && !prev.superficie ? { superficie: sup, superficieCalefactable: sup } : {}),
+            ...(isFinite(sup) && sup > 0 ? { manualSuperficie: sup } : {}),
             ...(rc && !prev.refCatastral ? { refCatastral: rc } : {}),
             ...(dir && !prev.direccion ? { direccion: dir } : {}),
         }));
@@ -575,8 +578,9 @@ export function CalculatorForm({
                             </svg>
                             Cálculo Estimado
                         </button>
-                        {/* Botón Cálculo Real (Solo visible para Admin o si ya está seleccionado) */}
-                        {(showBrokergy || demandMode === 'real') && (
+                        {/* Botón Cálculo Real por XML completo: SOLO en modo Reforma (factores de paso
+                            inicial/final). En RES060 (sin reforma) queda unificado en el botón de abajo. */}
+                        {inputs.isReforma && (showBrokergy || demandMode === 'real') && (
                             <button
                                 onClick={() => {
                                     if (xmlDemandData) {
@@ -608,11 +612,11 @@ export function CalculatorForm({
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                             </svg>
-                            CEE Aportado
+                            {inputs.isReforma ? 'CEE Aportado' : 'Cálculo Real'}
                         </button>
                     </div>
 
-                    {demandMode === 'real' && xmlDemandData && (
+                    {inputs.isReforma && demandMode === 'real' && xmlDemandData && (
                         <div className="mt-2 flex justify-end">
                             <button
                                 onClick={() => setShowXmlModal(true)}
@@ -626,41 +630,65 @@ export function CalculatorForm({
                         </div>
                     )}
 
-                    {/* CEE APORTADO en RES060: input de demanda manual visible siempre que no sea reforma */}
+                    {/* CÁLCULO REAL en RES060: demanda + superficie del CEE (situación real), unificado
+                        en un único modo. Cargando un CEE nuevo se puede sustituir el ya cargado. */}
                     {demandMode === 'manual' && !inputs.isReforma && (
-                        <div className="mt-4 p-4 bg-amber-500/5 border border-amber-500/20 rounded-xl animate-fade-in flex flex-col sm:flex-row sm:items-center gap-4">
-                            <div className="flex items-center gap-2 text-amber-400 text-[10px] font-black uppercase tracking-widest shrink-0">
-                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                                </svg>
-                                Demanda de Calefacción (CEE aportado)
-                            </div>
-                            <div className="relative group w-48">
-                                <Input
-                                    id="manualDemand"
-                                    type="text"
-                                    inputMode="decimal"
-                                    className="bg-slate-900 border-amber-500/30 h-10 text-[15px] font-mono font-bold text-amber-300 pr-14 focus:border-amber-500/60 transition-all text-center"
-                                    placeholder="209,4"
-                                    value={formatDisplay(inputs.manualDemand)}
-                                    onChange={e => handleSmartNumberChange('manualDemand', e.target.value)}
-                                />
-                                <div className="absolute right-3 top-1/2 -translate-y-1/2 text-[8px] font-black text-amber-500/50 uppercase pointer-events-none text-right flex flex-col items-end leading-tight">
-                                    <span>kWh/m²</span>
-                                    <span>año</span>
+                        <div className="mt-4 p-4 bg-amber-500/5 border border-amber-500/20 rounded-xl animate-fade-in space-y-4">
+                            <div className="flex flex-col sm:flex-row sm:items-center gap-4 flex-wrap">
+                                <div className="flex items-center gap-2 text-amber-400 text-[10px] font-black uppercase tracking-widest shrink-0">
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                                    </svg>
+                                    Demanda de calefacción
+                                </div>
+                                <div className="relative group w-48">
+                                    <Input
+                                        id="manualDemand"
+                                        type="text"
+                                        inputMode="decimal"
+                                        className="bg-slate-900 border-amber-500/30 h-10 text-[15px] font-mono font-bold text-amber-300 pr-14 focus:border-amber-500/60 transition-all text-center"
+                                        placeholder="209,4"
+                                        value={formatDisplay(inputs.manualDemand)}
+                                        onChange={e => handleSmartNumberChange('manualDemand', e.target.value)}
+                                    />
+                                    <div className="absolute right-3 top-1/2 -translate-y-1/2 text-[8px] font-black text-amber-500/50 uppercase pointer-events-none text-right flex flex-col items-end leading-tight">
+                                        <span>kWh/m²</span>
+                                        <span>año</span>
+                                    </div>
+                                </div>
+
+                                <div className="flex items-center gap-2 text-amber-400 text-[10px] font-black uppercase tracking-widest shrink-0">
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 21V7a1 1 0 011-1h5V3l7 4v14M4 21h16M4 21v-4a1 1 0 011-1h4a1 1 0 011 1v4" />
+                                    </svg>
+                                    Superficie
+                                </div>
+                                <div className="relative group w-40">
+                                    <Input
+                                        id="manualSuperficie"
+                                        type="text"
+                                        inputMode="decimal"
+                                        className="bg-slate-900 border-amber-500/30 h-10 text-[15px] font-mono font-bold text-amber-300 pr-10 focus:border-amber-500/60 transition-all text-center"
+                                        placeholder="120"
+                                        value={formatDisplay(inputs.manualSuperficie)}
+                                        onChange={e => handleSmartNumberChange('manualSuperficie', e.target.value)}
+                                    />
+                                    <div className="absolute right-3 top-1/2 -translate-y-1/2 text-[8px] font-black text-amber-500/50 uppercase pointer-events-none">
+                                        m²
+                                    </div>
                                 </div>
                             </div>
-                            <div className="flex flex-col gap-2 sm:ml-auto">
+                            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                                 <p className="text-[9px] text-slate-500 leading-relaxed">
-                                    Introduce la demanda de calefacción que figura en el CEE, o cárgalo directamente y lo leemos por ti.
+                                    Demanda y superficie de la situación real (CEE). El cálculo usa SIEMPRE esta superficie, no la estimada. Cárgalo directamente y lo leemos por ti, o edítalos a mano.
                                 </p>
                                 <button
                                     type="button"
                                     onClick={() => setShowCeeLoad(true)}
-                                    className="self-start flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-[10px] font-black uppercase tracking-widest transition-all active:scale-95"
+                                    className="self-start sm:self-auto shrink-0 flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-[10px] font-black uppercase tracking-widest transition-all active:scale-95"
                                 >
                                     <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.9A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" /></svg>
-                                    Cargar CEE
+                                    {inputs.cee_previo ? 'Sustituir CEE' : 'Cargar CEE'}
                                 </button>
                             </div>
                         </div>
@@ -2741,12 +2769,12 @@ export function CalculatorForm({
         </SectionCard>
 
 
-        {/* CARGA DE CEE (CEE aportado RES060): popup que lee XML/PDF/fotos */}
+        {/* CARGA DE CEE (Cálculo Real RES060): popup que lee XML/PDF/fotos */}
         <CeeUploadModal
             isOpen={showCeeLoad}
             onClose={() => setShowCeeLoad(false)}
-            title="Cargar CEE aportado"
-            subtitle="Sube el CEE del cliente (.xml exacto, o PDF/fotos con OCR). Rellenaremos la demanda de calefacción y guardaremos sus datos para la comparativa."
+            title={inputs.cee_previo ? 'Sustituir CEE' : 'Cargar CEE'}
+            subtitle="Sube el CEE del cliente (.xml exacto, o PDF/fotos con OCR). Rellenaremos la demanda de calefacción y la superficie, y guardaremos sus datos para la comparativa."
             onLoaded={(data) => { applyCeePrevio(data); setShowCeeLoad(false); }}
         />
 

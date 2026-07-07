@@ -5,135 +5,111 @@ import { useAuth } from '../../../context/AuthContext';
 import { BOILER_EFFICIENCIES } from '../../calculator/logic/calculation';
 import { buildInstalacionAddress } from '../utils/docGenerators';
 
-// ─── CONSTANTES Y ESTILOS SAGRADOS ───────────────────────────────────────────
+// ─── CONSTANTES Y ESTILOS ────────────────────────────────────────────────────
 
-const PAGE_PADDING = '50px 70px';
-const DOC_WIDTH = '794px'; 
+// Origen de la app: se usa para servir logos, la imagen de portada y las fuentes
+// auto-alojadas con URL ABSOLUTA. Puppeteer (backend) genera el PDF con
+// `setContent` (base about:blank), por lo que las rutas relativas NO cargan; hay
+// que darle URLs absolutas al mismo origen (patrón ya usado en docGenerators.js).
+const APP_URL = import.meta.env.VITE_APP_URL || (typeof window !== 'undefined' ? window.location.origin : '');
+
+const DOC_WIDTH = '794px';
+
+// Fuentes del diseño (Archivo + Instrument Sans) auto-alojadas en /public/fonts.
+// Subsets latin + latin-ext descargados de Google Fonts. document.fonts.ready en el
+// backend espera a que carguen antes de imprimir, así que no hace falta CDN externa.
+const FONT_LATIN = 'U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD';
+const FONT_LATINEXT = 'U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF';
+
+function buildFontFaces(appUrl) {
+    const fams = [
+        ['Archivo', 'Archivo', [400, 500, 600, 700, 800, 900]],
+        ['Instrument Sans', 'InstrumentSans', [400, 500, 600, 700]],
+    ];
+    let out = '';
+    for (const [name, slug, weights] of fams) {
+        for (const w of weights) {
+            for (const [sub, range] of [['latin', FONT_LATIN], ['latinext', FONT_LATINEXT]]) {
+                out += `@font-face{font-family:'${name}';font-style:normal;font-weight:${w};font-display:swap;src:url('${appUrl}/fonts/${slug}-${w}-${sub}.woff2') format('woff2');unicode-range:${range};}`;
+            }
+        }
+    }
+    return out;
+}
+const FONT_FACES = buildFontFaces(APP_URL);
+
+// Estilos base compartidos por preview (px) e impresión (mm). El grueso del look
+// (colores, tarjetas, degradados) va INLINE en las plantillas de página, igual que
+// el diseño entregado, para tener una única fuente de verdad screen↔PDF. Aquí solo
+// viven: fuentes, caja de página, helpers de tabla, pie y el contenteditable.
+const DESIGN_SHARED = `
+    * { box-sizing: border-box; }
+    .doc-page { font-family: 'Instrument Sans', Arial, sans-serif; font-size: 12.5px; color: #1A1A1A; background: #fff; text-align: left; }
+    .doc-page h1, .doc-page h2, .doc-page h3 { font-family: 'Archivo', sans-serif; margin: 0; }
+    .doc-page table { break-inside: avoid; }
+    .doc-page tr { break-inside: avoid; }
+    .cmp { table-layout: fixed; }
+    .cmp td, .cmp th { border-bottom: 1px solid #ECECE4; }
+    .cmp tr:last-child td { border-bottom: none; }
+    .just tr:last-child td { border-bottom: none; }
+    .doc-foot { margin-top: auto; padding-top: 10px; border-top: 1px solid #ECECE4; display: flex; justify-content: space-between; font-size: 10.5px; color: #9A9A92; font-weight: 500; }
+`;
 
 const DOC_CSS = `
-    .doc-wrap { background: #e8e8e8; width: ${DOC_WIDTH}; padding: 20px 0; margin: 0 auto; }
+    ${FONT_FACES}
+    ${DESIGN_SHARED}
+    html, body { margin: 0; }
+    .doc-wrap { background: #4a4a46; width: ${DOC_WIDTH}; padding: 20px 0; margin: 0 auto; }
     .doc-page {
-        font-family: Arial, Helvetica, sans-serif;
-        font-size: 10pt;
-        color: #000;
-        background: white;
         width: ${DOC_WIDTH};
         min-height: 1123px;
-        padding: ${PAGE_PADDING};
-        box-sizing: border-box;
+        padding: 15mm 14mm 12mm;
         display: flex;
         flex-direction: column;
         page-break-after: always;
         margin: 0 auto 20px auto;
-        box-shadow: 0 2px 16px rgba(0,0,0,0.18);
+        box-shadow: 0 2px 18px rgba(20,20,19,.16);
         position: relative;
-        text-align: left;
     }
     .doc-page:last-child { margin-bottom: 0; }
-    
-    .doc-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 25px; }
-    .doc-logo { height: 32px; }
-    
-    .doc-table {
-        width: 100%;
-        border-collapse: collapse;
-        margin-bottom: 12px;
-        font-size: 8.5pt;
-        table-layout: fixed;
-    }
-    .doc-table td, .doc-table th {
-        border: 1px solid #000;
-        padding: 4px 6px;
-        vertical-align: middle;
-        line-height: 1.25;
-        word-wrap: break-word;
-    }
-    .lbl { background-color: #f2a640; color: #fff; font-weight: bold; width: 35%; }
-    .heading { background-color: #000; color: #fff; font-weight: bold; text-align: center; text-transform: uppercase; font-size: 9pt; padding: 5px; }
-    
-    .main-title { 
-        font-weight: bold; 
-        font-size: 13pt; 
-        text-align: center; 
-        text-decoration: underline; 
-        margin: 20px 0 15px; 
-        text-transform: uppercase;
-    }
-    
-    .section-title { font-weight: bold; margin-bottom: 4px; margin-top: 12px; font-size: 9.5pt; text-transform: uppercase; border-bottom: 1px solid #ddd; padding-bottom: 1px; }
-    .doc-p { margin-bottom: 6px; line-height: 1.4; text-align: justify; font-size: 9pt; }
-    
-    .footer { 
-        margin-top: auto; 
-        display: flex; 
-        justify-content: space-between; 
-        font-size: 8pt; 
-        color: #999; 
-        border-top: 1px solid #eee; 
-        padding-top: 8px;
-    }
 
-    .signature-area {
-        margin-top: 25px;
-        text-align: right;
-        font-size: 9.5pt;
-    }
-    
-    /* In-place Editable Styles */
-    .doc-editable { 
-        outline: none; 
-        background: #fffde7; 
-        cursor: text; 
+    /* Contenteditable inline (se edita en el preview; en el PDF va texto plano) */
+    .doc-editable {
+        outline: none;
+        background: #fffde7;
+        cursor: text;
         min-height: 1rem;
-        padding: 1px 3px;
-        border-radius: 2px;
+        padding: 0 3px;
+        border-radius: 3px;
+        display: inline-block;
+        min-width: 20px;
     }
-    .doc-editable:focus { 
-        background: #fff9c4; 
-        box-shadow: inset 0 0 0 1px #f2a640;
-    }
-    
-    .text-center { text-align: center; }
-    .font-bold { font-weight: bold; }
-    .bg-gray { background-color: #f9f9f9; }
-    .doc-page ul { margin: 0 0 10px 20px; padding: 0; }
-    .doc-page li { margin-bottom: 4px; font-size: 9pt; line-height: 1.35; }
+    .doc-editable:focus { background: #fff9c4; box-shadow: inset 0 0 0 1px #F18A00; }
 
     @media print {
-        .doc-wrap { background: white !important; padding: 0 !important; } 
-        .doc-page { margin: 0 !important; box-shadow: none !important; } 
+        .doc-wrap { background: #fff !important; padding: 0 !important; }
+        .doc-page { margin: 0 !important; box-shadow: none !important; }
         .doc-editable { background: transparent !important; box-shadow: none !important; }
     }
 `;
 
 const PDF_CSS = `
-    @page { size: A4; margin: 0; }
-    body { margin: 0; padding: 0; background: #fff; -webkit-print-color-adjust: exact; }
+    ${FONT_FACES}
+    ${DESIGN_SHARED}
+    @page { size: 210mm 297mm; margin: 0; }
+    html, body { margin: 0; padding: 0; background: #fff; }
+    * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     .doc-page {
-        font-family: Arial, sans-serif;
-        color: #000;
         width: 210mm;
         min-height: 297mm;
-        padding: 15mm 20mm;
-        box-sizing: border-box;
+        padding: 15mm 14mm 12mm;
         page-break-after: always;
+        break-after: page;
         position: relative;
         display: flex;
         flex-direction: column;
     }
-    .doc-header { display: flex; justify-content: space-between; margin-bottom: 8mm; }
-    .doc-logo { height: 10mm; }
-    .main-title { font-weight: bold; font-size: 14pt; text-align: center; text-decoration: underline; margin: 8mm 0 6mm; text-transform: uppercase; }
-    .doc-table { width: 100%; border-collapse: collapse; margin-bottom: 4mm; font-size: 8.5pt; table-layout: fixed; }
-    .doc-table td, .doc-table th { border: 0.2mm solid #000; padding: 1.2mm 2mm; vertical-align: middle; }
-    .heading { background-color: #000 !important; color: #fff !important; font-weight: bold; text-align: center; text-transform: uppercase; font-size: 9pt; }
-    .lbl { background-color: #f2a640 !important; color: #fff !important; font-weight: bold; }
-    .section-title { font-weight: bold; margin-top: 3mm; margin-bottom: 2mm; font-size: 9.5pt; text-transform: uppercase; border-bottom: 0.1mm solid #000; }
-    .doc-p { margin-bottom: 2mm; line-height: 1.35; text-align: justify; font-size: 9pt; }
-    .signature-area { margin-top: 8mm; text-align: right; font-size: 9.5pt; }
-    .footer { margin-top: auto; display: flex; justify-content: space-between; font-size: 8pt; color: #999; border-top: 0.1mm solid #eee; padding-top: 2mm; }
-    .doc-page ul { margin: 0 0 10px 20px; padding: 0; }
-    .doc-page li { margin-bottom: 4px; font-size: 9pt; line-height: 1.4; }
+    .doc-page:last-child { page-break-after: auto; break-after: auto; }
 `;
 
 // Emisores de calefacción (para la justificación del SCOP, igual que RES060).
@@ -623,14 +599,11 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, a
         if (!val && val !== 0) return '0';
         return Math.round(val).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".");
     };
-    const formatN = (val, dec = 2) => val !== null && val !== undefined ? Number(val).toLocaleString('es-ES', { minimumFractionDigits: dec, maximumFractionDigits: dec }) : '—';
 
     // Datos energéticos desde resultados
     const aeTotal = Math.round(results?.ahorroEnergiaFinalTotal || 0);
     const ef_i    = Math.round(results?.totalEnergiaInicialAno || 0);
     const ef_f    = Math.round(results?.totalEnergiaFinalAno || 0);
-    const ee_i    = Math.round(results?.totalEnergiaInicialM2 || 0);
-    const ee_f    = Math.round(results?.totalEnergiaFinalM2 || 0);
     const aeKwh = aeTotal.toLocaleString('es-ES');
     const beneficioStr = Math.round(aeTotal * (results?.price_kwh || 0.102)).toLocaleString('es-ES');
 
@@ -792,23 +765,84 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, a
 
         const pages = [];
 
+        // ─── Helpers de diseño (nuevo formato modernizado) ───────────────────
+        const pageHeader = `
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;background:#1A1A1A;border-radius:14px;">
+                <div style="display:flex;align-items:center;gap:12px;">
+                    <img src="${APP_URL}/logo_brokergy_white.png" alt="Brokergy" style="height:19px;">
+                    <span style="font-family:'Archivo';font-weight:700;font-size:10px;letter-spacing:2.5px;color:#93C01F;border-left:1px solid rgba(255,255,255,.28);padding-left:12px;">CERTIFICADO CAE · RES080</span>
+                </div>
+                <span style="font-family:'Archivo';font-weight:600;font-size:11px;letter-spacing:1px;color:#93C01F;">Expte: ${numExpte}</span>
+            </div>`;
+        const sectionTitle = (t, mt = '13px') => `
+            <div style="display:flex;align-items:center;gap:11px;margin:${mt} 0 8px;">
+                <span style="width:9px;height:24px;border-radius:5px;background:linear-gradient(#F18A00,#93C01F);"></span>
+                <h3 style="font-weight:800;font-size:14px;letter-spacing:.5px;text-transform:uppercase;">${t}</h3>
+            </div>`;
+        const subLabel = (t, color = '#6E6E66', mt = '18px') => `<h3 style="font-weight:700;font-size:12px;letter-spacing:1.5px;text-transform:uppercase;color:${color};margin:${mt} 0 8px;">${t}</h3>`;
+        const footer = `<div class="doc-foot"><span>BROKERGY · Ingeniería Energética · www.brokergy.es</span><span>PAGE_X_OF_Y · Expte ${numExpte}</span></div>`;
+        const obsBox = (inner, mt = '16px') => `
+            <div style="margin-top:${mt};padding:14px 18px;background:#FBF6EE;border:1px solid #F1E4CF;border-radius:14px;font-size:10.5px;line-height:1.5;color:#6b5a3e;">
+                <div style="font-family:'Archivo';font-weight:800;font-size:11px;letter-spacing:1px;color:#B5730A;text-transform:uppercase;margin-bottom:6px;">Observaciones</div>
+                ${inner}
+            </div>`;
+        const rowsBox = (inner) => `<div style="border:1px solid #E9E9E1;border-radius:16px;overflow:hidden;font-size:12.5px;">${inner}</div>`;
+        const kv = (label, value, last = false) => `<div style="display:grid;grid-template-columns:34% 66%;"><div style="padding:7px 16px;background:#F7F7F1;color:#6E6E66;font-weight:600;${last ? '' : 'border-bottom:1px solid #ECECE4;'}">${label}</div><div style="padding:7px 16px;font-weight:600;${last ? '' : 'border-bottom:1px solid #ECECE4;'}">${value}</div></div>`;
+        // Tabla comparativa Existente/Nueva (calefacción, ACS, ventanas)
+        const cmpHead = (col1 = 'Comparativa', ex = 'Existente', nu = 'Nueva') => `<thead><tr>
+            <th style="text-align:left;padding:8px 16px;background:#1A1A1A;color:#fff;font-family:'Archivo';font-weight:700;font-size:11px;letter-spacing:1px;text-transform:uppercase;width:34%;">${col1}</th>
+            <th style="text-align:left;padding:8px 16px;background:#33332F;color:#C9C9C4;font-family:'Archivo';font-weight:700;font-size:11px;letter-spacing:1px;text-transform:uppercase;">${ex}</th>
+            <th style="text-align:left;padding:8px 16px;background:#93C01F;color:#1A1A1A;font-family:'Archivo';font-weight:800;font-size:11px;letter-spacing:1px;text-transform:uppercase;">${nu}</th>
+        </tr></thead>`;
+        const cmpRow = (label, ex, nu) => `<tr><td style="padding:6px 16px;background:#FAFAF6;color:#4a4a44;font-weight:600;">${label}</td><td style="padding:6px 16px;color:#7a7a72;">${ex}</td><td style="padding:6px 16px;background:#F3F8E6;font-weight:700;">${nu}</td></tr>`;
+        const cmpGroup = (t) => `<tr><td colspan="3" style="padding:7px 16px;background:#EFEFE8;font-family:'Archivo';font-weight:700;font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:#6E6E66;">${t}</td></tr>`;
+        const cmpBox = (headHtml, bodyRows) => `<div style="border-radius:16px;overflow:hidden;border:1px solid #E9E9E1;"><table class="cmp" style="width:100%;border-collapse:collapse;font-size:12.5px;">${headHtml}<tbody>${bodyRows}</tbody></table></div>`;
+
         // PÁGINA 0: PORTADA (No se numera)
         pages.push(`
-            <div class="doc-page" style="justify-content: center; align-items: center; text-align: center;">
-                <img src="/logo_brokergy_doc.png" class="doc-logo" style="position: absolute; top: 15mm; right: 20mm;">
-                <div style="margin-top: -30mm;">
-                    <h1 style="font-size: 30pt; font-weight: bold; text-transform: uppercase; border-top: 2px solid #f2a640; border-bottom: 2px solid #f2a640; padding: 20px 0;">
-                        Certificado Final de Obra CAE
-                    </h1>
-                    <div style="margin-top: 50mm; font-size: 22pt; font-weight: bold; color: #555;">
-                        ${numExpte} - ${formatNum(aeTotal)} CAES
-                    </div>
-                    <div style="margin-top: 10mm; font-size: 14pt; color: #999;">
-                        RES080 - REHABILITACIÓN PROFUNDA
+            <div class="doc-page" style="padding:0;display:block;background:#111110;overflow:hidden;">
+                <img src="${APP_URL}/assets/pegatina-reforma.png" alt="Reforma" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;filter:blur(3px);transform:scale(1.06);">
+                <div style="position:absolute;inset:0;background:linear-gradient(180deg, rgba(15,15,14,.72) 0%, rgba(15,15,14,.30) 34%, rgba(15,15,14,.55) 66%, rgba(12,12,11,.94) 100%);"></div>
+
+                <div style="position:absolute;top:11mm;left:0;right:0;z-index:3;display:flex;justify-content:center;">
+                    <div style="background:#fff;border-radius:22px;padding:14px 30px;box-shadow:0 10px 34px rgba(0,0,0,.34);position:relative;">
+                        <div style="position:absolute;inset:-4px;border-radius:26px;background:linear-gradient(90deg,#F18A00,#B7C63A 55%,#93C01F);z-index:-1;"></div>
+                        <img src="${APP_URL}/logo_brokergy_doc.png" alt="Brokergy" style="height:40px;display:block;">
                     </div>
                 </div>
-                <div style="position: absolute; bottom: 0; left: 0; width: 100%; height: 40%; overflow: hidden; z-index: -1;">
-                     <img src="/assets/page1.png" style="width: 100%; height: 100%; object-fit: cover; opacity: 0.8;">
+
+                <div style="position:absolute;top:96mm;left:0;right:0;z-index:3;padding:0 20mm;">
+                    <div style="display:inline-flex;align-items:center;gap:9px;background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.16);padding:6px 16px;border-radius:999px;margin-bottom:20px;">
+                        <span style="width:8px;height:8px;border-radius:50%;background:#93C01F;"></span>
+                        <span style="font-family:'Archivo';font-weight:700;font-size:12px;letter-spacing:4px;color:#fff;">CERTIFICADO CAE · RES080</span>
+                    </div>
+                    <h1 style="font-weight:900;font-size:74px;line-height:.92;letter-spacing:-1.5px;color:#fff;text-transform:uppercase;text-shadow:0 4px 26px rgba(0,0,0,.5);max-width:12ch;">Certificado <span style="color:#F18A00;">final</span> de <span style="color:#93C01F;">obra</span></h1>
+                    <p style="font-family:'Archivo';font-weight:600;font-size:20px;color:#EDEDE8;margin:20px 0 0;max-width:24ch;text-shadow:0 2px 14px rgba(0,0,0,.6);">Rehabilitación profunda de edificios de viviendas</p>
+                    <div style="display:flex;gap:10px;margin-top:22px;flex-wrap:wrap;">
+                        <span style="font-family:'Archivo';font-weight:700;font-size:13px;letter-spacing:1px;color:#1A1A1A;background:#fff;padding:6px 16px;border-radius:10px;">Expte: ${numExpte}</span>
+                        <span style="font-family:'Archivo';font-weight:700;font-size:13px;letter-spacing:1px;color:#1A1A1A;background:linear-gradient(90deg,#F5A21E,#A9C63A);padding:6px 16px;border-radius:10px;">RES080 · Rehabilitación profunda</span>
+                    </div>
+                </div>
+
+                <div style="position:absolute;bottom:0;left:0;right:0;z-index:3;">
+                    <div style="padding:0 20mm 22px;">
+                        <div style="display:inline-flex;align-items:center;gap:20px;background:rgba(12,12,11,.78);border:1px solid rgba(255,255,255,.14);border-radius:20px;padding:16px 26px;">
+                            <div>
+                                <div style="font-family:'Archivo';font-weight:700;font-size:11px;letter-spacing:2.5px;color:#93C01F;text-transform:uppercase;">Ahorro anual certificado</div>
+                                <div style="font-family:'Archivo';font-weight:900;font-size:40px;line-height:1;color:#fff;margin-top:4px;">${formatNum(aeTotal)} <span style="font-size:18px;font-weight:700;color:#F18A00;">kWh/año</span></div>
+                            </div>
+                            <div style="width:1px;height:44px;background:rgba(255,255,255,.2);"></div>
+                            <div style="font-family:'Archivo';font-weight:800;font-size:26px;color:#fff;">${formatNum(aeTotal)} <span style="font-size:13px;font-weight:700;color:#B9B9B4;">CAEs</span></div>
+                        </div>
+                    </div>
+                    <div style="background:#0C0C0B;padding:16px 20mm;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;border-top:3px solid;border-image:linear-gradient(90deg,#F18A00,#93C01F) 1;">
+                        <div style="font-family:'Archivo';font-weight:800;font-size:16px;color:#fff;">BROKERGY <span style="color:#93C01F;font-weight:600;font-size:13px;">· Ingeniería Energética</span></div>
+                        <div style="display:flex;gap:22px;font-size:12.5px;color:#EDEDE8;font-weight:500;">
+                            <span><b style="color:#F18A00;">Tel</b>&nbsp; 623 926 179</span>
+                            <span><b style="color:#F18A00;">Web</b>&nbsp; www.brokergy.es</span>
+                            <span><b style="color:#F18A00;">Email</b>&nbsp; info@brokergy.es</span>
+                        </div>
+                    </div>
                 </div>
             </div>
         `);
@@ -816,157 +850,176 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, a
         // PÁGINA 1: DATOS GENERALES
         pages.push(`
             <div class="doc-page">
-                <div class="doc-header" style="border-bottom: 2px solid #f2a640; padding-bottom: 5px; display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 20px;">
-                    <div style="display: flex; flex-direction: column;">
-                        <div style="font-size: 7pt; font-weight: 900; color: #999; letter-spacing: 1px; text-transform: uppercase; margin-bottom: -2px;">Certificado CAE · RES080</div>
-                        <div style="font-size: 13pt; font-weight: bold; color: #000;">Expte: ${numExpte}</div>
+                ${pageHeader}
+                <h2 style="font-weight:800;font-size:19px;letter-spacing:-.3px;margin:12px 0 3px;">Certificado de obra de rehabilitación energética</h2>
+                <p style="margin:0;font-size:13px;color:#6E6E66;font-weight:500;">Ficha RES080 · Rehabilitación profunda de edificios de viviendas</p>
+
+                ${sectionTitle('Identificación de la actuación de ahorro')}
+                ${rowsBox(`
+                    ${kv('Nombre de la actuación', eb('nombre_actuacion'))}
+                    ${kv('Código y nombre de la ficha', 'RES080: Rehabilitación profunda de edificios de viviendas')}
+                    ${kv('Comunidad autónoma', locCA)}
+                    ${kv('Dirección postal', locDir)}
+                    ${kv('Referencia catastral', locCat)}
+                    ${kv('Coordenadas UTM', `X: ${utmX} · Y: ${utmY}`)}
+                    ${kv('Breve descripción', eb('descripcion_actuacion'), true)}
+                `)}
+
+                ${sectionTitle('Propietario inicial del ahorro')}
+                ${rowsBox(`
+                    ${kv('Propietario / Razón social', clientFull)}
+                    ${kv('Domicilio', clientDir)}
+                    <div style="display:grid;grid-template-columns:34% 32% 34%;border-bottom:1px solid #ECECE4;">
+                        <div style="padding:7px 16px;background:#F7F7F1;color:#6E6E66;font-weight:600;">NIF / NIE</div>
+                        <div style="padding:7px 16px;font-weight:600;">${cli.nif || cli.dni || '—'}</div>
+                        <div style="padding:7px 16px;font-weight:600;"><span style="color:#6E6E66;">Tel&nbsp;</span>${cli.tlf || cli.telefono || '—'}</div>
                     </div>
-                    <img src="/logo_brokergy_doc.png" class="doc-logo">
+                    ${kv('Correo electrónico', cli.email || '—', true)}
+                `)}
+
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:13px;">
+                    <div>
+                        ${sectionTitle('Hitos', '0px')}
+                        <div style="border:1px solid #E9E9E1;border-radius:16px;overflow:hidden;font-size:12.5px;">
+                            <div style="display:grid;grid-template-columns:52% 48%;border-bottom:1px solid #ECECE4;"><div style="padding:6px 16px;background:#F7F7F1;color:#6E6E66;font-weight:600;">Fecha de inicio</div><div style="padding:6px 16px;font-weight:700;">${eb('fecha_inicio')}</div></div>
+                            <div style="display:grid;grid-template-columns:52% 48%;"><div style="padding:6px 16px;background:#F7F7F1;color:#6E6E66;font-weight:600;">Fecha de fin</div><div style="padding:6px 16px;font-weight:700;">${eb('fecha_fin')}</div></div>
+                        </div>
+                        <p style="margin:10px 2px 0;font-size:12px;color:#6E6E66;">En Tomelloso, a fecha de firma electrónica.</p>
+                        <p style="margin:2px 2px 0;font-size:12.5px;color:#1A1A1A;font-weight:700;">Fdo.: ${ed('director_nombre')}</p>
+                    </div>
+                    <div>
+                        ${sectionTitle('Director redactor', '0px')}
+                        <div style="border:1px solid #E9E9E1;border-radius:16px;overflow:hidden;font-size:12px;">
+                            <div style="display:grid;grid-template-columns:34% 66%;"><div style="padding:9px 14px;background:#F7F7F1;color:#6E6E66;font-weight:600;border-bottom:1px solid #ECECE4;">Nombre</div><div style="padding:9px 14px;font-weight:600;border-bottom:1px solid #ECECE4;">${eb('director_nombre')}</div></div>
+                            <div style="display:grid;grid-template-columns:34% 66%;"><div style="padding:9px 14px;background:#F7F7F1;color:#6E6E66;font-weight:600;border-bottom:1px solid #ECECE4;">Entidad</div><div style="padding:9px 14px;font-weight:600;border-bottom:1px solid #ECECE4;">${eb('director_entidad')}</div></div>
+                            <div style="display:grid;grid-template-columns:34% 66%;"><div style="padding:9px 14px;background:#F7F7F1;color:#6E6E66;font-weight:600;border-bottom:1px solid #ECECE4;">Titulación</div><div style="padding:9px 14px;font-weight:600;border-bottom:1px solid #ECECE4;">${eb('director_titulacion')}</div></div>
+                            <div style="display:grid;grid-template-columns:34% 66%;"><div style="padding:9px 14px;background:#F7F7F1;color:#6E6E66;font-weight:600;">Contacto</div><div style="padding:9px 14px;font-weight:600;">${eb('director_email')} · ${eb('director_tlf')}</div></div>
+                        </div>
+                    </div>
                 </div>
-                <div class="main-title">Certificado de Obra de Rehabilitación Energética<br>RES080</div>
-                <table class="doc-table">
-                    <colgroup><col style="width: 30%;"><col style="width: 70%;"></colgroup>
-                    <tr><td colspan="2" class="heading">Identificación de la actuación de ahorro de energía</td></tr>
-                    <tr><td class="lbl">Nombre de la actuación</td><td>${eb('nombre_actuacion')}</td></tr>
-                    <tr><td class="lbl">Código y nombre de la ficha</td><td>RES080: Rehabilitación profunda de edificios de viviendas</td></tr>
-                    <tr><td class="lbl">Comunidad autónoma</td><td>${locCA}</td></tr>
-                    <tr><td class="lbl">Dirección postal</td><td>${locDir}</td></tr>
-                    <tr><td class="lbl">Referencia catastral</td><td>${locCat}</td></tr>
-                    <tr><td class="lbl">Coordenadas UTM</td><td>X: ${utmX} ; Y: ${utmY}</td></tr>
-                    <tr><td class="lbl">Breve descripción</td><td>${eb('descripcion_actuacion')}</td></tr>
-                </table>
-                <table class="doc-table">
-                    <colgroup><col style="width: 25%;"><col style="width: 40%;"><col style="width: 15%;"><col style="width: 20%;"></colgroup>
-                    <tr><td colspan="4" class="heading">Identificación del propietario inicial del ahorro</td></tr>
-                    <tr><td class="lbl">Propietario / Razón Social</td><td colspan="3">${clientFull}</td></tr>
-                    <tr><td class="lbl">Domicilio</td><td colspan="3">${clientDir}</td></tr>
-                    <tr><td class="lbl">NIF/NIE</td><td>${cli.nif || cli.dni || '—'}</td><td class="lbl">Teléfono</td><td>${cli.tlf || cli.telefono || '—'}</td></tr>
-                    <tr><td class="lbl">Correo electrónico</td><td colspan="3">${cli.email || '—'}</td></tr>
-                </table>
-                <table class="doc-table">
-                     <colgroup><col style="width: 50%;"><col style="width: 50%;"></colgroup>
-                    <tr><td colspan="2" class="heading">Hitos de la actuación</td></tr>
-                    <tr><td class="lbl">Fecha de inicio</td><td class="text-center">${eb('fecha_inicio')}</td></tr>
-                    <tr><td class="lbl">Fecha de fin</td><td class="text-center">${eb('fecha_fin')}</td></tr>
-                </table>
-                <table class="doc-table">
-                    <colgroup><col style="width: 25%;"><col style="width: 40%;"><col style="width: 15%;"><col style="width: 20%;"></colgroup>
-                    <tr><td colspan="4" class="heading">Director redactor del certificado</td></tr>
-                    <tr><td class="lbl">Nombre</td><td colspan="3">${eb('director_nombre')}</td></tr>
-                    <tr><td class="lbl">Entidad</td><td colspan="3">${eb('director_entidad')}</td></tr>
-                    <tr><td class="lbl">Titulación</td><td colspan="3">${eb('director_titulacion')}</td></tr>
-                    <tr><td class="lbl">Email</td><td>${eb('director_email')}</td><td class="lbl">Teléfono</td><td>${eb('director_tlf')}</td></tr>
-                </table>
-                <div class="section-title">Cálculo del ahorro de energía final total AEtotal</div>
-                <div style="text-align: center; margin: 8px 0; font-size: 13pt; padding: 12px; background: #f9f9f9; border: 1px solid #ddd; border-radius: 8px;">
-                    <strong>AE<sub>TOTAL</sub> = F<sub>P</sub> · (EF<sub>i</sub> – EF<sub>f</sub>)</strong>
+
+                ${sectionTitle('Cálculo del ahorro de energía final total')}
+                <div style="border-radius:20px;background:linear-gradient(135deg,#1A1A1A,#242422);color:#fff;padding:15px 22px;overflow:hidden;">
+                    <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:16px;">
+                        <div>
+                            <div style="font-family:'Archivo';font-weight:700;font-size:11px;letter-spacing:2px;color:#93C01F;text-transform:uppercase;">AE<sub>TOTAL</sub> = FP · (EF<sub>i</sub> − EF<sub>f</sub>)</div>
+                            <div style="display:flex;gap:26px;margin-top:14px;">
+                                <div><div style="font-size:11px;color:#B9B9B4;">Consumo inicial · EF<sub>i</sub></div><div style="font-family:'Archivo';font-weight:800;font-size:22px;">${formatNum(ef_i)} <span style="font-size:12px;font-weight:600;color:#B9B9B4;">kWh/año</span></div></div>
+                                <div style="align-self:center;color:#F18A00;font-size:22px;font-weight:800;">→</div>
+                                <div><div style="font-size:11px;color:#B9B9B4;">Consumo final · EF<sub>f</sub></div><div style="font-family:'Archivo';font-weight:800;font-size:22px;color:#93C01F;">${formatNum(ef_f)} <span style="font-size:12px;font-weight:600;color:#B9B9B4;">kWh/año</span></div></div>
+                            </div>
+                        </div>
+                        <div style="text-align:right;">
+                            <div style="font-size:11px;color:#B9B9B4;text-transform:uppercase;letter-spacing:1px;">Ahorro anual total</div>
+                            <div style="font-family:'Archivo';font-weight:900;font-size:46px;line-height:1;color:#F18A00;">${formatNum(aeTotal)}</div>
+                            <div style="font-size:13px;color:#fff;font-weight:600;">kWh/año</div>
+                        </div>
+                    </div>
                 </div>
-                <table class="doc-table text-center">
-                    <colgroup><col style="width: 70%;"><col style="width: 30%;"></colgroup>
-                    <tr><td class="lbl" style="text-align: left;">EF<sub>i</sub> : Consumo de energía final anual antes actuación [kWh/año]</td><td class="font-bold">${formatNum(ef_i)}</td></tr>
-                    <tr><td class="lbl" style="text-align: left;">EF<sub>f</sub> : Consumo de energía final anual después actuación [kWh/año]</td><td class="font-bold">${formatNum(ef_f)}</td></tr>
-                    <tr style="background: #fff8e1;"><td class="lbl" style="text-align: left;">AE<sub>TOTAL</sub> : Ahorro anual de energía final total [kWh/año]</td><td style="font-size: 12pt; font-weight: 900; color: #f2a640;">${formatNum(aeTotal)}</td></tr>
-                </table>
-                <div class="signature-area">En Tomelloso a fecha de firma electrónica<br>Fdo.: ${ed('director_nombre')}</div>
-                <div class="footer">PAGE_X_OF_Y</div>
+                ${footer}
             </div>
         `);
 
-        // PÁGINA 2: INSTALACIONES
+        // PÁGINA 2: INSTALACIÓN TÉRMICA
         pages.push(`
             <div class="doc-page">
-                <div class="doc-header" style="border-bottom: 2px solid #f2a640; padding-bottom: 5px; display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 20px;">
-                    <div style="display: flex; flex-direction: column;">
-                        <div style="font-size: 7pt; font-weight: 900; color: #999; letter-spacing: 1px; text-transform: uppercase; margin-bottom: -2px;">Certificado CAE · RES080</div>
-                        <div style="font-size: 13pt; font-weight: bold; color: #000;">Expte: ${numExpte}</div>
-                    </div>
-                    <img src="/logo_brokergy_doc.png" class="doc-logo">
-                </div>
-                <div class="section-title">Descripción de la actuación sobre la instalación térmica</div>
-                <div style="margin-bottom: 10px;">${eb('descripcion_termica')}</div>
-                <table class="doc-table">
-                    <tr><td colspan="3" class="heading">Datos de la instalación térmica (Calefacción)</td></tr>
-                    <tr class="text-center font-bold bg-gray"><td>COMPARATIVA</td><td>EXISTENTE</td><td>NUEVA</td></tr>
-                    <tr><td class="lbl">Tipo de equipo</td><td>${calExTipoEq}</td><td>Bomba de Calor (Aerotermia)</td></tr>
-                    <tr><td class="lbl">Marca</td><td>${calExBrand}</td><td>${calNuBrand}</td></tr>
-                    <tr><td class="lbl">Modelo</td><td>${calExMod}</td><td>${calNuMod}</td></tr>
-                    <tr><td class="lbl">Combustible</td><td>${calExFuel}</td><td>Electricidad</td></tr>
-                    <tr><td class="lbl">Nº serie unidad exterior</td><td>${calExSerie}</td><td>${calNuSerieOut}</td></tr>
-                    <tr><td class="lbl">SCOP / Rendimiento</td><td class="text-center">Según CEE inicial <sup>(1)</sup></td><td class="text-center">${calNuScop} <sup>(2)</sup></td></tr>
-                </table>
-                <table class="doc-table">
-                    <tr><td colspan="3" class="heading">Datos de la instalación Agua Caliente Sanitaria (ACS)</td></tr>
-                    <tr class="text-center font-bold bg-gray"><td>COMPARATIVA</td><td>EXISTENTE</td><td>NUEVA</td></tr>
-                    ${acsSeActua ? `
-                    <tr><td class="lbl">Tipo de equipo</td><td>${acsExTipoEq}</td><td>Bomba de Calor</td></tr>
-                    <tr><td class="lbl">Marca</td><td>${acsExBrand}</td><td>${acsNuBrand}</td></tr>
-                    <tr><td class="lbl">Modelo</td><td>${acsExMod}</td><td>${acsNuMod}</td></tr>
-                    <tr><td class="lbl">Combustible</td><td>${acsExFuel}</td><td>Electricidad</td></tr>
-                    <tr><td class="lbl">Nº serie Equipo de ACS</td><td>${acsExSerie}</td><td>${acsNuSerie}</td></tr>
-                    <tr><td class="lbl">SCOP / Rendimiento</td><td class="text-center">Según CEE inicial <sup>(1)</sup></td><td class="text-center">${acsNuScop} <sup>(3)</sup></td></tr>
-                    ` : `
-                    <tr><td class="lbl">Tipo de equipo</td><td>${acsExTipoEq}</td><td rowspan="6" class="text-center" style="vertical-align: middle; font-weight: bold; font-style: italic; color: #444;">Se mantiene la instalación existente</td></tr>
-                    <tr><td class="lbl">Marca</td><td>${acsExBrand}</td></tr>
-                    <tr><td class="lbl">Modelo</td><td>${acsExMod}</td></tr>
-                    <tr><td class="lbl">Combustible</td><td>${acsExFuel}</td></tr>
-                    <tr><td class="lbl">Nº serie Equipo de ACS</td><td>${acsExSerie}</td></tr>
-                    <tr><td class="lbl">SCOP / Rendimiento</td><td class="text-center">Según CEE inicial <sup>(1)</sup></td></tr>
-                    `}
-                </table>
-                <table class="doc-table">
-                    <tr><td colspan="2" class="heading">Datos de la empresa instaladora</td></tr>
-                    <tr><td class="lbl">Nombre o Razón Social</td><td>${eb('empresa_responsable')}</td></tr>
-                    <tr><td class="lbl">CIF / NIF</td><td>${eb('empresa_cif')}</td></tr>
-                    <tr><td class="lbl">Domicilio</td><td>${eb('empresa_domicilio')}</td></tr>
-                </table>
-                <div style="margin-top: 12px; font-size: 8.5pt; line-height: 1.5;">
-                    <strong>Observaciones:</strong>
-                    <ul style="margin: 4px 0 0 0; padding-left: 16px; list-style: none;">
-                        <li><sup>(1)</sup> El rendimiento estacional de la caldera existente es el que consta en el Certificado de Eficiencia Energética Inicial, determinado por el programa oficial de Certificación Energética CE3X en función de su tipología, antigüedad y aislamiento indicados por el técnico certificador.</li>
-                        <li style="margin-top: 4px;"><sup>(2)</sup> Según ficha técnica aportada por el fabricante y/o para unos cálculos realizados según indican los anexos III y IV de la ficha RES060 de la Orden TED/845/2023, de 18 de julio.</li>
-                        ${acsSeActua ? `<li style="margin-top: 4px;"><sup>(3)</sup> Según ficha técnica aportada por el fabricante y/o para unos cálculos realizados según indican los anexos III, V y VI de la ficha RES060 de la Orden TED/845/2023, de 18 de julio.</li>` : ''}
-                        <li style="margin-top: 4px;">- La duración indicativa de la actuación (Di) es de 15 años según Recomendación (UE) 2019/1658, de la Comisión, de 25 de septiembre, relativa a la transposición de la obligación de ahorro de energía en virtud de la Directiva de eficiencia energética.</li>
-                        <li style="margin-top: 4px;">- Se adjunta anexo al presente certificado las fichas técnicas de los nuevos equipos instalados.</li>
-                    </ul>
-                </div>
-                <div class="footer">PAGE_X_OF_Y</div>
+                ${pageHeader}
+                ${sectionTitle('Actuación sobre la instalación térmica', '20px')}
+                <p style="margin:0 0 6px 20px;font-size:12.5px;color:#4a4a44;">${eb('descripcion_termica')}</p>
+
+                ${subLabel('Instalación de calefacción')}
+                ${cmpBox(cmpHead(), `
+                    ${cmpRow('Tipo de equipo', calExTipoEq, 'Bomba de calor (aerotermia)')}
+                    ${cmpRow('Marca', calExBrand, calNuBrand)}
+                    ${cmpRow('Modelo', calExMod, calNuMod)}
+                    ${cmpRow('Combustible', calExFuel, 'Electricidad')}
+                    ${cmpRow('Nº serie unidad exterior', calExSerie, calNuSerieOut)}
+                    ${cmpRow('SCOP / Rendimiento', 'Según CEE inicial <sup>(1)</sup>', `${calNuScop} <sup>(2)</sup>`)}
+                `)}
+
+                ${subLabel('Agua caliente sanitaria (ACS)', '#6E6E66', '20px')}
+                ${acsSeActua
+                    ? cmpBox(cmpHead(), `
+                        ${cmpRow('Tipo de equipo', acsExTipoEq, 'Bomba de calor')}
+                        ${cmpRow('Marca', acsExBrand, acsNuBrand)}
+                        ${cmpRow('Modelo', acsExMod, acsNuMod)}
+                        ${cmpRow('Combustible', acsExFuel, 'Electricidad')}
+                        ${cmpRow('Nº serie equipo ACS', acsExSerie, acsNuSerie)}
+                        ${cmpRow('SCOP / Rendimiento', 'Según CEE inicial <sup>(1)</sup>', `${acsNuScop} <sup>(3)</sup>`)}
+                    `)
+                    : `<div style="border:1px solid #E9E9E1;border-radius:16px;padding:28px;text-align:center;font-size:13px;color:#6E6E66;font-weight:700;">No se actúa sobre el ACS · No aplica</div>`}
+
+                ${subLabel('Empresa instaladora', '#6E6E66', '20px')}
+                ${rowsBox(`
+                    ${kv('Nombre o razón social', eb('empresa_responsable'))}
+                    ${kv('CIF / NIF', eb('empresa_cif'))}
+                    ${kv('Domicilio', eb('empresa_domicilio'), true)}
+                `)}
+
+                ${obsBox(`
+                    <p style="margin:0 0 5px;"><b>(1)</b> El rendimiento estacional de la caldera existente es el que consta en el Certificado de Eficiencia Energética Inicial, determinado por el programa oficial CE3X en función de su tipología, antigüedad y aislamiento.</p>
+                    <p style="margin:0 0 5px;"><b>(2)</b> Según ficha técnica del fabricante y/o cálculos realizados según anexos III y IV de la ficha RES060 de la Orden TED/845/2023, de 18 de julio.</p>
+                    ${acsSeActua ? `<p style="margin:0 0 5px;"><b>(3)</b> Según ficha técnica del fabricante y/o cálculos realizados según anexos III, V y VI de la ficha RES060 de la Orden TED/845/2023, de 18 de julio.</p>` : ''}
+                    <p style="margin:0;">La duración indicativa de la actuación (Di) es de 15 años según Recomendación (UE) 2019/1658. Se adjuntan las fichas técnicas de los nuevos equipos instalados.</p>
+                `)}
+                ${footer}
             </div>
         `);
+
+        // Celdas de tabla antes/después (cerramientos y huecos) — nuevo estilo
+        const thDark = (t, align = 'left', w = '') => `<th style="text-align:${align};padding:6px 10px;background:#33332F;color:#fff;font-family:'Archivo';font-weight:700;font-size:10px;letter-spacing:.5px;text-transform:uppercase;${w}">${t}</th>`;
+        const thGreen = (t, align = 'left', w = '') => `<th style="text-align:${align};padding:6px 10px;background:#93C01F;color:#1A1A1A;font-family:'Archivo';font-weight:800;font-size:10px;letter-spacing:.5px;text-transform:uppercase;${w}">${t}</th>`;
+        const tdC = (v, extra = '') => `<td style="padding:6px 10px;text-align:center;${extra}">${v}</td>`;
+        const tdG = (v, extra = '') => `<td style="padding:6px 10px;text-align:center;background:#F8FBEF;${extra}">${v}</td>`;
 
         // PÁGINA 3: ENVOLVENTE TÉRMICA (OPACOS) - SÓLO SI SE ACTÚA
         if (env.actua_cerramientos === true) {
             pages.push(`
                 <div class="doc-page">
-                    <div class="doc-header" style="border-bottom: 2px solid #f2a640; padding-bottom: 5px; display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 20px;">
-                        <div style="display: flex; flex-direction: column;">
-                            <div style="font-size: 7pt; font-weight: 900; color: #999; letter-spacing: 1px; text-transform: uppercase; margin-bottom: -2px;">Certificado CAE · RES080</div>
-                            <div style="font-size: 13pt; font-weight: bold; color: #000;">Expte: ${numExpte}</div>
-                        </div>
-                        <img src="/logo_brokergy_doc.png" class="doc-logo">
+                    ${pageHeader}
+                    ${sectionTitle('Actuación sobre los cerramientos opacos', '20px')}
+                    <p style="margin:0 0 6px 20px;font-size:12.5px;color:#4a4a44;">${eb('descripcion_envolvente')}</p>
+
+                    ${subLabel('Datos del aislamiento térmico')}
+                    <div style="border-radius:16px;overflow:hidden;border:1px solid #E9E9E1;">
+                        <table class="cmp" style="width:100%;border-collapse:collapse;font-size:12.5px;">
+                            <thead><tr>
+                                <th style="text-align:left;padding:8px 16px;background:#1A1A1A;color:#fff;font-family:'Archivo';font-weight:700;font-size:11px;letter-spacing:1px;text-transform:uppercase;width:34%;">Elemento</th>
+                                <th style="text-align:center;padding:8px 16px;background:#33332F;color:#C9C9C4;font-family:'Archivo';font-weight:700;font-size:11px;letter-spacing:1px;text-transform:uppercase;">Muros</th>
+                                <th style="text-align:center;padding:8px 16px;background:#33332F;color:#C9C9C4;font-family:'Archivo';font-weight:700;font-size:11px;letter-spacing:1px;text-transform:uppercase;">Cubierta</th>
+                            </tr></thead>
+                            <tbody>
+                                <tr><td style="padding:6px 16px;background:#FAFAF6;color:#4a4a44;font-weight:600;">¿Se añade aislamiento térmico?</td>${tdC(eb('aislamiento_muros_sn'), 'font-weight:700;')}${tdC(eb('aislamiento_cubierta_sn'), 'font-weight:700;')}</tr>
+                                <tr><td style="padding:6px 16px;background:#FAFAF6;color:#4a4a44;font-weight:600;">Tipo de aislamiento</td>${tdC(eb('aislamiento_muros_tipo'))}${tdC(eb('aislamiento_cubierta_tipo'))}</tr>
+                                <tr><td style="padding:6px 16px;background:#FAFAF6;color:#4a4a44;font-weight:600;">Material del aislamiento</td>${tdC(eb('aislamiento_muros_mat'))}${tdC(eb('aislamiento_cubierta_mat'))}</tr>
+                                <tr><td style="padding:6px 16px;background:#FAFAF6;color:#4a4a44;font-weight:600;">Espesor del aislamiento [cm]</td>${tdC(eb('aislamiento_muros_esp'))}${tdC(eb('aislamiento_cubierta_esp'))}</tr>
+                                <tr><td style="padding:6px 16px;background:#FAFAF6;color:#4a4a44;font-weight:600;">Conductividad térmica λ [W/mK]</td>${tdC(eb('aislamiento_muros_cond'))}${tdC(eb('aislamiento_cubierta_cond'))}</tr>
+                            </tbody>
+                        </table>
                     </div>
-                    <div class="section-title">Descripción de la actuación sobre los cerramientos opacos de la vivienda</div>
-                    <div style="margin-bottom: 15px;">${eb('descripcion_envolvente')}</div>
-                    <table class="doc-table">
-                        <tr><td colspan="3" class="heading">Datos del aislamiento térmico</td></tr>
-                        <tr class="text-center font-bold bg-gray"><td style="width: 34%"></td><td style="width: 33%">MUROS</td><td style="width: 33%">CUBIERTA</td></tr>
-                        <tr><td class="lbl">¿Se añade aislamiento térmico?</td><td class="text-center">${eb('aislamiento_muros_sn')}</td><td class="text-center">${eb('aislamiento_cubierta_sn')}</td></tr>
-                        <tr><td class="lbl">Tipo de aislamiento</td><td class="text-center">${eb('aislamiento_muros_tipo')}</td><td class="text-center">${eb('aislamiento_cubierta_tipo')}</td></tr>
-                        <tr><td class="lbl">Material del aislamiento</td><td class="text-center">${eb('aislamiento_muros_mat')}</td><td class="text-center">${eb('aislamiento_cubierta_mat')}</td></tr>
-                        <tr><td class="lbl">Espesor del aislamiento [cm]</td><td class="text-center">${eb('aislamiento_muros_esp')}</td><td class="text-center">${eb('aislamiento_cubierta_esp')}</td></tr>
-                        <tr><td class="lbl">Conductividad térmica λ [W/mK]</td><td class="text-center">${eb('aislamiento_muros_cond')}</td><td class="text-center">${eb('aislamiento_cubierta_cond')}</td></tr>
-                    </table>
-                    <div class="section-title" style="text-align: center; background: #000; color: white; padding: 2px; margin-top: 15px;">Cerramientos antes de la rehabilitación</div>
-                    <table class="doc-table text-center">
-                        <tr class="bg-gray font-bold"><td>Cerramiento</td><td>Nombre</td><td>Orientación</td><td>U (W/m2)</td><td>Sup. Cerramiento (m²)</td></tr>
-                        ${changedOpacos.map(o => `<tr><td>${o.initial?.tipo || '—'}</td><td>${o.initial?.nombre || '—'}</td><td>${o.initial?.orientacion || '—'}</td><td>${formatN(o.initial?.transmitancia)}</td><td>${formatN(o.initial?.superficie)}</td></tr>`).join('')}
-                    </table>
-                    <div class="section-title" style="text-align: center; background: #000; color: white; padding: 2px; margin-top: 10px;">Cerramientos después de la rehabilitación</div>
-                    <table class="doc-table text-center">
-                        <tr class="bg-gray font-bold"><td>Cerramiento</td><td>Nombre</td><td>Orientación</td><td>U (W/m2)</td><td>Sup. Cerramiento (m²)</td></tr>
-                        ${changedOpacos.map(o => `<tr style="background: #e8f5e9;"><td>${o.final?.tipo || '—'}</td><td>${o.final?.nombre || '—'}</td><td>${o.final?.orientacion || '—'}</td><td>${formatN(o.final?.transmitancia)}</td><td>${formatN(o.final?.superficie)}</td></tr>`).join('')}
-                    </table>
-                    <div style="margin-top: 15px;"><strong>Observaciones:</strong><div style="margin-top: 5px; font-size: 9pt;">${eb('envolvente_observaciones')}</div></div>
-                    <div class="footer">PAGE_X_OF_Y</div>
+
+                    ${subLabel('Cerramientos antes de la rehabilitación')}
+                    <div style="border-radius:14px;overflow:hidden;border:1px solid #E9E9E1;">
+                        <table class="cmp" style="width:100%;border-collapse:collapse;font-size:11px;">
+                            <thead><tr>${thDark('Cerramiento')}${thDark('Nombre')}${thDark('Orient.', 'center')}${thDark('U (W/m²K)', 'center')}${thDark('Sup. (m²)', 'center')}</tr></thead>
+                            <tbody>
+                                ${changedOpacos.map(o => `<tr><td style="padding:6px 10px;font-weight:600;">${o.initial?.tipo || '—'}</td><td style="padding:6px 10px;">${o.initial?.nombre || '—'}</td>${tdC(o.initial?.orientacion || '—')}${tdC(formatN(o.initial?.transmitancia), 'color:#c0392b;font-weight:700;')}${tdC(formatN(o.initial?.superficie))}</tr>`).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    ${subLabel('Cerramientos después de la rehabilitación', '#4d6a12', '16px')}
+                    <div style="border-radius:14px;overflow:hidden;border:1px solid #D5E6A8;">
+                        <table class="cmp" style="width:100%;border-collapse:collapse;font-size:11px;">
+                            <thead><tr>${thGreen('Cerramiento')}${thGreen('Nombre')}${thGreen('Orient.', 'center')}${thGreen('U (W/m²K)', 'center')}${thGreen('Sup. (m²)', 'center')}</tr></thead>
+                            <tbody>
+                                ${changedOpacos.map(o => `<tr><td style="padding:6px 10px;font-weight:600;background:#F8FBEF;">${o.final?.tipo || '—'}</td><td style="padding:6px 10px;background:#F8FBEF;">${o.final?.nombre || '—'}</td>${tdG(o.final?.orientacion || '—')}${tdG(formatN(o.final?.transmitancia), 'color:#4d6a12;font-weight:800;')}${tdG(formatN(o.final?.superficie))}</tr>`).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    ${obsBox(`<p style="margin:0;">${eb('envolvente_observaciones')}</p>`)}
+                    ${footer}
                 </div>
             `);
         }
@@ -975,51 +1028,53 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, a
         if (env.sustituye_ventanas === true) {
             pages.push(`
                 <div class="doc-page">
-                    <div class="doc-header" style="border-bottom: 2px solid #f2a640; padding-bottom: 5px; display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 20px;">
-                        <div style="display: flex; flex-direction: column;">
-                            <div style="font-size: 7pt; font-weight: 900; color: #999; letter-spacing: 1px; text-transform: uppercase; margin-bottom: -2px;">Certificado CAE · RES080</div>
-                            <div style="font-size: 13pt; font-weight: bold; color: #000;">Expte: ${numExpte}</div>
-                        </div>
-                        <img src="/logo_brokergy_doc.png" class="doc-logo">
+                    ${pageHeader}
+                    ${sectionTitle('Actuación sobre las ventanas', '20px')}
+                    <p style="margin:0 0 6px 20px;font-size:12.5px;color:#4a4a44;">${eb('descripcion_ventanas')}</p>
+                    <div style="display:flex;gap:10px;margin:12px 0 4px 20px;flex-wrap:wrap;">
+                        <span style="display:inline-flex;align-items:center;gap:8px;background:#F3F8E6;border:1px solid #D5E6A8;border-radius:999px;padding:7px 15px;font-size:12px;font-weight:700;color:#4d6a12;">Se sustituyen las ventanas · ${seSustituyen ? 'SÍ' : 'NO'}</span>
+                        <span style="display:inline-flex;align-items:center;gap:8px;background:#1A1A1A;border-radius:999px;padding:7px 15px;font-size:12px;font-weight:700;color:#fff;">Nº ventanas sustituidas · ${env.num_ventanas || changedHuecos.length}</span>
                     </div>
-                    <div class="section-title">Descripción de la actuación sobre las ventanas de la vivienda</div>
-                    <div style="margin-bottom: 10px;">${eb('descripcion_ventanas')}</div>
-                    <table class="doc-table"><tr><td class="lbl" style="width: 35%">¿Se sustituyen las ventanas?</td><td class="text-center font-bold" style="font-size: 11pt;">${seSustituyen ? 'SÍ' : 'NO'}</td><td class="lbl" style="width: 35%">N.º ventanas sustituidas</td><td class="text-center font-bold" style="font-size: 11pt;">${env.num_ventanas || changedHuecos.length}</td></tr></table>
                     ${seSustituyen ? `
-                        <div class="section-title" style="text-align: center; background: #000; color: white; padding: 2px;">Huecos antes de la rehabilitación</div>
-                        <table class="doc-table text-center">
-                            <tr class="bg-gray font-bold"><td>Cerramiento</td><td>Nombre</td><td>Orientación</td><td>Transmitancia (W/m²K)</td><td>Sup. (m²)</td><td>Factor solar</td><td>Permeabilidad (m³/hm²)</td></tr>
-                            ${changedHuecos.map(h => `<tr><td>Hueco</td><td>${h.initial?.nombre || '—'}</td><td>${h.initial?.orientacion || '—'}</td><td>${formatN(h.initial?.transmitancia)}</td><td>${formatN(h.initial?.superficie)}</td><td>${formatN(h.initial?.factorSolar)}</td><td>100</td></tr>`).join('')}
-                        </table>
-                        <div class="section-title" style="text-align: center; background: #000; color: white; padding: 2px;">Huecos después de la rehabilitación</div>
-                        <table class="doc-table text-center">
-                            <tr class="bg-gray font-bold"><td>Cerramiento</td><td>Nombre</td><td>Orientación</td><td>Transmitancia (W/m²K)</td><td>Sup. (m²)</td><td>Factor solar</td><td>Permeabilidad (m³/hm²)</td></tr>
-                            ${changedHuecos.map(h => `<tr style="background: #e8f5e9;"><td>Hueco</td><td>${h.final?.nombre || '—'}</td><td>${h.final?.orientacion || '—'}</td><td>${formatN(h.final?.transmitancia)}</td><td>${formatN(h.final?.superficie)}</td><td>${formatN(h.final?.factorSolar)}</td><td>3</td></tr>`).join('')}
-                        </table>
-                        <div class="section-title" style="text-align: center; background: #000; color: white; padding: 2px;">Características de las ventanas</div>
-                        <table class="doc-table">
-                            <colgroup><col style="width: 40%;"><col style="width: 30%;"><col style="width: 30%;"></colgroup>
-                            <tr class="text-center font-bold bg-gray"><td>COMPARATIVA</td><td>EXISTENTES</td><td>NUEVAS</td></tr>
-                            <tr><td class="heading" colspan="3" style="text-align:left; padding-left:6px;">MARCO</td></tr>
-                            <tr><td class="lbl">Material del marco</td><td class="text-center">${env.marco_existente_material || '—'}</td><td class="text-center">${eb('marco_nuevo_material')}</td></tr>
-                            <tr><td class="lbl">Marca del marco</td><td class="text-center">Desconocida</td><td class="text-center">${eb('marco_nuevo_marca')}</td></tr>
-                            <tr><td class="lbl">Modelo del marco</td><td class="text-center">Desconocida</td><td class="text-center">${eb('marco_nuevo_modelo')}</td></tr>
-                            <tr><td class="lbl">Transmitancia del marco Uf (W/m²K)</td><td class="text-center">—</td><td class="text-center">${eb('marco_nuevo_uf')}</td></tr>
-                            <tr><td class="heading" colspan="3" style="text-align:left; padding-left:6px;">VIDRIO</td></tr>
-                            <tr><td class="lbl">Composición del cristal</td><td class="text-center">${env.cristal_existente_composicion || 'Desconocida'}</td><td class="text-center">${eb('cristal_nuevo_composicion')}</td></tr>
-                            <tr><td class="lbl">Marca del cristal</td><td class="text-center">Desconocida</td><td class="text-center">${eb('cristal_nuevo_marca')}</td></tr>
-                            <tr><td class="lbl">Modelo del cristal</td><td class="text-center">Desconocida</td><td class="text-center">${eb('cristal_nuevo_modelo')}</td></tr>
-                            <tr><td class="lbl">Transmitancia del cristal Ug (W/m²K)</td><td class="text-center">—</td><td class="text-center">${eb('cristal_nuevo_ug')}</td></tr>
-                            <tr><td class="lbl">Factor solar (g)</td><td class="text-center">—</td><td class="text-center">${eb('cristal_nuevo_g')}</td></tr>
-                            <tr><td class="heading" colspan="3" style="text-align:left; padding-left:6px;">CONJUNTO</td></tr>
-                            <tr><td class="lbl">Permeabilidad al aire (m³/h·m²)</td><td class="text-center">${env.permeabilidad_existente ?? '—'}</td><td class="text-center">${eb('permeabilidad_nueva')}</td></tr>
-                        </table>
-                    ` : `<div style="margin-top: 40px; text-align: center; color: #999;">No hay sustitución de ventanas.</div>`}
-                    <div style="margin-top: 15px;"><strong>Observaciones:</strong><div style="margin-top: 5px; font-size: 9pt;">
-                        <div>- La duración indicativa de la actuación (Di) es de 25 años según Recomendación (UE) 2019/1658, de la Comisión, de 25 de septiembre, relativa a la transposición de la obligación de ahorro de energía en virtud de la Directiva de eficiencia energética.</div>
-                        <div style="margin-top: 4px;">- Se adjunta ficha técnica completa del marco y del cristal en anexos.</div>
-                    </div></div>
-                    <div class="footer">PAGE_X_OF_Y</div>
+                        ${subLabel('Huecos antes de la rehabilitación')}
+                        <div style="border-radius:14px;overflow:hidden;border:1px solid #E9E9E1;">
+                            <table class="cmp" style="width:100%;border-collapse:collapse;font-size:11px;">
+                                <thead><tr>${thDark('Cerramiento')}${thDark('Nombre')}${thDark('Orient.', 'center')}${thDark('U (W/m²K)', 'center')}${thDark('Sup. (m²)', 'center')}${thDark('F. solar', 'center')}${thDark('Perm.', 'center')}</tr></thead>
+                                <tbody>
+                                    ${changedHuecos.map(h => `<tr><td style="padding:6px 10px;font-weight:600;">Hueco</td><td style="padding:6px 10px;">${h.initial?.nombre || '—'}</td>${tdC(h.initial?.orientacion || '—')}${tdC(formatN(h.initial?.transmitancia), 'color:#c0392b;font-weight:700;')}${tdC(formatN(h.initial?.superficie))}${tdC(formatN(h.initial?.factorSolar))}${tdC('100', 'color:#c0392b;font-weight:700;')}</tr>`).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        ${subLabel('Huecos después de la rehabilitación', '#4d6a12', '16px')}
+                        <div style="border-radius:14px;overflow:hidden;border:1px solid #D5E6A8;">
+                            <table class="cmp" style="width:100%;border-collapse:collapse;font-size:11px;">
+                                <thead><tr>${thGreen('Cerramiento')}${thGreen('Nombre')}${thGreen('Orient.', 'center')}${thGreen('U (W/m²K)', 'center')}${thGreen('Sup. (m²)', 'center')}${thGreen('F. solar', 'center')}${thGreen('Perm.', 'center')}</tr></thead>
+                                <tbody>
+                                    ${changedHuecos.map(h => `<tr><td style="padding:6px 10px;font-weight:600;background:#F8FBEF;">Hueco</td><td style="padding:6px 10px;background:#F8FBEF;">${h.final?.nombre || '—'}</td>${tdG(h.final?.orientacion || '—')}${tdG(formatN(h.final?.transmitancia), 'color:#4d6a12;font-weight:800;')}${tdG(formatN(h.final?.superficie))}${tdG(formatN(h.final?.factorSolar))}${tdG('3', 'color:#4d6a12;font-weight:800;')}</tr>`).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        ${subLabel('Características de las ventanas')}
+                        ${cmpBox(cmpHead('Comparativa', 'Existentes', 'Nuevas'), `
+                            ${cmpGroup('Marco')}
+                            ${cmpRow('Material del marco', env.marco_existente_material || '—', eb('marco_nuevo_material'))}
+                            ${cmpRow('Marca del marco', 'Desconocida', eb('marco_nuevo_marca'))}
+                            ${cmpRow('Modelo del marco', 'Desconocida', eb('marco_nuevo_modelo'))}
+                            ${cmpRow('Transmitancia del marco U<sub>f</sub> (W/m²K)', '—', eb('marco_nuevo_uf'))}
+                            ${cmpGroup('Vidrio')}
+                            ${cmpRow('Composición del cristal', env.cristal_existente_composicion || 'Desconocida', eb('cristal_nuevo_composicion'))}
+                            ${cmpRow('Marca del cristal', 'Desconocida', eb('cristal_nuevo_marca'))}
+                            ${cmpRow('Modelo del cristal', 'Desconocida', eb('cristal_nuevo_modelo'))}
+                            ${cmpRow('Transmitancia del cristal U<sub>g</sub> (W/m²K)', '—', eb('cristal_nuevo_ug'))}
+                            ${cmpRow('Factor solar (g)', '—', eb('cristal_nuevo_g'))}
+                            ${cmpGroup('Conjunto')}
+                            ${cmpRow('Permeabilidad al aire (m³/h·m²)', env.permeabilidad_existente ?? '—', eb('permeabilidad_nueva'))}
+                        `)}
+                    ` : `<div style="margin:40px 0;text-align:center;color:#9A9A92;">No hay sustitución de ventanas.</div>`}
+                    ${obsBox(`<p style="margin:0;">La duración indicativa de la actuación (Di) es de 25 años según Recomendación (UE) 2019/1658. Se adjunta ficha técnica completa del marco y del cristal en anexos.</p>`, '14px')}
+                    ${footer}
                 </div>
             `);
         }
@@ -1036,76 +1091,68 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, a
             const aeTotal = results.ahorroEnergiaFinalTotal || 0;
             const aeMwh = (aeTotal / 1000).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+            const jCell = (v, final = false) => `<td style="padding:8px 12px;text-align:center;border-bottom:1px solid #ECECE4;${final ? 'background:#F3F8E6;font-weight:700;' : 'color:#7a7a72;'}">${v}</td>`;
+            const jLabel = (t) => `<td style="padding:6px 16px;color:#4a4a44;border-bottom:1px solid #ECECE4;">${t}</td>`;
             const renderCategory = (label, data) => `
-                <tr style="background: #c8e6c9; font-weight: bold;">
-                    <td style="padding: 5px 6px; border: 1px solid #000;">${label}</td>
-                    <td style="padding: 5px 6px; border: 1px solid #000; text-align: center; font-size: 8pt;">${data.fuelIni || '—'}</td>
-                    <td style="padding: 5px 6px; border: 1px solid #000; text-align: center; font-size: 8pt;">${data.fuelFin || '—'}</td>
-                </tr>
-                <tr>
-                    <td style="padding: 4px 6px; border: 1px solid #000; font-size: 8.5pt;">Factor de paso de la fuente de energía seleccionada</td>
-                    <td style="padding: 4px 6px; border: 1px solid #000; text-align: center; font-size: 8.5pt;">${fN(data.factorIni, 3)}</td>
-                    <td style="padding: 4px 6px; border: 1px solid #000; text-align: center; font-size: 8.5pt;">${fN(data.factorFin, 3)}</td>
-                </tr>
-                <tr>
-                    <td style="padding: 4px 6px; border: 1px solid #000; font-size: 8.5pt;">Emisiones de CO2 ${label.split(' para ')[1]?.toUpperCase() || ''} (kgCO2/m² año)</td>
-                    <td style="padding: 4px 6px; border: 1px solid #000; text-align: center; font-size: 8.5pt;">${fN(data.emissionsIni)}</td>
-                    <td style="padding: 4px 6px; border: 1px solid #000; text-align: center; font-size: 8.5pt;">${fN(data.emissionsFin)}</td>
-                </tr>
-                <tr>
-                    <td style="padding: 4px 6px; border: 1px solid #000; font-size: 8.5pt;">Consumo de energía final para ${label.split(' para ')[1]?.toUpperCase() || ''} (kWh/m² año)</td>
-                    <td style="padding: 4px 6px; border: 1px solid #000; text-align: center; font-size: 8.5pt;">${fN(data.energyIni)}</td>
-                    <td style="padding: 4px 6px; border: 1px solid #000; text-align: center; font-size: 8.5pt;">${fN(data.energyFin)}</td>
-                </tr>`;
+                <tr><td colspan="3" style="padding:7px 16px;background:#EFEFE8;font-family:'Archivo';font-weight:700;font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:#6E6E66;">${label}</td></tr>
+                <tr>${jLabel('Tipo de combustible')}${jCell(data.fuelIni || '—')}${jCell(data.fuelFin || '—', true)}</tr>
+                <tr>${jLabel('Factor de paso')}${jCell(fN(data.factorIni, 3))}${jCell(fN(data.factorFin, 3), true)}</tr>
+                <tr>${jLabel('Emisiones CO₂ (kgCO₂/m²·año)')}${jCell(fN(data.emissionsIni))}${jCell(fN(data.emissionsFin), true)}</tr>
+                <tr>${jLabel('Consumo energía final (kWh/m²·año)')}${jCell(fN(data.energyIni))}${jCell(fN(data.energyFin), true)}</tr>`;
 
             pages.push(`
                 <div class="doc-page">
-                    <div class="doc-header" style="border-bottom: 2px solid #f2a640; padding-bottom: 5px; display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 20px;">
-                        <div style="display: flex; flex-direction: column;">
-                            <div style="font-size: 7pt; font-weight: 900; color: #999; letter-spacing: 1px; text-transform: uppercase; margin-bottom: -2px;">Certificado CAE · RES080</div>
-                            <div style="font-size: 13pt; font-weight: bold; color: #000;">Expte: ${numExpte}</div>
-                        </div>
-                        <img src="/logo_brokergy_doc.png" class="doc-logo">
+                    ${pageHeader}
+                    ${sectionTitle('Justificación del cálculo de ahorro inicial y final', '20px')}
+                    <div style="border-radius:16px;overflow:hidden;border:1px solid #E9E9E1;">
+                        <table class="just" style="width:100%;border-collapse:collapse;font-size:12px;">
+                            <thead><tr>
+                                <th style="text-align:left;padding:8px 16px;background:#1A1A1A;color:#fff;font-family:'Archivo';font-weight:700;font-size:11px;letter-spacing:1px;text-transform:uppercase;width:52%;">Parámetro energético</th>
+                                <th style="text-align:center;padding:8px 12px;background:#33332F;color:#C9C9C4;font-family:'Archivo';font-weight:700;font-size:11px;text-transform:uppercase;">Inicial</th>
+                                <th style="text-align:center;padding:8px 12px;background:#93C01F;color:#1A1A1A;font-family:'Archivo';font-weight:800;font-size:11px;text-transform:uppercase;">Final</th>
+                            </tr></thead>
+                            <tbody>
+                                ${d.acs ? renderCategory('Agua caliente sanitaria (ACS)', d.acs) : ''}
+                                ${d.cal ? renderCategory('Calefacción', d.cal) : ''}
+                                ${d.ref ? renderCategory('Refrigeración', d.ref) : ''}
+                                <tr><td style="padding:8px 16px;background:#1A1A1A;color:#fff;font-family:'Archivo';font-weight:700;">Consumo total de energía final (kWh/m²·año)</td><td style="padding:8px 12px;text-align:center;background:#1A1A1A;color:#C9C9C4;font-weight:700;">${fN(results.totalEnergiaInicialM2)}</td><td style="padding:8px 12px;text-align:center;background:#0f0f0e;color:#93C01F;font-family:'Archivo';font-weight:800;">${fN(results.totalEnergiaFinalM2)}</td></tr>
+                                <tr><td style="padding:8px 16px;background:#1A1A1A;color:#fff;font-family:'Archivo';font-weight:700;border-top:1px solid #333;">Consumo total de energía final (kWh/año)</td><td style="padding:8px 12px;text-align:center;background:#1A1A1A;color:#C9C9C4;font-weight:700;border-top:1px solid #333;">${fI(results.totalEnergiaInicialAno)}</td><td style="padding:8px 12px;text-align:center;background:#0f0f0e;color:#93C01F;font-family:'Archivo';font-weight:800;border-top:1px solid #333;">${fI(results.totalEnergiaFinalAno)}</td></tr>
+                            </tbody>
+                        </table>
                     </div>
-                    <div class="section-title" style="font-size: 11pt; margin-bottom: 12px;">Justificación del cálculo de ahorro de energía inicial y final</div>
-                    <table style="width: 100%; border-collapse: collapse; font-size: 8.5pt; margin-bottom: 16px; table-layout: fixed;">
-                        <colgroup><col style="width: 58%;"><col style="width: 21%;"><col style="width: 21%;"></colgroup>
-                        <thead>
-                            <tr style="background: #000; color: #fff; font-weight: bold; text-transform: uppercase; font-size: 8.5pt;">
-                                <th style="padding: 6px 8px; border: 1px solid #000; text-align: left;">Parámetro Energético</th>
-                                <th style="padding: 6px 8px; border: 1px solid #000; text-align: center;">INICIAL</th>
-                                <th style="padding: 6px 8px; border: 1px solid #000; text-align: center;">FINAL</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${d.acs ? renderCategory('Tipo de combustible para ACS', d.acs) : ''}
-                            ${d.cal ? renderCategory('Tipo de combustible para calefacción', d.cal) : ''}
-                            ${d.ref ? renderCategory('Tipo de combustible para Refrigeración', d.ref) : ''}
-                            <tr style="border-top: 2px solid #000; font-style: italic; font-weight: bold;">
-                                <td style="padding: 5px 6px; border: 1px solid #000; font-size: 8.5pt;">Consumo Total de Energía final (kWh/m² año)</td>
-                                <td style="padding: 5px 6px; border: 1px solid #000; text-align: center;">${fN(results.totalEnergiaInicialM2)}</td>
-                                <td style="padding: 5px 6px; border: 1px solid #000; text-align: center;">${fN(results.totalEnergiaFinalM2)}</td>
-                            </tr>
-                            <tr style="font-style: italic; font-weight: bold;">
-                                <td style="padding: 5px 6px; border: 1px solid #000; font-size: 8.5pt;">Consumo Total de Energía final (kWh/año)</td>
-                                <td style="padding: 5px 6px; border: 1px solid #000; text-align: center;">${fI(results.totalEnergiaInicialAno)}</td>
-                                <td style="padding: 5px 6px; border: 1px solid #000; text-align: center;">${fI(results.totalEnergiaFinalAno)}</td>
-                            </tr>
-                            <tr style="background: #f2a640; color: #000; font-weight: 900;">
-                                <td style="padding: 7px 8px; border: 1px solid #000; font-size: 10pt; text-transform: uppercase; letter-spacing: 0.5px;">Ahorro de Energía Final (MWh/año)</td>
-                                <td colspan="2" style="padding: 7px 8px; border: 1px solid #000; text-align: center; font-size: 14pt;">${aeMwh}</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                    <p style="font-size: 8pt; color: #555; font-style: italic; text-align: center; margin-top: 8px;">
-                        Este desglose corresponde a la comparativa técnica entre los certificados energéticos (XML) aportados para la situación inicial y propuesta de reforma.
-                    </p>
-                    <div class="footer">PAGE_X_OF_Y</div>
+
+                    <div style="margin-top:16px;border-radius:20px;background:linear-gradient(120deg,#F18A00,#A9C63A);padding:3px;">
+                        <div style="border-radius:17px;background:#fff;padding:18px 24px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;">
+                            <div style="font-family:'Archivo';font-weight:800;font-size:15px;letter-spacing:.3px;text-transform:uppercase;color:#1A1A1A;">Ahorro de energía final</div>
+                            <div style="font-family:'Archivo';font-weight:900;font-size:40px;line-height:1;color:#1A1A1A;">${aeMwh} <span style="font-size:16px;color:#B5730A;">MWh/año</span></div>
+                        </div>
+                    </div>
+                    <p style="margin:12px 2px 0;font-size:11px;color:#6E6E66;">Este desglose corresponde a la comparativa técnica entre los certificados energéticos (XML) aportados para la situación inicial y la propuesta de reforma.</p>
+                    ${footer}
                 </div>
             `);
         }
 
-        // PÁGINA: JUSTIFICACIÓN DEL SCOP (calefacción + ACS) — igual que RES060
+        // PÁGINA: JUSTIFICACIÓN DEL SCOP (calefacción + ACS) — igual que RES060 (restyled)
+        // Se conserva la justificación legal completa (Anexo IV/VI RES060, EPREL) con el
+        // nuevo lenguaje visual: tarjeta redondeada, cabecera oscura, banner de fórmula
+        // (#FBF6EE) y fila de resultado resaltada en verde.
+        const scopBox = (headTitle, formula, rowsHtml) => `
+            <div style="border-radius:16px;overflow:hidden;border:1px solid #E9E9E1;margin-top:12px;">
+                <table class="cmp" style="width:100%;border-collapse:collapse;font-size:12px;"><tbody>
+                    <tr><td colspan="3" style="padding:8px 16px;background:#1A1A1A;color:#fff;font-family:'Archivo';font-weight:700;font-size:10.5px;letter-spacing:.5px;text-transform:uppercase;">${headTitle}</td></tr>
+                    <tr><td colspan="3" style="text-align:center;font-family:'Archivo';font-weight:800;font-size:15px;background:#FBF6EE;padding:8px;color:#1A1A1A;">${formula}</td></tr>
+                    <tr>
+                        <td style="width:15%;text-align:center;padding:6px 10px;background:#F7F7F1;color:#6E6E66;font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:.5px;">Variable</td>
+                        <td style="padding:6px 12px;background:#F7F7F1;color:#6E6E66;font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:.5px;">Descripción</td>
+                        <td style="width:14%;text-align:center;padding:6px 10px;background:#F7F7F1;color:#6E6E66;font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:.5px;">Valor</td>
+                    </tr>
+                    ${rowsHtml}
+                </tbody></table>
+            </div>`;
+        const svRow = (v, desc, val) => `<tr><td style="text-align:center;font-weight:700;padding:6px 10px;">${v}</td><td style="padding:6px 12px;color:#4a4a44;">${desc}</td><td style="text-align:center;padding:6px 10px;font-weight:700;">${val}</td></tr>`;
+        const scopResult = (calcText, scopVal) => `<tr><td colspan="2" style="padding:8px 12px;font-weight:700;color:#1A1A1A;">${calcText}</td><td style="text-align:center;font-family:'Archivo';font-weight:900;font-size:16px;background:#F3F8E6;color:#4d6a12;">${scopVal}</td></tr>`;
+        const scopCallout = (html) => `<div style="margin-top:12px;padding:14px 18px;background:#F3F8E6;border:1px solid #D5E6A8;border-radius:14px;font-size:12.5px;font-weight:700;color:#1A1A1A;line-height:1.5;">${html}</div>`;
         const renderEprelJustification = (isAcs = false) => {
             const label = isAcs ? 'ACS' : 'Calefacción';
             const etaVar = isAcs ? 'η<sub>wh</sub>' : 'η<sub>s,h</sub>';
@@ -1122,22 +1169,15 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, a
             // Justificación compacta en tabla (solo método EPREL): mantiene fórmula,
             // definición de variables, valores, cálculo y resultado, ocupando ~1/4 de
             // página para que ambas secciones SCOP quepan juntas sin salto de página.
-            return `
-                <table class="doc-table" style="margin-top: 12px; margin-bottom: 10px;">
-                    <tr><td colspan="3" class="heading">Justificación del SCOP en ${label} — Anexo IV ficha RES060</td></tr>
-                    <tr><td colspan="3" style="text-align: center; font-weight: bold; font-size: 11.5pt; background: #faf3e6; padding: 6px;">SCOP = CC · (${etaVar} + F(1) + F(2))</td></tr>
-                    <tr>
-                        <td class="lbl" style="width: 15%; text-align: center;">Variable</td>
-                        <td class="lbl">Descripción</td>
-                        <td class="lbl" style="width: 14%; text-align: center;">Valor</td>
-                    </tr>
-                    <tr><td style="text-align: center; font-weight: bold;">CC</td><td>Coeficiente de conversión</td><td style="text-align: center;">2,5</td></tr>
-                    <tr><td style="text-align: center; font-weight: bold;">${etaVar}</td><td>Eficiencia energética estacional de ${label.toLowerCase()} (obtenida de la ${fichaEprel} — clima ${zoneLabel.toLowerCase()}${isAcs ? ' y perfil ACS' : `, impulsión ${getEmitterTemp(inst.tipo_emisor)}°C`})</td><td style="text-align: center;">${etaValue}%</td></tr>
-                    <tr><td style="text-align: center; font-weight: bold;">F(1)</td><td>Factor de corrección por tecnología (bombas de calor aerotérmicas)</td><td style="text-align: center;">3%</td></tr>
-                    <tr><td style="text-align: center; font-weight: bold;">F(2)</td><td>Factor de corrección por clima (bombas de calor aerotérmicas)</td><td style="text-align: center;">0%</td></tr>
-                    <tr><td colspan="2" style="font-weight: bold;">Cálculo: SCOP = 2,5 · (${etaValue}% + 3% + 0%) = ${totalPercentage}% &nbsp;→&nbsp; SCOP en ${label}</td><td style="text-align: center; font-weight: bold; font-size: 13pt; background: #d9f0d3;">${scopStr}</td></tr>
-                </table>
-            `;
+            return scopBox(
+                `Justificación del SCOP en ${label} — Anexo IV ficha RES060`,
+                `SCOP = CC · (${etaVar} + F(1) + F(2))`,
+                `${svRow('CC', 'Coeficiente de conversión', '2,5')}
+                 ${svRow(etaVar, `Eficiencia energética estacional de ${label.toLowerCase()} (obtenida de la ${fichaEprel} — clima ${zoneLabel.toLowerCase()}${isAcs ? ' y perfil ACS' : `, impulsión ${getEmitterTemp(inst.tipo_emisor)}°C`})`, `${etaValue}%`)}
+                 ${svRow('F(1)', 'Factor de corrección por tecnología (bombas de calor aerotérmicas)', '3%')}
+                 ${svRow('F(2)', 'Factor de corrección por clima (bombas de calor aerotérmicas)', '0%')}
+                 ${scopResult(`Cálculo: SCOP = 2,5 · (${etaValue}% + 3% + 0%) = ${totalPercentage}% &nbsp;→&nbsp; SCOP en ${label}`, scopStr)}`
+            );
         };
 
         const renderAcsScopJustification = () => {
@@ -1151,19 +1191,13 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, a
                 const fichaEprel = acsEprelUrl
                     ? `<a href="${acsEprelUrl}" style="color: #0000EE; text-decoration: underline;">Ficha EPREL</a>`
                     : 'Ficha EPREL';
-                return `
-                    <table class="doc-table" style="margin-top: 12px; margin-bottom: 10px;">
-                        <tr><td colspan="3" class="heading">Justificación del SCOP en ACS — Anexo IV ficha RES060 (depósito ACS en conjunto con la BdC)</td></tr>
-                        <tr><td colspan="3" style="text-align: center; font-weight: bold; font-size: 11.5pt; background: #faf3e6; padding: 6px;">SCOP<sub>dhw</sub> = CC · η<sub>wh</sub></td></tr>
-                        <tr>
-                            <td class="lbl" style="width: 15%; text-align: center;">Variable</td>
-                            <td class="lbl">Descripción</td>
-                            <td class="lbl" style="width: 14%; text-align: center;">Valor</td>
-                        </tr>
-                        <tr><td style="text-align: center; font-weight: bold;">CC</td><td>Coeficiente de conversión</td><td style="text-align: center;">2,5</td></tr>
-                        <tr><td style="text-align: center; font-weight: bold;">η<sub>wh</sub></td><td>Eficiencia energética de caldeo de agua (obtenida de la ${fichaEprel} — clima ${zoneLabel.toLowerCase()} y perfil ACS)</td><td style="text-align: center;">${etaWh}%</td></tr>
-                        <tr><td colspan="2" style="font-weight: bold;">Cálculo: SCOP<sub>dhw</sub> = 2,5 · ${etaWh}% &nbsp;→&nbsp; SCOP en ACS</td><td style="text-align: center; font-weight: bold; font-size: 13pt; background: #d9f0d3;">${scopAcsStr}</td></tr>
-                    </table>`;
+                return scopBox(
+                    'Justificación del SCOP en ACS — Anexo IV ficha RES060 (depósito ACS en conjunto con la BdC)',
+                    `SCOP<sub>dhw</sub> = CC · η<sub>wh</sub>`,
+                    `${svRow('CC', 'Coeficiente de conversión', '2,5')}
+                     ${svRow('η<sub>wh</sub>', `Eficiencia energética de caldeo de agua (obtenida de la ${fichaEprel} — clima ${zoneLabel.toLowerCase()} y perfil ACS)`, `${etaWh}%`)}
+                     ${scopResult(`Cálculo: SCOP<sub>dhw</sub> = 2,5 · ${etaWh}% &nbsp;→&nbsp; SCOP en ACS`, scopAcsStr)}`
+                );
             }
 
             if (metodoAcs === 'independiente') {
@@ -1171,59 +1205,58 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, a
                 const fc = FC_TABLE[zoneStr] ?? FC_TABLE['D3'];
                 const fcStr  = fc.toFixed(3).replace('.', ',');
                 const copCalc = (scopAcsRaw / fc).toFixed(2).replace('.', ',');
-                const ftLink = acsFtUrl ? `<li>- Ficha técnica: <a href="${acsFtUrl}" style="color: #0000EE; text-decoration: underline;">Acceder a la Ficha Técnica del fabricante</a></li>` : '';
+                const ftLink = acsFtUrl ? `<li style="margin-top:3px;">Ficha técnica: <a href="${acsFtUrl}" style="color:#0000EE;text-decoration:underline;">Acceder a la ficha técnica del fabricante</a></li>` : '';
                 return `
-                    <div class="eprel-container" style="margin-top: 15px;">
-                        <div style="font-weight: bold; margin-bottom: 8px; font-size: 11pt;">Cálculo del SCOP en ACS</div>
-                        <div style="font-weight: bold; margin-bottom: 4px;">Fórmula Aplicada</div>
-                        <div class="doc-p" style="margin-bottom: 4px;">Según el Anexo VI de la ficha RES060 (Caso 3: bomba de calor aerotérmica con depósito de ACS no suministrado como conjunto), para la zona climática ${zoneStr}:</div>
-                        <div style="margin: 10px 0; font-size: 12pt;"><strong>SCOP<sub>dhw</sub> = COP · F<sub>c</sub></strong></div>
-                        <div class="doc-p" style="margin-bottom: 12px;">Donde:</div>
-                        <ul style="list-style-type: none; margin-left: 0; padding-left: 10px; margin-bottom: 15px;">
-                            <li>- COP: Coeficiente de rendimiento según ficha técnica y placa de características del equipo</li>
-                            <li>- F<sub>c</sub>: Factor de corrección para la zona climática ${zoneStr} (clima ${zoneLabel.toLowerCase()})</li>
+                    <div style="margin-top:12px;padding:16px 20px;border:1px solid #E9E9E1;border-radius:16px;font-size:12.5px;line-height:1.5;color:#4a4a44;">
+                        <div style="font-family:'Archivo';font-weight:800;font-size:13px;text-transform:uppercase;color:#1A1A1A;margin-bottom:8px;">Cálculo del SCOP en ACS</div>
+                        <div style="font-weight:700;color:#1A1A1A;margin-bottom:4px;">Fórmula aplicada</div>
+                        <p style="margin:0 0 6px;">Según el Anexo VI de la ficha RES060 (Caso 3: bomba de calor aerotérmica con depósito de ACS no suministrado como conjunto), para la zona climática ${zoneStr}:</p>
+                        <div style="text-align:center;font-family:'Archivo';font-weight:800;font-size:15px;background:#FBF6EE;border-radius:10px;padding:8px;margin:10px 0;color:#1A1A1A;">SCOP<sub>dhw</sub> = COP · F<sub>c</sub></div>
+                        <div style="font-weight:700;color:#1A1A1A;margin-bottom:4px;">Donde</div>
+                        <ul style="list-style:none;margin:0 0 10px;padding-left:0;">
+                            <li>· COP: coeficiente de rendimiento según ficha técnica y placa de características del equipo</li>
+                            <li style="margin-top:3px;">· F<sub>c</sub>: factor de corrección para la zona climática ${zoneStr} (clima ${zoneLabel.toLowerCase()})</li>
                             ${ftLink}
                         </ul>
-                        <div style="font-weight: bold; margin-bottom: 8px;">Valores Utilizados</div>
-                        <ul style="list-style-type: none; margin-left: 0; padding-left: 10px; margin-bottom: 15px;">
-                            <li>- COP = ${copCalc} (según ficha técnica del fabricante)</li>
-                            <li>- F<sub>c</sub> = ${fcStr} (para zona climática ${zoneStr})</li>
+                        <div style="font-weight:700;color:#1A1A1A;margin-bottom:4px;">Valores utilizados</div>
+                        <ul style="list-style:none;margin:0 0 10px;padding-left:0;">
+                            <li>· COP = ${copCalc} (según ficha técnica del fabricante)</li>
+                            <li style="margin-top:3px;">· F<sub>c</sub> = ${fcStr} (para zona climática ${zoneStr})</li>
                         </ul>
-                        <div style="font-weight: bold; margin-bottom: 8px;">Cálculo</div>
-                        <div class="doc-p" style="margin-bottom: 15px;">SCOP<sub>dhw</sub> = ${copCalc} × ${fcStr} = ${scopAcsStr}</div>
-                        <div style="font-weight: bold; font-size: 12pt; margin-top: 10px;">SCOP en ACS = ${scopAcsStr}</div>
+                        <div style="display:flex;justify-content:space-between;align-items:center;background:#F3F8E6;border:1px solid #D5E6A8;border-radius:12px;padding:10px 16px;margin-top:10px;">
+                            <span style="font-weight:700;color:#1A1A1A;">SCOP<sub>dhw</sub> = ${copCalc} × ${fcStr} = ${scopAcsStr}</span>
+                            <span style="font-family:'Archivo';font-weight:900;font-size:18px;color:#4d6a12;">${scopAcsStr}</span>
+                        </div>
                     </div>`;
             }
 
             // Ficha técnica (default + legacy 'eprel')
-            return `<div class="doc-p" style="font-weight: bold; margin-top: 10px;">SCOP en ACS = ${scopAcsStr} Según la ficha técnica aportada por el fabricante que se entregará como anexo al expediente CAE.</div>`;
+            return scopCallout(`SCOP en ACS = ${scopAcsStr}. Según la ficha técnica aportada por el fabricante que se entregará como anexo al expediente CAE.`);
         };
 
         // SCOP calefacción + SCOP ACS en una sola página: con las justificaciones EPREL
         // en formato tabla compacta ambas caben en un A4 sin necesidad de salto.
+        const scopCond = (label, value) => `<div style="display:flex;justify-content:space-between;border-bottom:1px dashed #E4E4DC;padding-bottom:8px;"><span style="color:#6E6E66;">${label}</span><span style="font-weight:700;">${value}</span></div>`;
         pages.push(`
             <div class="doc-page">
-                <div class="doc-header" style="border-bottom: 2px solid #f2a640; padding-bottom: 5px; display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 20px;">
-                    <div style="display: flex; flex-direction: column;">
-                        <div style="font-size: 7pt; font-weight: 900; color: #999; letter-spacing: 1px; text-transform: uppercase; margin-bottom: -2px;">Certificado CAE · RES080</div>
-                        <div style="font-size: 13pt; font-weight: bold; color: #000;">Expte: ${numExpte}</div>
-                    </div>
-                    <img src="/logo_brokergy_doc.png" class="doc-logo">
+                ${pageHeader}
+                ${sectionTitle('Anexos · Rendimiento estacional (SCOP)', '20px')}
+
+                ${subLabel('SCOP de la bomba de calor en calefacción', '#6E6E66', '4px')}
+                <div style="border:1px solid #E9E9E1;border-radius:16px;padding:16px 20px;display:grid;grid-template-columns:1fr 1fr;gap:10px 24px;font-size:12.5px;">
+                    ${scopCond('Ubicación de la instalación', `Zona climática ${zoneStr} (DB-HE CTE)`)}
+                    ${scopCond('Condiciones en calefacción', zoneLabel)}
+                    ${scopCond('Tipo de bomba de calor', 'Aerotérmica')}
+                    ${scopCond('Sistema de distribución', emiLabel)}
                 </div>
-                <div class="section-title">Anexo justificativo del rendimiento estacional (SCOP) de la bomba de calor en calefacción</div>
-                <ul style="margin-bottom: 15px;">
-                    <li>- Ubicación de la instalación: Zona climática <strong>${zoneStr}</strong> según DB-HE CTE</li>
-                    <li>- Condiciones equivalentes en calefacción: <strong>${zoneLabel}</strong></li>
-                    <li>- Tipo de bomba de calor: Aerotérmica</li>
-                    <li>- Sistema de distribución: ${emiLabel}</li>
-                </ul>
                 ${metodoCal === 'eprel'
                     ? renderEprelJustification(false)
-                    : `<div class="doc-p" style="font-weight: bold; margin-top: 10px;">SCOP en Calefacción = ${scopCalStr} Según la ficha técnica aportada por el fabricante que se entregará como anexo al expediente CAE.</div>`
+                    : scopCallout(`SCOP en Calefacción = ${scopCalStr}. Según la ficha técnica aportada por el fabricante que se entregará como anexo al expediente CAE.`)
                 }
-                <div class="section-title" style="margin-top: 20px;">Anexo justificativo del rendimiento estacional (SCOP) de la bomba de calor para ACS (agua caliente sanitaria)</div>
-                ${tieneAcs ? renderAcsScopJustification() : `<div class="doc-p" style="font-weight: bold;">SCOP en ACS = no aplica</div>`}
-                <div class="footer">PAGE_X_OF_Y</div>
+
+                ${subLabel('SCOP de la bomba de calor para ACS (agua caliente sanitaria)', '#6E6E66', '20px')}
+                ${tieneAcs ? renderAcsScopJustification() : scopCallout('SCOP en ACS = no aplica.')}
+                ${footer}
             </div>
         `);
 
@@ -1233,20 +1266,26 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, a
         // del modal añadimos imágenes rasterizadas (withAnnexPreview) para ver todo.
         const annexList = attachments.filter(a => a.file?.driveId && (a.id !== 'aerotermia_acs' || tieneAcs));
         if (annexList.length > 0) {
-            const items = annexList.map(a => `
-                <li style="margin-bottom: 14px; display: flex; align-items: center; gap: 14px; font-size: 12pt; color: #1a1a1a;">
-                    <span style="display:inline-block; width:10px; height:10px; background:#f2a640; border-radius:2px;"></span>
-                    <span style="font-weight: 700;">${a.label}</span>
-                </li>
+            const items = annexList.map((a, i) => `
+                <div style="display:flex;align-items:center;gap:16px;border:1px solid #E9E9E1;border-radius:16px;padding:14px 18px;background:#fff;">
+                    <span style="flex:none;width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,#F18A00,#93C01F);color:#fff;font-family:'Archivo';font-weight:800;font-size:15px;display:flex;align-items:center;justify-content:center;">${i + 1}</span>
+                    <div style="font-weight:700;font-size:13.5px;">${a.label}</div>
+                </div>
             `).join('');
             pages.push(`
-                <div class="doc-page" style="display: flex; flex-direction: column; align-items: center; justify-content: center; background: #fff;">
-                    <div style="text-align: center; color: #000; margin-bottom: 40px;">
-                        <div style="font-size: 60pt; font-weight: 900; letter-spacing: 20px; margin-bottom: 20px;">ANEXOS</div>
-                        <div style="width: 150px; height: 4px; background: #f2a640; margin: 0 auto 40px;"></div>
-                        <div style="font-size: 10pt; text-transform: uppercase; letter-spacing: 3px; color: #666;">Documentación adjunta</div>
+                <div class="doc-page">
+                    ${pageHeader}
+                    ${sectionTitle('Anexos · Documentación adjunta', '20px')}
+                    <p style="margin:0 0 16px 20px;font-size:12.5px;color:#4a4a44;">Se adjunta al presente certificado la siguiente documentación técnica justificativa.</p>
+                    <div style="display:grid;gap:10px;">${items}</div>
+                    <div style="margin-top:22px;background:linear-gradient(120deg,#1A1A1A,#242422);border-radius:20px;padding:20px 24px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:14px;">
+                        <div>
+                            <div style="font-family:'Archivo';font-weight:800;font-size:16px;color:#fff;">BROKERGY <span style="color:#93C01F;font-weight:600;font-size:13px;">· Ingeniería Energética</span></div>
+                            <div style="font-size:12px;color:#B9B9B4;margin-top:4px;">Tel 623 926 179 · www.brokergy.es · info@brokergy.es</div>
+                        </div>
+                        <img src="${APP_URL}/logo-brokergy-circular.png" alt="Brokergy" style="height:56px;">
                     </div>
-                    <ul style="list-style: none; margin: 0; padding: 0; max-width: 70%;">${items}</ul>
+                    ${footer}
                 </div>
             `);
 

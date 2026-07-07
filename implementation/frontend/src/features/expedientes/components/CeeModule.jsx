@@ -5,6 +5,7 @@ import { parseCeeXml } from '../../calculator/logic/xmlCeeParser';
 import { FACTORES_PASO, calculateRes080, calculateRes080FromEmissions } from '../../calculator/logic/calculation';
 import { ceeToColumn } from '../../calculator/logic/ceeSeed';
 import CeeUploadModal from '../../cee/CeeUploadModal';
+import { ceeToXmlShape } from '../../cee/ceeExtract';
 import { EfficiencyTable } from '../../calculator/components/EfficiencyTable';
 import { CeeDocumentsGrid } from './CeeDocumentsGrid';
 import { buildCertApproveMessage, buildCertDefaultMessage } from '../logic/certMessages';
@@ -766,12 +767,34 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
     };
 
     // Cargar un CEE por fichero (XML exacto u OCR IA) y volcarlo a la columna (inicial/final)
-    // del expediente. La tabla pasa a modo manual (editable) porque rellenamos emisiones_manual.
-    // IMPORTANTE: si la otra columna venía de un XML cargado, migramos SUS emisiones a manual
-    // para no perderla (el path manual solo lee emisiones_manual). No pisa datos ya presentes.
+    // del expediente.
+    //
+    // RES060/RES093 (sin reforma): CeeDocumentsGrid lee `cee_inicial`/`cee_final` con la
+    // MISMA forma que produce parseCeeXml() — así que aquí reproducimos EXACTAMENTE ese
+    // efecto (demanda, superficie, combustible, fechas) como si se hubiera subido el .xml.
+    //
+    // RES080 (reforma): la tabla es de emisiones (emisiones_manual/comb_*/superficie_manual_*),
+    // así que seguimos el flujo previo. Si la otra columna venía de un XML cargado, migramos
+    // SUS emisiones a manual para no perderla (el path manual solo lee emisiones_manual).
     const applyCeeToExpediente = (data, target) => {
-        const has = (v) => v !== undefined && v !== '' && v !== null;
         const isFinal = target === 'final';
+
+        if (!isReforma) {
+            const xmlShaped = ceeToXmlShape(data);
+            const nextLocal = {
+                ...local,
+                [isFinal ? 'cee_final' : 'cee_inicial']: xmlShaped,
+                [isFinal ? 'fecha_visita_cee_final' : 'fecha_visita_cee_inicial']: xmlShaped.fechaVisita || local[isFinal ? 'fecha_visita_cee_final' : 'fecha_visita_cee_inicial'],
+                [isFinal ? 'fecha_firma_cee_final' : 'fecha_firma_cee_inicial']: xmlShaped.fechaFirma || local[isFinal ? 'fecha_firma_cee_final' : 'fecha_firma_cee_inicial'],
+                [isFinal ? 'comb_acs_final' : 'comb_acs_inicial']: xmlShaped.combustibleACS || local[isFinal ? 'comb_acs_final' : 'comb_acs_inicial'],
+                [isFinal ? 'comb_cal_final' : 'comb_cal_inicial']: xmlShaped.combustibleCalefaccion || local[isFinal ? 'comb_cal_final' : 'comb_cal_inicial'],
+            };
+            setLocal(nextLocal);
+            onSave({ cee: nextLocal });
+            return;
+        }
+
+        const has = (v) => v !== undefined && v !== '' && v !== null;
         const em = { ...(local.emisiones_manual || {}) };
         const next = { ...local, cee_source: 'manual' };
 
@@ -812,80 +835,112 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
     };
 
     const renderRes060 = () => (
-        <CeeDocumentsGrid
-            expediente={expediente}
-            certName={selectedCertName}
-            ceeFiles={local.cee_files}
-            onFilesChange={(newFiles) => {
-                setLocal(current => {
-                    const nextFiles = typeof newFiles === 'function' ? newFiles(current.cee_files) : newFiles;
-                    const nextLocal = { ...current, cee_files: nextFiles };
+        <div className="space-y-8">
+            <CeeDocumentsGrid
+                expediente={expediente}
+                certName={selectedCertName}
+                ceeFiles={local.cee_files}
+                onFilesChange={(newFiles) => {
+                    setLocal(current => {
+                        const nextFiles = typeof newFiles === 'function' ? newFiles(current.cee_files) : newFiles;
+                        const nextLocal = { ...current, cee_files: nextFiles };
+                        onSave({ cee: nextLocal });
+                        return nextLocal;
+                    });
+                }}
+                editMode={editMode}
+                onXmlUploaded={(file, isFinal) => processXmlFile(file, isFinal)}
+                demands={{
+                    inicial: local.cee_inicial,
+                    final: local.cee_final
+                }}
+                acsMethod={local.acs_method}
+                numRooms={local.num_rooms}
+                onManualUpdate={(patch) => {
+                    const nextLocal = { ...local, ...patch };
+                    setLocal(nextLocal);
                     onSave({ cee: nextLocal });
-                    return nextLocal;
-                });
-            }}
-            editMode={editMode}
-            onXmlUploaded={(file, isFinal) => processXmlFile(file, isFinal)}
-            demands={{
-                inicial: local.cee_inicial,
-                final: local.cee_final
-            }}
-            acsMethod={local.acs_method}
-            numRooms={local.num_rooms}
-            onManualUpdate={(patch) => {
-                const nextLocal = { ...local, ...patch };
-                setLocal(nextLocal);
-                onSave({ cee: nextLocal });
-            }}
-            onAutoStatus={onAutoStatus}
-            onForceNotify={async (phase, channels, template, customMessage) => {
-                if (!local.certificador_id) {
-                    alert('Asigna primero un certificador');
-                    return;
-                }
-                try {
-                    const { data } = await axios.post(`/api/expedientes/${expediente.id}/notify-certificador`, {
-                        certificador_id: local.certificador_id,
-                        sendEmail: channels.includes('email'),
-                        sendWhatsApp: channels.includes('whatsapp'),
-                        phase,
-                        template,
-                        customMessage: (customMessage || '').trim() || null,
-                        priority: template === 'urgent' ? 'urgent' : 'normal'
-                    });
-                    // Éxito = confeti de papeles (efecto homogéneo con el envío de anexos).
-                    fireSuccessConfetti();
-                    // Solo interrumpimos con un aviso si algún canal no salió limpio.
-                    const issues = [];
-                    if (channels.includes('email') && !data.emailSent) issues.push('✉️ Email NO enviado');
-                    if (channels.includes('whatsapp')) {
-                        if (data.channels?.some(c => c.includes('encolado'))) issues.push('💬 WhatsApp encolado: se enviará cuando WhatsApp esté conectado.');
-                        else if (!data.whatsAppSent) issues.push('💬 WhatsApp NO enviado (revisa el teléfono del certificador).');
+                }}
+                onAutoStatus={onAutoStatus}
+                onForceNotify={async (phase, channels, template, customMessage) => {
+                    if (!local.certificador_id) {
+                        alert('Asigna primero un certificador');
+                        return;
                     }
-                    if (issues.length) setTimeout(() => alert(issues.join('\n')), 600);
-                    if (onRefresh) onRefresh();
-                } catch (err) {
-                    alert(err.response?.data?.error || 'Error al notificar al certificador');
-                }
-            }}
-            onNotifyReview={async (phase, opts = {}) => {
-                try {
-                    await axios.post(`/api/expedientes/${expediente.id}/notify-review`, {
-                        phase,
-                        priority: opts.priority || 'normal',
-                        techMessage: opts.techMessage || null,
-                    });
-                    alert(opts.priority === 'urgent'
-                        ? '🚨 Revisión URGENTE solicitada. Brokergy ha sido avisado.'
-                        : 'Revisión solicitada correctamente. Brokergy ha sido avisado.');
-                    if (onRefresh) onRefresh();
-                } catch (err) {
-                    alert(err.response?.data?.error || 'Error al solicitar revisión');
-                }
-            }}
-            onApproveCee={openApprovePopup}
-            onApproveSend={submitApprove}
-        />
+                    try {
+                        const { data } = await axios.post(`/api/expedientes/${expediente.id}/notify-certificador`, {
+                            certificador_id: local.certificador_id,
+                            sendEmail: channels.includes('email'),
+                            sendWhatsApp: channels.includes('whatsapp'),
+                            phase,
+                            template,
+                            customMessage: (customMessage || '').trim() || null,
+                            priority: template === 'urgent' ? 'urgent' : 'normal'
+                        });
+                        // Éxito = confeti de papeles (efecto homogéneo con el envío de anexos).
+                        fireSuccessConfetti();
+                        // Solo interrumpimos con un aviso si algún canal no salió limpio.
+                        const issues = [];
+                        if (channels.includes('email') && !data.emailSent) issues.push('✉️ Email NO enviado');
+                        if (channels.includes('whatsapp')) {
+                            if (data.channels?.some(c => c.includes('encolado'))) issues.push('💬 WhatsApp encolado: se enviará cuando WhatsApp esté conectado.');
+                            else if (!data.whatsAppSent) issues.push('💬 WhatsApp NO enviado (revisa el teléfono del certificador).');
+                        }
+                        if (issues.length) setTimeout(() => alert(issues.join('\n')), 600);
+                        if (onRefresh) onRefresh();
+                    } catch (err) {
+                        alert(err.response?.data?.error || 'Error al notificar al certificador');
+                    }
+                }}
+                onNotifyReview={async (phase, opts = {}) => {
+                    try {
+                        await axios.post(`/api/expedientes/${expediente.id}/notify-review`, {
+                            phase,
+                            priority: opts.priority || 'normal',
+                            techMessage: opts.techMessage || null,
+                        });
+                        alert(opts.priority === 'urgent'
+                            ? '🚨 Revisión URGENTE solicitada. Brokergy ha sido avisado.'
+                            : 'Revisión solicitada correctamente. Brokergy ha sido avisado.');
+                        if (onRefresh) onRefresh();
+                    } catch (err) {
+                        alert(err.response?.data?.error || 'Error al solicitar revisión');
+                    }
+                }}
+                onApproveCee={openApprovePopup}
+                onApproveSend={submitApprove}
+            />
+
+            {/* Cargar CEE por fichero (XML exacto u OCR IA) — alternativa a subir el .xml o
+                editar a mano. Rellena cee_inicial/cee_final tal cual lo haría un .xml real. */}
+            <div className="bg-white/[0.02] border border-white/10 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center gap-3">
+                <div className="flex items-center gap-2 text-slate-300 text-[10px] font-black uppercase tracking-widest shrink-0">
+                    <svg className="w-4 h-4 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.9A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" /></svg>
+                    Cargar CEE por fichero
+                </div>
+                <p className="text-[10px] text-slate-500 leading-relaxed flex-1">
+                    Sube el CEE de una columna (<b className="text-slate-300">.xml exacto</b>, o <b className="text-slate-300">PDF/fotos con OCR</b>) y rellenamos demanda de calefacción, superficie y combustible. Útil si solo tienes el PDF.
+                </p>
+                <div className="flex gap-2 shrink-0">
+                    <button
+                        type="button"
+                        onClick={() => setCeeLoadTarget('inicial')}
+                        className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-white text-[9px] font-black uppercase tracking-widest transition-all active:scale-95"
+                    >
+                        <svg className="w-3.5 h-3.5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+                        CEE inicial
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setCeeLoadTarget('final')}
+                        className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-white text-[9px] font-black uppercase tracking-widest transition-all active:scale-95"
+                    >
+                        <svg className="w-3.5 h-3.5 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+                        CEE final
+                    </button>
+                </div>
+            </div>
+        </div>
     );
 
     const renderRes080 = () => (
@@ -1011,14 +1066,6 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                     </div>
                 </div>
             )}
-
-            <CeeUploadModal
-                isOpen={!!ceeLoadTarget}
-                onClose={() => setCeeLoadTarget(null)}
-                title={ceeLoadTarget === 'final' ? 'Cargar CEE final' : 'Cargar CEE inicial'}
-                subtitle="Sube el CEE (.xml exacto, o PDF/fotos con OCR). Rellenaremos las emisiones, el combustible y la superficie de esta columna."
-                onLoaded={(data) => { applyCeeToExpediente(data, ceeLoadTarget); setCeeLoadTarget(null); }}
-            />
 
             {res080Data ? (
                 <div className="bg-slate-900 border border-white/10 rounded-[2rem] p-8 shadow-2xl overflow-hidden">
@@ -1355,6 +1402,18 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
             </div>
 
             {isReforma ? renderRes080() : renderRes060()}
+
+            {/* Modal de carga de CEE (XML exacto u OCR IA) — compartido entre RES060/RES093 y
+                RES080, disparado por ceeLoadTarget desde cualquiera de los dos render paths. */}
+            <CeeUploadModal
+                isOpen={!!ceeLoadTarget}
+                onClose={() => setCeeLoadTarget(null)}
+                title={ceeLoadTarget === 'final' ? 'Cargar CEE final' : 'Cargar CEE inicial'}
+                subtitle={isReforma
+                    ? 'Sube el CEE (.xml exacto, o PDF/fotos con OCR). Rellenaremos las emisiones, el combustible y la superficie de esta columna.'
+                    : 'Sube el CEE (.xml exacto, o PDF/fotos con OCR). Rellenaremos la demanda de calefacción, la superficie y el combustible de esta columna, igual que si subieras el .xml.'}
+                onLoaded={(data) => { applyCeeToExpediente(data, ceeLoadTarget); setCeeLoadTarget(null); }}
+            />
 
             {/* showXmlModal is now handled inside CeeDocumentsGrid via sub-components or direct upload logic */}
 

@@ -213,6 +213,18 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
             }));
         }
 
+        // RES060 (sin reforma): unificamos "Cálculo Real (CEE)" [demandMode='real', XML
+        // completo] con "CEE Aportado" [demandMode='manual'] en un solo modo "Cálculo Real".
+        // Las oportunidades antiguas guardadas con 'real' se migran a 'manual' sembrando
+        // manualDemand/manualSuperficie desde el XML ya guardado, para abrir directamente
+        // en la experiencia unificada sin perder los datos.
+        if (base.demandMode === 'real' && !base.isReforma) {
+            const xd = base.xmlDemandData;
+            if (xd?.demandaCalefaccion && !base.manualDemand) base.manualDemand = xd.demandaCalefaccion;
+            if (xd?.superficieHabitable && !base.manualSuperficie) base.manualSuperficie = xd.superficieHabitable;
+            base.demandMode = 'manual';
+        }
+
         if (initialData) {
             // Aseguramos conversiones de tipo para campos críticos que puedan venir como strings del catastro
             if (initialData.anio) base.anio = Number(initialData.anio);
@@ -405,6 +417,7 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
             numOwners: parseInt(inputs.numOwners) || 1,
             legalizationPrice: parseFloat(inputs.legalizationPrice) || 250,
             manualDemand: parseFloat(inputs.manualDemand) || 0,
+            manualSuperficie: parseFloat(inputs.manualSuperficie) || 0,
             itpPercent: inputs.itpPercent !== undefined ? parseFloat(inputs.itpPercent) : 6,
             
             // Campos de Reforma
@@ -451,10 +464,16 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
                 fromXml: true
             };
         } else if (currentDemandMode === 'manual') {
-            // Modo MANUAL: usar la demanda introducida a mano (kWh/m²·año) × superficie calefactable
+            // Modo MANUAL/CÁLCULO REAL: demanda introducida a mano o cargada de un CEE.
+            // La superficie del CEE (manualSuperficie) PREVALECE sobre la estimada/precalculada
+            // cuando está informada — el cálculo real no debe usar la superficie del estimado.
+            const supAplicada = sanitizedInputs.manualSuperficie > 0
+                ? sanitizedInputs.manualSuperficie
+                : sanitizedInputs.superficieCalefactable;
             demandRes = {
-                Q_net: sanitizedInputs.manualDemand * sanitizedInputs.superficieCalefactable,
+                Q_net: sanitizedInputs.manualDemand * supAplicada,
                 q_net: sanitizedInputs.manualDemand,
+                superficieAplicada: supAplicada,
                 fromManual: true
             };
         } else {

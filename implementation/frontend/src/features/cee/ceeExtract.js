@@ -139,3 +139,44 @@ export async function extractCeeFromFiles(fileList, opts = {}) {
   });
   return { data: ceeFromOcr(resp.data || {}, resp.pdfBase64) };
 }
+
+// ceeToXmlShape — mapeo INVERSO de emptyCeeData() a la forma que produce parseCeeXml()
+// (xmlCeeParser.js): { demandaCalefaccion, demandaACS, demandaRefrigeracion, ...,
+// identificacion:{...}, fechaFirma, fechaVisita, combustibleCalefaccion, ... }.
+//
+// Se usa en CeeModule.jsx (expedientes RES060/RES093, sin reforma) para que un CEE cargado
+// por OCR/XML a través del popup unificado rellene `cee_inicial`/`cee_final` EXACTAMENTE
+// como si se hubiera subido el .xml real (mismo consumidor: CeeDocumentsGrid, AcsCell...).
+//
+// OJO: el OCR no extrae la "Demanda ACS" en kWh/m²·año (solo litros/día, acs_litros_dia);
+// ese campo queda null — igual que un XML antiguo que no lo tuviera informado.
+export function ceeToXmlShape(data) {
+  if (!data) return null;
+  const num = (v) => { const n = Number(v); return isFinite(n) ? n : null; };
+  return {
+    demandaCalefaccion: num(data.demandas?.calefaccion_kwh_m2_ano),
+    demandaACS: null,
+    demandaRefrigeracion: num(data.demandas?.refrigeracion_kwh_m2_ano),
+    demandaGlobal: null,
+    emisionesCalefaccion: num(data.emisiones?.calefaccion),
+    emisionesACS: num(data.emisiones?.acs),
+    emisionesRefrigeracion: num(data.emisiones?.refrigeracion),
+    superficieHabitable: num(data.superficie_habitable_m2),
+    zonaClimatica: data.identificacion?.zona_climatica || null,
+    identificacion: {
+      nombre: null,
+      direccion: data.identificacion?.direccion || null,
+      municipio: data.identificacion?.municipio || null,
+      provincia: data.identificacion?.provincia || null,
+      refCatastral: data.referencia_catastral || null,
+    },
+    fechaFirma: data.fecha_certificado || null,
+    fechaVisita: data.fecha_visita || null,
+    combustibleCalefaccion: data.servicios?.calefaccion?.combustible || null,
+    combustibleACS: data.servicios?.acs?.combustible || null,
+    combustibleRefrigeracion: data.servicios?.refrigeracion?.combustible || null,
+    huecos: [],
+    opacos: [],
+    _fileName: data.source === 'xml' ? null : 'OCR (IA)',
+  };
+}
