@@ -58,6 +58,96 @@ function err(msg) {
     return { content: [{ type: 'text', text: `Error: ${msg}` }] };
 }
 
+// ─── Helpers de incidencias ────────────────────────────────────────────────────
+// Busca un expediente por número en la TABLA base (necesitamos leer/escribir
+// documentacion, no la vista). Devuelve { exp } | { error } | { ambiguous }.
+async function findExpediente(numero) {
+    const { data: matches, error } = await supabase
+        .from('expedientes')
+        .select('id, numero_expediente, documentacion')
+        .ilike('numero_expediente', `%${(numero || '').replace(/\s/g, '')}%`);
+    if (error) return { error: error.message };
+    if (!matches || matches.length === 0) {
+        return { notFound: `No se encontró ningún expediente que coincida con "${numero}".` };
+    }
+    if (matches.length > 1) {
+        return {
+            ambiguous: matches.map(m => m.numero_expediente),
+            message: `Hay ${matches.length} expedientes que coinciden con "${numero}". Indica el número completo.`
+        };
+    }
+    return { exp: matches[0] };
+}
+
+// Persiste el array de incidencias en documentacion.incidencias[] del expediente.
+async function persistIncidencias(expId, docObj, incidencias) {
+    docObj.incidencias = incidencias;
+    const { error } = await supabase
+        .from('expedientes')
+        .update({ documentacion: docObj, updated_at: new Date().toISOString() })
+        .eq('id', expId);
+    return error ? error.message : null;
+}
+
+// Localiza UNA incidencia dentro de un expediente a partir de una referencia
+// flexible que el agente puede dar de tres formas:
+//   1. el id interno exacto (ej: "1718000000000_inc")
+//   2. un número de índice 1-based tal como sale en listar_incidencias
+//   3. un fragmento de texto (case-insensitive) que identifique inequívocamente una
+// Devuelve { inc, index } | { error } (mensaje listo para el usuario).
+function resolveIncidencia(incidencias, ref) {
+    if (!incidencias || incidencias.length === 0) {
+        return { error: 'Este expediente no tiene ninguna incidencia registrada.' };
+    }
+    const raw = String(ref ?? '').trim();
+    if (!raw) return { error: 'Debes indicar qué incidencia (id, número de la lista, o un fragmento del texto).' };
+
+    // 1) id exacto
+    let idx = incidencias.findIndex(i => i.id === raw);
+    if (idx !== -1) return { inc: incidencias[idx], index: idx };
+
+    // 2) índice 1-based (solo si es un entero puro dentro de rango)
+    if (/^\d+$/.test(raw)) {
+        const n = parseInt(raw, 10);
+        if (n >= 1 && n <= incidencias.length) {
+            return { inc: incidencias[n - 1], index: n - 1 };
+        }
+    }
+
+    // 3) fragmento de texto — debe identificar exactamente una
+    const needle = raw.toLowerCase();
+    const hits = [];
+    incidencias.forEach((i, k) => {
+        if ((i.texto || '').toLowerCase().includes(needle)) hits.push(k);
+    });
+    if (hits.length === 1) return { inc: incidencias[hits[0]], index: hits[0] };
+    if (hits.length > 1) {
+        return {
+            error: `El texto "${ref}" coincide con ${hits.length} incidencias. ` +
+                `Sé más específico o usa el nº de la lista (listar_incidencias).`
+        };
+    }
+    return {
+        error: `No encontré ninguna incidencia que coincida con "${ref}". ` +
+            `Usa listar_incidencias para ver las que hay y sus números.`
+    };
+}
+
+// Serializa una incidencia para respuesta (añade índice legible 1-based).
+function incView(inc, index) {
+    return {
+        n: index + 1,
+        id: inc.id,
+        texto: inc.texto,
+        severidad: inc.severidad,
+        estado: inc.estado,
+        procedencia: inc.procedencia,
+        fecha: inc.fecha,
+        resuelta_at: inc.resuelta_at || null,
+        resuelta_por: inc.resuelta_por || null
+    };
+}
+
 // ─── Factoría: crea un McpServer con todas las herramientas registradas ───────
 // Se llama una vez por sesión (el StreamableHTTPServerTransport es por sesión)
 function createMcpServer() {
@@ -233,6 +323,168 @@ function createMcpServer() {
                 total_incidencias_abiertas: abiertas.length,
                 total_graves_abiertas: abiertas.filter(i => i.severidad === 'GRAVE').length,
                 message: `Incidencia ${sev} registrada en ${exp.numero_expediente}. Quedará marcada en la app (rojo si GRAVE, ámbar si LEVE) hasta que se subsane.`
+            });
+        }
+    );
+
+    // ── Tool 6b: Listar incidencias de un expediente (LECTURA) ────────────────
+    // Necesario para poder subsanar/editar/eliminar: devuelve cada incidencia con
+    // su nº (índice 1-based) y su id, que se usan como referencia en los tools de
+    // escritura de abajo.
+    mcp.tool(
+        'listar_incidencias',
+        'Lista las incidencias registradas en un expediente (abiertas y subsanadas) con su número, texto, severidad y estado. Úsalo antes de subsanar, editar o eliminar una incidencia para saber a cuál te refieres (por su nº o su id).',
+        {
+            numero: z.string().describe('Número del expediente, ej: 26RES060_118'),
+            solo_abiertas: z.boolean().optional()
+                .describe('Si true, devuelve solo las ABIERTAS (pendientes). Por defecto false: todas.')
+        },
+        async ({ numero, solo_abiertas = false }) => {
+            const found = await findExpediente(numero);
+            if (found.error) return err(found.error);
+            if (found.notFound) return ok({ ok: false, message: found.notFound });
+            if (found.ambiguous) return ok({ ok: false, message: found.message, coincidencias: found.ambiguous });
+
+            const exp = found.exp;
+            const all = exp.documentacion?.incidencias || [];
+            const list = all
+                .map((inc, i) => incView(inc, i))
+                .filter(v => !solo_abiertas || v.estado !== 'SUBSANADA');
+            const abiertas = all.filter(i => i.estado !== 'SUBSANADA');
+            return ok({
+                ok: true,
+                expediente: exp.numero_expediente,
+                total: all.length,
+                total_abiertas: abiertas.length,
+                total_graves_abiertas: abiertas.filter(i => i.severidad === 'GRAVE').length,
+                incidencias: list
+            });
+        }
+    );
+
+    // ── Tool 6c: Subsanar (dar por corregida) una incidencia (ESCRITURA) ──────
+    mcp.tool(
+        'subsanar_incidencia',
+        'Marca una incidencia como SUBSANADA (corregida) — equivale al botón "OK" de la app. Úsalo cuando, al volver a revisar un expediente, compruebes que un problema registrado antes ya está resuelto. Deja constancia de quién y cuándo. La incidencia deja de contar como pendiente (ya no sale en rojo/ámbar).',
+        {
+            numero: z.string().describe('Número del expediente, ej: 26RES060_118'),
+            incidencia: z.string().describe('Referencia a la incidencia: su nº en la lista (1, 2, ...), su id, o un fragmento único de su texto. Usa listar_incidencias si no lo tienes.')
+        },
+        async ({ numero, incidencia }) => {
+            const found = await findExpediente(numero);
+            if (found.error) return err(found.error);
+            if (found.notFound) return ok({ ok: false, message: found.notFound });
+            if (found.ambiguous) return ok({ ok: false, message: found.message, coincidencias: found.ambiguous });
+
+            const exp = found.exp;
+            const docObj = exp.documentacion || {};
+            const incidencias = docObj.incidencias || [];
+            const r = resolveIncidencia(incidencias, incidencia);
+            if (r.error) return ok({ ok: false, message: r.error });
+
+            if (r.inc.estado === 'SUBSANADA') {
+                return ok({ ok: true, expediente: exp.numero_expediente, message: `La incidencia ya estaba subsanada.`, incidencia: incView(r.inc, r.index) });
+            }
+            r.inc.estado = 'SUBSANADA';
+            r.inc.resuelta_at = new Date().toISOString();
+            r.inc.resuelta_por = 'AGENTE IA';
+
+            const upErr = await persistIncidencias(exp.id, docObj, incidencias);
+            if (upErr) return err(upErr);
+
+            const abiertas = incidencias.filter(i => i.estado !== 'SUBSANADA');
+            return ok({
+                ok: true,
+                expediente: exp.numero_expediente,
+                incidencia: incView(r.inc, r.index),
+                total_incidencias_abiertas: abiertas.length,
+                message: `Incidencia marcada como SUBSANADA en ${exp.numero_expediente}. Quedan ${abiertas.length} abierta(s).`
+            });
+        }
+    );
+
+    // ── Tool 6d: Editar una incidencia (ESCRITURA) ────────────────────────────
+    mcp.tool(
+        'editar_incidencia',
+        'Edita el texto, la severidad o la procedencia de una incidencia ya registrada. Úsalo para corregir o precisar una incidencia (ej: cambiar de GRAVE a LEVE, o reformular la descripción) sin crear una nueva. No cambia su estado abierta/subsanada.',
+        {
+            numero: z.string().describe('Número del expediente, ej: 26RES060_118'),
+            incidencia: z.string().describe('Referencia a la incidencia: su nº en la lista, su id, o un fragmento único de su texto.'),
+            texto: z.string().optional().describe('Nuevo texto de la incidencia (si se quiere cambiar).'),
+            severidad: z.enum(['LEVE', 'GRAVE']).optional().describe('Nueva severidad (si se quiere cambiar).'),
+            procedencia: z.enum(['REVISION_INTERNA', 'VERIFICACION', 'GESTOR_AUTONOMICO', 'AGENTE_IA']).optional()
+                .describe('Nueva procedencia (si se quiere cambiar).')
+        },
+        async ({ numero, incidencia, texto, severidad, procedencia }) => {
+            if (texto === undefined && severidad === undefined && procedencia === undefined) {
+                return err('Indica al menos un campo a cambiar (texto, severidad o procedencia).');
+            }
+            const found = await findExpediente(numero);
+            if (found.error) return err(found.error);
+            if (found.notFound) return ok({ ok: false, message: found.notFound });
+            if (found.ambiguous) return ok({ ok: false, message: found.message, coincidencias: found.ambiguous });
+
+            const exp = found.exp;
+            const docObj = exp.documentacion || {};
+            const incidencias = docObj.incidencias || [];
+            const r = resolveIncidencia(incidencias, incidencia);
+            if (r.error) return ok({ ok: false, message: r.error });
+
+            if (texto !== undefined) {
+                const clean = (texto || '').trim();
+                if (!clean) return err('El texto no puede quedar vacío.');
+                r.inc.texto = clean;
+            }
+            if (severidad !== undefined) r.inc.severidad = severidad;
+            if (procedencia !== undefined) r.inc.procedencia = procedencia;
+            r.inc.updated_at = new Date().toISOString();
+
+            const upErr = await persistIncidencias(exp.id, docObj, incidencias);
+            if (upErr) return err(upErr);
+
+            return ok({
+                ok: true,
+                expediente: exp.numero_expediente,
+                incidencia: incView(r.inc, r.index),
+                message: `Incidencia actualizada en ${exp.numero_expediente}.`
+            });
+        }
+    );
+
+    // ── Tool 6e: Eliminar una incidencia (ESCRITURA / borrado) ────────────────
+    mcp.tool(
+        'eliminar_incidencia',
+        'Elimina por completo una incidencia de un expediente (borrado definitivo, no queda registro). Úsalo cuando una incidencia se registró por error o ya no aplica. Si el problema SÍ existió y se resolvió, es mejor usar subsanar_incidencia (deja traza). Borrar no se puede deshacer.',
+        {
+            numero: z.string().describe('Número del expediente, ej: 26RES060_118'),
+            incidencia: z.string().describe('Referencia a la incidencia: su nº en la lista, su id, o un fragmento único de su texto.')
+        },
+        async ({ numero, incidencia }) => {
+            const found = await findExpediente(numero);
+            if (found.error) return err(found.error);
+            if (found.notFound) return ok({ ok: false, message: found.notFound });
+            if (found.ambiguous) return ok({ ok: false, message: found.message, coincidencias: found.ambiguous });
+
+            const exp = found.exp;
+            const docObj = exp.documentacion || {};
+            const incidencias = docObj.incidencias || [];
+            const r = resolveIncidencia(incidencias, incidencia);
+            if (r.error) return ok({ ok: false, message: r.error });
+
+            const eliminada = incView(r.inc, r.index);
+            const next = incidencias.filter((_, k) => k !== r.index);
+
+            const upErr = await persistIncidencias(exp.id, docObj, next);
+            if (upErr) return err(upErr);
+
+            const abiertas = next.filter(i => i.estado !== 'SUBSANADA');
+            return ok({
+                ok: true,
+                expediente: exp.numero_expediente,
+                incidencia_eliminada: eliminada,
+                total_incidencias_restantes: next.length,
+                total_incidencias_abiertas: abiertas.length,
+                message: `Incidencia eliminada de ${exp.numero_expediente}. Quedan ${next.length} incidencia(s), ${abiertas.length} abierta(s).`
             });
         }
     );
