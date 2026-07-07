@@ -133,6 +133,35 @@ function resolveIncidencia(incidencias, ref) {
     };
 }
 
+// Llama al backend interno (misma red Docker) con la clave compartida x-internal-key.
+// Devuelve { status, okHttp, data } o { httpError } si no se pudo contactar.
+async function backendFetch(method, path, body) {
+    const base = process.env.BACKEND_INTERNAL_URL || 'http://backend:3000';
+    const key = process.env.INTERNAL_API_KEY;
+    if (!key) return { httpError: 'INTERNAL_API_KEY no está configurada en el servidor MCP (añádela al .env).' };
+    let resp, data;
+    try {
+        resp = await fetch(`${base}${path}`, {
+            method,
+            headers: { 'x-internal-key': key, ...(body ? { 'Content-Type': 'application/json' } : {}) },
+            body: body ? JSON.stringify(body) : undefined,
+        });
+        data = await resp.json().catch(() => ({}));
+    } catch (e) {
+        return { httpError: `No se pudo contactar con el backend: ${e.message}` };
+    }
+    return { status: resp.status, okHttp: resp.ok, data };
+}
+
+// Enmascara un teléfono dejando visible el primer dígito y los tres últimos.
+// El agente NUNCA ve el número completo (evita que pueda dictar números arbitrarios).
+function maskPhone(tlf) {
+    if (!tlf) return null;
+    const s = String(tlf).replace(/\s+/g, '');
+    if (s.length <= 4) return s;
+    return `${s[0]}····${s.slice(-3)}`;
+}
+
 // Serializa una incidencia para respuesta (añade índice legible 1-based).
 function incView(inc, index) {
     return {
@@ -592,6 +621,134 @@ function createMcpServer() {
                 return ok({ ok: false, expediente: exp.numero_expediente, message: data.message || `Error ${resp.status}.` });
             }
             return ok(data);
+        }
+    );
+
+    // ── Tool 9: Datos de contacto y qué falta (LECTURA) ───────────────────────
+    // Para preparar un WhatsApp: devuelve a quién iría (cliente / instalador) con el
+    // teléfono ENMASCARADO, si es alcanzable, qué documentación falta y los ENLACES
+    // públicos donde subirla. El agente usa esto para redactar el mensaje. NO envía.
+    mcp.tool(
+        'datos_contacto_expediente',
+        'Consulta a quién y qué habría que pedir en un expediente para preparar un WhatsApp/email: contacto del CLIENTE y del INSTALADOR (nombre, teléfono enmascarado, si es alcanzable), qué documentación falta de cada uno y los ENLACES públicos donde subirla. Úsalo ANTES de redactar el mensaje que le enseñas al usuario. Este tool NO envía nada.',
+        { numero: z.string().describe('Número del expediente, ej: 26RES060_118') },
+        async ({ numero }) => {
+            const found = await findExpediente(numero);
+            if (found.error) return err(found.error);
+            if (found.notFound) return ok({ ok: false, message: found.notFound });
+            if (found.ambiguous) return ok({ ok: false, message: found.message, coincidencias: found.ambiguous });
+
+            const exp = found.exp;
+            const r = await backendFetch('GET', `/api/expedientes/${exp.id}/solicitud-info`);
+            if (r.httpError) return err(r.httpError);
+            if (!r.okHttp) return ok({ ok: false, expediente: exp.numero_expediente, message: r.data?.error || `Error ${r.status}.` });
+
+            const d = r.data;
+            const cli = d.cliente || {};
+            const ins = d.instalador || {};
+            return ok({
+                ok: true,
+                expediente: exp.numero_expediente,
+                obra: d.obra || null,
+                cliente: {
+                    nombre: cli.nombre || null,
+                    telefono: maskPhone(cli.tlf),
+                    alcanzable_whatsapp: !!cli.tlf,
+                    email_disponible: !!cli.email,
+                    pendiente: cli.acciones || [],       // cada uno con {titulo, items, url}
+                    admin_pendiente: cli.adminPendiente || []
+                },
+                instalador: {
+                    nombre: ins.nombre || null,
+                    telefono: maskPhone(ins.tlf),
+                    alcanzable_whatsapp: !!ins.tlf,
+                    email_disponible: !!ins.email,
+                    otros_contactos: Array.isArray(ins.contactos) ? Math.max(0, ins.contactos.length - 1) : 0,
+                    pendiente: ins.acciones || []
+                },
+                nota: 'Los enlaces (url) de cada acción son públicos y pensados para incluirse en el mensaje. Para enviar, usa enviar_whatsapp con destinatario CLIENTE o INSTALADOR.'
+            });
+        }
+    );
+
+    // ── Tool 10: Enviar WhatsApp al cliente / instalador (ESCRITURA) ──────────
+    // Envía por la sesión de WhatsApp Business del VPS (misma que la app). El agente
+    // NO maneja teléfonos: solo dice el expediente y el destinatario (CLIENTE /
+    // INSTALADOR); el backend resuelve el número desde la BD. Por seguridad el modo
+    // por defecto es 'borrador' (no envía): solo con modo='enviar' se manda de verdad.
+    mcp.tool(
+        'enviar_whatsapp',
+        'Envía un WhatsApp al CLIENTE o al INSTALADOR de un expediente por la sesión de WhatsApp Business de Brokergy, y lo deja registrado en el historial del expediente. SEGURIDAD: el modo por defecto es "borrador" (NO envía, solo te devuelve a quién iría y el texto para que lo confirmes). Solo cuando el usuario dé el visto bueno, vuelve a llamar con modo="enviar". El agente no maneja el número: se resuelve en el backend desde la ficha del cliente/instalador.',
+        {
+            numero: z.string().describe('Número del expediente, ej: 26RES060_118'),
+            destinatario: z.enum(['CLIENTE', 'INSTALADOR']).describe('A quién se envía. El número lo resuelve el backend desde la BD.'),
+            mensaje: z.string().describe('Texto del WhatsApp a enviar (ya redactado, con los enlaces de subida si aplica). Se admite *negrita* estilo WhatsApp.'),
+            solicitado: z.array(z.string()).optional().describe('Lista corta de lo que se pide (ej: ["Factura de la obra","Anexo I firmado"]). Se guarda en el historial para trazabilidad.'),
+            modo: z.enum(['borrador', 'enviar']).optional().describe('"borrador" (por defecto) = NO envía, solo previsualiza destinatario + mensaje. "enviar" = manda el WhatsApp de verdad. Usa "enviar" solo tras el visto bueno del usuario.')
+        },
+        async ({ numero, destinatario, mensaje, solicitado = [], modo = 'borrador' }) => {
+            const clean = (mensaje || '').trim();
+            if (!clean) return err('El mensaje no puede estar vacío.');
+
+            const found = await findExpediente(numero);
+            if (found.error) return err(found.error);
+            if (found.notFound) return ok({ ok: false, message: found.notFound });
+            if (found.ambiguous) return ok({ ok: false, message: found.message, coincidencias: found.ambiguous });
+            const exp = found.exp;
+
+            // Resolver el contacto para saber si es alcanzable y mostrar el teléfono enmascarado.
+            const info = await backendFetch('GET', `/api/expedientes/${exp.id}/solicitud-info`);
+            if (info.httpError) return err(info.httpError);
+            const target = destinatario === 'CLIENTE' ? (info.data?.cliente || {}) : (info.data?.instalador || {});
+            const tlf = target.tlf || null;
+
+            if (!tlf) {
+                return ok({
+                    ok: false,
+                    expediente: exp.numero_expediente,
+                    message: `No hay teléfono del ${destinatario.toLowerCase()} en la ficha, no se puede enviar el WhatsApp. Revisa el contacto en la app.`
+                });
+            }
+
+            // BORRADOR: no envía, solo devuelve la previsualización para el visto bueno.
+            if (modo !== 'enviar') {
+                return ok({
+                    ok: true,
+                    modo: 'borrador',
+                    enviado: false,
+                    expediente: exp.numero_expediente,
+                    iria_a: { destinatario, nombre: target.nombre || null, telefono: maskPhone(tlf) },
+                    mensaje: clean,
+                    aviso: 'Esto es un BORRADOR, no se ha enviado nada. Enséñaselo al usuario y, si da el visto bueno, vuelve a llamar con modo="enviar".'
+                });
+            }
+
+            // ENVIAR: delega en el endpoint que ya envía por WhatsApp y registra historial.
+            const send = await backendFetch('POST', `/api/expedientes/${exp.id}/solicitar-faltantes`, {
+                target: destinatario,
+                channels: ['whatsapp'],
+                mensaje: clean,
+                solicitado: Array.isArray(solicitado) ? solicitado : []
+            });
+            if (send.httpError) return err(send.httpError);
+            if (!send.okHttp || !send.data?.ok) {
+                return ok({ ok: false, expediente: exp.numero_expediente, message: send.data?.error || `Error ${send.status} al enviar el WhatsApp.` });
+            }
+            const canales = (send.data.channels || []).join(', ');
+            const encolado = canales.toLowerCase().includes('encolado');
+            return ok({
+                ok: true,
+                modo: 'enviar',
+                enviado: true,
+                expediente: exp.numero_expediente,
+                destinatario,
+                nombre: target.nombre || null,
+                telefono: maskPhone(tlf),
+                canal: canales || 'WhatsApp',
+                message: encolado
+                    ? `Mensaje ENCOLADO (la sesión de WhatsApp no está lista ahora mismo): saldrá en cuanto reconecte. Registrado en el historial de ${exp.numero_expediente}.`
+                    : `WhatsApp enviado al ${destinatario.toLowerCase()} (${target.nombre || ''}, ${maskPhone(tlf)}) y registrado en el historial de ${exp.numero_expediente}.`
+            });
         }
     );
 

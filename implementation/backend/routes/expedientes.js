@@ -36,6 +36,10 @@ const PUBLIC_EXPEDIENTE_ROUTES = [
     // exige sesión interna O la clave interna del MCP.
     { method: 'POST', re: /^\/[^/]+\/anexo-fotografico\/generar\/?$/ },
     { method: 'GET',  re: /^\/[^/]+\/anexo-fotografico\/estado\/?$/ },
+    // Solicitud de documentación (info + envío WhatsApp/email): también accesible
+    // por el MCP con la clave interna (flujo "revisar → pedir al cliente/instalador").
+    { method: 'GET',  re: /^\/[^/]+\/solicitud-info\/?$/ },
+    { method: 'POST', re: /^\/[^/]+\/solicitar-faltantes\/?$/ },
 ];
 const PARTNER_ALLOWED_ROUTES = [
     { method: 'POST', re: /^\/?$/ }, // POST /api/expedientes → aceptar oportunidad (crea expediente)
@@ -48,6 +52,20 @@ router.use((req, res, next) => {
     // Resto del módulo: interno (ADMIN / CERTIFICADOR).
     return internalOnly(req, res, next);
 });
+
+// ─── Guard mixto: sesión interna O clave interna del MCP ──────────────────────
+// Permite el acceso a una ruta tanto al equipo interno (sesión ADMIN/CERTIFICADOR/
+// TRABAJADOR) como al servidor MCP (cabecera x-internal-key === INTERNAL_API_KEY).
+// Definido aquí arriba (antes que las rutas que lo usan) porque es un `const` y no
+// se hoista. Marca req.internalCall = true cuando entra por la clave del MCP.
+const internalKeyOrAuth = (req, res, next) => {
+    const key = req.headers['x-internal-key'];
+    if (key && process.env.INTERNAL_API_KEY && key === process.env.INTERNAL_API_KEY) {
+        req.internalCall = true;
+        return next();
+    }
+    return internalOnly(req, res, next);
+};
 
 // ─── Ocultar IMPORTES a quien no sea ADMIN ────────────────────────────────────
 // Los importes (PRECIO CAE, BENEFICIO BROKERGY, presupuestos…) son SOLO ADMIN.
@@ -778,7 +796,7 @@ function buildSolicitudAcciones(checklist, { expId, uploadBase }) {
 // ─── GET /api/expedientes/:id/solicitud-info ──────────────────────────────────
 // Contactos (cliente/instalador) + ACCIONES a solicitar (solo lo que falta), cada
 // una con su enlace público correcto. Asegura el token de subida (idempotente).
-router.get('/:id/solicitud-info', enforceAuth, async (req, res) => {
+router.get('/:id/solicitud-info', internalKeyOrAuth, async (req, res) => {
     try {
         const { data: exp, error } = await supabase.from('expedientes').select('*').eq('id', req.params.id).single();
         if (error || !exp) return res.status(404).json({ error: 'Expediente no encontrado' });
@@ -879,7 +897,7 @@ async function resolveSolicitudContacto(exp, target) {
 // Envía (WhatsApp / Email) la solicitud de documentación al cliente o instalador
 // y registra la comunicación en el historial del expediente.
 // Body: { target: 'CLIENTE'|'INSTALADOR', channels: ['whatsapp','email'], mensaje, asunto? }
-router.post('/:id/solicitar-faltantes', enforceAuth, async (req, res) => {
+router.post('/:id/solicitar-faltantes', internalKeyOrAuth, async (req, res) => {
     try {
         const target = String(req.body?.target || '').toUpperCase();
         const channels = Array.isArray(req.body?.channels) ? req.body.channels : [];
@@ -915,7 +933,8 @@ router.post('/:id/solicitar-faltantes', enforceAuth, async (req, res) => {
         // Registro en el historial del expediente (trazabilidad)
         const docObj = exp.documentacion || {};
         const historial = docObj.historial || [];
-        const userName = req.user?.rol_nombre === 'ADMIN' ? 'ADMINISTRADOR' : (req.user?.acronimo || req.user?.razon_social || 'SISTEMA');
+        const userName = req.internalCall ? 'AGENTE IA'
+            : (req.user?.rol_nombre === 'ADMIN' ? 'ADMINISTRADOR' : (req.user?.acronimo || req.user?.razon_social || 'SISTEMA'));
         const destLabel = nombreDest ? ` (${nombreDest}${tlf ? ` · ${tlf}` : ''})` : (tlf ? ` (${tlf})` : '');
         // Lista concreta de lo solicitado (para que el agente sepa QUÉ se pidió, no solo a quién).
         const solicitado = Array.isArray(req.body?.solicitado) ? req.body.solicitado.filter(Boolean).map(String) : [];
@@ -1016,17 +1035,8 @@ router.post('/:id/documentos/rechazar', enforceAuth, async (req, res) => {
 // (skill de Cowork vía herramienta MCP) y también accesible por el equipo interno.
 //
 // Guard: sesión interna (ADMIN/CERTIFICADOR/TRABAJADOR) O la clave interna
-// compartida con el servidor MCP (cabecera x-internal-key === INTERNAL_API_KEY).
-// La ruta queda protegida en ambos casos (regla de seguridad de rutas).
-const internalKeyOrAuth = (req, res, next) => {
-    const key = req.headers['x-internal-key'];
-    if (key && process.env.INTERNAL_API_KEY && key === process.env.INTERNAL_API_KEY) {
-        req.internalCall = true;
-        return next();
-    }
-    return internalOnly(req, res, next);
-};
-
+// compartida con el servidor MCP. `internalKeyOrAuth` se define arriba (junto al
+// guard global del módulo), porque estas rutas lo referencian antes de este punto.
 router.post('/:id/anexo-fotografico/generar', internalKeyOrAuth, async (req, res) => {
     try {
         const result = await anexoFotograficoService.generateAndSaveAnexo(req.params.id);
@@ -2045,7 +2055,7 @@ router.post('/:id/documents/upload', enforceAuth, async (req, res) => {
             return res.status(400).json({ error: 'La oportunidad no tiene carpeta de Drive configurada' });
         }
 
-        const { getOrCreateSubfolder, saveFileToFolder, findFileByName, renameFolder, moveFolder } = require('../services/driveService');
+        const { getOrCreateSubfolder, saveFileToFolder, findFileByName, archiveExistingToOld } = require('../services/driveService');
 
         // Navegar/Crear la estructura de subcarpetas
         let currentFolderId = driveFolderId;
@@ -2055,22 +2065,12 @@ router.post('/:id/documents/upload', enforceAuth, async (req, res) => {
         }
         console.log(`[POST /documents/upload] Final target FolderID: ${currentFolderId}`);
 
-        // Versionado: si ya existe un archivo con el mismo nombre, moverlo a subcarpeta "OLD" con prefijo
+        // Versionado: si ya existe un archivo con el mismo nombre, moverlo a "OLD"
+        // como `{base}_OLD`, `{base}_OLD1`, `{base}_OLD2`…
         const existingId = await findFileByName(currentFolderId, fileName);
         if (existingId) {
-            try {
-                const oldFolderId = await getOrCreateSubfolder(currentFolderId, 'OLD');
-                const stamp = new Date().toISOString().replace(/[:T]/g, '-').slice(0, 19);
-                const dotIdx = fileName.lastIndexOf('.');
-                const baseName = dotIdx > 0 ? fileName.substring(0, dotIdx) : fileName;
-                const ext = dotIdx > 0 ? fileName.substring(dotIdx) : '';
-                const oldName = `_old_${stamp} ${baseName}${ext}`;
-                await renameFolder(existingId, oldName);
-                await moveFolder(existingId, oldFolderId);
-                console.log(`[POST /documents/upload] Versionado: '${fileName}' archivado en OLD como '${oldName}'`);
-            } catch (vErr) {
-                console.warn(`[POST /documents/upload] No se pudo versionar archivo existente: ${vErr.message}`);
-            }
+            const archived = await archiveExistingToOld(currentFolderId, existingId, fileName);
+            if (archived) console.log(`[POST /documents/upload] Versionado: '${fileName}' → OLD/'${archived}'`);
         }
 
         const fileBuffer = Buffer.from(base64, 'base64');
@@ -2292,7 +2292,7 @@ router.post('/:id/memoria-rite/generate', enforceAuth, async (req, res) => {
 
         const {
             getOrCreateSubfolder, saveFileToFolder, setFolderPublic,
-            findFileByName, renameFolder, moveFolder
+            findFileByName, archiveExistingToOld
         } = require('../services/driveService');
 
         const riteFolderId = await getOrCreateSubfolder(driveFolderId, '7. LEGALIZACION RITE');
@@ -2305,20 +2305,9 @@ router.post('/:id/memoria-rite/generate', enforceAuth, async (req, res) => {
             const buffer = Buffer.from(f.base64, 'base64');
 
             // Versionado: si ya existe un fichero con ese nombre, moverlo a OLD
+            // como `{base}_OLD`, `{base}_OLD1`, `{base}_OLD2`…
             const existingId = await findFileByName(riteFolderId, f.name);
-            if (existingId) {
-                try {
-                    const oldFolderId = await getOrCreateSubfolder(riteFolderId, 'OLD');
-                    const stamp = new Date().toISOString().replace(/[:T]/g, '-').slice(0, 19);
-                    const dotIdx = f.name.lastIndexOf('.');
-                    const base = dotIdx > 0 ? f.name.substring(0, dotIdx) : f.name;
-                    const ext = dotIdx > 0 ? f.name.substring(dotIdx) : '';
-                    await renameFolder(existingId, `_old_${stamp} ${base}${ext}`);
-                    await moveFolder(existingId, oldFolderId);
-                } catch (vErr) {
-                    console.warn(`[memoria-rite] No se pudo versionar '${f.name}': ${vErr.message}`);
-                }
-            }
+            if (existingId) await archiveExistingToOld(riteFolderId, existingId, f.name);
 
             const result = await saveFileToFolder(riteFolderId, f.name, f.mimetype, buffer);
             if (!result) return res.status(500).json({ error: `Error al subir '${f.name}' a Drive` });
@@ -3603,6 +3592,37 @@ router.post('/:id/notify-review', enforceAuth, async (req, res) => {
     }
 });
 
+// ─── GET /api/expedientes/:id/approve-cee-links ───────────────────────────
+// Devuelve los enlaces que el visto bueno añadirá al mensaje: descarga (carpeta
+// CEE INICIAL/FINAL) y subida (popup del CEE registrado). Solo LECTURA — no crea
+// carpeta ni cambia permisos (eso lo hace approve-cee al enviar de verdad). Sirve
+// para que el admin vea en el preview lo que recibirá el certificador.
+router.get('/:id/approve-cee-links', staffOnly, async (req, res) => {
+    try {
+        const ceeUploadService = require('../services/ceeUploadService');
+        const phase = req.query.phase === 'final' ? 'final' : 'inicial';
+        // OJO: expedientes NO tiene columna drive_folder_id (vive en datos_calculo).
+        const { data: exp } = await supabase
+            .from('expedientes').select('id, oportunidad_id').eq('id', req.params.id).maybeSingle();
+        if (!exp) return res.status(404).json({ error: 'Expediente no encontrado' });
+
+        const APP_BASE = process.env.FRONTEND_URL || 'https://app.brokergy.es';
+        let presentFolderLink = null;
+        try {
+            const driveFolderId = await ceeUploadService.resolveDriveFolderId(exp);
+            if (driveFolderId) presentFolderLink = await ceeUploadService.findCeeSectionFolderLink(driveFolderId, phase);
+        } catch (e) { console.warn('[approve-cee-links]', e.message); }
+
+        const upTok = ceeUploadService.ceeUploadSignature(req.params.id, phase);
+        const ceeUploadLink = `${APP_BASE}/subir-cee/${req.params.id}?token=${upTok}&phase=${phase}`;
+
+        res.json({ presentFolderLink, ceeUploadLink });
+    } catch (err) {
+        console.error('[approve-cee-links]', err.message);
+        res.status(500).json({ error: 'Error obteniendo enlaces' });
+    }
+});
+
 // ─── POST /api/expedientes/:id/approve-cee ────────────────────────────────
 // Admin aprueba el CEX y autoriza presentación
 router.post('/:id/approve-cee', staffOnly, async (req, res) => {
@@ -3615,6 +3635,9 @@ router.post('/:id/approve-cee', staffOnly, async (req, res) => {
         // Por compatibilidad: si no se especifica canal, se envía email (comportamiento previo).
         const sendEmail = req.body?.sendEmail !== false;
         const sendWhatsApp = req.body?.sendWhatsApp === true;
+        // Adjuntar los archivos del CEE directamente al email (opcional desde el popup).
+        const attachFiles = req.body?.attachFiles === true;
+        const ceeUploadService = require('../services/ceeUploadService');
         const { data: exp, error: expErr } = await supabase
             .from('expedientes')
             .select('*')
@@ -3688,16 +3711,40 @@ router.post('/:id/approve-cee', staffOnly, async (req, res) => {
         // Esperamos los envíos para devolver el estado real de cada canal (sin esto el
         // frontend no podía saber si se envió email/WhatsApp).
         const portalLink = `${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/?exp=${req.params.id}`;
-        const ceeFolderLink = cee.cee_folder_link || null;
         let emailSent = false;
         let whatsAppSent = false;
         let waReason = null; // 'sin_telefono' | 'encolado' | 'error' | null
+
+        // ── Enlaces del visto bueno: DESCARGA (carpeta CEE INICIAL/FINAL, pública)
+        //    + SUBIDA (popup para subir el CEE registrado una vez presentado) ──
+        const normPhase = phase === 'final' ? 'final' : 'inicial';
+        const APP_BASE = process.env.FRONTEND_URL || 'https://app.brokergy.es';
+        let presentFolderLink = null;
+        let ceeUploadLink = null;
+        let attachments;
+        try {
+            const driveFolderId = await ceeUploadService.resolveDriveFolderId(exp);
+            if (driveFolderId) {
+                const section = await ceeUploadService.ensureCeeSectionFolder(driveFolderId, normPhase);
+                presentFolderLink = section.link;
+                if (attachFiles) {
+                    attachments = await ceeUploadService.getCeeSectionAttachments(driveFolderId, normPhase);
+                }
+            }
+            const upTok = ceeUploadService.ceeUploadSignature(req.params.id, normPhase);
+            ceeUploadLink = `${APP_BASE}/subir-cee/${req.params.id}?token=${upTok}&phase=${normPhase}`;
+        } catch (linkErr) {
+            console.warn('[approve-cee] no se pudieron preparar los enlaces del CEE:', linkErr.message);
+        }
+        const ceeLinksBlock = `${presentFolderLink ? `\n\n📥 Descarga los archivos del ${phaseLabel} para presentarlos:\n${presentFolderLink}` : ''}${ceeUploadLink ? `\n\n📤 Una vez presentado, sube aquí el ${phaseLabel} registrado (etiqueta + justificante):\n${ceeUploadLink}` : ''}`;
 
         // EMAIL
         if (sendEmail && certEmail) {
             try {
                 await emailService.sendCertificadorApproveNotification(
-                    certEmail, certName, exp.numero_expediente, phaseLabel, portalLink, ceeFolderLink, adminMessage, customMessage
+                    certEmail, certName, exp.numero_expediente, phaseLabel, portalLink,
+                    (cee.cee_folder_link || null), adminMessage, customMessage,
+                    { presentFolderLink, ceeUploadLink, attachments }
                 );
                 emailSent = true;
             } catch (mailErr) {
@@ -3711,14 +3758,12 @@ router.post('/:id/approve-cee', staffOnly, async (req, res) => {
                 waReason = 'sin_telefono';
                 console.warn('[approve-cee] Certificador sin teléfono para WhatsApp');
             } else {
-                const hasUrl = bodyMsg && /https?:\/\//i.test(bodyMsg);
-                const carpetaWa = (ceeFolderLink && !hasUrl) ? `\n\n📁 Carpeta de documentos:\n${ceeFolderLink}` : '';
                 // Si el admin no editó el mensaje (fallback), incrustamos el deep-link al
                 // expediente. Cuando hay bodyMsg, el enlace ya viene dentro (buildCertApproveMessage).
                 const expedienteWa = bodyMsg ? '' : `\n\n🔗 Abre el expediente directamente en la app:\n${portalLink}`;
                 const waMsg = bodyMsg
-                    ? `${bodyMsg}${carpetaWa}\n\n*BROKERGY · Ingeniería Energética*`
-                    : `✅ *Visto bueno* — ${phaseLabel}\n\nHola ${certName}, ya tienes luz verde para registrar el ${phaseLabel} del expediente ${exp.numero_expediente} en Industria.${expedienteWa}${carpetaWa}\n\n*BROKERGY · Ingeniería Energética*`;
+                    ? `${bodyMsg}${ceeLinksBlock}\n\n*BROKERGY · Ingeniería Energética*`
+                    : `✅ *Visto bueno* — ${phaseLabel}\n\nHola ${certName}, ya tienes luz verde para registrar el ${phaseLabel} del expediente ${exp.numero_expediente} en Industria.${expedienteWa}${ceeLinksBlock}\n\n*BROKERGY · Ingeniería Energética*`;
                 try {
                     const waRes = await whatsappService.sendText(certPhone, waMsg);
                     whatsAppSent = true; // se ha encolado/enviado correctamente
@@ -4345,23 +4390,41 @@ router.get('/:id/approve-cee-from-email', async (req, res) => {
             .eq('id', req.params.id);
 
         // Mensaje de visto bueno IDÉNTICO al que la app envía por defecto (buildCertApproveMessage)
-        const ceeFolderLink = cee.cee_folder_link || null;
+        const ceeUploadService = require('../services/ceeUploadService');
         const portalLink = `${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/?exp=${req.params.id}`;
+        const APP_BASE = process.env.FRONTEND_URL || 'https://app.brokergy.es';
         const firstName = (certName || '').trim().split(/\s+/)[0] || '';
         const tecnico = firstName ? firstName.charAt(0).toUpperCase() + firstName.slice(1).toLowerCase() : 'técnico';
         const cliProper = clienteNombre
             ? ' (' + clienteNombre.toLowerCase().split(/\s+/).filter(Boolean).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ') + ')'
             : '';
-        const carpeta = ceeFolderLink ? `\n\n📁 Carpeta de documentos del expediente:\n${ceeFolderLink}` : '';
+
+        // Enlaces de descarga (carpeta CEE pública) + subida (popup del CEE registrado)
+        let presentFolderLink = null;
+        let ceeUploadLink = null;
+        try {
+            const driveFolderId = await ceeUploadService.resolveDriveFolderId(exp);
+            if (driveFolderId) {
+                const section = await ceeUploadService.ensureCeeSectionFolder(driveFolderId, phase);
+                presentFolderLink = section.link;
+            }
+            const upTok = ceeUploadService.ceeUploadSignature(req.params.id, phase);
+            ceeUploadLink = `${APP_BASE}/subir-cee/${req.params.id}?token=${upTok}&phase=${phase}`;
+        } catch (linkErr) {
+            console.warn('[approve-from-email] enlaces CEE:', linkErr.message);
+        }
+        const ceeLinksBlock = `${presentFolderLink ? `\n\n📥 Descarga los archivos del ${phaseLabel} para presentarlos:\n${presentFolderLink}` : ''}${ceeUploadLink ? `\n\n📤 Una vez presentado, sube aquí el ${phaseLabel} registrado (etiqueta + justificante):\n${ceeUploadLink}` : ''}`;
         const expedienteLink = `\n\n🔗 Abre el expediente directamente en la app:\n${portalLink}`;
-        const vistoBuenoMsg = `¡Hola ${tecnico}! 👋\n\nHemos revisado el ${phaseLabel} del expediente ${exp.numero_expediente}${cliProper} y tiene nuestro visto bueno. Ya puedes proceder a registrarlo en Industria.\n\nUna vez registrado, sube por favor la etiqueta energética y el justificante de registro a la carpeta compartida o al portal.\n\n¡Gracias!${expedienteLink}${carpeta}`;
+        const vistoBuenoMsg = `¡Hola ${tecnico}! 👋\n\nHemos revisado el ${phaseLabel} del expediente ${exp.numero_expediente}${cliProper} y tiene nuestro visto bueno. Ya puedes proceder a registrarlo en Industria.${expedienteLink}${ceeLinksBlock}\n\n¡Gracias!`;
 
         // EMAIL + WhatsApp al certificador (automático, ambos canales)
         let emailSent = false, waSent = false;
         if (certEmail) {
             try {
                 await emailService.sendCertificadorApproveNotification(
-                    certEmail, certName, exp.numero_expediente, phaseLabel, portalLink, ceeFolderLink, null, vistoBuenoMsg
+                    certEmail, certName, exp.numero_expediente, phaseLabel, portalLink,
+                    (cee.cee_folder_link || null), null, vistoBuenoMsg,
+                    { presentFolderLink, ceeUploadLink }
                 );
                 emailSent = true;
             } catch (e) { console.error('[approve-from-email] email:', e.message); }
