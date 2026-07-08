@@ -287,19 +287,34 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
                 timeline: contacto.timeline || 'explorando'
             };
             const calculatorInputs = funnelToCalculatorInputs(funnelConContacto, catastro, { mode: 'internal' });
-            // CEE anterior aportado (admin): lo guardamos en calculatorInputs y SEMBRAMOS
-            // el modo "CEE aportado" (por emisiones) para que la tabla aparezca rellena con
-            // los datos reales del CEE (columna INICIAL) + un FINAL estimado (demanda/SCOP).
-            // El pdfBase64 (pesado) no va a la BD; el PDF se sube al slot DOC_CEE_PREVIO aparte.
+            // CEE anterior aportado (admin): lo guardamos en calculatorInputs y ACTIVAMOS el
+            // modo real correspondiente para que la calculadora abra ya con los datos del CEE
+            // rellenos (sin que el admin tenga que ir a activarlo a mano). El pdfBase64 (pesado)
+            // no va a la BD; el PDF se sube al slot DOC_CEE_PREVIO aparte.
             if (initialCeeData && (initialCeeData.referencia_catastral || initialCeeData.demandas || initialCeeData.emisiones)) {
                 const { pdfBase64, ...ceeFields } = initialCeeData;
                 calculatorInputs.cee_previo = ceeFields;
-                Object.assign(calculatorInputs, ceeToEmisionesInputs(ceeFields, {
-                    scopHeating: calculatorInputs.scopHeating,
-                    scopAcs: calculatorInputs.scopAcs,
-                    changeAcs: calculatorInputs.changeAcs || calculatorInputs.incluir_acs,
-                    manualDemandAcs: calculatorInputs.manualDemandAcs,
-                }));
+                if (calculatorInputs.isReforma) {
+                    // RES080: sembrar el modo "CEE aportado" (por emisiones) — columna INICIAL
+                    // con los datos reales del CEE + un FINAL estimado (demanda/SCOP).
+                    // demandMode='manual' activa automáticamente la tabla de emisiones
+                    // (ver ResultsPanel.isEmisionesMode = demandMode==='manual' && isReforma).
+                    Object.assign(calculatorInputs, ceeToEmisionesInputs(ceeFields, {
+                        scopHeating: calculatorInputs.scopHeating,
+                        scopAcs: calculatorInputs.scopAcs,
+                        changeAcs: calculatorInputs.changeAcs || calculatorInputs.incluir_acs,
+                        manualDemandAcs: calculatorInputs.manualDemandAcs,
+                    }));
+                    calculatorInputs.demandMode = 'manual';
+                } else {
+                    // RES060/RES093: activar directamente "Cálculo Real" con la demanda y la
+                    // superficie REALES del CEE (no la estimada del precálculo/catastro).
+                    const dem = Number(ceeFields?.demandas?.calefaccion_kwh_m2_ano);
+                    const sup = Number(ceeFields?.superficie_habitable_m2);
+                    calculatorInputs.demandMode = 'manual';
+                    if (isFinite(dem) && dem > 0) calculatorInputs.manualDemand = dem;
+                    if (isFinite(sup) && sup > 0) calculatorInputs.manualSuperficie = sup;
+                }
             }
             let precomputedResult = null;
             let demandaCalefaccionPorM2 = null;

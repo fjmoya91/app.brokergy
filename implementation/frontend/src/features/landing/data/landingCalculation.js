@@ -16,6 +16,7 @@ import {
     calculateAnnualSavingsTheoretical,
     calculateAnnualSavingsFromSpending,
     calculateRes080Estimated,
+    calculateRes080FromEmissions,
     calculatePayback,
     FACTORES_PASO
 } from '../../calculator/logic/calculation';
@@ -220,9 +221,27 @@ export function computeLandingResult(inputs) {
 export function computeFullCalculatorResult(inputs) {
     if (!inputs) return null;
 
-    // 1. Demanda (modo estimated por defecto en landing)
-    const demandRes = calculateDemand(inputs);
-    demandRes.fromXml = false;
+    // 1. Demanda: si viene de "Cálculo Real" (CEE aportado), usar la demanda y la superficie
+    // REALES del CEE en vez de la estimada — mismo criterio que CalculatorView.handleCalculate(),
+    // para que este resultado precalculado (guardado al crear la oportunidad) ya sea el correcto
+    // desde el primer render y no solo tras un recálculo manual del admin.
+    const manualDemandVal = parseFloat(inputs.manualDemand) || 0;
+    let demandRes;
+    if (inputs.demandMode === 'manual' && manualDemandVal > 0) {
+        const supAplicada = (parseFloat(inputs.manualSuperficie) || 0) > 0
+            ? parseFloat(inputs.manualSuperficie)
+            : (parseFloat(inputs.superficieCalefactable) || parseFloat(inputs.superficie) || 0);
+        demandRes = {
+            Q_net: manualDemandVal * supAplicada,
+            q_net: manualDemandVal,
+            superficieAplicada: supAplicada,
+            fromManual: true,
+            fromXml: false,
+        };
+    } else {
+        demandRes = calculateDemand(inputs);
+        demandRes.fromXml = false;
+    }
 
     // 2. Hibridación: la landing no la ofrece, cb = 1.0
     const cb = 1.0;
@@ -292,7 +311,27 @@ export function computeFullCalculatorResult(inputs) {
     let res080Data = null;
     let financialsRes080 = null;
     if (inputs.isReforma && inputs.reformaType !== 'none') {
-        res080Data = calculateRes080Estimated(inputs);
+        if (inputs.demandMode === 'manual') {
+            // CEE aportado (por emisiones) — mismo motor que CalculatorView para reforma+manual.
+            res080Data = calculateRes080FromEmissions({
+                emiAcsIni: parseFloat(inputs.manualEmisionesAcsInicial) || 0,
+                emiAcsFin: parseFloat(inputs.manualEmisionesAcsFinal) || 0,
+                emiCalIni: parseFloat(inputs.manualEmisionesCalefaccionInicial) || 0,
+                emiCalFin: parseFloat(inputs.manualEmisionesCalefaccionFinal) || 0,
+                emiRefIni: parseFloat(inputs.manualEmisionesRefrigeracionInicial) || 0,
+                emiRefFin: parseFloat(inputs.manualEmisionesRefrigeracionFinal) || 0,
+                combAcsInicial: inputs.combustibleAcsInicial,
+                combAcsFinal: inputs.combustibleAcsFinal,
+                combCalefaccionInicial: inputs.combustibleCalefaccionInicial,
+                combCalefaccionFinal: inputs.combustibleCalefaccionFinal,
+                combRefrigeracionInicial: inputs.combustibleRefrigeracionInicial,
+                combRefrigeracionFinal: inputs.combustibleRefrigeracionFinal,
+                superficieInicial: parseFloat(inputs.manualSupInicial) || parseFloat(inputs.superficieCalefactable) || 0,
+                superficieFinal: parseFloat(inputs.manualSupFinal) || parseFloat(inputs.manualSupInicial) || parseFloat(inputs.superficieCalefactable) || 0,
+            });
+        } else {
+            res080Data = calculateRes080Estimated(inputs);
+        }
         if (res080Data) {
             financialsRes080 = calculateFinancials({
                 presupuesto: (inputs.presupuesto || 0) + (inputs.presupuestoEnvolvente || 0),
