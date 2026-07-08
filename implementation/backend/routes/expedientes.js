@@ -1041,7 +1041,7 @@ const DOCUMENTO_VALIDABLE_LABELS = {
     cert_cifo_signed_link: 'Certificado CIFO',
     ficha_res060_signed_link: 'Ficha RES',
     anexo_fotografico_signed_link: 'Anexo Fotográfico',
-    cert_rite_signed_link: 'Memoria RITE',
+    cert_rite_signed_link: 'Certificado RITE',
 };
 
 function extractDriveFileId(link) {

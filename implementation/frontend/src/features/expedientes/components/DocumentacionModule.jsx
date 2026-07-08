@@ -1084,7 +1084,7 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
             cert_cifo_signed_link: isReforma ? 'Certificado Reforma RES080' : 'Certificado CIFO',
             ficha_res060_signed_link: 'Ficha RES060',
             anexo_fotografico_signed_link: 'Anexo Fotográfico',
-            cert_rite_signed_link: 'Memoria RITE'
+            cert_rite_signed_link: 'Certificado RITE'
         };
 
         // Cada documento firmado va a su subcarpeta de Drive. El RITE vive en
@@ -1962,7 +1962,7 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                                             <SignedSlot
                                                 link={local.cert_rite_signed_link}
                                                 field="cert_rite_signed_link"
-                                                label="Memoria RITE Firmada"
+                                                label="Certificado RITE"
                                                 dragActive={dragRow === 'rite_memoria'}
                                                 onUpload={(file) => handleSignedUpload('cert_rite_signed_link', file)}
                                             />
