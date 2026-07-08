@@ -99,112 +99,21 @@ const verifySmtp = () => transporter.verify();
 const sendPasswordResetEmail = async (to, resetLink, userName) => {
     const subject = 'Recupera tu contraseña — Brokergy';
     
-    const html = `
-<!DOCTYPE html>
-<html lang="es">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-</head>
-<body style="margin:0; padding:0; background-color:#0a0e1a; font-family:'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;">
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#0a0e1a; padding:40px 20px;">
-        <tr>
-            <td align="center">
-                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px; background-color:#111827; border-radius:24px; border:1px solid rgba(255,255,255,0.06); overflow:hidden;">
-                    
-                    <!-- Header gradient bar -->
-                    <tr>
-                        <td style="height:4px; background:linear-gradient(90deg, #f59e0b, #ea580c);"></td>
-                    </tr>
-                    
-                    <!-- Logo / Brand -->
-                    <tr>
-                        <td style="padding:40px 40px 20px; text-align:center;">
-                            <div style="font-size:28px; font-weight:900; letter-spacing:-0.5px;">
-                                <span style="color:#ffffff;">Portal </span>
-                                <span style="color:#f59e0b;">BROKERGY</span>
-                            </div>
-                        </td>
-                    </tr>
-                    
-                    <!-- Icon -->
-                    <tr>
-                        <td style="text-align:center; padding:10px 40px;">
-                            <div style="display:inline-block; width:64px; height:64px; line-height:64px; background-color:rgba(245,158,11,0.1); border-radius:16px; border:1px solid rgba(245,158,11,0.2); font-size:28px; text-align:center;">
-                                🔐
-                            </div>
-                        </td>
-                    </tr>
-                    
-                    <!-- Title -->
-                    <tr>
-                        <td style="padding:20px 40px 8px; text-align:center;">
-                            <h1 style="margin:0; font-size:22px; font-weight:800; color:#ffffff; letter-spacing:-0.3px;">
-                                Recuperar Contraseña
-                            </h1>
-                        </td>
-                    </tr>
-                    
-                    <!-- Message -->
-                    <tr>
-                        <td style="padding:0 40px 30px; text-align:center;">
-                            <p style="margin:0; font-size:14px; line-height:1.6; color:rgba(255,255,255,0.5);">
-                                ${userName ? `Hola <strong style="color:rgba(255,255,255,0.8);">${userName.toUpperCase()}</strong>,<br><br>` : ''}
-                                Hemos recibido una solicitud para restablecer la contraseña de tu cuenta en Brokergy. 
-                                Si no realizaste esta solicitud, simplemente ignora este correo.
-                            </p>
-                        </td>
-                    </tr>
-                    
-                    <!-- Button -->
-                    <tr>
-                        <td style="padding:0 40px 30px; text-align:center;">
-                            <a href="${resetLink}" target="_blank" style="display:inline-block; padding:14px 40px; background:linear-gradient(135deg, #f59e0b, #ea580c); color:#0a0e1a; font-size:14px; font-weight:800; text-decoration:none; border-radius:12px; letter-spacing:0.3px;">
-                                Restablecer Contraseña
-                            </a>
-                        </td>
-                    </tr>
-                    
-                    <!-- Expiry notice -->
-                    <tr>
-                        <td style="padding:0 40px 10px; text-align:center;">
-                            <p style="margin:0; font-size:12px; color:rgba(255,255,255,0.3);">
-                                ⏳ Este enlace expira en <strong style="color:rgba(245,158,11,0.7);">1 hora</strong>.
-                            </p>
-                        </td>
-                    </tr>
-                    
-                    <!-- Link fallback -->
-                    <tr>
-                        <td style="padding:0 40px 30px; text-align:center;">
-                            <p style="margin:0; font-size:11px; color:rgba(255,255,255,0.2); word-break:break-all;">
-                                Si el botón no funciona, copia y pega este enlace en tu navegador:<br>
-                                <a href="${resetLink}" style="color:rgba(245,158,11,0.5); text-decoration:none;">${resetLink}</a>
-                            </p>
-                        </td>
-                    </tr>
-                    
-                    <!-- Divider -->
-                    <tr>
-                        <td style="padding:0 40px;">
-                            <div style="height:1px; background:rgba(255,255,255,0.06);"></div>
-                        </td>
-                    </tr>
-                    
-                    <!-- Footer -->
-                    <tr>
-                        <td style="padding:24px 40px 32px; text-align:center;">
-                            <p style="margin:0; font-size:10px; text-transform:uppercase; letter-spacing:2px; font-weight:700; color:rgba(255,255,255,0.15);">
-                                Brokergy Analytics &copy; ${new Date().getFullYear()}
-                            </p>
-                        </td>
-                    </tr>
-                </table>
-            </td>
-        </tr>
-    </table>
-</body>
-</html>`;
+    const html = brandEmailShell({
+        preheader: 'Restablece la contraseña de tu cuenta Brokergy.',
+        title: 'Recupera tu contraseña',
+        pill: null,
+        contentHtml:
+            (userName ? emailP(`Hola <strong>${escapeHtml(userName.toUpperCase())}</strong>,`) : '') +
+            emailP('Hemos recibido una solicitud para restablecer la contraseña de tu cuenta en Brokergy. Si no realizaste esta solicitud, simplemente ignora este correo.', { color: BRAND.muted }) +
+            `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:8px 0 22px;"><tr><td align="center">${emailButton(resetLink, 'Restablecer Contraseña')}</td></tr></table>` +
+            emailBox(
+                emailP('⏳ Este enlace expira en <strong>1 hora</strong>.', { size: 13, color: BRAND.muted, mb: 0, center: true }),
+                { mb: 18 }
+            ) +
+            emailP(`Si el botón no funciona, copia y pega este enlace en tu navegador:<br><a href="${resetLink}" style="color:${BRAND.greenDark};text-decoration:none;word-break:break-all;">${resetLink}</a>`, { size: 12, color: BRAND.muted, mb: 0, center: true }),
+        footerNote: `Brokergy Analytics &copy; ${new Date().getFullYear()}`,
+    });
 
     const text = `Recuperar Contraseña — Brokergy\n\n${userName ? `Hola ${userName},\n\n` : ''}Hemos recibido una solicitud para restablecer tu contraseña. Haz clic en el siguiente enlace:\n\n${resetLink}\n\nEste enlace expira en 1 hora.\n\nSi no solicitaste este cambio, ignora este correo.\n\nBrokergy Analytics`;
 
@@ -244,7 +153,7 @@ const sendLeadSummaryEmail = async ({
             : `Tu propuesta de ayudas — ${idOportunidad}`);
 
     const cobrandHeader = partnerName
-        ? `<p style="color:#64748b;font-size:11px;margin:6px 0 0;">en colaboración con <strong style="color:#d97706;">${partnerName}</strong></p>`
+        ? emailP(`en colaboración con <strong style="color:${BRAND.orangeDark};">${escapeHtml(partnerName)}</strong>`, { size: 13, color: BRAND.muted, mb: 16, center: true })
         : '';
 
     const subtitle = esSuave
@@ -256,118 +165,65 @@ const sendLeadSummaryEmail = async ({
     const showAhorro = Number(ahorro) >= AHORRO_LOW_THRESHOLD;
     const urg = urgencyLine(edadCaldera, timeline);
 
-    const cifrasBlock = esSuave ? '' : `
-        <!-- Cifras clave -->
-        <tr><td style="padding:24px 32px;">
-          <table width="100%" cellpadding="0" cellspacing="0">
-            <tr>
-              <td width="48%" style="background:#ecfdf5;border:2px solid #a7f3d0;border-radius:16px;padding:16px;text-align:center;">
-                <div style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:1.5px;color:#059669;margin-bottom:6px;">Ayuda total estimada</div>
-                <div style="font-size:28px;font-weight:900;color:#059669;">${fmtEur(total)}</div>
-                <div style="font-size:10px;color:#10b981;margin-top:4px;font-weight:700;text-transform:uppercase;letter-spacing:1px;">incluye CAE${Number(irpf) > 0 ? ' + IRPF' : ''}</div>
-              </td>
-              <td width="4%"></td>
-              <td width="48%" style="background:#fffbeb;border:2px solid #fde68a;border-radius:16px;padding:16px;text-align:center;">
-                <div style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:1.5px;color:#d97706;margin-bottom:6px;">Tu inversión neta</div>
-                <div style="font-size:28px;font-weight:900;color:#d97706;">${fmtEur(neta)}${presupuestoEstimado ? '<span style="font-size:16px;">*</span>' : ''}</div>
-                <div style="font-size:10px;color:#f59e0b;margin-top:4px;font-weight:700;text-transform:uppercase;letter-spacing:1px;">tras todas las ayudas</div>
-              </td>
-            </tr>
-          </table>
-          ${presupuestoEstimado ? `<p style="color:#94a3b8;font-size:10px;margin:10px 2px 0;line-height:1.5;">* ${presupuestoNote(partner)}</p>` : ''}
-        </td></tr>
-
-        <!-- Desglose -->
-        <tr><td style="padding:0 32px 24px;">
-          <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e2e8f0;border-radius:16px;overflow:hidden;">
-            <tr style="background:#fff7ed;">
-              <td style="padding:10px 16px;font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:1.5px;color:#d97706;">Concepto</td>
-              <td style="padding:10px 16px;font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:1.5px;color:#d97706;text-align:right;">Importe</td>
-            </tr>
-            <tr style="border-top:1px solid #e2e8f0;">
-              <td style="padding:12px 16px;font-size:13px;color:#475569;">Bono Energético CAE</td>
-              <td style="padding:12px 16px;font-size:13px;font-weight:700;color:#059669;text-align:right;">${fmtEur(cae)}</td>
-            </tr>
-            ${Number(irpf) > 0 ? `<tr style="border-top:1px solid #e2e8f0;">
-              <td style="padding:12px 16px;font-size:13px;color:#475569;">Deducción en el IRPF</td>
-              <td style="padding:12px 16px;font-size:13px;font-weight:700;color:#059669;text-align:right;">${fmtEur(irpf)}</td>
-            </tr>` : ''}
-            ${showAhorro ? `<tr style="border-top:1px solid #e2e8f0;">
-              <td style="padding:12px 16px;font-size:13px;color:#475569;">${ahorroLabel}</td>
-              <td style="padding:12px 16px;font-size:13px;font-weight:700;color:#2563eb;text-align:right;">${fmtEur(ahorro)}/año</td>
-            </tr>` : ''}
-            <tr style="background:#f8fafc;border-top:2px solid #e2e8f0;">
-              <td style="padding:12px 16px;font-size:13px;font-weight:900;color:#0f172a;">Ayuda total estimada</td>
-              <td style="padding:12px 16px;font-size:15px;font-weight:900;color:#059669;text-align:right;">${fmtEur(total)}</td>
-            </tr>
-          </table>
-          ${!showAhorro ? `<p style="color:#475569;font-size:12px;margin:12px 2px 0;line-height:1.6;">Además, ganas en confort estable todo el año y dejas de depender ${fuelDependPhrase(fuelLabel)} y de sus subidas de precio.</p>` : ''}
-          ${urg ? `<p style="color:#b45309;font-size:12px;margin:12px 2px 0;line-height:1.6;">${urg}</p>` : ''}
-        </td></tr>`;
+    const cifrasBlock = esSuave ? '' : (
+        `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:22px;"><tr>
+           <td width="48%" valign="top" style="background:${BRAND.greenTint};border:1px solid ${BRAND.green};border-radius:12px;padding:16px;text-align:center;">
+             <div style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:1px;color:${BRAND.greenDark};margin-bottom:6px;">Ayuda total estimada</div>
+             <div style="font-size:26px;font-weight:800;color:${BRAND.greenDark};">${fmtEur(total)}</div>
+             <div style="font-size:10px;color:${BRAND.greenDark};margin-top:4px;font-weight:700;text-transform:uppercase;letter-spacing:1px;">incluye CAE${Number(irpf) > 0 ? ' + IRPF' : ''}</div>
+           </td>
+           <td width="4%"></td>
+           <td width="48%" valign="top" style="background:${BRAND.orangeTint};border:1px solid ${BRAND.orange};border-radius:12px;padding:16px;text-align:center;">
+             <div style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:1px;color:${BRAND.orangeDark};margin-bottom:6px;">Tu inversión neta</div>
+             <div style="font-size:26px;font-weight:800;color:${BRAND.orangeDark};">${fmtEur(neta)}${presupuestoEstimado ? '<span style="font-size:15px;">*</span>' : ''}</div>
+             <div style="font-size:10px;color:${BRAND.orangeDark};margin-top:4px;font-weight:700;text-transform:uppercase;letter-spacing:1px;">tras todas las ayudas</div>
+           </td>
+         </tr></table>` +
+        (presupuestoEstimado ? emailP(`* ${escapeHtml(presupuestoNote(partner))}`, { size: 11, color: BRAND.muted, mb: 18 }) : '') +
+        emailBox(
+            emailDataTable([
+                ['Bono Energético CAE', `<span style="color:${BRAND.greenDark};">${fmtEur(cae)}</span>`],
+                Number(irpf) > 0 ? ['Deducción en el IRPF', `<span style="color:${BRAND.greenDark};">${fmtEur(irpf)}</span>`] : null,
+                showAhorro ? [ahorroLabel, `${fmtEur(ahorro)}/año`] : null,
+                ['Ayuda total estimada', `<span style="color:${BRAND.greenDark};">${fmtEur(total)}</span>`],
+            ]),
+            { mb: showAhorro && !urg ? 22 : 12 }
+        ) +
+        (!showAhorro ? emailP(`Además, ganas en confort estable todo el año y dejas de depender ${fuelDependPhrase(fuelLabel)} y de sus subidas de precio.`, { size: 12, color: BRAND.muted, mb: urg ? 10 : 22 }) : '') +
+        (urg ? emailP(urg, { size: 12, color: BRAND.orangeDark, mb: 22 }) : '')
+    );
 
     // ── Bloque suave (mensaje sin cifras) ──
-    const suaveBlock = esSuave ? `
-        <tr><td style="padding:24px 32px 8px;">
-          <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:16px;padding:22px;text-align:center;">
-            <p style="color:#0f172a;font-size:15px;font-weight:900;margin:0 0 8px;">Un técnico revisará tu expediente</p>
-            <p style="color:#475569;font-size:13px;margin:0;line-height:1.6;">Lo estudiará un especialista y te contactará lo antes posible para darte una propuesta de ayudas a tu medida.</p>
-          </div>
-        </td></tr>` : '';
+    const suaveBlock = esSuave ? emailBox(
+        emailP('Un técnico revisará tu expediente', { bold: true, mb: 8, center: true }) +
+        emailP('Lo estudiará un especialista y te contactará lo antes posible para darte una propuesta de ayudas a tu medida.', { size: 13, color: BRAND.muted, mb: 0, center: true }),
+        { bg: BRAND.orangeTint, border: BRAND.orange, mb: 22 }
+    ) : '';
 
-    const html = `<!DOCTYPE html>
-<html lang="es">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-<body style="margin:0;padding:0;background:#ffffff;font-family:Arial,sans-serif;">
-  <table width="100%" cellpadding="0" cellspacing="0" style="background:#ffffff;padding:40px 16px;">
-    <tr><td align="center">
-      <table width="100%" style="max-width:560px;background:#ffffff;border-radius:24px;overflow:hidden;border:1px solid #e5e7eb;">
-        <!-- Header -->
-        <tr><td style="padding:32px 32px 18px;text-align:center;border-bottom:3px solid #f59e0b;">
-          <div style="font-size:22px;font-weight:900;letter-spacing:-0.5px;color:#0f172a;">
-            BROKER<span style="color:#f59e0b">GY</span>
-          </div>
-          ${cobrandHeader}
-          <h1 style="color:#0f172a;font-size:20px;font-weight:900;margin:16px 0 6px;">¡Hola, ${primerNombre}!</h1>
-          <p style="color:#64748b;font-size:14px;margin:0;">${subtitle}</p>
-        </td></tr>
-${cifrasBlock}${suaveBlock}
-        ${uploadLink ? `
-        <!-- CTA: Subir documentación -->
-        <tr><td style="padding:${esSuave ? '16px' : '0'} 32px 16px;">
-          <div style="background:#ecfdf5;border:2px solid #a7f3d0;border-radius:16px;padding:20px;text-align:center;">
-            <p style="color:#0f172a;font-size:14px;font-weight:900;margin:0 0 6px 0;">📸 ${esSuave ? 'Adelanta el proceso' : 'Ayúdanos a afinar tu propuesta'}</p>
-            <p style="color:#475569;font-size:12px;margin:0 0 14px 0;line-height:1.5;">
-              Sube algunas fotos de tu vivienda e instalación actual. 2 minutos desde el móvil.
-            </p>
-            <a href="${uploadLink}" style="display:inline-block;background:#25D366;color:#fff;padding:12px 28px;border-radius:12px;text-decoration:none;font-weight:900;font-size:13px;text-transform:uppercase;letter-spacing:1px;">
-              Subir fotos y documentos
-            </a>
-          </div>
-        </td></tr>
-        ` : ''}
+    const uploadBlock = uploadLink ? emailBox(
+        emailP(`📸 ${esSuave ? 'Adelanta el proceso' : 'Ayúdanos a afinar tu propuesta'}`, { bold: true, mb: 6, center: true }) +
+        emailP('Sube algunas fotos de tu vivienda e instalación actual. 2 minutos desde el móvil.', { size: 12, color: BRAND.muted, mb: 14, center: true }) +
+        `<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">${emailButton(uploadLink, 'Subir fotos y documentos')}</td></tr></table>`,
+        { bg: BRAND.greenTint, border: BRAND.green, mb: 22 }
+    ) : '';
 
-        <!-- Siguiente paso -->
-        <tr><td style="padding:0 32px 32px;">
-          <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:16px;padding:20px;text-align:center;">
-            ${esSuave ? '' : `<p style="color:#475569;font-size:13px;margin:0 0 6px 0;">
-              Un técnico de Brokergy revisará tu expediente y te contactará en breve con la propuesta definitiva.
-            </p>`}
-            <p style="color:#94a3b8;font-size:11px;margin:0;">Ref: <strong style="color:#b45309;font-family:monospace;">${idOportunidad}</strong></p>
-          </div>
-        </td></tr>
+    const nextStepBlock = emailBox(
+        (esSuave ? '' : emailP('Un técnico de Brokergy revisará tu expediente y te contactará en breve con la propuesta definitiva.', { size: 13, color: BRAND.muted, mb: 6, center: true })) +
+        emailP(`Ref: <strong style="color:${BRAND.orangeDark};font-family:monospace;">${escapeHtml(idOportunidad)}</strong>`, { size: 11, color: BRAND.muted, mb: 0, center: true }),
+        { bg: BRAND.orangeTint, border: BRAND.orange, mb: 0 }
+    );
 
-        <!-- Footer -->
-        <tr><td style="padding:16px 32px;border-top:1px solid #e2e8f0;text-align:center;">
-          ${partnerName
-            ? `<p style="color:#475569;font-size:11px;margin:0;font-weight:700;letter-spacing:0.5px;">BROKERGY · en colaboración con ${partnerName}</p>${partnerContact ? `<p style="color:#64748b;font-size:11px;margin:4px 0 0;">${partnerContact}</p>` : ''}`
-            : `<p style="color:#94a3b8;font-size:10px;margin:0;text-transform:uppercase;letter-spacing:2px;font-weight:700;">Brokergy · Ingeniería Energética</p>`}
-          <p style="color:#cbd5e1;font-size:10px;margin:6px 0 0;">Estimación teórica sujeta a verificación técnica.</p>
-        </td></tr>
-      </table>
-    </td></tr>
-  </table>
-</body>
-</html>`;
+    const html = brandEmailShell({
+        preheader: subtitle,
+        title: 'Tu simulación',
+        pill: esSuave ? PILL.neutral('Solicitud recibida') : PILL.info('Estimación de ayudas'),
+        contentHtml:
+            cobrandHeader +
+            emailP(`¡Hola, ${escapeHtml(primerNombre)}!`, { size: 18, bold: true, mb: 6 }) +
+            emailP(subtitle, { color: BRAND.muted, mb: 22 }) +
+            cifrasBlock + suaveBlock + uploadBlock + nextStepBlock,
+        footerNote: (partnerName ? `en colaboración con ${escapeHtml(partnerName)}${partnerContact ? ' · ' + escapeHtml(partnerContact) : ''}<br>` : '') + 'Estimación teórica sujeta a verificación técnica.',
+    });
 
     const text = esSuave
         ? `Hemos recibido tu solicitud para ${prod}.\n\nHola ${primerNombre},\n\nUn técnico revisará tu expediente y te contactará lo antes posible para darte una propuesta de ayudas a tu medida.\n${uploadLink ? `\nPuedes adelantar el proceso subiendo fotos aquí: ${uploadLink}\n` : ''}\nRef: ${idOportunidad}\n\nBrokergy · brokergy.es`
@@ -384,18 +240,13 @@ const sendProposalEmail = async ({ to, userName, pdfBuffer, tableImageBase64, su
     // Mensaje editado en el popup de envío (homogéneo con anexos). Si viene, se muestra
     // como intro antes del resumen, con *negritas* estilo WhatsApp.
     const customMessageHtml = customMessage
-        ? `<div style="margin:0 0 22px; font-size:15px; line-height:1.7; color:rgba(255,255,255,0.82); white-space:pre-wrap;">${customMessage.replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c])).replace(/\*(.*?)\*/g, '<b style="color:#ffffff;">$1</b>')}</div>`
+        ? emailP(escapeHtml(customMessage).replace(/\*(.*?)\*/g, '<b>$1</b>'), { pre: true, mb: 22 })
         : '';
     // Saludo/intro por defecto (cuando no hay mensaje editado). Si hay customMessage, ese texto lo sustituye.
-    const greetingHtml = customMessage ? customMessageHtml : `
-                            <h2 style="margin:0 0 20px; font-size:20px; font-weight:800; color:#ffffff; letter-spacing:-0.3px;">
-                                ¡Hola, ${userName || (isB2B ? 'equipo' : 'cliente')}!
-                            </h2>
-                            ${isB2B ? `
-                            <p style="margin:0 0 20px; font-size:15px; line-height:1.6; color:rgba(255,255,255,0.7);">
-                                Te adjuntamos la propuesta de ayudas para el expediente de vuestro cliente <strong style="color:#ffffff;">${summaryData.clienteName || ''}</strong> (Exp. ${summaryData.id}).
-                            </p>
-                            ` : ''}`;
+    const greetingHtml = customMessage ? customMessageHtml : (
+        emailP(`¡Hola, ${escapeHtml(userName || (isB2B ? 'equipo' : 'cliente'))}!`, { size: 20, bold: true, mb: 20 }) +
+        (isB2B ? emailP(`Te adjuntamos la propuesta de ayudas para el expediente de vuestro cliente <strong>${escapeHtml(summaryData.clienteName || '')}</strong> (Exp. ${escapeHtml(summaryData.id)}).`, { color: BRAND.muted }) : '')
+    );
     const subject = isB2B
         ? `Propuesta cliente ${summaryData.clienteName || ''} [Exp. ${summaryData.id}] — Brokergy`
         : `Propuesta Bono Energético CAE — Brokergy (${summaryData.id})`;
@@ -419,165 +270,66 @@ const sendProposalEmail = async ({ to, userName, pdfBuffer, tableImageBase64, su
             cid: 'summary-table'
         });
         // Si hay captura real, la preferimos sobre el HTML generado (es más fiel)
-        tableHtml = `
-            <div style="margin: 25px 0; border-radius: 16px; overflow: hidden; border: 1px solid rgba(255,255,255,0.08); box-shadow: 0 10px 30px rgba(0,0,0,0.3); background-color: #111827;">
-                <img src="cid:summary-table" alt="Resumen Ahorro" style="width: 100%; display: block; border-radius: 15px;">
-            </div>
-        `;
+        tableHtml = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:8px 0 22px;"><tr><td style="border-radius:12px;overflow:hidden;border:1px solid ${BRAND.border};"><img src="cid:summary-table" alt="Resumen Ahorro" style="width:100%;display:block;"></td></tr></table>`;
     }
 
-    const html = `
-<!DOCTYPE html>
-<html lang="es">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-</head>
-<body style="margin:0; padding:0; background-color:#0a0e1a; font-family:'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif; color:#ffffff;">
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#0a0e1a; padding:40px 20px;">
-        <tr>
-            <td align="center">
-                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px; background-color:#111827; border-radius:24px; border:1px solid rgba(255,255,255,0.06); overflow:hidden;">
-                    
-                    <!-- Header gradient bar -->
-                    <tr>
-                        <td style="height:4px; background:linear-gradient(90deg, #f59e0b, #ea580c);"></td>
-                    </tr>
-                    
-                    <!-- Logo / Brand -->
-                    <tr>
-                        <td style="padding:40px 40px 20px;">
-                            <div style="font-size:24px; font-weight:900; letter-spacing:-0.5px; text-align:center;">
-                                <span style="color:#f59e0b;">BROKERGY </span>
-                                <span style="color:#ffffff; font-weight: 500;">· Ingeniería Energética</span>
-                            </div>
-                        </td>
-                    </tr>
-                    
-                    <!-- Content Body -->
-                    <tr>
-                        <td style="padding:10px 40px 30px;">
-                            ${greetingHtml}
+    const proposalUrl = `${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/api/public/propuesta/${summaryData.urlId || summaryData.id}`;
+    const firmaUrl = `${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/firma/${summaryData.urlId || summaryData.id}`;
 
-                            ${summaryData.isBoth ? `
-                                <!-- CASO COMPARATIVA -->
-                                <p style="margin:0 0 20px; font-size:15px; line-height:1.6; color:rgba(255,255,255,0.7);">
-                                    Tal y como acordamos, te adjunto la simulación de las ayudas para tu proyecto, presentando las siguientes opciones para tu vivienda:
-                                </p>
+    const casosHtml = summaryData.isBoth ? (
+        emailP('Tal y como acordamos, te adjunto la simulación de las ayudas para tu proyecto, presentando las siguientes opciones para tu vivienda:', { color: BRAND.muted, mb: 20 }) +
+        emailBox(
+            emailP('Opción 1: Solo aerotermia', { size: 13, bold: true, color: BRAND.orangeDark, mb: 10 }) +
+            emailP(`Ayuda directa Bono CAE de <strong>${summaryData.fAero.caeBonus}</strong>. Sumando deducciones IRPF (${summaryData.fAero.irpfDeduction}), alcanzarías un total de:`, { size: 14, color: BRAND.muted, mb: 12 }) +
+            emailP(summaryData.fAero.totalAyuda, { size: 20, bold: true, mb: 0 }),
+            { mb: 15 }
+        ) +
+        emailBox(
+            emailP('Opción 2: Mejora de envolvente', { size: 13, bold: true, color: BRAND.orangeDark, mb: 10 }) +
+            emailP(`En este caso, la ayuda del Bono CAE asciende a <strong>${summaryData.f80.caeBonus}</strong>. Sumando las deducciones del IRPF (${summaryData.f80.irpfDeduction}), el total llegaría a:`, { size: 14, color: BRAND.muted, mb: 12 }) +
+            emailP(summaryData.f80.totalAyuda, { size: 24, bold: true, color: BRAND.orangeDark, mb: 0 }),
+            { bg: BRAND.orangeTint, border: BRAND.orange, mb: 22 }
+        )
+    ) : summaryData.isOnlyReforma ? (
+        emailP('Tal y como acordamos, te adjunto la simulación de las ayudas para tu expediente de Reforma Energética, donde detallamos los ahorros que puedes obtener.', { color: BRAND.muted, mb: 15 }) +
+        emailP(`🔹 <strong>Bono Energético:</strong> Podrías obtener una ayuda de <strong style="color:${BRAND.orangeDark};font-size:19px;">${summaryData.f80.caeBonus}</strong> gestionada a través de BROKERGY.`, { color: BRAND.muted, mb: 15 }) +
+        emailP(`Además, el importe estimado de deducciones en el IRPF sería de <strong style="color:${BRAND.greenDark};">${summaryData.f80.irpfDeduction}</strong>.`, { color: BRAND.muted, mb: 15 }) +
+        emailBox(
+            emailP('Resumen total de ayudas', { size: 13, bold: true, color: BRAND.orangeDark, center: true, mb: 5 }) +
+            emailP(`Hasta ${summaryData.f80.totalAyuda}`, { size: 30, bold: true, center: true, mb: 0 }),
+            { bg: BRAND.orangeTint, border: BRAND.orange, mb: 22 }
+        )
+    ) : (
+        emailP('Ya hemos podido realizar los cálculos de las ayudas a las que puedes optar para tu instalación de aerotermia.', { color: BRAND.muted, mb: 15 }) +
+        emailP(`🔹 <strong>Bono Energético:</strong> Podrías obtener una ayuda de <strong style="color:${BRAND.orangeDark};font-size:19px;">${summaryData.caeBonus}</strong> gracias al Bono Energético BROKERGY.`, { color: BRAND.muted, mb: 15 }) +
+        emailP(`Además, si en tu caso puedes acogerte a las deducciones en el IRPF, el importe estimado sería de <strong style="color:${BRAND.greenDark};">${summaryData.irpfDeduction}</strong>.`, { color: BRAND.muted, mb: 15 }) +
+        emailBox(
+            emailP('Resumen total de ayudas', { size: 13, bold: true, color: BRAND.orangeDark, center: true, mb: 5 }) +
+            emailP(`Hasta ${summaryData.totalAyuda}`, { size: 30, bold: true, center: true, mb: 0 }),
+            { bg: BRAND.orangeTint, border: BRAND.orange, mb: 22 }
+        )
+    );
 
-                                <!-- OPCION 1 -->
-                                <div style="background-color:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:16px; padding:20px; margin-bottom:15px;">
-                                    <p style="margin:0 0 10px; font-size:13px; font-weight:700; color:#f59e0b; text-transform:uppercase; letter-spacing:1px;">Opción 1: Solo aerotermia</p>
-                                    <p style="margin:0 0 12px; font-size:14px; line-height:1.5; color:rgba(255,255,255,0.6);">
-                                        Ayuda directa Bono CAE de <strong style="color:#ffffff;">${summaryData.fAero.caeBonus}</strong>. Sumando deducciones IRPF (${summaryData.fAero.irpfDeduction}), alcanzarías un total de:
-                                    </p>
-                                    <p style="margin:0; font-size:20px; font-weight:800; color:#ffffff;">${summaryData.fAero.totalAyuda}</p>
-                                </div>
+    const irpfNote = !isB2B
+        ? emailP('💡 Recordatorio: Para las deducciones del IRPF debes contar con retenciones aplicables. Nosotros dejaremos toda la parte técnica preparada para tu solicitud.', { size: 13, color: BRAND.muted, mb: 22 })
+        : '';
 
-                                <!-- OPCION 2 -->
-                                <div style="background-color:rgba(245,158,11,0.05); border:1px solid rgba(245,158,11,0.2); border-radius:16px; padding:20px; margin-bottom:25px;">
-                                    <p style="margin:0 0 10px; font-size:13px; font-weight:700; color:#f59e0b; text-transform:uppercase; letter-spacing:1px;">Opción 2: Mejora de envolvente</p>
-                                    <p style="margin:0 0 12px; font-size:14px; line-height:1.5; color:rgba(255,255,255,0.6);">
-                                        En este caso, la ayuda del Bono CAE asciende a <strong style="color:#ffffff;">${summaryData.f80.caeBonus}</strong>. Sumando las deducciones del IRPF (${summaryData.f80.irpfDeduction}), el total llegaría a:
-                                    </p>
-                                    <p style="margin:0; font-size:24px; font-weight:900; color:#f59e0b;">${summaryData.f80.totalAyuda}</p>
-                                </div>
-                            ` : summaryData.isOnlyReforma ? `
-                                <!-- CASO SOLO REFORMA -->
-                                <p style="margin:0 0 15px; font-size:15px; line-height:1.6; color:rgba(255,255,255,0.7);">
-                                    Tal y como acordamos, te adjunto la simulación de las ayudas para tu expediente de Reforma Energética, donde detallamos los ahorros que puedes obtener.
-                                </p>
-                                <p style="margin:0 0 15px; font-size:15px; line-height:1.6; color:rgba(255,255,255,0.7);">
-                                    🔹 <strong>Bono Energético:</strong> Podrías obtener una ayuda de <strong style="color:#f59e0b; font-size: 19px;">${summaryData.f80.caeBonus}</strong> gestionada a través de BROKERGY.
-                                </p>
-                                <p style="margin:0 0 15px; font-size:15px; line-height:1.6; color:rgba(255,255,255,0.7);">
-                                    Además, el importe estimado de deducciones en el IRPF sería de <strong style="color:#10b981;">${summaryData.f80.irpfDeduction}</strong>.
-                                </p>
-                                <div style="background-color:rgba(245,158,11,0.05); border:1px dashed rgba(245,158,11,0.3); border-radius:16px; padding:20px; margin:25px 0; text-align:center;">
-                                    <p style="margin:0; font-size:14px; font-weight:600; color:#f59e0b; text-transform:uppercase; letter-spacing:1px;">Resumen total de ayudas</p>
-                                    <p style="margin:5px 0 0; font-size:32px; font-weight:900; color:#ffffff;">Hasta ${summaryData.f80.totalAyuda}</p>
-                                </div>
-                            ` : `
-                                <!-- CASO SOLO AEROTERMIA (ORIGINAL) -->
-                                <p style="margin:0 0 15px; font-size:15px; line-height:1.6; color:rgba(255,255,255,0.7);">
-                                    Ya hemos podido realizar los cálculos de las ayudas a las que puedes optar para tu instalación de aerotermia.
-                                </p>
-                                <p style="margin:0 0 15px; font-size:15px; line-height:1.6; color:rgba(255,255,255,0.7);">
-                                    🔹 <strong>Bono Energético:</strong> Podrías obtener una ayuda de <strong style="color:#f59e0b; font-size: 19px;">${summaryData.caeBonus}</strong> gracias al Bono Energético BROKERGY.
-                                </p>
-                                <p style="margin:0 0 15px; font-size:15px; line-height:1.6; color:rgba(255,255,255,0.7);">
-                                    Además, si en tu caso puedes acogerte a las deducciones en el IRPF, el importe estimado sería de <strong style="color:#10b981;">${summaryData.irpfDeduction}</strong>.
-                                </p>
-                                <div style="background-color:rgba(245,158,11,0.05); border:1px dashed rgba(245,158,11,0.3); border-radius:16px; padding:20px; margin:25px 0; text-align:center;">
-                                    <p style="margin:0; font-size:14px; font-weight:600; color:#f59e0b; text-transform:uppercase; letter-spacing:1px;">Resumen total de ayudas</p>
-                                    <p style="margin:5px 0 0; font-size:32px; font-weight:900; color:#ffffff;">Hasta ${summaryData.totalAyuda}</p>
-                                </div>
-                            `}
+    const pasosHtml = `<h3 style="margin:8px 0 12px;font-size:16px;font-weight:700;color:${BRAND.text};">Pasos a seguir:</h3>` +
+        (isB2B
+            ? `<ul style="margin:0 0 18px;padding:0 0 0 20px;font-size:14px;line-height:1.8;color:${BRAND.muted};"><li>El cliente debe <strong>aceptar el presupuesto de instalación</strong>.</li><li>El cliente debe <strong>aceptar la propuesta</strong> adjunta en PDF. Es vital presentar el CEE Inicial antes de cualquier factura para no perder las ayudas.</li></ul>` + emailP('Podéis compartir este enlace de firma directamente con el cliente:', { size: 14, color: BRAND.muted })
+            : `<ul style="margin:0 0 18px;padding:0 0 0 20px;font-size:14px;line-height:1.8;color:${BRAND.muted};"><li><strong>Aceptar el presupuesto</strong> al instalador.</li><li><strong>Aceptar la propuesta</strong> adjunta en PDF. Es vital presentar el Certificado Inicial antes de cualquier factura para asegurar las deducciones fiscales.</li></ul>`);
 
-                            ${!isB2B ? `
-                            <p style="margin:0 0 30px; font-size:13px; line-height:1.6; color:rgba(255,255,255,0.4);">
-                                💡 Recordatorio: Para las deducciones del IRPF debes contar con retenciones aplicables. Nosotros dejaremos toda la parte técnica preparada para tu solicitud.
-                            </p>
-                            ` : ''}
+    const botonesHtml = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:22px;"><tr><td align="center" style="padding-bottom:12px;">${emailButton(proposalUrl, '📄 Ver propuesta online', BRAND.orange)}</td></tr><tr><td align="center">${emailButton(firmaUrl, `✍️ ${isB2B ? 'Enlace de firma para el cliente' : 'Aceptar y firmar'}`)}</td></tr></table>`;
 
-                            ${tableHtml}
-
-                            <h3 style="margin:25px 0 15px; font-size:16px; font-weight:700; color:#ffffff;">Pasos a seguir:</h3>
-                            ${isB2B ? `
-                            <ul style="margin:0 0 30px; padding:0 0 0 20px; font-size:14px; line-height:1.8; color:rgba(255,255,255,0.6);">
-                                <li>El cliente debe <strong>aceptar el presupuesto de instalación</strong>.</li>
-                                <li>El cliente debe <strong>aceptar la propuesta</strong> adjunta en PDF. Es vital presentar el CEE Inicial antes de cualquier factura para no perder las ayudas.</li>
-                            </ul>
-                            <p style="margin:0 0 20px; font-size:14px; line-height:1.6; color:rgba(255,255,255,0.6);">
-                                Podéis compartir este enlace de firma directamente con el cliente:
-                            </p>
-                            ` : `
-                            <ul style="margin:0 0 30px; padding:0 0 0 20px; font-size:14px; line-height:1.8; color:rgba(255,255,255,0.6);">
-                                <li><strong>Aceptar el presupuesto</strong> al instalador.</li>
-                                <li><strong>Aceptar la propuesta</strong> adjunta en PDF. Es vital presentar el Certificado Inicial antes de cualquier factura para asegurar las deducciones fiscales.</li>
-                            </ul>
-                            `}
-
-                            <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
-                                <tr>
-                                    <td align="center" style="padding-bottom: 15px;">
-                                        <a href="${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/api/public/propuesta/${summaryData.urlId || summaryData.id}" target="_blank" style="display:inline-block; padding:14px 40px; background-color:#2563eb; color:#ffffff; font-size:15px; font-weight:700; text-decoration:none; border-radius:12px; letter-spacing:0.3px; width: 80%; max-width: 300px;">
-                                            📄 VER PROPUESTA ONLINE
-                                        </a>
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td align="center">
-                                        <a href="${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/firma/${summaryData.urlId || summaryData.id}" target="_blank" style="display:inline-block; padding:14px 40px; background:linear-gradient(135deg, #f59e0b, #ea580c); color:#0a0e1a; font-size:15px; font-weight:900; text-decoration:none; border-radius:12px; letter-spacing:0.3px; width: 80%; max-width: 300px; box-shadow: 0 4px 15px rgba(245,158,11,0.3);">
-                                            ✍️ ${isB2B ? 'ENLACE DE FIRMA PARA EL CLIENTE' : 'ACEPTAR Y FIRMAR'}
-                                        </a>
-                                    </td>
-                                </tr>
-                            </table>
-
-                            <p style="margin:30px 0 0; font-size:14px; line-height:1.6; color:rgba(255,255,255,0.5); text-align:center;">
-                                Quedo a ${isB2B ? 'vuestra' : 'tu'} disposición para cualquier duda o aclaración.
-                            </p>
-                        </td>
-                    </tr>
-                    
-                    <!-- Footer -->
-                    <tr>
-                        <td style="padding:10px 40px 40px; text-align:center; background-color:rgba(255,255,255,0.02);">
-                            <p style="margin:0; font-size:13px; font-weight:700; color:rgba(255,255,255,0.9);">
-                                BROKERGY · Ingeniería Energética
-                            </p>
-                            <p style="margin:5px 0 0; font-size:12px; color:rgba(255,255,255,0.4);">
-                                <a href="https://brokergy.es" style="color:#f59e0b; text-decoration:none;">brokergy.es</a>
-                            </p>
-                        </td>
-                    </tr>
-                </table>
-            </td>
-        </tr>
-    </table>
-</body>
-</html>`;
+    const html = brandEmailShell({
+        preheader: isB2B ? `Propuesta para ${summaryData.clienteName || 'vuestro cliente'} (Exp. ${summaryData.id}).` : 'Aquí tienes tu propuesta de ayudas energéticas.',
+        title: 'Tu propuesta',
+        pill: PILL.info('Propuesta de ayudas'),
+        contentHtml:
+            greetingHtml + casosHtml + irpfNote + tableHtml + pasosHtml + botonesHtml +
+            emailP(`Quedo a ${isB2B ? 'vuestra' : 'tu'} disposición para cualquier duda o aclaración.`, { size: 14, color: BRAND.muted, center: true, mb: 0 }),
+        footerNote: `<a href="https://brokergy.es" style="color:${BRAND.greenDark};text-decoration:none;">brokergy.es</a>`,
+    });
 
     const text = isB2B
         ? `¡Hola, ${userName}!\n\nAdjuntamos la propuesta para vuestro cliente ${summaryData.clienteName || ''} (Exp. ${summaryData.id}).\n\nEnlace de firma para el cliente: ${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/firma/${summaryData.urlId || summaryData.id}\n\nBROKERGY · Ingeniería Energética`
@@ -594,129 +346,38 @@ const sendAcceptanceNotificationEmail = async ({ to, userName, numeroExpediente,
 
     const whatsAppLink = `https://wa.me/34623926179?text=${encodeURIComponent(`Hola, soy ${userName}. Mi número de expediente es ${numeroExpediente || 'A consultar'}. Aquí envío la documentación solicitada.`)}`;
 
-    const html = `
-<!DOCTYPE html>
-<html lang="es">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-</head>
-<body style="margin:0; padding:0; background-color:#0a0e1a; font-family:'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif; color:#ffffff;">
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#0a0e1a; padding:40px 20px;">
-        <tr>
-            <td align="center">
-                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px; background-color:#111827; border-radius:24px; border:1px solid rgba(255,255,255,0.06); overflow:hidden;">
-                    
-                    <!-- Header gradient bar -->
-                    <tr>
-                        <td style="height:4px; background:linear-gradient(90deg, #f59e0b, #ea580c);"></td>
-                    </tr>
-                    
-                    <!-- Logo / Brand -->
-                    <tr>
-                        <td style="padding:40px 40px 20px;">
-                            <div style="font-size:24px; font-weight:900; letter-spacing:-0.5px; text-align:center;">
-                                <span style="color:#f59e0b;">BROKERGY </span>
-                                <span style="color:#ffffff; font-weight: 500;">· Ingeniería Energética</span>
-                            </div>
-                        </td>
-                    </tr>
-                    
-                    <!-- Content Body -->
-                    <tr>
-                        <td style="padding:10px 40px 30px;">
-                            <h2 style="margin:0 0 20px; font-size:20px; font-weight:800; color:#ffffff; letter-spacing:-0.3px;">
-                                ¡Hola, ${userName || 'cliente'}!
-                            </h2>
-                            <p style="margin:0 0 15px; font-size:15px; line-height:1.6; color:rgba(255,255,255,0.7);">
-                                Hemos recibido correctamente la aceptación de tu propuesta. <strong>Muchas gracias por confiar en Brokergy.</strong>
-                            </p>
-                            
-                            ${numeroExpediente ? `
-                            <div style="margin: 20px 0; padding: 15px; background-color: rgba(245,158,11,0.1); border-left: 4px solid #f59e0b; border-radius: 4px;">
-                                <p style="margin: 0; font-size: 15px; color: #ffffff;">
-                                    Tu número de expediente asignado es: <strong style="color: #f59e0b;">${numeroExpediente}</strong>
-                                </p>
-                            </div>
-                            ` : ''}
-
-                            <p style="margin:0 0 25px; font-size:15px; line-height:1.6; color:rgba(255,255,255,0.7);">
-                                A partir de este momento, uno de nuestros certificadores comenzará a preparar el <strong style="color:#f59e0b;">Certificado de Eficiencia Energética inicial</strong>. 
-                                Es muy importante que este certificado quede emitido y registrado <strong>antes de la última factura de la obra</strong>, ya que, de lo contrario, podrían surgir problemas para aplicar las deducciones fiscales. Además, este documento es necesario para tramitar correctamente tu expediente CAE.
-                            </p>
-                            
-                            <div style="background-color:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.08); border-radius:16px; padding:25px; margin:25px 0;">
-                                <h3 style="margin:0 0 15px; font-size:14px; font-weight:800; color:#f59e0b; text-transform:uppercase; letter-spacing:1px;">📁 Documentación previa necesaria</h3>
-                                <ul style="margin:0; padding:0 0 0 18px; font-size:14px; line-height:1.8; color:rgba(255,255,255,0.6);">
-                                    <li>Planos de la vivienda o croquis de distribución.</li>
-                                    <li>Foto general de la caldera existente.</li>
-                                    <li>Foto de la placa de características de la caldera, bien legible.</li>
-                                    <li>Si la caldera ya no está instalada, fotos del hueco donde estaba.</li>
-                                    <li>Fotos de los radiadores (al menos uno por estancia) o del colector, si hay suelo radiante.</li>
-                                    <li>Vídeo corto recorriendo la vivienda, mostrando estancias, ventanas, puertas y accesos al exterior.</li>
-                                    <li>Fotos de las fachadas o paredes exteriores, incluyendo ventanas y puertas.</li>
-                                    <li>Si vas a cambiar ventanas o mejorar aislamiento, fotos y presupuesto.</li>
-                                </ul>
-                            </div>
-
-                            <p style="margin:0 0 15px; font-size:14px; line-height:1.6; color:rgba(255,255,255,0.5);">
-                                No hace falta que nos lo envíes todo de una sola vez; puedes mandarlo poco a poco conforme lo vayas recopilando.
-                            </p>
-                            
-                            <p style="margin:0 0 20px; font-size:14px; line-height:1.6; color:#f59e0b;">
-                                <strong>Importante:</strong> procura que las fotos tengan buena luz y que las placas de características se vean perfectamente, para evitar retrasos en la tramitación.
-                            </p>
-
-                            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top: 30px;">
-                                <tr>
-                                    <td>
-                                        <h3 style="margin:0 0 15px; font-size:16px; font-weight:700; color:#ffffff;">Puedes enviarlo por:</h3>
-                                        
-                                        ${uploadLink ? `
-                                        <div style="margin-bottom: 20px; text-align: center;">
-                                            <a href="${uploadLink}" target="_blank" style="display:inline-block; padding:14px 40px; background:linear-gradient(135deg, #0f8f66, #047857); color:#ffffff; font-size:15px; font-weight:900; text-decoration:none; border-radius:12px; letter-spacing:0.3px; width: 80%; max-width: 300px; box-shadow: 0 4px 15px rgba(16,185,129,0.3);">
-                                                📂 SUBIR DOCUMENTACIÓN AQUÍ
-                                            </a>
-                                        </div>
-                                        ` : ''}
-
-                                        <div style="display: flex; gap: 15px; align-items: center; margin-bottom: 20px;">
-                                            <div style="flex: 1; background-color:rgba(37,99,235,0.1); border:1px solid rgba(37,99,235,0.2); border-radius:12px; padding:15px; text-align:center;">
-                                                <div style="font-size: 11px; text-transform: uppercase; color: #60a5fa; font-weight: 800; margin-bottom: 5px;">Email</div>
-                                                <a href="mailto:info@brokergy.es?subject=${encodeURIComponent(`Documentación Expediente ${numeroExpediente || ''}`)}" style="color:#ffffff; text-decoration:none; font-weight:700; font-size: 14px;">info@brokergy.es</a>
-                                            </div>
-                                            <div style="flex: 1; background-color:rgba(16,185,129,0.1); border:1px solid rgba(16,185,129,0.2); border-radius:12px; padding:15px; text-align:center;">
-                                                <div style="font-size: 11px; text-transform: uppercase; color: #34d399; font-weight: 800; margin-bottom: 5px;">WhatsApp</div>
-                                                <a href="${whatsAppLink}" style="color:#ffffff; text-decoration:none; font-weight:700; font-size: 14px;">623 926 179</a>
-                                            </div>
-                                        </div>
-                                    </td>
-                                </tr>
-                            </table>
-
-                            <p style="margin:30px 0 0; font-size:14px; line-height:1.6; color:rgba(255,255,255,0.5); text-align:center;">
-                                En cuanto recibamos la documentación, continuaremos con la tramitación de tu expediente.
-                            </p>
-                        </td>
-                    </tr>
-                    
-                    <!-- Footer -->
-                    <tr>
-                        <td style="padding:10px 40px 40px; text-align:center; background-color:rgba(255,255,255,0.02);">
-                            <p style="margin:0; font-size:13px; font-weight:700; color:rgba(255,255,255,0.9);">
-                                Un saludo,<br>Equipo BROKERGY
-                            </p>
-                            <p style="margin:10px 0 0; font-size:12px; color:rgba(255,255,255,0.4);">
-                                <a href="https://brokergy.es" style="color:#f59e0b; text-decoration:none;">brokergy.es</a>
-                            </p>
-                        </td>
-                    </tr>
-                </table>
-            </td>
-        </tr>
-    </table>
-</body>
-</html>`;
+    const html = brandEmailShell({
+        preheader: 'Hemos recibido la aceptación de tu propuesta.',
+        title: 'Aceptación recibida',
+        pill: PILL.success('Aceptación recibida'),
+        contentHtml:
+            emailP(`¡Hola, ${escapeHtml(userName || 'cliente')}!`, { size: 20, bold: true, mb: 20 }) +
+            emailP('Hemos recibido correctamente la aceptación de tu propuesta. <strong>Muchas gracias por confiar en Brokergy.</strong>', { color: BRAND.muted, mb: 15 }) +
+            (numeroExpediente ? emailBox(emailP(`Tu número de expediente asignado es: <strong style="color:${BRAND.orangeDark};">${escapeHtml(numeroExpediente)}</strong>`, { mb: 0 }), { bg: BRAND.orangeTint, border: BRAND.orange, mb: 22 }) : '') +
+            emailP('A partir de este momento, uno de nuestros certificadores comenzará a preparar el <strong>Certificado de Eficiencia Energética inicial</strong>. Es muy importante que este certificado quede emitido y registrado <strong>antes de la última factura de la obra</strong>, ya que, de lo contrario, podrían surgir problemas para aplicar las deducciones fiscales. Además, este documento es necesario para tramitar correctamente tu expediente CAE.', { color: BRAND.muted, mb: 22 }) +
+            emailBox(
+                emailP('📁 Documentación previa necesaria', { size: 14, bold: true, color: BRAND.orangeDark, mb: 12 }) +
+                `<ul style="margin:0;padding:0 0 0 18px;font-size:14px;line-height:1.8;color:${BRAND.muted};"><li>Planos de la vivienda o croquis de distribución.</li><li>Foto general de la caldera existente.</li><li>Foto de la placa de características de la caldera, bien legible.</li><li>Si la caldera ya no está instalada, fotos del hueco donde estaba.</li><li>Fotos de los radiadores (al menos uno por estancia) o del colector, si hay suelo radiante.</li><li>Vídeo corto recorriendo la vivienda, mostrando estancias, ventanas, puertas y accesos al exterior.</li><li>Fotos de las fachadas o paredes exteriores, incluyendo ventanas y puertas.</li><li>Si vas a cambiar ventanas o mejorar aislamiento, fotos y presupuesto.</li></ul>`,
+                { mb: 22 }
+            ) +
+            emailP('No hace falta que nos lo envíes todo de una sola vez; puedes mandarlo poco a poco conforme lo vayas recopilando.', { size: 14, color: BRAND.muted, mb: 15 }) +
+            emailP('<strong>Importante:</strong> procura que las fotos tengan buena luz y que las placas de características se vean perfectamente, para evitar retrasos en la tramitación.', { size: 14, color: BRAND.orangeDark, mb: 22 }) +
+            `<h3 style="margin:8px 0 15px;font-size:16px;font-weight:700;color:${BRAND.text};">Puedes enviarlo por:</h3>` +
+            (uploadLink ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;"><tr><td align="center">${emailButton(uploadLink, '📂 Subir documentación aquí')}</td></tr></table>` : '') +
+            `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:22px;"><tr>
+               <td width="48%" style="background:${BRAND.soft};border:1px solid ${BRAND.border};border-radius:10px;padding:15px;text-align:center;">
+                 <div style="font-size:11px;text-transform:uppercase;color:${BRAND.muted};font-weight:800;margin-bottom:5px;">Email</div>
+                 <a href="mailto:info@brokergy.es?subject=${encodeURIComponent(`Documentación Expediente ${numeroExpediente || ''}`)}" style="color:${BRAND.text};text-decoration:none;font-weight:700;font-size:14px;">info@brokergy.es</a>
+               </td>
+               <td width="4%"></td>
+               <td width="48%" style="background:${BRAND.greenTint};border:1px solid ${BRAND.green};border-radius:10px;padding:15px;text-align:center;">
+                 <div style="font-size:11px;text-transform:uppercase;color:${BRAND.greenDark};font-weight:800;margin-bottom:5px;">WhatsApp</div>
+                 <a href="${whatsAppLink}" style="color:${BRAND.text};text-decoration:none;font-weight:700;font-size:14px;">623 926 179</a>
+               </td>
+             </tr></table>` +
+            emailP('En cuanto recibamos la documentación, continuaremos con la tramitación de tu expediente.', { size: 14, color: BRAND.muted, center: true, mb: 0 }),
+        footerNote: `Un saludo, Equipo BROKERGY · <a href="https://brokergy.es" style="color:${BRAND.greenDark};text-decoration:none;">brokergy.es</a>`,
+    });
 
     const text = `¡Hola, ${userName}!\n\nHemos recibido correctamente la aceptación de tu propuesta. Muchas gracias.\n\n${numeroExpediente ? `Tu número de expediente es: ${numeroExpediente}\n\n` : ''}A partir de ahora, comenzaremos a preparar el Certificado de Eficiencia Energética inicial.\n\nNecesitamos que nos envíes la siguiente documentación:\n- Planos o croquis.\n- Fotos de la caldera y su placa.\n- Fotos de radiadores/colector.\n- Vídeo corto de la vivienda.\n- Fotos de fachadas y ventanas.\n\n${uploadLink ? `Puedes subir tu documentación directamente aquí:\n${uploadLink}\n\nO también p` : `P`}uedes enviarlo por:\nEmail: info@brokergy.es\nWhatsApp: 623 926 179\n\nUn saludo,\nEquipo BROKERGY`;
 
@@ -731,66 +392,19 @@ const sendAnnexEmail = async ({ to, userName, attachments, customMessage, summar
     const subject = `${docType} — Brokergy (${summaryData.id})`;
     
     // Convertir formato WhatsApp (*bold*) a HTML (<b>bold</b>)
-    const formattedMessage = customMessage ? customMessage.replace(/\*(.*?)\*/g, '<b style="color:#ffffff;">$1</b>') : null;
-    
-    const html = `
-<!DOCTYPE html>
-<html lang="es">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-</head>
-<body style="margin:0; padding:0; background-color:#0a0e1a; font-family:'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif; color:#ffffff;">
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#0a0e1a; padding:40px 20px;">
-        <tr>
-            <td align="center">
-                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px; background-color:#111827; border-radius:24px; border:1px solid rgba(255,255,255,0.06); overflow:hidden;">
-                    
-                    <!-- Header gradient bar -->
-                    <tr>
-                        <td style="height:4px; background:linear-gradient(90deg, #f59e0b, #ea580c);"></td>
-                    </tr>
-                    
-                    <!-- Logo / Brand -->
-                    <tr>
-                        <td style="padding:40px 40px 20px; text-align:center;">
-                            <div style="font-size:24px; font-weight:900; letter-spacing:-0.5px;">
-                                <span style="color:#f59e0b;">BROKERGY </span>
-                                <span style="color:#ffffff; font-weight: 500;">· Ingeniería Energética</span>
-                            </div>
-                        </td>
-                    </tr>
-                    
-                    <!-- Content Body -->
-                    <tr>
-                        <td style="padding:10px 40px 40px;">
-                            <div style="font-size:15px; line-height:1.7; color:rgba(255,255,255,0.8); white-space: pre-wrap;">${formattedMessage || `Hola, ${userName || 'cliente'}. Adjuntamos la documentación solicitada relativa a tu expediente ${summaryData.id}.`}</div>
-                            
-                            <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid rgba(255,255,255,0.06); text-align:center;">
-                                <p style="margin:0; font-size:13px; color:rgba(255,255,255,0.4);">
-                                    Quedamos a tu disposición para cualquier duda o aclaración.
-                                </p>
-                            </div>
-                        </td>
-                    </tr>
-                    
-                    <!-- Footer -->
-                    <tr>
-                        <td style="padding:20px 40px 40px; text-align:center; background-color:rgba(255,255,255,0.02);">
-                            <p style="margin:0; font-size:13px; font-weight:700; color:rgba(255,255,255,0.9);">
-                                BROKERGY · Ingeniería Energética
-                            </p>
-                            <p style="margin:5px 0 0; font-size:12px; color:rgba(255,255,255,0.4);">
-                                <a href="https://brokergy.es" style="color:#f59e0b; text-decoration:none;">brokergy.es</a>
-                            </p>
-                        </td>
-                    </tr>
-                </table>
-            </td>
-        </tr>
-    </table>
-</body>
-</html>`;
+    const formattedMessage = customMessage ? escapeHtml(customMessage).replace(/\*(.*?)\*/g, '<b>$1</b>') : null;
+    const attachCount = Array.isArray(attachments) ? attachments.length : 0;
+
+    const html = brandEmailShell({
+        preheader: `${docType} de tu expediente ${summaryData.id}.`,
+        title: docType,
+        pill: PILL.info('Documentación'),
+        contentHtml:
+            emailP(formattedMessage || `Hola, ${escapeHtml(userName || 'cliente')}. Adjuntamos la documentación solicitada relativa a tu expediente ${escapeHtml(summaryData.id)}.`, { pre: true, mb: 22 }) +
+            (attachCount ? emailP(`📎 Se adjunta${attachCount > 1 ? 'n' : ''} ${attachCount} archivo(s) a este correo.`, { size: 12, color: BRAND.muted, center: true, mb: 22 }) : '') +
+            emailP('Quedamos a tu disposición para cualquier duda o aclaración.', { size: 13, color: BRAND.muted, center: true, mb: 0 }),
+        footerNote: `<a href="https://brokergy.es" style="color:${BRAND.greenDark};text-decoration:none;">brokergy.es</a>`,
+    });
 
     const text = customMessage || `Hola ${userName},\n\nAdjuntamos la documentación solicitada (${docType}) para tu expediente ${summaryData.id}.\n\nQuedamos a tu disposición.\n\nBROKERGY · Ingeniería Energética`;
 
@@ -805,82 +419,24 @@ const sendAdminNotificationEmail = async ({ numeroExpediente, clientName, addres
     const subject = `${numeroExpediente || 'S/N'} – ACEPTACION DE EXPEDIENTE`;
     const deepLink = `${process.env.FRONTEND_URL || 'https://app.brokergy.es'}?exp=${numeroExpediente || ''}`;
 
-    const html = `
-<!DOCTYPE html>
-<html lang="es">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-</head>
-<body style="margin:0; padding:0; background-color:#0a0e1a; font-family:'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif; color:#ffffff;">
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#0a0e1a; padding:40px 20px;">
-        <tr>
-            <td align="center">
-                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px; background-color:#111827; border-radius:24px; border:1px solid rgba(255,255,255,0.06); overflow:hidden;">
-                    <tr>
-                        <td style="height:4px; background:linear-gradient(90deg, #f59e0b, #ea580c);"></td>
-                    </tr>
-                    <tr>
-                        <td style="padding:30px 40px; text-align:center;">
-                            <div style="font-size:22px; font-weight:900; letter-spacing:-0.5px; color:#f59e0b;">
-                                ACEPTACIÓN DE EXPEDIENTE
-                            </div>
-                        </td>
-                    </tr>
-                    <tr>
-                        <td style="padding:0 40px 30px;">
-                            <p style="margin:0 0 20px; font-size:16px; line-height:1.6; color:#ffffff;">
-                                ¡Hola BROKERGY! 👋
-                            </p>
-                            <p style="margin:0 0 20px; font-size:15px; line-height:1.6; color:rgba(255,255,255,0.7);">
-                                El cliente <strong>${clientName || 'S/N'}</strong> ha firmado y aceptado la propuesta desde el portal público. Se ha generado un nuevo expediente automáticamente.
-                            </p>
-                            
-                            <div style="background-color:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:16px; padding:20px; margin-bottom:25px;">
-                                <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
-                                    <tr><td style="padding:5px 0; font-size:13px; color:rgba(255,255,255,0.4); text-transform:uppercase;">Expediente</td></tr>
-                                    <tr><td style="padding:0 0 15px; font-size:18px; font-weight:800; color:#f59e0b;">${numeroExpediente || 'PENDIENTE'}</td></tr>
-                                    
-                                    <tr><td style="padding:5px 0; font-size:13px; color:rgba(255,255,255,0.4); text-transform:uppercase;">Cliente</td></tr>
-                                    <tr><td style="padding:0 0 15px; font-size:15px; font-weight:700; color:#ffffff;">${clientName || 'S/N'}</td></tr>
-                                    
-                                    <tr><td style="padding:5px 0; font-size:13px; color:rgba(255,255,255,0.4); text-transform:uppercase;">Dirección</td></tr>
-                                    <tr><td style="padding:0 0 15px; font-size:14px; color:rgba(255,255,255,0.7);">${address || 'S/N'}</td></tr>
-                                    
-                                    <tr><td style="padding:5px 0; font-size:13px; color:rgba(255,255,255,0.4); text-transform:uppercase;">Instalador</td></tr>
-                                    <tr><td style="padding:0 0 15px; font-size:14px; color:rgba(255,255,255,0.7);">${installerName || 'No asignado'}</td></tr>
-
-                                    ${notes ? `
-                                    <tr><td style="padding:5px 0; font-size:13px; color:rgba(255,255,255,0.4); text-transform:uppercase;">Notas</td></tr>
-                                    <tr><td style="padding:0 0 15px; font-size:14px; color:rgba(255,255,255,0.7); font-style:italic;">"${notes}"</td></tr>
-                                    ` : ''}
-                                </table>
-                            </div>
-
-                            <p style="margin:0 0 30px; font-size:14px; line-height:1.6; color:rgba(255,255,255,0.6);">
-                                Debes ponerte en contacto con el cliente para iniciar el expediente para realizar el Certificado de Eficiencia Energética.
-                            </p>
-
-                            <div style="text-align:center;">
-                                <a href="${deepLink}" target="_blank" style="display:inline-block; padding:14px 40px; background:linear-gradient(135deg, #f59e0b, #ea580c); color:#0a0e1a; font-size:15px; font-weight:900; text-decoration:none; border-radius:12px; letter-spacing:0.3px; box-shadow: 0 4px 15px rgba(245,158,11,0.3);">
-                                    🚀 GESTIONAR EXPEDIENTE
-                                </a>
-                            </div>
-                        </td>
-                    </tr>
-                    <tr>
-                        <td style="padding:20px 40px 40px; text-align:center; background-color:rgba(255,255,255,0.02);">
-                            <p style="margin:0; font-size:12px; color:rgba(255,255,255,0.2); text-transform:uppercase; letter-spacing:1px;">
-                                Sistema Automático Brokergy
-                            </p>
-                        </td>
-                    </tr>
-                </table>
-            </td>
-        </tr>
-    </table>
-</body>
-</html>`;
+    const html = brandEmailShell({
+        preheader: `${clientName || 'Un cliente'} ha aceptado la propuesta — expediente ${numeroExpediente || 'nuevo'}.`,
+        title: 'Aceptación de expediente',
+        pill: PILL.success('Expediente aceptado'),
+        contentHtml:
+            emailP('¡Hola BROKERGY! 👋', { size: 16, mb: 20 }) +
+            emailP(`El cliente <strong>${escapeHtml(clientName || 'S/N')}</strong> ha firmado y aceptado la propuesta desde el portal público. Se ha generado un nuevo expediente automáticamente.`, { color: BRAND.muted, mb: 22 }) +
+            emailBox(emailDataTable([
+                ['Expediente', `<span style="color:${BRAND.orangeDark};">${escapeHtml(numeroExpediente || 'PENDIENTE')}</span>`],
+                ['Cliente', escapeHtml(clientName || 'S/N')],
+                ['Dirección', escapeHtml(address || 'S/N')],
+                ['Instalador', escapeHtml(installerName || 'No asignado')],
+                notes ? ['Notas', `<em>"${escapeHtml(notes)}"</em>`] : null,
+            ]), { mb: 22 }) +
+            emailP('Debes ponerte en contacto con el cliente para iniciar el expediente para realizar el Certificado de Eficiencia Energética.', { color: BRAND.muted, mb: 22 }) +
+            `<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">${emailButton(deepLink, '🚀 Gestionar expediente', BRAND.orange)}</td></tr></table>`,
+        footerNote: 'Sistema Automático Brokergy',
+    });
 
     const text = `ACEPTACIÓN DE EXPEDIENTE: ${numeroExpediente}\n\nDistribuidor: ${distributorName}\nCliente: ${clientName}\nDirección: ${address}\nInstalador: ${installerName}\n\nAcceso directo: ${deepLink}`;
 
@@ -908,149 +464,73 @@ const sendCertificadorNotificationEmail = async ({
     const isUrgent = priority === 'urgent';
     const subject = `${isUrgent ? '🚨 URGENTE — ' : ''}“${expedienteNum} ENCARGO CEE (${tipoLabel}) – “${clienteUpper}”`;
 
-    const urgentBannerHtml = isUrgent ? `
-        <tr><td style="padding:14px 24px; background:linear-gradient(135deg,#dc2626,#991b1b); text-align:center;">
-            <p style="margin:0; font-size:13px; font-weight:900; color:#ffffff; letter-spacing:2px; text-transform:uppercase;">🚨 Encargo Urgente 🚨</p>
-        </td></tr>
-    ` : '';
-
-    const adminMessageHtml = (adminMessage && !customMessage) ? `
-        <div style="background:rgba(245,158,11,0.06); border-left:3px solid #f59e0b; border-radius:10px; padding:16px 20px; margin:22px 0;">
-            <p style="margin:0 0 8px; font-size:11px; font-weight:800; color:#f59e0b; text-transform:uppercase; letter-spacing:1.5px;">💬 Mensaje de Brokergy</p>
-            <p style="margin:0; font-size:14px; line-height:1.6; color:rgba(255,255,255,0.85); white-space:pre-wrap;">${escapeHtml(adminMessage)}</p>
-        </div>
-    ` : '';
+    const adminMessageHtml = (adminMessage && !customMessage) ? emailBox(
+        emailP('💬 Mensaje de Brokergy', { size: 11, bold: true, color: BRAND.orangeDark, mb: 8 }) +
+        emailP(escapeHtml(adminMessage), { size: 14, pre: true, mb: 0 }),
+        { bg: BRAND.orangeTint, border: BRAND.orange, mb: 22 }
+    ) : '';
 
     // Bloque de saludo + introducción. Si el admin ha editado el mensaje en el modal,
     // ese texto sustituye al saludo/intro por defecto (manteniendo el resto de la plantilla).
-    const introBlockHtml = customMessage ? `
-                        <p style="margin:0 0 16px; font-size:14px; line-height:1.7; color:rgba(255,255,255,0.78); white-space:pre-wrap;">${escapeHtml(customMessage)}</p>
-    ` : `
-                        <h2 style="margin:0 0 6px; font-size:19px; font-weight:800; color:#ffffff;">Hola ${certName || 'técnico'}!</h2>
-                        <p style="margin:0 0 16px; font-size:14px; line-height:1.6; color:rgba(255,255,255,0.6);">
-                            Te asignamos el expediente <strong style="color:#f59e0b;">${expedienteNum}</strong>
-                            ${clienteName ? `del cliente <strong style="color:#ffffff;">${clienteName}</strong>` : ''} para la emisión del Certificado de Eficiencia Energética.
-                        </p>
+    const introBlockHtml = customMessage
+        ? emailP(escapeHtml(customMessage), { pre: true, mb: 16 })
+        : (
+            emailP(`Hola ${escapeHtml(certName || 'técnico')}!`, { size: 19, bold: true, mb: 6 }) +
+            emailP(`Te asignamos el expediente <strong style="color:${BRAND.orangeDark};">${escapeHtml(expedienteNum)}</strong>${clienteName ? ` del cliente <strong>${escapeHtml(clienteName)}</strong>` : ''} para la emisión del Certificado de Eficiencia Energética.`, { color: BRAND.muted, mb: 16 }) +
+            emailP('A continuación encontrarás las <strong>directrices técnicas</strong> que debes tener en cuenta para que los valores del certificado sean compatibles con la propuesta comercial presentada al cliente:', { color: BRAND.muted, mb: 22 })
+        );
 
-                        <p style="margin:8px 0 6px; font-size:14px; line-height:1.6; color:rgba(255,255,255,0.6);">
-                            A continuación encontrarás las <strong style="color:#ffffff;">directrices técnicas</strong> que debes tener en cuenta para que los valores del certificado sean compatibles con la propuesta comercial presentada al cliente:
-                        </p>
-    `;
-
-    const directrizHtml = isReforma ? `
-        <div style="background:rgba(245,158,11,0.08); border:1px solid rgba(245,158,11,0.3); border-radius:14px; padding:20px 24px; margin:20px 0;">
-            <p style="margin:0 0 6px; font-size:11px; font-weight:800; color:#f59e0b; text-transform:uppercase; letter-spacing:1.5px;">⚡ Directriz Técnica — RES080</p>
-            <p style="margin:0 0 10px; font-size:14px; color:rgba(255,255,255,0.65); line-height:1.6;">
-                Para garantizar el éxito del expediente, el ahorro energético certificado debe situarse, como <strong style="color:#ffffff;">objetivo de seguridad</strong>, <strong style="color:#ffffff;">por encima</strong> de los <strong style="color:#f59e0b;">${ahorroObjetivo ? Math.round(ahorroObjetivo).toLocaleString('es-ES') + ' kWh/año' : '—'}</strong> estimados en la propuesta comercial.
-            </p>
-            <div style="display:flex; gap:12px; flex-wrap:wrap;">
-                <div style="flex:1; min-width:160px; text-align:center; padding:14px; background:rgba(0,0,0,0.3); border-radius:10px;">
-                    <p style="margin:0; font-size:12px; color:rgba(255,255,255,0.4); text-transform:uppercase; letter-spacing:1px;">Ahorro mínimo esperado</p>
-                    <p style="margin:4px 0 0; font-size:26px; font-weight:900; color:#f59e0b;">${ahorroObjetivo ? Math.round(ahorroObjetivo).toLocaleString('es-ES') + ' kWh/año' : 'Consultar propuesta'}</p>
-                </div>
-                ${demandaPerM2 ? `<div style="flex:1; min-width:160px; text-align:center; padding:14px; background:rgba(0,0,0,0.3); border-radius:10px;">
-                    <p style="margin:0; font-size:12px; color:rgba(255,255,255,0.4); text-transform:uppercase; letter-spacing:1px;">Demanda calefacción</p>
-                    <p style="margin:4px 0 0; font-size:26px; font-weight:900; color:#f59e0b;">${demandaPerM2.toFixed(1).replace('.', ',')} kWh/m²·año</p>
-                </div>` : ''}
-            </div>
-        </div>
-    ` : `
-        <div style="background:rgba(245,158,11,0.08); border:1px solid rgba(245,158,11,0.3); border-radius:14px; padding:20px 24px; margin:20px 0;">
-            <p style="margin:0 0 6px; font-size:11px; font-weight:800; color:#f59e0b; text-transform:uppercase; letter-spacing:1.5px;">⚡ Directriz Técnica — ${ficha || 'RES060/RES093'}</p>
-            <p style="margin:0 0 10px; font-size:14px; color:rgba(255,255,255,0.65); line-height:1.6;">
-                Para garantizar el éxito del expediente, la demanda específica de calefacción certificada debe situarse, como <strong style="color:#ffffff;">objetivo de seguridad</strong>, <strong style="color:#ffffff;">por encima</strong> del valor estimado en la propuesta comercial.
-            </p>
-            <div style="text-align:center; padding:18px; background:rgba(0,0,0,0.3); border-radius:10px;">
-                <p style="margin:0; font-size:12px; color:rgba(255,255,255,0.4); text-transform:uppercase; letter-spacing:1px;">Demanda mínima esperada</p>
-                <p style="margin:4px 0 0; font-size:28px; font-weight:900; color:#f59e0b;">${demandaPerM2 ? demandaPerM2.toFixed(1).replace('.', ',') + ' kWh/m²·año' : 'Consultar propuesta'}</p>
-            </div>
-        </div>
-    `;
+    const directrizHtml = isReforma ? emailBox(
+        emailP('⚡ Directriz Técnica — RES080', { size: 11, bold: true, color: BRAND.orangeDark, mb: 6 }) +
+        emailP(`Para garantizar el éxito del expediente, el ahorro energético certificado debe situarse, como <strong>objetivo de seguridad</strong>, <strong>por encima</strong> de los <strong style="color:${BRAND.orangeDark};">${ahorroObjetivo ? Math.round(ahorroObjetivo).toLocaleString('es-ES') + ' kWh/año' : '—'}</strong> estimados en la propuesta comercial.`, { size: 14, color: BRAND.muted, mb: 12 }) +
+        `<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+           <td width="${demandaPerM2 ? '48%' : '100%'}" valign="top" style="background:${BRAND.card};border:1px solid ${BRAND.border};border-radius:8px;padding:14px;text-align:center;">
+             <div style="font-size:11px;color:${BRAND.muted};text-transform:uppercase;letter-spacing:1px;">Ahorro mínimo esperado</div>
+             <div style="font-size:24px;font-weight:800;color:${BRAND.orangeDark};margin-top:4px;">${ahorroObjetivo ? Math.round(ahorroObjetivo).toLocaleString('es-ES') + ' kWh/año' : 'Consultar propuesta'}</div>
+           </td>
+           ${demandaPerM2 ? `<td width="4%"></td><td width="48%" valign="top" style="background:${BRAND.card};border:1px solid ${BRAND.border};border-radius:8px;padding:14px;text-align:center;"><div style="font-size:11px;color:${BRAND.muted};text-transform:uppercase;letter-spacing:1px;">Demanda calefacción</div><div style="font-size:24px;font-weight:800;color:${BRAND.orangeDark};margin-top:4px;">${demandaPerM2.toFixed(1).replace('.', ',')} kWh/m²·año</div></td>` : ''}
+         </tr></table>`,
+        { bg: BRAND.orangeTint, border: BRAND.orange, mb: 22 }
+    ) : emailBox(
+        emailP(`⚡ Directriz Técnica — ${escapeHtml(ficha || 'RES060/RES093')}`, { size: 11, bold: true, color: BRAND.orangeDark, mb: 6 }) +
+        emailP('Para garantizar el éxito del expediente, la demanda específica de calefacción certificada debe situarse, como <strong>objetivo de seguridad</strong>, <strong>por encima</strong> del valor estimado en la propuesta comercial.', { size: 14, color: BRAND.muted, mb: 12 }) +
+        `<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td style="background:${BRAND.card};border:1px solid ${BRAND.border};border-radius:8px;padding:16px;text-align:center;"><div style="font-size:11px;color:${BRAND.muted};text-transform:uppercase;letter-spacing:1px;">Demanda mínima esperada</div><div style="font-size:26px;font-weight:800;color:${BRAND.orangeDark};margin-top:4px;">${demandaPerM2 ? demandaPerM2.toFixed(1).replace('.', ',') + ' kWh/m²·año' : 'Consultar propuesta'}</div></td></tr></table>`,
+        { bg: BRAND.orangeTint, border: BRAND.orange, mb: 22 }
+    );
 
     // Bloque de datos del cliente (solo si hay info)
-    const clienteInfoHtml = clienteData ? `
-        <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:14px; padding:18px 22px; margin:24px 0;">
-            <p style="margin:0 0 12px; font-size:11px; font-weight:800; color:rgba(255,255,255,0.55); text-transform:uppercase; letter-spacing:1.5px;">📋 Datos del cliente</p>
-            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:13px; line-height:1.7; color:rgba(255,255,255,0.7);">
-                ${clienteData.nombre ? `<tr><td style="width:140px; padding:3px 0; color:rgba(255,255,255,0.4); font-size:11px; text-transform:uppercase; letter-spacing:0.5px;">Nombre y apellidos</td><td style="padding:3px 0; color:#ffffff; font-weight:600;">${clienteData.nombre}</td></tr>` : ''}
-                ${clienteData.dni ? `<tr><td style="padding:3px 0; color:rgba(255,255,255,0.4); font-size:11px; text-transform:uppercase; letter-spacing:0.5px;">DNI</td><td style="padding:3px 0; color:#ffffff; font-family:monospace;">${clienteData.dni}</td></tr>` : ''}
-                ${clienteData.tlf ? `<tr><td style="padding:3px 0; color:rgba(255,255,255,0.4); font-size:11px; text-transform:uppercase; letter-spacing:0.5px;">Teléfono</td><td style="padding:3px 0;"><a href="tel:${clienteData.tlf}" style="color:#f59e0b; text-decoration:none;">${clienteData.tlf}</a></td></tr>` : ''}
-                ${clienteData.email ? `<tr><td style="padding:3px 0; color:rgba(255,255,255,0.4); font-size:11px; text-transform:uppercase; letter-spacing:0.5px;">Email</td><td style="padding:3px 0;"><a href="mailto:${clienteData.email}" style="color:#f59e0b; text-decoration:none;">${clienteData.email}</a></td></tr>` : ''}
-                ${clienteData.refCatastral ? `<tr><td style="padding:3px 0; color:rgba(255,255,255,0.4); font-size:11px; text-transform:uppercase; letter-spacing:0.5px;">Referencia Catrastral</td><td style="padding:3px 0; color:#ffffff; font-family:monospace; font-size:12px;">${clienteData.refCatastral}</td></tr>` : ''}
-                ${clienteData.direccion ? `<tr><td style="padding:3px 0; color:rgba(255,255,255,0.4); font-size:11px; text-transform:uppercase; letter-spacing:0.5px; vertical-align:top;">Dirección completa</td><td style="padding:3px 0; color:#ffffff;">${clienteData.direccion}</td></tr>` : ''}
-            </table>
-        </div>
-    ` : '';
+    const clienteInfoHtml = clienteData ? emailBox(
+        emailP('📋 Datos del cliente', { size: 11, bold: true, color: BRAND.muted, mb: 12 }) +
+        emailDataTable([
+            clienteData.nombre ? ['Nombre y apellidos', escapeHtml(clienteData.nombre)] : null,
+            clienteData.dni ? ['DNI', escapeHtml(clienteData.dni)] : null,
+            clienteData.tlf ? ['Teléfono', `<a href="tel:${escapeHtml(clienteData.tlf)}" style="color:${BRAND.greenDark};text-decoration:none;">${escapeHtml(clienteData.tlf)}</a>`] : null,
+            clienteData.email ? ['Email', `<a href="mailto:${escapeHtml(clienteData.email)}" style="color:${BRAND.greenDark};text-decoration:none;">${escapeHtml(clienteData.email)}</a>`] : null,
+            clienteData.refCatastral ? ['Referencia Catastral', escapeHtml(clienteData.refCatastral)] : null,
+            clienteData.direccion ? ['Dirección completa', escapeHtml(clienteData.direccion)] : null,
+        ]),
+        { mb: 22 }
+    ) : '';
 
-    const html = `
-<!DOCTYPE html>
-<html lang="es">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
-<body style="margin:0; padding:0; background-color:#0a0e1a; font-family:'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif; color:#ffffff;">
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#0a0e1a; padding:40px 20px;">
-        <tr><td align="center">
-            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px; background-color:#111827; border-radius:24px; border:1px solid rgba(255,255,255,0.06); overflow:hidden;">
-                <tr><td style="height:4px; background:linear-gradient(90deg, #f59e0b, #ea580c);"></td></tr>
-                ${urgentBannerHtml}
-                <tr>
-                    <td style="padding:40px 40px 10px;">
-                        <div style="font-size:22px; font-weight:900; letter-spacing:-0.5px; text-align:center;">
-                            <span style="color:#f59e0b;">BROKERGY </span><span style="color:#ffffff; font-weight:500;">· Ingeniería Energética</span>
-                        </div>
-                    </td>
-                </tr>
-                <tr>
-                    <td style="padding:10px 40px 30px;">
-                        ${introBlockHtml}
+    const botonesHtml = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0">` +
+        (ackLink ? `<tr><td align="center" style="padding-bottom:12px;">${emailButton(ackLink, '✅ Aceptar Encargo')}</td></tr>` : '') +
+        (portalLink ? `<tr><td align="center" style="padding-bottom:12px;">${emailButton(portalLink, '🔗 Acceder al Portal', BRAND.orange)}</td></tr>` : '') +
+        (ceeFolderLink ? `<tr><td align="center">${emailOutlineButton(ceeFolderLink, '📁 Acceder a Carpeta CEE')}</td></tr>` : '') +
+        `</table>` +
+        (ceeFolderLink ? emailP('Tienes acceso de <strong>edición</strong> a la carpeta de documentos del expediente. Sube ahí el certificado emitido.', { size: 12, color: BRAND.muted, center: true, mb: 0 }) : '');
 
-                        ${directrizHtml}
-
-                        ${clienteInfoHtml}
-
-                        ${adminMessageHtml}
-
-                        <h3 style="margin:24px 0 12px; font-size:14px; font-weight:700; color:#ffffff;">Accesos directos:</h3>
-                        <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
-                            ${ackLink ? `
-                            <tr><td align="center" style="padding-bottom:12px;">
-                                <a href="${ackLink}" target="_blank" style="display:inline-block; padding:14px 32px; background:linear-gradient(135deg, #10b981, #059669); color:#ffffff; font-size:14px; font-weight:800; text-decoration:none; border-radius:10px; width:80%; max-width:280px; box-sizing:border-box; text-align:center; text-transform:uppercase; letter-spacing:1px; box-shadow:0 4px 14px rgba(16,185,129,0.4);">
-                                    ✅ Aceptar Encargo
-                                </a>
-                            </td></tr>` : ''}
-                            ${portalLink ? `
-                            <tr><td align="center" style="padding-bottom:10px;">
-                                <a href="${portalLink}" target="_blank" style="display:inline-block; padding:12px 32px; background:linear-gradient(135deg, #f59e0b, #ea580c); color:#0a0e1a; font-size:14px; font-weight:800; text-decoration:none; border-radius:10px; width:80%; max-width:280px; box-sizing:border-box; text-align:center;">
-                                    🔗 Acceder al Portal
-                                </a>
-                            </td></tr>` : ''}
-                            ${ceeFolderLink ? `
-                            <tr><td align="center">
-                                <a href="${ceeFolderLink}" target="_blank" style="display:inline-block; padding:12px 32px; background-color:rgba(245,158,11,0.12); border:1px solid rgba(245,158,11,0.4); color:#f59e0b; font-size:14px; font-weight:800; text-decoration:none; border-radius:10px; width:80%; max-width:280px; box-sizing:border-box; text-align:center;">
-                                    📁 Acceder a Carpeta CEE
-                                </a>
-                            </td></tr>` : ''}
-                        </table>
-                        ${ceeFolderLink ? `
-                        <p style="margin:14px 0 0; font-size:12px; color:rgba(255,255,255,0.35); text-align:center;">
-                            Tienes acceso de <strong style="color:rgba(255,255,255,0.55);">edición</strong> a la carpeta de documentos del expediente. Sube ahí el certificado emitido.
-                        </p>` : ''}
-
-                        <p style="margin:28px 0 0; font-size:13px; line-height:1.6; color:rgba(255,255,255,0.35); text-align:center;">
-                            Ante cualquier duda técnica, contacta con Brokergy antes de emitir el certificado.
-                        </p>
-                    </td>
-                </tr>
-                <tr>
-                    <td style="padding:10px 40px 32px; text-align:center; background-color:rgba(255,255,255,0.02); border-top:1px solid rgba(255,255,255,0.04);">
-                        <p style="margin:0; font-size:12px; font-weight:700; color:rgba(255,255,255,0.5);">BROKERGY · Ingeniería Energética</p>
-                        <p style="margin:4px 0 0; font-size:11px; color:rgba(255,255,255,0.25);"><a href="https://brokergy.es" style="color:#f59e0b; text-decoration:none;">brokergy.es</a></p>
-                    </td>
-                </tr>
-            </table>
-        </td></tr>
-    </table>
-</body>
-</html>`;
+    const html = brandEmailShell({
+        preheader: `Encargo CEE (${tipoLabel}) del expediente ${expedienteNum}.`,
+        title: 'Encargo de Certificado',
+        pill: isUrgent ? PILL.warning('Encargo urgente', '🚨') : PILL.neutral('Nuevo encargo', '📩'),
+        contentHtml:
+            introBlockHtml + directrizHtml + clienteInfoHtml + adminMessageHtml +
+            `<h3 style="margin:8px 0 12px;font-size:14px;font-weight:700;color:${BRAND.text};">Accesos directos:</h3>` +
+            botonesHtml +
+            `<div style="height:20px;line-height:20px;font-size:0;">&nbsp;</div>` +
+            emailP('Ante cualquier duda técnica, contacta con Brokergy antes de emitir el certificado.', { size: 13, color: BRAND.muted, center: true, mb: 0 }),
+        footerNote: `<a href="https://brokergy.es" style="color:${BRAND.greenDark};text-decoration:none;">brokergy.es</a>`,
+    });
 
     const clienteText = clienteData ? [
         clienteData.nombre ? `Cliente: ${clienteData.nombre}` : null,
@@ -1088,100 +568,47 @@ const sendCertificadorFinalNotificationEmail = async ({
     const isUrgent = priority === 'urgent';
     const subject = `${isUrgent ? '🚨 URGENTE — ' : ''}“${expedienteNum} ENCARGO CEE FINAL (${tipoLabel}) – “${clienteUpper}”`;
 
-    const urgentBannerHtml = isUrgent ? `
-        <tr><td style="padding:14px 24px; background:linear-gradient(135deg,#dc2626,#991b1b); text-align:center;">
-            <p style="margin:0; font-size:13px; font-weight:900; color:#ffffff; letter-spacing:2px; text-transform:uppercase;">🚨 Encargo Urgente 🚨</p>
-        </td></tr>
-    ` : '';
+    const adminMessageHtml = (adminMessage && !customMessage) ? emailBox(
+        emailP('💬 Mensaje de Brokergy', { size: 11, bold: true, color: BRAND.orangeDark, mb: 8 }) +
+        emailP(escapeHtml(adminMessage), { size: 14, pre: true, mb: 0 }),
+        { bg: BRAND.orangeTint, border: BRAND.orange, mb: 22 }
+    ) : '';
 
-    const adminMessageHtml = (adminMessage && !customMessage) ? `
-        <div style="background:rgba(245,158,11,0.06); border-left:3px solid #f59e0b; border-radius:10px; padding:16px 20px; margin:22px 0;">
-            <p style="margin:0 0 8px; font-size:11px; font-weight:800; color:#f59e0b; text-transform:uppercase; letter-spacing:1.5px;">💬 Mensaje de Brokergy</p>
-            <p style="margin:0; font-size:14px; line-height:1.6; color:rgba(255,255,255,0.85); white-space:pre-wrap;">${escapeHtml(adminMessage)}</p>
-        </div>
-    ` : '';
+    const introBlockHtml = customMessage
+        ? emailP(escapeHtml(customMessage), { pre: true, mb: 16 })
+        : (
+            emailP(`¡Hola ${escapeHtml(certName || 'técnico')}!`, { size: 19, bold: true, mb: 6 }) +
+            emailP(`Ya puedes proceder a la emisión del <strong style="color:${BRAND.orangeDark};">Certificado de Eficiencia Energética FINAL</strong> para el expediente <strong>${escapeHtml(expedienteNum)}</strong>.`, { color: BRAND.muted, mb: 16 }) +
+            emailP('Toda la documentación necesaria (facturas, memorias de instalación, fotos de fin de obra) ya está disponible en la carpeta compartida.', { color: BRAND.muted, mb: 22 })
+        );
 
-    const introBlockHtml = customMessage ? `
-                        <p style="margin:0 0 16px; font-size:14px; line-height:1.7; color:rgba(255,255,255,0.78); white-space:pre-wrap;">${escapeHtml(customMessage)}</p>
-    ` : `
-                        <h2 style="margin:0 0 6px; font-size:19px; font-weight:800; color:#ffffff;">¡Hola ${certName || 'técnico'}!</h2>
-                        <p style="margin:0 0 16px; font-size:14px; line-height:1.6; color:rgba(255,255,255,0.6);">
-                            Ya puedes proceder a la emisión del <strong style="color:#f59e0b;">Certificado de Eficiencia Energética FINAL</strong> para el expediente <strong style="color:#ffffff;">${expedienteNum}</strong>.
-                        </p>
+    const clienteInfoHtml = clienteData ? emailBox(
+        emailP('📋 Datos del cliente', { size: 11, bold: true, color: BRAND.muted, mb: 12 }) +
+        emailDataTable([
+            clienteData.nombre ? ['Nombre y apellidos', escapeHtml(clienteData.nombre)] : null,
+            clienteData.refCatastral ? ['Referencia Catastral', escapeHtml(clienteData.refCatastral)] : null,
+            clienteData.direccion ? ['Dirección completa', escapeHtml(clienteData.direccion)] : null,
+        ]),
+        { mb: 22 }
+    ) : '';
 
-                        <p style="margin:8px 0 20px; font-size:14px; line-height:1.6; color:rgba(255,255,255,0.6);">
-                            Toda la documentación necesaria (facturas, memorias de instalación, fotos de fin de obra) ya está disponible en la carpeta compartida.
-                        </p>
-    `;
+    const botonesHtml = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0">` +
+        (portalLink ? `<tr><td align="center" style="padding-bottom:12px;">${emailButton(portalLink, '🔗 Acceder al Portal', BRAND.orange)}</td></tr>` : '') +
+        (ceeFolderLink ? `<tr><td align="center">${emailOutlineButton(ceeFolderLink, '📁 Acceder a Carpeta CEE')}</td></tr>` : '') +
+        `</table>`;
 
-    const clienteInfoHtml = clienteData ? `
-        <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:14px; padding:18px 22px; margin:24px 0;">
-            <p style="margin:0 0 12px; font-size:11px; font-weight:800; color:rgba(255,255,255,0.55); text-transform:uppercase; letter-spacing:1.5px;">📋 Datos del cliente</p>
-            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:13px; line-height:1.7; color:rgba(255,255,255,0.7);">
-                ${clienteData.nombre ? `<tr><td style="width:140px; padding:3px 0; color:rgba(255,255,255,0.4); font-size:11px; text-transform:uppercase; letter-spacing:0.5px;">Nombre y apellidos</td><td style="padding:3px 0; color:#ffffff; font-weight:600;">${clienteData.nombre}</td></tr>` : ''}
-                ${clienteData.refCatastral ? `<tr><td style="padding:3px 0; color:rgba(255,255,255,0.4); font-size:11px; text-transform:uppercase; letter-spacing:0.5px;">Referencia Catrastral</td><td style="padding:3px 0; color:#ffffff; font-family:monospace; font-size:12px;">${clienteData.refCatastral}</td></tr>` : ''}
-                ${clienteData.direccion ? `<tr><td style="padding:3px 0; color:rgba(255,255,255,0.4); font-size:11px; text-transform:uppercase; letter-spacing:0.5px; vertical-align:top;">Dirección completa</td><td style="padding:3px 0; color:#ffffff;">${clienteData.direccion}</td></tr>` : ''}
-            </table>
-        </div>
-    ` : '';
-
-    const html = `
-<!DOCTYPE html>
-<html lang="es">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
-<body style="margin:0; padding:0; background-color:#0a0e1a; font-family:'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif; color:#ffffff;">
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#0a0e1a; padding:40px 20px;">
-        <tr><td align="center">
-            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px; background-color:#111827; border-radius:24px; border:1px solid rgba(255,255,255,0.06); overflow:hidden;">
-                <tr><td style="height:4px; background:linear-gradient(90deg, #f59e0b, #ea580c);"></td></tr>
-                ${urgentBannerHtml}
-                <tr>
-                    <td style="padding:40px 40px 10px;">
-                        <div style="font-size:22px; font-weight:900; letter-spacing:-0.5px; text-align:center;">
-                            <span style="color:#f59e0b;">BROKERGY </span><span style="color:#ffffff; font-weight:500;">· Ingeniería Energética</span>
-                        </div>
-                    </td>
-                </tr>
-                <tr>
-                    <td style="padding:10px 40px 30px;">
-                        ${introBlockHtml}
-
-                        ${clienteInfoHtml}
-
-                        ${adminMessageHtml}
-
-                        <h3 style="margin:24px 0 12px; font-size:14px; font-weight:700; color:#ffffff;">Accesos directos:</h3>
-                        <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
-                            ${portalLink ? `
-                            <tr><td align="center" style="padding-bottom:10px;">
-                                <a href="${portalLink}" target="_blank" style="display:inline-block; padding:12px 32px; background:linear-gradient(135deg, #f59e0b, #ea580c); color:#0a0e1a; font-size:14px; font-weight:800; text-decoration:none; border-radius:10px; width:80%; max-width:280px; box-sizing:border-box; text-align:center;">
-                                    🔗 Acceder al Portal
-                                </a>
-                            </td></tr>` : ''}
-                            ${ceeFolderLink ? `
-                            <tr><td align="center">
-                                <a href="${ceeFolderLink}" target="_blank" style="display:inline-block; padding:12px 32px; background-color:rgba(245,158,11,0.12); border:1px solid rgba(245,158,11,0.4); color:#f59e0b; font-size:14px; font-weight:800; text-decoration:none; border-radius:10px; width:80%; max-width:280px; box-sizing:border-box; text-align:center;">
-                                    📁 Acceder a Carpeta CEE
-                                </a>
-                            </td></tr>` : ''}
-                        </table>
-
-                        <p style="margin:28px 0 0; font-size:13px; line-height:1.6; color:rgba(255,255,255,0.35); text-align:center;">
-                            Por favor, una vez emitido, sube el registro y la etiqueta a la misma carpeta o al portal.
-                        </p>
-                    </td>
-                </tr>
-                <tr>
-                    <td style="padding:10px 40px 32px; text-align:center; background-color:rgba(255,255,255,0.02); border-top:1px solid rgba(255,255,255,0.04);">
-                        <p style="margin:0; font-size:12px; font-weight:700; color:rgba(255,255,255,0.5);">BROKERGY · Ingeniería Energética</p>
-                        <p style="margin:4px 0 0; font-size:11px; color:rgba(255,255,255,0.25);"><a href="https://brokergy.es" style="color:#f59e0b; text-decoration:none;">brokergy.es</a></p>
-                    </td>
-                </tr>
-            </table>
-        </td></tr>
-    </table>
-</body>
-</html>`;
+    const html = brandEmailShell({
+        preheader: `Encargo CEE FINAL (${tipoLabel}) del expediente ${expedienteNum}.`,
+        title: 'Encargo CEE Final',
+        pill: isUrgent ? PILL.warning('Encargo urgente', '🚨') : PILL.neutral('Nuevo encargo', '📩'),
+        contentHtml:
+            introBlockHtml + clienteInfoHtml + adminMessageHtml +
+            `<h3 style="margin:8px 0 12px;font-size:14px;font-weight:700;color:${BRAND.text};">Accesos directos:</h3>` +
+            botonesHtml +
+            `<div style="height:20px;line-height:20px;font-size:0;">&nbsp;</div>` +
+            emailP('Por favor, una vez emitido, sube el registro y la etiqueta a la misma carpeta o al portal.', { size: 13, color: BRAND.muted, center: true, mb: 0 }),
+        footerNote: `<a href="https://brokergy.es" style="color:${BRAND.greenDark};text-decoration:none;">brokergy.es</a>`,
+    });
 
     const urgentText = isUrgent ? '🚨 URGENTE 🚨\n\n' : '';
     const adminMsgText = adminMessage ? `\nMensaje de Brokergy:\n${adminMessage}\n\n` : '';
@@ -1206,67 +633,34 @@ const sendCertificadorReminderEmail = async ({
     const clienteUpper = (clienteName || '').toUpperCase().trim();
     const subject = `Recordatorio: ${expedienteNum} (${tipoLabel}) – ${clienteUpper}`;
 
-    const adminMessageHtml = (adminMessage && !customMessage) ? `
-        <div style="background:rgba(59,130,246,0.08); border-left:3px solid #3b82f6; border-radius:10px; padding:16px 20px; margin:22px 0;">
-            <p style="margin:0 0 8px; font-size:11px; font-weight:800; color:#60a5fa; text-transform:uppercase; letter-spacing:1.5px;">💬 Mensaje de Brokergy</p>
-            <p style="margin:0; font-size:14px; line-height:1.6; color:rgba(255,255,255,0.85); white-space:pre-wrap;">${escapeHtml(adminMessage)}</p>
-        </div>
-    ` : '';
+    const adminMessageHtml = (adminMessage && !customMessage) ? emailBox(
+        emailP('💬 Mensaje de Brokergy', { size: 11, bold: true, color: BRAND.muted, mb: 8 }) +
+        emailP(escapeHtml(adminMessage), { size: 14, pre: true, mb: 0 }),
+        { mb: 22 }
+    ) : '';
 
-    const introBlockHtml = customMessage ? `
-                        <p style="margin:0 0 16px; font-size:14px; line-height:1.7; color:rgba(255,255,255,0.78); white-space:pre-wrap;">${escapeHtml(customMessage)}</p>
-    ` : `
-                        <h2 style="margin:0 0 6px; font-size:19px; font-weight:800; color:#ffffff;">¡Hola ${certName || 'técnico'}! 👋</h2>
-                        <p style="margin:0 0 16px; font-size:14px; line-height:1.6; color:rgba(255,255,255,0.6);">
-                            Te escribimos para recordarte que tienes pendiente el encargo del expediente <strong style="color:#ffffff;">${expedienteNum}</strong>${clienteName ? ` de <strong style="color:#ffffff;">${clienteName}</strong>` : ''}.
-                        </p>
-                        <p style="margin:8px 0 20px; font-size:14px; line-height:1.6; color:rgba(255,255,255,0.6);">
-                            ¿Podrías darnos una estimación de fecha de entrega? Nos ayudaría mucho para la planificación.
-                        </p>
-    `;
+    const introBlockHtml = customMessage
+        ? emailP(escapeHtml(customMessage), { pre: true, mb: 16 })
+        : (
+            emailP(`¡Hola ${escapeHtml(certName || 'técnico')}! 👋`, { size: 19, bold: true, mb: 6 }) +
+            emailP(`Te escribimos para recordarte que tienes pendiente el encargo del expediente <strong>${escapeHtml(expedienteNum)}</strong>${clienteName ? ` de <strong>${escapeHtml(clienteName)}</strong>` : ''}.`, { color: BRAND.muted, mb: 16 }) +
+            emailP('¿Podrías darnos una estimación de fecha de entrega? Nos ayudaría mucho para la planificación.', { color: BRAND.muted, mb: 22 })
+        );
 
-    const html = `
-<!DOCTYPE html>
-<html lang="es">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
-<body style="margin:0; padding:0; background-color:#0a0e1a; font-family:'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif; color:#ffffff;">
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#0a0e1a; padding:40px 20px;">
-        <tr><td align="center">
-            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px; background-color:#111827; border-radius:24px; border:1px solid rgba(255,255,255,0.06); overflow:hidden;">
-                <tr><td style="height:4px; background:linear-gradient(90deg, #3b82f6, #6366f1);"></td></tr>
-                <tr>
-                    <td style="padding:40px 40px 10px;">
-                        <div style="font-size:22px; font-weight:900; letter-spacing:-0.5px; text-align:center;">
-                            <span style="color:#f59e0b;">BROKERGY </span><span style="color:#ffffff; font-weight:500;">· Ingeniería Energética</span>
-                        </div>
-                    </td>
-                </tr>
-                <tr>
-                    <td style="padding:10px 40px 30px;">
-                        ${introBlockHtml}
+    const botonesHtml = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0">` +
+        (portalLink ? `<tr><td align="center" style="padding-bottom:12px;">${emailButton(portalLink, '🔗 Acceder al Portal', BRAND.orange)}</td></tr>` : '') +
+        (ceeFolderLink ? `<tr><td align="center">${emailOutlineButton(ceeFolderLink, '📁 Carpeta CEE')}</td></tr>` : '') +
+        `</table>`;
 
-                        ${adminMessageHtml}
-
-                        <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
-                            ${portalLink ? `<tr><td align="center" style="padding-bottom:10px;"><a href="${portalLink}" target="_blank" style="display:inline-block; padding:12px 32px; background:linear-gradient(135deg, #3b82f6, #6366f1); color:#ffffff; font-size:14px; font-weight:800; text-decoration:none; border-radius:10px; width:80%; max-width:280px; box-sizing:border-box; text-align:center;">🔗 Acceder al Portal</a></td></tr>` : ''}
-                            ${ceeFolderLink ? `<tr><td align="center"><a href="${ceeFolderLink}" target="_blank" style="display:inline-block; padding:12px 32px; background-color:rgba(99,102,241,0.12); border:1px solid rgba(99,102,241,0.4); color:#818cf8; font-size:14px; font-weight:800; text-decoration:none; border-radius:10px; width:80%; max-width:280px; box-sizing:border-box; text-align:center;">📁 Carpeta CEE</a></td></tr>` : ''}
-                        </table>
-
-                        <p style="margin:28px 0 0; font-size:13px; line-height:1.6; color:rgba(255,255,255,0.35); text-align:center;">
-                            Gracias por tu colaboración.
-                        </p>
-                    </td>
-                </tr>
-                <tr>
-                    <td style="padding:10px 40px 32px; text-align:center; background-color:rgba(255,255,255,0.02); border-top:1px solid rgba(255,255,255,0.04);">
-                        <p style="margin:0; font-size:12px; font-weight:700; color:rgba(255,255,255,0.5);">BROKERGY · Ingeniería Energética</p>
-                    </td>
-                </tr>
-            </table>
-        </td></tr>
-    </table>
-</body>
-</html>`;
+    const html = brandEmailShell({
+        preheader: `Recordatorio del encargo pendiente ${expedienteNum}.`,
+        title: 'Recordatorio de CEE',
+        pill: PILL.warning('Recordatorio', '⏰'),
+        contentHtml:
+            introBlockHtml + adminMessageHtml + botonesHtml +
+            `<div style="height:20px;line-height:20px;font-size:0;">&nbsp;</div>` +
+            emailP('Gracias por tu colaboración.', { size: 13, color: BRAND.muted, center: true, mb: 0 }),
+    });
 
     const adminMsgText = adminMessage ? `\nMensaje de Brokergy:\n${adminMessage}\n\n` : '';
     const linksText = `${portalLink ? 'Portal: ' + portalLink + '\n' : ''}${ceeFolderLink ? 'Carpeta CEE: ' + ceeFolderLink : ''}`;
@@ -1290,71 +684,35 @@ const sendCertificadorUrgentEmail = async ({
     const clienteUpper = (clienteName || '').toUpperCase().trim();
     const subject = `⚠️ URGENTE: ${expedienteNum} (${tipoLabel}) – ${clienteUpper}`;
 
-    const adminMessageHtml = (adminMessage && !customMessage) ? `
-        <div style="background:rgba(239,68,68,0.08); border-left:3px solid #ef4444; border-radius:10px; padding:16px 20px; margin:22px 0;">
-            <p style="margin:0 0 8px; font-size:11px; font-weight:800; color:#ef4444; text-transform:uppercase; letter-spacing:1.5px;">💬 Mensaje de Brokergy</p>
-            <p style="margin:0; font-size:14px; line-height:1.6; color:rgba(255,255,255,0.85); white-space:pre-wrap;">${escapeHtml(adminMessage)}</p>
-        </div>
-    ` : '';
+    const adminMessageHtml = (adminMessage && !customMessage) ? emailBox(
+        emailP('💬 Mensaje de Brokergy', { size: 11, bold: true, color: BRAND.orangeDark, mb: 8 }) +
+        emailP(escapeHtml(adminMessage), { size: 14, pre: true, mb: 0 }),
+        { bg: BRAND.orangeTint, border: BRAND.orange, mb: 22 }
+    ) : '';
 
-    const introBlockHtml = customMessage ? `
-                        <p style="margin:0 0 16px; font-size:14px; line-height:1.7; color:rgba(255,255,255,0.78); white-space:pre-wrap;">${escapeHtml(customMessage)}</p>
-    ` : `
-                        <h2 style="margin:0 0 6px; font-size:19px; font-weight:800; color:#ffffff;">Hola ${certName || 'técnico'},</h2>
-                        <p style="margin:0 0 16px; font-size:14px; line-height:1.6; color:rgba(255,255,255,0.6);">
-                            Necesitamos con <strong style="color:#ef4444;">carácter urgente</strong> la documentación del expediente <strong style="color:#ffffff;">${expedienteNum}</strong>${clienteName ? ` de <strong style="color:#ffffff;">${clienteName}</strong>` : ''}.
-                        </p>
-                        <p style="margin:8px 0 20px; font-size:14px; line-height:1.6; color:rgba(255,255,255,0.6);">
-                            Es importante que lo priorices para poder cumplir con los plazos establecidos en el programa de ayudas. Por favor, contacta con nosotros lo antes posible si hay algún impedimento.
-                        </p>
-    `;
+    const introBlockHtml = customMessage
+        ? emailP(escapeHtml(customMessage), { pre: true, mb: 16 })
+        : (
+            emailP(`Hola ${escapeHtml(certName || 'técnico')},`, { size: 19, bold: true, mb: 6 }) +
+            emailP(`Necesitamos con <strong style="color:${BRAND.orangeDark};">carácter urgente</strong> la documentación del expediente <strong>${escapeHtml(expedienteNum)}</strong>${clienteName ? ` de <strong>${escapeHtml(clienteName)}</strong>` : ''}.`, { color: BRAND.muted, mb: 16 }) +
+            emailP('Es importante que lo priorices para poder cumplir con los plazos establecidos en el programa de ayudas. Por favor, contacta con nosotros lo antes posible si hay algún impedimento.', { color: BRAND.muted, mb: 22 })
+        );
 
-    const html = `
-<!DOCTYPE html>
-<html lang="es">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
-<body style="margin:0; padding:0; background-color:#0a0e1a; font-family:'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif; color:#ffffff;">
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#0a0e1a; padding:40px 20px;">
-        <tr><td align="center">
-            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px; background-color:#111827; border-radius:24px; border:1px solid rgba(255,255,255,0.06); overflow:hidden;">
-                <tr><td style="height:4px; background:linear-gradient(90deg, #ef4444, #dc2626);"></td></tr>
-                <tr>
-                    <td style="padding:40px 40px 10px;">
-                        <div style="font-size:22px; font-weight:900; letter-spacing:-0.5px; text-align:center;">
-                            <span style="color:#f59e0b;">BROKERGY </span><span style="color:#ffffff; font-weight:500;">· Ingeniería Energética</span>
-                        </div>
-                    </td>
-                </tr>
-                <tr>
-                    <td style="padding:10px 40px 30px;">
-                        <div style="background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.3); border-radius:14px; padding:16px 20px; margin-bottom:20px; text-align:center;">
-                            <p style="margin:0; font-size:12px; font-weight:900; color:#ef4444; text-transform:uppercase; letter-spacing:2px;">⚠️ Aviso Urgente</p>
-                        </div>
+    const botonesHtml = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0">` +
+        (portalLink ? `<tr><td align="center" style="padding-bottom:12px;">${emailButton(portalLink, '🔗 Acceder al Portal', BRAND.orange)}</td></tr>` : '') +
+        (ceeFolderLink ? `<tr><td align="center">${emailOutlineButton(ceeFolderLink, '📁 Carpeta CEE')}</td></tr>` : '') +
+        `</table>`;
 
-                        ${introBlockHtml}
-
-                        ${adminMessageHtml}
-
-                        <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
-                            ${portalLink ? `<tr><td align="center" style="padding-bottom:10px;"><a href="${portalLink}" target="_blank" style="display:inline-block; padding:12px 32px; background:linear-gradient(135deg, #ef4444, #dc2626); color:#ffffff; font-size:14px; font-weight:800; text-decoration:none; border-radius:10px; width:80%; max-width:280px; box-sizing:border-box; text-align:center;">🔗 Acceder al Portal</a></td></tr>` : ''}
-                            ${ceeFolderLink ? `<tr><td align="center"><a href="${ceeFolderLink}" target="_blank" style="display:inline-block; padding:12px 32px; background-color:rgba(239,68,68,0.12); border:1px solid rgba(239,68,68,0.4); color:#ef4444; font-size:14px; font-weight:800; text-decoration:none; border-radius:10px; width:80%; max-width:280px; box-sizing:border-box; text-align:center;">📁 Carpeta CEE</a></td></tr>` : ''}
-                        </table>
-
-                        <p style="margin:28px 0 0; font-size:13px; line-height:1.6; color:rgba(255,255,255,0.35); text-align:center;">
-                            Quedamos a la espera de tu respuesta.
-                        </p>
-                    </td>
-                </tr>
-                <tr>
-                    <td style="padding:10px 40px 32px; text-align:center; background-color:rgba(255,255,255,0.02); border-top:1px solid rgba(255,255,255,0.04);">
-                        <p style="margin:0; font-size:12px; font-weight:700; color:rgba(255,255,255,0.5);">BROKERGY · Ingeniería Energética</p>
-                    </td>
-                </tr>
-            </table>
-        </td></tr>
-    </table>
-</body>
-</html>`;
+    const html = brandEmailShell({
+        preheader: `Aviso urgente sobre el expediente ${expedienteNum}.`,
+        title: 'Aviso urgente',
+        pill: PILL.warning('Aviso urgente', '🚨'),
+        contentHtml:
+            emailBox(emailP('⚠️ Aviso Urgente', { bold: true, color: BRAND.orangeDark, center: true, mb: 0 }), { bg: BRAND.orangeTint, border: BRAND.orange, mb: 22 }) +
+            introBlockHtml + adminMessageHtml + botonesHtml +
+            `<div style="height:20px;line-height:20px;font-size:0;">&nbsp;</div>` +
+            emailP('Quedamos a la espera de tu respuesta.', { size: 13, color: BRAND.muted, center: true, mb: 0 }),
+    });
 
     const adminMsgText = adminMessage ? `\nMensaje de Brokergy:\n${adminMessage}\n\n` : '';
     const linksText = `${portalLink ? 'Portal: ' + portalLink + '\n' : ''}${ceeFolderLink ? 'Carpeta CEE: ' + ceeFolderLink : ''}`;
@@ -1388,126 +746,64 @@ const sendReviewRequestEmailToAdmin = async ({
 
     const finalPortalLink = portalLink || `${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/?exp=${expedienteId}`;
 
-    const urgentBannerHtml = isUrgent ? `
-        <tr><td style="padding:14px 24px; background:linear-gradient(135deg,#dc2626,#991b1b); text-align:center;">
-            <p style="margin:0; font-size:13px; font-weight:900; color:#ffffff; letter-spacing:2px; text-transform:uppercase;">🚨 Revisión Urgente Solicitada 🚨</p>
-        </td></tr>
-    ` : '';
+    const resendNote = isResend ? emailBox(
+        emailP('🔁 Reenvío — Ya había una solicitud previa', { size: 12, bold: true, color: BRAND.muted, center: true, mb: 0 }),
+        { bg: BRAND.grayTint, border: BRAND.border, mb: 22 }
+    ) : '';
 
-    const resendBannerHtml = isResend ? `
-        <tr><td style="padding:10px 24px; background:rgba(59,130,246,0.12); border-bottom:1px solid rgba(59,130,246,0.3); text-align:center;">
-            <p style="margin:0; font-size:11px; font-weight:800; color:#60a5fa; letter-spacing:1.5px; text-transform:uppercase;">🔁 Reenvío — Ya había una solicitud previa</p>
-        </td></tr>
-    ` : '';
-
-    const techMessageHtml = techMessage ? `
-        <div style="background:rgba(245,158,11,0.06); border-left:3px solid #f59e0b; border-radius:10px; padding:16px 20px; margin:22px 0;">
-            <p style="margin:0 0 8px; font-size:11px; font-weight:800; color:#f59e0b; text-transform:uppercase; letter-spacing:1.5px;">💬 Mensaje del técnico</p>
-            <p style="margin:0; font-size:14px; line-height:1.6; color:rgba(255,255,255,0.85); white-space:pre-wrap;">${escapeHtml(techMessage)}</p>
-        </div>
-    ` : '';
+    const techMessageHtml = techMessage ? emailBox(
+        emailP('💬 Mensaje del técnico', { size: 11, bold: true, color: BRAND.orangeDark, mb: 8 }) +
+        emailP(escapeHtml(techMessage), { size: 14, pre: true, mb: 0 }),
+        { bg: BRAND.orangeTint, border: BRAND.orange, mb: 22 }
+    ) : '';
 
     // Bloque "Quién solicita la revisión" (certName + tlf + email del cert si los tenemos)
-    const certInfoHtml = `
-        <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:14px; padding:18px 22px; margin:24px 0;">
-            <p style="margin:0 0 12px; font-size:11px; font-weight:800; color:rgba(255,255,255,0.55); text-transform:uppercase; letter-spacing:1.5px;">👤 Técnico que solicita la revisión</p>
-            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:13px; line-height:1.7; color:rgba(255,255,255,0.7);">
-                ${certName ? `<tr><td style="width:140px; padding:3px 0; color:rgba(255,255,255,0.4); font-size:11px; text-transform:uppercase; letter-spacing:0.5px;">Nombre</td><td style="padding:3px 0; color:#ffffff; font-weight:600;">${escapeHtml(certName)}</td></tr>` : ''}
-                ${certPhone ? `<tr><td style="padding:3px 0; color:rgba(255,255,255,0.4); font-size:11px; text-transform:uppercase; letter-spacing:0.5px;">Teléfono</td><td style="padding:3px 0;"><a href="tel:${escapeHtml(certPhone)}" style="color:#f59e0b; text-decoration:none;">${escapeHtml(certPhone)}</a></td></tr>` : ''}
-                ${certEmail ? `<tr><td style="padding:3px 0; color:rgba(255,255,255,0.4); font-size:11px; text-transform:uppercase; letter-spacing:0.5px;">Email</td><td style="padding:3px 0;"><a href="mailto:${escapeHtml(certEmail)}" style="color:#f59e0b; text-decoration:none;">${escapeHtml(certEmail)}</a></td></tr>` : ''}
-            </table>
-        </div>
-    `;
+    const certInfoHtml = emailBox(
+        emailP('👤 Técnico que solicita la revisión', { size: 11, bold: true, color: BRAND.muted, mb: 12 }) +
+        emailDataTable([
+            certName ? ['Nombre', escapeHtml(certName)] : null,
+            certPhone ? ['Teléfono', `<a href="tel:${escapeHtml(certPhone)}" style="color:${BRAND.greenDark};text-decoration:none;">${escapeHtml(certPhone)}</a>`] : null,
+            certEmail ? ['Email', `<a href="mailto:${escapeHtml(certEmail)}" style="color:${BRAND.greenDark};text-decoration:none;">${escapeHtml(certEmail)}</a>`] : null,
+        ]),
+        { mb: 22 }
+    );
 
     // Bloque "Datos del cliente"
-    const clienteInfoHtml = clienteData ? `
-        <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:14px; padding:18px 22px; margin:24px 0;">
-            <p style="margin:0 0 12px; font-size:11px; font-weight:800; color:rgba(255,255,255,0.55); text-transform:uppercase; letter-spacing:1.5px;">📋 Datos del cliente</p>
-            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:13px; line-height:1.7; color:rgba(255,255,255,0.7);">
-                ${clienteData.nombre ? `<tr><td style="width:140px; padding:3px 0; color:rgba(255,255,255,0.4); font-size:11px; text-transform:uppercase; letter-spacing:0.5px;">Nombre y apellidos</td><td style="padding:3px 0; color:#ffffff; font-weight:600;">${escapeHtml(clienteData.nombre)}</td></tr>` : ''}
-                ${clienteData.dni ? `<tr><td style="padding:3px 0; color:rgba(255,255,255,0.4); font-size:11px; text-transform:uppercase; letter-spacing:0.5px;">DNI</td><td style="padding:3px 0; color:#ffffff; font-family:monospace;">${escapeHtml(clienteData.dni)}</td></tr>` : ''}
-                ${clienteData.tlf ? `<tr><td style="padding:3px 0; color:rgba(255,255,255,0.4); font-size:11px; text-transform:uppercase; letter-spacing:0.5px;">Teléfono</td><td style="padding:3px 0;"><a href="tel:${escapeHtml(clienteData.tlf)}" style="color:#f59e0b; text-decoration:none;">${escapeHtml(clienteData.tlf)}</a></td></tr>` : ''}
-                ${clienteData.email ? `<tr><td style="padding:3px 0; color:rgba(255,255,255,0.4); font-size:11px; text-transform:uppercase; letter-spacing:0.5px;">Email</td><td style="padding:3px 0;"><a href="mailto:${escapeHtml(clienteData.email)}" style="color:#f59e0b; text-decoration:none;">${escapeHtml(clienteData.email)}</a></td></tr>` : ''}
-                ${clienteData.refCatastral ? `<tr><td style="padding:3px 0; color:rgba(255,255,255,0.4); font-size:11px; text-transform:uppercase; letter-spacing:0.5px;">Ref. Catastral</td><td style="padding:3px 0; color:#ffffff; font-family:monospace; font-size:12px;">${escapeHtml(clienteData.refCatastral)}</td></tr>` : ''}
-                ${clienteData.direccion ? `<tr><td style="padding:3px 0; color:rgba(255,255,255,0.4); font-size:11px; text-transform:uppercase; letter-spacing:0.5px; vertical-align:top;">Dirección completa</td><td style="padding:3px 0; color:#ffffff;">${escapeHtml(clienteData.direccion)}</td></tr>` : ''}
-            </table>
-        </div>
-    ` : '';
+    const clienteInfoHtml = clienteData ? emailBox(
+        emailP('📋 Datos del cliente', { size: 11, bold: true, color: BRAND.muted, mb: 12 }) +
+        emailDataTable([
+            clienteData.nombre ? ['Nombre y apellidos', escapeHtml(clienteData.nombre)] : null,
+            clienteData.dni ? ['DNI', escapeHtml(clienteData.dni)] : null,
+            clienteData.tlf ? ['Teléfono', `<a href="tel:${escapeHtml(clienteData.tlf)}" style="color:${BRAND.greenDark};text-decoration:none;">${escapeHtml(clienteData.tlf)}</a>`] : null,
+            clienteData.email ? ['Email', `<a href="mailto:${escapeHtml(clienteData.email)}" style="color:${BRAND.greenDark};text-decoration:none;">${escapeHtml(clienteData.email)}</a>`] : null,
+            clienteData.refCatastral ? ['Ref. Catastral', escapeHtml(clienteData.refCatastral)] : null,
+            clienteData.direccion ? ['Dirección completa', escapeHtml(clienteData.direccion)] : null,
+        ]),
+        { mb: 22 }
+    ) : '';
 
-    const html = `
-<!DOCTYPE html>
-<html lang="es">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
-<body style="margin:0; padding:0; background-color:#0a0e1a; font-family:'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif; color:#ffffff;">
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#0a0e1a; padding:40px 20px;">
-        <tr><td align="center">
-            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px; background-color:#111827; border-radius:24px; border:1px solid rgba(255,255,255,0.06); overflow:hidden;">
-                <tr><td style="height:4px; background:linear-gradient(90deg, #f59e0b, #ea580c);"></td></tr>
-                ${urgentBannerHtml}
-                ${resendBannerHtml}
-                <tr>
-                    <td style="padding:40px 40px 10px;">
-                        <div style="font-size:22px; font-weight:900; letter-spacing:-0.5px; text-align:center;">
-                            <span style="color:#f59e0b;">BROKERGY </span><span style="color:#ffffff; font-weight:500;">· Ingeniería Energética</span>
-                        </div>
-                    </td>
-                </tr>
-                <tr>
-                    <td style="padding:10px 40px 30px;">
-                        <h2 style="margin:0 0 6px; font-size:19px; font-weight:800; color:#ffffff;">Solicitud de Revisión Técnica</h2>
-                        <p style="margin:0 0 16px; font-size:14px; line-height:1.6; color:rgba(255,255,255,0.6);">
-                            El técnico <strong style="color:#ffffff;">${escapeHtml(certName || 'Técnico')}</strong> ha subido el archivo <strong style="color:#f59e0b;">.CEX</strong> del <strong style="color:#ffffff;">CEE ${phaseLabel}</strong> para el expediente <strong style="color:#f59e0b;">${escapeHtml(numExp)}</strong>${clienteName ? ` del cliente <strong style=\"color:#ffffff;\">${escapeHtml(clienteName)}</strong>` : ''}.
-                        </p>
-                        <p style="margin:8px 0 6px; font-size:14px; line-height:1.6; color:rgba(255,255,255,0.6);">
-                            El expediente está pendiente de tu revisión para validar y autorizar la presentación.
-                        </p>
+    const botonesHtml = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0">` +
+        `<tr><td align="center" style="padding-bottom:12px;">${emailButton(finalPortalLink, '🔗 Ver Expediente', BRAND.orange)}</td></tr>` +
+        (ceeFolderLink ? `<tr><td align="center" style="padding-bottom:12px;">${emailOutlineButton(ceeFolderLink, '📁 Abrir Carpeta CEE')}</td></tr>` : '') +
+        (approveLink ? `<tr><td align="center" style="padding-top:6px;">${emailButton(approveLink, '✅ Dar Visto Bueno')}</td></tr><tr><td align="center" style="padding-top:8px;">${emailP('Al pulsar autorizas el registro en Industria y se avisa al técnico automáticamente por <strong>email y WhatsApp</strong>.', { size: 11, color: BRAND.muted, center: true, mb: 0 })}</td></tr>` : '') +
+        `</table>`;
 
-                        ${certInfoHtml}
-
-                        ${clienteInfoHtml}
-
-                        ${techMessageHtml}
-
-                        <h3 style="margin:24px 0 12px; font-size:14px; font-weight:700; color:#ffffff;">Accesos directos:</h3>
-                        <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
-                            <tr><td align="center" style="padding-bottom:10px;">
-                                <a href="${finalPortalLink}" target="_blank" style="display:inline-block; padding:14px 32px; background:linear-gradient(135deg, #f59e0b, #ea580c); color:#0a0e1a; font-size:14px; font-weight:800; text-decoration:none; border-radius:10px; width:80%; max-width:280px; box-sizing:border-box; text-align:center; text-transform:uppercase; letter-spacing:1px; box-shadow:0 4px 14px rgba(245,158,11,0.4);">
-                                    🔗 Ver Expediente
-                                </a>
-                            </td></tr>
-                            ${ceeFolderLink ? `
-                            <tr><td align="center">
-                                <a href="${ceeFolderLink}" target="_blank" style="display:inline-block; padding:12px 32px; background-color:rgba(245,158,11,0.12); border:1px solid rgba(245,158,11,0.4); color:#f59e0b; font-size:14px; font-weight:800; text-decoration:none; border-radius:10px; width:80%; max-width:280px; box-sizing:border-box; text-align:center;">
-                                    📁 Abrir Carpeta CEE
-                                </a>
-                            </td></tr>` : ''}
-                            ${approveLink ? `
-                            <tr><td align="center" style="padding-top:18px;">
-                                <a href="${approveLink}" target="_blank" style="display:inline-block; padding:15px 32px; background:linear-gradient(135deg,#10b981,#059669); color:#03130d; font-size:15px; font-weight:900; text-decoration:none; border-radius:10px; width:80%; max-width:300px; box-sizing:border-box; text-align:center; text-transform:uppercase; letter-spacing:1px; box-shadow:0 4px 16px rgba(16,185,129,0.45);">
-                                    ✅ Dar Visto Bueno
-                                </a>
-                            </td></tr>
-                            <tr><td align="center" style="padding-top:8px;">
-                                <p style="margin:0; font-size:11px; line-height:1.5; color:rgba(255,255,255,0.3);">Al pulsar autorizas el registro en Industria y se avisa al técnico automáticamente por <strong style="color:rgba(255,255,255,0.45);">email y WhatsApp</strong>.</p>
-                            </td></tr>` : ''}
-                        </table>
-
-                        <p style="margin:28px 0 0; font-size:13px; line-height:1.6; color:rgba(255,255,255,0.35); text-align:center;">
-                            ${approveLink ? 'Revisa el .CEX y, si todo es correcto, pulsa <strong style="color:#34d399;">Dar Visto Bueno</strong> (o hazlo desde el portal).' : 'Una vez revisado el .CEX, pulsa <strong style="color:rgba(255,255,255,0.6);">Validar y Autorizar Presentación</strong> en el portal.'}
-                        </p>
-                    </td>
-                </tr>
-                <tr>
-                    <td style="padding:10px 40px 32px; text-align:center; background-color:rgba(255,255,255,0.02); border-top:1px solid rgba(255,255,255,0.04);">
-                        <p style="margin:0; font-size:12px; font-weight:700; color:rgba(255,255,255,0.5);">BROKERGY · Ingeniería Energética</p>
-                        <p style="margin:4px 0 0; font-size:11px; color:rgba(255,255,255,0.25);">Notificación automática · ERP</p>
-                    </td>
-                </tr>
-            </table>
-        </td></tr>
-    </table>
-</body>
-</html>`;
+    const html = brandEmailShell({
+        preheader: `${certName || 'El técnico'} ha subido el .CEX del CEE ${phaseLabel} del expediente ${numExp}.`,
+        title: 'Revisión solicitada',
+        pill: isUrgent ? PILL.warning('Revisión urgente', '🚨') : PILL.info('Revisión solicitada'),
+        contentHtml:
+            resendNote +
+            emailP('Solicitud de Revisión Técnica', { size: 18, bold: true, mb: 6 }) +
+            emailP(`El técnico <strong>${escapeHtml(certName || 'Técnico')}</strong> ha subido el archivo <strong>.CEX</strong> del <strong>CEE ${phaseLabel}</strong> para el expediente <strong style="color:${BRAND.orangeDark};">${escapeHtml(numExp)}</strong>${clienteName ? ` del cliente <strong>${escapeHtml(clienteName)}</strong>` : ''}.`, { color: BRAND.muted, mb: 16 }) +
+            emailP('El expediente está pendiente de tu revisión para validar y autorizar la presentación.', { color: BRAND.muted, mb: 22 }) +
+            certInfoHtml + clienteInfoHtml + techMessageHtml +
+            `<h3 style="margin:8px 0 12px;font-size:14px;font-weight:700;color:${BRAND.text};">Accesos directos:</h3>` +
+            botonesHtml +
+            `<div style="height:20px;line-height:20px;font-size:0;">&nbsp;</div>` +
+            emailP(approveLink ? 'Revisa el .CEX y, si todo es correcto, pulsa <strong>Dar Visto Bueno</strong> (o hazlo desde el portal).' : 'Una vez revisado el .CEX, pulsa <strong>Validar y Autorizar Presentación</strong> en el portal.', { size: 13, color: BRAND.muted, center: true, mb: 0 }),
+        footerNote: 'Notificación automática · ERP',
+    });
 
     const clienteText = clienteData ? [
         clienteData.nombre ? `Cliente: ${clienteData.nombre}` : null,
@@ -1533,27 +829,19 @@ const sendCertifierAcceptedAdminNotification = async (expedienteId, numExp, cert
     const to = 'franciscojavier.moya.s2e2@gmail.com'; // Email de administración
     const subject = `✅ ENCARGO ACEPTADO — ${numExp} — ${certName}`;
     
-    const html = `
-    <!DOCTYPE html>
-    <html lang="es">
-    <head><meta charset="UTF-8"></head>
-    <body style="background-color:#0a0e1a; font-family:sans-serif; color:#ffffff; padding:40px;">
-        <div style="max-width:600px; margin:0 auto; background-color:#111827; border-radius:20px; border:1px solid #334155; padding:30px;">
-            <h2 style="color:#10b981; margin-top:0;">Encargo Aceptado</h2>
-            <p style="color:#ffffff;">El técnico <strong>${certName}</strong> ha aceptado el encargo del <strong>${phase}</strong>.</p>
-            <hr style="border:0; border-top:1px solid #1e293b; margin:20px 0;">
-            <p style="font-size:14px; color:#94a3b8;">
-                <strong>Expediente:</strong> ${numExp}<br>
-                El estado del expediente ha cambiado automáticamente a "EN TRABAJO".
-            </p>
-            <div style="margin-top:30px; text-align:center;">
-                <a href="${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/?exp=${expedienteId}" style="display:inline-block; padding:12px 24px; background-color:#10b981; color:#000000; font-weight:bold; text-decoration:none; border-radius:10px;">Ver Expediente</a>
-            </div>
-            <p style="font-size:10px; color:#475569; margin-top:30px; text-align:center;">Notificación automática de BROKERGY ERP</p>
-        </div>
-    </body>
-    </html>
-    `;
+    const html = brandEmailShell({
+        preheader: `${certName} ha aceptado el encargo del ${phase} — ${numExp}.`,
+        title: 'Encargo aceptado',
+        pill: PILL.success('Encargo aceptado'),
+        contentHtml:
+            emailP(`El técnico <strong>${escapeHtml(certName)}</strong> ha aceptado el encargo del <strong>${escapeHtml(phase)}</strong>.`, { mb: 22 }) +
+            emailBox(emailDataTable([
+                ['Expediente', escapeHtml(numExp)],
+                ['Estado', 'EN TRABAJO (actualizado automáticamente)'],
+            ]), { mb: 22 }) +
+            `<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">${emailButton(`${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/?exp=${expedienteId}`, 'Ver Expediente')}</td></tr></table>`,
+        footerNote: 'Notificación automática de BROKERGY ERP',
+    });
 
     return sendMail({ to, subject, html, text: `El técnico ${certName} ha aceptado el encargo del ${phase} para el expediente ${numExp}.` });
 };
@@ -1561,47 +849,184 @@ const sendCertifierAcceptedAdminNotification = async (expedienteId, numExp, cert
 /**
  * Notifica al certificador que el administrador ha validado su CEE (Inicial o Final)
  */
-const sendCertificadorApproveNotification = async (to, certName, numExp, phaseLabel, portalLink, folderLink, adminMessage = null, customMessage = null) => {
-    const subject = `✅ VISTO BUENO — ${phaseLabel} — ${numExp}`;
+// ─── DISEÑO EMAILS CERTIFICADOR (tema claro, barra degradado, logo, pill) ─────
+const CERT_LOGO_URL = 'https://app.brokergy.es/logo-brokergy-circular.png';
 
-    // Si el admin editó el mensaje en el popup de "Validar", ese texto es el cuerpo
-    // (sustituye al saludo+intro), manteniendo la cabecera, el bloque de instrucciones y los botones.
-    const bodyHtml = customMessage ? `
-            <p style="color:rgba(255,255,255,0.88); white-space:pre-wrap; line-height:1.6;">${escapeHtml(customMessage)}</p>
-    ` : `
-            <p style="color:#ffffff;">Hola <strong>${certName}</strong>, el equipo de BROKERGY ha revisado y dado el visto bueno al archivo .CEX del <strong>${phaseLabel}</strong>.</p>
-            ${adminMessage ? `
-            <div style="background-color:rgba(16,185,129,0.08); border-left:4px solid #10b981; padding:15px; margin:20px 0; border-radius:0 8px 8px 0;">
-                <p style="color:#94a3b8; margin:0; font-size:13px;"><strong style="color:#10b981;">Mensaje de Brokergy:</strong><br>${adminMessage}</p>
-            </div>
-            ` : ''}
-            <hr style="border:0; border-top:1px solid #1e293b; margin:20px 0;">
-            <p style="font-size:14px; color:#94a3b8;">
-                <strong>Expediente:</strong> ${numExp}<br><br>
-                Ya tienes luz verde para <strong>registrarlo en Industria</strong>. Una vez registrado, por favor sube la Etiqueta Energética y el justificante de registro a la carpeta compartida o al portal.
-            </p>
-    `;
+// Quita del cuerpo las líneas de enlace (🔗/📁/📥/📤 y URLs sueltas): en el diseño
+// nuevo los enlaces van como BOTONES, no como texto plano dentro del mensaje.
+function stripCertLinkLines(text) {
+    return String(text || '')
+        .split('\n')
+        .filter(line => {
+            const t = line.trim();
+            if (/^(🔗|📁|📥|📤|📄|📝)/.test(t)) return false;
+            if (/^https?:\/\/\S+$/.test(t)) return false;
+            return true;
+        })
+        .join('\n')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+}
 
-    const html = `
-    <!DOCTYPE html>
-    <html lang="es">
-    <head><meta charset="UTF-8"></head>
-    <body style="background-color:#0a0e1a; font-family:sans-serif; color:#ffffff; padding:40px;">
-        <div style="max-width:600px; margin:0 auto; background-color:#111827; border-radius:20px; border:1px solid #334155; padding:30px;">
-            <h2 style="color:#10b981; margin-top:0;">Certificado Validado</h2>
-            ${bodyHtml}
-            <div style="margin-top:30px; text-align:center;">
-                ${portalLink ? `<a href="${portalLink}" style="display:inline-block; margin-right:10px; padding:12px 24px; background-color:#10b981; color:#000000; font-weight:bold; text-decoration:none; border-radius:10px;">📂 Abrir Expediente</a>` : ''}
-                ${folderLink ? `<a href="${folderLink}" style="display:inline-block; padding:12px 24px; border:1px solid #10b981; color:#10b981; font-weight:bold; text-decoration:none; border-radius:10px;">Abrir Carpeta</a>` : ''}
-            </div>
-            <p style="font-size:10px; color:#475569; margin-top:30px; text-align:center;">Notificación automática de BROKERGY ERP</p>
-        </div>
-    </body>
-    </html>
-    `;
+// ── Paleta de marca (tema claro) y helpers de componentes de email ───────────
+const BRAND = {
+    bg: '#F3F4F1', card: '#FFFFFF', border: '#E8E9E4', soft: '#F8F9F6',
+    text: '#1A1A1A', muted: '#667085',
+    green: '#8DC63F', greenDark: '#5C9A1B', greenTint: '#EEF6E1',
+    orange: '#F7941D', orangeDark: '#C77700', orangeTint: '#FCEFDA',
+    grayTint: '#F1F2EC', grayText: '#8A8F7A',
+};
+
+// Presets de pill de estado (emoji + colores).
+const PILL = {
+    success: (text, emoji = '✅') => ({ emoji, text, bg: BRAND.greenTint, color: BRAND.greenDark }),
+    warning: (text, emoji = '⚠️') => ({ emoji, text, bg: BRAND.orangeTint, color: BRAND.orangeDark }),
+    neutral: (text, emoji = '🕒') => ({ emoji, text, bg: BRAND.grayTint, color: BRAND.grayText }),
+    info:    (text, emoji = '📩') => ({ emoji, text, bg: '#E8F0FB', color: '#2563A6' }),
+};
+
+// Botón relleno (fondo de color, texto blanco).
+function emailButton(href, label, bg = BRAND.green) {
+    return `<table role="presentation" cellpadding="0" cellspacing="0" align="center"><tr><td style="border-radius:8px;background:${bg};"><a href="${href}" style="display:inline-block;padding:12px 24px;font-size:14px;font-weight:700;color:#FFFFFF;text-decoration:none;">${label}</a></td></tr></table>`;
+}
+// Botón outline (borde oscuro, texto oscuro).
+function emailOutlineButton(href, label) {
+    return `<table role="presentation" cellpadding="0" cellspacing="0" align="center"><tr><td style="border-radius:8px;border:1.5px solid #1A1A1A;"><a href="${href}" style="display:inline-block;padding:11px 22px;font-size:14px;font-weight:700;color:#1A1A1A;text-decoration:none;">${label}</a></td></tr></table>`;
+}
+// Alias histórico usado por el email de visto bueno.
+const certButton = (href, label, bg) => emailButton(href, label, bg);
+
+// Párrafo de cuerpo. opts: {size,color,mb,center,pre,bold}
+function emailP(html, opts = {}) {
+    const size = opts.size || 15, color = opts.color || BRAND.text;
+    const mb = opts.mb != null ? opts.mb : 18;
+    return `<p style="margin:0 0 ${mb}px 0;font-size:${size}px;line-height:1.6;color:${color};${opts.center ? 'text-align:center;' : ''}${opts.pre ? 'white-space:pre-wrap;' : ''}${opts.bold ? 'font-weight:700;' : ''}">${html}</p>`;
+}
+// Caja destacada (fondo suave, borde).
+function emailBox(innerHtml, opts = {}) {
+    const bg = opts.bg || BRAND.soft, border = opts.border || BRAND.border;
+    const mb = opts.mb != null ? opts.mb : 22;
+    return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${bg};border:1px solid ${border};border-radius:10px;margin-bottom:${mb}px;"><tr><td style="padding:${opts.pad || '20px 22px'};">${innerHtml}</td></tr></table>`;
+}
+// Tabla de datos (label/valor) para resúmenes de expediente.
+function emailDataTable(rows) {
+    const body = rows.filter(Boolean).map(([k, v]) =>
+        `<tr><td style="padding:5px 0;font-size:13px;color:${BRAND.muted};white-space:nowrap;vertical-align:top;">${k}</td><td style="padding:5px 0 5px 14px;font-size:13px;color:${BRAND.text};font-weight:700;">${v || '—'}</td></tr>`
+    ).join('');
+    return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0">${body}</table>`;
+}
+
+// Shell de marca para TODOS los emails (cliente/instalador/certificador): barra
+// degradado, cabecera con logo + título, pill opcional, cuerpo y footer.
+// pill = { emoji, text, bg, color } | null. contentHtml = cuerpo central.
+function brandEmailShell({ preheader, title, pill, contentHtml, footerNote }) {
+    const note = footerNote || 'Este mensaje se ha generado automáticamente, por favor no respondas a este correo.';
+    const pillHtml = pill ? `<table role="presentation" cellpadding="0" cellspacing="0" style="margin-bottom:20px;"><tr><td style="background:${pill.bg};border-radius:20px;padding:6px 14px;"><span style="font-size:12px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;color:${pill.color};">${pill.emoji} ${escapeHtml(pill.text)}</span></td></tr></table>` : '';
+    return `<!DOCTYPE html>
+<html lang="es" xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="light">
+<meta name="supported-color-schemes" content="light">
+<title>${escapeHtml(title)}</title>
+</head>
+<body style="margin:0;padding:0;background:${BRAND.bg};">
+<div style="display:none;max-height:0;overflow:hidden;opacity:0;">${escapeHtml(preheader || '')}</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${BRAND.bg};font-family:Arial,Helvetica,sans-serif;">
+<tr><td align="center" style="padding:40px 16px;">
+<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:600px;max-width:600px;">
+<tr><td style="height:5px;line-height:5px;font-size:0;background-color:${BRAND.greenDark};background-image:linear-gradient(90deg,${BRAND.orange},${BRAND.green});border-radius:14px 14px 0 0;">&nbsp;</td></tr>
+<tr><td style="background:${BRAND.card};border:1px solid ${BRAND.border};border-top:none;border-radius:0 0 14px 14px;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-bottom:1px solid ${BRAND.border};">
+    <tr><td style="padding:28px 40px;">
+      <table role="presentation" cellpadding="0" cellspacing="0"><tr>
+        <td valign="middle" style="width:52px;padding-right:16px;"><img src="${CERT_LOGO_URL}" width="48" height="48" alt="Brokergy" style="display:block;border-radius:50%;"></td>
+        <td valign="middle">
+          <p style="margin:0 0 2px 0;font-size:11px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:${BRAND.muted};">BROKERGY · Ingeniería Energética</p>
+          <h1 style="margin:0;font-size:22px;line-height:1.25;color:${BRAND.text};font-weight:700;">${escapeHtml(title)}</h1>
+        </td>
+      </tr></table>
+    </td></tr>
+  </table>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+    <tr><td style="padding:32px 40px 36px 40px;">
+      ${pillHtml}
+      ${contentHtml}
+    </td></tr>
+  </table>
+</td></tr>
+<tr><td align="center" style="padding:28px 16px 8px;"><p style="margin:0;font-size:12px;color:${BRAND.muted};line-height:1.6;font-family:Arial,Helvetica,sans-serif;">BROKERGY · Ingeniería Energética<br>${note}</p></td></tr>
+</table>
+</td></tr>
+</table>
+</body>
+</html>`;
+}
+
+// Compat: firma antigua certEmailShell → brandEmailShell + botón "Abrir Expediente".
+function certEmailShell({ preheader, title, pillEmoji, pillText, pillBg, pillColor, contentHtml, expedienteId, portalLink }) {
+    const openLink = portalLink || (expedienteId ? `https://app.brokergy.es/?exp=${expedienteId}` : null);
+    const cta = openLink ? `
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:4px;">
+        <tr><td align="center" style="font-size:13px;line-height:1.6;color:${BRAND.muted};padding-bottom:14px;">Si lo prefieres, puedes abrir el expediente directamente en la app:</td></tr>
+        <tr><td align="center">${emailOutlineButton(openLink, '📁 Abrir Expediente')}</td></tr>
+      </table>` : '';
+    return brandEmailShell({
+        preheader, title,
+        pill: pillText ? { emoji: pillEmoji, text: pillText, bg: pillBg, color: pillColor } : null,
+        contentHtml: contentHtml + cta,
+    });
+}
+
+const sendCertificadorApproveNotification = async (to, certName, numExp, phaseLabel, portalLink, folderLink, adminMessage = null, customMessage = null, extra = {}) => {
+    // El asunto SIEMPRE empieza por el nº de expediente.
+    const subject = `${numExp} · Visto Bueno ${phaseLabel}`;
+    const presentFolderLink = extra.presentFolderLink || null; // carpeta CEE INICIAL/FINAL (descarga)
+    const ceeUploadLink = extra.ceeUploadLink || null;         // popup de subida del CEE registrado
+    const attachments = Array.isArray(extra.attachments) ? extra.attachments : undefined;
+    const GREEN = '#8DC63F';
+
+    // Cuerpo: el mensaje editado (sin las líneas de enlace, que van como botones) o el texto por defecto.
+    const bodyText = stripCertLinkLines(customMessage || adminMessage || '');
+    const firstName = (certName || '').trim().split(/\s+/)[0] || 'técnico';
+    const bodyParagraphs = bodyText
+        ? `<p style="margin:0 0 22px 0;font-size:15px;line-height:1.6;color:#1A1A1A;white-space:pre-wrap;">${escapeHtml(bodyText)}</p>`
+        : `<p style="margin:0 0 18px 0;font-size:15px;line-height:1.6;color:#1A1A1A;">¡Hola ${escapeHtml(firstName)}! 👋</p>
+           <p style="margin:0 0 18px 0;font-size:15px;line-height:1.6;color:#1A1A1A;">Hemos revisado el <strong>${phaseLabel}</strong> del expediente <strong>${numExp}</strong> y tiene nuestro visto bueno. Ya puedes proceder a registrarlo en Industria.</p>
+           <p style="margin:0 0 22px 0;font-size:15px;line-height:1.6;color:#1A1A1A;">¡Gracias!</p>`;
+
+    const stepsBox = (presentFolderLink || ceeUploadLink) ? `
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F8F9F6;border:1px solid #E8E9E4;border-radius:10px;margin-bottom:22px;">
+        <tr><td style="padding:24px 22px 2px 22px;">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+            ${presentFolderLink ? `<tr><td align="center" style="padding-bottom:22px;">
+              <p style="margin:0 0 12px 0;font-size:14px;font-weight:700;color:#1A1A1A;text-align:center;">1 · Descarga los archivos para presentarlos</p>
+              ${certButton(presentFolderLink, `📄 Descargar CEE (${phaseLabel})`, GREEN)}
+            </td></tr>` : ''}
+            ${ceeUploadLink ? `<tr><td align="center" style="padding-bottom:22px;">
+              <p style="margin:0 0 12px 0;font-size:14px;font-weight:700;color:#1A1A1A;text-align:center;">2 · Una vez presentado en Industria, puedes subirlo directamente aquí</p>
+              <p style="margin:0 0 14px 0;font-size:13px;line-height:1.6;color:#667085;text-align:center;">Sube el CEE registrado (etiqueta energética + justificante de registro). Se guardará automáticamente en el expediente.</p>
+              ${certButton(ceeUploadLink, '📤 Subir CEE registrado', GREEN)}
+            </td></tr>` : ''}
+          </table>
+        </td></tr>
+      </table>` : '';
+
+    const attachNote = (attachments && attachments.length)
+        ? `<p style="margin:0 0 18px 0;font-size:12px;color:#667085;text-align:center;">📎 Se adjuntan ${attachments.length} archivo(s) del CEE a este correo.</p>`
+        : '';
+
+    const html = certEmailShell({
+        preheader: `Tu ${phaseLabel} ha sido validado — ya puedes registrarlo en Industria.`,
+        title: 'Certificado Validado',
+        pillEmoji: '✅', pillText: 'Visto Bueno', pillBg: '#EEF6E1', pillColor: '#5C9A1B',
+        contentHtml: bodyParagraphs + stepsBox + attachNote,
+        portalLink,
+    });
 
     const text = customMessage || `Hola ${certName}, el ${phaseLabel} ha sido validado. Puedes proceder a registrarlo.`;
-    return sendMail({ to, subject, html, text });
+    return sendMail({ to, subject, html, text, attachments });
 };
 
 /**
@@ -1610,41 +1035,20 @@ const sendCertificadorApproveNotification = async (to, certName, numExp, phaseLa
 const sendCeeInicialRegistradoClientEmail = async (to, clientName, numExp, portalLink) => {
     const subject = `✅ CEE INICIAL PRESENTADO — ${numExp}`;
     
-    const html = `
-    <!DOCTYPE html>
-    <html lang="es">
-    <head><meta charset="UTF-8"></head>
-    <body style="background-color:#0a0e1a; font-family:sans-serif; color:#ffffff; padding:40px;">
-        <div style="max-width:600px; margin:0 auto; background-color:#111827; border-radius:20px; border:1px solid #334155; padding:30px;">
-            <h2 style="color:#10b981; margin-top:0;">Certificado Presentado</h2>
-            <p style="color:#ffffff;">¡Hola <strong>${clientName}</strong>! 👋</p>
-            <p style="color:#ffffff;">Te escribimos para comunicarte que ya ha sido presentado el Certificado de Eficiencia Energética INICIAL de tu expediente <strong>${numExp}</strong>.</p>
-            
-            <div style="background-color:rgba(16, 185, 129, 0.1); border-left:4px solid #10b981; padding:15px; margin:20px 0;">
-                <p style="color:#10b981; margin:0; font-weight:bold;">Desde este momento ya se pueden emitir facturas y pagos.</p>
-            </div>
-
-            <p style="color:#ffffff;">📸 <strong>Recuerda hacerle fotografías a todo:</strong></p>
-            <ul style="color:#94a3b8; line-height:1.6;">
-                <li>Caldera existente y placa de fabricación.</li>
-                <li>Desmontaje de la caldera.</li>
-                <li>Montaje de la aerotermia.</li>
-                <li>Fotos de las nuevas placas de fabricación (tanto de la exterior como interior).</li>
-            </ul>
-            <p style="color:#94a3b8; font-size:14px;">Las fotos son la parte más importante del proceso para que podamos argumentar ante el ministerio que se ha realizado la reforma.</p>
-            
-            <div style="margin-top:30px; text-align:center;">
-                <a href="${portalLink}" style="display:inline-block; padding:12px 24px; background-color:#10b981; color:#000000; font-weight:bold; text-decoration:none; border-radius:10px;">Subir Fotografías</a>
-            </div>
-
-            <p style="color:#94a3b8; font-size:14px; margin-top:20px;">Una vez finalizada la obra, debes comunicárnoslo por aquí para proceder con el CEE Final y el resto de la documentación.</p>
-
-            <hr style="border:0; border-top:1px solid #1e293b; margin:30px 0;">
-            <p style="font-size:10px; color:#475569; text-align:center;">BROKERGY — Ingeniería Energética</p>
-        </div>
-    </body>
-    </html>
-    `;
+    const html = brandEmailShell({
+        preheader: `El CEE Inicial de tu expediente ${numExp} ya ha sido presentado.`,
+        title: 'Certificado presentado',
+        pill: PILL.success('Certificado presentado'),
+        contentHtml:
+            emailP(`¡Hola <strong>${escapeHtml(clientName)}</strong>! 👋`, { mb: 15 }) +
+            emailP(`Te escribimos para comunicarte que ya ha sido presentado el Certificado de Eficiencia Energética INICIAL de tu expediente <strong>${escapeHtml(numExp)}</strong>.`, { color: BRAND.muted, mb: 22 }) +
+            emailBox(emailP('Desde este momento ya se pueden emitir facturas y pagos.', { bold: true, color: BRAND.greenDark, mb: 0 }), { bg: BRAND.greenTint, border: BRAND.green, mb: 22 }) +
+            emailP('📸 <strong>Recuerda hacerle fotografías a todo:</strong>', { mb: 8 }) +
+            `<ul style="margin:0 0 18px;padding:0 0 0 18px;font-size:14px;line-height:1.7;color:${BRAND.muted};"><li>Caldera existente y placa de fabricación.</li><li>Desmontaje de la caldera.</li><li>Montaje de la aerotermia.</li><li>Fotos de las nuevas placas de fabricación (tanto de la exterior como interior).</li></ul>` +
+            emailP('Las fotos son la parte más importante del proceso para que podamos argumentar ante el ministerio que se ha realizado la reforma.', { size: 14, color: BRAND.muted, mb: 22 }) +
+            `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:22px;"><tr><td align="center">${emailButton(portalLink, 'Subir Fotografías')}</td></tr></table>` +
+            emailP('Una vez finalizada la obra, debes comunicárnoslo por aquí para proceder con el CEE Final y el resto de la documentación.', { size: 14, color: BRAND.muted, center: true, mb: 0 }),
+    });
 
     return sendMail({ to, subject, html, text: `Hola ${clientName}, el CEE INICIAL ha sido presentado. Ya se pueden emitir facturas y pagos. Por favor, recuerda tomar fotografías de todo el proceso de la obra.` });
 };
@@ -1655,45 +1059,31 @@ const sendCeeInicialRegistradoClientEmail = async (to, clientName, numExp, porta
 const sendCeeRegistradoStaffEmail = async (to, isPartner, numExp, clientName, ubicacion, techName, phaseLabel, portalLink, notifyClientLink = null) => {
     const subject = `✅ REGISTRO ${phaseLabel} PRESENTADO — ${numExp}`;
 
-    const html = `
-    <!DOCTYPE html>
-    <html lang="es">
-    <head><meta charset="UTF-8"></head>
-    <body style="background-color:#0a0e1a; font-family:sans-serif; color:#ffffff; padding:40px;">
-        <div style="max-width:600px; margin:0 auto; background-color:#111827; border-radius:20px; border:1px solid #334155; padding:30px;">
-            <h2 style="color:#10b981; margin-top:0;">Registro Presentado</h2>
-            <p style="color:#ffffff;">Se ha subido correctamente el justificante de registro del <strong>${phaseLabel}</strong>.</p>
-            <hr style="border:0; border-top:1px solid #1e293b; margin:20px 0;">
-            <table style="width:100%; font-size:14px; color:#94a3b8; border-collapse: collapse;">
-                <tr><td style="padding:4px 0;"><strong>Expediente:</strong></td><td>${numExp}</td></tr>
-                <tr><td style="padding:4px 0;"><strong>Cliente:</strong></td><td>${clientName}</td></tr>
-                <tr><td style="padding:4px 0;"><strong>Ubicación:</strong></td><td>${ubicacion}</td></tr>
-                <tr><td style="padding:4px 0;"><strong>Certificador:</strong></td><td>${techName}</td></tr>
-            </table>
-
-            ${phaseLabel === 'CEE INICIAL' ? `
-            <div style="background-color:rgba(16, 185, 129, 0.1); border-left:4px solid #10b981; padding:15px; margin:20px 0;">
-                <p style="color:#10b981; margin:0; font-weight:bold;">Desde este momento ya se pueden emitir facturas y pagos.</p>
-            </div>
-            ` : ''}
-
-            ${notifyClientLink && !isPartner ? `
-            <div style="margin-top:24px; padding:20px; background-color:rgba(16,185,129,0.08); border:1px solid #10b981; border-radius:12px; text-align:center;">
-                <p style="color:#10b981; font-weight:bold; margin:0 0 6px 0; font-size:15px;">👆 Acción requerida</p>
-                <p style="color:#94a3b8; font-size:13px; margin:0 0 16px 0;">Pulsa el botón para enviar la notificación al cliente.</p>
-                <a href="${notifyClientLink}" style="display:inline-block; padding:14px 32px; background-color:#10b981; color:#000000; font-weight:bold; text-decoration:none; border-radius:10px; font-size:16px;">📱 Notificar al Cliente</a>
-                <p style="color:#475569; font-size:11px; margin:12px 0 0 0;">Enlace de uso único · Válido 7 días</p>
-            </div>
-            ` : ''}
-
-            <div style="margin-top:24px; text-align:center;">
-                <a href="${portalLink}" style="display:inline-block; padding:12px 24px; background-color:transparent; border:1px solid #10b981; color:#10b981; font-weight:bold; text-decoration:none; border-radius:10px;">Ver Expediente</a>
-            </div>
-            <p style="font-size:10px; color:#475569; margin-top:30px; text-align:center;">Notificación automática de BROKERGY ERP</p>
-        </div>
-    </body>
-    </html>
-    `;
+    const html = brandEmailShell({
+        preheader: `Justificante de registro del ${phaseLabel} presentado — ${numExp}.`,
+        title: 'Registro presentado',
+        pill: PILL.success('Registro presentado'),
+        contentHtml:
+            emailP(`Se ha subido correctamente el justificante de registro del <strong>${escapeHtml(phaseLabel)}</strong>.`, { mb: 22 }) +
+            emailBox(emailDataTable([
+                ['Expediente', escapeHtml(numExp || '')],
+                ['Cliente', escapeHtml(clientName || '')],
+                ['Ubicación', escapeHtml(ubicacion || '')],
+                ['Certificador', escapeHtml(techName || '')],
+            ])) +
+            (phaseLabel === 'CEE INICIAL'
+                ? emailBox(emailP('Desde este momento ya se pueden emitir facturas y pagos.', { bold: true, color: BRAND.greenDark, mb: 0 }), { bg: BRAND.greenTint, border: BRAND.green })
+                : '') +
+            (notifyClientLink && !isPartner
+                ? emailBox(
+                    emailP('👆 Acción requerida', { bold: true, color: BRAND.greenDark, center: true, mb: 6 }) +
+                    emailP('Pulsa el botón para enviar la notificación al cliente.', { size: 13, color: BRAND.muted, center: true, mb: 16 }) +
+                    `<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">${emailButton(notifyClientLink, '📱 Notificar al Cliente')}</td></tr></table>` +
+                    emailP('Enlace de uso único · Válido 7 días', { size: 11, color: BRAND.muted, center: true, mb: 0 }),
+                    { bg: BRAND.greenTint, border: BRAND.green })
+                : '') +
+            `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:4px;"><tr><td align="center">${emailOutlineButton(portalLink, '📁 Ver Expediente')}</td></tr></table>`,
+    });
 
     return sendMail({ to, subject, html, text: `El justificante de registro del ${phaseLabel} ha sido presentado para el expediente ${numExp} del cliente ${clientName}. ${notifyClientLink && !isPartner ? 'Enlace para notificar al cliente: ' + notifyClientLink : ''}` });
 };

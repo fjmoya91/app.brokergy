@@ -297,6 +297,55 @@ async function getOrCreateSubfolder(parentId, subfolderName) {
 }
 
 /**
+ * Normaliza el nombre de una carpeta para comparaciones TOLERANTES a diferencias
+ * de espacios/puntuación: "5. FACTURAS" ≡ "5.FACTURAS" ≡ "5 FACTURAS" → "5facturas".
+ */
+function normalizeFolderName(name) {
+    return String(name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+/**
+ * Busca una subcarpeta por nombre tolerante a espacios/puntuación. Lista las
+ * subcarpetas del padre y compara por nombre normalizado; prefiere una coincidencia
+ * EXACTA si existe. Evita duplicar carpetas cuando la plantilla usa "5. FACTURAS"
+ * (con espacio) y el código pedía "5.FACTURAS" (sin espacio).
+ */
+async function findSubfolderByNameNormalized(parentId, name) {
+    try {
+        const response = await drive.files.list({
+            q: `'${parentId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
+            fields: 'files(id, name)',
+            pageSize: 200
+        });
+        const folders = response.data.files || [];
+        const exact = folders.find(f => f.name === name);
+        if (exact) return exact.id;
+        const target = normalizeFolderName(name);
+        const norm = folders.find(f => normalizeFolderName(f.name) === target);
+        return norm?.id || null;
+    } catch (err) {
+        console.error(`[DriveService] Error buscando subcarpeta (norm) '${name}':`, err.message);
+        return null;
+    }
+}
+
+/**
+ * Igual que getOrCreateSubfolder pero con búsqueda tolerante (normalizeFolderName):
+ * solo crea la carpeta si NO existe ninguna variante. Úsalo para carpetas que ya
+ * vienen en la plantilla de Drive para no generar duplicados por diferencias de nombre.
+ */
+async function getOrCreateSubfolderNormalized(parentId, subfolderName) {
+    try {
+        let folderId = await findSubfolderByNameNormalized(parentId, subfolderName);
+        if (!folderId) folderId = await createSubfolder(parentId, subfolderName);
+        return folderId;
+    } catch (err) {
+        console.error(`[DriveService] Error en getOrCreateSubfolderNormalized para '${subfolderName}':`, err.message);
+        return parentId;
+    }
+}
+
+/**
  * Renombra un archivo o carpeta en Drive
  */
 async function renameFolder(fileId, newName) {
@@ -544,8 +593,36 @@ async function deleteFile(fileId) {
     }
 }
 
+/**
+ * Archiva un fichero existente en la subcarpeta "OLD" del folder dado, renombrándolo
+ * a `{base}_OLD{ext}` y, si ya existe, `{base}_OLD1{ext}`, `{base}_OLD2{ext}`… (primer
+ * hueco libre). Devuelve el nombre final usado, o null si falla.
+ */
+async function archiveExistingToOld(currentFolderId, existingFileId, fileName) {
+    try {
+        const oldFolderId = await getOrCreateSubfolder(currentFolderId, 'OLD');
+        const dotIdx = fileName.lastIndexOf('.');
+        const baseName = dotIdx > 0 ? fileName.substring(0, dotIdx) : fileName;
+        const ext = dotIdx > 0 ? fileName.substring(dotIdx) : '';
+        let candidate = `${baseName}_OLD${ext}`;
+        let n = 1;
+        // Buscar el primer nombre libre en la carpeta OLD (_OLD, _OLD1, _OLD2…).
+        while (await findFileByName(oldFolderId, candidate)) {
+            candidate = `${baseName}_OLD${n}${ext}`;
+            n++;
+        }
+        await renameFolder(existingFileId, candidate);
+        await moveFolder(existingFileId, oldFolderId);
+        return candidate;
+    } catch (err) {
+        console.warn(`[DriveService] archiveExistingToOld('${fileName}'):`, err.message);
+        return null;
+    }
+}
+
 module.exports = {
     setupOpportunityFolder,
+    archiveExistingToOld,
     moveFolder,
     renameFolder,
     saveFileToFolder,
@@ -553,6 +630,9 @@ module.exports = {
     findFileByName,
     createSubfolder,
     getOrCreateSubfolder,
+    normalizeFolderName,
+    findSubfolderByNameNormalized,
+    getOrCreateSubfolderNormalized,
     setFolderPublic,
     grantPermissionToEmail,
     getWebViewLink,

@@ -58,6 +58,8 @@ export function buildCertApproveMessage(section, certName, clienteNombre, numExp
     const tecnico = firstNameProper(certName) || 'técnico';
     const cli = clienteNombre ? ` (${toTitleCase(clienteNombre)})` : '';
     const fase = section === 'final' ? 'CEE Final' : 'CEE Inicial';
-    const body = `¡Hola ${tecnico}! 👋\n\nHemos revisado el ${fase} del expediente ${numExp}${cli} y tiene nuestro visto bueno. Ya puedes proceder a registrarlo en Industria.\n\nUna vez registrado, sube por favor la etiqueta energética y el justificante de registro a la carpeta compartida o al portal.\n\n¡Gracias!`;
-    return body + expedienteLine(expedienteId) + carpetaLine(ceeFolderLink);
+    // Los enlaces de DESCARGA (carpeta CEE) y de SUBIDA (popup del CEE registrado)
+    // los añade el backend automáticamente al final del mensaje (approve-cee).
+    const body = `¡Hola ${tecnico}! 👋\n\nHemos revisado el ${fase} del expediente ${numExp}${cli} y tiene nuestro visto bueno. Ya puedes proceder a registrarlo en Industria.\n\nAbajo tienes el enlace para descargar los archivos y, una vez presentado, para subir el CEE registrado (etiqueta + justificante).\n\n¡Gracias!`;
+    return body + expedienteLine(expedienteId);
 }

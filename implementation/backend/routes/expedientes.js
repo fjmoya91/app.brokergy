@@ -1957,7 +1957,7 @@ router.delete('/:id/incidencias/:incId', adminOnly, async (req, res) => {
 });
 
 // ─── POST /api/expedientes/:id/facturas/upload ────────────────────────────────
-// Sube una factura PDF a la carpeta "5.FACTURAS" de la oportunidad en Drive.
+// Sube una factura PDF a la carpeta "5. FACTURAS" de la oportunidad en Drive.
 // Body JSON: { base64, fileName, mimeType? }
 router.post('/:id/facturas/upload', enforceAuth, async (req, res) => {
     try {
@@ -1986,13 +1986,12 @@ router.post('/:id/facturas/upload', enforceAuth, async (req, res) => {
             return res.status(400).json({ error: 'La oportunidad no tiene carpeta de Drive configurada' });
         }
 
-        const { findSubfolderByName, createSubfolder, saveFileToFolder } = require('../services/driveService');
+        const { getOrCreateSubfolderNormalized, saveFileToFolder } = require('../services/driveService');
 
-        // Buscar la subcarpeta "5.FACTURAS", crearla si no existe
-        let facturasFolderId = await findSubfolderByName(driveFolderId, '5.FACTURAS');
-        if (!facturasFolderId) {
-            facturasFolderId = await createSubfolder(driveFolderId, '5.FACTURAS');
-        }
+        // Buscar/crear la subcarpeta "5. FACTURAS" de forma TOLERANTE a espacios/puntos
+        // (la plantilla trae "5. FACTURAS" con espacio; el código antiguo pedía
+        // "5.FACTURAS" sin espacio y creaba una carpeta DUPLICADA).
+        const facturasFolderId = await getOrCreateSubfolderNormalized(driveFolderId, reformaUploadService.SUBCARPETA_FACTURAS);
 
         const fileBuffer = Buffer.from(base64, 'base64');
         const result = await saveFileToFolder(facturasFolderId, fileName, mimeType, fileBuffer);
@@ -2003,6 +2002,75 @@ router.post('/:id/facturas/upload', enforceAuth, async (req, res) => {
     } catch (err) {
         console.error('Error POST expedientes/:id/facturas/upload:', err);
         res.status(500).json({ error: 'Error al subir la factura', details: err.message });
+    }
+});
+
+// ─── POST /api/expedientes/:id/facturas/generar-pdf ───────────────────────────
+// Combina TODAS las facturas de la carpeta "5. FACTURAS" en un único PDF
+// "{numero_expediente} - FACTURAS.pdf" (conservando los originales). Requiere que
+// haya al menos una factura y que TODAS estén validadas
+// (documentacion.facturas[].validada === true).
+router.post('/:id/facturas/generar-pdf', enforceAuth, async (req, res) => {
+    try {
+        const { data: exp, error: expErr } = await supabase
+            .from('expedientes')
+            .select('id, numero_expediente, documentacion, oportunidad_id')
+            .eq('id', req.params.id)
+            .maybeSingle();
+        if (expErr || !exp) return res.status(404).json({ error: 'Expediente no encontrado' });
+
+        const facturas = Array.isArray(exp.documentacion?.facturas) ? exp.documentacion.facturas : [];
+        if (!facturas.length) return res.status(400).json({ error: 'El expediente no tiene facturas.' });
+        if (!facturas.every(f => f && f.validada)) {
+            return res.status(400).json({ error: 'Todas las facturas deben estar validadas antes de generar el PDF único.' });
+        }
+
+        const { data: op } = await supabase
+            .from('oportunidades').select('datos_calculo, id_oportunidad').eq('id', exp.oportunidad_id).single();
+        const driveFolderId = op?.datos_calculo?.drive_folder_id || op?.datos_calculo?.inputs?.drive_folder_id;
+        if (!driveFolderId) return res.status(400).json({ error: 'La oportunidad no tiene carpeta de Drive configurada.' });
+
+        const driveService = require('../services/driveService');
+        const { combineFilesToPdf } = require('../services/facturasCombineService');
+
+        // Carpeta "5. FACTURAS" (resolución tolerante para no crear duplicados).
+        const facturasFolderId = await driveService.getOrCreateSubfolderNormalized(driveFolderId, reformaUploadService.SUBCARPETA_FACTURAS);
+
+        const numExp = (exp.numero_expediente || op?.id_oportunidad || 'EXPEDIENTE').trim();
+        const outName = `${numExp} - FACTURAS.pdf`;
+
+        // Ficheros origen: todo lo de "5. FACTURAS" salvo el propio combinado y subcarpetas (OLD).
+        const all = await driveService.listFiles(facturasFolderId);
+        const sources = all
+            .filter(f => f.mimeType !== 'application/vnd.google-apps.folder')
+            .filter(f => f.name !== outName)
+            .sort((a, b) => String(a.name).localeCompare(String(b.name), 'es', { numeric: true }));
+        if (!sources.length) return res.status(400).json({ error: 'No se han encontrado ficheros de factura en Drive.' });
+
+        const combined = await combineFilesToPdf(sources);
+        if (!combined) return res.status(500).json({ error: 'No se pudo generar el PDF (formatos no soportados).' });
+
+        // Reemplaza el combinado anterior si existía (mismo nombre → un único fichero).
+        try {
+            const prev = await driveService.findFileByName(facturasFolderId, outName);
+            if (prev) await driveService.deleteFile(prev);
+        } catch (e) { /* no bloquear la regeneración */ }
+
+        const saved = await driveService.saveFileToFolder(facturasFolderId, outName, 'application/pdf', combined.buffer);
+        if (!saved?.link) return res.status(500).json({ error: 'No se pudo guardar el PDF en Drive.' });
+
+        res.json({
+            success: true,
+            drive_link: saved.link,
+            drive_id: saved.id,
+            name: outName,
+            count: sources.length,
+            pages: combined.pages,
+            skipped: combined.skipped
+        });
+    } catch (err) {
+        console.error('Error POST expedientes/:id/facturas/generar-pdf:', err);
+        res.status(500).json({ error: 'Error al generar el PDF de facturas', details: err.message });
     }
 });
 

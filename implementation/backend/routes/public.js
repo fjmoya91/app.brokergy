@@ -6,6 +6,7 @@ const expedienteService = require('../services/expedienteService');
 const whatsappService = require('../services/whatsappService');
 const driveService = require('../services/driveService');
 const reformaUploadService = require('../services/reformaUploadService');
+const ceeUploadService = require('../services/ceeUploadService');
 const anexoFotograficoService = require('../services/anexoFotograficoService');
 const { requireAuth } = require('../middleware/auth');
 const axios = require('axios');
@@ -790,13 +791,16 @@ router.post('/reforma-docs/:uuid/:slot', requireAuth, uploadDocsSingle, async (r
         if (!slotDef) return res.status(400).json({ error: 'Tipo de documento no válido' });
 
         // Asegurar carpeta del lead + subcarpeta destino (la crea si falta).
-        // Las FACTURAS van TODAS a "5.FACTURAS" (mismo sitio que el alta del admin);
+        // Las FACTURAS van TODAS a "5. FACTURAS" (mismo sitio que el alta del admin);
         // el resto de documentos/fotos a "12. DOCUMENTOS PARA CEE".
         const folderId = await reformaUploadService.ensureDriveFolder(uuid);
         const targetSub = slot === 'DOC_FACTURAS'
             ? reformaUploadService.SUBCARPETA_FACTURAS
             : reformaUploadService.SUBCARPETA_DOCS;
-        const subId = await driveService.getOrCreateSubfolder(folderId, targetSub);
+        // Facturas: búsqueda TOLERANTE (evita duplicar "5. FACTURAS" vs "5.FACTURAS").
+        const subId = slot === 'DOC_FACTURAS'
+            ? await driveService.getOrCreateSubfolderNormalized(folderId, targetSub)
+            : await driveService.getOrCreateSubfolder(folderId, targetSub);
 
         // Nombre por slot-key (compatible con scan-photos del Anexo Fotográfico)
         const ext = (req.file.originalname.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -892,7 +896,9 @@ router.delete('/reforma-docs/:uuid/:slot', async (req, res) => {
                     const subName = slot === 'DOC_FACTURAS'
                         ? reformaUploadService.SUBCARPETA_FACTURAS
                         : reformaUploadService.SUBCARPETA_DOCS;
-                    const subId = await driveService.findSubfolderByName(folderId, subName);
+                    const subId = slot === 'DOC_FACTURAS'
+                        ? await driveService.findSubfolderByNameNormalized(folderId, subName)
+                        : await driveService.findSubfolderByName(folderId, subName);
                     const fid = subId ? await driveService.findFileByName(subId, name) : null;
                     if (fid) await driveService.deleteFile(fid);
                 }
@@ -924,6 +930,100 @@ router.delete('/reforma-docs/:uuid/:slot', async (req, res) => {
     } catch (e) {
         console.error('Error reforma-docs DELETE:', e);
         res.status(500).json({ error: 'Error interno al borrar el archivo' });
+    }
+});
+
+// ─── SUBIDA PÚBLICA DEL CEE REGISTRADO POR EL CERTIFICADOR ────────────────────
+// Popup "similar al de fotos" con los slots del CEE (.xml/.cex/pdf firmado/
+// registro/etiqueta). El enlace se envía en el "visto bueno" (approve-cee):
+// una vez presentado en Industria, el certificador sube aquí el CEE registrado.
+// Token = firma HMAC stateless (ceeUploadService.ceeUploadSignature).
+
+// GET /api/public/cee-upload/:expedienteId?token=&phase=inicial|final → estado + slots
+router.get('/cee-upload/:expedienteId', async (req, res) => {
+    try {
+        const { expedienteId } = req.params;
+        const { token, phase } = req.query;
+        const ph = phase === 'final' ? 'final' : 'inicial';
+        if (!ceeUploadService.ceeUploadSignatureValid(expedienteId, ph, token)) {
+            return res.status(403).json({ error: 'Enlace inválido o caducado.' });
+        }
+
+        const { data: exp } = await supabase.from('expedientes').select('*').eq('id', expedienteId).maybeSingle();
+        if (!exp) return res.status(404).json({ error: 'Expediente no encontrado' });
+
+        const driveFolderId = await ceeUploadService.resolveDriveFolderId(exp);
+        const current = driveFolderId ? await ceeUploadService.scanCeeSection(driveFolderId, ph) : {};
+
+        let cliente = '';
+        if (exp.cliente_id) {
+            const { data: cli } = await supabase.from('clientes')
+                .select('nombre_razon_social, apellidos').eq('id_cliente', exp.cliente_id).maybeSingle();
+            if (cli) cliente = `${cli.nombre_razon_social || ''} ${cli.apellidos || ''}`.trim();
+        }
+
+        res.json({
+            numero_expediente: exp.numero_expediente || expedienteId,
+            phase: ph,
+            phaseLabel: ph === 'final' ? 'CEE Final' : 'CEE Inicial',
+            cliente,
+            registrado: (exp.seguimiento?.[ph === 'final' ? 'cee_final' : 'cee_inicial']) === 'REGISTRADO',
+            slots: ceeUploadService.CEE_SLOTS.map(s => ({
+                id: s.id, label: s.label, accept: s.accept, current: current[s.id] || null
+            })),
+        });
+    } catch (e) {
+        console.error('[cee-upload GET]', e.message);
+        res.status(500).json({ error: 'Error interno' });
+    }
+});
+
+// POST /api/public/cee-upload/:expedienteId/:slot?token=&phase= → sube 1 fichero
+router.post('/cee-upload/:expedienteId/:slot', uploadDocsSingle, async (req, res) => {
+    try {
+        const { expedienteId, slot } = req.params;
+        const { token, phase } = req.query;
+        const ph = phase === 'final' ? 'final' : 'inicial';
+        if (!ceeUploadService.ceeUploadSignatureValid(expedienteId, ph, token)) {
+            return res.status(403).json({ error: 'Enlace inválido o caducado.' });
+        }
+        if (!req.file || !req.file.buffer?.length) {
+            return res.status(400).json({ error: 'No se ha recibido ningún archivo' });
+        }
+        if (!ceeUploadService.CEE_SLOTS.find(s => s.id === slot)) {
+            return res.status(400).json({ error: 'Tipo de documento no válido' });
+        }
+
+        const { data: exp } = await supabase.from('expedientes').select('*').eq('id', expedienteId).maybeSingle();
+        if (!exp) return res.status(404).json({ error: 'Expediente no encontrado' });
+
+        const driveFolderId = await ceeUploadService.resolveDriveFolderId(exp);
+        if (!driveFolderId) return res.status(400).json({ error: 'El expediente no tiene carpeta de Drive' });
+
+        const numExp = exp.numero_expediente || expedienteId;
+        const uploaded = await ceeUploadService.uploadCeeFile(
+            driveFolderId, ph, numExp, slot, req.file.buffer, req.file.mimetype
+        );
+
+        // Persistir el enlace en cee.cee_files[section][slot] (igual que la app).
+        const sectionK = ph === 'final' ? 'final' : 'inicial';
+        const cee = exp.cee || {};
+        const ceeFiles = cee.cee_files || {};
+        ceeFiles[sectionK] = { ...(ceeFiles[sectionK] || {}), [slot]: uploaded.link };
+        cee.cee_files = ceeFiles;
+        await supabase.from('expedientes').update({ cee, updated_at: new Date().toISOString() }).eq('id', expedienteId);
+
+        // Al subir el REGISTRO → misma notificación/transición que la app.
+        let registrado = false;
+        if (slot === 'registro') {
+            const r = await ceeUploadService.markCeeRegistradoFromUpload(exp, ph);
+            registrado = !!r.ok;
+        }
+
+        res.json({ success: true, slot, link: uploaded.link, name: uploaded.fileName, registrado });
+    } catch (e) {
+        console.error('[cee-upload POST]', e.message);
+        res.status(500).json({ error: e.message || 'Error interno al subir el archivo' });
     }
 });
 

@@ -196,6 +196,10 @@ export function CeeDocumentsGrid({
     const [certChannels, setCertChannels] = useState(['email']);
     const [certNotifyMessage, setCertNotifyMessage] = useState('');
     const [sendingCertNotify, setSendingCertNotify] = useState(false);
+    // Visto bueno: adjuntar los archivos del CEE directamente al email.
+    const [certAttachFiles, setCertAttachFiles] = useState(false);
+    // Enlaces (descarga carpeta CEE + subida del CEE registrado) para el preview del visto bueno.
+    const [certApproveLinks, setCertApproveLinks] = useState(null);
     // Guarda la última plantilla autogenerada para saber si el admin la ha editado a mano.
     const lastCertDefaultRef = useRef('');
     // ── Modal "solicitar revisión a Brokergy" disparado al subir .CEX (certificador) ──
@@ -234,6 +238,14 @@ export function CeeDocumentsGrid({
         const def = buildCertDefaultMessage(certTemplate, certNotifyModal.section, certName, clienteNombre, numExp, ceeFolderLink, expedienteId);
         setCertNotifyMessage(def);
         lastCertDefaultRef.current = def;
+        setCertAttachFiles(false);
+        // Cargar los enlaces del visto bueno (descarga + subida) para el preview.
+        setCertApproveLinks(null);
+        if (expediente?.id) {
+            axios.get(`/api/expedientes/${expediente.id}/approve-cee-links?phase=${certNotifyModal.section}`)
+                .then(r => setCertApproveLinks(r.data))
+                .catch(() => setCertApproveLinks(null));
+        }
         // Solo al abrir el modal (no en cada cambio de tipo: eso lo gestiona handleCertTemplateChange).
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [certNotifyModal]);
@@ -1333,6 +1345,49 @@ export function CeeDocumentsGrid({
                             ))}
                         </div>
 
+                        {/* Visto bueno + email: opción de adjuntar los archivos del CEE al correo. */}
+                        {certTemplate === 'approve' && certChannels.includes('email') && (
+                            <label className="flex items-start gap-2.5 mb-5 px-3 py-2.5 rounded-xl bg-white/[0.03] border border-white/10 cursor-pointer hover:border-brand/30 transition-colors">
+                                <input
+                                    type="checkbox"
+                                    checked={certAttachFiles}
+                                    onChange={e => setCertAttachFiles(e.target.checked)}
+                                    disabled={sendingCertNotify}
+                                    className="mt-0.5 w-4 h-4 accent-brand shrink-0"
+                                />
+                                <span className="text-[10px] text-white/60 leading-snug normal-case">
+                                    <b className="text-white/80">Adjuntar los archivos del CEE al email</b> (además del enlace de descarga). Se adjuntan los ficheros de la carpeta {certNotifyModal.section === 'final' ? 'CEE FINAL' : 'CEE INICIAL'}.
+                                </span>
+                            </label>
+                        )}
+
+                        {/* Visto bueno: enlaces (descarga + subida) que se añaden al mensaje. */}
+                        {certTemplate === 'approve' && (
+                            <div className="mb-5 px-3 py-3 rounded-xl bg-emerald-500/[0.04] border border-emerald-500/20">
+                                <p className="text-[9px] font-black text-emerald-400/80 uppercase tracking-widest mb-2">Se añadirán al mensaje automáticamente</p>
+                                <div className="space-y-2">
+                                    <div className="flex items-start gap-2">
+                                        <span className="text-sm leading-none mt-0.5">📥</span>
+                                        <div className="min-w-0 flex-1">
+                                            <p className="text-[10px] text-white/70 font-bold normal-case">Descargar el CEE para presentarlo</p>
+                                            {certApproveLinks?.presentFolderLink
+                                                ? <a href={certApproveLinks.presentFolderLink} target="_blank" rel="noopener noreferrer" className="text-[9px] text-brand/80 hover:text-brand break-all">{certApproveLinks.presentFolderLink}</a>
+                                                : <p className="text-[9px] text-white/25">{certApproveLinks ? 'La carpeta CEE aún no existe (se creará al enviar).' : 'Cargando enlace…'}</p>}
+                                        </div>
+                                    </div>
+                                    <div className="flex items-start gap-2">
+                                        <span className="text-sm leading-none mt-0.5">📤</span>
+                                        <div className="min-w-0 flex-1">
+                                            <p className="text-[10px] text-white/70 font-bold normal-case">Subir el CEE registrado (etiqueta + justificante)</p>
+                                            {certApproveLinks?.ceeUploadLink
+                                                ? <a href={certApproveLinks.ceeUploadLink} target="_blank" rel="noopener noreferrer" className="text-[9px] text-brand/80 hover:text-brand break-all">{certApproveLinks.ceeUploadLink}</a>
+                                                : <p className="text-[9px] text-white/25">Cargando enlace…</p>}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
                         {/* Mensaje a enviar (editable). Es el texto real que se manda al certificador. */}
                         <div className="flex items-center justify-between mb-2">
                             <p className="text-[9px] font-black text-white/30 uppercase tracking-widest">Mensaje al certificador</p>
@@ -1390,7 +1445,7 @@ export function CeeDocumentsGrid({
                                     if (certTemplate === 'approve') {
                                         // Visto bueno: avanza el estado a REVISADO y avisa al certificador.
                                         const data = onApproveSend
-                                            ? await onApproveSend(phase, certChannels, certNotifyMessage)
+                                            ? await onApproveSend(phase, certChannels, certNotifyMessage, certAttachFiles)
                                             : null;
                                         // Avisar solo si algún canal no salió limpio (mismo criterio que onForceNotify).
                                         const issues = [];

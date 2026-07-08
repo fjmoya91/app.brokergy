@@ -384,6 +384,10 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
     const [approveMessage, setApproveMessage] = useState('');
     const [approvePendingPhase, setApprovePendingPhase] = useState(null);
     const [approveChannels, setApproveChannels] = useState(['email']);
+    const [approveAttachFiles, setApproveAttachFiles] = useState(false);
+    // Enlaces (descarga carpeta CEE + subida del CEE registrado) que el backend
+    // añadirá al mensaje. Se muestran en el preview para que el admin los vea.
+    const [approveLinks, setApproveLinks] = useState(null);
 
     // Notificar al padre de cambios en tiempo real
     useEffect(() => {
@@ -642,21 +646,30 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
         const section = phase === 'final' ? 'final' : 'inicial';
         setApprovePendingPhase(phase);
         setApproveChannels(['email']);
+        setApproveAttachFiles(false);
         setApproveMessage(buildCertApproveMessage(section, selectedCertName, clienteNombre, numExp, ceeFolderLink, expedienteId));
         setApproveResult(null);
+        setApproveLinks(null);
+        // Cargar los enlaces reales (descarga + subida) para mostrarlos en el preview.
+        if (expediente?.id) {
+            axios.get(`/api/expedientes/${expediente.id}/approve-cee-links?phase=${section}`)
+                .then(r => setApproveLinks(r.data))
+                .catch(() => setApproveLinks(null));
+        }
         setShowApprovePopup(true);
     };
 
     // Visto bueno enviado DIRECTAMENTE desde el popup de la campana (sin abrir el popup
     // dedicado de Validar). Parametriza approve-cee con fase/canales/mensaje editado y
     // devuelve la respuesta para que el grid muestre el estado real por canal.
-    const submitApprove = async (phase, channels, customMessage) => {
+    const submitApprove = async (phase, channels, customMessage, attachFiles = false) => {
         if (!expediente?.id) throw new Error('Expediente no disponible');
         const { data } = await axios.post(`/api/expedientes/${expediente.id}/approve-cee`, {
             phase,
             sendEmail: channels.includes('email'),
             sendWhatsApp: channels.includes('whatsapp'),
             customMessage: (customMessage || '').trim() || null,
+            attachFiles: !!attachFiles && channels.includes('email'),
         });
         fireSuccessConfetti();
         if (onRefresh) onRefresh();
@@ -671,7 +684,8 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                 phase: approvePendingPhase,
                 sendEmail: approveChannels.includes('email'),
                 sendWhatsApp: approveChannels.includes('whatsapp'),
-                customMessage: approveMessage.trim() || null
+                customMessage: approveMessage.trim() || null,
+                attachFiles: approveAttachFiles && approveChannels.includes('email')
             });
             const phaseLabel = approvePendingPhase === 'final' ? 'CEE Final' : 'CEE Inicial';
             // Feedback real por canal (el backend devuelve el estado de cada envío).
@@ -1158,6 +1172,22 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                                     ))}
                                 </div>
 
+                                {/* Adjuntar los archivos del CEE al email (opcional) */}
+                                {approveChannels.includes('email') && (
+                                    <label className="flex items-start gap-2.5 mb-5 px-3 py-2.5 rounded-xl bg-white/[0.03] border border-white/10 cursor-pointer hover:border-emerald-500/30 transition-colors">
+                                        <input
+                                            type="checkbox"
+                                            checked={approveAttachFiles}
+                                            onChange={e => setApproveAttachFiles(e.target.checked)}
+                                            disabled={approveLoading}
+                                            className="mt-0.5 w-4 h-4 accent-emerald-500 shrink-0"
+                                        />
+                                        <span className="text-[10px] text-white/60 leading-snug normal-case">
+                                            <b className="text-white/80">Adjuntar los archivos del CEE al email</b> (además del enlace de descarga).
+                                        </span>
+                                    </label>
+                                )}
+
                                 {/* Mensaje editable (homogéneo con el popup de notificar) */}
                                 <div className="flex items-center justify-between mb-2">
                                     <p className="text-[9px] font-black text-white/30 uppercase tracking-widest">Mensaje al certificador</p>
@@ -1178,11 +1208,36 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                                     maxLength={2000}
                                     className="w-full bg-black/30 border border-white/10 rounded-xl p-3 text-sm leading-relaxed text-white normal-case placeholder:text-white/20 focus:outline-none focus:border-emerald-500/40 resize-none mb-1"
                                 />
-                                <div className="flex items-center justify-between mb-5">
+                                <div className="flex items-center justify-between mb-4">
                                     <p className="text-[9px] text-white/25 leading-snug">
                                         Puedes editarlo libremente.{approveChannels.includes('email') ? ' El email mantiene la cabecera de marca y los botones de acceso.' : ''}
                                     </p>
                                     <p className="text-[9px] text-white/20 shrink-0 ml-3">{approveMessage.length}/2000</p>
+                                </div>
+
+                                {/* Enlaces que se AÑADEN automáticamente al final del mensaje. */}
+                                <div className="mb-5 px-3 py-3 rounded-xl bg-emerald-500/[0.04] border border-emerald-500/20">
+                                    <p className="text-[9px] font-black text-emerald-400/80 uppercase tracking-widest mb-2">Se añadirán al mensaje automáticamente</p>
+                                    <div className="space-y-2">
+                                        <div className="flex items-start gap-2">
+                                            <span className="text-sm leading-none mt-0.5">📥</span>
+                                            <div className="min-w-0 flex-1">
+                                                <p className="text-[10px] text-white/70 font-bold normal-case">Descargar el CEE para presentarlo</p>
+                                                {approveLinks?.presentFolderLink
+                                                    ? <a href={approveLinks.presentFolderLink} target="_blank" rel="noopener noreferrer" className="text-[9px] text-brand/80 hover:text-brand break-all">{approveLinks.presentFolderLink}</a>
+                                                    : <p className="text-[9px] text-white/25">{approveLinks ? 'La carpeta CEE aún no existe (se creará al enviar).' : 'Cargando enlace…'}</p>}
+                                            </div>
+                                        </div>
+                                        <div className="flex items-start gap-2">
+                                            <span className="text-sm leading-none mt-0.5">📤</span>
+                                            <div className="min-w-0 flex-1">
+                                                <p className="text-[10px] text-white/70 font-bold normal-case">Subir el CEE registrado (etiqueta + justificante)</p>
+                                                {approveLinks?.ceeUploadLink
+                                                    ? <a href={approveLinks.ceeUploadLink} target="_blank" rel="noopener noreferrer" className="text-[9px] text-brand/80 hover:text-brand break-all">{approveLinks.ceeUploadLink}</a>
+                                                    : <p className="text-[9px] text-white/25">Cargando enlace…</p>}
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
 
                                 <div className="flex gap-3">

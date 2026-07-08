@@ -21,6 +21,7 @@ import { AceptarPropuestaView } from './features/public/views/AceptarPropuestaVi
 import { CertAckView } from './features/public/views/CertAckView';
 import { SubirCifoView } from './features/public/views/SubirCifoView';
 import { SubirRiteView } from './features/public/views/SubirRiteView';
+import { SubirCeeView } from './features/public/views/SubirCeeView';
 import { FirmarAnexosView } from './features/public/views/FirmarAnexosView';
 import { SubirDocsReformaView } from './features/public/views/SubirDocsReformaView';
 import { PortalLoginView } from './features/public/views/PortalLoginView';
@@ -110,6 +111,19 @@ function App() {
   const [riteUploadId] = useState(() => {
     const path = window.location.pathname;
     if (path.startsWith('/subir-rite/')) return path.split('/subir-rite/')[1] || null;
+    return null;
+  });
+
+  // Subida pública del CEE registrado por el certificador: /subir-cee/:expedienteId?token=&phase=
+  const [ceeUploadData] = useState(() => {
+    const path = window.location.pathname;
+    if (path.startsWith('/subir-cee/')) {
+      const expedienteId = path.split('/subir-cee/')[1]?.split('/')[0] || null;
+      const sp = new URLSearchParams(window.location.search);
+      const token = sp.get('token');
+      const phase = sp.get('phase') === 'final' ? 'final' : 'inicial';
+      if (expedienteId && token) return { expedienteId, token, phase };
+    }
     return null;
   });
 
@@ -719,8 +733,8 @@ function App() {
 
   // Rutas públicas con su propio layout full-bleed → sin red decorativa y
   // sin padding del contenedor padre (el componente cubre 100% del viewport).
-  const isPublicRoute = !!(landingRoute || reformaDocsData || firmaOportunidadId || certAckData || cifoUploadId || riteUploadId || firmarAnexosId || portalRoute);
-  const isLoggedDashboard = user && !firmaOportunidadId && !resetToken && !certAckData && !cifoUploadId && !riteUploadId && !firmarAnexosId && !reformaDocsData && !landingRoute && !portalRoute;
+  const isPublicRoute = !!(landingRoute || reformaDocsData || firmaOportunidadId || certAckData || cifoUploadId || riteUploadId || ceeUploadData || firmarAnexosId || portalRoute);
+  const isLoggedDashboard = user && !firmaOportunidadId && !resetToken && !certAckData && !cifoUploadId && !riteUploadId && !ceeUploadData && !firmarAnexosId && !reformaDocsData && !landingRoute && !portalRoute;
   const wrapperPadding = (isLoggedDashboard || isPublicRoute) ? 'p-0' : 'px-4 py-8';
   const wrapperHeight = isLoggedDashboard ? 'h-screen overflow-hidden' : '';
 
@@ -748,6 +762,8 @@ function App() {
           <SubirCifoView expedienteId={cifoUploadId} />
         ) : riteUploadId ? (
           <SubirRiteView expedienteId={riteUploadId} />
+        ) : ceeUploadData ? (
+          <SubirCeeView expedienteId={ceeUploadData.expedienteId} token={ceeUploadData.token} phase={ceeUploadData.phase} />
         ) : firmarAnexosId ? (
           <FirmarAnexosView expedienteId={firmarAnexosId} />
         ) : certAckData ? (
