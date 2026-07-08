@@ -63,7 +63,7 @@ const DOC_CSS = `
     .doc-page {
         width: ${DOC_WIDTH};
         min-height: 1123px;
-        padding: 15mm 14mm 12mm;
+        padding: 11mm 14mm 12mm;
         display: flex;
         flex-direction: column;
         page-break-after: always;
@@ -102,7 +102,7 @@ const PDF_CSS = `
     .doc-page {
         width: 210mm;
         min-height: 297mm;
-        padding: 15mm 14mm 12mm;
+        padding: 11mm 14mm 12mm;
         page-break-after: always;
         break-after: page;
         position: relative;

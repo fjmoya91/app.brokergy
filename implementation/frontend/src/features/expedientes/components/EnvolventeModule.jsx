@@ -114,11 +114,23 @@ function SelectField({ value, onChange, options, readOnly = false, placeholder =
                                 setNewValue('');
                             }
                         } else if (e.key === 'Escape') {
+                            e.preventDefault();
                             setIsAdding(false);
+                            setNewValue('');
                         }
                     }}
                     onBlur={() => {
-                        if (!newValue.trim()) setIsAdding(false);
+                        // Si el usuario escribe el valor nuevo y clica directamente en
+                        // "Guardar" (en vez de pulsar Enter), este input pierde el foco
+                        // antes de confirmarse — sin este commit aquí también, el valor
+                        // tecleado se perdía en silencio y el guardado persistía el valor
+                        // antiguo (bug: "añado un modelo nuevo y no se actualiza").
+                        if (newValue.trim()) {
+                            onAddCustom?.(newValue.trim());
+                            onChange(newValue.trim());
+                        }
+                        setIsAdding(false);
+                        setNewValue('');
                     }}
                     className="w-full h-full bg-bkg-elevated border border-brand/50 rounded-xl px-4 text-sm font-bold text-white focus:outline-none shadow-[0_0_15px_-3px_rgba(255,160,0,0.3)] animate-in zoom-in duration-200"
                 />

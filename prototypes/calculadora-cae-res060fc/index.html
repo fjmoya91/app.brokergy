@@ -1,0 +1,329 @@
+<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Calculadora CAE · BROKERGY</title>
+<style>
+:root{--orange:#F39200;--orange-d:#E07B00;--lime:#A9CF3D;--lime-d:#8DB82B;
+ --grad:linear-gradient(90deg,var(--orange),var(--lime));--ink:#1b1b1b;--bg:#f6f7f4;--muted:#6b6f66;--line:#e0e2da;--panel:#20242a;}
+*{box-sizing:border-box}
+body{margin:0;font-family:'Segoe UI',Arial,sans-serif;background:var(--bg);color:var(--ink)}
+.wrap{max-width:1060px;margin:0 auto;padding:18px}
+.head{display:flex;align-items:center;gap:14px;margin-bottom:6px}.head img{height:46px}.head .fallback{font-weight:800;font-size:22px;letter-spacing:1px}
+h1{font-size:19px;margin:0}.sub{color:var(--muted);font-size:13px;margin:2px 0 14px}
+.bar-accent{height:5px;border-radius:5px;background:var(--grad);margin:0 0 16px}
+.toggle-bar{display:flex;align-items:center;gap:12px;background:#fff;border:1px solid var(--line);border-left:5px solid var(--orange);border-radius:10px;padding:11px 16px;margin-bottom:16px}
+.switch{position:relative;width:48px;height:26px;flex:0 0 auto}.switch input{opacity:0;width:0;height:0}
+.slider{position:absolute;inset:0;background:#cccfc6;border-radius:26px;transition:.2s;cursor:pointer}
+.slider:before{content:"";position:absolute;height:20px;width:20px;left:3px;top:3px;background:#fff;border-radius:50%;transition:.2s}
+.switch input:checked+.slider{background:var(--lime-d)}.switch input:checked+.slider:before{transform:translateX(22px)}
+.grid{display:grid;grid-template-columns:1.05fr .95fr;gap:16px;align-items:start}@media(max-width:860px){.grid{grid-template-columns:1fr}}
+.card{background:#fff;border-radius:12px;padding:16px 18px;box-shadow:0 1px 6px rgba(0,0,0,.07)}
+.card h2{font-size:12px;text-transform:uppercase;letter-spacing:.6px;color:var(--orange-d);margin:0 0 12px;border-bottom:2px solid;border-image:var(--grad) 1;padding-bottom:6px}
+label{display:block;font-size:12px;color:var(--muted);margin:10px 0 3px;font-weight:600}
+select,input[type=number]{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;font-size:14px;background:#fcfdfb;color:var(--ink)}
+select:focus,input:focus{outline:2px solid var(--lime);border-color:var(--lime-d)}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.chk{display:flex;align-items:center;gap:8px;margin-top:12px;font-size:13px;font-weight:600;color:var(--muted)}.chk input{width:auto;accent-color:var(--lime-d)}
+.res{background:var(--panel);color:#fff;position:relative;overflow:hidden}.res:before{content:"";position:absolute;top:0;left:0;right:0;height:5px;background:var(--grad)}
+.res h2{color:#fff;border-image:var(--grad) 1}
+.big{font-size:44px;font-weight:800;line-height:1.03;margin:4px 0;background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
+.unit{font-size:14px;opacity:.8;font-weight:500;color:#fff;-webkit-text-fill-color:#fff}
+.badge{display:inline-block;padding:6px 12px;border-radius:20px;font-size:12px;font-weight:700;margin-top:6px}
+.b-tec{background:var(--lime);color:#1b2b06}.b-tope{background:var(--orange);color:#2b1600}
+table{width:100%;border-collapse:collapse;margin-top:12px;font-size:13px}
+td{padding:5px 4px;border-bottom:1px solid rgba(255,255,255,.13)}td.v{text-align:right;font-variant-numeric:tabular-nums;font-weight:600}
+.eur{font-size:22px;font-weight:800;margin-top:8px;color:var(--lime)}
+/* comparativa inline */
+#cmpInline{margin-top:10px}
+.cmprow{display:flex;justify-content:space-between;align-items:baseline;font-size:13px;font-weight:600;margin-top:10px}
+.cmprow .l{color:#cfd2c9;text-transform:uppercase;letter-spacing:.4px;font-size:11px}
+.cmprow .fcn{font-size:30px;font-weight:800;background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
+.cmprow .an{font-size:24px;font-weight:800;color:#eceee8}
+.barbox{margin-top:5px;height:13px;background:rgba(255,255,255,.14);border-radius:8px;overflow:hidden}
+.barfill{height:100%;border-radius:8px;transition:width .3s}
+.barfill.fc{background:var(--grad)}.barfill.act{background:#9aa08c}
+.ratiobanner{margin-top:14px;text-align:center;background:var(--grad);color:#1b1b1b;border-radius:10px;padding:10px}
+.ratiobanner .rb{font-size:30px;font-weight:900;line-height:1}
+.ratiobanner .sm{font-size:13px;font-weight:700}
+.nums{display:flex;align-items:baseline;gap:8px}.ceur{font-size:15px;font-weight:800;color:#cfd2c9}.ceur.fc{color:var(--lime)}
+.foot{font-size:11px;color:var(--muted);margin-top:16px;line-height:1.5}
+.dropzone{background:#fff;border:2px dashed var(--lime-d);border-radius:12px;padding:14px 16px;margin-bottom:16px;display:flex;align-items:center;gap:12px;cursor:pointer;transition:.15s}
+.dropzone:hover,.dropzone.drag{background:#f3f8ea;border-color:var(--orange)}
+.dropzone .ic{font-size:24px}
+.dropzone .tx{font-size:13px;color:var(--ink);font-weight:600}
+.dropzone .tx small{display:block;font-weight:400;color:var(--muted)}
+.dz-ok{color:var(--lime-d);font-weight:700}.dz-err{color:#c0392b;font-weight:700}
+#dropOverlay{position:fixed;inset:0;background:rgba(27,37,15,.55);display:none;align-items:center;justify-content:center;z-index:9999;pointer-events:none}
+#dropOverlay.on{display:flex}
+#dropOverlay .msg{background:#fff;border:3px dashed var(--lime-d);border-radius:16px;padding:28px 44px;font-size:20px;font-weight:800;color:var(--ink);box-shadow:0 8px 34px rgba(0,0,0,.35)}
+#dropOverlay .msg span{background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
+
+.btn080{display:block;width:100%;margin:0 0 16px;padding:11px 16px;border:none;border-radius:10px;background:var(--panel);color:#fff;font-weight:700;font-size:13px;cursor:pointer;position:relative;overflow:hidden;text-align:left}
+.btn080:before{content:"";position:absolute;left:0;top:0;bottom:0;width:6px;background:var(--grad)}
+.btn080:hover{filter:brightness(1.18)}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.5);display:none;align-items:flex-start;justify-content:center;z-index:10000;padding:24px;overflow:auto}
+.modal.on{display:flex}
+.modalbox{background:#fff;border-radius:14px;max-width:900px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.4);overflow:hidden}
+.modalhead{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--line)}
+.mh-t{font-weight:800;font-size:16px;color:var(--ink);display:flex;align-items:center;gap:10px}
+.mh-ic{width:28px;height:28px;border-radius:6px;background:var(--grad);display:inline-flex;align-items:center;justify-content:center}
+.mh-x{cursor:pointer;font-size:20px;color:var(--muted);user-select:none}
+.modaldrops{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:16px 20px}
+.minidz{border:2px dashed var(--lime-d);border-radius:10px;padding:14px;text-align:center;font-weight:700;color:var(--ink);cursor:pointer;font-size:13px}
+.minidz.drag{background:#f3f8ea;border-color:var(--orange)}
+.minidz small{display:block;font-weight:400;color:var(--muted);margin-top:3px}
+.modalfoot{padding:12px 20px 18px;color:var(--muted);font-size:12px;font-style:italic;text-align:center;background:#f6f7f4;border-radius:0 0 8px 8px;margin:8px 12px 12px}
+#res080table{padding:0 20px}
+.r080hint{padding:24px;text-align:center;color:var(--muted)}
+table.r080{width:100%;border-collapse:collapse;font-size:13px}
+table.r080 th{background:#111;color:#fff;text-align:left;padding:10px;font-size:11px;letter-spacing:.5px}
+table.r080 th:nth-child(2),table.r080 th:nth-child(3){text-align:center}
+table.r080 td{padding:8px 10px;border-bottom:1px solid #eee}
+table.r080 td:nth-child(2),table.r080 td:nth-child(3){text-align:center;font-variant-numeric:tabular-nums}
+table.r080 tr.svc td{background:var(--lime);font-weight:800;color:#1b2b06}
+table.r080 tr.tot td{font-weight:800;font-style:italic}
+table.r080 tr.ahorro td{background:var(--orange);font-weight:800}
+table.r080 tr.ahorro td[colspan]{text-align:center;font-size:22px}
+</style></head><body><div id="dropOverlay"><div class="msg">📄 Suelta el <span>certificado .xml</span> para actualizar</div></div><div class="wrap">
+<div class="head"><img src="https://assets.zyrosite.com/cdn-cgi/image/format=auto,w=768,fit=crop/mv0jPQL2z2cL97Dv/1-removebg-preview-A1aKzDwkwDT6LNXb.png" alt="BROKERGY" onerror="this.style.display='none';document.getElementById('fb').style.display='inline'"><span class="fallback" id="fb" style="display:none">BROKERGY</span>
+<div><h1>Calculadora rápida de CAEs · RES060FC</h1></div></div>
+<div class="sub">1 CAE = 1 kWh/año de ahorro de energía final · AE_TOTAL = Mín(AES ; 0,70·CEF) × f_C</div>
+<div class="bar-accent"></div>
+<div class="toggle-bar">
+ <label class="switch" style="margin:0"><input type="checkbox" id="cmpTog"><span class="slider"></span></label>
+ <div style="font-size:13px;font-weight:600">Comparar con el cálculo <b style="color:var(--orange-d)">RES060 actual</b> &nbsp;<span style="font-weight:400;color:var(--muted)">(añade el campo de Demanda de calefacción del certificado)</span></div>
+</div>
+<div id="drop" class="dropzone" title="Cargar certificado energético (.xml)">
+ <span class="ic">📄⬇️</span>
+ <span class="tx">Arrastra aquí el <b>.xml del certificado</b> o haz clic para cargarlo<small id="dzmsg">Autocompleta provincia, año, tipología, superficie, demanda de calefacción y ACS.</small></span>
+ <input type="file" id="xmlFile" accept=".xml,text/xml,application/xml" style="display:none">
+</div>
+<button id="openRes080" class="btn080">📊 Desglose energético RES080 · comparar CEE inicial vs final</button>
+<div class="grid">
+<div class="card"><h2>Entradas</h2>
+<div class="row2"><div><label>Tipo de vivienda</label><select id="tipo"><option value="Unifamiliar" data-table="UNI" data-fc="2">Unifamiliar</option><option value="Piso13" data-table="P13" data-fc="2.5">Piso en bloque (1-3 plantas)</option><option value="Piso4" data-table="P4" data-fc="2.5">Piso en bloque (≥4 plantas)</option><option value="Bloque13" data-table="P13" data-fc="3">Bloque completo/comunidad (1-3 plantas)</option><option value="Bloque4" data-table="P4" data-fc="3">Bloque completo/comunidad (≥4 plantas)</option></select></div><div><label>Superficie S (m²)</label><input type="number" id="S" value="120" step="1"></div></div>
+<div class="row2"><div><label>Provincia</label><select id="prov"></select></div><div><label>Año construcción</label><select id="year"></select></div></div>
+<label>Caldera sustituida (Anexo II → η_i)</label><select id="cald"><option value="0">Gas, anterior a 1979, tiro equilibrado, de pie</option><option value="1">Gas, de 1979 a 1997, tiro natural equilibrado y de pie</option><option value="2">Gas, anterior a 1998, tiro natural o equilibrado, mural</option><option value="3">Gas, anterior a 1998, tiro forzado con ventilador, capacidad térmica alta</option><option value="4">Gas, anterior a 1998, tiro forzado con ventilador, capacidad térmica baja</option><option value="5">Gas, anterior a 1998, condensación</option><option value="6">Gas, de 1998 en adelante, sin condensación, con piloto permanente</option><option value="7">Gas, de 1998 en adelante, sin condensación, con encendido automático</option><option value="8">Gas, de 1998 en adelante, condensación con piloto permanente</option><option value="9">Gas, de 1998 en adelante, condensación, con encendido automático</option><option value="10">Gasóleo, anterior a 1985</option><option value="11">Gasóleo, de 1985 a 1997</option><option value="12">Gasóleo, de 1998 en adelante, sin condensación</option><option value="13">Gasóleo, condensación</option><option value="14">Combustible sólido, alimentación manual, en espacio sin calefactar</option><option value="15">Combustible sólido, alimentación manual, en espacio calefactado</option><option value="16">Combustible sólido, alimentación automática, en espacio sin calefactar</option><option value="17">Combustible sólido, alimentación automática, en espacio calefactado</option><option value="18">Caldera eléctrica</option></select>
+<div class="row2"><div><label>SCOP_bdc (calefacción)</label><input type="number" id="scopb" value="4" step="0.01"></div><div><label>SCOP_dhw (ACS)</label><input type="number" id="scopd" value="2.60" step="0.01"></div></div>
+<label>D_ACS — origen del dato</label><select id="acsMode"><option>Directo (kWh/año)</option><option>Litros/día ACS a 60° (Anexo III)</option></select><div id="ldayWrap" style="display:none"><label>Litros/día de ACS a 60° (del CEE/PDF)</label><input type="number" id="lday" value="168" step="1"></div><div class="row2"><div><label>D_ACS (kWh/año)</label><input type="number" id="dacs" value="2731.40" step="10"></div><div><label>CEF previo (kWh/año)</label><input type="number" id="cef" value="50000" step="100"></div></div>
+
+<div style="display:flex;gap:24px;flex-wrap:wrap"><div class="chk"><input type="checkbox" id="acs" checked><label style="margin:0">Incluir ACS</label></div><div class="chk"><input type="checkbox" id="vuln"><label style="margin:0">Vulnerable severo (×1,5)</label></div></div>
+<label>Precio CAE (€/MWh·año)</label><input type="number" id="precio" value="100" step="5">
+<div id="actualFields" style="display:none;margin-top:6px;padding-top:10px;border-top:1px dashed var(--line)">
+ <label style="color:var(--orange-d)">Demanda calefacción del CEE (kWh/m²·año) — <b>RES060 actual</b></label>
+ <input type="number" id="dcalcee" value="96.4" step="0.1">
+ <div style="font-size:11px;color:var(--muted);margin-top:4px">η_i y SCOP son los mismos que el cálculo nuevo · FP=1.</div>
+</div>
+</div>
+
+<div class="card res"><h2 id="resTitle">CAEs máximos · RES060FC</h2>
+<div class="big"><span id="cae">0</span> <span class="unit">kWh/año</span> <span class="unit" style="color:var(--lime);-webkit-text-fill-color:var(--lime)">· <span id="caeEur">0</span> €</span></div>
+<div id="badge" class="badge b-tope">—</div>
+<div id="detail">
+<table>
+<tr><td>Valor Anexo IV</td><td class="v"><span id="q">0</span> kWh/m²·año</td></tr>
+<tr><td>η_i utilizado (Anexo II)</td><td class="v"><span id="eta">0</span></td></tr>
+<tr><td>f_C aplicado</td><td class="v"><span id="fc">0</span></td></tr>
+<tr><td>Demanda calefacción</td><td class="v"><span id="dem">0</span> kWh/año</td></tr>
+<tr><td>Ahorro calefacción</td><td class="v"><span id="ahc">0</span> kWh/año</td></tr>
+<tr><td>Ahorro ACS × f_C</td><td class="v"><span id="aha">0</span> kWh/año</td></tr>
+<tr><td>AES</td><td class="v"><span id="aes">0</span> kWh/año</td></tr>
+<tr><td>Tope 0,70·CEF</td><td class="v"><span id="tope">0</span> kWh/año</td></tr>
+</table>
+<div class="eur">Valor: <span id="val">0</span> €</div>
+</div>
+<div id="cmpInline" style="display:none;margin-top:14px;padding-top:12px;border-top:1px dashed rgba(255,255,255,.25)"><div style="font-size:12px;text-transform:uppercase;letter-spacing:.6px;color:var(--lime);font-weight:700;margin-bottom:2px">Comparativa vs RES060 actual</div>
+ <div class="cmprow"><span class="l">RES060FC (propuesta)</span><span class="nums"><span class="fcn" id="c_fc">0</span><span class="ceur fc" id="c_fc_e">0 €</span></span></div>
+ <div class="barbox"><div class="barfill fc" id="barFc" style="width:100%"></div></div>
+ <div class="cmprow"><span class="l">RES060 actual</span><span class="nums"><span class="an" id="c_act">0</span><span class="ceur" id="c_act_e">0 €</span></span></div>
+ <div class="barbox"><div class="barfill act" id="barAct" style="width:40%"></div></div>
+ <div class="ratiobanner"><div class="rb"><span id="ratio">0</span>×</div><div class="sm">más CAEs · +<span id="dif">0</span> kWh/año</div></div>
+ 
+</div>
+</div></div>
+<div class="foot">Si el badge marca <b>TOPE 70%·CEF</b>, el CAE lo limita el consumo real (CEF): mejorar SCOP o demanda no da más CAE. Si marca <b>TECHO TÉCNICO</b>, sí importan demanda, superficie, η y SCOP. El f_C multiplica al término de ACS (según el borrador). RES060 actual usa el mismo η y SCOP, sin tope ni f_C.</div>
+</div>
+<div id="res080" class="modal"><div class="modalbox">
+ <div class="modalhead"><div class="mh-t"><span class="mh-ic">📊</span> DESGLOSE ENERGÉTICO RES080</div><span class="mh-x" id="res080x">✕</span></div>
+ <div class="modaldrops">
+  <label class="minidz" id="dzIni">⬇️ CEE INICIAL<small id="iniMsg">arrastra el .xml o haz clic</small><input type="file" id="fIni" accept=".xml,text/xml,application/xml" hidden></label>
+  <label class="minidz" id="dzFin">⬇️ CEE FINAL (reforma)<small id="finMsg">arrastra el .xml o haz clic</small><input type="file" id="fFin" accept=".xml,text/xml,application/xml" hidden></label>
+ </div>
+ <div id="res080table"><div class="r080hint">Carga el CEE inicial y el CEE final para ver el desglose.</div></div>
+ <div class="modalfoot">Comparativa técnica entre los certificados energéticos (XML) inicial y de reforma. Se ignoran los servicios con consumo 0. Emisiones = consumo × factor de paso a emisiones.</div>
+</div></div>
+<script>
+const D={"prov": ["Araba/Álava", "Albacete", "Alicante/Alacant", "Almería", "Ávila", "Badajoz", "Balears, Illes", "Barcelona", "Burgos", "Cáceres", "Cádiz", "Castellón/Castelló", "Ciudad Real", "Córdoba", "Coruña, A", "Cuenca", "Girona", "Granada", "Guadalajara", "Gipuzkoa", "Huelva", "Huesca", "Jaén", "León", "Lleida", "Rioja, La", "Lugo", "Madrid", "Málaga", "Murcia", "Navarra", "Ourense", "Asturias", "Palencia", "Palmas, Las", "Pontevedra", "Salamanca", "Sta. C. de Tenerife", "Cantabria", "Segovia", "Sevilla", "Soria", "Tarragona", "Teruel", "Toledo", "Valencia/Valéncia", "Valladolid", "Bizkaia", "Zamora", "Zaragoza", "Ceuta y Melilla"], "years": ["≤1940", "1941-1960", "1961-1980", "1981-2007", "2008-2012", "2013-2019", ">2019"], "UNI": [[240.3, 223.9, 217.4, 138.1, 94.4, 75.5, 68], [204.6, 190, 184.2, 111.8, 73.3, 58.6, 52.8], [84.1, 77.2, 74.4, 40.6, 22.7, 18.2, 16.3], [60.6, 54.9, 52.6, 27.1, 13.9, 11.1, 10], [270.1, 251.9, 244.5, 152.7, 103.8, 83, 74.7], [126.1, 116.8, 113, 66.8, 41.8, 33.4, 30.1], [85.7, 78.7, 75.8, 41.6, 22.9, 18.3, 16.5], [135.4, 125.2, 121.1, 71.4, 45.2, 36.2, 32.5], [269.5, 251.4, 244.1, 152.9, 104.4, 83.5, 75.2], [148, 137.1, 132.6, 79, 51, 40.8, 36.7], [58.5, 53, 50.7, 25.3, 12.8, 10.2, 9.2], [104.8, 96.6, 93.3, 53.3, 31.4, 25.1, 22.6], [176.9, 164.2, 159.1, 96.4, 62.7, 50.2, 45.1], [110.7, 102.2, 98.8, 57, 34.6, 27.7, 24.9], [136.9, 126.5, 122.3, 70.9, 43.1, 34.5, 31], [231.2, 215.2, 208.8, 128.7, 85.9, 68.7, 61.8], [177.9, 164.9, 159.7, 95.4, 62, 49.6, 44.6], [165.4, 153, 148, 88.2, 56.9, 45.5, 41], [216.1, 200.8, 194.7, 118.9, 78.3, 62.6, 56.4], [180.2, 167.3, 162.1, 98, 63.6, 50.9, 45.8], [86.2, 79.1, 76.2, 41.7, 23.5, 18.8, 16.9], [203.5, 189, 183.1, 111, 72.9, 58.3, 52.5], [129.3, 119.7, 115.9, 68.5, 42.8, 34.2, 30.8], [260.5, 242.8, 235.7, 147, 99.7, 79.8, 71.8], [184, 171, 165.7, 100.9, 66.2, 53, 47.7], [201.4, 187.1, 181.4, 110.5, 72.6, 58.1, 52.3], [225, 209.5, 203.3, 125.6, 84.2, 67.4, 60.6], [182.4, 169.1, 163.7, 98.3, 64, 51.2, 46.1], [74.5, 68, 65.4, 34.5, 18.5, 14.8, 13.3], [93.2, 85.7, 82.7, 46.1, 27.3, 21.8, 19.7], [222.3, 207, 200.8, 123.8, 82.7, 66.2, 59.5], [167.2, 155, 150.1, 89.5, 57.4, 45.9, 41.3], [186.3, 173, 167.7, 101.6, 66.1, 52.9, 47.6], [256.4, 238.9, 231.9, 144.3, 97.5, 78, 70.2], [0, 0, 0, 0, 0, 0, 0], [147.6, 136.5, 132.1, 77.3, 47.9, 38.3, 34.5], [240, 223.4, 216.7, 133.9, 89.5, 71.6, 64.4], [0, 0, 0, 0, 0, 0, 0], [154.3, 142.9, 138.3, 81.8, 51.5, 41.2, 37.1], [239, 222.5, 215.9, 133.5, 89.4, 71.5, 64.4], [80.4, 73.6, 71, 39.7, 22.7, 18.2, 16.3], [265.3, 247.3, 240.1, 149.9, 101.8, 81.4, 73.3], [133.9, 123.7, 119.7, 71.2, 44.9, 35.9, 32.3], [243.5, 226.7, 219.9, 135.9, 90.8, 72.6, 65.4], [170.6, 158.3, 153.4, 92.6, 60.2, 48.2, 43.3], [83.2, 76.3, 73.6, 40.2, 22.7, 18.2, 16.3], [230.7, 214.7, 208.3, 128.3, 85.4, 68.3, 61.5], [155.3, 143.9, 139.2, 82.5, 52.4, 41.9, 37.7], [220.1, 204.7, 198.4, 121.6, 80.3, 64.2, 57.8], [169.7, 157.5, 152.6, 92, 59.7, 47.8, 43], [0, 0, 0, 0, 0, 0, 0]], "P13": [[173, 163.1, 116.3, 85.4, 58.6, 46.9, 42.2], [145.6, 136.9, 95.2, 68.7, 45.9, 36.7, 33], [56.9, 52.7, 32.7, 21.3, 11.5, 9.2, 8.3], [39.4, 36.2, 21.6, 13.2, 6.2, 5, 4.5], [195.1, 184.1, 131.7, 97.2, 67.2, 53.8, 48.4], [88.6, 83, 56.2, 39.2, 24.3, 19.4, 17.5], [58.1, 53.9, 33.6, 21.5, 11.6, 9.3, 8.4], [94.5, 88.4, 60.3, 42.4, 26.4, 21.1, 19], [194.8, 183.9, 132.1, 97.7, 68, 54.4, 49], [104.1, 97.5, 67.1, 47.8, 30.6, 24.5, 22], [37.6, 34.2, 20, 12.1, 5.8, 4.6, 4.2], [72.4, 67.5, 44, 29.5, 17, 13.6, 12.2], [125.7, 118.1, 82, 58.8, 38.9, 31.1, 28], [76.9, 71.8, 47.4, 32.5, 19.7, 15.8, 14.2], [95.1, 88.9, 59.1, 40.2, 24, 19.2, 17.3], [165.8, 156.2, 110.4, 80.5, 54.2, 43.4, 39], [125.6, 117.8, 80.8, 58.1, 38.6, 30.9, 27.8], [116.1, 108.8, 74.7, 53.5, 34.8, 27.8, 25.1], [154.2, 145.1, 101.5, 73.4, 49.4, 39.5, 35.6], [127.8, 120.1, 83.3, 59.4, 38.5, 30.8, 27.7], [58.4, 54.1, 33.7, 22.1, 11.9, 9.5, 8.6], [144.8, 136, 94.5, 68.4, 45.8, 36.6, 33], [90.9, 85.1, 57.6, 40.2, 24.5, 19.6, 17.6], [187.9, 177.3, 126.7, 93.4, 64.4, 51.5, 46.4], [131.1, 123.3, 86, 62, 41.5, 33.2, 29.9], [143.5, 134.9, 94.2, 67.9, 45.6, 36.5, 32.8], [161.4, 152.1, 107.8, 78.7, 53.3, 42.6, 38.4], [128.9, 120.8, 83.7, 60, 39.2, 31.4, 28.2], [49.6, 45.7, 27.4, 17.4, 8.6, 6.9, 6.2], [63.7, 59.2, 38.1, 25.7, 14.3, 11.4, 10.3], [159.4, 150.1, 106.2, 77.3, 52.1, 41.7, 37.5], [117.9, 110.5, 75.6, 53.6, 34.9, 27.9, 25.1], [132.3, 124.3, 86.4, 61.7, 40, 32, 28.8], [184.7, 174.2, 124.2, 91.4, 62.7, 50.2, 45.1], [0, 0, 0, 0, 0, 0, 0], [103.1, 96.4, 64.8, 44.7, 27.9, 22.3, 20.1], [172.3, 162.4, 114.9, 83.9, 56.8, 45.4, 40.9], [0, 0, 0, 0, 0, 0, 0], [108.3, 101.4, 68.8, 48, 30.2, 24.2, 21.7], [171.6, 161.7, 114.6, 83.8, 56.8, 45.4, 40.9], [54.7, 50.8, 32.5, 21.4, 12.3, 9.8, 8.9], [191.5, 180.7, 129.3, 95.4, 65.9, 52.7, 47.4], [94, 88.1, 60, 42.2, 26.1, 20.9, 18.8], [174.9, 164.8, 116.6, 85.2, 57.6, 46.1, 41.5], [121, 113.7, 78.6, 56.4, 37.3, 29.8, 26.9], [56.3, 52.1, 32.4, 21.3, 11.3, 9, 8.1], [165.4, 155.8, 109.9, 80.1, 53.8, 43, 38.7], [109, 102.2, 69.5, 48.9, 31.8, 25.4, 22.9], [157.3, 148.1, 103.9, 75.3, 50.4, 40.3, 36.3], [120.3, 113, 78, 56, 36.9, 29.5, 26.6], [0, 0, 0, 0, 0, 0, 0]], "P4": [[126, 116.6, 102.2, 63.6, 43.6, 34.9, 31.4], [107.7, 95.3, 84.9, 50.2, 33.6, 26.9, 24.2], [42.9, 32.8, 30.3, 13.3, 6.6, 5.3, 4.8], [30.4, 21.6, 20.2, 7.3, 2.8, 2.2, 2], [143.4, 131.9, 116.4, 72.9, 50.5, 40.4, 36.4], [65.6, 56.3, 50.4, 26.9, 16.5, 13.2, 11.9], [43.7, 33.7, 31.1, 13.3, 6.5, 5.2, 4.7], [70.4, 60.4, 54, 29.4, 17.4, 13.9, 12.5], [142.4, 132.3, 116.1, 73.6, 51.4, 41.1, 37], [77, 67.2, 59.8, 33.8, 21, 16.8, 15.1], [29.2, 20.1, 18.8, 6.9, 2.6, 2.1, 1.9], [54.3, 44.1, 40.2, 19.2, 10.4, 8.3, 7.5], [92.9, 82.2, 73.1, 42.5, 27.9, 22.3, 20.1], [57.4, 47.5, 43, 22, 13.1, 10.5, 9.4], [69.5, 59.3, 52.6, 26.9, 15.9, 12.7, 11.4], [121.8, 110.6, 97.7, 59.2, 40, 32, 28.8], [92.9, 80.9, 72.1, 42.2, 27.8, 22.2, 20], [86.7, 74.9, 67, 38.3, 24.4, 19.5, 17.6], [114, 101.7, 90.4, 53.9, 36.2, 29, 26.1], [92.9, 83.5, 73.4, 42.4, 27.5, 22, 19.8], [44.2, 33.8, 31.3, 13.7, 7.2, 5.8, 5.2], [107.2, 94.7, 84.4, 49.9, 33.6, 26.9, 24.2], [67.7, 57.7, 51.9, 27.4, 16.3, 13, 11.7], [137.8, 126.9, 111.8, 69.8, 48.2, 38.6, 34.7], [96.8, 86.1, 76.5, 45.3, 30.1, 24.1, 21.7], [105.2, 94.4, 83.4, 49.8, 33.5, 26.8, 24.1], [117.7, 108, 94.8, 58.1, 39.1, 31.3, 28.2], [95.8, 83.8, 74.6, 43.1, 28.1, 22.5, 20.2], [37.8, 27.5, 25.7, 10.1, 4.6, 3.7, 3.3], [48, 38.2, 34.6, 16.4, 8.8, 7, 6.3], [116.4, 106.4, 93.5, 56.8, 38.5, 30.8, 27.7], [86.3, 75.8, 67.1, 38.4, 24.9, 19.9, 17.9], [96.5, 86.6, 76.3, 44.1, 28, 22.4, 20.2], [135.7, 124.5, 109.8, 68.1, 46.7, 37.4, 33.6], [0, 0, 0, 0, 0, 0, 0], [75.6, 64.9, 57.7, 31, 19.1, 15.3, 13.8], [127, 115.1, 101.9, 61.9, 41.7, 33.4, 30], [0, 0, 0, 0, 0, 0, 0], [79, 69, 61, 33.5, 21.1, 16.9, 15.2], [126.1, 114.8, 101.4, 61.9, 41.8, 33.4, 30.1], [41.1, 32.6, 29.8, 13.9, 7.6, 6.1, 5.5], [140.5, 129.5, 114.1, 71.4, 49.4, 39.5, 35.6], [69.7, 60.1, 53.8, 29.1, 17.3, 13.8, 12.5], [129.1, 116.8, 103.5, 62.8, 42.6, 34.1, 30.7], [89.4, 78.8, 70.1, 40.9, 26.6, 21.3, 19.2], [42.3, 32.5, 29.9, 13.1, 6.5, 5.2, 4.7], [121.8, 110.1, 97.5, 58.7, 39.7, 31.8, 28.6], [79.4, 69.7, 61.5, 34.9, 22.4, 17.9, 16.1], [116, 104.1, 92.3, 54.9, 37, 29.6, 26.6], [89, 78.2, 69.7, 40.5, 26.3, 21, 18.9], [0, 0, 0, 0, 0, 0, 0]], "cald": [["Gas, anterior a 1979, tiro equilibrado, de pie", 0.55], ["Gas, de 1979 a 1997, tiro natural equilibrado y de pie", 0.65], ["Gas, anterior a 1998, tiro natural o equilibrado, mural", 0.65], ["Gas, anterior a 1998, tiro forzado con ventilador, capacidad térmica alta", 0.68], ["Gas, anterior a 1998, tiro forzado con ventilador, capacidad térmica baja", 0.72], ["Gas, anterior a 1998, condensación", 0.83], ["Gas, de 1998 en adelante, sin condensación, con piloto permanente", 0.69], ["Gas, de 1998 en adelante, sin condensación, con encendido automático", 0.73], ["Gas, de 1998 en adelante, condensación con piloto permanente", 0.79], ["Gas, de 1998 en adelante, condensación, con encendido automático", 0.85], ["Gasóleo, anterior a 1985", 0.65], ["Gasóleo, de 1985 a 1997", 0.7], ["Gasóleo, de 1998 en adelante, sin condensación", 0.79], ["Gasóleo, condensación", 0.83], ["Combustible sólido, alimentación manual, en espacio sin calefactar", 0.55], ["Combustible sólido, alimentación manual, en espacio calefactado", 0.6], ["Combustible sólido, alimentación automática, en espacio sin calefactar", 0.6], ["Combustible sólido, alimentación automática, en espacio calefactado", 0.65], ["Caldera eléctrica", 1]]};
+const TBL={UNI:D.UNI,P13:D.P13,P4:D.P4};
+const ps=document.getElementById('prov');D.prov.forEach((p,i)=>{let o=document.createElement('option');o.value=i;o.text=p;ps.add(o)});ps.value=Math.max(0,D.prov.indexOf('Ciudad Real'));
+const ys=document.getElementById('year');D.years.forEach((y,i)=>{let o=document.createElement('option');o.value=i;o.text=y;ys.add(o)});ys.value=3;
+document.getElementById('cald').value=11;
+function n(x){return isFinite(x)?x:0}function fmt(x){return Math.round(x).toLocaleString('es-ES')}
+let ceeTouched=false;document.getElementById('dcalcee').addEventListener('input',()=>ceeTouched=true);
+const TE=[[7, 7, 8, 10, 12, 14, 16, 16, 14, 12, 8, 7], [7, 8, 9, 11, 14, 17, 19, 19, 17, 13, 9, 7], [11, 12, 13, 14, 16, 18, 20, 20, 19, 16, 13, 12], [12, 12, 13, 14, 16, 18, 20, 21, 19, 17, 14, 12], [6, 6, 7, 9, 11, 14, 17, 16, 14, 11, 8, 6], [9, 10, 11, 13, 15, 18, 20, 20, 18, 15, 12, 9], [11, 11, 12, 13, 15, 18, 20, 20, 19, 17, 14, 12], [9, 10, 11, 12, 14, 17, 19, 19, 17, 15, 12, 10], [5, 6, 7, 9, 11, 13, 16, 16, 14, 11, 7, 6], [9, 10, 11, 12, 14, 18, 21, 20, 19, 15, 11, 9], [12, 12, 13, 14, 16, 18, 19, 20, 19, 17, 14, 12], [10, 11, 12, 13, 15, 18, 19, 20, 18, 16, 12, 11], [8, 10, 11, 14, 17, 20, 20, 20, 17, 13, 10, 7], [10, 11, 12, 14, 16, 19, 21, 21, 19, 16, 12, 10], [10, 10, 11, 12, 13, 14, 16, 16, 15, 14, 12, 11], [6, 7, 8, 10, 13, 16, 18, 18, 16, 12, 9, 7], [8, 9, 10, 11, 14, 16, 19, 18, 17, 14, 10, 9], [8, 9, 10, 12, 14, 17, 20, 19, 17, 14, 11, 8], [7, 8, 9, 11, 14, 17, 19, 19, 16, 13, 9, 7], [9, 9, 10, 11, 12, 14, 16, 16, 15, 14, 11, 9], [12, 12, 13, 14, 16, 18, 20, 20, 19, 17, 14, 12], [7, 8, 10, 11, 14, 16, 19, 18, 17, 13, 9, 7], [9, 10, 11, 13, 16, 19, 21, 21, 19, 15, 12, 9], [4, 5, 7, 9, 10, 11, 12, 11, 10, 9, 7, 4], [7, 9, 10, 12, 15, 17, 20, 19, 17, 14, 10, 7], [7, 8, 10, 11, 13, 16, 18, 18, 16, 13, 10, 8], [7, 8, 9, 10, 11, 13, 15, 15, 14, 12, 9, 8], [8, 8, 10, 12, 14, 17, 20, 19, 17, 13, 10, 8], [12, 12, 13, 14, 16, 18, 20, 20, 19, 16, 14, 12], [11, 11, 12, 13, 15, 17, 19, 20, 18, 16, 13, 11], [7, 8, 9, 10, 12, 15, 17, 17, 16, 13, 9, 7], [8, 10, 11, 12, 14, 16, 18, 18, 17, 13, 11, 9], [9, 9, 10, 10, 12, 14, 15, 16, 15, 13, 10, 9], [6, 7, 8, 10, 12, 15, 17, 17, 15, 12, 9, 6], [15, 15, 16, 16, 17, 18, 19, 19, 19, 18, 17, 16], [10, 11, 11, 13, 14, 16, 17, 17, 16, 14, 12, 10], [6, 7, 8, 10, 12, 15, 17, 17, 15, 12, 8, 6], [15, 15, 16, 16, 17, 18, 20, 20, 20, 18, 17, 16], [10, 10, 11, 11, 13, 15, 16, 16, 16, 14, 12, 10], [6, 7, 8, 10, 12, 15, 18, 18, 15, 12, 8, 6], [11, 11, 13, 14, 16, 19, 21, 21, 20, 16, 13, 11], [5, 6, 7, 9, 11, 14, 17, 16, 14, 11, 8, 6], [10, 11, 12, 14, 16, 18, 20, 20, 19, 16, 12, 11], [6, 7, 8, 10, 12, 15, 18, 17, 15, 12, 8, 6], [8, 9, 11, 12, 15, 18, 21, 20, 18, 14, 11, 8], [10, 11, 12, 13, 15, 17, 19, 20, 18, 16, 13, 11], [6, 8, 9, 10, 12, 15, 18, 18, 16, 12, 9, 7], [9, 10, 10, 11, 13, 15, 17, 17, 16, 14, 11, 10], [6, 8, 9, 10, 13, 16, 18, 18, 16, 12, 9, 7], [8, 9, 10, 12, 15, 17, 20, 19, 17, 14, 10, 8], [12, 12, 13, 14, 16, 18, 20, 20, 19, 16, 14, 12]];const DAYS=[31,28,31,30,31,30,31,31,30,31,30,31];
+function acsAnexoIII(pi,lday){const te=TE[pi];if(!te||!(lday>0))return 0;let sdt=0;for(let m=0;m<12;m++){sdt+=DAYS[m]*(60-te[m]);}return 0.001162*sdt*lday;}
+function calc(){
+ const tsel=document.getElementById('tipo');const topt=tsel.options[tsel.selectedIndex];const pi=+ps.value,yi=+ys.value;
+ const q=n(TBL[topt.dataset.table][pi][yi]);const S=n(+document.getElementById('S').value);
+ const eta=n(D.cald[+document.getElementById('cald').value][1]);
+ const scopb=+document.getElementById('scopb').value,scopd=+document.getElementById('scopd').value;
+ let dacs;const acsMode=document.getElementById('acsMode').value;if(acsMode.indexOf('Litros')>=0){dacs=acsAnexoIII(+ps.value,+document.getElementById('lday').value);document.getElementById('dacs').value=Math.round(dacs);}else{dacs=+document.getElementById('dacs').value;}const cef=+document.getElementById('cef').value;
+ const fcBase=+topt.dataset.fc;const vuln=document.getElementById('vuln').checked?1.5:1;const fc=fcBase*vuln;
+ const acs=document.getElementById('acs').checked;const precio=+document.getElementById('precio').value;
+ const dem=q*S;
+ const ahc=eta>0&&scopb>0?dem*(1/eta-1/scopb):0;
+ const ahaFC=(acs&&eta>0&&scopd>0?dacs*(1/eta-1/scopd):0)*fc;
+ const aes=ahc+ahaFC;const tope=0.70*cef;const mn=Math.min(aes,tope);const cae=mn*fc;
+ document.getElementById('q').textContent=q.toFixed(1);
+ document.getElementById('eta').textContent=(eta*100).toFixed(0)+'%';
+ document.getElementById('fc').textContent=fc.toFixed(2);
+ document.getElementById('dem').textContent=fmt(dem);
+ document.getElementById('ahc').textContent=fmt(ahc);
+ document.getElementById('aha').textContent=fmt(ahaFC);
+ document.getElementById('aes').textContent=fmt(aes);
+ document.getElementById('tope').textContent=fmt(tope);
+ document.getElementById('cae').textContent=fmt(cae);
+ document.getElementById('val').textContent=fmt(cae/1000*precio);
+ document.getElementById('caeEur').textContent=fmt(cae/1000*precio);
+ const b=document.getElementById('badge');
+ if(aes<=tope){b.className='badge b-tec';b.textContent='TECHO TÉCNICO (demanda/η/SCOP)';}
+ else{b.className='badge b-tope';b.textContent='TOPE 70%·CEF (manda el consumo real)';}
+ if(document.getElementById('cmpTog').checked){
+  if(!ceeTouched){document.getElementById('dcalcee').value=q.toFixed(1);}
+  const dcee=+document.getElementById('dcalcee').value;
+  const ahcA=eta>0&&scopb>0?(dcee*S)*(1/eta-1/scopb):0;
+  const ahaA=acs&&eta>0&&scopd>0?dacs*(1/eta-1/scopd):0;
+  const caeAct=ahcA+ahaA;
+  document.getElementById('c_fc').textContent=fmt(cae);
+  document.getElementById('c_act').textContent=fmt(caeAct);
+  document.getElementById('c_fc_e').textContent=fmt(cae/1000*precio)+' €';
+  document.getElementById('c_act_e').textContent=fmt(caeAct/1000*precio)+' €';
+  document.getElementById('dif').textContent=fmt(cae-caeAct);
+  document.getElementById('ratio').textContent=caeAct>0?(cae/caeAct).toFixed(2):'0';
+  const mx=Math.max(cae,caeAct,1);
+  document.getElementById('barFc').style.width=(100*cae/mx)+'%';
+  document.getElementById('barAct').style.width=(100*caeAct/mx)+'%';
+ }
+}
+function toggleCmp(){
+ const on=document.getElementById('cmpTog').checked;
+ document.getElementById('actualFields').style.display=on?'block':'none';
+ document.getElementById('cmpInline').style.display=on?'block':'none';
+ if(on)ceeTouched=false;
+ calc();
+}
+
+// ---- Importar certificado .xml ----
+function localGet(root,name){if(!root)return null;const a=root.getElementsByTagName('*');for(let i=0;i<a.length;i++){if(a[i].localName===name)return a[i];}return null;}
+function txt(root,name){const e=localGet(root,name);return e?e.textContent.trim():null;}
+function yearInterval(y){y=parseInt(y);if(!y)return 3;if(y<=1940)return 0;if(y<=1960)return 1;if(y<=1980)return 2;if(y<=2007)return 3;if(y<=2012)return 4;if(y<=2019)return 5;return 6;}
+function normP(x){return (x||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,' ').trim();}
+function findProv(name){if(!name)return -1;const t=normP(name);const flat=t.replace(/ /g,'');for(let i=0;i<D.prov.length;i++){if(normP(D.prov[i]).replace(/ /g,'')===flat)return i;}const tg=t.split(' ').filter(w=>w.length>=3);for(let i=0;i<D.prov.length;i++){const ot=normP(D.prov[i]).split(' ').filter(w=>w.length>=3);for(const w of tg){if(ot.indexOf(w)>=0)return i;}}for(let i=0;i<D.prov.length;i++){const of=normP(D.prov[i]).replace(/ /g,'');if(of.includes(flat)||flat.includes(of))return i;}return -1;}
+function mapTipo(t){t=(t||'').toLowerCase();if(t.includes('unifamiliar'))return'Unifamiliar';if(t.includes('bloque')&&(t.includes('completo')||t.includes('edificio')))return'Bloque13';return'Piso13';}
+function importXML(text){
+ let doc;try{doc=new DOMParser().parseFromString(text,'application/xml');}catch(e){return dzErr('No se pudo leer el XML.');}
+ if(doc.getElementsByTagName('parsererror').length)return dzErr('XML no válido.');
+ const idE=localGet(doc,'IdentificacionEdificio');const prov=(idE&&txt(idE,'Provincia'))||txt(doc,'Provincia');
+ const sup=parseFloat(txt(doc,'SuperficieHabitable'));
+ const ano=txt(doc,'AnoConstruccion');
+ const tipo=txt(doc,'TipoDeEdificio');
+ const dem=localGet(doc,'Demanda');const eo=dem?localGet(dem,'EdificioObjeto'):null;
+ const calM2=parseFloat(eo?txt(eo,'Calefaccion'):null);
+ const acsM2=parseFloat(eo?txt(eo,'ACS'):null);
+ if(!prov||!sup||!ano){return dzErr('Faltan campos en el XML (provincia/superficie/año).');}
+ // set provincia
+ const pi=findProv(prov);if(pi>=0)ps.value=pi;
+ // año -> intervalo
+ ys.value=yearInterval(ano);
+ // tipo
+ document.getElementById('tipo').value=mapTipo(tipo);
+ // superficie
+ document.getElementById('S').value=sup;
+ // demanda calefaccion CEE (tal cual) y D_ACS (x m2)
+ if(isFinite(calM2)){document.getElementById('dcalcee').value=calM2;ceeTouched=true;}
+ if(isFinite(acsM2)&&isFinite(sup)){document.getElementById('dacs').value=(acsM2*sup).toFixed(1);}
+ const dda=txt(doc,'DemandaDiariaACS');if(dda&&parseFloat(dda)>0)document.getElementById('lday').value=parseFloat(dda);
+ // CEF = suma de Global de EnergiaFinalVectores x superficie
+ let cefTot=0;const efv=localGet(doc,'EnergiaFinalVectores');
+ if(efv){const gs=efv.getElementsByTagName('*');let cm2=0;for(let i=0;i<gs.length;i++){if(gs[i].localName==='Global'){const v=parseFloat(gs[i].textContent);if(isFinite(v)&&v<1e6)cm2+=v;}}if(cm2>0&&isFinite(sup)){cefTot=Math.round(cm2*sup);document.getElementById('cef').value=cefTot;}}
+ // activar comparativa mostrando todo
+ document.getElementById('cmpTog').checked=true;
+ document.getElementById('actualFields').style.display='block';
+ document.getElementById('cmpInline').style.display='block';
+ calc();
+ const okp=pi>=0?prov:prov+' (revisa provincia)';
+ dzOk('Cargado: '+okp+' · '+tipo+' · '+ano+' · '+sup+' m² · Cal '+(isFinite(calM2)?calM2:'?')+' kWh/m² · ACS '+(isFinite(acsM2)?(acsM2*sup).toFixed(0):'?')+' kWh/año · CEF '+(cefTot>0?cefTot.toLocaleString('es-ES'):'?')+' kWh/año');
+}
+function dzOk(m){const e=document.getElementById('dzmsg');e.innerHTML='<span class="dz-ok">✔ '+m+'</span>';}
+function dzErr(m){const e=document.getElementById('dzmsg');e.innerHTML='<span class="dz-err">✖ '+m+'</span>';}
+const dz=document.getElementById('drop'),fi=document.getElementById('xmlFile');
+dz.addEventListener('click',()=>fi.click());
+fi.addEventListener('change',e=>{if(e.target.files[0])readF(e.target.files[0]);fi.value='';});
+function readF(f){const r=new FileReader();r.onload=()=>importXML(r.result);r.readAsText(f,'utf-8');}
+// Soltar en TODA la pantalla
+let _dd=0;const ov=()=>document.getElementById('dropOverlay');
+function hasFiles(e){return e.dataTransfer&&Array.from(e.dataTransfer.types||[]).indexOf('Files')>=0;}
+window.addEventListener('dragenter',e=>{if(hasFiles(e)){_dd++;ov().classList.add('on');}});
+window.addEventListener('dragover',e=>{if(hasFiles(e))e.preventDefault();});
+window.addEventListener('dragleave',e=>{_dd--;if(_dd<=0){_dd=0;ov().classList.remove('on');}});
+window.addEventListener('drop',e=>{e.preventDefault();_dd=0;ov().classList.remove('on');if(document.getElementById('res080').classList.contains('on'))return;const f=e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files[0];if(f)readF(f);});
+
+document.getElementById('acsMode').addEventListener('change',()=>{document.getElementById('ldayWrap').style.display=document.getElementById('acsMode').value.indexOf('Litros')>=0?'block':'none';calc();});
+document.getElementById('cmpTog').addEventListener('change',toggleCmp);
+document.querySelectorAll('select,input').forEach(e=>e.addEventListener('input',calc));calc();
+
+// ================= RES080 (CEE inicial vs final) =================
+function num080(x){const v=parseFloat(x);return (isFinite(v)&&v<1e6)?v:0;}
+function parseCEE(text){
+ let doc;try{doc=new DOMParser().parseFromString(text,'application/xml');}catch(e){return null;}
+ if(!doc||doc.getElementsByTagName('parsererror').length)return null;
+ const sup=parseFloat(txt(doc,'SuperficieHabitable'))||0;
+ const efv=localGet(doc,'EnergiaFinalVectores');
+ const fp=localGet(doc,'FactoresdePaso');const fae=fp?localGet(fp,'FinalAEmisiones'):null;
+ const map={ACS:'ACS',Cal:'Calefaccion',Ref:'Refrigeracion'};
+ const R={sup:sup};for(const k in map){R[k]={cons:0,emis:0,fuels:[]};}
+ if(efv){const vs=efv.children;
+  for(let i=0;i<vs.length;i++){const name=vs[i].localName;const fe=localGet(fae,name);const factor=fe?num080(fe.textContent):0;
+   for(const k in map){const ce=localGet(vs[i],map[k]);const c=ce?num080(ce.textContent):0;
+    if(c>0){R[k].cons+=c;R[k].emis+=c*factor;R[k].fuels.push({name:name,cons:c,factor:factor});}}}}
+ R.total=R.ACS.cons+R.Cal.cons+R.Ref.cons;return R;
+}
+function fuelName(n){const M={GasNatural:'Gas Natural',ElectricidadPeninsular:'Electricidad peninsular',ElectricidadBaleares:'Electricidad (Baleares)',ElectricidadCanarias:'Electricidad (Canarias)',ElectricidadCeutayMelilla:'Electricidad (Ceuta/Melilla)',GasoleoC:'Gasóleo C',GLP:'GLP',Carbon:'Carbón',BiomasaPellet:'Biomasa (pellet)',BiomasaOtros:'Biomasa',Biocarburante:'Biocarburante'};return M[n]||n||'—';}
+function n2(x){return (x||0).toLocaleString('es-ES',{minimumFractionDigits:2,maximumFractionDigits:2});}
+function n3(x){return (x||0).toLocaleString('es-ES',{minimumFractionDigits:3,maximumFractionDigits:3});}
+function n0(x){return Math.round(x||0).toLocaleString('es-ES');}
+function factorOf(sv){return sv.cons>0?sv.emis/sv.cons:0;}
+function fuelCell(sv){if(!sv.fuels||!sv.fuels.length)return '—';if(sv.fuels.length===1)return fuelName(sv.fuels[0].name);const t=sv.cons;return sv.fuels.slice().sort((a,b)=>b.cons-a.cons).map(f=>fuelName(f.name)+' '+Math.round(100*f.cons/t)+'%').join(' + ');}
+function factorCell(sv){return n3(factorOf(sv))+(sv.fuels&&sv.fuels.length>1?' <span style="opacity:.6;font-size:11px">(efect.)</span>':'');}
+let iniData=null,finData=null;
+function renderRes080(){
+ const box=document.getElementById('res080table');
+ const cols=[];if(iniData)cols.push({lab:'INICIAL',d:iniData});if(finData)cols.push({lab:'FINAL',d:finData});
+ if(cols.length===0){box.innerHTML='<div class="r080hint">Carga al menos un CEE para ver el desglose por servicio.</div>';return;}
+ const servs=[['ACS','ACS','ACS'],['Cal','Calefacción','CALEFACCIÓN'],['Ref','Refrigeración','REFRIGERACIÓN']];
+ let head='<th>PARÁMETRO ENERGÉTICO</th>'+cols.map(c=>'<th>'+c.lab+'</th>').join('');
+ let rows='';
+ for(const sv of servs){const k=sv[0],cap=sv[1],up=sv[2];
+  if(!cols.some(c=>c.d[k].cons>0))continue;
+  rows+='<tr class="svc"><td>Tipo de combustible para '+cap+'</td>'+cols.map(c=>'<td>'+fuelCell(c.d[k])+'</td>').join('')+'</tr>';
+  rows+='<tr><td>Factor de paso de la fuente de energía seleccionada</td>'+cols.map(c=>'<td>'+factorCell(c.d[k])+'</td>').join('')+'</tr>';
+  rows+='<tr><td>Emisiones de CO2 '+up+' (kgCO2/m²·año)</td>'+cols.map(c=>'<td>'+n2(c.d[k].emis)+'</td>').join('')+'</tr>';
+  rows+='<tr><td>Consumo de energía final para '+up+' (kWh/m²·año)</td>'+cols.map(c=>'<td>'+n2(c.d[k].cons)+'</td>').join('')+'</tr>';
+ }
+ rows+='<tr class="tot"><td>Consumo Total de Energía final (kWh/m²·año)</td>'+cols.map(c=>'<td>'+n2(c.d.total)+'</td>').join('')+'</tr>';
+ rows+='<tr class="tot"><td>Consumo Total de Energía final (kWh/año)</td>'+cols.map(c=>'<td>'+n0(c.d.total*(c.d.sup||0))+'</td>').join('')+'</tr>';
+ if(iniData&&finData){const sup=finData.sup||iniData.sup||0;const ah=(iniData.total-finData.total)*sup/1000;
+  rows+='<tr class="ahorro"><td>AHORRO DE ENERGÍA FINAL (MWh/año)</td><td colspan="2">'+n2(ah)+'</td></tr>';}
+ box.innerHTML='<table class="r080"><thead><tr>'+head+'</tr></thead><tbody>'+rows+'</tbody></table>';
+}
+function loadCEE(file,which){const r=new FileReader();r.onload=()=>{const d=parseCEE(r.result);const msg=document.getElementById(which==='ini'?'iniMsg':'finMsg');if(!d){msg.innerHTML='<b style="color:#c0392b">XML no válido</b>';return;}if(which==='ini')iniData=d;else finData=d;msg.innerHTML='<b style="color:var(--lime-d)">✔ cargado ('+d.sup+' m²)</b>';renderRes080();};r.readAsText(file,'utf-8');}
+function wireMini(dzId,inId,which){const dz=document.getElementById(dzId),inp=document.getElementById(inId);
+ dz.addEventListener('click',()=>inp.click());
+ inp.addEventListener('change',e=>{if(e.target.files[0])loadCEE(e.target.files[0],which);inp.value='';});
+ ['dragenter','dragover'].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();e.stopPropagation();dz.classList.add('drag');}));
+ ['dragleave'].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();e.stopPropagation();dz.classList.remove('drag');}));
+ dz.addEventListener('drop',e=>{e.preventDefault();e.stopPropagation();dz.classList.remove('drag');const f=e.dataTransfer.files[0];if(f)loadCEE(f,which);});
+}
+wireMini('dzIni','fIni','ini');wireMini('dzFin','fFin','fin');
+document.getElementById('openRes080').addEventListener('click',()=>document.getElementById('res080').classList.add('on'));
+document.getElementById('res080x').addEventListener('click',()=>document.getElementById('res080').classList.remove('on'));
+document.getElementById('res080').addEventListener('click',e=>{if(e.target.id==='res080')document.getElementById('res080').classList.remove('on');});
+</script></body></html>

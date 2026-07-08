@@ -70,6 +70,15 @@ const CCAA_LIST = [
     'Comunidad de Madrid','Melilla','Región de Murcia','Navarra','País Vasco',
 ].sort((a, b) => a.localeCompare(b, 'es'));
 
+// normalizeData (backend) guarda los strings en MAYÚSCULAS, así que el valor
+// persistido ("CASTILLA-LA MANCHA") no coincide con el value del <select>
+// ("Castilla-La Mancha") y el desplegable aparece vacío. Buscamos el valor
+// canónico case-insensitive, igual que se hace con tipo_emisor.
+function matchCcaaCase(value) {
+    if (!value) return value;
+    return CCAA_LIST.find(c => c.toLowerCase() === String(value).toLowerCase()) || value;
+}
+
 function Toggle({ label, value, onChange, readOnly = false }) {
     return (
         <div className="flex items-center gap-3 my-3">
@@ -622,7 +631,6 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
         municipio: '',
         provincia: '',
         provincia_cod: '',
-        ccaa: '',
 
         caldera_antigua_cal: { tipo_equipo: 'Caldera', marca: '', modelo: '', numero_serie: '', rendimiento_id: 'default' },
         misma_caldera_acs: true,
@@ -636,6 +644,8 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
         ...(expediente?.instalacion || {}),
         // Normalizar a minúsculas por retrocompatibilidad con datos guardados en mayúsculas por normalizeData
         tipo_emisor: ((expediente?.instalacion?.tipo_emisor) || 'suelo_radiante').toLowerCase(),
+        // Normalizar CCAA guardada en mayúsculas por normalizeData al casing del <select>
+        ccaa: matchCcaaCase(expediente?.instalacion?.ccaa),
         // Si el número de expediente es RES093, forzamos hibridación a true si no viene ya definida
         hibridacion: (expediente?.numero_expediente?.includes('RES093') ? true : (expediente?.instalacion?.hibridacion ?? false))
     }));
@@ -659,6 +669,8 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
                 ...inst,
                 // Normalizar a minúsculas por retrocompatibilidad con datos guardados en mayúsculas
                 tipo_emisor: (inst.tipo_emisor || 'suelo_radiante').toLowerCase(),
+                // Normalizar CCAA guardada en mayúsculas por normalizeData al casing del <select>
+                ccaa: matchCcaaCase(inst.ccaa),
             });
         }
     }, [expediente?.id]);

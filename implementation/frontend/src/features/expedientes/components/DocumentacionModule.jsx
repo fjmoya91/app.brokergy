@@ -193,12 +193,13 @@ function calcCifo(doc) {
 }
 
 // ─── Componente de Facturas ───────────────────────────────────────────────────
-function FacturasSection({ expedienteId, facturas, onChange, readOnly }) {
+function FacturasSection({ expedienteId, facturas, onChange, readOnly, onGenerateCombined, combinedLink, generating }) {
     const { user } = useAuth();
+    const isAdmin = user?.rol === 'ADMIN';
     const [uploading, setUploading] = useState({}); // idx → bool
 
     const addFactura = () => {
-        onChange([...facturas, { numero_factura: '', fecha_factura: null, importe_sin_iva: 0, drive_link: null }]);
+        onChange([...facturas, { numero_factura: '', fecha_factura: null, importe_sin_iva: 0, drive_link: null, validada: false }]);
     };
     const removeFactura = (idx) => {
         onChange(facturas.filter((_, i) => i !== idx));
@@ -207,6 +208,14 @@ function FacturasSection({ expedienteId, facturas, onChange, readOnly }) {
         const updated = facturas.map((f, i) => i === idx ? { ...f, [field]: val || null } : f);
         onChange(updated);
     };
+    // Toggle de "validada" (booleano; no usar updateFactura que fuerza null en falsy).
+    const toggleValidada = (idx) => {
+        const updated = facturas.map((f, i) => i === idx ? { ...f, validada: !f.validada } : f);
+        onChange(updated);
+    };
+
+    // Todas subidas (con PDF) y validadas → habilita el PDF único.
+    const canGenerate = facturas.length > 0 && facturas.every(f => f.drive_link && f.validada);
 
     const handleFileUpload = async (idx, file) => {
         if (!file || !expedienteId) return;
@@ -222,7 +231,11 @@ function FacturasSection({ expedienteId, facturas, onChange, readOnly }) {
                 fileName: file.name,
                 mimeType: file.type || 'application/pdf'
             });
-            updateFactura(idx, 'drive_link', data.drive_link);
+            // Guardar enlace + driveId (necesario para dedup y para el PDF combinado).
+            // Subir una nueva versión invalida la validación previa de esa factura.
+            onChange(facturas.map((f, i) => i === idx
+                ? { ...f, drive_link: data.drive_link, drive_id: data.drive_id, validada: false }
+                : f));
         } catch (err) {
             console.error('Error subiendo factura:', err);
             const detail = err.response?.data?.error || err.response?.data?.details || err.message || '';
@@ -309,6 +322,30 @@ function FacturasSection({ expedienteId, facturas, onChange, readOnly }) {
                                                     <input type="file" accept=".pdf,image/*" className="hidden" onChange={e => handleFileUpload(idx, e.target.files[0])} />
                                                 </label>
                                             )}
+                                            {/* Validación de la factura (solo ADMIN). Verde = validada. */}
+                                            {isAdmin && !readOnly && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => toggleValidada(idx)}
+                                                    title={f.validada ? 'Factura validada — pulsa para desmarcar' : 'Marcar factura como validada'}
+                                                    className={`ml-auto flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest border transition-all ${
+                                                        f.validada
+                                                            ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500 hover:text-bkg-deep'
+                                                            : 'bg-white/[0.03] border-white/10 text-white/40 hover:text-white/70 hover:border-white/20'
+                                                    }`}
+                                                >
+                                                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                                                    </svg>
+                                                    {f.validada ? 'Validada' : 'Validar'}
+                                                </button>
+                                            )}
+                                            {!isAdmin && f.validada && (
+                                                <span className="ml-auto flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest bg-emerald-500/10 text-emerald-400/80">
+                                                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>
+                                                    Validada
+                                                </span>
+                                            )}
                                         </div>
                                     ) : !readOnly ? (
                                         <label className={`flex items-center gap-2 cursor-pointer w-full bg-bkg-elevated border border-dashed rounded-lg px-3 py-2 text-sm transition-colors ${
@@ -326,7 +363,7 @@ function FacturasSection({ expedienteId, facturas, onChange, readOnly }) {
                                                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
                                                     </svg>
-                                                    Subir PDF/imagen a Drive (5.FACTURAS)
+                                                    Subir PDF/imagen a Drive (5. FACTURAS)
                                                 </>
                                             )}
                                             <input
@@ -344,6 +381,41 @@ function FacturasSection({ expedienteId, facturas, onChange, readOnly }) {
                             </div>
                         </div>
                     ))}
+                </div>
+            )}
+
+            {/* PDF ÚNICO de facturas — se habilita cuando TODAS están subidas y validadas. */}
+            {!readOnly && facturas.length > 0 && (
+                <div className="mt-5 pt-4 border-t border-white/[0.06]">
+                    <div className="flex items-center justify-between gap-3 flex-wrap">
+                        <div className="min-w-0">
+                            <p className="text-xs font-black text-white/70 uppercase tracking-wider">PDF único de facturas</p>
+                            <p className="text-white/30 text-[10px] mt-0.5">
+                                {canGenerate
+                                    ? 'Todas validadas. Genera un único PDF con todas las facturas.'
+                                    : 'Sube y valida todas las facturas para poder generar el PDF único.'}
+                            </p>
+                            {combinedLink && isAdmin && (
+                                <a href={combinedLink} target="_blank" rel="noopener noreferrer"
+                                   className="text-[11px] text-brand/80 hover:text-brand font-bold inline-flex items-center gap-1 mt-1.5">
+                                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
+                                    Ver PDF combinado en Drive
+                                </a>
+                            )}
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => onGenerateCombined?.()}
+                            disabled={!canGenerate || generating}
+                            className={`px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all active:scale-95 ${
+                                (!canGenerate || generating)
+                                    ? 'bg-white/[0.03] border border-white/10 text-white/25 cursor-not-allowed'
+                                    : 'bg-brand/10 border border-brand/30 text-brand hover:bg-brand hover:text-bkg-deep'
+                            }`}
+                        >
+                            {generating ? 'Generando…' : (combinedLink ? 'Regenerar PDF único' : 'Generar PDF único')}
+                        </button>
+                    </div>
                 </div>
             )}
         </div>
@@ -719,6 +791,44 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
         });
     };
 
+    // Genera un ÚNICO PDF con todas las facturas ("{nº expte} - FACTURAS.pdf" en la
+    // carpeta "5. FACTURAS"). Requiere que todas estén subidas y validadas: primero
+    // persistimos (el backend relee las validaciones) y luego llamamos al endpoint.
+    const [generatingFacturas, setGeneratingFacturas] = useState(false);
+    const handleGenerateFacturasPdf = async () => {
+        if (!expediente?.id) return;
+        setGeneratingFacturas(true);
+        try {
+            await onSave({ documentacion: local });
+            const { data } = await axios.post(`/api/expedientes/${expediente.id}/facturas/generar-pdf`);
+            setLocal(prev => {
+                const next = { ...prev, facturas_combined_link: data.drive_link };
+                onSave({ documentacion: next });
+                return next;
+            });
+            const extra = data.skipped?.length ? `\n\n(${data.skipped.length} fichero(s) omitido(s) por formato no soportado.)` : '';
+            alert(`PDF único generado con ${data.count} factura(s).${extra}`);
+        } catch (err) {
+            alert(err.response?.data?.error || 'No se pudo generar el PDF de facturas.');
+        } finally {
+            setGeneratingFacturas(false);
+        }
+    };
+
+    // Auto-genera el PDF único en cuanto TODAS las facturas quedan subidas+validadas
+    // (si aún no existe) — el backend lo copia a la vez a "10. EXPEDIENTE CAE" para
+    // auditoría, así no hace falta pulsar "Generar PDF único" a mano tras validar la
+    // última factura. Se dispara desde un efecto (no desde el toggle) para no leer
+    // el estado `local` desactualizado antes de que React lo confirme.
+    React.useEffect(() => {
+        const facturas = local.facturas || [];
+        const allDone = facturas.length > 0 && facturas.every(f => f.drive_link && f.validada);
+        if (allDone && !local.facturas_combined_link && !generatingFacturas) {
+            handleGenerateFacturasPdf();
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [local.facturas, local.facturas_combined_link]);
+
     const handleModalSaveDrive = (field, link) => {
         setLocal(prev => {
             const next = { ...prev, [field]: link };
@@ -855,15 +965,26 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
         ? !!local.cesion_firmado_brokergy
         : !!local.docs_validados?.[field];
 
-    const handleValidateSigned = (field) => {
-        setLocal(prev => {
-            const dv = { ...(prev.docs_validados || {}), [field]: new Date().toISOString() };
-            const dr = { ...(prev.docs_rechazados || {}) }; delete dr[field];
-            const next = { ...prev, docs_validados: dv, docs_rechazados: dr };
-            onSave({ documentacion: next });
-            return next;
-        });
+    // Validar un documento firmado NO es solo marcarlo verde: el backend copia el
+    // fichero a la carpeta de auditoría "10. EXPEDIENTE CAE" (dejando el original en
+    // su carpeta habitual) para que toda la documentación validada del CAE quede
+    // reunida y lista para una auditoría posterior. Por eso es una única escritura
+    // atómica en el backend (igual que /documentos/rechazar), no un setLocal+onSave.
+    const handleValidateSigned = async (field) => {
         setManagingSigned(null);
+        // Optimista: refleja el verde al instante; se corrige si el backend falla.
+        setLocal(prev => ({
+            ...prev,
+            docs_validados: { ...(prev.docs_validados || {}), [field]: new Date().toISOString() },
+            docs_rechazados: (() => { const dr = { ...(prev.docs_rechazados || {}) }; delete dr[field]; return dr; })()
+        }));
+        try {
+            const { data } = await axios.post(`/api/expedientes/${expediente.id}/documentos/validar`, { field });
+            setLocal(prev => ({ ...prev, docs_validados: data.docs_validados, docs_rechazados: data.docs_rechazados }));
+        } catch (err) {
+            console.error('Error validando documento:', err);
+            alert(err.response?.data?.error || 'No se pudo validar el documento.');
+        }
     };
 
     // ── Rechazo de documento: marca docs_rechazados (recuadro rojo) y, si se elige
@@ -1392,7 +1513,7 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                                 <div className="flex items-center justify-between gap-6 p-4 rounded-2xl bg-white/[0.01] hover:bg-white/[0.03] transition-colors group">
                                     <div className="flex-1 min-w-0">
                                         <p className="text-sm font-black text-white uppercase tracking-tight mb-0.5">Facturas de la Obra</p>
-                                        <p className="text-white/30 text-[9px] font-bold uppercase tracking-widest leading-tight">{(local.facturas?.length || 0)} factura(s) · carpeta 5.FACTURAS</p>
+                                        <p className="text-white/30 text-[9px] font-bold uppercase tracking-widest leading-tight">{(local.facturas?.length || 0)} factura(s) · carpeta 5. FACTURAS</p>
                                     </div>
                                     <div className="flex items-center gap-6">
                                         <div className="w-[100px]">
@@ -1996,7 +2117,7 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                         <div className="p-5 sm:p-6 border-b border-white/5 flex items-center justify-between">
                             <div>
                                 <h3 className="text-base font-black text-white uppercase tracking-[0.15em]">Facturas de la Obra</h3>
-                                <p className="text-[10px] text-brand font-black uppercase tracking-[0.2em] mt-1 opacity-60">Carpeta Drive · 5.FACTURAS</p>
+                                <p className="text-[10px] text-brand font-black uppercase tracking-[0.2em] mt-1 opacity-60">Carpeta Drive · 5. FACTURAS</p>
                             </div>
                             <button onClick={() => setShowFacturasModal(false)} className="w-9 h-9 flex items-center justify-center hover:bg-white/5 rounded-xl transition-all border border-transparent hover:border-white/10">
                                 <svg className="w-5 h-5 text-white/40" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
@@ -2008,6 +2129,9 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                                 facturas={local.facturas || []}
                                 onChange={handleFacturasChange}
                                 readOnly={false}
+                                onGenerateCombined={handleGenerateFacturasPdf}
+                                combinedLink={local.facturas_combined_link}
+                                generating={generatingFacturas}
                             />
                         </div>
                         <div className="p-4 sm:p-5 border-t border-white/5 bg-white/[0.01] flex justify-end gap-3">

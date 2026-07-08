@@ -31,7 +31,9 @@ const driveService = require('../services/driveService');
 // NO requerimos reformaUploadService: arrastra whatsappService (auto-conecta y deja
 // el proceso colgado). Replicamos aquí las constantes y el helper que necesitamos.
 const SUBCARPETA_DOCS = '12. DOCUMENTOS PARA CEE';
-const SUBCARPETA_FACTURAS = '5.FACTURAS';
+// Nombre CANÓNICO de la plantilla (con espacio). La resolución es tolerante para no
+// duplicar "5. FACTURAS" vs "5.FACTURAS".
+const SUBCARPETA_FACTURAS = '5. FACTURAS';
 // ¿El fichero `fileName` pertenece al slot `slotKey`? (exacto o `slotKey_N`)
 function fileBelongsToSlot(fileName, slotKey) {
     const base = String(fileName || '').replace(/\.[a-z0-9]+$/i, '');
@@ -104,7 +106,7 @@ async function main() {
             facturas.forEach(f => OPTS.verbose && log(`      · ${f.name}  (${f.id})`));
 
             if (OPTS.execute) {
-                const facturasFolderId = await driveService.getOrCreateSubfolder(driveFolderId, SUBCARPETA_FACTURAS);
+                const facturasFolderId = await driveService.getOrCreateSubfolderNormalized(driveFolderId, SUBCARPETA_FACTURAS);
                 for (const f of facturas) {
                     const ok = await driveService.moveFolder(f.id, facturasFolderId);
                     if (ok) { movidos++; } else { errores++; log(`      ❌ no se pudo mover ${f.name}`); }

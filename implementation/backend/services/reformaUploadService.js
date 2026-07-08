@@ -20,7 +20,10 @@ const whatsappService = require('./whatsappService');
 const { partnerNotifyTargets } = require('./notifyContacts');
 
 const SUBCARPETA_DOCS = '12. DOCUMENTOS PARA CEE'; // misma que usa /firma y scan-photos
-const SUBCARPETA_FACTURAS = '5.FACTURAS'; // TODAS las facturas (admin y cliente/instalador) van aquí
+// Nombre CANÓNICO tal cual viene en la plantilla de Drive (con espacio tras el punto).
+// La resolución de carpeta es tolerante (getOrCreateSubfolderNormalized), así que
+// "5. FACTURAS" y "5.FACTURAS" se tratan como la MISMA carpeta y no se duplican.
+const SUBCARPETA_FACTURAS = '5. FACTURAS'; // TODAS las facturas (admin y cliente/instalador) van aquí
 const BOILER_COMBUSTIBLE = ['gas', 'gasoleo', 'carbon', 'biomasa'];
 const FRONTEND = () => process.env.FRONTEND_URL || 'https://app.brokergy.es';
 
@@ -434,9 +437,10 @@ async function buildDocsView(opp, opts = {}) {
         if (folderId) {
             const subId = await driveService.findSubfolderByName(folderId, SUBCARPETA_DOCS);
             if (subId) driveFiles = await driveService.listFiles(subId);
-            // Las FACTURAS viven en su propia carpeta "5.FACTURAS" (unificadas con el
+            // Las FACTURAS viven en su propia carpeta "5. FACTURAS" (unificadas con el
             // alta del admin). Se reconcilian aparte para el slot DOC_FACTURAS.
-            const factId = await driveService.findSubfolderByName(folderId, SUBCARPETA_FACTURAS);
+            // Búsqueda tolerante para no fallar si la carpeta tiene/omite el espacio.
+            const factId = await driveService.findSubfolderByNameNormalized(folderId, SUBCARPETA_FACTURAS);
             if (factId) facturasFiles = await driveService.listFiles(factId);
         }
     } catch (e) { console.warn('[Docs] reconciliación Drive:', e.message); }

@@ -1028,6 +1028,79 @@ router.post('/:id/documentos/rechazar', enforceAuth, async (req, res) => {
     }
 });
 
+// ─── POST /api/expedientes/:id/documentos/validar ─────────────────────────────
+// Marca un documento firmado como VALIDADO (documentacion.docs_validados[field]) y
+// copia el fichero a la carpeta de auditoría "10. EXPEDIENTE CAE" (creándola si no
+// existe), dejando el original intacto en su carpeta habitual (6. ANEXOS CAE /
+// 7. LEGALIZACION RITE). Así toda la documentación validada del CAE queda reunida
+// en un único sitio listo para auditoría posterior.
+// Body: { field }
+const DOCUMENTO_VALIDABLE_LABELS = {
+    anexo_i_signed_link: 'Anexo I',
+    anexo_cesion_signed_link: 'Anexo Cesión de Ahorro',
+    cert_cifo_signed_link: 'Certificado CIFO',
+    ficha_res060_signed_link: 'Ficha RES',
+    anexo_fotografico_signed_link: 'Anexo Fotográfico',
+    cert_rite_signed_link: 'Memoria RITE',
+};
+
+function extractDriveFileId(link) {
+    if (!link) return null;
+    const s = String(link);
+    const m = s.match(/\/file\/d\/([A-Za-z0-9_-]+)/) || s.match(/[?&]id=([A-Za-z0-9_-]+)/) || s.match(/\/folders\/([A-Za-z0-9_-]+)/);
+    return m ? m[1] : null;
+}
+
+router.post('/:id/documentos/validar', enforceAuth, async (req, res) => {
+    try {
+        const field = String(req.body?.field || '').trim();
+        if (!field) return res.status(400).json({ error: 'field es obligatorio' });
+
+        const { data: exp, error } = await supabase.from('expedientes').select('*, oportunidades(*)').eq('id', req.params.id).single();
+        if (error || !exp) return res.status(404).json({ error: 'Expediente no encontrado' });
+
+        const docObj = exp.documentacion || {};
+        const link = docObj[field];
+        if (!link) return res.status(400).json({ error: 'El documento aún no tiene un fichero firmado que copiar' });
+
+        let auditLink = null;
+        try {
+            const op = exp.oportunidades;
+            let normalizedDatos = op?.datos_calculo || {};
+            if (typeof normalizedDatos === 'string') { try { normalizedDatos = JSON.parse(normalizedDatos); } catch (e) { normalizedDatos = {}; } }
+            const driveFolderId = normalizedDatos?.drive_folder_id || normalizedDatos?.inputs?.drive_folder_id || exp.drive_folder_id;
+            const fileId = extractDriveFileId(link);
+
+            if (driveFolderId && fileId) {
+                const driveService = require('../services/driveService');
+                const auditFolderId = await driveService.getOrCreateSubfolderNormalized(driveFolderId, '10. EXPEDIENTE CAE');
+                const baseName = DOCUMENTO_VALIDABLE_LABELS[field] || field.replace(/_/g, ' ');
+                const copyName = `${exp.numero_expediente || ''} - ${baseName}.pdf`.trim();
+                const prevId = await driveService.findFileByName(auditFolderId, copyName);
+                if (prevId) await driveService.deleteFile(prevId);
+                const copied = await driveService.copyFile(fileId, auditFolderId, copyName);
+                if (copied?.link) auditLink = copied.link;
+            }
+        } catch (copyErr) {
+            console.warn('[validar-doc] No se pudo copiar a "10. EXPEDIENTE CAE":', copyErr.message);
+        }
+
+        const docsValidados = { ...(docObj.docs_validados || {}), [field]: new Date().toISOString() };
+        const docsRechazados = { ...(docObj.docs_rechazados || {}) };
+        delete docsRechazados[field];
+        const newDoc = { ...docObj, docs_validados: docsValidados, docs_rechazados: docsRechazados };
+        const { error: updErr } = await supabase.from('expedientes')
+            .update({ documentacion: newDoc, updated_at: new Date().toISOString() })
+            .eq('id', req.params.id);
+        if (updErr) throw updErr;
+
+        res.json({ ok: true, docs_validados: docsValidados, docs_rechazados: docsRechazados, audit_link: auditLink });
+    } catch (err) {
+        console.error('[validar-doc]', err.message);
+        res.status(500).json({ error: 'Error al validar el documento' });
+    }
+});
+
 // ─── POST /api/expedientes/:id/anexo-fotografico/generar ──────────────────────
 // Genera el Anexo Fotográfico DESDE las fotos ya nombradas por slot en Drive
 // ("12. DOCUMENTOS PARA CEE"), lo guarda en "6. ANEXOS CAE" y deja el enlace en
@@ -2059,6 +2132,20 @@ router.post('/:id/facturas/generar-pdf', enforceAuth, async (req, res) => {
         const saved = await driveService.saveFileToFolder(facturasFolderId, outName, 'application/pdf', combined.buffer);
         if (!saved?.link) return res.status(500).json({ error: 'No se pudo guardar el PDF en Drive.' });
 
+        // Copia también a la carpeta de auditoría "10. EXPEDIENTE CAE" (todas las
+        // facturas están validadas para llegar aquí): deja el original en
+        // "5. FACTURAS" y reúne el combinado junto al resto de documentación validada.
+        let auditLink = null;
+        try {
+            const auditFolderId = await driveService.getOrCreateSubfolderNormalized(driveFolderId, '10. EXPEDIENTE CAE');
+            const prevAudit = await driveService.findFileByName(auditFolderId, outName);
+            if (prevAudit) await driveService.deleteFile(prevAudit);
+            const copied = await driveService.copyFile(saved.id, auditFolderId, outName);
+            if (copied?.link) auditLink = copied.link;
+        } catch (copyErr) {
+            console.warn('[facturas/generar-pdf] No se pudo copiar a "10. EXPEDIENTE CAE":', copyErr.message);
+        }
+
         res.json({
             success: true,
             drive_link: saved.link,
@@ -2066,7 +2153,8 @@ router.post('/:id/facturas/generar-pdf', enforceAuth, async (req, res) => {
             name: outName,
             count: sources.length,
             pages: combined.pages,
-            skipped: combined.skipped
+            skipped: combined.skipped,
+            audit_link: auditLink
         });
     } catch (err) {
         console.error('Error POST expedientes/:id/facturas/generar-pdf:', err);
