@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import axios from 'axios';
 import { useModal } from '../../../context/ModalContext';
@@ -7,12 +7,26 @@ import { buildFichaRes060Html } from '../../expedientes/logic/fichaRes060Html';
 import { buildFichaRes080Html } from '../../expedientes/logic/fichaRes080Html';
 import { buildFichaRes093Html } from '../../expedientes/logic/fichaRes093Html';
 import { computeExpedienteFinancials } from '../../expedientes/logic/expedienteFinancials';
+import { SIGN_BOXES, fichaSignBox } from '../../expedientes/logic/signBoxes';
+import FirmarConCertificadoModal from '../../expedientes/components/FirmarConCertificadoModal';
 import { EnviarLoteDocModal } from './EnviarLoteDocModal';
 
 const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
 
+// Textos ancla para pre-situar el recuadro de firma (Autofirma) en la firma en cadena del S.O.
+const ANEXO_ANCHOR = ['fdo', 'firma', 'representante legal', 'el cedente'];
+const FICHA_ANCHOR = ['fdo', 'firma', 'representante'];
+
+// Lee un File a base64 (sin el prefijo data:).
+const fileToBase64 = (file) => new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result).split(',')[1] || '');
+    r.onerror = reject;
+    r.readAsDataURL(file);
+});
+
 export function AnexoListadoModal({ lote, onClose }) {
-    const { showAlert } = useModal();
+    const { showAlert, showConfirm } = useModal();
     const [mes, setMes] = useState(() => MESES[new Date().getMonth()]);
     const [convenioFecha, setConvenioFecha] = useState(CONVENIO_FECHA_DEFAULT);
     const [generating, setGenerating] = useState(false);
@@ -29,20 +43,123 @@ export function AnexoListadoModal({ lote, onClose }) {
     const soRepNif = so.nif_responsable || undefined;
     const numFichas = (lote.expedientes || []).length;
     const [sendOpen, setSendOpen] = useState(false);
-    const sendMsg = `Estimados,\n\nAdjuntamos el Anexo I (Listado de Cesión de Ahorros) del lote ${lote.codigo || ''}, que recoge ${totals.numActuaciones} actuaciones con un ahorro total de ${totals.ahorroMwh.toLocaleString('es-ES', { maximumFractionDigits: 1 })} MWh/año (${totals.ahorroGwh.toLocaleString('es-ES', { maximumFractionDigits: 2 })} GWh/año), junto con las fichas técnicas RES de cada actuación.\n\nRogamos procedan a su firma con el certificado electrónico del representante legal y nos devuelvan la documentación firmada para continuar con la tramitación. Quedamos a su disposición para cualquier aclaración.\n\nUn saludo,\nBROKERGY · Ingeniería Energética`;
+    const [solicitud, setSolicitud] = useState(null);   // { name, base64 }
+    const [solicitudErr, setSolicitudErr] = useState('');
+    // Firma del PROVEEDOR (Brokergy) del Anexo I ANTES de enviarlo al S.O.
+    const [provSignOpen, setProvSignOpen] = useState(false);
+    const [provPdfB64, setProvPdfB64] = useState(null);       // PDF del listado a firmar
+    const [proveedorSigned, setProveedorSigned] = useState(null); // base64 del listado firmado por Brokergy
+    const [provBusy, setProvBusy] = useState(false);
+    // Si cambian mes/convenio, el listado se regenera → invalida la firma previa de Brokergy.
+    useEffect(() => { setProveedorSigned(null); }, [mes, convenioFecha]);
+    const sendMsg = `Estimados,\n\nAdjuntamos el Anexo I (Listado de Cesión de Ahorros) del lote ${lote.codigo || ''}, que recoge ${totals.numActuaciones} actuaciones con un ahorro total de ${totals.ahorroMwh.toLocaleString('es-ES', { maximumFractionDigits: 1 })} MWh/año (${totals.ahorroGwh.toLocaleString('es-ES', { maximumFractionDigits: 2 })} GWh/año), junto con las fichas técnicas RES de cada actuación y la solicitud de verificación.\n\nRogamos procedan a su firma con el certificado electrónico del representante legal. Pueden firmar todo en cadena desde el enlace que incluimos más abajo (Autofirma), sin descargar ni volver a subir nada. Quedamos a su disposición para cualquier aclaración.\n\nUn saludo,\nBROKERGY · Ingeniería Energética`;
 
     // Construye los documentos a adjuntar: Anexo I (listado) + una ficha por expediente (RES060/080/093).
     const buildDocs = () => {
         const rep = { representanteNombre: soRepNombre, representanteNif: soRepNif };
-        const docs = [{ html, fileName: `${lote.codigo || 'LOTE'} - Anexo I Listado Cesion`, label: 'Anexo I' }];
+        // Si Brokergy ya firmó el Anexo I (columna PROVEEDOR), se envía ESE PDF firmado
+        // (pdfBase64) para que el S.O. solo añada su firma; si no, se genera del HTML.
+        const docs = [{ html, pdfBase64: proveedorSigned, fileName: `${lote.codigo || 'LOTE'} - Anexo I Listado Cesion`, label: 'Anexo I', tipo: 'anexo_i_listado', expediente_id: null, anchor: ANEXO_ANCHOR, fixedBox: SIGN_BOXES.anexo_i_listado }];
         for (const e of (lote.expedientes || [])) {
             const f = fichaDe(e.numero_expediente);
             const fichaHtml = f === 'RES080' ? buildFichaRes080Html(e, rep)
                 : f === 'RES093' ? buildFichaRes093Html(e, rep)
                     : buildFichaRes060Html(e, computeExpedienteFinancials(e), rep);
-            docs.push({ html: fichaHtml, fileName: `${e.numero_expediente} - Ficha ${f}`, label: `Ficha ${f}` });
+            docs.push({ html: fichaHtml, fileName: `${e.numero_expediente} - Ficha ${f}`, label: `Ficha ${f}`, tipo: 'ficha_res', expediente_id: e.id, anchor: FICHA_ANCHOR, fixedBox: fichaSignBox(f) });
         }
         return docs;
+    };
+
+    const onPickSolicitud = async (e) => {
+        const file = e.target.files?.[0];
+        e.target.value = '';
+        if (!file) return;
+        if (file.type !== 'application/pdf') { setSolicitudErr('El fichero debe ser un PDF.'); return; }
+        setSolicitudErr('');
+        try {
+            const base64 = await fileToBase64(file);
+            setSolicitud({ name: file.name, base64 });
+        } catch { setSolicitudErr('No se pudo leer el fichero.'); }
+    };
+
+    // Envío al S.O. vía el backend del lote: crea carpeta, mueve expedientes, guarda
+    // borradores (Anexo I + fichas + solicitud) y manda el email/WhatsApp con el enlace de firma.
+    const handleEnviarSo = async ({ email, phone, channels, message }) => {
+        const { data } = await axios.post(`/api/lotes/${lote.id}/enviar-so`, {
+            to: email,
+            phone,
+            channels,
+            customMessage: message,
+            summaryData: { id: lote.codigo || 'LOTE', docType: 'Anexo I · Listado Cesión + Fichas RES' },
+            docs: buildDocs().map(d => ({ html: d.html, pdfBase64: d.pdfBase64 || null, fileName: d.fileName, label: d.label, tipo: d.tipo, expediente_id: d.expediente_id || null, anchor: d.anchor || null, fixedBox: d.fixedBox || null })),
+            solicitud: solicitud ? { base64: solicitud.base64, fileName: solicitud.name, fixedBox: SIGN_BOXES.solicitud_verificacion } : null,
+            frontendOrigin: window.location.origin,
+        });
+        const warnings = data?.warnings || [];
+        const results = [];
+        if (channels.email) {
+            const w = warnings.find(x => /^email/i.test(x));
+            results.push({ channel: 'email', status: w ? 'fail' : 'ok', text: w || `→ ${email}` });
+        }
+        if (channels.whatsapp) {
+            const w = warnings.find(x => /^whatsapp/i.test(x));
+            results.push({ channel: 'whatsapp', status: w ? 'fail' : 'ok', text: w || `→ ${phone}` });
+        }
+        return results;
+    };
+
+    // Slot para subir la Solicitud de Verificación descargada (se inyecta en el modal de envío).
+    const solicitudSlot = (
+        <div>
+            <label className="block text-[9px] font-black text-white/30 uppercase tracking-[0.2em] mb-2">Solicitud de Verificación (PDF)</label>
+            {solicitud ? (
+                <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-emerald-500/10 border border-emerald-400/30">
+                    <svg className="w-4 h-4 text-emerald-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                    <span className="text-[11px] text-white/80 truncate flex-1">{solicitud.name}</span>
+                    <button type="button" onClick={() => setSolicitud(null)} className="text-white/40 hover:text-red-400 transition-colors text-xs font-black shrink-0">✕</button>
+                </div>
+            ) : (
+                <label className="flex items-center gap-2 px-3 py-2.5 rounded-xl border border-dashed border-white/15 text-white/50 text-[11px] cursor-pointer hover:border-brand/40 hover:text-white/70 transition-all">
+                    <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
+                    Subir el PDF de la solicitud descargada
+                    <input type="file" accept="application/pdf" className="hidden" onChange={onPickSolicitud} />
+                </label>
+            )}
+            {solicitudErr && <p className="mt-1 text-[10px] text-red-400">{solicitudErr}</p>}
+            <p className="mt-1 text-[9px] text-white/25">Se adjunta al email y entra en la firma en cadena del S.O.</p>
+        </div>
+    );
+
+    // Firma del PROVEEDOR (Brokergy): genera el PDF del listado y abre Autofirma con la
+    // caja de la columna izquierda. El PDF firmado se enviará luego al S.O.
+    const handleFirmarProveedor = async () => {
+        setProvBusy(true);
+        try {
+            const { data } = await axios.post('/api/pdf/generate', { html });
+            if (!data?.pdf) throw new Error('No se pudo generar el PDF del Anexo I');
+            setProvPdfB64(data.pdf);
+            setProvSignOpen(true);
+        } catch (err) {
+            showAlert(err.response?.data?.error || err.message || 'Error al preparar la firma', 'Error', 'error');
+        } finally {
+            setProvBusy(false);
+        }
+    };
+    const onProveedorSigned = (signedB64) => {
+        setProveedorSigned(signedB64);
+        setProvSignOpen(false);
+        setProvPdfB64(null);
+    };
+
+    // Antes de enviar: si NO se ha subido la Solicitud de Verificación, preguntar si
+    // continuar sin ella o volver para subirla. Devuelve true = enviar, false = cancelar.
+    const confirmAntesDeEnviar = async () => {
+        if (solicitud) return true;
+        return showConfirm(
+            'No has adjuntado la Solicitud de Verificación (PDF). Si continúas, se enviará al S.O. sin ella y no entrará en la firma en cadena.\n\nPulsa "Enviar sin solicitud" para continuar, o "Cancelar" para subirla primero.',
+            'Falta la solicitud de verificación',
+            'warning'
+        );
     };
 
     const handleDownloadPdf = async () => {
@@ -105,10 +222,27 @@ export function AnexoListadoModal({ lote, onClose }) {
 
                 </div>
 
+                {/* Estado de la firma del Proveedor (Brokergy) */}
+                <div className="px-6">
+                    {proveedorSigned ? (
+                        <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-500/10 border border-emerald-400/30">
+                            <svg className="w-4 h-4 text-emerald-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+                            <span className="text-[11px] text-emerald-300 font-bold flex-1">Anexo I firmado por el Proveedor (Brokergy). Al enviar, el S.O. solo añadirá su firma.</span>
+                            <button onClick={handleFirmarProveedor} disabled={provBusy} className="text-[10px] font-black uppercase tracking-wider text-white/40 hover:text-white/70 shrink-0">Volver a firmar</button>
+                        </div>
+                    ) : (
+                        <p className="text-[11px] text-white/40">Recomendado: firma el Anexo I como <b className="text-white/70">Proveedor (Brokergy)</b> antes de enviarlo al S.O.</p>
+                    )}
+                </div>
+
                 {/* Acciones */}
                 <div className="flex items-center justify-between gap-3 p-6 border-t border-white/[0.06] flex-wrap">
                     <button onClick={onClose} className="px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest text-white/50 hover:text-white transition-colors">Cerrar</button>
                     <div className="flex items-center gap-2 flex-wrap">
+                        <button onClick={handleFirmarProveedor} disabled={provBusy}
+                            className="px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest border border-emerald-400/30 text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 disabled:opacity-40 transition-all flex items-center gap-1.5">
+                            {provBusy ? 'Preparando…' : (proveedorSigned ? '✓ Firmado (Proveedor)' : '🖊️ Firmar (Proveedor)')}
+                        </button>
                         <button onClick={() => setSendOpen(true)}
                             className="px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest border border-brand/30 text-brand bg-brand/10 hover:bg-brand/20 transition-all">
                             Enviar al S.O.
@@ -123,12 +257,24 @@ export function AnexoListadoModal({ lote, onClose }) {
             {sendOpen && (
                 <EnviarLoteDocModal
                     title="Enviar al Sujeto Obligado"
-                    subtitle={`${lote.codigo || 'Lote'} · Anexo I + ${numFichas} ficha(s) RES`}
+                    subtitle={`${lote.codigo || 'Lote'} · Anexo I + ${numFichas} ficha(s) RES${solicitud ? ' + solicitud' : ''}`}
                     defaultEmail={soNotifyEmail}
                     defaultMessage={sendMsg}
                     summaryData={{ id: lote.codigo || 'LOTE', docType: 'Anexo I · Listado Cesión + Fichas RES' }}
                     docs={buildDocs()}
+                    extraBody={solicitudSlot}
+                    onSendOverride={handleEnviarSo}
+                    onBeforeSend={confirmAntesDeEnviar}
                     onClose={() => setSendOpen(false)}
+                />
+            )}
+            {provSignOpen && provPdfB64 && (
+                <FirmarConCertificadoModal
+                    pdfBase64={provPdfB64}
+                    title={`Firmar Anexo I como Proveedor · ${lote.codigo || 'Lote'}`}
+                    fixedBox={SIGN_BOXES.anexo_i_listado_proveedor}
+                    onClose={() => { setProvSignOpen(false); setProvPdfB64(null); }}
+                    onSigned={onProveedorSigned}
                 />
             )}
         </div>,

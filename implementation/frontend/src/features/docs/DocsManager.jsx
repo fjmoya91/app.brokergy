@@ -142,6 +142,20 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
     const [conceptBusy, setConceptBusy] = useState(null);    // concept.id en proceso de habilitar/quitar
     const [conceptError, setConceptError] = useState(null);  // error al cambiar un apartado
 
+    // ── Escaparate público: fotos publicadas + modal de publicación ──
+    const [publicadas, setPublicadas] = useState({});   // driveId → fila publicada
+    const [pubModal, setPubModal] = useState(null);      // { slot, item }
+    const [pubForm, setPubForm] = useState({ titulo: '', actuacion: 'aerotermia', consent: false, revisado: false });
+    const [pubBusy, setPubBusy] = useState(false);
+    const deriveActuacion = (key = '') => {
+        const s = key.toUpperCase();
+        if (s.includes('VENTANA')) return 'ventanas';
+        if (s.includes('CUBIERTA')) return 'cubierta';
+        if (s.includes('FACHADA')) return 'fachada';
+        if (s.includes('SUELO')) return 'suelo';
+        return 'aerotermia';
+    };
+
     // Para subir/borrar siempre usamos el canal público con uuid+token reales.
     const uuidRef = useRef(null);
     const tokenRef = useRef(tokenProp || null);
@@ -174,6 +188,44 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
     };
 
     useEffect(() => { load(); /* eslint-disable-next-line */ }, [mode, idOrUuid, tokenProp]);
+
+    // Fotos ya publicadas en el escaparate (solo admin).
+    const loadPublicadas = async () => {
+        if (mode !== 'admin' || !canValidate) return;
+        try {
+            const r = await axios.get(`/api/oportunidades/${idOrUuid}/docs/escaparate`);
+            const map = {};
+            (r.data.publicadas || []).forEach(p => { map[p.drive_id] = p; });
+            setPublicadas(map);
+        } catch { /* noop */ }
+    };
+    useEffect(() => { loadPublicadas(); /* eslint-disable-next-line */ }, [mode, idOrUuid, canValidate]);
+
+    const openPublish = (slot, it) => {
+        setPubForm({ titulo: slot.label || '', actuacion: deriveActuacion(slot.key), consent: false, revisado: false });
+        setPubModal({ slot, item: it });
+    };
+    const doPublish = async () => {
+        if (!pubModal || !pubForm.consent || !pubForm.revisado) return;
+        const { slot, item } = pubModal;
+        setPubBusy(true);
+        try {
+            await axios.post(`/api/oportunidades/${idOrUuid}/docs/${slot.key}/publicar-escaparate`, {
+                driveId: item.driveId, name: item.name, titulo_publico: pubForm.titulo,
+                actuacion: pubForm.actuacion, consentimiento_cliente: true,
+            });
+            setPubModal(null);
+            await loadPublicadas();
+        } catch (e) { setError(e.response?.data?.error || 'No se pudo publicar en el escaparate.'); }
+        finally { setPubBusy(false); }
+    };
+    const unpublish = async (it) => {
+        setPubBusy(true);
+        try {
+            await axios.delete(`/api/oportunidades/${idOrUuid}/docs/escaparate/${it.driveId}`);
+            await loadPublicadas();
+        } catch { /* noop */ } finally { setPubBusy(false); }
+    };
 
     // Refresco en segundo plano: al volver a la pestaña y cada 20s mientras esté visible.
     // Así, si el admin valida/rechaza/borra, el cliente ve el cambio sin recargar a mano.
@@ -599,6 +651,11 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
                                                     <button onClick={() => deleteItem(slot, it)} disabled={busy} title="Eliminar"
                                                         className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-red-500 text-white text-xs font-black flex items-center justify-center shadow-lg max-md:opacity-100 opacity-0 group-hover:opacity-100 transition-all disabled:opacity-50">✕</button>
                                                 )}
+                                                {/* Publicada en el escaparate → badge estrella */}
+                                                {img && publicadas[it.driveId] && (
+                                                    <span title="Publicada en el escaparate público"
+                                                        className="absolute -top-1.5 -left-1.5 w-5 h-5 rounded-full bg-amber-500 text-white text-[10px] flex items-center justify-center shadow-lg">★</span>
+                                                )}
                                             </div>
                                             {/* Nombre legible del documento (slots "Otros") */}
                                             {it.label && (
@@ -620,6 +677,14 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
                                                     }} disabled={acting === `${slot.key}:${it.name}` || bulkValidating !== null}
                                                         title="Rechazar foto" aria-label="Rechazar foto"
                                                         className={`w-7 h-7 rounded-lg text-sm font-black flex items-center justify-center transition-all disabled:opacity-50 ${fEstado === 'rechazada' ? 'bg-red-500 text-white shadow-sm shadow-red-500/30' : 'bg-red-500/15 text-red-300 hover:bg-red-500/30'}`}>✗</button>
+                                                    {/* Publicar en el escaparate — solo fotos VALIDADAS */}
+                                                    {img && fEstado === 'validada' && (
+                                                        publicadas[it.driveId]
+                                                            ? <button onClick={() => unpublish(it)} disabled={pubBusy} title="Quitar del escaparate público"
+                                                                className="w-7 h-7 rounded-lg text-sm flex items-center justify-center bg-amber-500 text-white shadow-sm shadow-amber-500/30 disabled:opacity-50">★</button>
+                                                            : <button onClick={() => openPublish(slot, it)} disabled={pubBusy} title="Publicar en el escaparate público"
+                                                                className="w-7 h-7 rounded-lg text-sm flex items-center justify-center bg-amber-500/15 text-amber-300 hover:bg-amber-500/30 disabled:opacity-50">☆</button>
+                                                    )}
                                                 </div>
                                             )}
                                             {fEstado === 'rechazada' && it.motivo && (
@@ -725,6 +790,41 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
             )}
 
             {/* Modal de rechazo */}
+            {/* Modal: publicar foto en el escaparate público */}
+            {pubModal && (
+                <div className="fixed inset-0 z-[70] bg-black/70 flex items-center justify-center p-4" onClick={() => !pubBusy && setPubModal(null)}>
+                    <div className="bg-bkg-elevated border border-amber-500/30 rounded-2xl p-5 max-w-md w-full" onClick={e => e.stopPropagation()}>
+                        <h3 className="text-white font-black text-lg">★ Publicar en el escaparate</h3>
+                        <p className="text-white/50 text-xs mt-1 mb-4">Esta foto se mostrará en la ficha pública del instalador (instaladores.brokergy.es). Solo municipio y mes; nunca datos del cliente.</p>
+                        <div className="w-20 h-20 rounded-xl overflow-hidden border-2 border-amber-500/40 mx-auto mb-4">
+                            <DriveImg proxySrc={thumbProxy(pubModal.item.driveId, 400)} driveId={pubModal.item.driveId} size={400} fit="cover" />
+                        </div>
+                        <label className="block text-[10px] uppercase tracking-widest font-black text-white/40 mb-1">Título público</label>
+                        <input value={pubForm.titulo} onChange={e => setPubForm(f => ({ ...f, titulo: e.target.value }))}
+                            placeholder="Sustitución de caldera por aerotermia"
+                            className="w-full bg-bkg-surface border border-white/10 rounded-xl px-3 py-2.5 text-white text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-amber-500/40" />
+                        <label className="block text-[10px] uppercase tracking-widest font-black text-white/40 mb-1">Actuación</label>
+                        <select value={pubForm.actuacion} onChange={e => setPubForm(f => ({ ...f, actuacion: e.target.value }))}
+                            className="w-full bg-bkg-surface border border-white/10 rounded-xl px-3 py-2.5 text-white text-sm mb-4 focus:outline-none">
+                            {['aerotermia', 'ventanas', 'cubierta', 'fachada', 'suelo', 'obra'].map(a => <option key={a} value={a}>{a}</option>)}
+                        </select>
+                        <label className="flex items-start gap-2 text-xs text-white/70 mb-2 cursor-pointer">
+                            <input type="checkbox" checked={pubForm.consent} onChange={e => setPubForm(f => ({ ...f, consent: e.target.checked }))} className="mt-0.5 accent-amber-500" />
+                            <span><b>Consentimiento del cliente confirmado</b> para mostrar la foto de su vivienda con fines comerciales.</span>
+                        </label>
+                        <label className="flex items-start gap-2 text-xs text-white/70 mb-4 cursor-pointer">
+                            <input type="checkbox" checked={pubForm.revisado} onChange={e => setPubForm(f => ({ ...f, revisado: e.target.checked }))} className="mt-0.5 accent-amber-500" />
+                            <span>He revisado que la foto <b>no muestra datos personales</b> (caras, matrículas, direcciones, documentos legibles).</span>
+                        </label>
+                        <div className="flex gap-2">
+                            <button onClick={() => setPubModal(null)} disabled={pubBusy} className="flex-1 py-2.5 rounded-xl border border-white/15 text-white/60 text-sm font-bold hover:text-white disabled:opacity-50">Cancelar</button>
+                            <button onClick={doPublish} disabled={pubBusy || !pubForm.consent || !pubForm.revisado}
+                                className="flex-1 py-2.5 rounded-xl bg-amber-500 text-white text-sm font-black disabled:opacity-40">{pubBusy ? 'Publicando…' : 'Publicar'}</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {reject && (() => {
                 const rcp = info?.recipients || {};
                 const clienteRcp = rcp.cliente;

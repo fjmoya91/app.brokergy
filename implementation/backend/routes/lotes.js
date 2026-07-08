@@ -47,18 +47,40 @@ async function validarPrescriptorTipo(id, tipo) {
     return { ok: true, value: data };
 }
 
-// Carpeta del lote en Drive: {DRIVE_ROOT}/LOTES/{codigo}. Se crea bajo demanda y
-// se cachea en lotes.drive_folder_id. Reutilizable para todos los docs del lote.
+// Carpeta del lote en Drive. El padre es la carpeta de estado "07. ENVIADOS A
+// VERIFICAR" (env DRIVE_FOLDER_ENVIADOS_VERIFICAR); si no está configurada, cae a
+// {DRIVE_ROOT}/LOTES. Se crea bajo demanda y se cachea en lotes.drive_folder_id.
+// Dentro de esta carpeta se mueven las carpetas de los expedientes del lote y se
+// depositan los documentos del lote (Anexo I, fichas, solicitud y sus firmados).
 async function ensureLoteFolder(lote) {
     if (lote.drive_folder_id) return lote.drive_folder_id;
-    const root = process.env.DRIVE_ROOT_FOLDER_ID;
-    if (!root) throw new Error('DRIVE_ROOT_FOLDER_ID no está configurado');
-    const lotesRoot = await driveService.getOrCreateSubfolder(root, 'LOTES');
+    let parent = process.env.DRIVE_FOLDER_ENVIADOS_VERIFICAR;
+    if (!parent) {
+        const root = process.env.DRIVE_ROOT_FOLDER_ID;
+        if (!root) throw new Error('DRIVE_ROOT_FOLDER_ID no está configurado');
+        parent = await driveService.getOrCreateSubfolder(root, 'LOTES');
+    }
     const name = lote.codigo || `LOTE-${String(lote.id).slice(0, 8)}`;
-    const folderId = await driveService.getOrCreateSubfolder(lotesRoot, name);
+    const folderId = await driveService.getOrCreateSubfolder(parent, name);
     if (!folderId) throw new Error('No se pudo crear la carpeta del lote en Drive');
     await supabase.from('lotes').update({ drive_folder_id: folderId, updated_at: nowIso() }).eq('id', lote.id);
     return folderId;
+}
+
+// Sanea un nombre de fichero para Drive y garantiza la extensión .pdf.
+function pdfFileName(base) {
+    const clean = String(base || 'Documento').replace(/[\\/<>:"|?*]/g, '_').trim();
+    return clean.toLowerCase().endsWith('.pdf') ? clean : `${clean}.pdf`;
+}
+
+// Guarda un PDF en una carpeta reemplazando el previo con el mismo nombre (para que
+// un reenvío no deje duplicados). Devuelve { id, link } o null.
+async function saveOrReplacePdf(folderId, fileName, buffer) {
+    try {
+        const prev = await driveService.findFileByName(folderId, fileName);
+        if (prev) await driveService.deleteFile(prev);
+    } catch (_) { /* no bloqueante */ }
+    return driveService.saveFileToFolder(folderId, fileName, 'application/pdf', buffer);
 }
 
 // Siguiente número de factura de CAE para un año concreto: F-{año}CAE_{N}.
@@ -484,6 +506,165 @@ router.post('/:id/factura-so', adminOnly, async (req, res) => {
     } catch (err) {
         console.error('[POST /lotes/:id/factura-so]', err.message);
         res.status(500).json({ error: err.message || 'Error al generar la factura' });
+    }
+});
+
+// ─── POST /api/lotes/:id/enviar-so — enviar al Sujeto Obligado para firma ────────
+// Asegura la carpeta del lote en "07. ENVIADOS A VERIFICAR", MUEVE dentro las
+// carpetas de Drive de los expedientes del lote, genera/guarda como BORRADOR los
+// documentos (Anexo I listado + una ficha RES por expediente + la Solicitud de
+// Verificación subida), los envía por email/WhatsApp al S.O. con el enlace de
+// firma, y registra todo en lotes.documentos_so para la firma en cadena del S.O.
+// (/firmar-lote/:id). Los HTML de Anexo I y fichas los construye el frontend.
+router.post('/:id/enviar-so', staffOnly, async (req, res) => {
+    try {
+        const {
+            to, phone, channels = { email: true, whatsapp: false },
+            customMessage, summaryData, docs = [], solicitud, frontendOrigin,
+        } = req.body || {};
+
+        if (!Array.isArray(docs) || docs.length === 0) {
+            return res.status(400).json({ error: 'No hay documentos para enviar' });
+        }
+        if (channels.email && !to) return res.status(400).json({ error: 'Falta el email del destinatario' });
+        if (channels.whatsapp && !phone) return res.status(400).json({ error: 'Falta el teléfono para WhatsApp' });
+
+        const { data: lote, error } = await supabase.from('lotes').select('*').eq('id', req.params.id).maybeSingle();
+        if (error) throw error;
+        if (!lote) return res.status(404).json({ error: 'Lote no encontrado' });
+
+        // 1) Carpeta del lote (padre = "07. ENVIADOS A VERIFICAR").
+        const folderId = await ensureLoteFolder(lote);
+
+        // 2) Mover la carpeta de Drive de cada expediente del lote dentro de la del lote.
+        const { data: exps } = await supabase
+            .from('expedientes').select('id, numero_expediente, oportunidad_id').eq('lote_id', lote.id);
+        const opIds = [...new Set((exps || []).map(e => e.oportunidad_id).filter(Boolean))];
+        let opMap = {};
+        if (opIds.length) {
+            const { data: ops } = await supabase.from('oportunidades').select('id, datos_calculo').in('id', opIds);
+            opMap = Object.fromEntries((ops || []).map(o => [o.id, o]));
+        }
+        // expFolderMap: expediente.id → carpeta de Drive del expediente (para guardar
+        // el borrador de su ficha en "6. ANEXOS CAE" y el firmado en "10. EXPEDIENTE CAE").
+        const expFolderMap = {};
+        const movimientos = [];
+        for (const e of (exps || [])) {
+            const dc = opMap[e.oportunidad_id]?.datos_calculo || {};
+            const expFolder = dc.drive_folder_id || dc.inputs?.drive_folder_id;
+            if (!expFolder) { movimientos.push({ exp: e.numero_expediente, moved: false, motivo: 'sin carpeta en Drive' }); continue; }
+            expFolderMap[e.id] = expFolder;
+            const ok = await driveService.moveFolder(expFolder, folderId);
+            movimientos.push({ exp: e.numero_expediente, moved: !!ok });
+        }
+
+        // 3) Generar/guardar borradores + preparar adjuntos. Las FICHAS de un expediente
+        //    van a la carpeta del expediente "6. ANEXOS CAE"; el Anexo I Listado y la
+        //    Solicitud (nivel lote) van a la carpeta del lote.
+        const attachments = [];
+        const documentosSo = [];
+        const sentAt = nowIso();
+
+        for (const d of docs) {
+            if (!d.html && !d.pdfBase64) continue;
+            // `pdfBase64` = PDF ya firmado (p.ej. el Anexo I firmado por el PROVEEDOR/Brokergy);
+            // tiene prioridad sobre el HTML para no regenerarlo y perder la firma.
+            const pdf = d.pdfBase64 ? Buffer.from(d.pdfBase64, 'base64') : await htmlToPdf(d.html);
+            const fileName = pdfFileName(d.fileName);
+            // Carpeta destino del borrador: expediente/"6. ANEXOS CAE" si es ficha con
+            // carpeta resoluble; si no, la carpeta del lote.
+            const expFolder = d.expediente_id ? expFolderMap[d.expediente_id] : null;
+            let draftFolder = folderId;
+            if (expFolder) {
+                draftFolder = await driveService.getOrCreateSubfolder(expFolder, '6. ANEXOS CAE') || folderId;
+            }
+            const saved = await saveOrReplacePdf(draftFolder, fileName, pdf);
+            attachments.push({ filename: fileName, content: pdf });
+            documentosSo.push({
+                key: d.expediente_id ? `ficha_${d.expediente_id}` : (d.key || `anexo_i`),
+                tipo: d.tipo || (d.expediente_id ? 'ficha_res' : 'anexo_i_listado'),
+                expediente_id: d.expediente_id || null,
+                exp_folder_id: expFolder || null,
+                label: d.label || fileName.replace(/\.pdf$/i, ''),
+                file_name: fileName,
+                anchor: d.anchor || null,
+                fixedBox: d.fixedBox || null,
+                draft_link: saved?.link || null, draft_file_id: saved?.id || null,
+                signed_link: null, signed_file_id: null,
+                sent_at: sentAt, signed_at: null,
+            });
+        }
+
+        // Solicitud de Verificación (PDF subido en base64).
+        if (solicitud && solicitud.base64) {
+            const buf = Buffer.from(solicitud.base64, 'base64');
+            const fileName = pdfFileName(solicitud.fileName || `Solicitud Verificacion - ${lote.codigo || 'lote'}`);
+            const saved = await saveOrReplacePdf(folderId, fileName, buf);
+            attachments.push({ filename: fileName, content: buf });
+            documentosSo.push({
+                key: 'solicitud_verificacion', tipo: 'solicitud_verificacion',
+                expediente_id: null, exp_folder_id: null, label: 'Solicitud de Verificación',
+                file_name: fileName,
+                anchor: ['solicitante', 'fdo', 'firma'],
+                fixedBox: solicitud.fixedBox || null,
+                draft_link: saved?.link || null, draft_file_id: saved?.id || null,
+                signed_link: null, signed_file_id: null,
+                sent_at: sentAt, signed_at: null,
+            });
+        }
+
+        if (!documentosSo.length) return res.status(400).json({ error: 'No se generó ningún documento (falta HTML o la solicitud).' });
+
+        // 4) Enlace de firma para el S.O.
+        const origin = (frontendOrigin || process.env.FRONTEND_URL || 'https://app.brokergy.es').replace(/\/$/, '');
+        const firmaUrl = `${origin}/firmar-lote/${lote.id}`;
+
+        // 5) Envío (email y/o WhatsApp). No bloqueante: los fallos van a `warnings`.
+        const warnings = [];
+        const summ = {
+            id: (summaryData && summaryData.id) || lote.codigo || 'LOTE',
+            docType: (summaryData && summaryData.docType) || 'Documentación del lote (firma S.O.)',
+        };
+        const msgConEnlace = `${customMessage || ''}\n\n${firmaUrl}`.trim();
+
+        if (channels.email && to) {
+            try {
+                const emailService = require('../services/emailService');
+                await emailService.sendAnnexEmail({ to, userName: summ.id, attachments, customMessage: msgConEnlace, summaryData: summ });
+            } catch (e) { warnings.push(`Email: ${e.message}`); }
+        }
+        if (channels.whatsapp && phone) {
+            try {
+                const whatsappService = require('../services/whatsappService');
+                await whatsappService.sendText(phone, msgConEnlace);
+                for (const a of attachments) {
+                    await whatsappService.sendMedia(
+                        phone,
+                        { base64: a.content.toString('base64'), filename: a.filename, mimetype: 'application/pdf' },
+                        { caption: a.filename.replace(/\.pdf$/i, ''), splitCaption: false }
+                    );
+                }
+            } catch (e) { warnings.push(`WhatsApp: ${e.message}`); }
+        }
+
+        // 6) Persistir documentos + historial.
+        const historial = Array.isArray(lote.historial) ? [...lote.historial] : [];
+        const canales = [channels.email && to ? 'email' : null, channels.whatsapp && phone ? 'whatsapp' : null].filter(Boolean).join('+');
+        historial.push({
+            id: `${Date.now()}_enviar_so`, tipo: 'sistema',
+            texto: `Enviado al S.O. para firma (${documentosSo.length} doc.${canales ? `, ${canales}` : ''}). Expedientes movidos a la carpeta del lote.`,
+            fecha: sentAt, usuario: usuarioDe(req),
+        });
+        await supabase.from('lotes').update({
+            documentos_so: documentosSo, historial, drive_folder_id: folderId, updated_at: sentAt,
+        }).eq('id', lote.id);
+
+        const { data: updated } = await supabase.from('lotes').select('*').eq('id', lote.id).maybeSingle();
+        const [enriched] = await enrichLotes([updated]);
+        res.json({ ok: true, firma_url: firmaUrl, movimientos, warnings, lote: scrubLoteForUser(enriched, req) });
+    } catch (err) {
+        console.error('[POST /lotes/:id/enviar-so]', err.message);
+        res.status(500).json({ error: err.message || 'Error al enviar al Sujeto Obligado' });
     }
 });
 

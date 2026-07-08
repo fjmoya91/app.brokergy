@@ -4,6 +4,7 @@ import confetti from 'canvas-confetti';
 import { useAuth } from '../../../context/AuthContext';
 import { BOILER_EFFICIENCIES } from '../../calculator/logic/calculation';
 import { buildInstalacionAddress } from '../utils/docGenerators';
+import FirmarConCertificadoModal from './FirmarConCertificadoModal';
 
 // ─── CONSTANTES Y ESTILOS ────────────────────────────────────────────────────
 
@@ -126,8 +127,12 @@ function getEmitterTemp(val) {
     return 35;
 }
 
-export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, attachments: externalAttachments, onAttachmentsChange, onSaveDrive, onSaveFichaLink, onSaveExtraAnnexes, onMarkSent }) {
+export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, attachments: externalAttachments, onAttachmentsChange, onSaveDrive, onSaveFichaLink, onSaveExtraAnnexes, onMarkSent, onSaveSignedLink }) {
     const { user } = useAuth();
+    // Firma con certificado electrónico (Autofirma, formato arrastrable)
+    const [signOpen, setSignOpen] = useState(false);
+    const [signPdfB64, setSignPdfB64] = useState(null);
+    const [signBusy, setSignBusy] = useState(false);
     const containerRef = useRef(null);
     const [generating, setGenerating] = useState(false);
     const [savingDrive, setSavingDrive] = useState(false);
@@ -1321,6 +1326,43 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, a
         } catch (error) { console.error('Error PDF:', error); alert('Error al generar el PDF.'); } finally { setGenerating(false); }
     };
 
+    // ── FIRMA CON CERTIFICADO (Autofirma, recuadro arrastrable) ───────────────
+    // 1) genera el PDF oficial (mismo que "Descargar"), 2) abre el modal de firma
+    // donde el usuario arrastra el recuadro y firma con su certificado.
+    const handleFirmar = async () => {
+        setSignBusy(true);
+        try {
+            const { data } = await axios.post('/api/pdf/generate', { html: buildFullHtml(true), annexDriveFileIds: getAnnexDriveFileIds() });
+            setSignPdfB64(data.pdf);
+            setSignOpen(true);
+        } catch (error) {
+            console.error('Error generando PDF para firmar:', error);
+            alert('No se pudo generar el PDF para firmar.');
+        } finally { setSignBusy(false); }
+    };
+
+    // Recibe el PDF ya firmado (base64) desde Autofirma → lo sube a Drive y marca firmado.
+    const handleSigned = async (signedB64) => {
+        try {
+            const { data } = await axios.post(`/api/expedientes/${expediente.id}/documentos/firmar-subir`, {
+                field: 'cert_cifo_signed_link',
+                signedPdfBase64: signedB64,
+                fileName: `${numExpte} - Certificado Reforma RES080_fdo`,
+                subfolderName: '6. ANEXOS CAE',
+            });
+            setSignOpen(false);
+            setSignPdfB64(null);
+            if (data?.signed_link) {
+                if (onSaveSignedLink) onSaveSignedLink(data.signed_link);
+                try { confetti({ particleCount: 120, spread: 70, origin: { y: 0.6 } }); } catch (e) { console.debug('confetti', e); }
+                alert('✅ Certificado firmado y guardado en Drive');
+            }
+        } catch (error) {
+            console.error('Error subiendo PDF firmado:', error);
+            alert('El documento se firmó, pero no se pudo guardar en Drive: ' + (error.response?.data?.error || error.message));
+        }
+    };
+
     const handleSaveToDrive = async () => {
         const folderId = op.drive_folder_id || op.datos_calculo?.drive_folder_id || op.datos_calculo?.inputs?.drive_folder_id;
         if (!folderId) { alert('No se encontró el identificador de la carpeta de Drive.'); return; }
@@ -1780,6 +1822,13 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, a
                             Enviar
                         </button>
 
+                        <button onClick={handleFirmar} disabled={signBusy || generating || savingDrive || sendingEmail || sendingWhatsapp}
+                                title="Firmar con certificado electrónico (Autofirma)"
+                                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white/[0.03] border border-white/10 text-white/50 text-xs font-bold hover:text-brand hover:border-brand/30 transition-all disabled:opacity-30">
+                            {signBusy ? <Spinner /> : <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>}
+                            {signBusy ? 'Preparando...' : 'Firmar'}
+                        </button>
+
                         <button onClick={handleDownloadPdf} disabled={generating || savingDrive || sendingEmail || sendingWhatsapp}
                                 className="flex items-center gap-2 px-5 py-2 bg-brand text-black text-xs font-black rounded-xl uppercase tracking-wider hover:brightness-110 active:scale-95 transition-all disabled:opacity-30">
                             {generating ? <Spinner /> : <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>}
@@ -1787,6 +1836,18 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, a
                         </button>
                     </div>
                 </div>
+
+                {/* ── MODAL FIRMA CON CERTIFICADO (Autofirma, recuadro arrastrable) ── */}
+                {signOpen && signPdfB64 && (
+                    <FirmarConCertificadoModal
+                        pdfBase64={signPdfB64}
+                        title={`Firmar Certificado RES080 · ${numExpte}`}
+                        initialPage={2}
+                        signatureAnchor={['a fecha de firma electrónica', 'fdo.']}
+                        onClose={() => { setSignOpen(false); setSignPdfB64(null); }}
+                        onSigned={handleSigned}
+                    />
+                )}
                 
                 <div ref={containerRef} className="flex-1 overflow-auto bg-[#16181D] py-8 px-4 text-center custom-scrollbar">
                     <div className="inline-block text-left"

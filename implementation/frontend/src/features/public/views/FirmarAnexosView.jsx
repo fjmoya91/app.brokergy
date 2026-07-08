@@ -1,11 +1,23 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { DynamicNetworkBackground } from '../../../components/DynamicNetworkBackground';
+import FirmarConCertificadoModal from '../../expedientes/components/FirmarConCertificadoModal';
+import { SIGN_BOXES } from '../../expedientes/logic/signBoxes';
 
 const isProd = import.meta.env.PROD;
 const API_URL = isProd ? '/api/public' : 'http://localhost:3000/api/public';
 
 const PDF_AND_IMG = 'application/pdf,image/*';
+
+// Descarga un PDF (arraybuffer) y lo devuelve en base64 (sin prefijo data:).
+async function fetchPdfBase64(url) {
+    const { data } = await axios.get(url, { responseType: 'arraybuffer' });
+    let binary = '';
+    const bytes = new Uint8Array(data);
+    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+    return btoa(binary);
+}
+const b64ToBlob = (b64) => new Blob([Uint8Array.from(atob(b64), c => c.charCodeAt(0))], { type: 'application/pdf' });
 
 // Zona de arrastrar y soltar (acepta PDF o imagen) con feedback + estado "ya subido".
 function DropZone({ title, desc, file, onPick, alreadyUploaded, accept = PDF_AND_IMG }) {
@@ -85,6 +97,15 @@ export function FirmarAnexosView({ expedienteId }) {
     const [uploading, setUploading] = useState(false);
     const [done, setDone] = useState(false);
     const [uploadError, setUploadError] = useState(null);
+    // ── Firma DIGITAL (Autofirma) de ambos anexos en secuencia ────────────────
+    const [modo, setModo] = useState(null);            // null | 'digital' | 'manual'
+    const [signQueue, setSignQueue] = useState([]);    // [{which,label,anchor}]
+    const [signIndex, setSignIndex] = useState(0);
+    const [signPdfB64, setSignPdfB64] = useState(null);
+    const [signOpen, setSignOpen] = useState(false);
+    const [signedFiles, setSignedFiles] = useState({}); // { anexo_i, cesion } base64 firmados
+    const [prepError, setPrepError] = useState(null);
+    const [preparing, setPreparing] = useState(false);
 
     // ── Sección "Completa tus datos" (email/DNI/IBAN + justificante bancario) ──
     const [datos, setDatos] = useState({ email: '', telefono: '', nombre_razon_social: '', apellidos: '', dni_cif: '', iban: '' });
@@ -181,6 +202,61 @@ export function FirmarAnexosView({ expedienteId }) {
             setDone(true);
         } catch (e) {
             setUploadError(e.response?.data?.error || 'Error al subir los documentos. Inténtalo de nuevo.');
+        } finally {
+            setUploading(false);
+        }
+    };
+
+    // ── FIRMA DIGITAL: firma Anexo I y Cesión con Autofirma, uno tras otro ─────
+    const openSignAt = async (queue, idx) => {
+        setPrepError(null);
+        setPreparing(true);
+        try {
+            const item = queue[idx];
+            const b64 = await fetchPdfBase64(`${API_URL}/anexos-upload/${expedienteId}/descargar/${item.which}`);
+            setSignPdfB64(b64);
+            setSignIndex(idx);
+            setSignOpen(true);
+        } catch {
+            setPrepError('No se pudo cargar el documento para firmar. Inténtalo de nuevo.');
+        } finally {
+            setPreparing(false);
+        }
+    };
+
+    const startDigital = async () => {
+        const q = [];
+        if (info.anexo_i_disponible) q.push({ which: 'anexo_i', label: 'Anexo I', anchor: ['fdo.:^above', 'fdo.^above', 'firma del propietario'], fixedBox: SIGN_BOXES.anexo_i });
+        if (info.anexo_cesion_disponible) q.push({ which: 'cesion', label: 'Anexo de Cesión de Ahorros', anchor: ['el cedente@2', 'cedente@2', 'el cedente', 'cedente'], fixedBox: SIGN_BOXES.anexo_cesion });
+        if (!q.length) { setPrepError('No hay anexos disponibles para firmar todavía.'); return; }
+        setSignedFiles({});
+        setSignQueue(q);
+        await openSignAt(q, 0);
+    };
+
+    // Recibe el PDF firmado (base64) del documento actual → siguiente o enviar.
+    const handleAnexoSigned = async (signedB64) => {
+        const item = signQueue[signIndex];
+        const acc = { ...signedFiles, [item.which]: signedB64 };
+        setSignedFiles(acc);
+        setSignOpen(false);
+        setSignPdfB64(null);
+        if (signIndex + 1 < signQueue.length) {
+            // Firmar el siguiente anexo.
+            await openSignAt(signQueue, signIndex + 1);
+            return;
+        }
+        // Todos firmados → enviar.
+        setUploading(true);
+        setUploadError(null);
+        try {
+            const form = new FormData();
+            if (acc.anexo_i) form.append('anexo_i', b64ToBlob(acc.anexo_i), `${info.numero_expediente} - Anexo I_fdo.pdf`);
+            if (acc.cesion) { form.append('anexo_cesion', b64ToBlob(acc.cesion), `${info.numero_expediente} - Anexo Cesion_fdo.pdf`); form.append('cesion_firma', 'electronica'); }
+            await axios.post(`${API_URL}/anexos-upload/${expedienteId}`, form, { headers: { 'Content-Type': 'multipart/form-data' } });
+            setDone(true);
+        } catch (e) {
+            setUploadError(e.response?.data?.error || 'Los anexos se firmaron pero no se pudieron enviar. Inténtalo de nuevo.');
         } finally {
             setUploading(false);
         }
@@ -298,8 +374,59 @@ export function FirmarAnexosView({ expedienteId }) {
                                 <button onClick={() => loadInfo()} className="text-[11px] text-brand/70 hover:text-brand font-black uppercase tracking-widest underline underline-offset-4">Actualizar</button>
                             </div>
                         ) : (
-                            /* ── FASE 3: Firma de anexos (descargar + subir) ── */
+                            /* ── FASE 3: Firma de anexos — elegir modo ── */
                             <>
+                                {/* Selector de modo de firma */}
+                                {modo === null && (
+                                    <div className="space-y-4 animate-fade-in">
+                                        <p className="text-white/50 text-sm leading-relaxed text-center">Elige cómo quieres firmar tus anexos. <strong className="text-white">Lo más rápido es con certificado digital.</strong></p>
+                                        <button onClick={() => { setModo('digital'); startDigital(); }} disabled={preparing}
+                                            className="w-full text-left rounded-2xl border border-brand/40 bg-brand/[0.06] p-5 hover:bg-brand/[0.1] transition-all disabled:opacity-50">
+                                            <div className="flex items-center gap-3">
+                                                <div className="w-11 h-11 rounded-xl bg-brand/15 flex items-center justify-center shrink-0">
+                                                    <svg className="w-6 h-6 text-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                                </div>
+                                                <div className="min-w-0">
+                                                    <p className="text-sm font-black text-white uppercase tracking-wide">Firma digital <span className="text-brand">· recomendado</span></p>
+                                                    <p className="text-white/45 text-[12px] leading-snug mt-0.5">{preparing ? 'Preparando documentos…' : 'Firma aquí mismo con tu certificado (Autofirma). Te marcamos dónde firmar. Sin descargar nada.'}</p>
+                                                </div>
+                                            </div>
+                                        </button>
+                                        <button onClick={() => setModo('manual')}
+                                            className="w-full text-left rounded-2xl border border-white/10 bg-white/[0.02] p-5 hover:border-white/20 transition-all">
+                                            <div className="flex items-center gap-3">
+                                                <div className="w-11 h-11 rounded-xl bg-white/5 flex items-center justify-center shrink-0">
+                                                    <svg className="w-6 h-6 text-white/60" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.7}><path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                                                </div>
+                                                <div className="min-w-0">
+                                                    <p className="text-sm font-black text-white uppercase tracking-wide">Firma a mano</p>
+                                                    <p className="text-white/45 text-[12px] leading-snug mt-0.5">Descarga los anexos, fírmalos a mano y súbelos con la foto de tu DNI por ambas caras.</p>
+                                                </div>
+                                            </div>
+                                        </button>
+                                        {prepError && <p className="text-[12px] text-red-400 text-center">⚠️ {prepError}</p>}
+                                    </div>
+                                )}
+
+                                {/* Modo DIGITAL: firma con Autofirma */}
+                                {modo === 'digital' && (
+                                    <div className="space-y-4 animate-fade-in">
+                                        <div className="rounded-2xl border border-brand/20 bg-brand/[0.05] p-5">
+                                            <p className="text-[11px] font-black uppercase tracking-[0.15em] text-brand mb-2">Firma digital con certificado</p>
+                                            <p className="text-white/50 text-sm leading-relaxed">Se abrirá tu <strong className="text-white">Anexo I</strong> y tu <strong className="text-white">Anexo de Cesión</strong>, uno tras otro. En cada uno te <strong className="text-white">marcamos con un destello dónde firmar</strong>. Solo pulsa <strong className="text-white">Firmar con Autofirma</strong> y elige tu certificado. Necesitas tener Autofirma instalado.</p>
+                                        </div>
+                                        {prepError && <p className="text-[12px] text-red-400 text-center">⚠️ {prepError}</p>}
+                                        <button onClick={startDigital} disabled={preparing || uploading}
+                                            className="w-full py-4 bg-gradient-to-r from-brand to-brand-700 hover:from-brand-400 hover:to-brand-600 text-bkg-deep font-black rounded-xl transition-all shadow-lg shadow-brand/20 disabled:opacity-40 flex items-center justify-center gap-3 text-sm uppercase tracking-widest">
+                                            {(preparing || uploading) ? (<><svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>{uploading ? 'Enviando…' : 'Preparando…'}</>) : (<>🖊️ Firmar ahora con Autofirma</>)}
+                                        </button>
+                                        <button onClick={() => { setModo(null); setPrepError(null); }} className="w-full text-[11px] text-white/40 hover:text-white/70 font-black uppercase tracking-widest">← Otra forma de firmar</button>
+                                    </div>
+                                )}
+
+                                {modo === 'manual' && (
+                                <>
+                                <button onClick={() => setModo(null)} className="text-[11px] text-white/40 hover:text-white/70 font-black uppercase tracking-widest mb-1">← Otra forma de firmar</button>
                                 {/* Paso 1 · Descargar para firmar */}
                                 <div className="rounded-2xl border border-brand/15 bg-brand/[0.04] p-4 space-y-3">
                                     <div>
@@ -397,6 +524,8 @@ export function FirmarAnexosView({ expedienteId }) {
                                     )}
                                 </button>
                                 <p className="text-[10px] text-white/20 text-center uppercase tracking-wider font-bold">PDF o foto · puedes subir lo que tengas</p>
+                                </>
+                                )}
                             </>
                         )}
                     </div>
@@ -404,6 +533,19 @@ export function FirmarAnexosView({ expedienteId }) {
 
                 <p className="text-center mt-8 text-[10px] uppercase font-black tracking-[0.2em] text-white/20">Sistema de Gestión Brokergy &copy; {new Date().getFullYear()}</p>
             </div>
+
+            {/* Modal de firma con Autofirma (destello en la zona de firma) */}
+            {signOpen && signPdfB64 && (
+                <FirmarConCertificadoModal
+                    pdfBase64={signPdfB64}
+                    title={`Firmar ${signQueue[signIndex]?.label || 'documento'}${signQueue.length > 1 ? ` (${signIndex + 1}/${signQueue.length})` : ''} · ${info.numero_expediente}`}
+                    rubricImageUrl={null}
+                    signatureAnchor={signQueue[signIndex]?.anchor}
+                    fixedBox={signQueue[signIndex]?.fixedBox}
+                    onClose={() => { setSignOpen(false); setSignPdfB64(null); }}
+                    onSigned={handleAnexoSigned}
+                />
+            )}
         </div>
     );
 }

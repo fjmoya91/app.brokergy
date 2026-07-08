@@ -80,12 +80,57 @@ async function imagesToPdf(images) {
     return { pdf, added, skipped };
 }
 
+const A4_WIDTH_PT = 595.276;
+const A4_HEIGHT_PT = 841.890;
+
+// Coloca las DOS caras del DNI (imágenes) en UNA sola página A4 (delante arriba,
+// detrás abajo), centradas. Devuelve el buffer PDF de 1 página, o null si algún
+// lado no es imagen embebible (PDF/HEIC…) → el llamador cae al modo antiguo.
+async function dniTwoSidesOnePage(frontBuf, backBuf) {
+    const embedImg = async (doc, buf) => {
+        if (!buf || buf.length < 4) return null;
+        const isPng = buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4E && buf[3] === 0x47;
+        const isJpg = buf[0] === 0xFF && buf[1] === 0xD8 && buf[2] === 0xFF;
+        try {
+            if (isPng) return await doc.embedPng(buf);
+            if (isJpg) return await doc.embedJpg(buf);
+        } catch (e) { console.warn('[dniOnePage] no embebible:', e.message); }
+        return null;
+    };
+    const doc = await PDFDocument.create();
+    const page = doc.addPage([A4_WIDTH_PT, A4_HEIGHT_PT]);
+    const margin = 40;
+    const gap = 24;
+    const halfH = (A4_HEIGHT_PT - margin * 2 - gap) / 2;
+    const maxW = A4_WIDTH_PT - margin * 2;
+    const drawImg = (img, topY) => {
+        const s = Math.min(maxW / img.width, halfH / img.height);
+        const w = img.width * s, h = img.height * s;
+        page.drawImage(img, { x: (A4_WIDTH_PT - w) / 2, y: topY - h, width: w, height: h });
+    };
+    const imgF = await embedImg(doc, frontBuf);
+    const imgB = await embedImg(doc, backBuf);
+    if (!imgF || !imgB) return null;   // alguna cara no es imagen → modo antiguo
+    drawImg(imgF, A4_HEIGHT_PT - margin);                         // arriba
+    drawImg(imgB, A4_HEIGHT_PT - margin - halfH - gap);           // abajo
+    return Buffer.from(await doc.save());
+}
+
+// DNI del representante de Brokergy (se anexa a la Cesión manuscrita). Se lee de
+// backend/assets/dni_representante.(pdf|jpg|png) si el fichero existe.
+function readRepresentanteDni() {
+    const fs = require('fs'); const path = require('path');
+    for (const ext of ['pdf', 'jpg', 'jpeg', 'png']) {
+        const p = path.join(__dirname, '..', 'assets', `dni_representante.${ext}`);
+        try { if (fs.existsSync(p)) return { buffer: fs.readFileSync(p), ext }; } catch (e) {}
+    }
+    return null;
+}
+
 // Concatena un PDF principal con varios PDF anexo, normalizando cada página
 // anexada a A4 (escalada y centrada). Réplica del helper de routes/pdf.js para
 // no acoplar este módulo al router de PDF. Se usa para anexar el DNI (delante +
 // detrás) al final del Anexo de Cesión firmado a mano.
-const A4_WIDTH_PT = 595.276;
-const A4_HEIGHT_PT = 841.890;
 async function mergePdfs(mainBuffer, annexBuffers) {
     if (!annexBuffers || annexBuffers.length === 0) return mainBuffer;
     const merged = await PDFDocument.load(mainBuffer);
@@ -1290,6 +1335,39 @@ router.get('/cifo-upload/:expedienteId', async (req, res) => {
 });
 
 /**
+ * GET /api/public/cifo-upload/:expedienteId/pdf
+ * Devuelve el PDF BORRADOR del CIFO (documentacion.cert_cifo_drive_link) en base64
+ * para que el instalador lo firme EN EL NAVEGADOR con Autofirma, sin descargarlo.
+ */
+router.get('/cifo-upload/:expedienteId/pdf', async (req, res) => {
+    try {
+        const { expedienteId } = req.params;
+        const { data: exp, error } = await supabase
+            .from('expedientes')
+            .select('id, documentacion')
+            .eq('id', expedienteId)
+            .maybeSingle();
+        if (error || !exp) return res.status(404).json({ error: 'Expediente no encontrado' });
+
+        const draftLink = exp.documentacion?.cert_cifo_drive_link;
+        if (!draftLink) return res.status(404).json({ error: 'Este expediente aún no tiene un CIFO generado para firmar' });
+
+        const m = String(draftLink).match(/\/file\/d\/([A-Za-z0-9_-]+)/) || String(draftLink).match(/[?&]id=([A-Za-z0-9_-]+)/);
+        const fileId = m ? m[1] : null;
+        if (!fileId) return res.status(422).json({ error: 'No se pudo resolver el fichero del CIFO en Drive' });
+
+        const { getFileContent } = require('../services/driveService');
+        const buffer = await getFileContent(fileId);
+        if (!buffer || !buffer.length) return res.status(502).json({ error: 'No se pudo descargar el CIFO desde Drive' });
+
+        res.json({ pdf: Buffer.from(buffer).toString('base64') });
+    } catch (e) {
+        console.error('[cifo-upload/pdf] Error:', e);
+        res.status(500).json({ error: 'Error interno al obtener el CIFO' });
+    }
+});
+
+/**
  * POST /api/public/cifo-upload/:expedienteId
  * Recibe el PDF firmado del instalador, lo sube a Drive "6. ANEXOS CAE"
  * y guarda el link en expediente.documentacion.cifo_fdo_link.
@@ -1354,21 +1432,14 @@ router.post('/cifo-upload/:expedienteId', upload.single('cifo'), async (req, res
             } catch (e) { console.error('[CIFO upload] WhatsApp notify error:', e.message); }
 
             try {
-                await emailService.sendMail({
+                await emailService.sendDocumentEmail({
                     to: adminEmail,
                     subject: `✅ CIFO firmado recibido — ${numexpte}`,
-                    html: `
-                        <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
-                            <div style="background:linear-gradient(135deg,#f59e0b,#ea580c);padding:20px 28px;">
-                                <h2 style="margin:0;color:#fff;font-size:16px;">BROKERGY · Nuevo CIFO firmado</h2>
-                            </div>
-                            <div style="padding:24px;background:#fff;">
-                                <p>El instalador <strong>${instalador}</strong> ha subido el <strong>Certificado CIFO firmado</strong> del expediente <strong>${numexpte}</strong>.</p>
-                                <p>Cliente: <strong>${clienteNombre}</strong></p>
-                                ${fileLink ? `<p><a href="${fileLink}" style="color:#f59e0b;font-weight:bold;">Ver documento en Drive</a></p>` : ''}
-                            </div>
-                        </div>
-                    `
+                    title: 'Nuevo CIFO firmado recibido',
+                    message: `El instalador *${instalador}* ha subido el *Certificado CIFO firmado* del expediente *${numexpte}*.\n\nCliente: *${clienteNombre}*\n\nQueda pendiente de revisión por vuestra parte.`,
+                    primaryLink: fileLink || null,
+                    primaryLabel: '📄 Ver documento en Drive',
+                    pill: { tone: 'success', text: 'CIFO firmado', emoji: '✅' },
                 });
             } catch (e) { console.error('[CIFO upload] Email notify error:', e.message); }
         });
@@ -1738,33 +1809,54 @@ router.post('/anexos-upload/:expedienteId',
                 if (r?.link) { docUpdate.anexo_i_signed_link = r.link; recibido.push('Anexo I firmado'); }
             }
 
-            // DNI (delantera + trasera) → siempre se guardan aparte como PDF
-            let dniFrontPdf = null, dniBackPdf = null;
-            if (dniFrontFile) {
-                dniFrontPdf = await toPdfBuffer(dniFrontFile);
-                const r = await saveReplacing(`${numexpte} - DNI_frontal.pdf`, dniFrontPdf);
-                if (r?.link) { docUpdate.dni_frontal_link = r.link; }
+            // DNI (delantera + trasera) → UNA sola página (delante arriba, detrás abajo).
+            let dniOnePage = null, dniFrontPdf = null, dniBackPdf = null;
+            if (dniFrontFile && dniBackFile) {
+                dniOnePage = await dniTwoSidesOnePage(dniFrontFile.buffer, dniBackFile.buffer);
             }
-            if (dniBackFile) {
-                dniBackPdf = await toPdfBuffer(dniBackFile);
-                const r = await saveReplacing(`${numexpte} - DNI_trasero.pdf`, dniBackPdf);
-                if (r?.link) { docUpdate.dni_trasero_link = r.link; }
+            if (dniOnePage) {
+                const r = await saveReplacing(`${numexpte} - DNI.pdf`, dniOnePage);
+                if (r?.link) { docUpdate.dni_link = r.link; }
+                // Borrar posibles ficheros antiguos con las caras sueltas.
+                try {
+                    for (const old of [`${numexpte} - DNI_frontal.pdf`, `${numexpte} - DNI_trasero.pdf`]) {
+                        const ex = await driveService.findFileByName(subfolderId, old);
+                        if (ex) await driveService.deleteFile(ex);
+                    }
+                } catch (e) { }
+                recibido.push('Foto del DNI');
+            } else {
+                // Fallback (p. ej. si una cara viene como PDF/HEIC): caras sueltas como antes.
+                if (dniFrontFile) { dniFrontPdf = await toPdfBuffer(dniFrontFile); const r = await saveReplacing(`${numexpte} - DNI_frontal.pdf`, dniFrontPdf); if (r?.link) docUpdate.dni_frontal_link = r.link; }
+                if (dniBackFile) { dniBackPdf = await toPdfBuffer(dniBackFile); const r = await saveReplacing(`${numexpte} - DNI_trasero.pdf`, dniBackPdf); if (r?.link) docUpdate.dni_trasero_link = r.link; }
+                if (dniFrontFile || dniBackFile) recibido.push('Foto del DNI');
             }
-            if (dniFrontFile || dniBackFile) recibido.push('Foto del DNI');
 
             // Anexo de Cesión firmado
             if (cesionFile) {
                 let cesionPdf = await toPdfBuffer(cesionFile);
                 docUpdate.anexo_cesion_firma_tipo = cesionFirma;
                 if (cesionFirma === 'manuscrita') {
-                    // Anexar el DNI (delante + detrás) al final de la Cesión.
-                    const annexes = [dniFrontPdf, dniBackPdf].filter(Boolean);
+                    // Anexar: DNI del cliente (1 página) + DNI del representante de Brokergy.
+                    const annexes = [];
+                    if (dniOnePage) annexes.push(dniOnePage);
+                    else { if (dniFrontPdf) annexes.push(dniFrontPdf); if (dniBackPdf) annexes.push(dniBackPdf); }
+                    const rep = readRepresentanteDni();
+                    if (rep) {
+                        try {
+                            annexes.push(rep.ext === 'pdf' ? rep.buffer : await imageToPdf(rep.buffer, rep.ext === 'png' ? 'image/png' : 'image/jpeg'));
+                        } catch (e) { console.warn('[anexos-upload] DNI representante no anexable:', e.message); }
+                    }
                     if (annexes.length) cesionPdf = await mergePdfs(cesionPdf, annexes);
                 }
                 const r = await saveReplacing(`${numexpte} - Anexo Cesión ahorro_fdo.pdf`, cesionPdf);
                 if (r?.link) {
                     docUpdate.anexo_cesion_signed_link = r.link;
-                    docUpdate.cesion_firmado_brokergy = false; // solo el cliente ha firmado aún
+                    // Firma electrónica: el cliente firma primero, falta la contrafirma de
+                    // Brokergy (segunda firma digital) antes de poder validar/auditar.
+                    // Firma manuscrita: el PDF escaneado ya lleva ambas firmas físicas (más el
+                    // DNI anexado) — no hace falta ninguna firma digital adicional de Brokergy.
+                    docUpdate.cesion_firmado_brokergy = cesionFirma !== 'electronica';
                     recibido.push(cesionFirma === 'manuscrita' ? 'Anexo de Cesión firmado (con DNI anexado)' : 'Anexo de Cesión firmado (firma electrónica)');
                 }
             }
@@ -1828,6 +1920,152 @@ router.get('/anexos-upload/:expedienteId/descargar/:doc', async (req, res) => {
     } catch (e) {
         console.error('[anexos descargar] Error:', e.message);
         res.status(500).json({ error: 'Error al descargar el documento' });
+    }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FIRMA EN CADENA DEL LOTE POR EL SUJETO OBLIGADO — /firmar-lote/:loteId
+// El S.O. recibe el enlace en el email de "Enviar al S.O." y firma en cadena con
+// su certificado (Autofirma) los documentos del lote (Anexo I + fichas RES +
+// Solicitud de Verificación). Los borradores viven en la carpeta del lote en Drive
+// (lotes.documentos_so). El id del lote (UUID) es el secreto del enlace (mismo
+// patrón que /firmar-anexos y /subir-cifo). Cada firma se guarda al instante.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Extrae el fileId de Drive de un enlace o lo devuelve tal cual si ya es un id.
+function driveFileIdFrom(entry) {
+    if (entry?.draft_file_id) return entry.draft_file_id;
+    const m = String(entry?.draft_link || '').match(/[-\w]{25,}/);
+    return m ? m[0] : null;
+}
+
+// GET estado de firma del lote (documentos + flags de disponible/firmado).
+router.get('/lote-firma/:loteId', async (req, res) => {
+    try {
+        const { data: lote, error } = await supabase
+            .from('lotes').select('id, codigo, sujeto_obligado_id, documentos_so').eq('id', req.params.loteId).maybeSingle();
+        if (error || !lote) return res.status(404).json({ error: 'Lote no encontrado' });
+
+        let soNombre = null, representante = null;
+        if (lote.sujeto_obligado_id) {
+            const { data: so } = await supabase.from('prescriptores')
+                .select('razon_social, nombre_responsable, apellidos_responsable').eq('id_empresa', lote.sujeto_obligado_id).maybeSingle();
+            if (so) {
+                soNombre = so.razon_social || null;
+                representante = [so.nombre_responsable, so.apellidos_responsable].filter(Boolean).join(' ') || null;
+            }
+        }
+        const docs = (Array.isArray(lote.documentos_so) ? lote.documentos_so : []).map(d => ({
+            key: d.key, label: d.label, tipo: d.tipo, expediente_id: d.expediente_id || null,
+            anchor: d.anchor || null,
+            fixedBox: d.fixedBox || null,
+            disponible: !!driveFileIdFrom(d),
+            firmado: !!d.signed_link,
+        }));
+        const total = docs.length;
+        const firmados = docs.filter(d => d.firmado).length;
+        res.json({
+            codigo: lote.codigo, sujeto_obligado: soNombre, representante,
+            docs, total, firmados, todos_firmados: total > 0 && firmados === total,
+        });
+    } catch (e) {
+        console.error('[lote-firma estado] Error:', e.message);
+        res.status(500).json({ error: 'Error al cargar el lote' });
+    }
+});
+
+// GET descarga (proxy) del borrador de un documento del lote desde Drive.
+router.get('/lote-firma/:loteId/descargar/:docKey', async (req, res) => {
+    try {
+        const { loteId, docKey } = req.params;
+        const { data: lote, error } = await supabase
+            .from('lotes').select('documentos_so').eq('id', loteId).maybeSingle();
+        if (error || !lote) return res.status(404).json({ error: 'Lote no encontrado' });
+        const entry = (lote.documentos_so || []).find(d => d.key === docKey);
+        if (!entry) return res.status(404).json({ error: 'Documento no encontrado' });
+        const fileId = driveFileIdFrom(entry);
+        if (!fileId) return res.status(404).json({ error: 'Documento no disponible' });
+        const buf = await driveService.getFileContent(fileId);
+        if (!buf || !buf.length) return res.status(404).json({ error: 'No se pudo obtener el documento' });
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `attachment; filename="${(entry.file_name || 'documento.pdf').replace(/"/g, '')}"`);
+        res.send(buf);
+    } catch (e) {
+        console.error('[lote-firma descargar] Error:', e.message);
+        res.status(500).json({ error: 'Error al descargar el documento' });
+    }
+});
+
+// POST recibe UN documento firmado (base64) y lo guarda en la carpeta del lote.
+// La firma en cadena del frontend llama a este endpoint tras cada firma → progreso
+// parcial guardado (si el S.O. firma 4 de 7 y para, esos 4 quedan guardados).
+router.post('/lote-firma/:loteId/firmar', async (req, res) => {
+    try {
+        const { loteId } = req.params;
+        const { docKey, signedPdfBase64 } = req.body || {};
+        if (!docKey || !signedPdfBase64) return res.status(400).json({ error: 'Faltan docKey o el PDF firmado' });
+
+        const { data: lote, error } = await supabase
+            .from('lotes').select('id, codigo, drive_folder_id, documentos_so, historial, sujeto_obligado_id').eq('id', loteId).maybeSingle();
+        if (error || !lote) return res.status(404).json({ error: 'Lote no encontrado' });
+        if (!lote.drive_folder_id) return res.status(409).json({ error: 'El lote no tiene carpeta de Drive' });
+
+        const docsSo = Array.isArray(lote.documentos_so) ? [...lote.documentos_so] : [];
+        const idx = docsSo.findIndex(d => d.key === docKey);
+        if (idx < 0) return res.status(404).json({ error: 'Documento no encontrado en el lote' });
+
+        const buf = Buffer.from(signedPdfBase64, 'base64');
+        if (buf.length < 5 || buf[0] !== 0x25 || buf[1] !== 0x50) { // %P
+            return res.status(400).json({ error: 'El fichero firmado no es un PDF válido' });
+        }
+
+        const base = String(docsSo[idx].file_name || docsSo[idx].label || docKey).replace(/\.pdf$/i, '').replace(/[\\/<>:"|?*]/g, '_');
+        const fileName = `${base}_fdo.pdf`;
+        // Carpeta destino del FIRMADO: si el documento pertenece a un expediente (ficha),
+        // va a su carpeta "10. EXPEDIENTE CAE"; si es de lote (Anexo I / Solicitud), a la del lote.
+        let signedFolder = lote.drive_folder_id;
+        if (docsSo[idx].exp_folder_id) {
+            signedFolder = await driveService.getOrCreateSubfolder(docsSo[idx].exp_folder_id, '10. EXPEDIENTE CAE') || lote.drive_folder_id;
+        }
+        try {
+            const prev = await driveService.findFileByName(signedFolder, fileName);
+            if (prev) await driveService.deleteFile(prev);
+        } catch (_) { /* no bloqueante */ }
+        const saved = await driveService.saveFileToFolder(signedFolder, fileName, 'application/pdf', buf);
+        if (!saved) throw new Error('No se pudo guardar el documento firmado en Drive');
+
+        docsSo[idx] = { ...docsSo[idx], signed_link: saved.link, signed_file_id: saved.id || null, signed_at: new Date().toISOString() };
+        const todosFirmados = docsSo.length > 0 && docsSo.every(d => d.signed_link);
+
+        const historial = Array.isArray(lote.historial) ? [...lote.historial] : [];
+        historial.push({
+            id: `${Date.now()}_firma_so`, tipo: 'sistema',
+            texto: `S.O. firmó "${docsSo[idx].label || docKey}"${todosFirmados ? ' — TODOS los documentos firmados' : ` (${docsSo.filter(d => d.signed_link).length}/${docsSo.length})`}.`,
+            fecha: new Date().toISOString(), usuario: 'Sujeto Obligado',
+        });
+        await supabase.from('lotes').update({ documentos_so: docsSo, historial, updated_at: new Date().toISOString() }).eq('id', lote.id);
+
+        // Al completar todas las firmas, avisar al admin (background).
+        if (todosFirmados) {
+            setImmediate(async () => {
+                const adminPhone = process.env.WHATSAPP_ADMIN_CHAT;
+                const adminEmail = process.env.ADMIN_EMAIL || 'franciscojavier.moya.s2e2@gmail.com';
+                const msg = `✅ *Lote firmado por el S.O.*\nLote: *${lote.codigo || lote.id}*\nEl Sujeto Obligado ha firmado los ${docsSo.length} documentos (Anexo I + fichas + solicitud). Ya están en la carpeta del lote en Drive.`;
+                try { if (adminPhone) await whatsappService.sendText(adminPhone, msg); } catch (e) {}
+                try {
+                    await emailService.sendMail({
+                        to: adminEmail,
+                        subject: `✅ Lote ${lote.codigo || ''} firmado por el S.O.`,
+                        html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;"><div style="background:linear-gradient(135deg,#f59e0b,#ea580c);padding:20px 28px;"><h2 style="margin:0;color:#fff;font-size:16px;">BROKERGY · Lote firmado</h2></div><div style="padding:24px;background:#fff;"><p>El Sujeto Obligado ha firmado <strong>todos</strong> los documentos del lote <strong>${lote.codigo || lote.id}</strong> (${docsSo.length} documentos).</p><p style="margin-top:12px;">Los firmados están en la carpeta del lote en Drive. Ya puedes continuar con el envío al verificador.</p></div></div>`,
+                    });
+                } catch (e) {}
+            });
+        }
+
+        res.json({ ok: true, todos_firmados: todosFirmados, firmados: docsSo.filter(d => d.signed_link).length, total: docsSo.length });
+    } catch (e) {
+        console.error('[lote-firma firmar] Error:', e.message);
+        res.status(500).json({ error: e.message || 'Error al guardar el documento firmado' });
     }
 });
 

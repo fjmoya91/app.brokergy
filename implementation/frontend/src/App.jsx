@@ -23,6 +23,7 @@ import { SubirCifoView } from './features/public/views/SubirCifoView';
 import { SubirRiteView } from './features/public/views/SubirRiteView';
 import { SubirCeeView } from './features/public/views/SubirCeeView';
 import { FirmarAnexosView } from './features/public/views/FirmarAnexosView';
+import { FirmarLoteView } from './features/public/views/FirmarLoteView';
 import { SubirDocsReformaView } from './features/public/views/SubirDocsReformaView';
 import { PortalLoginView } from './features/public/views/PortalLoginView';
 import { MiExpedienteView } from './features/public/views/MiExpedienteView';
@@ -131,6 +132,13 @@ function App() {
   const [firmarAnexosId] = useState(() => {
     const path = window.location.pathname;
     if (path.startsWith('/firmar-anexos/')) return path.split('/firmar-anexos/')[1] || null;
+    return null;
+  });
+
+  // Firma en cadena del lote por el Sujeto Obligado: /firmar-lote/:loteId
+  const [firmarLoteId] = useState(() => {
+    const path = window.location.pathname;
+    if (path.startsWith('/firmar-lote/')) return path.split('/firmar-lote/')[1] || null;
     return null;
   });
 
@@ -733,7 +741,7 @@ function App() {
 
   // Rutas públicas con su propio layout full-bleed → sin red decorativa y
   // sin padding del contenedor padre (el componente cubre 100% del viewport).
-  const isPublicRoute = !!(landingRoute || reformaDocsData || firmaOportunidadId || certAckData || cifoUploadId || riteUploadId || ceeUploadData || firmarAnexosId || portalRoute);
+  const isPublicRoute = !!(landingRoute || reformaDocsData || firmaOportunidadId || certAckData || cifoUploadId || riteUploadId || ceeUploadData || firmarAnexosId || firmarLoteId || portalRoute);
   const isLoggedDashboard = user && !firmaOportunidadId && !resetToken && !certAckData && !cifoUploadId && !riteUploadId && !ceeUploadData && !firmarAnexosId && !reformaDocsData && !landingRoute && !portalRoute;
   const wrapperPadding = (isLoggedDashboard || isPublicRoute) ? 'p-0' : 'px-4 py-8';
   const wrapperHeight = isLoggedDashboard ? 'h-screen overflow-hidden' : '';
@@ -766,6 +774,8 @@ function App() {
           <SubirCeeView expedienteId={ceeUploadData.expedienteId} token={ceeUploadData.token} phase={ceeUploadData.phase} />
         ) : firmarAnexosId ? (
           <FirmarAnexosView expedienteId={firmarAnexosId} />
+        ) : firmarLoteId ? (
+          <FirmarLoteView loteId={firmarLoteId} />
         ) : certAckData ? (
           <CertAckView expedienteId={certAckData.id} token={certAckData.token} phase={certAckData.phase} />
         ) : firmaOportunidadId ? (

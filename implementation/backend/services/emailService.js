@@ -391,16 +391,23 @@ const sendAnnexEmail = async ({ to, userName, attachments, customMessage, summar
     const docType = summaryData?.docType || 'Documentación';
     const subject = `${docType} — Brokergy (${summaryData.id})`;
     
+    // Extraer el enlace de firma para renderizarlo como BOTÓN centrado (no texto).
+    const firmaUrl = (customMessage || '').match(/https?:\/\/[^\s]+/)?.[0] || null;
+    const bodyMsg = firmaUrl ? String(customMessage).replace(firmaUrl, '').replace(/\n{3,}/g, '\n\n').trim() : customMessage;
     // Convertir formato WhatsApp (*bold*) a HTML (<b>bold</b>)
-    const formattedMessage = customMessage ? escapeHtml(customMessage).replace(/\*(.*?)\*/g, '<b>$1</b>') : null;
+    const formattedMessage = bodyMsg ? escapeHtml(bodyMsg).replace(/\*(.*?)\*/g, '<b>$1</b>') : null;
     const attachCount = Array.isArray(attachments) ? attachments.length : 0;
+    const firmaButton = firmaUrl
+        ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:4px 0 22px 0;"><tr><td align="center">${emailButton(firmaUrl, '🖊️ Firmar / subir mis anexos', BRAND.orange)}</td></tr></table>`
+        : '';
 
     const html = brandEmailShell({
         preheader: `${docType} de tu expediente ${summaryData.id}.`,
         title: docType,
         pill: PILL.info('Documentación'),
         contentHtml:
-            emailP(formattedMessage || `Hola, ${escapeHtml(userName || 'cliente')}. Adjuntamos la documentación solicitada relativa a tu expediente ${escapeHtml(summaryData.id)}.`, { pre: true, mb: 22 }) +
+            emailP(formattedMessage || `Hola, ${escapeHtml(userName || 'cliente')}. Adjuntamos la documentación solicitada relativa a tu expediente ${escapeHtml(summaryData.id)}.`, { pre: true, mb: firmaButton ? 8 : 22 }) +
+            firmaButton +
             (attachCount ? emailP(`📎 Se adjunta${attachCount > 1 ? 'n' : ''} ${attachCount} archivo(s) a este correo.`, { size: 12, color: BRAND.muted, center: true, mb: 22 }) : '') +
             emailP('Quedamos a tu disposición para cualquier duda o aclaración.', { size: 13, color: BRAND.muted, center: true, mb: 0 }),
         footerNote: `<a href="https://brokergy.es" style="color:${BRAND.greenDark};text-decoration:none;">brokergy.es</a>`,
@@ -1088,7 +1095,54 @@ const sendCeeRegistradoStaffEmail = async (to, isPartner, numExp, clientName, ub
     return sendMail({ to, subject, html, text: `El justificante de registro del ${phaseLabel} ha sido presentado para el expediente ${numExp} del cliente ${clientName}. ${notifyClientLink && !isPartner ? 'Enlace para notificar al cliente: ' + notifyClientLink : ''}` });
 };
 
+/**
+ * Email genérico de entrega de un documento (CIFO al instalador, RES080 al
+ * cliente…) con la MISMA identidad visual de marca que los emails al certificador
+ * (brandEmailShell). El `message` es el texto editable del modal (admite
+ * *negritas*); si contiene el `primaryLink`, esa línea se quita del cuerpo y el
+ * enlace se renderiza como botón destacado.
+ */
+// Construye (sin enviar) el HTML+texto del email de documento. Exportado aparte
+// para poder previsualizarlo/testearlo sin SMTP.
+function buildDocumentEmailHtml({ subject, title, message, primaryLink, primaryLabel, secondaryNote, pill }) {
+    const rawLines = String(message || '').split('\n');
+    const bodyLines = primaryLink
+        ? rawLines.filter(l => !l.includes(primaryLink))
+        : rawLines;
+    const cleaned = bodyLines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+    const bodyHtml = escapeHtml(cleaned)
+        .replace(/\*([^*\n]+)\*/g, '<strong>$1</strong>')
+        .replace(/\n/g, '<br>');
+
+    const buttonBlock = primaryLink
+        ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:8px 0 20px 0;"><tr><td align="center">${emailButton(primaryLink, primaryLabel || 'Abrir enlace', BRAND.orange)}</td></tr></table>`
+        : '';
+    const noteBlock = secondaryNote
+        ? emailP(secondaryNote, { size: 13, color: BRAND.muted, center: true, mb: 0 })
+        : '';
+
+    // pill puede venir ya resuelto ({emoji,text,bg,color}) o como {tone,text,emoji}.
+    const resolvedPill = pill
+        ? (pill.bg ? pill : (PILL[pill.tone] || PILL.neutral)(pill.text, pill.emoji))
+        : null;
+
+    const html = brandEmailShell({
+        preheader: subject,
+        title: title || 'BROKERGY · Ingeniería Energética',
+        pill: resolvedPill,
+        contentHtml: emailP(bodyHtml, { mb: buttonBlock ? 22 : 6 }) + buttonBlock + noteBlock,
+    });
+    return { html, text: cleaned };
+}
+
+const sendDocumentEmail = async ({ to, subject, title, message, primaryLink, primaryLabel, secondaryNote, attachments, pill }) => {
+    const { html, text } = buildDocumentEmailHtml({ subject, title, message, primaryLink, primaryLabel, secondaryNote, pill });
+    return sendMail({ to, subject, html, text, attachments });
+};
+
 module.exports = {
+    sendDocumentEmail,
+    buildDocumentEmailHtml,
     sendMail,
     getSender,
     invalidateSenderCache,

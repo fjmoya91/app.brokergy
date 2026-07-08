@@ -1315,7 +1315,10 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
     // Dirección de la instalación (Catastro/oportunidad) y enlace único de subida
     // del CIFO firmado. Reutiliza `instAddr` calculado arriba (NO el del cliente).
     const instAddrText  = instAddr.full || '';
-    const uploadLink    = `${APP_BASE_URL}/subir-cifo/${expediente.id}`;
+    // window.location.origin: en local apunta a localhost (testeable) y en producción
+    // a app.brokergy.es (correcto para el instalador real). Antes iba hardcodeado a
+    // prod, por lo que al enviar desde local el visor de firma no aparecía.
+    const uploadLink    = `${(typeof window !== 'undefined' ? window.location.origin : APP_BASE_URL)}/subir-cifo/${expediente.id}`;
 
     // Contactos disponibles del perfil del instalador (puede haber varios):
     // representante/empresa + persona de contacto de notificaciones.
@@ -1348,9 +1351,9 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
         const firstName = (contactName || '').trim().split(/\s+/)[0] || 'instalador';
         const expteB = `*${numexpte}*`;
         if (tplKey === 'requerimiento') {
-            return `Hola ${firstName},\n\nHemos recibido un *requerimiento* sobre el expediente ${expteB} de ${cliNombre}${instAddrText ? ` (instalación en ${instAddrText})` : ''} y necesitamos que el *Certificado CIFO* se vuelva a firmar.\n\nTe adjunto de nuevo el documento. Por favor, fírmalo *digitalmente* (representante legal de la empresa instaladora) y vuelve a subirlo en este enlace:\n\n${uploadLink}\n\nDisculpa las molestias y gracias por tu colaboración.\n*BROKERGY · Ingeniería Energética*`;
+            return `Hola ${firstName},\n\nHemos recibido un *requerimiento* sobre el expediente ${expteB} de ${cliNombre}${instAddrText ? ` (instalación en ${instAddrText})` : ''} y necesitamos que el *Certificado CIFO* se vuelva a firmar.\n\nAbre este enlace y fírmalo *directamente con tu certificado electrónico* (Autofirma), sin descargar ni volver a subir nada. Nos llegará firmado automáticamente:\n\n${uploadLink}\n\nDebe firmarlo el representante legal de la empresa instaladora. Disculpa las molestias y gracias por tu colaboración.\n*BROKERGY · Ingeniería Energética*`;
         }
-        return `Hola ${firstName},\n\nTe adjunto el *Certificado CIFO* correspondiente al expediente ${expteB} de ${cliNombre}${instAddrText ? `, de la instalación realizada en ${instAddrText}` : ''}.\n\nEs necesario que nos lo devuelvas *firmado digitalmente* por el representante legal de la empresa instaladora para poder continuar con la tramitación.\n\nPuedes subirlo directamente, ya firmado, en este enlace:\n\n${uploadLink}\n\nUn saludo,\n*BROKERGY · Ingeniería Energética*`;
+        return `Hola ${firstName},\n\nTe adjunto el *Certificado CIFO* correspondiente al expediente ${expteB} de ${cliNombre}${instAddrText ? `, de la instalación realizada en ${instAddrText}` : ''}.\n\nAhora puedes *firmarlo directamente* con tu certificado electrónico, sin descargar ni volver a subir nada: abre el enlace y fírmalo con *Autofirma* (representante legal de la empresa instaladora). Nos llegará firmado automáticamente:\n\n${uploadLink}\n\nSi lo prefieres, desde ese mismo enlace también puedes subir el PDF ya firmado.\n\nUn saludo,\n*BROKERGY · Ingeniería Energética*`;
     };
 
     const openSendModal = async () => {

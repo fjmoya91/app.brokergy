@@ -143,7 +143,9 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
         const both = docKeys.includes('anexo1') && docKeys.includes('cesion');
         // Footer con el enlace de subida (mismo para uno o ambos documentos).
         const footerCliente = firmaUrl
-            ? `\n\n———\n📎 *Cuando lo tengas firmado, súbelo aquí en 1 clic* (junto con una foto de tu DNI por delante y por detrás):\n${firmaUrl}`
+            ? `\n\n———\n👉 *Fírmalos desde aquí, es muy fácil:*\n${firmaUrl}\n\n`
+              + `• *Firma digital (lo más rápido):* abre el enlace y firma con tu certificado. Te marcamos dónde firmar y nos llega automáticamente. No hace falta descargar nada.\n`
+              + `• *Firma a mano:* descarga los anexos desde el enlace, fírmalos a mano y súbelos ahí mismo junto con una foto de tu DNI por delante y por detrás.`
             : '';
         const footerInstalador = firmaUrl
             ? `\n\n———\n📎 *Enlace para subir los documentos firmados + foto del DNI (ambas caras):*\n${firmaUrl}`

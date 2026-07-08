@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { DynamicNetworkBackground } from '../../../components/DynamicNetworkBackground';
+import FirmarConCertificadoModal from '../../expedientes/components/FirmarConCertificadoModal';
+import { SIGN_BOXES } from '../../expedientes/logic/signBoxes';
 
 const isProd = import.meta.env.PROD;
 const API_URL = isProd ? '/api/public' : 'http://localhost:3000/api/public';
@@ -13,6 +15,10 @@ export function SubirCifoView({ expedienteId }) {
     const [done, setDone] = useState(false);
     const [uploadError, setUploadError] = useState(null);
     const inputRef = useRef();
+    // Firma en el navegador con Autofirma (sin descargar el PDF)
+    const [signPdfB64, setSignPdfB64] = useState(null);
+    const [signOpen, setSignOpen] = useState(false);
+    const [preparingSign, setPreparingSign] = useState(false);
 
     useEffect(() => {
         axios.get(`${API_URL}/cifo-upload/${expedienteId}`)
@@ -49,6 +55,46 @@ export function SubirCifoView({ expedienteId }) {
             setDone(true);
         } catch (e) {
             setUploadError(e.response?.data?.error || 'Error al subir el archivo. Inténtalo de nuevo.');
+        } finally {
+            setUploading(false);
+        }
+    };
+
+    // ── FIRMA DIRECTA CON AUTOFIRMA (sin descargar el PDF) ────────────────────
+    // 1) descarga el CIFO borrador en base64, 2) abre el modal de firma con
+    // recuadro arrastrable, 3) al firmar sube el PDF firmado al mismo endpoint.
+    const handleSignNow = async () => {
+        setUploadError(null);
+        setPreparingSign(true);
+        try {
+            const { data } = await axios.get(`${API_URL}/cifo-upload/${expedienteId}/pdf`);
+            if (!data?.pdf) throw new Error('No se recibió el documento');
+            setSignPdfB64(data.pdf);
+            setSignOpen(true);
+        } catch (e) {
+            setUploadError(e.response?.data?.error || 'No se pudo cargar el CIFO para firmar.');
+        } finally {
+            setPreparingSign(false);
+        }
+    };
+
+    // Recibe el PDF firmado (base64) desde Autofirma → lo sube al endpoint público.
+    const handleSigned = async (signedB64) => {
+        setUploading(true);
+        setUploadError(null);
+        try {
+            const bytes = Uint8Array.from(atob(signedB64), c => c.charCodeAt(0));
+            const blob = new Blob([bytes], { type: 'application/pdf' });
+            const form = new FormData();
+            form.append('cifo', blob, `${info?.numero_expediente || 'CIFO'}_fdo.pdf`);
+            await axios.post(`${API_URL}/cifo-upload/${expedienteId}`, form, {
+                headers: { 'Content-Type': 'multipart/form-data' }
+            });
+            setSignOpen(false);
+            setSignPdfB64(null);
+            setDone(true);
+        } catch (e) {
+            setUploadError(e.response?.data?.error || 'El documento se firmó pero no se pudo enviar. Inténtalo de nuevo.');
         } finally {
             setUploading(false);
         }
@@ -146,15 +192,45 @@ export function SubirCifoView({ expedienteId }) {
                                 </div>
                             ) : (
                                 <>
-                                    <h3 className="text-xs font-black text-brand uppercase tracking-widest flex items-center gap-2">
+                                    {/* OPCIÓN RECOMENDADA: firmar en el navegador con Autofirma */}
+                                    <div className="rounded-2xl border border-brand/20 bg-brand/[0.04] p-5">
+                                        <h3 className="text-xs font-black text-brand uppercase tracking-widest flex items-center gap-2 mb-2">
+                                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                                            Firmar con certificado (recomendado)
+                                        </h3>
+                                        <p className="text-white/40 text-sm leading-relaxed mb-4">
+                                            Firma el CIFO <strong className="text-white">directamente aquí</strong> con tu certificado
+                                            electrónico mediante <strong className="text-white">Autofirma</strong>, sin descargar ni
+                                            volver a subir nada. Necesitas tener Autofirma instalado.
+                                        </p>
+                                        <button
+                                            onClick={handleSignNow}
+                                            disabled={preparingSign || uploading}
+                                            className="w-full py-4 bg-gradient-to-r from-brand to-brand-700 hover:from-brand-400 hover:to-brand-600 text-bkg-deep font-black rounded-xl transition-all shadow-lg shadow-brand/20 disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center gap-3 text-sm uppercase tracking-widest"
+                                        >
+                                            {preparingSign ? (
+                                                <><svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>Cargando documento...</>
+                                            ) : (
+                                                <>🖊️ Firmar ahora con Autofirma</>
+                                            )}
+                                        </button>
+                                    </div>
+
+                                    <div className="flex items-center gap-3 my-1">
+                                        <div className="flex-1 h-px bg-white/10" />
+                                        <span className="text-[10px] font-black uppercase tracking-widest text-white/25">o subir manualmente</span>
+                                        <div className="flex-1 h-px bg-white/10" />
+                                    </div>
+
+                                    <h3 className="text-xs font-black text-white/50 uppercase tracking-widest flex items-center gap-2">
                                         <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
                                         </svg>
-                                        Subir Certificado Firmado
+                                        Subir Certificado ya firmado
                                     </h3>
 
                                     <p className="text-white/40 text-sm leading-relaxed">
-                                        Adjunta aquí el <strong className="text-white">Certificado CIFO firmado digitalmente</strong>.
+                                        Si ya lo firmaste con otra herramienta, adjunta aquí el <strong className="text-white">Certificado CIFO firmado</strong>.
                                         El archivo se guardará directamente en el expediente.
                                     </p>
 
@@ -241,6 +317,21 @@ export function SubirCifoView({ expedienteId }) {
                     Sistema de Gestión Brokergy &copy; {new Date().getFullYear()}
                 </p>
             </div>
+
+            {/* Modal de firma con Autofirma (recuadro arrastrable). El instalador firma
+                con SU certificado, por eso no lleva la rúbrica/logo de Brokergy. */}
+            {signOpen && signPdfB64 && (
+                <FirmarConCertificadoModal
+                    pdfBase64={signPdfB64}
+                    title={`Firmar Certificado CIFO · ${info?.numero_expediente || ''}`}
+                    rubricImageUrl={null}
+                    initialPage={2}
+                    signatureAnchor={['firma y sello@2', 'firma y sello', 'espacio reservado para firma']}
+                    fixedBox={SIGN_BOXES.cifo_res060}
+                    onClose={() => { setSignOpen(false); setSignPdfB64(null); }}
+                    onSigned={handleSigned}
+                />
+            )}
         </div>
     );
 }

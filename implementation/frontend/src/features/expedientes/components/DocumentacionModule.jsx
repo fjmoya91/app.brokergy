@@ -959,11 +959,12 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
     };
 
     // ── Validación de documentos: SUBIDO (ámbar) → REVISADO/CORRECTO (verde) ──────
-    // El estado vive en documentacion.docs_validados = { <campo>: fecha-ISO }. La
-    // Cesión conserva su semántica propia (cesion_firmado_brokergy = ambas firmas).
-    const isValidated = (field) => field === 'anexo_cesion_signed_link'
-        ? !!local.cesion_firmado_brokergy
-        : !!local.docs_validados?.[field];
+    // El estado vive en documentacion.docs_validados = { <campo>: fecha-ISO }, igual
+    // para todos los documentos (incluida la Cesión: "cesion_firmado_brokergy" es solo
+    // la PRECONDICIÓN de que ya están las firmas necesarias, no sustituye a validar —
+    // si lo hiciera, la Cesión nunca pasaría por /documentos/validar y no se copiaría
+    // a "10. EXPEDIENTE CAE").
+    const isValidated = (field) => !!local.docs_validados?.[field];
 
     // Validar un documento firmado NO es solo marcarlo verde: el backend copia el
     // fichero a la carpeta de auditoría "10. EXPEDIENTE CAE" (dejando el original en
@@ -1084,13 +1085,15 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
             cert_cifo_signed_link: isReforma ? 'Certificado Reforma RES080' : 'Certificado CIFO',
             ficha_res060_signed_link: 'Ficha RES060',
             anexo_fotografico_signed_link: 'Anexo Fotográfico',
-            cert_rite_signed_link: 'Certificado RITE'
+            cert_rite_signed_link: 'Certificado RITE',
+            facturas_combined_link: 'Facturas'
         };
 
         // Cada documento firmado va a su subcarpeta de Drive. El RITE vive en
-        // "7. LEGALIZACION RITE"; el resto en "6. ANEXOS CAE".
+        // "7. LEGALIZACION RITE"; las facturas en "5. FACTURAS"; el resto en "6. ANEXOS CAE".
         const signedSubfolders = {
-            cert_rite_signed_link: ["7. LEGALIZACION RITE"]
+            cert_rite_signed_link: ["7. LEGALIZACION RITE"],
+            facturas_combined_link: ["5. FACTURAS"]
         };
 
         const baseName = displayNames[field] || field.replace(/_/g, ' ').toUpperCase();
@@ -1318,6 +1321,7 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                 results={results}
                 attachments={cifoAttachments}
                 onAttachmentsChange={setCifoAttachments}
+                onSaveSignedLink={(link) => handleModalSaveDrive('cert_cifo_signed_link', link)}
                 onSaveDrive={(link) => handleModalSaveDrive('cert_cifo_drive_link', link)}
                 onMarkSent={() => handleModalSaveDrive('cert_cifo_sent_at', new Date().toISOString())}
                 onSaveFichaLink={(type, link, driveId) => {
@@ -1353,6 +1357,18 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                 photos={local.photo_attachments}
                 onPhotosChange={(newPhotos) => setLocal(p => ({ ...p, photo_attachments: newPhotos }))}
                 onSaveDrive={(link) => handleModalSaveDrive('anexo_fotografico_drive_link', link)}
+                onSignedComplete={(field, signedLink, validated) => {
+                    // El backend (firmar-subir) ya persistió signed_link + docs_validados
+                    // y copió a auditoría. Aquí solo reflejamos el estado en local (verde)
+                    // sin re-guardar, para no pisar lo que ya escribió el backend.
+                    setLocal(prev => {
+                        const dv = { ...(prev.docs_validados || {}) };
+                        if (validated) dv[field] = new Date().toISOString();
+                        const dr = { ...(prev.docs_rechazados || {}) };
+                        delete dr[field];
+                        return { ...prev, [field]: signedLink, docs_validados: dv, docs_rechazados: dr };
+                    });
+                }}
             />
 
             {/* Popup: sexo del titular antes de generar la Memoria RITE */}
@@ -1528,9 +1544,20 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                                                 Gestionar
                                             </button>
                                         </div>
-                                        {/* placeholders para alinear con las columnas Enviado/Firmado de las demás filas */}
+                                        {/* placeholder para alinear con la columna Enviado de las demás filas (las
+                                            facturas no se "envían" — se generan y validan directamente) */}
                                         <div className="w-11" />
-                                        <div className="w-11" />
+                                        {/* PDF FIRMADO: el PDF único combinado (se autogenera al validar todas las
+                                            facturas). Mismo componente/flujo que el resto: ámbar=generado sin
+                                            revisar, verde=validado (copia también a "10. EXPEDIENTE CAE"). */}
+                                        <div className="w-11">
+                                            <SignedSlot
+                                                link={local.facturas_combined_link}
+                                                field="facturas_combined_link"
+                                                label="PDF de Facturas"
+                                                onUpload={(file) => handleSignedUpload('facturas_combined_link', file)}
+                                            />
+                                        </div>
                                     </div>
                                 </div>
 
@@ -2003,6 +2030,14 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
 
                         {/* Footer — acciones de revisión (moderno, mobile-first) */}
                         <div className="p-4 sm:p-6 border-t border-white/5 bg-white/[0.01] relative z-10 space-y-2.5">
+                            {/* Aviso: Cesión firmada electrónicamente pero solo por el cliente —
+                                falta la contrafirma de Brokergy antes de poder validar. */}
+                            {managingSigned.field === 'anexo_cesion_signed_link' && !local.cesion_firmado_brokergy && local.anexo_cesion_firma_tipo === 'electronica' && (
+                                <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-500/10 border border-amber-500/25 text-amber-400 text-[10px] font-black uppercase tracking-widest">
+                                    <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                                    Firma electrónica: el cliente ya firmó, falta la firma de Brokergy para poder validar
+                                </div>
+                            )}
                             {/* Principales: validar / rechazar */}
                             <div className="flex flex-col sm:flex-row gap-2.5">
                                 {managingSigned.field === 'anexo_cesion_signed_link' && !local.cesion_firmado_brokergy ? (

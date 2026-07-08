@@ -59,6 +59,7 @@ function UploadItem({
     isMultiple = false,
     editMode,
     onDirectDrop,   // (files) => void  — se llama al soltar ficheros sobre el slot
+    validated = false, // solo se usa en los slots validables (CEE Inicial: pdf/registro)
 }) {
     const [isDragOver, setIsDragOver] = useState(false);
     const dragCounter = useRef(0);
@@ -129,7 +130,11 @@ function UploadItem({
                     <div className="flex flex-col items-center">
                         <button
                             onClick={onManage}
-                            className={`w-11 h-11 rounded-2xl bg-brand/10 border border-brand/30 flex items-center justify-center text-brand hover:bg-brand hover:text-bkg-deep transition-all shadow-lg shadow-brand/10 ${dropTargetClass}`}
+                            className={`w-11 h-11 rounded-2xl border flex items-center justify-center transition-all shadow-lg ${dropTargetClass} ${
+                                validated
+                                    ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 shadow-emerald-500/10 hover:bg-emerald-500 hover:text-white'
+                                    : 'bg-brand/10 border-brand/30 text-brand shadow-brand/10 hover:bg-brand hover:text-bkg-deep'
+                            }`}
                         >
                             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
@@ -209,6 +214,36 @@ export function CeeDocumentsGrid({
     const [reviewMessage, setReviewMessage] = useState('');
     
     const numExp = expediente?.numero_expediente || 'S-EXP';
+
+    // ── Validación del CEE Inicial (PDF firmado + Registro) ──────────────────────
+    // Mismo concepto que docs_validados en Documentación: ámbar=subido sin revisar,
+    // verde=validado. Al validar, el backend copia el fichero a "10. EXPEDIENTE CAE"
+    // para auditoría. El Registro NO lleva firma digital — solo hace falta que exista.
+    const [validatingCee, setValidatingCee] = useState(null); // field en curso, o null
+    const ceeDocsValidados = expediente?.cee?.docs_validados || {};
+    const ceeValidKeyFor = (section, slotId) => (
+        section === 'inicial' && slotId === 'pdf' ? 'inicial_pdf'
+        : section === 'inicial' && slotId === 'registro' ? 'inicial_registro'
+        : null
+    );
+    const isCeeSlotValidated = (section, slotId) => {
+        const key = ceeValidKeyFor(section, slotId);
+        return key ? !!ceeDocsValidados[key] : false;
+    };
+    const handleValidateCeeSlot = async (section, slotId) => {
+        const key = ceeValidKeyFor(section, slotId);
+        if (!key || !expediente?.id) return;
+        setValidatingCee(key);
+        try {
+            await axios.post(`/api/expedientes/${expediente.id}/documentos/validar-cee`, { field: key });
+            onManualUpdate?.({ docs_validados: { ...ceeDocsValidados, [key]: new Date().toISOString() } });
+            setManaging(null);
+        } catch (err) {
+            showAlert(err.response?.data?.error || 'No se pudo validar el documento.', 'Error', 'error');
+        } finally {
+            setValidatingCee(null);
+        }
+    };
 
     // ── Fechas del CEE (Visita/Firma desde el XML; Registro = día de subida al slot
     // REGISTRO). Viven en documentacion; se editan vía onAutoStatus, que ya enruta las
@@ -717,6 +752,7 @@ export function CeeDocumentsGrid({
                                 accept={slot.accept}
                                 isMultiple={slot.isMultiple}
                                 editMode={editMode}
+                                validated={isCeeSlotValidated(section, slotId)}
                                 onDirectDrop={(fileOrFiles) => {
                                     // Drag directo: sube sin abrir el modal. Solo validamos extensión cuando hay accept específico.
                                     const filesArr = (fileOrFiles instanceof FileList || Array.isArray(fileOrFiles))
@@ -1134,6 +1170,24 @@ export function CeeDocumentsGrid({
                                     </>
                                 ) : (
                                     <>
+                                        {/* Validar (solo CEE Inicial · pdf/registro): copia a "10. EXPEDIENTE CAE" para auditoría. */}
+                                        {ceeValidKeyFor(managing.section, managing.slot.id) && (
+                                            isCeeSlotValidated(managing.section, managing.slot.id) ? (
+                                                <div className="px-6 py-3.5 rounded-2xl bg-emerald-500/[0.07] border border-emerald-500/20 text-emerald-400/80 text-[11px] font-black uppercase tracking-[0.2em] flex items-center gap-2">
+                                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
+                                                    Validado
+                                                </div>
+                                            ) : (
+                                                <button
+                                                    onClick={() => handleValidateCeeSlot(managing.section, managing.slot.id)}
+                                                    disabled={validatingCee === ceeValidKeyFor(managing.section, managing.slot.id)}
+                                                    className="px-8 py-3.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[11px] font-black uppercase tracking-[0.2em] hover:bg-emerald-500 hover:text-white transition-all active:scale-[0.98] shadow-lg shadow-emerald-500/10 disabled:opacity-50 flex items-center gap-2"
+                                                >
+                                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
+                                                    {validatingCee === ceeValidKeyFor(managing.section, managing.slot.id) ? 'Validando…' : 'Validar — correcto'}
+                                                </button>
+                                            )
+                                        )}
                                         {user?.rol === 'ADMIN' && (
                                             <button
                                                 onClick={async () => {

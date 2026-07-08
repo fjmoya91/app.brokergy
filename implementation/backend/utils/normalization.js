@@ -24,9 +24,13 @@ function normalizeData(obj) {
             const trimmed = value.trim();
             if (key.toLowerCase().includes('email')) {
                 normalized[key] = trimmed.toLowerCase();
-            } else if (/^https?:\/\//i.test(trimmed)) {
-                // URLs nunca se normalizan: los IDs/tokens en el path son case-sensitive
-                // (p. ej. Drive fileIds: /file/d/1Tq6-tZiUj... ≠ /file/d/1TQ6-TZIUJ...)
+            } else if (/^https?:\/\//i.test(trimmed) || /^data:/i.test(trimmed)) {
+                // URLs y data-URIs nunca se normalizan: son case-sensitive.
+                //  · URLs: los IDs/tokens del path (p. ej. Drive fileIds:
+                //    /file/d/1Tq6-tZiUj... ≠ /file/d/1TQ6-TZIUJ...).
+                //  · data:...;base64,... : el payload base64 es case-sensitive;
+                //    subirlo a MAYÚSCULAS corrompe la imagen (bug fotos del Anexo
+                //    Fotográfico que dejaban de renderizar). Ver photo_attachments.
                 normalized[key] = trimmed;
             } else {
                 normalized[key] = trimmed.toUpperCase();

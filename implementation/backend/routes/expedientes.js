@@ -1042,7 +1042,14 @@ const DOCUMENTO_VALIDABLE_LABELS = {
     ficha_res060_signed_link: 'Ficha RES',
     anexo_fotografico_signed_link: 'Anexo Fotográfico',
     cert_rite_signed_link: 'Certificado RITE',
+    facturas_combined_link: 'FACTURAS',
 };
+
+// Documentos que, al firmarse con certificado, quedan VALIDADOS automáticamente
+// (verde) y se copian a la carpeta de auditoría "10. EXPEDIENTE CAE" en el mismo
+// paso — no necesitan un click de validación aparte. El Anexo Fotográfico lo firma
+// internamente Brokergy/instalador, así que la firma ya es su validación final.
+const AUTO_VALIDATE_ON_SIGN = new Set(['anexo_fotografico_signed_link']);
 
 function extractDriveFileId(link) {
     if (!link) return null;
@@ -1050,6 +1057,14 @@ function extractDriveFileId(link) {
     const m = s.match(/\/file\/d\/([A-Za-z0-9_-]+)/) || s.match(/[?&]id=([A-Za-z0-9_-]+)/) || s.match(/\/folders\/([A-Za-z0-9_-]+)/);
     return m ? m[1] : null;
 }
+
+// El Certificado RITE no lleva firma digital propia (es gestión manual: un único
+// enlace en cert_rite_drive_link, sin versión "_signed" separada). Si aún no se ha
+// subido una versión "firmada" específica, se valida/copia directamente el enlace
+// manual — no hay firma que comprobar en este documento.
+const VALIDAR_LINK_FALLBACK = {
+    cert_rite_signed_link: 'cert_rite_drive_link',
+};
 
 router.post('/:id/documentos/validar', enforceAuth, async (req, res) => {
     try {
@@ -1060,7 +1075,8 @@ router.post('/:id/documentos/validar', enforceAuth, async (req, res) => {
         if (error || !exp) return res.status(404).json({ error: 'Expediente no encontrado' });
 
         const docObj = exp.documentacion || {};
-        const link = docObj[field];
+        const fallbackField = VALIDAR_LINK_FALLBACK[field];
+        const link = docObj[field] || (fallbackField && docObj[fallbackField]);
         if (!link) return res.status(400).json({ error: 'El documento aún no tiene un fichero firmado que copiar' });
 
         let auditLink = null;
@@ -1098,6 +1114,181 @@ router.post('/:id/documentos/validar', enforceAuth, async (req, res) => {
     } catch (err) {
         console.error('[validar-doc]', err.message);
         res.status(500).json({ error: 'Error al validar el documento' });
+    }
+});
+
+// ─── POST /api/expedientes/:id/documentos/validar-cee ─────────────────────────
+// Igual que /documentos/validar pero para los documentos del CEE INICIAL (viven en
+// la columna `cee` del expediente, no en `documentacion`): el PDF firmado del CEE
+// (slot "pdf", suffix _fdo.pdf) y el Registro (slot "registro", sin firma digital
+// — solo hace falta que exista). Copia a "10. EXPEDIENTE CAE" igual que el resto.
+// Body: { field: 'inicial_pdf' | 'inicial_registro' }
+const CEE_VALIDABLE = {
+    inicial_pdf: { slot: 'pdf', label: 'CEE Inicial Firmado' },
+    inicial_registro: { slot: 'registro', label: 'CEE Inicial Registro' },
+};
+
+router.post('/:id/documentos/validar-cee', enforceAuth, async (req, res) => {
+    try {
+        const field = String(req.body?.field || '').trim();
+        const spec = CEE_VALIDABLE[field];
+        if (!spec) return res.status(400).json({ error: `field inválido (esperado uno de: ${Object.keys(CEE_VALIDABLE).join(', ')})` });
+
+        const { data: exp, error } = await supabase.from('expedientes').select('*, oportunidades(*)').eq('id', req.params.id).single();
+        if (error || !exp) return res.status(404).json({ error: 'Expediente no encontrado' });
+
+        const ceeObj = exp.cee || {};
+        const link = ceeObj.cee_files?.inicial?.[spec.slot];
+        if (!link) return res.status(400).json({ error: 'El documento aún no tiene un fichero que copiar' });
+
+        let auditLink = null;
+        try {
+            const op = exp.oportunidades;
+            let normalizedDatos = op?.datos_calculo || {};
+            if (typeof normalizedDatos === 'string') { try { normalizedDatos = JSON.parse(normalizedDatos); } catch (e) { normalizedDatos = {}; } }
+            const driveFolderId = normalizedDatos?.drive_folder_id || normalizedDatos?.inputs?.drive_folder_id || exp.drive_folder_id;
+            const fileId = extractDriveFileId(link);
+
+            if (driveFolderId && fileId) {
+                const driveService = require('../services/driveService');
+                const auditFolderId = await driveService.getOrCreateSubfolderNormalized(driveFolderId, '10. EXPEDIENTE CAE');
+                const copyName = `${exp.numero_expediente || ''} - ${spec.label}.pdf`.trim();
+                const prevId = await driveService.findFileByName(auditFolderId, copyName);
+                if (prevId) await driveService.deleteFile(prevId);
+                const copied = await driveService.copyFile(fileId, auditFolderId, copyName);
+                if (copied?.link) auditLink = copied.link;
+            }
+        } catch (copyErr) {
+            console.warn('[validar-cee] No se pudo copiar a "10. EXPEDIENTE CAE":', copyErr.message);
+        }
+
+        // A diferencia de /documentos/validar, aquí NO persistimos docs_validados
+        // directamente: el frontend (CeeDocumentsGrid) lo hace vía el mismo flujo de
+        // guardado que ya usa para el resto del estado `cee` (onManualUpdate + onSave),
+        // para no abrir un segundo camino de escritura sobre esa columna.
+        res.json({ ok: true, audit_link: auditLink });
+    } catch (err) {
+        console.error('[validar-cee]', err.message);
+        res.status(500).json({ error: 'Error al validar el documento' });
+    }
+});
+
+// ─── POST /api/expedientes/:id/documentos/firmar-subir ────────────────────────
+// Recibe un PDF ya firmado con certificado electrónico (Autofirma, formato PAdES)
+// desde el frontend, lo sube a la carpeta de Drive del documento y deja el enlace
+// en documentacion[field] (p. ej. ficha_res060_signed_link para el RES080).
+// Body: { field, signedPdfBase64, fileName?, subfolderName? }
+const FIRMABLE_FIELDS = new Set(Object.keys(DOCUMENTO_VALIDABLE_LABELS));
+router.post('/:id/documentos/firmar-subir', enforceAuth, async (req, res) => {
+    try {
+        console.log(`[firmar-subir] Petición recibida: exp=${req.params.id} field=${req.body?.field} pdf=${Math.round((req.body?.signedPdfBase64?.length || 0) / 1024)}KB`);
+        const field = String(req.body?.field || '').trim();
+        const signedPdfBase64 = req.body?.signedPdfBase64;
+        const subfolderName = String(req.body?.subfolderName || '6. ANEXOS CAE').trim();
+
+        if (!FIRMABLE_FIELDS.has(field)) {
+            return res.status(400).json({ error: `field inválido (esperado uno de: ${[...FIRMABLE_FIELDS].join(', ')})` });
+        }
+        if (!signedPdfBase64 || typeof signedPdfBase64 !== 'string') {
+            return res.status(400).json({ error: 'signedPdfBase64 es obligatorio' });
+        }
+
+        const { data: exp, error } = await supabase.from('expedientes').select('*, oportunidades(*)').eq('id', req.params.id).single();
+        if (error || !exp) return res.status(404).json({ error: 'Expediente no encontrado' });
+
+        const op = exp.oportunidades;
+        let datos = op?.datos_calculo || {};
+        if (typeof datos === 'string') { try { datos = JSON.parse(datos); } catch (_) { datos = {}; } }
+        const driveFolderId = datos?.drive_folder_id || datos?.inputs?.drive_folder_id || exp.drive_folder_id;
+        if (!driveFolderId) return res.status(422).json({ error: 'El expediente no tiene carpeta de Drive asociada' });
+
+        const pdfBuffer = Buffer.from(signedPdfBase64, 'base64');
+        if (!pdfBuffer.length || pdfBuffer[0] !== 0x25 || pdfBuffer[1] !== 0x50) {
+            return res.status(400).json({ error: 'El contenido recibido no es un PDF válido' });
+        }
+
+        const driveService = require('../services/driveService');
+        const targetFolderId = await driveService.getOrCreateSubfolder(driveFolderId, subfolderName);
+
+        const baseName = (req.body?.fileName || `${exp.numero_expediente || ''} - ${DOCUMENTO_VALIDABLE_LABELS[field] || field} (FIRMADO)`).trim();
+        const safeName = baseName.replace(/[\\/<>:"|?*]/g, '_').replace(/\.pdf$/i, '') + '.pdf';
+
+        // Versiona la firma previa: si ya existe una con el mismo nombre, la MUEVE a la
+        // subcarpeta "OLD" (renombrada `_OLD`) en vez de borrarla, para conservar el
+        // histórico de firmas (re-firmas / re-generaciones del anexo).
+        const prevId = await driveService.findFileByName(targetFolderId, safeName);
+        if (prevId) {
+            try { await driveService.archiveExistingToOld(targetFolderId, prevId, safeName); }
+            catch (_) {}
+        }
+
+        const saved = await driveService.saveFileToFolder(targetFolderId, safeName, 'application/pdf', pdfBuffer);
+        if (!saved?.link) throw new Error('No se pudo guardar el PDF firmado en Drive');
+
+        // Marca el campo firmado y limpia un posible rechazo previo del mismo doc.
+        const docObj = exp.documentacion || {};
+        const docsRechazados = { ...(docObj.docs_rechazados || {}) };
+        delete docsRechazados[field];
+        const newDoc = { ...docObj, [field]: saved.link, docs_rechazados: docsRechazados };
+        // Si Brokergy firma el Anexo de Cesión (contrafirma tras el cliente), marcar
+        // la firma de Brokergy como completada.
+        if (field === 'anexo_cesion_signed_link') newDoc.cesion_firmado_brokergy = true;
+
+        // Auto-validación (verde) + copia a auditoría "10. EXPEDIENTE CAE" para los
+        // documentos que la firma da por validados directamente (Anexo Fotográfico).
+        let auditLink = null;
+        const autoValidated = AUTO_VALIDATE_ON_SIGN.has(field);
+        if (autoValidated) {
+            newDoc.docs_validados = { ...(docObj.docs_validados || {}), [field]: new Date().toISOString() };
+            try {
+                const auditFolderId = await driveService.getOrCreateSubfolderNormalized(driveFolderId, '10. EXPEDIENTE CAE');
+                const baseLabel = DOCUMENTO_VALIDABLE_LABELS[field] || field.replace(/_/g, ' ');
+                const copyName = `${exp.numero_expediente || ''} - ${baseLabel}.pdf`.trim();
+                const prevAudit = await driveService.findFileByName(auditFolderId, copyName);
+                if (prevAudit) { try { await driveService.deleteFile(prevAudit); } catch (_) {} }
+                const copied = await driveService.copyFile(saved.id, auditFolderId, copyName);
+                if (copied?.link) auditLink = copied.link;
+            } catch (copyErr) {
+                console.warn('[firmar-subir] No se pudo copiar a "10. EXPEDIENTE CAE":', copyErr.message);
+            }
+        }
+
+        const { error: updErr } = await supabase.from('expedientes')
+            .update({ documentacion: newDoc, updated_at: new Date().toISOString() })
+            .eq('id', req.params.id);
+        if (updErr) throw updErr;
+
+        console.log(`[firmar-subir] Exp ${exp.numero_expediente}: ${field} firmado → ${saved.link}${autoValidated ? ' (validado + auditoría)' : ''}`);
+        res.json({ ok: true, field, signed_link: saved.link, validated: autoValidated, audit_link: auditLink });
+    } catch (err) {
+        console.error('[firmar-subir]', err.message);
+        res.status(500).json({ error: 'Error al subir el PDF firmado', details: err.message });
+    }
+});
+
+// ─── GET /api/expedientes/:id/documento-b64/:field ────────────────────────────
+// Devuelve en base64 el PDF actual de un documento (por su campo en documentacion)
+// para firmarlo con certificado desde la app (p. ej. Brokergy contrafirma el Anexo
+// de Cesión ya firmado por el cliente). Si el campo no tiene fichero, 404.
+router.get('/:id/documento-b64/:field', enforceAuth, async (req, res) => {
+    try {
+        const field = String(req.params.field || '').trim();
+        if (!FIRMABLE_FIELDS.has(field) && !field.endsWith('_drive_link')) {
+            return res.status(400).json({ error: 'field no permitido' });
+        }
+        const { data: exp, error } = await supabase.from('expedientes').select('documentacion').eq('id', req.params.id).single();
+        if (error || !exp) return res.status(404).json({ error: 'Expediente no encontrado' });
+        const link = (exp.documentacion || {})[field];
+        if (!link) return res.status(404).json({ error: 'El documento no existe todavía' });
+        const fileId = extractDriveFileId(link);
+        if (!fileId) return res.status(422).json({ error: 'Enlace de Drive no válido' });
+        const { getFileContent } = require('../services/driveService');
+        const buf = await getFileContent(fileId);
+        if (!buf || !buf.length) return res.status(502).json({ error: 'No se pudo descargar el documento' });
+        res.json({ pdf: Buffer.from(buf).toString('base64') });
+    } catch (err) {
+        console.error('[documento-b64]', err.message);
+        res.status(500).json({ error: 'Error al obtener el documento' });
     }
 });
 
@@ -1603,6 +1794,20 @@ router.put('/:id', enforceAuth, async (req, res) => {
                 usuario: usuarioName
             });
             docObj.historial = hist;
+        }
+
+        // No persistir los blobs base64 de las fotos del Anexo Fotográfico que
+        // provienen de Drive (id `drive_*`): la fuente de verdad es Drive y el
+        // modal las recarga vía /api/public/anexo-photos. Guardarlas engordaba la
+        // fila JSONB con ~MB de base64 y, sobre todo, normalizeData las corrompía
+        // (base64 a MAYÚSCULAS → imagen rota). Mismo criterio que cifo_attachments.
+        // Las filas manuales (`custom_*`) SÍ se conservan: su base64 es la única copia.
+        if (Array.isArray(docObj.photo_attachments)) {
+            docObj.photo_attachments = docObj.photo_attachments.map(p => (
+                p && String(p.id || '').startsWith('drive_') && p.file
+                    ? { ...p, file: { name: p.file.name } }
+                    : p
+            ));
         }
 
         updates.documentacion = docObj;

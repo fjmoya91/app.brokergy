@@ -571,7 +571,7 @@ export const buildAnexoCesionHtml = (expediente, results) => {
 export const getDualMessage = (nombre, importeCAE, numexpte) => {
     return `Buenas tardes, ${nombre}:
 
-Ya he realizado todos los cálculos para obtener el máximo beneficio posible y te traigo buenas noticias: finalmente vamos a solicitar una ayuda por un importe de unos *${importeCAE}* para tu expediente como puedes ver en el anexo de cesión de ahorros. 
+Ya he realizado todos los cálculos para obtener el máximo beneficio posible y te traigo buenas noticias: finalmente vamos a solicitar una ayuda por un importe de unos *${importeCAE} €* para tu expediente como puedes ver en el anexo de cesión de ahorros.
 
 Ahora toca avanzar con la parte administrativa. Para finalizar el trámite de justificación, te adjunto los anexos solicitados por el Ministerio, necesarios para gestionar tu expediente y obtener la ayuda:
 

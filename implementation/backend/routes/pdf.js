@@ -419,54 +419,22 @@ router.post('/send-cifo', async (req, res) => {
 
         const emailSubject = subject || `${expte} - Firmar Certificado CIFO de ${cliente}`;
 
-        // Si el frontend manda un `message` editable, lo renderizamos como cuerpo
-        // (escapando HTML, *negritas* → <strong>, URLs → enlaces, saltos → <br>).
-        // Si no, se usa la plantilla por defecto con botón de subida.
-        const esc = (s) => String(s == null ? '' : s)
-            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-        const messageToHtml = (msg) => esc(msg)
-            .replace(/\*([^*\n]+)\*/g, '<strong>$1</strong>')
-            .replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" style="color:#f59e0b;font-weight:bold;">$1</a>')
-            .replace(/\n/g, '<br>');
+        // Mensaje por defecto si el frontend no envía uno editable.
+        const defaultMessage = `Hola ${nombre},\n\nTe adjuntamos el *Certificado CIFO* del expediente ${expte}${cliente ? ` de ${cliente}` : ''}${dir ? `, de la instalación realizada en ${dir}` : ''}.\n\nPuedes *firmarlo directamente* con tu certificado electrónico, sin descargar ni volver a subir nada.\n\n${link}\n\nUn saludo,\n*BROKERGY · Ingeniería Energética*`;
 
-        const bodyInner = message
-            ? `<div style="color:#444;line-height:1.6;font-size:14px;">${messageToHtml(message)}</div>`
-            : `
-                        <p style="font-size:16px;color:#111;">Hola, <strong>${nombre}</strong>:</p>
-                        <p style="color:#444;line-height:1.6;">
-                            Te adjuntamos el <strong>Certificado CIFO</strong> que nos debes devolver <strong>firmado digitalmente</strong>,
-                            correspondiente al expediente <strong>${expte}</strong>${cliente ? ` de <strong>${cliente}</strong>` : ''}${dir ? ` de la instalación realizada en <strong>${dir}</strong>` : ''}.
-                        </p>
-                        <p style="color:#444;line-height:1.6;">
-                            Quedamos a la espera de recibirlo para continuar con el trámite${link ? ' o puedes subirlo directamente haciendo clic en el botón:' : '.'}
-                        </p>
-                        ${link ? `
-                        <div style="text-align:center;margin:28px 0;">
-                            <a href="${link}" style="display:inline-block;background:#f59e0b;color:#000;font-weight:900;font-size:13px;text-transform:uppercase;letter-spacing:1px;text-decoration:none;padding:14px 32px;border-radius:10px;">
-                                📤 Subir CIFO firmado
-                            </a>
-                        </div>
-                        ` : ''}`;
-
-        await emailService.sendMail({
+        // Email con la MISMA identidad visual que los emails al certificador
+        // (brandEmailShell). El enlace de firma se renderiza como botón destacado.
+        await emailService.sendDocumentEmail({
             to,
             subject: emailSubject,
-            html: `
-                <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#fff;border-radius:8px;overflow:hidden;">
-                    <div style="background:linear-gradient(135deg,#f59e0b,#ea580c);padding:24px 32px;">
-                        <h1 style="margin:0;color:#fff;font-size:20px;letter-spacing:1px;">BROKERGY</h1>
-                        <p style="margin:4px 0 0;color:rgba(255,255,255,0.8);font-size:12px;">Ingeniería Energética</p>
-                    </div>
-                    <div style="padding:32px;">
-                        ${bodyInner}
-                        <hr style="border:none;border-top:1px solid #eee;margin:24px 0;">
-                        <p style="color:#888;font-size:12px;margin:0;">
-                            BROKERGY · Ingeniería Energética<br>
-                            <a href="mailto:brokergy@brokergy.es" style="color:#f59e0b;">brokergy@brokergy.es</a>
-                        </p>
-                    </div>
-                </div>
-            `,
+            title: link ? 'Firma tu Certificado CIFO' : 'Documentación de tu expediente',
+            message: message || defaultMessage,
+            primaryLink: link || null,
+            primaryLabel: '🖊️ Firmar CIFO ahora',
+            secondaryNote: link
+                ? 'Necesitas tener Autofirma instalado para firmar en el navegador. Si lo prefieres, puedes subir el PDF ya firmado desde ese mismo enlace.'
+                : null,
+            pill: link ? { tone: 'warning', text: 'Pendiente de firma', emoji: '✍️' } : null,
             attachments: [{
                 filename: `${expte ? expte + ' - ' : ''}Certificado_CIFO.pdf`,
                 content: pdfBuffer

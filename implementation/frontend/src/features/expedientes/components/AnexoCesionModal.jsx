@@ -3,6 +3,7 @@ import axios from 'axios';
 import { buildAnexoCesionHtml, buildAnexoIHtml, getDualMessage, getClientCaeRate, ANEXO_CESION_CSS } from '../utils/docGenerators';
 import { useAuth } from '../../../context/AuthContext';
 import AppConfirm from '../../../components/AppConfirm';
+import FirmarConCertificadoModal from './FirmarConCertificadoModal';
 
 const LOGO_URL  = '/logo_brokergy_dark.png';
 
@@ -15,6 +16,10 @@ export function AnexoCesionModal({ isOpen, onClose, expediente, results, onSaveD
     const [sendingEmail, setSendingEmail] = useState(false);
     const [sendingWhatsapp, setSendingWhatsapp] = useState(false);
     const [confirmConfig, setConfirmConfig] = useState(null);
+    // Firma con certificado (Brokergy como CESIONARIO, tras el cliente)
+    const [signOpen, setSignOpen] = useState(false);
+    const [signPdfB64, setSignPdfB64] = useState(null);
+    const [signBusy, setSignBusy] = useState(false);
 
     const updateScale = useCallback(() => {
         if (containerRef.current) {
@@ -79,6 +84,51 @@ export function AnexoCesionModal({ isOpen, onClose, expediente, results, onSaveD
             alert('Error al generar el PDF.');
         } finally {
             setGenerating(false);
+        }
+    };
+
+    // ── FIRMA CON CERTIFICADO (Brokergy = CESIONARIO) ─────────────────────────
+    // Firma sobre el PDF que ya firmó el cliente (anexo_cesion_signed_link) si existe;
+    // si no, sobre el borrador generado. El destello apunta a "El Cesionario" (pág 2).
+    const clienteYaFirmo = !!expediente.documentacion?.anexo_cesion_signed_link;
+    const handleFirmar = async () => {
+        setSignBusy(true);
+        try {
+            let pdfB64;
+            if (clienteYaFirmo) {
+                const { data } = await axios.get(`/api/expedientes/${expediente.id}/documento-b64/anexo_cesion_signed_link`);
+                pdfB64 = data.pdf;
+            } else {
+                const html = buildAnexoCesionHtml(expediente, results);
+                const { data } = await axios.post('/api/pdf/generate', { html }, { timeout: 60000 });
+                pdfB64 = data.pdf;
+            }
+            if (!pdfB64) throw new Error('No se pudo obtener el PDF');
+            setSignPdfB64(pdfB64);
+            setSignOpen(true);
+        } catch (err) {
+            console.error('Error preparando firma Cesión:', err);
+            alert('No se pudo preparar el documento para firmar.');
+        } finally { setSignBusy(false); }
+    };
+    const handleSigned = async (signedB64) => {
+        try {
+            const { data } = await axios.post(`/api/expedientes/${expediente.id}/documentos/firmar-subir`, {
+                field: 'anexo_cesion_signed_link',
+                signedPdfBase64: signedB64,
+                fileName: `${numexpte} - Anexo Cesión ahorro_fdo`,
+                subfolderName: '6. ANEXOS CAE',
+            });
+            setSignOpen(false); setSignPdfB64(null);
+            if (data?.signed_link) {
+                // No usamos onSaveDrive (ese callback escribe anexo_cesion_DRIVE_link,
+                // el borrador). El backend ya persistió anexo_cesion_signed_link; el
+                // slot se refresca al reabrir el expediente.
+                alert('✅ Anexo de Cesión firmado y guardado en Drive. El slot quedará como pendiente de revisión.');
+            }
+        } catch (err) {
+            console.error('Error subiendo Cesión firmada:', err);
+            alert('El documento se firmó, pero no se pudo guardar: ' + (err.response?.data?.error || err.message));
         }
     };
 
@@ -303,12 +353,29 @@ export function AnexoCesionModal({ isOpen, onClose, expediente, results, onSaveD
                                     </button>
                                 </>
                             )}
+                            <button onClick={handleFirmar} disabled={signBusy || generating || savingDrive || sendingEmail || sendingWhatsapp}
+                                    title={clienteYaFirmo ? 'Firmar sobre el documento ya firmado por el cliente' : 'Firmar con certificado (Cesionario)'}
+                                    className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white/[0.03] border border-white/10 text-white/50 text-xs font-bold hover:text-brand hover:border-brand/30 transition-all disabled:opacity-30">
+                                {signBusy ? <Spinner /> : <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>}
+                                {signBusy ? 'Preparando...' : 'Firmar'}
+                            </button>
                             <button onClick={handleDownload} disabled={generating || savingDrive || sendingEmail || sendingWhatsapp} className="flex items-center gap-2 px-5 py-2 rounded-xl bg-brand text-white text-xs font-black uppercase tracking-wider hover:bg-brand/90 transition-all disabled:opacity-30">
                                 {generating ? <Spinner /> : <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>}
                                 {generating ? 'Generando...' : 'Descargar PDF'}
                             </button>
                         </div>
                     </div>
+
+                    {signOpen && signPdfB64 && (
+                        <FirmarConCertificadoModal
+                            pdfBase64={signPdfB64}
+                            title={`Firmar Anexo de Cesión (Cesionario) · ${numexpte}`}
+                            initialPage={2}
+                            signatureAnchor={['el cesionario@2', 'cesionario@2', 'el cesionario', 'cesionario']}
+                            onClose={() => { setSignOpen(false); setSignPdfB64(null); }}
+                            onSigned={handleSigned}
+                        />
+                    )}
 
                     <div ref={containerRef} className="flex-1 overflow-y-auto py-8 px-4 bg-[#16181D]">
                         <div style={{ transform: `scale(${scale})`, transformOrigin: 'top center', width: 794, margin: '0 auto' }}>

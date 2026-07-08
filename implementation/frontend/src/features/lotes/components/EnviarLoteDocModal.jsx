@@ -35,7 +35,15 @@ import confetti from 'canvas-confetti';
 
 const phoneValid = (ph) => (ph || '').replace(/[^0-9]/g, '').length >= 9;
 
-export function EnviarLoteDocModal({ onClose, title, subtitle, defaultEmail = '', defaultPhone = '', defaultMessage = '', summaryData, docs }) {
+// Props extra (opcionales, no rompen usos previos):
+//   extraBody        ReactNode → contenido adicional en el cuerpo (p.ej. slot para
+//                    subir la Solicitud de Verificación en el envío al S.O.).
+//   onSendOverride   async ({ email, phone, channels, message }) => [{channel,status,text}]
+//                    → si se pasa, SUSTITUYE el envío por defecto (send-annex /
+//                    whatsapp) por la lógica del llamante (p.ej. /api/lotes/:id/enviar-so).
+//   onBeforeSend     async () => boolean → validación previa (p.ej. confirmar si falta
+//                    la solicitud). Si devuelve false, el envío se cancela.
+export function EnviarLoteDocModal({ onClose, title, subtitle, defaultEmail = '', defaultPhone = '', defaultMessage = '', summaryData, docs, extraBody = null, onSendOverride = null, onBeforeSend = null }) {
     const docList = Array.isArray(docs) ? docs : [];
 
     // ── Estado ───────────────────────────────────────────────────────────────
@@ -78,6 +86,12 @@ export function EnviarLoteDocModal({ onClose, title, subtitle, defaultEmail = ''
         if (doEmail && !emailValid) { setStatus({ ok: false, text: 'Introduce un email de destinatario.' }); return; }
         if (doWa && !phoneOk) { setStatus({ ok: false, text: 'Introduce un teléfono válido.' }); return; }
 
+        // Validación previa del llamante (p.ej. confirmar si falta la solicitud de verificación).
+        if (onBeforeSend) {
+            const ok = await onBeforeSend();
+            if (!ok) return;
+        }
+
         setStatus(null);
         setSendResults([]);
         setSendPhase('sending');
@@ -85,38 +99,48 @@ export function EnviarLoteDocModal({ onClose, title, subtitle, defaultEmail = ''
 
         const out = [];
 
-        // ── EMAIL — una sola llamada con todos los adjuntos ──────────────────
-        if (doEmail) {
+        if (onSendOverride) {
+            // ── Envío delegado en el llamante (p.ej. /api/lotes/:id/enviar-so) ───
             try {
-                await axios.post('/api/pdf/send-annex', {
-                    to: email.trim(),
-                    customMessage: message,
-                    summaryData,
-                    docs: docList.map(d => ({ html: d.html, fileName: d.fileName })),
-                });
-                out.push({ channel: 'email', status: 'ok', text: `→ ${email.trim()}` });
+                const res = await onSendOverride({ email: email.trim(), phone: phone.trim(), channels: { email: doEmail, whatsapp: doWa }, message });
+                if (Array.isArray(res)) out.push(...res);
             } catch (err) {
-                out.push({ channel: 'email', status: 'fail', text: err.response?.data?.message || err.response?.data?.error || err.message });
+                out.push({ channel: doEmail ? 'email' : 'whatsapp', status: 'fail', text: err.response?.data?.error || err.response?.data?.message || err.message });
             }
-        }
-
-        // ── WHATSAPP — generar cada PDF y mandarlos uno a uno ────────────────
-        if (doWa) {
-            try {
-                for (let i = 0; i < docList.length; i++) {
-                    const d = docList[i];
-                    const gen = await axios.post('/api/pdf/generate', { html: d.html });
-                    if (!gen.data?.pdf) throw new Error('No se pudo generar el PDF');
-                    await axios.post('/api/whatsapp/send-media', {
-                        phone: phone.trim(),
-                        caption: i === 0 ? message : (d.label || d.fileName),
-                        media: { base64: gen.data.pdf, filename: d.fileName, mimetype: 'application/pdf' },
-                        asDocument: true,
+        } else {
+            // ── EMAIL — una sola llamada con todos los adjuntos ──────────────────
+            if (doEmail) {
+                try {
+                    await axios.post('/api/pdf/send-annex', {
+                        to: email.trim(),
+                        customMessage: message,
+                        summaryData,
+                        docs: docList.map(d => ({ html: d.html, fileName: d.fileName })),
                     });
+                    out.push({ channel: 'email', status: 'ok', text: `→ ${email.trim()}` });
+                } catch (err) {
+                    out.push({ channel: 'email', status: 'fail', text: err.response?.data?.message || err.response?.data?.error || err.message });
                 }
-                out.push({ channel: 'whatsapp', status: 'ok', text: `→ ${phone.trim()}` });
-            } catch (err) {
-                out.push({ channel: 'whatsapp', status: 'fail', text: err.response?.data?.message || err.response?.data?.error || err.message });
+            }
+
+            // ── WHATSAPP — generar cada PDF y mandarlos uno a uno ────────────────
+            if (doWa) {
+                try {
+                    for (let i = 0; i < docList.length; i++) {
+                        const d = docList[i];
+                        const gen = await axios.post('/api/pdf/generate', { html: d.html });
+                        if (!gen.data?.pdf) throw new Error('No se pudo generar el PDF');
+                        await axios.post('/api/whatsapp/send-media', {
+                            phone: phone.trim(),
+                            caption: i === 0 ? message : (d.label || d.fileName),
+                            media: { base64: gen.data.pdf, filename: d.fileName, mimetype: 'application/pdf' },
+                            asDocument: true,
+                        });
+                    }
+                    out.push({ channel: 'whatsapp', status: 'ok', text: `→ ${phone.trim()}` });
+                } catch (err) {
+                    out.push({ channel: 'whatsapp', status: 'fail', text: err.response?.data?.message || err.response?.data?.error || err.message });
+                }
             }
         }
 
@@ -217,6 +241,9 @@ export function EnviarLoteDocModal({ onClose, title, subtitle, defaultEmail = ''
                             className="w-full normal-case bg-bkg-elevated border border-white/5 rounded-xl px-4 py-3 text-white text-[12px] leading-relaxed focus:outline-none focus:border-brand/40 transition-all resize-y"
                         />
                     </div>
+
+                    {/* Contenido extra del llamante (p.ej. slot de la Solicitud de Verificación) */}
+                    {extraBody}
 
                     {/* Adjuntos */}
                     <p className="text-[10px] text-white/40">

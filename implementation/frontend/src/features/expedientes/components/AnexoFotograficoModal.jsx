@@ -6,6 +6,7 @@ import { buildInstalacionAddress } from '../utils/docGenerators';
 import { buildAnexoPages, buildAnexoFullHtml, ANEXO_SCREEN_CSS } from './anexoFotograficoDoc';
 import ReactCrop, { centerCrop, makeAspectCrop } from 'react-image-crop';
 import 'react-image-crop/dist/ReactCrop.css';
+import FirmarConCertificadoModal from './FirmarConCertificadoModal';
 
 const Spinner = () => (
     <svg className="animate-spin h-4 w-4 text-current inline-block" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -27,7 +28,7 @@ const SLOT_TO_CANONICAL = {
     placa_unidad_interior:   'FOTO_UNIDAD_INTERIOR_PLACA',
 };
 
-export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: externalPhotos, onPhotosChange, onSaveDrive, results }) {
+export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: externalPhotos, onPhotosChange, onSaveDrive, onSignedComplete, results }) {
     const { showAlert, showConfirm } = useModal();
     const { user } = useAuth();
     const containerRef = useRef(null);
@@ -38,6 +39,10 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
     const [scale, setScale] = useState(1);
     const [zoomedPhoto, setZoomedPhoto] = useState(null);
     const [zoomLevel, setZoomLevel] = useState(1);
+    // Firma con certificado del Anexo Fotográfico (RES060/080/093)
+    const [signOpen, setSignOpen] = useState(false);
+    const [signPdfB64, setSignPdfB64] = useState(null);
+    const [signBusy, setSignBusy] = useState(false);
 
     const [b64Logos, setB64Logos] = useState({ doc: '' });
 
@@ -74,8 +79,15 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
     // las filas manuales (custom_). Un concepto sin foto no aparece.
     useEffect(() => {
         const loadDynamic = async () => {
-            const oppId = expediente?.id_oportunidad_ref || expediente?.oportunidades?.id_oportunidad;
-            if (!isOpen || !oppId) return;
+            // Resolver el id de la oportunidad con TODOS los orígenes posibles. El
+            // backend (resolveOportunidadId) admite tanto el id_oportunidad (string)
+            // como el UUID; el UUID `oportunidad_id` casi siempre existe, así que sirve
+            // de red de seguridad cuando el join `oportunidades` no trae id_oportunidad.
+            const oppId = expediente?.id_oportunidad_ref
+                || expediente?.oportunidades?.id_oportunidad
+                || expediente?.oportunidades?.id
+                || expediente?.oportunidad_id;
+            if (!isOpen || !oppId) { console.warn('[AnexoFotografico] Sin id de oportunidad para cargar fotos', expediente); return; }
             setScanningDrive(true);
             try {
                 const { data } = await axios.get(`/api/public/anexo-photos/${oppId}`);
@@ -88,11 +100,12 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
                             const id = `drive_${ph.name}`;
                             const label = i === 0 ? g.label : `${g.label} (${i + 1})`;
                             const existing = prevById.get(id);
-                            // Conserva la fila previa (recorte/tamaño) si ya existía con foto.
+                            // Drive es la FUENTE DE VERDAD (regla 20): el base64 se toma
+                            // SIEMPRE fresco del backend. No conservamos el file previo:
+                            // el persistido en BD pudo quedar corrupto (normalizeData subía
+                            // el base64 a MAYÚSCULAS → imagen rota) o simplemente obsoleto.
                             // slotKey/fase alimentan la agrupación por actuación del documento.
-                            rows.push(existing?.file
-                                ? { ...existing, label, slotKey: g.key, fase: g.fase }
-                                : { id, label, slotKey: g.key, fase: g.fase, file: { name: ph.name, data: ph.data }, required: false });
+                            rows.push({ ...(existing || {}), id, label, slotKey: g.key, fase: g.fase, file: { name: ph.name, data: ph.data }, required: false });
                         });
                     }
                     // Mantener las filas añadidas a mano (no provienen de Drive).
@@ -110,7 +123,7 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
         };
         loadDynamic();
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [isOpen, expediente?.id_oportunidad_ref]);
+    }, [isOpen, expediente?.id_oportunidad_ref, expediente?.oportunidades?.id_oportunidad, expediente?.oportunidad_id]);
 
     // photo sizing controls
     const [photoSizes, setPhotoSizes] = useState({});
@@ -345,11 +358,44 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
         finally { setGenerating(false); }
     };
 
+    // ── FIRMA CON CERTIFICADO (Anexo Fotográfico) ─────────────────────────────
+    const handleFirmar = async () => {
+        setSignBusy(true);
+        try {
+            const { data } = await axios.post('/api/pdf/generate', { html: buildHtml() });
+            if (!data?.pdf) throw new Error('No se pudo generar el PDF');
+            setSignPdfB64(data.pdf);
+            setSignOpen(true);
+        } catch {
+            showAlert('No se pudo preparar el Anexo Fotográfico para firmar.', 'Error', 'error');
+        } finally { setSignBusy(false); }
+    };
+    const handleSigned = async (signedB64) => {
+        try {
+            const { data } = await axios.post(`/api/expedientes/${expediente.id}/documentos/firmar-subir`, {
+                field: 'anexo_fotografico_signed_link',
+                signedPdfBase64: signedB64,
+                fileName: `${numexpte || 'DRAFT'} - Anexo Fotografico_fdo`,
+                subfolderName: '6. ANEXOS CAE',
+            });
+            setSignOpen(false); setSignPdfB64(null);
+            if (data?.signed_link) {
+                // Propaga al módulo padre: enciende el firmado y el validado (verde)
+                // sin re-persistir (el backend ya guardó signed_link + docs_validados
+                // y copió a "10. EXPEDIENTE CAE"; el previo se archivó en OLD).
+                if (onSignedComplete) onSignedComplete('anexo_fotografico_signed_link', data.signed_link, data.validated);
+                showAlert('Anexo Fotográfico firmado, validado y archivado en Drive. El anterior se movió a OLD.', 'Firmado', 'success');
+            }
+        } catch (err) {
+            showAlert('Se firmó pero no se pudo guardar: ' + (err.response?.data?.error || err.message), 'Error', 'error');
+        }
+    };
+
     const handleSaveToDrive = async () => {
         const folderId = op.drive_folder_id || op.datos_calculo?.drive_folder_id || op.datos_calculo?.inputs?.drive_folder_id;
-        if (!folderId) { 
-            showAlert('No se encontró el identificador de la carpeta de Google Drive asociada a este expediente.', 'Carpeta no Encontrada', 'error'); 
-            return; 
+        if (!folderId) {
+            showAlert('No se encontró el identificador de la carpeta de Google Drive asociada a este expediente.', 'Carpeta no Encontrada', 'error');
+            return;
         }
         setSavingDrive(true);
         try {
@@ -531,9 +577,24 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
                             )}
                         </button>
 
+                        <button onClick={handleFirmar} disabled={signBusy || generating || savingDrive || sendingEmail || sendingWhatsapp || loadedCount === 0}
+                                title="Firmar con certificado electrónico" className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white/[0.03] border border-white/10 text-white/50 text-xs font-bold hover:text-brand hover:border-brand/30 transition-all disabled:opacity-30">
+                            {signBusy ? <Spinner /> : <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>}
+                            {signBusy ? 'Preparando...' : 'Firmar'}
+                        </button>
                         <button onClick={handleDownloadPdf} disabled={generating || savingDrive || sendingEmail || sendingWhatsapp || loadedCount === 0} className="px-5 py-2 bg-brand text-black text-xs font-black rounded-xl uppercase tracking-wider transition-all hover:brightness-110 active:scale-95 disabled:opacity-30">{generating ? <Spinner /> : 'Generar PDF'}</button>
                     </div>
                 </div>
+
+                {signOpen && signPdfB64 && (
+                    <FirmarConCertificadoModal
+                        pdfBase64={signPdfB64}
+                        title={`Firmar Anexo Fotográfico · ${numexpte}`}
+                        signatureAnchor={['fdo', 'firma', 'conforme']}
+                        onClose={() => { setSignOpen(false); setSignPdfB64(null); }}
+                        onSigned={handleSigned}
+                    />
+                )}
 
                 {/* PREVIEW AREA */}
                 <div ref={containerRef} className="flex-1 overflow-auto bg-[#16181D] py-8 px-4 text-center">
