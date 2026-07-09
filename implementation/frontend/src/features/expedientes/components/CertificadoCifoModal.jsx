@@ -4,6 +4,7 @@ import confetti from 'canvas-confetti';
 import { useAuth } from '../../../context/AuthContext';
 import { BOILER_EFFICIENCIES, calculateHybridization } from '../../calculator/logic/calculation';
 import { buildInstalacionAddress } from '../utils/docGenerators';
+import { calcCifo } from '../logic/calcCifo';
 
 const APP_BASE_URL = 'https://app.brokergy.es';
 
@@ -478,8 +479,11 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
     const numexpte = expediente.numero_expediente || '';
     const facturasList = (doc.facturas || []).map(f => f.numero_factura).filter(Boolean).join(', ') || '—';
 
-    const fechaInicio = formatDateSpanish(doc.fecha_inicio_cifo || doc.fecha_visita_cee_inicial);
-    const fechaFin = formatDateSpanish(doc.fecha_fin_cifo || doc.fecha_firma_cee_final);
+    // Recalculado en vivo (igual que DocumentacionModule): el campo persistido
+    // documentacion.fecha_inicio_cifo/fecha_fin_cifo puede quedar desfasado.
+    const cifoDatesCert = calcCifo(doc);
+    const fechaInicio = formatDateSpanish(cifoDatesCert.inicio || doc.fecha_inicio_cifo || doc.fecha_visita_cee_inicial);
+    const fechaFin = formatDateSpanish(cifoDatesCert.fin || doc.fecha_fin_cifo || doc.fecha_firma_cee_final);
 
     // Métricas para Header
     const aeKwh = Math.round(results?.savingsKwh || 0).toLocaleString('es-ES');

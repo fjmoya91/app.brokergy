@@ -1,6 +1,7 @@
 import React, { useRef, useState, useCallback } from 'react';
 import axios from 'axios';
 import { useAuth } from '../../../context/AuthContext';
+import { calcCifo } from '../logic/calcCifo';
 
 // ─── Márgenes exactos Word: Sup 2,47cm Inf 0,49cm Izq 3cm Der 2,5cm ──────────
 const PAGE_PADDING = '93px 95px 19px 113px';
@@ -161,8 +162,11 @@ export function FichaRes080Modal({ isOpen, onClose, expediente, results, onSaveD
         const d = new Date(isoDate + 'T00:00:00');
         return d.toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' }).replace('.', '');
     };
-    const fechaInicio = formatFecha(doc.fecha_inicio_res080 || doc.fecha_inicio_cifo);
-    const fechaFin    = formatFecha(doc.fecha_fin_res080    || doc.fecha_fin_cifo);
+    // Recalculado en vivo (igual que DocumentacionModule): el campo persistido
+    // documentacion.fecha_inicio_cifo/fecha_fin_cifo puede quedar desfasado.
+    const cifoDates080 = calcCifo(doc);
+    const fechaInicio = formatFecha(doc.fecha_inicio_res080 || cifoDates080.inicio || doc.fecha_inicio_cifo);
+    const fechaFin    = formatFecha(doc.fecha_fin_res080    || cifoDates080.fin    || doc.fecha_fin_cifo);
 
     const REPRESENTANTE_NOMBRE = 'Pedro José López Montero';
     const REPRESENTANTE_NIF    = '06239730-Z';

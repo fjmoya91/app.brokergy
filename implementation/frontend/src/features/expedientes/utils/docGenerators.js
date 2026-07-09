@@ -450,6 +450,9 @@ export const buildAnexoCesionHtml = (expediente, results) => {
     const refCatastral = instAddr.refCatastral || '___________';
     const coordX = inst.coord_x || opInputs.coordX || opInputs.coord_x || '___________';
     const coordY = inst.coord_y || opInputs.coordY || opInputs.coord_y || '___________';
+    // Las coordenadas se capturan del Catastro (referencia catastral) en
+    // EPSG:25830, que es huso 30 ETRS89. Se indica siempre el huso.
+    const husoSuffix = ' (huso 30 ETRS89)';
 
     const numexp = expediente.numero_expediente || '';
     const fichaType = numexp.includes('RES080') ? 'RES080'
@@ -502,7 +505,7 @@ export const buildAnexoCesionHtml = (expediente, results) => {
             </div>
             <div class="conv-cl">
               <p><strong>Segunda. Localización geográfica de la instalación o instalaciones</strong><br>La cesión de los ahorros de energía prevista en el presente convenio sólo será válida en territorio español, donde se ha ejecutado la actuación de eficiencia energética.</p>
-              <p>La actuación se ha llevado a cabo en la localidad de <strong>${municipioAct}</strong>, provincia de <strong>${provinciaAct}</strong> de la Comunidad Autónoma de <strong>${ccaa}</strong>, siendo la referencia catastral de su ubicación <strong>${refCatastral}</strong> y sus coordenadas UTM X: <strong>${coordX}</strong> Y: <strong>${coordY}</strong></p>
+              <p>La actuación se ha llevado a cabo en la localidad de <strong>${municipioAct}</strong>, provincia de <strong>${provinciaAct}</strong> de la Comunidad Autónoma de <strong>${ccaa}</strong>, siendo la referencia catastral de su ubicación <strong>${refCatastral}</strong> y sus coordenadas UTM${husoSuffix} X: <strong>${coordX}</strong> Y: <strong>${coordY}</strong></p>
             </div>
             <div class="conv-cl">
               <p><strong>Tercera. Ahorro anual de energía</strong><br>El ahorro anual de energía efectivo será de <strong>${aeKwh} kWh/año</strong>, permitiendo obtener teóricamente <strong>${caeVolStr} CAEs</strong> en el sistema de Certificados de Ahorro Energético.</p>

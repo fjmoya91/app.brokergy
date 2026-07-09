@@ -9,6 +9,7 @@
 // expediente.cee, igual que la rama RES080 de computeExpedienteFinancials.
 // ============================================================
 import { calculateRes080 } from '../../calculator/logic/calculation';
+import { calcCifo } from './calcCifo';
 
 const PAGE_PADDING = '93px 95px 19px 113px';
 
@@ -83,8 +84,11 @@ export function buildFichaRes080Html(expediente, opts = {}) {
         const d = new Date(isoDate + 'T00:00:00');
         return d.toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' }).replace('.', '');
     };
-    const fechaInicio = formatFecha(doc.fecha_inicio_res080 || doc.fecha_inicio_cifo);
-    const fechaFin    = formatFecha(doc.fecha_fin_res080    || doc.fecha_fin_cifo);
+    // Recalculado en vivo (igual que DocumentacionModule): el campo persistido
+    // documentacion.fecha_inicio_cifo/fecha_fin_cifo puede quedar desfasado.
+    const cifoDates = calcCifo(doc);
+    const fechaInicio = formatFecha(doc.fecha_inicio_res080 || cifoDates.inicio || doc.fecha_inicio_cifo);
+    const fechaFin    = formatFecha(doc.fecha_fin_res080    || cifoDates.fin    || doc.fecha_fin_cifo);
 
     const REPRESENTANTE_NOMBRE = opts.representanteNombre || REPRESENTANTE_DEFAULT.nombre;
     const REPRESENTANTE_NIF    = opts.representanteNif || REPRESENTANTE_DEFAULT.nif;

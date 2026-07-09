@@ -4,6 +4,7 @@ import confetti from 'canvas-confetti';
 import { useAuth } from '../../../context/AuthContext';
 import { BOILER_EFFICIENCIES } from '../../calculator/logic/calculation';
 import { buildInstalacionAddress } from '../utils/docGenerators';
+import { calcCifo } from '../logic/calcCifo';
 import FirmarConCertificadoModal from './FirmarConCertificadoModal';
 
 // ─── CONSTANTES Y ESTILOS ────────────────────────────────────────────────────
@@ -253,10 +254,15 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, a
             // de modo que el `|| default` posterior funcione.
             const numStr = (v) => (v === null || v === undefined || v === '') ? '' : String(v).replace('.', ',');
 
+            // Las fechas de inicio/fin CIFO guardadas en `documentacion` pueden
+            // quedar desfasadas (se escribieron antes de subir todas las
+            // facturas). Recalculamos en vivo con calcCifo, igual que hace
+            // DocumentacionModule, en vez de fiarnos del campo persistido.
+            const cifoDates = calcCifo(doc);
             const initialFields = {
                 nombre_actuacion: `${expediente.numero_expediente}: Rehabilitación profunda de edificios de viviendas generadora de ahorros energéticos`,
-                fecha_inicio: toDdMmYyyy(doc.fecha_inicio_res080 || doc.fecha_inicio_cifo || doc.fecha_visita_cee_inicial),
-                fecha_fin: toDdMmYyyy(doc.fecha_fin_res080 || doc.fecha_fin_cifo || doc.fecha_firma_cee_final),
+                fecha_inicio: toDdMmYyyy(doc.fecha_inicio_res080 || cifoDates.inicio || doc.fecha_inicio_cifo || doc.fecha_visita_cee_inicial),
+                fecha_fin: toDdMmYyyy(doc.fecha_fin_res080 || cifoDates.fin || doc.fecha_fin_cifo || doc.fecha_firma_cee_final),
                 descripcion_ventanas: env.descripcion_ventanas || editableRef.current.descripcion_ventanas || 'Se sustituyen las ventanas actuales por unas con mejores prestaciones térmicas y hermeticidad.',
                 descripcion_termica: doc.descripcion_termica || (inst.cambio_acs === false
                     ? 'Sustitución del sistema de calefacción existente por bomba de calor aerotérmica de alta eficiencia. La instalación de ACS existente se mantiene sin cambios.'

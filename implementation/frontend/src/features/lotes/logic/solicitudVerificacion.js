@@ -8,6 +8,7 @@
 // ============================================================
 import { buildInstalacionAddress } from '../../expedientes/utils/docGenerators';
 import { computeExpedienteFinancials } from '../../expedientes/logic/expedienteFinancials';
+import { calcCifo } from '../../expedientes/logic/calcCifo';
 import { fichaDe, FICHA_TITULO } from './anexoListado';
 
 // Datos por defecto del solicitante / contacto (editables en el popup).
@@ -140,8 +141,8 @@ export function buildSolicitudVerificacionHtml(lote, opts = {}) {
             ${row('Código CNAE de la actividad principal de la instalación afectada', cnae)}
             ${row('Vida útil de la actuación (años)', String(vidaUtil))}
             ${row('Ahorro anual conseguido (kWh)', ahorroKwh)}
-            ${row('Fecha inicio actuación', fmtDate(doc.fecha_inicio_cifo))}
-            ${row('Fecha fin actuación', fmtDate(doc.fecha_fin_cifo))}
+            ${row('Fecha inicio actuación', fmtDate(calcCifo(doc).inicio || doc.fecha_inicio_cifo))}
+            ${row('Fecha fin actuación', fmtDate(calcCifo(doc).fin || doc.fecha_fin_cifo))}
             ${row('Inversión de la actuación sin IVA (€)', `${nf(inversion, 2)} €`)}
             ${row('Costes operativos anuales para el mantenimiento de la actuación sin IVA (€)', '0,00')}
             ${row('¿La actuación ha solicitado o recibido apoyo de algún programa público de ayudas?', 'no')}
@@ -220,8 +221,8 @@ export function buildSolicitudVerificacionPayload(lote, opts = {}) {
             SE_cnae: cnae,
             SE_vida_util: Number(vidaUtil) || 0,
             SE_ahorro_anual: ahorroAnual,
-            SE_fecha_inicio: isoDate(doc.fecha_inicio_cifo),
-            SE_fecha_fin: isoDate(doc.fecha_fin_cifo),
+            SE_fecha_inicio: isoDate(calcCifo(doc).inicio || doc.fecha_inicio_cifo),
+            SE_fecha_fin: isoDate(calcCifo(doc).fin || doc.fecha_fin_cifo),
             // Importe sin IVA en formato español (máx. 2 decimales). Acepta "0", no vacío.
             SE_inversion: nf(inversion, 2),
             SE_costes_operativos: '0',

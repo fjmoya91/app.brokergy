@@ -12,6 +12,7 @@ import { CertificadoRes080Modal } from './CertificadoRes080Modal';
 import { AnexoFotograficoModal } from './AnexoFotograficoModal';
 import { EnviarBorradorRiteModal } from './EnviarBorradorRiteModal';
 import { EnviarAnexosModal } from './EnviarAnexosModal';
+import { calcCifo } from '../logic/calcCifo';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 // Convierte un ArrayBuffer a base64 POR TROZOS. Evita el "Maximum call stack size
@@ -178,18 +179,6 @@ function formatDateDisplay(dateStr) {
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const year = date.getFullYear();
     return `${day}/${month}/${year}`;
-}
-
-// Calculadora automática de fechas CIFO
-function calcCifo(doc) {
-    const allDates = [
-        doc.fecha_pruebas_cert_instalacion,
-        ...(doc.facturas || []).map(f => f.fecha_factura)
-    ].filter(Boolean);
-
-    if (allDates.length === 0) return { inicio: null, fin: null };
-    const sorted = allDates.sort();
-    return { inicio: sorted[0], fin: sorted[sorted.length - 1] };
 }
 
 // ─── Componente de Facturas ───────────────────────────────────────────────────

@@ -7,6 +7,7 @@
 // ============================================================
 import { buildInstalacionAddress } from '../../expedientes/utils/docGenerators';
 import { computeExpedienteFinancials } from '../../expedientes/logic/expedienteFinancials';
+import { calcCifo } from '../../expedientes/logic/calcCifo';
 
 // Fecha del convenio de compraventa con el S.O. (fija; editable en el popup).
 export const CONVENIO_FECHA_DEFAULT = '27/02/2026';
@@ -59,8 +60,8 @@ export function buildAnexoListadoRows(lote) {
             direccion: addr.full || e.cliente_direccion || '',
             refCatastral: addr.refCatastral || inst.ref_catastral || '',
             utm,
-            fechaInicio: fmtDate(doc.fecha_inicio_cifo),
-            fechaFin: fmtDate(doc.fecha_fin_cifo),
+            fechaInicio: fmtDate(calcCifo(doc).inicio || doc.fecha_inicio_cifo),
+            fechaFin: fmtDate(calcCifo(doc).fin || doc.fecha_fin_cifo),
             ficha,
             titulo: FICHA_TITULO[ficha] || '',
             inversion,
