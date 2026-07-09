@@ -880,7 +880,7 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
             { n: 2, sym: 'D<sub>CAL</sub>', desc: 'Demanda de energía en calefacción del edificio/vivienda', val: `${dcal} kWh/m²·año` },
             { n: 3, sym: 'S', desc: 'Superficie útil habitable del edificio o vivienda', val: `${sStr} m²` },
             { n: 4, sym: 'D<sub>ACS</sub>', desc: 'Demanda de energía en agua caliente sanitaria', val: `${dacsStr} kWh/año` },
-            { n: 5, sym: 'η<sub>i</sub>', desc: 'Rendimiento de caldera combustible fósil (PCS)', val: etaStr },
+            { n: 5, sym: 'η<sub>i</sub>', desc: 'Rendimiento de caldera de combustión(PCS)', val: etaStr },
             { n: 6, sym: 'SCOP<sub>bdc</sub>', desc: 'Rendimiento estacional bomba calor calefacción', val: scopCalStr },
             { n: 7, sym: 'SCOP<sub>dhw</sub>', desc: 'Rendimiento estacional bomba calor ACS', val: scopAcsStr },
             ...(isHybrid ? [{ n: 8, sym: 'C<sub>b</sub>', desc: 'Coeficiente de cobertura por bivalencia en paralelo', val: cbStr }] : []),
@@ -1077,7 +1077,7 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
                 <p style="margin:12px 0 0;font-size:11px;color:#6E6E66;">La estimación de la demanda diaria de Agua Caliente Sanitaria (ACS) se ha realizado conforme a los criterios y valores orientativos establecidos en el Anejo F del Documento Básico de Ahorro de Energía HE del Código Técnico de la Edificación (CTE DB-HE, versión 2022).</p>
                 `}
 
-            ${subLabel('5. Justificación rendimiento de caldera de combustible fósil η<sub>i</sub>', '#6E6E66', '16px')}
+            ${subLabel('5. Justificación rendimiento de caldera de combustión η<sub>i</sub>', '#6E6E66', '16px')}
             <p style="margin:0;font-size:12.5px;color:#4a4a44;">Se ha utilizado un rendimiento estacional de <b style="color:#1A1A1A;">${etaStr}</b>, al tratarse de una caldera de <b style="color:#1A1A1A;">${calExTipo}</b>, siguiendo las indicaciones del Ministerio para la Transición Ecológica y el Reto Demográfico recogidas en los criterios de verificación "24/11.03: Rendimientos estacionales vs. nominales en fichas IND040, RES060, RES090-099, TER100 y TER170-179".</p>
         `;
 
