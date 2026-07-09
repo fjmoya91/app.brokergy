@@ -155,5 +155,21 @@ export function computeExpedienteFinancials(exp) {
         }
     }
 
-    return { ficha, savingsKwh, cae, profit, savingsKwhVerificado, caeVerificado, profitVerificado };
+    // Fallback: sin CEE parseado (expedientes migrados desde la BBDD antigua de
+    // AppSheet, que solo trae fechas de CEE, no el XML) no hay datos para recalcular
+    // en vivo. Si la oportunidad ya trae financials guardados (del origen), úsalos
+    // tal cual en vez de mostrar "—". Marcado con `estimadoGuardado` para distinguirlo
+    // de un cálculo en vivo desde el CEE real.
+    let estimadoGuardado = false;
+    if (savingsKwh === null && cae === null && profit === null) {
+        const storedFin = op.datos_calculo?.result?.financials;
+        if (storedFin && (storedFin.caeBonus != null || storedFin.ahorroKwh != null)) {
+            savingsKwh = storedFin.ahorroKwh ?? null;
+            cae = storedFin.caeBonus ?? null;
+            profit = storedFin.profitBrokergy ?? null;
+            estimadoGuardado = true;
+        }
+    }
+
+    return { ficha, savingsKwh, cae, profit, savingsKwhVerificado, caeVerificado, profitVerificado, estimadoGuardado };
 }
