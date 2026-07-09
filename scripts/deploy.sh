@@ -39,8 +39,15 @@ docker compose up -d backend mcp rite-generator
 echo "    OK"
 
 # ── 4. Recargar nginx ──────────────────────────
-echo "[4/4] Recargando nginx..."
-docker compose exec nginx nginx -s reload
+echo "[4/4] Sincronizando y recargando nginx..."
+# El fichero montado es nginx/nginx.conf (copia de la config HTTPS; el cron de
+# certbot la regenera). Rehacemos la copia para que los cambios de nginx.https.conf
+# del repo se apliquen. Solo si ya hay certificados (entorno HTTPS estable).
+if [ -f /etc/letsencrypt/live/app.brokergy.es/fullchain.pem ]; then
+    cp nginx/nginx.https.conf nginx/nginx.conf
+fi
+# Validar la config antes de recargar (evita dejar nginx caído por un typo).
+docker compose exec -T nginx nginx -t && docker compose exec -T nginx nginx -s reload
 echo "    OK"
 
 echo ""
