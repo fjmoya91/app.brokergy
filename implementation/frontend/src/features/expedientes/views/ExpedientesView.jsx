@@ -5,7 +5,7 @@ import axios from 'axios';
 import { useAuth } from '../../../context/AuthContext';
 import { useModal } from '../../../context/ModalContext';
 import { getRoleFlags, DELETE_FORBIDDEN_MSG } from '../../../utils/roleFlags';
-import { CertificadorResumenModal } from '../../admin/views/CertificadorResumenModal';
+import { CertificadorResumenPanel } from '../../admin/views/CertificadorResumenModal';
 import { ExpedienteDetailView, EXPEDIENTE_ESTADOS } from './ExpedienteDetailView';
 import { parseCeeXml } from '../../calculator/logic/xmlCeeParser';
 import { ClienteFormModal } from '../../clientes/components/ClienteFormModal';
@@ -597,7 +597,6 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
     const [localPathLoadingId, setLocalPathLoadingId] = useState(null); // id del expediente cuyo botón "carpeta local" está cargando
     const userRole = (user?.rol || '').toUpperCase();
     const { isAdmin, isStaff, isCertificador, canSeeMargin, canDelete } = getRoleFlags(user);
-    const [showResumenCert, setShowResumenCert] = useState(false);
 
     const getFicha = (exp) => {
         if (exp.numero_expediente?.includes('RES080')) return 'RES080';
@@ -1100,6 +1099,39 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
         );
     }
 
+    // El CERTIFICADOR ve exactamente la misma tabla que Brokergy consulta desde su
+    // ficha ("Ver resumen"): mismas fases, mismas fechas de registro, misma
+    // exportación. Así ambos hablan del mismo estado. La tabla general no le sirve:
+    // está pensada en torno a importes y acciones internas que él no tiene.
+    if (isCertificador && user?.prescriptor_id) {
+        return (
+            <div className="p-6 sm:p-10 min-h-full animate-fade-in relative z-10 max-w-[1600px] mx-auto flex flex-col">
+                <div className="flex items-center gap-4 mb-8">
+                    <div className="p-2 bg-gradient-to-br from-brand/20 to-brand-700/10 rounded-xl border border-brand/20 text-brand shadow-lg shadow-brand/10">
+                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                    </div>
+                    <div>
+                        <h1 className="text-2xl font-black text-white uppercase tracking-tight">Mis certificados</h1>
+                        <p className="text-white/40 text-[10px] font-black uppercase tracking-widest mt-0.5">
+                            Pulsa una fila para abrir el expediente
+                        </p>
+                    </div>
+                </div>
+
+                <div className="rounded-2xl border border-white/[0.06] bg-bkg-surface/60 p-5 shadow-2xl">
+                    <CertificadorResumenPanel
+                        prescriptorId={user.prescriptor_id}
+                        certificadorNombre={user?.razon_social || user?.acronimo}
+                        onOpenExpediente={(id) => setSelectedExpediente({ id })}
+                        embedded
+                    />
+                </div>
+            </div>
+        );
+    }
+
     const filtered = expedientes.filter(e => {
         const q = norm(search);
         // Dirección/ubicación de la oportunidad (datos_calculo.inputs). En los
@@ -1273,20 +1305,6 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
                 </div>
 
                 <div className="flex items-center gap-3">
-                    {/* El certificador no ve importes, pero sí necesita saber en qué
-                        punto está cada uno de sus CEE y cuáles esperan por él. */}
-                    {isCertificador && user?.prescriptor_id && (
-                        <button
-                            onClick={() => setShowResumenCert(true)}
-                            className="px-3 py-2 rounded-xl border border-emerald-500/20 bg-emerald-500/10 text-emerald-400 transition-all flex items-center gap-2 text-[10px] font-black uppercase tracking-wider hover:bg-emerald-500/20"
-                        >
-                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 17v-6h13M9 7h13M4 7h.01M4 12h.01M4 17h.01" />
-                            </svg>
-                            <span className="hidden sm:inline">Ver resumen</span>
-                        </button>
-                    )}
-
                     {!isCertificador && (
                         <button
                             onClick={() => setShowStats(!showStats)}
@@ -2529,13 +2547,6 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
                 onChanged={() => fetchExpedientes()}
             />
         )}
-
-        <CertificadorResumenModal
-            isOpen={showResumenCert}
-            onClose={() => setShowResumenCert(false)}
-            prescriptorId={user?.prescriptor_id}
-            certificadorNombre={user?.razon_social || user?.acronimo}
-        />
         </div>
     );
 }

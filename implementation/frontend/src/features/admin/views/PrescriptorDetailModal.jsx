@@ -696,9 +696,20 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
         <div className="fixed inset-0 z-[300] flex items-start justify-center p-4 bg-black/75 backdrop-blur-md animate-fade-in overflow-y-auto">
             <div className="bg-bkg-deep border border-white/[0.08] rounded-2xl w-full max-w-2xl my-8 shadow-2xl">
 
-                {/* Header */}
-                <div className="flex items-center justify-between gap-3 flex-wrap p-6 border-b border-white/[0.06]">
-                    <div className="flex items-center gap-3 min-w-0">
+                {/* Header. El botón de cerrar va SIEMPRE arriba a la derecha: antes vivía
+                    en la fila de acciones y, al no caber, bajaba junto a «Editar». */}
+                <div className="relative p-6 border-b border-white/[0.06]">
+                    <button
+                        onClick={onClose}
+                        title="Cerrar"
+                        className="absolute top-4 right-4 p-2 text-white/30 hover:text-white transition-colors rounded-lg hover:bg-white/5"
+                    >
+                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                    </button>
+
+                    <div className="flex items-center gap-3 min-w-0 pr-12">
                         {/* Logo — clickeable en modo edición */}
                         <div
                             onClick={editing ? () => logoInputRef.current?.click() : undefined}
@@ -750,27 +761,40 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                         </div>
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap mt-4">
                         {saved && (
                             <span className="text-xs text-emerald-400 font-black uppercase tracking-widest animate-fade-in">
                                 ✓ Guardado
                             </span>
                         )}
 
-                        {/* Toggle acceso — en el header, solo ADMIN y solo para partners existentes */}
+                        {/* Toggle acceso — en el header, solo ADMIN y solo para partners existentes.
+                            Un interruptor suelto no decía qué activaba: ahora lleva etiqueta. */}
                         {isAdmin && !isCreating && (
                             <button
                                 type="button"
                                 onClick={() => handleToggleAcceso(!accesoActivo)}
                                 disabled={togglingAcceso}
-                                title={accesoActivo ? 'Revocar acceso al portal' : 'Dar acceso al portal'}
-                                style={{ width: '44px', height: '24px' }}
-                                className="relative shrink-0 rounded-full disabled:opacity-50 transition-all"
+                                title={accesoActivo
+                                    ? 'Revocar el acceso: no podrá entrar en la app'
+                                    : 'Dar acceso: podrá entrar en la app con su email'}
+                                className={`flex items-center gap-2 pl-2 pr-3 py-1.5 rounded-lg border disabled:opacity-50 transition-all ${
+                                    accesoActivo
+                                        ? 'bg-orange-500/10 border-orange-500/30 hover:bg-orange-500/20'
+                                        : 'bg-white/[0.02] border-white/10 hover:border-white/20'
+                                }`}
                             >
-                                <div className={`w-full h-full rounded-full transition-all duration-300 border border-orange-500 ${accesoActivo ? 'bg-orange-500' : 'bg-transparent'}`}>
-                                    <div className={`absolute top-[2px] rounded-full shadow transition-transform duration-300 ${accesoActivo ? 'bg-white translate-x-[22px]' : 'bg-orange-500 translate-x-[2px]'}`}
-                                        style={{ width: '20px', height: '20px' }}></div>
-                                </div>
+                                <span className="relative shrink-0 block" style={{ width: '36px', height: '20px' }}>
+                                    <span className={`block w-full h-full rounded-full transition-all duration-300 border border-orange-500 ${accesoActivo ? 'bg-orange-500' : 'bg-transparent'}`}>
+                                        <span className={`absolute top-[2px] rounded-full shadow transition-transform duration-300 ${accesoActivo ? 'bg-white translate-x-[18px]' : 'bg-orange-500 translate-x-[2px]'}`}
+                                            style={{ width: '16px', height: '16px' }}></span>
+                                    </span>
+                                </span>
+                                <span className={`text-[10px] font-black uppercase tracking-widest whitespace-nowrap ${accesoActivo ? 'text-orange-400' : 'text-white/35'}`}>
+                                    {togglingAcceso
+                                        ? 'Guardando…'
+                                        : (accesoActivo ? 'Acceso a la app activo' : 'Sin acceso a la app')}
+                                </span>
                             </button>
                         )}
 
@@ -794,11 +818,6 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                                 Editar
                             </button>
                         )}
-                        <button onClick={onClose} className="p-2 text-white/30 hover:text-white transition-colors rounded-lg hover:bg-white/5">
-                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                            </svg>
-                        </button>
                     </div>
                 </div>
 

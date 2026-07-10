@@ -2,12 +2,18 @@ import { useEffect, useState, useMemo } from 'react';
 import axios from 'axios';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Resumen de seguimiento del CERTIFICADOR.
+// Seguimiento de certificados de un CERTIFICADOR.
 //
 // Una fila por expediente asignado, con el punto exacto en que está cada CEE
-// (inicial y final) y la fecha en que se registró. Sirve al equipo interno (desde
-// la ficha del certificador) y al propio certificador (desde su panel), que la usa
-// para saber qué CEE puede facturar ya. No muestra importes.
+// (inicial y final) y la fecha en que se registró. Es la MISMA superficie en dos
+// sitios, para que Brokergy y el certificador miren siempre la misma tabla:
+//
+//   · `CertificadorResumenPanel` → embebido en el panel de expedientes del propio
+//     certificador (sus filas abren el expediente).
+//   · `CertificadorResumenModal` → popup desde la ficha del certificador, para el
+//     equipo interno.
+//
+// No muestra importes: el certificador no ve dinero (ver `roleFlags`).
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Fases del CEE, en el orden real del ciclo de vida (ver CLAUDE.md).
@@ -36,6 +42,19 @@ const RESPONSABLE = {
     REGISTRADO: null,
 };
 
+// Qué se espera exactamente de quien bloquea. Sin esto, "CERTIFICADOR" no dice
+// si toca visitar, presentar o registrar.
+const SIGUIENTE_PASO = {
+    PTE_ENVIO_CERT: 'Brokergy debe enviarte el encargo',
+    ASIGNADO: 'Acepta el encargo y programa la visita',
+    EN_TRABAJO: 'Visita y mediciones en curso',
+    PTE_PRESENTACION: 'Sube el .cex firmado',
+    PRESENTADO: 'Brokergy está revisando el CEE',
+    PTE_REVISION: 'Brokergy está revisando el CEE',
+    REVISADO: 'Tienes el visto bueno: registra en Industria',
+    REGISTRADO: null,
+};
+
 const tonoFase = (fase) => {
     if (fase === 'REGISTRADO') return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30';
     if (fase === 'REVISADO') return 'bg-brand/10 text-brand border-brand/30';
@@ -56,6 +75,14 @@ const fmtFecha = (iso) => {
     return isNaN(d) ? null : d.toLocaleDateString('es-ES');
 };
 
+// Días que un expediente lleva parado esperando al certificador.
+const diasDesde = (iso) => {
+    if (!iso) return null;
+    const d = new Date(iso);
+    if (isNaN(d)) return null;
+    return Math.floor((Date.now() - d.getTime()) / 86400000);
+};
+
 // La fase que bloquea es la del CEE inicial mientras no esté registrado.
 const faseActivaDe = (r) => (r.cee_inicial !== 'REGISTRADO' ? r.cee_inicial : r.cee_final);
 
@@ -65,7 +92,7 @@ const norm = (s) => (s || '').toString().toLowerCase().normalize('NFD').replace(
 // Descarga un CSV que Excel abre directamente: separador ';' (locale es-ES) y BOM
 // UTF-8 para que no rompa las tildes.
 const descargarCsv = (filas, nombreFichero) => {
-    const CABECERAS = ['Expediente', 'Cliente', 'Dirección', 'Municipio', 'Provincia', 'Estado', 'CEE inicial', 'Fecha registro CEE inicial', 'CEE final', 'Fecha registro CEE final', 'Falta'];
+    const CABECERAS = ['Expediente', 'Cliente', 'Dirección', 'Municipio', 'Provincia', 'Estado', 'CEE inicial', 'Fecha registro CEE inicial', 'CEE final', 'Fecha registro CEE final', 'Falta', 'Siguiente paso'];
     const celda = (v) => {
         const s = (v ?? '').toString();
         return /[";\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
@@ -77,7 +104,7 @@ const descargarCsv = (filas, nombreFichero) => {
             r.numero_expediente, r.cliente_nombre, r.direccion, r.cliente_municipio, r.cliente_provincia,
             r.estado, ETIQUETAS[r.cee_inicial] || r.cee_inicial, fmtFecha(r.fecha_registro_cee_inicial) || '',
             ETIQUETAS[r.cee_final] || r.cee_final, fmtFecha(r.fecha_registro_cee_final) || '',
-            RESPONSABLE[fase] || 'COMPLETO',
+            RESPONSABLE[fase] || 'COMPLETO', SIGUIENTE_PASO[fase] || 'Sin acciones pendientes',
         ].map(celda).join(';'));
     }
     const blob = new Blob(['﻿' + lineas.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
@@ -89,18 +116,22 @@ const descargarCsv = (filas, nombreFichero) => {
     URL.revokeObjectURL(url);
 };
 
-export function CertificadorResumenModal({ isOpen, onClose, prescriptorId, certificadorNombre }) {
+/**
+ * Tabla + contadores + filtros + exportación. `onOpenExpediente` la hace navegable
+ * (se usa en el panel del certificador); sin ella las filas no son clicables.
+ */
+export function CertificadorResumenPanel({ prescriptorId, certificadorNombre, onOpenExpediente, embedded = false }) {
     const [rows, setRows] = useState([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
 
     const [busqueda, setBusqueda] = useState('');
-    const [faseIni, setFaseIni] = useState('');       // filtro por fase del CEE inicial
-    const [faseFin, setFaseFin] = useState('');       // filtro por fase del CEE final
+    const [faseIni, setFaseIni] = useState('');         // filtro por fase del CEE inicial
+    const [faseFin, setFaseFin] = useState('');         // filtro por fase del CEE final
     const [responsable, setResponsable] = useState(''); // BROKERGY | CERTIFICADOR | COMPLETO
 
     useEffect(() => {
-        if (!isOpen || !prescriptorId) return;
+        if (!prescriptorId) return;
         setLoading(true);
         setError(null);
         setBusqueda(''); setFaseIni(''); setFaseFin(''); setResponsable('');
@@ -108,22 +139,39 @@ export function CertificadorResumenModal({ isOpen, onClose, prescriptorId, certi
             .then(r => setRows(r.data || []))
             .catch(err => setError(err.response?.data?.error || 'No se pudieron cargar los expedientes.'))
             .finally(() => setLoading(false));
-    }, [isOpen, prescriptorId]);
+    }, [prescriptorId]);
 
-    const visibles = useMemo(() => rows.filter(r => {
-        if (faseIni && r.cee_inicial !== faseIni) return false;
-        if (faseFin && r.cee_final !== faseFin) return false;
-        if (responsable) {
-            const resp = RESPONSABLE[faseActivaDe(r)] || 'COMPLETO';
-            if (resp !== responsable) return false;
-        }
-        if (busqueda.trim()) {
-            const q = norm(busqueda);
-            const heno = norm([r.numero_expediente, r.cliente_nombre, r.direccion, r.cliente_municipio, r.estado].join(' '));
-            if (!heno.includes(q)) return false;
-        }
-        return true;
-    }), [rows, faseIni, faseFin, responsable, busqueda]);
+    const visibles = useMemo(() => {
+        const filtradas = rows.filter(r => {
+            if (faseIni && r.cee_inicial !== faseIni) return false;
+            if (faseFin && r.cee_final !== faseFin) return false;
+            if (responsable) {
+                const resp = RESPONSABLE[faseActivaDe(r)] || 'COMPLETO';
+                if (resp !== responsable) return false;
+            }
+            if (busqueda.trim()) {
+                const q = norm(busqueda);
+                const heno = norm([r.numero_expediente, r.cliente_nombre, r.direccion, r.cliente_municipio, r.estado].join(' '));
+                if (!heno.includes(q)) return false;
+            }
+            return true;
+        });
+
+        // Lo accionable arriba: primero lo que espera por el certificador, dentro de
+        // eso los urgentes, y luego lo más antiguo (que es lo que más tiempo lleva
+        // parado). Lo ya completo baja al final.
+        const peso = (r) => {
+            const resp = RESPONSABLE[faseActivaDe(r)];
+            if (resp === 'CERTIFICADOR') return 0;
+            if (resp === 'BROKERGY') return 1;
+            return 2;
+        };
+        return filtradas.sort((a, b) =>
+            peso(a) - peso(b)
+            || (b.prioridad === 'URGENTE' ? 1 : 0) - (a.prioridad === 'URGENTE' ? 1 : 0)
+            || new Date(a.created_at) - new Date(b.created_at)
+        );
+    }, [rows, faseIni, faseFin, responsable, busqueda]);
 
     const stats = useMemo(() => ({
         total: rows.length,
@@ -132,7 +180,7 @@ export function CertificadorResumenModal({ isOpen, onClose, prescriptorId, certi
         finRegistrados: rows.filter(r => r.cee_final === 'REGISTRADO').length,
     }), [rows]);
 
-    // Lo que el certificador puede facturar ya: CEE registrados dentro del filtro.
+    // Lo que se puede facturar ya: CEE registrados dentro del filtro.
     const facturables = useMemo(
         () => visibles.filter(r => r.cee_inicial === 'REGISTRADO').length
             + visibles.filter(r => r.cee_final === 'REGISTRADO').length,
@@ -140,149 +188,178 @@ export function CertificadorResumenModal({ isOpen, onClose, prescriptorId, certi
     );
 
     const hayFiltro = !!(busqueda.trim() || faseIni || faseFin || responsable);
-
-    if (!isOpen) return null;
+    const limpiar = () => { setBusqueda(''); setFaseIni(''); setFaseFin(''); setResponsable(''); };
 
     const selectCls = 'bg-bkg-surface border border-white/10 rounded-lg px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wider text-white/60 focus:outline-none focus:border-brand/40';
+
+    const exportar = () => descargarCsv(visibles, `certificados-${(certificadorNombre || 'certificador').replace(/[^\w-]+/g, '_')}.csv`);
+
+    return (
+        <div className={`flex flex-col min-h-0 gap-4 ${embedded ? '' : 'flex-1 px-6 py-5'}`}>
+            {/* Contadores */}
+            {!loading && !error && rows.length > 0 && (
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                    {[
+                        // `filtro` hace la tarjeta clicable: aplica ese filtro en la tabla.
+                        { label: 'Expedientes', value: stats.total, color: 'text-white', filtro: limpiar },
+                        { label: 'Esperan por ti', value: stats.enCertificador, color: 'text-amber-400', filtro: () => { limpiar(); setResponsable('CERTIFICADOR'); } },
+                        { label: 'CEE inicial registrado', value: `${stats.iniRegistrados}/${stats.total}`, color: 'text-emerald-400', filtro: () => { limpiar(); setFaseIni('REGISTRADO'); } },
+                        { label: 'CEE final registrado', value: `${stats.finRegistrados}/${stats.total}`, color: 'text-emerald-400', filtro: () => { limpiar(); setFaseFin('REGISTRADO'); } },
+                        { label: hayFiltro ? 'Facturables (filtro)' : 'Facturables', value: facturables, color: 'text-brand' },
+                    ].map(s => (
+                        <button
+                            key={s.label}
+                            type="button"
+                            onClick={s.filtro}
+                            disabled={!s.filtro}
+                            title={s.filtro ? 'Filtrar la tabla por esto' : undefined}
+                            className={`text-left p-3 rounded-xl bg-white/[0.03] border border-white/[0.06] transition-colors ${s.filtro ? 'hover:border-white/20 hover:bg-white/[0.05] cursor-pointer' : 'cursor-default'}`}
+                        >
+                            <p className="text-[9px] font-black uppercase tracking-widest text-white/30">{s.label}</p>
+                            <p className={`text-lg font-black mt-0.5 ${s.color}`}>{s.value}</p>
+                        </button>
+                    ))}
+                </div>
+            )}
+
+            {/* Filtros + exportación */}
+            {!loading && !error && rows.length > 0 && (
+                <div className="flex flex-wrap items-center gap-2">
+                    <input
+                        value={busqueda}
+                        onChange={e => setBusqueda(e.target.value)}
+                        placeholder="Buscar expediente, cliente, dirección…"
+                        className="flex-1 min-w-[220px] bg-bkg-surface border border-white/10 rounded-lg px-3 py-1.5 text-[11px] text-white placeholder:text-white/20 focus:outline-none focus:border-brand/40"
+                    />
+                    <select value={faseIni} onChange={e => setFaseIni(e.target.value)} className={selectCls}>
+                        <option value="">CEE inicial: todos</option>
+                        {FASES.map(f => <option key={f} value={f}>{ETIQUETAS[f]}</option>)}
+                    </select>
+                    <select value={faseFin} onChange={e => setFaseFin(e.target.value)} className={selectCls}>
+                        <option value="">CEE final: todos</option>
+                        {FASES.map(f => <option key={f} value={f}>{ETIQUETAS[f]}</option>)}
+                    </select>
+                    <select value={responsable} onChange={e => setResponsable(e.target.value)} className={selectCls}>
+                        <option value="">Falta: todos</option>
+                        <option value="CERTIFICADOR">Certificador</option>
+                        <option value="BROKERGY">Brokergy</option>
+                        <option value="COMPLETO">Completo</option>
+                    </select>
+                    {hayFiltro && (
+                        <button onClick={limpiar} className="px-2.5 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest text-white/30 hover:text-white transition-colors">
+                            ✕ Limpiar
+                        </button>
+                    )}
+                    <button
+                        onClick={exportar}
+                        disabled={!visibles.length}
+                        className="px-3 py-1.5 rounded-lg border border-emerald-500/20 bg-emerald-500/10 text-emerald-400 text-[10px] font-black uppercase tracking-widest hover:bg-emerald-500/20 disabled:opacity-30 transition-all"
+                        title="Descarga las filas que se ven ahora mismo"
+                    >
+                        ↓ Excel ({visibles.length})
+                    </button>
+                </div>
+            )}
+
+            {/* Tabla */}
+            <div className="flex-1 min-h-0 overflow-auto custom-scrollbar">
+                {loading && <p className="text-center text-white/30 text-xs py-10">Cargando expedientes…</p>}
+                {error && <p className="text-center text-red-400 text-xs py-10">{error}</p>}
+                {!loading && !error && rows.length === 0 && (
+                    <p className="text-center text-white/30 text-xs py-10">No hay expedientes asignados.</p>
+                )}
+
+                {!loading && !error && visibles.length > 0 && (
+                    <table className="w-full text-left border-collapse">
+                        <thead className="sticky top-0 bg-bkg-deep z-10">
+                            <tr className="border-b border-white/[0.06]">
+                                {['Expediente', 'Cliente', 'Estado', 'CEE inicial', 'Registrado', 'CEE final', 'Registrado', 'Siguiente paso'].map((h, i) => (
+                                    <th key={`${h}-${i}`} className="pb-2 text-[9px] font-black uppercase tracking-widest text-white/25 whitespace-nowrap pr-4">{h}</th>
+                                ))}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {visibles.map(r => {
+                                const fase = faseActivaDe(r);
+                                const responsableFila = RESPONSABLE[fase];
+                                const fIni = fmtFecha(r.fecha_registro_cee_inicial);
+                                const fFin = fmtFecha(r.fecha_registro_cee_final);
+                                // Solo tiene sentido avisar de la espera si la pelota es del certificador.
+                                const dias = responsableFila === 'CERTIFICADOR' ? diasDesde(r.created_at) : null;
+                                return (
+                                    <tr
+                                        key={r.id}
+                                        onClick={onOpenExpediente ? () => onOpenExpediente(r.id) : undefined}
+                                        className={`border-b border-white/[0.03] transition-colors align-top ${onOpenExpediente ? 'cursor-pointer hover:bg-white/[0.04]' : 'hover:bg-white/[0.02]'}`}
+                                    >
+                                        <td className="py-2.5 pr-4">
+                                            <span className="text-[11px] font-bold text-white whitespace-nowrap">{r.numero_expediente}</span>
+                                            {r.prioridad === 'URGENTE' && <span className="ml-2 text-[9px] font-black text-red-400">⚠</span>}
+                                        </td>
+                                        <td className="py-2.5 pr-4 max-w-[260px]">
+                                            <span className="text-[11px] text-white/60">{r.cliente_nombre || '—'}</span>
+                                            {/* La dirección de la instalación es donde el certificador hace la visita. */}
+                                            {r.direccion && <span className="block text-[9px] text-white/30 leading-snug">{r.direccion}</span>}
+                                            {r.cliente_municipio && <span className="block text-[9px] text-white/25">{r.cliente_municipio}</span>}
+                                        </td>
+                                        <td className="py-2.5 pr-4"><span className="text-[10px] text-white/40 whitespace-nowrap">{r.estado}</span></td>
+                                        <td className="py-2.5 pr-4"><Badge fase={r.cee_inicial} /></td>
+                                        <td className="py-2.5 pr-4">
+                                            {fIni ? <span className="text-[10px] text-white/50 whitespace-nowrap">{fIni}</span> : <span className="text-[10px] text-white/15">—</span>}
+                                        </td>
+                                        <td className="py-2.5 pr-4"><Badge fase={r.cee_final} /></td>
+                                        <td className="py-2.5 pr-4">
+                                            {fFin ? <span className="text-[10px] text-white/50 whitespace-nowrap">{fFin}</span> : <span className="text-[10px] text-white/15">—</span>}
+                                        </td>
+                                        <td className="py-2.5 pr-4 max-w-[220px]">
+                                            {responsableFila ? (
+                                                <>
+                                                    <span className={`block text-[10px] font-black uppercase tracking-wider ${responsableFila === 'CERTIFICADOR' ? 'text-amber-400' : 'text-white/30'}`}>
+                                                        {responsableFila}
+                                                    </span>
+                                                    <span className="block text-[9px] text-white/30 leading-snug">{SIGUIENTE_PASO[fase]}</span>
+                                                    {dias > 30 && <span className="block text-[9px] text-red-400/70">Lleva {dias} días abierto</span>}
+                                                </>
+                                            ) : (
+                                                <span className="text-[10px] font-black uppercase tracking-wider text-emerald-400">Completo</span>
+                                            )}
+                                        </td>
+                                    </tr>
+                                );
+                            })}
+                        </tbody>
+                    </table>
+                )}
+
+                {!loading && !error && rows.length > 0 && visibles.length === 0 && (
+                    <p className="text-center text-white/30 text-xs py-10">Ningún expediente coincide con el filtro.</p>
+                )}
+            </div>
+        </div>
+    );
+}
+
+export function CertificadorResumenModal({ isOpen, onClose, prescriptorId, certificadorNombre }) {
+    if (!isOpen) return null;
 
     return (
         <div className="fixed inset-0 z-[600] flex items-center justify-center bg-black/70 backdrop-blur-sm animate-fade-in p-4">
             <div className="bg-bkg-deep border border-white/10 rounded-2xl w-full max-w-6xl max-h-[88vh] flex flex-col shadow-2xl">
-                {/* Cabecera */}
-                <div className="flex items-start justify-between gap-4 p-6 border-b border-white/[0.06]">
+                <div className="relative flex items-start justify-between gap-4 p-6 border-b border-white/[0.06]">
                     <div>
                         <h3 className="text-sm font-black text-white uppercase tracking-widest">Seguimiento de certificados</h3>
                         <p className="text-[11px] text-white/40 mt-0.5">{certificadorNombre || 'Certificador'}</p>
                     </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                        <button
-                            onClick={() => descargarCsv(visibles, `certificados-${(certificadorNombre || 'certificador').replace(/[^\w-]+/g, '_')}.csv`)}
-                            disabled={!visibles.length}
-                            className="px-3 py-1.5 rounded-lg border border-emerald-500/20 bg-emerald-500/10 text-emerald-400 text-[10px] font-black uppercase tracking-widest hover:bg-emerald-500/20 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
-                            title="Descarga las filas que se ven ahora mismo"
-                        >
-                            ↓ Excel ({visibles.length})
-                        </button>
-                        <button onClick={onClose} className="p-2 text-white/30 hover:text-white transition-colors" title="Cerrar">
-                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                        </button>
-                    </div>
+                    <button onClick={onClose} className="p-2 text-white/30 hover:text-white transition-colors shrink-0" title="Cerrar">
+                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                    </button>
                 </div>
 
-                {/* Contadores */}
-                {!loading && !error && rows.length > 0 && (
-                    <div className="grid grid-cols-2 md:grid-cols-5 gap-3 px-6 pt-5">
-                        {[
-                            { label: 'Expedientes', value: stats.total, color: 'text-white' },
-                            { label: 'En su tejado', value: stats.enCertificador, color: 'text-amber-400' },
-                            { label: 'CEE inicial registrado', value: `${stats.iniRegistrados}/${stats.total}`, color: 'text-emerald-400' },
-                            { label: 'CEE final registrado', value: `${stats.finRegistrados}/${stats.total}`, color: 'text-emerald-400' },
-                            { label: hayFiltro ? 'Facturables (filtro)' : 'Facturables', value: facturables, color: 'text-brand' },
-                        ].map(s => (
-                            <div key={s.label} className="p-3 rounded-xl bg-white/[0.03] border border-white/[0.06]">
-                                <p className="text-[9px] font-black uppercase tracking-widest text-white/30">{s.label}</p>
-                                <p className={`text-lg font-black mt-0.5 ${s.color}`}>{s.value}</p>
-                            </div>
-                        ))}
-                    </div>
-                )}
+                <CertificadorResumenPanel
+                    prescriptorId={prescriptorId}
+                    certificadorNombre={certificadorNombre}
+                />
 
-                {/* Filtros */}
-                {!loading && !error && rows.length > 0 && (
-                    <div className="flex flex-wrap items-center gap-2 px-6 pt-4">
-                        <input
-                            value={busqueda}
-                            onChange={e => setBusqueda(e.target.value)}
-                            placeholder="Buscar expediente, cliente, dirección…"
-                            className="flex-1 min-w-[220px] bg-bkg-surface border border-white/10 rounded-lg px-3 py-1.5 text-[11px] text-white placeholder:text-white/20 focus:outline-none focus:border-brand/40"
-                        />
-                        <select value={faseIni} onChange={e => setFaseIni(e.target.value)} className={selectCls}>
-                            <option value="">CEE inicial: todos</option>
-                            {FASES.map(f => <option key={f} value={f}>{ETIQUETAS[f]}</option>)}
-                        </select>
-                        <select value={faseFin} onChange={e => setFaseFin(e.target.value)} className={selectCls}>
-                            <option value="">CEE final: todos</option>
-                            {FASES.map(f => <option key={f} value={f}>{ETIQUETAS[f]}</option>)}
-                        </select>
-                        <select value={responsable} onChange={e => setResponsable(e.target.value)} className={selectCls}>
-                            <option value="">Falta: todos</option>
-                            <option value="CERTIFICADOR">Certificador</option>
-                            <option value="BROKERGY">Brokergy</option>
-                            <option value="COMPLETO">Completo</option>
-                        </select>
-                        {hayFiltro && (
-                            <button
-                                onClick={() => { setBusqueda(''); setFaseIni(''); setFaseFin(''); setResponsable(''); }}
-                                className="px-2.5 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest text-white/30 hover:text-white transition-colors"
-                            >✕ Limpiar</button>
-                        )}
-                    </div>
-                )}
-
-                {/* Tabla */}
-                <div className="flex-1 overflow-auto custom-scrollbar px-6 py-4">
-                    {loading && <p className="text-center text-white/30 text-xs py-10">Cargando expedientes…</p>}
-                    {error && <p className="text-center text-red-400 text-xs py-10">{error}</p>}
-                    {!loading && !error && rows.length === 0 && (
-                        <p className="text-center text-white/30 text-xs py-10">Este certificador no tiene expedientes asignados.</p>
-                    )}
-
-                    {!loading && !error && visibles.length > 0 && (
-                        <table className="w-full text-left border-collapse">
-                            <thead className="sticky top-0 bg-bkg-deep">
-                                <tr className="border-b border-white/[0.06]">
-                                    {['Expediente', 'Cliente', 'Estado', 'CEE inicial', 'Registrado', 'CEE final', 'Registrado', 'Falta'].map((h, i) => (
-                                        <th key={`${h}-${i}`} className="pb-2 text-[9px] font-black uppercase tracking-widest text-white/25 whitespace-nowrap pr-4">{h}</th>
-                                    ))}
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {visibles.map(r => {
-                                    const fase = faseActivaDe(r);
-                                    const responsableFila = RESPONSABLE[fase];
-                                    const fIni = fmtFecha(r.fecha_registro_cee_inicial);
-                                    const fFin = fmtFecha(r.fecha_registro_cee_final);
-                                    return (
-                                        <tr key={r.id} className="border-b border-white/[0.03] hover:bg-white/[0.02] transition-colors align-top">
-                                            <td className="py-2.5 pr-4">
-                                                <span className="text-[11px] font-bold text-white whitespace-nowrap">{r.numero_expediente}</span>
-                                                {r.prioridad === 'URGENTE' && <span className="ml-2 text-[9px] font-black text-red-400">⚠</span>}
-                                            </td>
-                                            <td className="py-2.5 pr-4 max-w-[260px]">
-                                                <span className="text-[11px] text-white/60">{r.cliente_nombre || '—'}</span>
-                                                {/* La dirección de la instalación es donde el certificador hace la visita. */}
-                                                {r.direccion && <span className="block text-[9px] text-white/30 leading-snug">{r.direccion}</span>}
-                                                {r.cliente_municipio && <span className="block text-[9px] text-white/25">{r.cliente_municipio}</span>}
-                                            </td>
-                                            <td className="py-2.5 pr-4"><span className="text-[10px] text-white/40 whitespace-nowrap">{r.estado}</span></td>
-                                            <td className="py-2.5 pr-4"><Badge fase={r.cee_inicial} /></td>
-                                            <td className="py-2.5 pr-4">
-                                                {fIni
-                                                    ? <span className="text-[10px] text-white/50 whitespace-nowrap">{fIni}</span>
-                                                    : <span className="text-[10px] text-white/15">—</span>}
-                                            </td>
-                                            <td className="py-2.5 pr-4"><Badge fase={r.cee_final} /></td>
-                                            <td className="py-2.5 pr-4">
-                                                {fFin
-                                                    ? <span className="text-[10px] text-white/50 whitespace-nowrap">{fFin}</span>
-                                                    : <span className="text-[10px] text-white/15">—</span>}
-                                            </td>
-                                            <td className="py-2.5 pr-4">
-                                                {responsableFila
-                                                    ? <span className={`text-[10px] font-black uppercase tracking-wider ${responsableFila === 'CERTIFICADOR' ? 'text-amber-400' : 'text-white/30'}`}>{responsableFila}</span>
-                                                    : <span className="text-[10px] font-black uppercase tracking-wider text-emerald-400">Completo</span>}
-                                            </td>
-                                        </tr>
-                                    );
-                                })}
-                            </tbody>
-                        </table>
-                    )}
-
-                    {!loading && !error && rows.length > 0 && visibles.length === 0 && (
-                        <p className="text-center text-white/30 text-xs py-10">Ningún expediente coincide con el filtro.</p>
-                    )}
-                </div>
             </div>
         </div>
     );
