@@ -84,12 +84,14 @@ Un saludo.`.replace(/ ,/g, ',');
     // Si cambian mes/convenio, el listado se regenera → invalida la firma previa de Brokergy.
     useEffect(() => { setProveedorSigned(null); }, [mes, convenioFecha]);
 
-    // Al abrir el envío, sembramos el aviso con el contacto y el texto por defecto.
+    // Al abrir el envío, sembramos el aviso con el contacto y el texto por defecto,
+    // pero DESACTIVADO: enviar un WhatsApp a un tercero se decide a mano en cada
+    // envío (y en pruebas se cambia el número por el propio).
     useEffect(() => {
         if (!sendOpen) return;
         setAvisoWaPhone(soNotifyPhone || '');
         setAvisoWaMsg(avisoWaDefault);
-        setAvisoWaOn(!!soNotifyPhone);
+        setAvisoWaOn(false);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [sendOpen]);
     const sendMsg = `Estimados,\n\nAdjuntamos el Anexo I (Listado de Cesión de Ahorros) del lote ${lote.codigo || ''}, que recoge ${totals.numActuaciones} actuaciones con un ahorro total de ${totals.ahorroMwh.toLocaleString('es-ES', { maximumFractionDigits: 1 })} MWh/año (${totals.ahorroGwh.toLocaleString('es-ES', { maximumFractionDigits: 2 })} GWh/año), junto con las fichas técnicas RES de cada actuación y la solicitud de verificación.\n\nRogamos procedan a su firma con el certificado electrónico del representante legal. Pueden firmar todo en cadena desde el enlace que incluimos más abajo (Autofirma), sin descargar ni volver a subir nada. Quedamos a su disposición para cualquier aclaración.\n\nUn saludo,\nBROKERGY · Ingeniería Energética`;
@@ -194,25 +196,48 @@ Un saludo.`.replace(/ ,/g, ',');
                 <p className="mt-1 text-[9px] text-white/25">Se adjunta al email y entra en la firma en cadena del S.O.</p>
             </div>
 
-            {/* Aviso por WhatsApp al interlocutor del S.O., además del email. */}
+            {/* Aviso por WhatsApp, además del email. Desactivado por defecto y con el
+                número siempre editable: en pruebas se pone el propio. */}
             <div>
                 <label className="flex items-center gap-2 cursor-pointer mb-2">
-                    <input type="checkbox" checked={avisoWaOn} onChange={e => setAvisoWaOn(e.target.checked)} disabled={!soNotifyPhone} className="w-4 h-4 accent-emerald-500" />
+                    <input type="checkbox" checked={avisoWaOn} onChange={e => setAvisoWaOn(e.target.checked)} className="w-4 h-4 accent-emerald-500" />
                     <span className="text-[9px] font-black text-white/30 uppercase tracking-[0.2em]">
                         Avisar por WhatsApp {contactoPrincipal?.nombre ? `a ${contactoPrincipal.nombre}` : ''}
                     </span>
                 </label>
-                {!soNotifyPhone && (
-                    <p className="text-[10px] text-amber-400/80">El S.O. no tiene teléfono de contacto en su ficha.</p>
-                )}
-                {avisoWaOn && soNotifyPhone && (
+
+                {avisoWaOn && (
                     <>
-                        <input
-                            type="tel"
-                            value={avisoWaPhone}
-                            onChange={e => setAvisoWaPhone(e.target.value)}
-                            className="w-full bg-black/30 border border-white/10 rounded-xl px-3 py-2 text-[11px] text-white mb-2 focus:outline-none focus:border-emerald-500/40"
-                        />
+                        <div className="flex items-center gap-2 mb-2">
+                            <input
+                                type="tel"
+                                value={avisoWaPhone}
+                                onChange={e => setAvisoWaPhone(e.target.value)}
+                                placeholder="Teléfono destino (ej. 600 000 000)"
+                                className="flex-1 min-w-0 bg-black/30 border border-white/10 rounded-xl px-3 py-2 text-[11px] text-white placeholder:text-white/20 focus:outline-none focus:border-emerald-500/40"
+                            />
+                            {soNotifyPhone && avisoWaPhone.trim() !== soNotifyPhone && (
+                                <button type="button" onClick={() => setAvisoWaPhone(soNotifyPhone)}
+                                    className="shrink-0 px-2.5 py-2 rounded-xl border border-white/10 text-[9px] font-black uppercase tracking-widest text-white/40 hover:text-white transition-colors"
+                                    title={`Restaurar el teléfono del S.O. (${soNotifyPhone})`}>
+                                    ↺ S.O.
+                                </button>
+                            )}
+                        </div>
+
+                        {/* Avisa de a quién va a llegar de verdad el mensaje. */}
+                        {avisoWaPhone.trim() && soNotifyPhone && avisoWaPhone.trim() !== soNotifyPhone ? (
+                            <p className="mb-2 text-[10px] text-amber-400/80">
+                                Se enviará a {avisoWaPhone.trim()}, no al contacto del S.O.
+                            </p>
+                        ) : (
+                            <p className="mb-2 text-[10px] text-white/25">
+                                {soNotifyPhone
+                                    ? `Se enviará a ${contactoPrincipal?.nombre || 'el contacto del S.O.'} (${soNotifyPhone}).`
+                                    : 'El S.O. no tiene teléfono en su ficha: escribe el destino a mano.'}
+                            </p>
+                        )}
+
                         <textarea
                             value={avisoWaMsg}
                             onChange={e => setAvisoWaMsg(e.target.value)}
