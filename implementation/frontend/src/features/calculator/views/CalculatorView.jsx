@@ -20,6 +20,8 @@ import {
     AEROTHERMIA_MODELS
 } from '../logic/calculation';
 import { ceeToEmisionesInputs } from '../logic/ceeSeed';
+import { calculateRes060FC } from '../logic/res060fc';
+import { Res060FCModal } from '../components/Res060FCModal';
 import axios from 'axios';
 
 const INITIAL_INPUTS = {
@@ -388,6 +390,10 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
     // resultados abran el MISMO modal.
     const [showEficiencia, setShowEficiencia] = useState(false);
 
+    // Popup de desglose de la ficha RES060FC: se abre desde las cifras FC de la barra
+    // fija y desde la tarjeta de comparativa del panel de resultados.
+    const [showRes060FCDetail, setShowRes060FCDetail] = useState(false);
+
     const handleCalculate = () => {
         // Se eliminó la alerta bloqueante para permitir actualización fluida de cálculos en tiempo real
 
@@ -523,6 +529,53 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
             aplicarIrpfCae: inputs.aplicarIrpfCae === true || inputs.aplicarIrpfCae === 'true',
             includeIVA: inputs.includeIVA === true || inputs.includeIVA === 'true'
         });
+
+        // 3.5 Ficha RES060FC (propuesta de nueva normativa) — comparativa en tiempo real.
+        // Usa la demanda del ANEXO IV (provincia + año + tipología), el MISMO η/SCOP que
+        // el cálculo actual, y CEF = consumo de energía final previo ya calculado.
+        // La superficie es la misma que aplica el cálculo vigente (CEE si hay, si no la calefactable).
+        const supRes060FC = sanitizedInputs.manualSuperficie > 0
+            ? sanitizedInputs.manualSuperficie
+            : (sanitizedInputs.superficieCalefactable || sanitizedInputs.superficie);
+        const res060fcData = calculateRes060FC({
+            provinciaCode: inputs.provincia || inputs.provinceCode,
+            anio: sanitizedInputs.anio || inputs.anio,
+            tipo: sanitizedInputs.tipo,
+            superficie: supRes060FC,
+            boilerEff: sanitizedInputs.boilerEff,
+            scopHeating: sanitizedInputs.scopHeating,
+            scopAcs: sanitizedInputs.scopAcs,
+            changeAcs: sanitizedInputs.changeAcs,
+            dacs: sanitizedInputs.dacs,
+            cef: savingsRes.finalEnergyOld,
+        });
+
+        // Financieros RES060FC con las mismas reglas (precio CAE, prescriptor, IVA...)
+        // para que el bono y el beneficio sean directamente comparables al RES060 actual.
+        let financialsRes060FC = null;
+        if (res060fcData && res060fcData.cae > 0) {
+            financialsRes060FC = calculateFinancials({
+                presupuesto: sanitizedInputs.presupuesto,
+                presupuestoFotovoltaica: sanitizedInputs.presupuestoFotovoltaica,
+                savingsKwh: res060fcData.cae,
+                caePriceClient: sanitizedInputs.caePriceClient,
+                caePriceSO: sanitizedInputs.caePriceSO,
+                caePricePrescriptor: inputs.includeCommission ? sanitizedInputs.caePricePrescriptor : 0,
+                prescriptorMode: sanitizedInputs.prescriptorMode,
+                tipo: sanitizedInputs.tipo,
+                participation: sanitizedInputs.participation,
+                numOwners: sanitizedInputs.numOwners,
+                discountCertificates: sanitizedInputs.discountCertificates,
+                includeLegalization: sanitizedInputs.includeLegalization,
+                installerNoCard: sanitizedInputs.installerNoCard,
+                legalizationPrice: sanitizedInputs.legalizationPrice,
+                itpPercent: sanitizedInputs.itpPercent,
+                includeIrpf: inputs.includeIrpf,
+                titularType: inputs.titularType || 'particular',
+                aplicarIrpfCae: inputs.aplicarIrpfCae === true || inputs.aplicarIrpfCae === 'true',
+                includeIVA: inputs.includeIVA === true || inputs.includeIVA === 'true'
+            });
+        }
 
         // 4. Cálculos de Ahorro Anual (€)
         let annualSavingsRes;
@@ -661,6 +714,8 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
             payback: paybackRes,
             res080: res080Data,
             financialsRes080: financialsRes080,
+            res060fc: res060fcData,
+            financialsRes060FC: financialsRes060FC,
             includeAnnualSavings: inputs.includeAnnualSavings,
             discountCertificates: inputs.discountCertificates,
             discountLegalization: inputs.discountLegalization,
@@ -704,6 +759,16 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
                                         <span className={`text-[8px] font-bold uppercase tracking-[0.18em] mt-1 relative ${showDual ? 'text-amber-400/45' : 'text-brand/60'}`}>
                                             {showDual ? 'Bono Aero' : 'CAE Cliente'}
                                         </span>
+                                        {showBrokergy && result.financialsRes060FC && (
+                                            <button
+                                                type="button"
+                                                onClick={() => setShowRes060FCDetail(true)}
+                                                title="Ver desglose de la ficha RES060FC"
+                                                className="relative mt-0.5 text-[10px] md:text-[11px] font-black text-violet-400 tabular-nums leading-none hover:text-violet-300 transition-colors cursor-pointer"
+                                            >
+                                                FC {fmt(result.financialsRes060FC.caeBonus)} €
+                                            </button>
+                                        )}
                                     </div>
                                 )}
 
@@ -737,6 +802,16 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
                                             <span className="text-xs font-bold text-emerald-400/50 ml-1">€</span>
                                         </div>
                                         <span className="text-[8px] font-bold text-emerald-400/40 uppercase tracking-[0.18em] mt-1 relative">CAE Brokergy</span>
+                                        {result.financialsRes060FC?.profitBrokergy !== undefined && (
+                                            <button
+                                                type="button"
+                                                onClick={() => setShowRes060FCDetail(true)}
+                                                title="Ver desglose de la ficha RES060FC"
+                                                className="relative mt-0.5 text-[10px] md:text-[11px] font-black text-violet-400 tabular-nums leading-none hover:text-violet-300 transition-colors cursor-pointer"
+                                            >
+                                                FC {fmt(result.financialsRes060FC.profitBrokergy)} €
+                                            </button>
+                                        )}
                                     </div>
                                 )}
 
@@ -769,6 +844,16 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
                                         <span className={`text-[8px] font-bold uppercase tracking-[0.18em] mt-1 relative ${showDual ? 'text-amber-300/35' : 'text-white/25'}`}>
                                             {showDual ? 'Ahorro Aero' : 'Ahorro'}
                                         </span>
+                                        {result.res060fc && result.res060fc.cae > 0 && (
+                                            <button
+                                                type="button"
+                                                onClick={() => setShowRes060FCDetail(true)}
+                                                title="Ver desglose de la ficha RES060FC"
+                                                className="relative mt-0.5 text-[10px] md:text-[11px] font-black text-violet-400 tabular-nums leading-none hover:text-violet-300 transition-colors cursor-pointer"
+                                            >
+                                                FC {fmtMwh(result.res060fc.cae)} MWh/a
+                                            </button>
+                                        )}
                                     </div>
                                 )}
 
@@ -906,6 +991,7 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
                         showBrokergy={showBrokergy}
                         showEficiencia={showEficiencia}
                         setShowEficiencia={setShowEficiencia}
+                        onOpenRes060FCDetail={() => setShowRes060FCDetail(true)}
                         onAcceptOpportunity={['ENVIADA', 'PTE ENVIAR'].includes(inputs.estado?.toUpperCase()) && !associatedExpediente ? () => {
                             setManualExpNumber('');
                             setIsManualMode(false);
@@ -915,6 +1001,14 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
                     />
                 </div>
             </div>
+
+            {/* Popup de desglose RES060FC (estilo prototipo) */}
+            <Res060FCModal
+                isOpen={showRes060FCDetail}
+                onClose={() => setShowRes060FCDetail(false)}
+                result={result}
+                inputs={inputs}
+            />
 
             {/* Accept Opportunity Modal */}
             {showAcceptModal && (

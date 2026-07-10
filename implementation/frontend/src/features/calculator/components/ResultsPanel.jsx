@@ -12,6 +12,7 @@ import { ClienteFormModal } from '../../clientes/components/ClienteFormModal';
 import { ClienteDetailModal } from '../../clientes/components/ClienteDetailModal';
 import { generateBrokergyReport } from '../logic/pdfGenerator';
 import { calculateSavings, calculateFinancials, calculateRes080FromEmissions, calculateRes080Estimated, getFactorPaso } from '../logic/calculation';
+import { PROVINCE_CLIMATE_MAP } from '../data/provinceMapping';
 import { EfficiencyTable } from './EfficiencyTable';
 import ComparativaCeeModal from '../../cee/ComparativaCeeModal';
 import CeeUploadModal from '../../cee/CeeUploadModal';
@@ -237,7 +238,7 @@ function ResultCard({ title, value, unit, subtext, color = 'cyan' }) {
     );
 }
 
-export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAcceptOpportunity, showEficiencia, setShowEficiencia }) {
+export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAcceptOpportunity, showEficiencia, setShowEficiencia, onOpenRes060FCDetail }) {
     const { user } = useAuth();
     const { showAlert } = useModal();
     const [showComparative, setShowComparative] = React.useState(false);
@@ -1027,6 +1028,149 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
                                     </div>
                                 )}
                             </div>
+
+                            {/* ── Ficha RES060FC (propuesta de nueva normativa) — comparativa en tiempo real ── */}
+                            {showBrokergy && (() => {
+                                const fc = result.res060fc;
+                                const provSelect = (
+                                    <select
+                                        value={inputs.provincia || ''}
+                                        onChange={e => {
+                                            const code = e.target.value;
+                                            onInputChange(prev => ({
+                                                ...prev,
+                                                provincia: code,
+                                                // Igual que el formulario: la provincia fija la zona climática
+                                                zona: PROVINCE_CLIMATE_MAP[code]?.zone || prev.zona,
+                                            }));
+                                        }}
+                                        className="bg-slate-900 border border-violet-500/30 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-violet-400"
+                                    >
+                                        <option value="">— Provincia —</option>
+                                        {Object.entries(PROVINCE_CLIMATE_MAP)
+                                            .sort((a, b) => a[1].name.localeCompare(b[1].name))
+                                            .map(([code, data]) => (
+                                                <option key={code} value={code}>{data.name}</option>
+                                            ))}
+                                    </select>
+                                );
+
+                                if (!fc) {
+                                    return (
+                                        <div className="mt-4 glass-card overflow-hidden border-violet-500/30">
+                                            <div className="bg-violet-900/40 py-2 px-4 border-b border-violet-500/20 flex items-center gap-2">
+                                                <div className="w-2 h-2 rounded-full bg-violet-400"></div>
+                                                <span className="text-xs font-bold uppercase tracking-wider text-violet-300">Ficha RES060FC · Nueva normativa (propuesta)</span>
+                                            </div>
+                                            <div className="p-4 flex flex-col sm:flex-row items-start sm:items-center gap-3">
+                                                <p className="text-xs text-slate-400 flex-1 leading-relaxed">
+                                                    Para simular el cálculo con la nueva ficha <b className="text-violet-300">RES060FC</b> hace falta la <b>provincia</b> (la demanda sale del Anexo IV por provincia y año de construcción). Selecciónala:
+                                                </p>
+                                                {provSelect}
+                                            </div>
+                                        </div>
+                                    );
+                                }
+
+                                if (fc.noAnexoData) {
+                                    return (
+                                        <div className="mt-4 glass-card overflow-hidden border-violet-500/30">
+                                            <div className="bg-violet-900/40 py-2 px-4 border-b border-violet-500/20 flex items-center gap-2">
+                                                <div className="w-2 h-2 rounded-full bg-violet-400"></div>
+                                                <span className="text-xs font-bold uppercase tracking-wider text-violet-300">Ficha RES060FC · Nueva normativa (propuesta)</span>
+                                            </div>
+                                            <div className="p-4 flex flex-col sm:flex-row items-start sm:items-center gap-3">
+                                                <p className="text-xs text-slate-400 flex-1 leading-relaxed">
+                                                    El Anexo IV del borrador <b>no publica demanda</b> para <b className="text-white">{fc.provinciaNombre}</b> (Canarias, Ceuta y Melilla), así que no se puede calcular la ficha RES060FC aquí.
+                                                </p>
+                                                {provSelect}
+                                            </div>
+                                        </div>
+                                    );
+                                }
+
+                                const actKwh = result.savings?.savingsKwh || 0;
+                                const actEur = result.financials?.caeBonus || 0;
+                                const fcKwh = fc.cae;
+                                const fcEur = result.financialsRes060FC?.caeBonus || 0;
+                                const mx = Math.max(fcKwh, actKwh, 1);
+                                const ratio = actKwh > 0 ? fcKwh / actKwh : 0;
+                                const diffEur = fcEur - actEur;
+
+                                return (
+                                    <div className="mt-4 glass-card overflow-hidden border-violet-500/30 shadow-[0_0_20px_rgba(139,92,246,0.1)]">
+                                        <div className="bg-violet-900/40 py-2 px-4 border-b border-violet-500/20 flex items-center justify-between gap-2 flex-wrap">
+                                            <div className="flex items-center gap-2">
+                                                <div className="w-2 h-2 rounded-full bg-violet-400"></div>
+                                                <span className="text-xs font-bold uppercase tracking-wider text-violet-300">Ficha RES060FC · Nueva normativa (propuesta)</span>
+                                            </div>
+                                            <div className="flex items-center gap-2 flex-wrap">
+                                                <span className={`px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest ${fc.limitedByTope
+                                                    ? 'bg-orange-500/20 text-orange-300 border border-orange-500/30'
+                                                    : 'bg-lime-500/20 text-lime-300 border border-lime-500/30'}`}>
+                                                    {fc.limitedByTope ? 'Tope 70%·CEF (manda el consumo real)' : 'Techo técnico (demanda/η/SCOP)'}
+                                                </span>
+                                                {onOpenRes060FCDetail && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={onOpenRes060FCDetail}
+                                                        className="px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest bg-violet-500/20 text-violet-200 border border-violet-400/40 hover:bg-violet-500/35 transition-all cursor-pointer"
+                                                    >
+                                                        🔍 Ver desglose
+                                                    </button>
+                                                )}
+                                            </div>
+                                        </div>
+                                        <div className="p-4 space-y-4">
+                                            {/* Comparativa en tiempo real: RES060FC vs RES060 actual */}
+                                            <div className="space-y-3">
+                                                <div className="flex justify-between items-baseline gap-3">
+                                                    <span className="text-[10px] font-black uppercase tracking-widest text-violet-300">RES060FC (propuesta)</span>
+                                                    <span className="flex items-baseline gap-2">
+                                                        <span className="text-2xl font-black text-violet-300 tabular-nums">{formatNumber(fcKwh, 0)} <span className="text-[10px] font-bold text-violet-400/60 uppercase">kWh/año</span></span>
+                                                        <span className="text-sm font-bold text-violet-200 tabular-nums">{formatNumber(fcEur, 0)} €</span>
+                                                    </span>
+                                                </div>
+                                                <div className="h-3 rounded-full bg-white/10 overflow-hidden">
+                                                    <div className="h-full rounded-full bg-gradient-to-r from-violet-500 to-fuchsia-400 transition-all duration-300" style={{ width: `${(100 * fcKwh / mx)}%` }}></div>
+                                                </div>
+                                                <div className="flex justify-between items-baseline gap-3">
+                                                    <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">RES060 actual</span>
+                                                    <span className="flex items-baseline gap-2">
+                                                        <span className="text-xl font-black text-white/80 tabular-nums">{formatNumber(actKwh, 0)} <span className="text-[10px] font-bold text-white/40 uppercase">kWh/año</span></span>
+                                                        <span className="text-sm font-bold text-white/60 tabular-nums">{formatNumber(actEur, 0)} €</span>
+                                                    </span>
+                                                </div>
+                                                <div className="h-3 rounded-full bg-white/10 overflow-hidden">
+                                                    <div className="h-full rounded-full bg-slate-500 transition-all duration-300" style={{ width: `${(100 * actKwh / mx)}%` }}></div>
+                                                </div>
+                                            </div>
+
+                                            <div className={`flex items-center justify-center gap-3 p-3 rounded-xl ${diffEur >= 0 ? 'bg-violet-500/10 border border-violet-500/20' : 'bg-red-500/10 border border-red-500/20'}`}>
+                                                <span className={`text-2xl font-black tabular-nums ${diffEur >= 0 ? 'text-violet-300' : 'text-red-400'}`}>{ratio > 0 ? `${formatNumber(ratio, 2)}×` : '—'}</span>
+                                                <span className="text-[10px] font-bold uppercase tracking-widest text-white/50 leading-tight">
+                                                    {diffEur >= 0 ? 'más bono con la ficha nueva' : 'menos bono con la ficha nueva'}<br />
+                                                    <span className={diffEur >= 0 ? 'text-violet-300' : 'text-red-400'}>{diffEur >= 0 ? '+' : ''}{formatNumber(diffEur, 0)} € · {formatNumber(fcKwh - actKwh, 0)} kWh/año</span>
+                                                </span>
+                                            </div>
+
+                                            {/* Desglose del cálculo */}
+                                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-2 text-[11px] pt-1 border-t border-white/5">
+                                                <div className="flex justify-between gap-2 pt-2"><span className="text-slate-500">Anexo IV ({fc.provinciaNombre})</span><span className="text-white/70 font-mono">{formatNumber(fc.q, 1)} kWh/m²</span></div>
+                                                <div className="flex justify-between gap-2 pt-2"><span className="text-slate-500">Demanda ({fc.yearLabel})</span><span className="text-white/70 font-mono">{formatNumber(fc.dem, 0)} kWh</span></div>
+                                                <div className="flex justify-between gap-2 pt-2"><span className="text-slate-500">η caldera / f_C</span><span className="text-white/70 font-mono">{formatNumber(fc.eta * 100, 0)}% / {formatNumber(fc.fc, 1)}</span></div>
+                                                <div className="flex justify-between gap-2 pt-2"><span className="text-slate-500">AES (techo técnico)</span><span className="text-white/70 font-mono">{formatNumber(fc.aes, 0)} kWh</span></div>
+                                                <div className="flex justify-between gap-2 pt-2"><span className="text-slate-500">Tope 0,70·CEF</span><span className="text-white/70 font-mono">{formatNumber(fc.tope, 0)} kWh</span></div>
+                                                <div className="flex justify-between gap-2 pt-2"><span className="text-slate-500">Tipología</span><span className="text-white/70 font-mono">{fc.tipologiaLabel}</span></div>
+                                            </div>
+
+                                            <p className="text-[10px] text-slate-500 italic leading-relaxed">
+                                                AE = mín(AES; 0,70·CEF) × f_C, con demanda del Anexo IV por provincia/año y el mismo η y SCOP que el cálculo actual. CEF = consumo previo estimado ({formatNumber(fc.cef, 0)} kWh/año). Borrador en consulta pública: puede cambiar.
+                                            </p>
+                                        </div>
+                                    </div>
+                                );
+                            })()}
                             </div>
                         </div>
                     )}

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { Res060FCModal } from '../../calculator/components/Res060FCModal';
 
 // ─── Umbrales del aviso de margen tras verificación ───────────────────────────
 // El ahorro VERIFICADO (verificador, p. ej. Marwen) es un campo manual independiente
@@ -8,17 +9,45 @@ const MIN_MARGEN = 500;        // € — margen verificado mínimo aceptable
 const MARGEN_DROP_PCT = 15;    // % — caída de margen (estimado → verificado) que avisa
 const AHORRO_DELTA_PCT = 10;   // % — variación de ahorro que pide revisar la liquidación
 
+// Fila de referencia compacta (Verificado / Propuesta / RES060FC) bajo el valor
+// principal. Etiqueta con color a la izquierda y valor a la derecha. `onClick`
+// la hace pulsable (RES060FC → popup; Verificado editable → empezar edición).
+const RefRow = ({ labelText, labelClass, children, onClick, clickable, title, trailing }) => {
+    const Comp = clickable ? 'button' : 'div';
+    return (
+        <Comp
+            type={clickable ? 'button' : undefined}
+            onClick={clickable ? onClick : undefined}
+            onDoubleClick={clickable ? (e) => e.stopPropagation() : undefined}
+            title={title}
+            className={`w-full flex items-center justify-between gap-2 ${clickable ? 'group/ref cursor-pointer' : ''}`}
+        >
+            <span className={`text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded ${labelClass}`}>{labelText}</span>
+            <span className="flex items-center gap-1 min-w-0">
+                {children}
+                {trailing}
+            </span>
+        </Comp>
+    );
+};
+
 // Movido fuera para evitar que React desmonte el componente en cada renderizado de ResumenEconomicoExpediente
-const Metric = ({ label, value, sub, icon, color = 'text-white', tag, proposalValue, proposalDiff, verified, onDoubleClick, isEditingVal, editValue, onEditChange, handleKeyDown, handleSaveLocal, onCancel, inputRef }) => (
+const Metric = ({ label, value, sub, icon, color = 'text-white', chip = 'bg-white/10', accentBar = 'bg-white/30', tag, proposalValue, proposalDiff, verified, fc, onDoubleClick, isEditingVal, editValue, onEditChange, handleKeyDown, handleSaveLocal, onCancel, inputRef }) => {
+    const hasVerifiedRow = verified && (verified.value != null || verified.editable);
+    const hasRefs = hasVerifiedRow || proposalValue != null || (fc && fc.value != null);
+    return (
     <div
-        className={`flex-1 min-w-[220px] p-5 md:min-w-[190px] md:p-3.5 border-r border-white/5 last:border-0 group hover:bg-white/[0.02] transition-colors relative max-md:min-w-0 max-md:p-3 max-md:border-0 max-md:rounded-xl max-md:bg-white/[0.03] ${onDoubleClick && !isEditingVal ? 'cursor-pointer' : ''}`}
+        className={`flex-1 min-w-[220px] p-5 md:min-w-[190px] md:px-4 md:py-2 border-r border-white/5 last:border-0 group hover:bg-white/[0.02] transition-colors relative overflow-hidden max-md:min-w-0 max-md:p-3 max-md:border-0 max-md:rounded-xl max-md:bg-white/[0.03] ${onDoubleClick && !isEditingVal ? 'cursor-pointer' : ''}`}
         onDoubleClick={isEditingVal ? null : onDoubleClick}
     >
-        <div className="flex items-center gap-2 mb-2 max-md:mb-1">
-            <span className="text-white/30 group-hover:text-brand/50 transition-colors">{icon}</span>
-            <span className="text-[11px] font-black uppercase tracking-widest text-white/35 max-md:text-[10px]">{label}</span>
+        {/* Acento superior de color por métrica */}
+        <div className={`absolute top-0 left-4 right-4 h-[3px] rounded-full ${accentBar} opacity-70 group-hover:opacity-100 transition-opacity max-md:left-3 max-md:right-3`} />
+
+        <div className="flex items-center gap-2 mb-1 max-md:mb-1.5">
+            <span className={`w-6 h-6 rounded-lg flex items-center justify-center shrink-0 ${chip} ${color}`}>{icon}</span>
+            <span className="text-[11px] font-black uppercase tracking-widest text-white/40 max-md:text-[10px] leading-tight">{label}</span>
             {tag && (
-                <span className={`ml-auto text-[7px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full border ${tag.tone === 'ok' ? 'text-amber-400 bg-amber-400/10 border-amber-400/30' : 'text-white/30 bg-white/[0.04] border-white/10'}`}>
+                <span className={`ml-auto text-[7px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full border whitespace-nowrap ${tag.tone === 'ok' ? 'text-amber-400 bg-amber-400/10 border-amber-400/30' : 'text-white/35 bg-white/[0.04] border-white/10'}`}>
                     {tag.text}
                 </span>
             )}
@@ -65,85 +94,110 @@ const Metric = ({ label, value, sub, icon, color = 'text-white', tag, proposalVa
                 </button>
             </div>
         ) : (
-            <div className={`text-3xl md:text-2xl font-black tracking-tight leading-none ${color} flex items-baseline gap-1.5 max-md:text-2xl`}>
+            <div className={`text-[26px] md:text-[23px] font-black tracking-tight leading-none ${color} flex items-baseline gap-1.5 max-md:text-2xl`}>
                 {value}
                 {onDoubleClick && (
-                    <svg className="w-4 h-4 text-white/10 group-hover:text-brand/40 transition-colors max-md:w-3.5 max-md:h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <svg className="w-4 h-4 text-white/10 group-hover:text-brand/50 transition-colors max-md:w-3.5 max-md:h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
                     </svg>
                 )}
             </div>
         )}
 
-        {sub && <div className="text-[11px] font-bold text-white/25 uppercase tracking-tight mt-1.5 max-md:hidden">{sub}</div>}
+        {sub && <div className="text-[10px] font-bold text-white/30 uppercase tracking-tight mt-1 max-md:hidden">{sub}</div>}
 
-        {/* Línea VERIFICADO: dato manual e independiente del estimado (read-only en
-            Ayuda/Ganancia; editable en Volumen). */}
-        {verified && (verified.value != null || verified.editable) && (
-            <div className="flex items-center gap-1.5 mt-1.5 pt-1.5 border-t border-white/[0.04]" title="Ahorro verificado por el verificador (dato manual). Base del pago real al cliente y del margen.">
-                {verified.editable && verified.isEditing ? (
-                    <div className="flex items-center gap-1.5 w-full" onClick={e => e.stopPropagation()} onDoubleClick={e => e.stopPropagation()}>
-                        <span className="text-[8px] font-black uppercase tracking-widest text-amber-400/70">Verificado</span>
-                        <input
-                            ref={verified.inputRef}
-                            type="number"
-                            step="1"
-                            value={verified.editValue}
-                            onChange={e => verified.onChange(e.target.value)}
-                            onKeyDown={verified.onKeyDown}
-                            className="bg-bkg-elevated border border-amber-400/50 rounded px-1.5 py-0.5 text-xs font-black text-amber-300 w-20 focus:outline-none focus:ring-2 focus:ring-amber-400/20"
-                        />
-                        <span className="text-[8px] font-black text-amber-400/50 uppercase tracking-tighter">kWh</span>
-                        <button type="button" onClick={(e) => { e.stopPropagation(); verified.onSave(); }} className="p-1 text-amber-400 hover:scale-110 active:scale-95 transition-all" title="Aceptar">
-                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
-                        </button>
-                        <button type="button" onClick={(e) => { e.stopPropagation(); verified.onCancel(); }} className="p-1 text-white/30 hover:text-white transition-all" title="Cancelar">
-                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                        </button>
-                    </div>
-                ) : (
-                    <button
-                        type="button"
-                        onClick={verified.editable ? (e) => { e.stopPropagation(); verified.onStart(); } : undefined}
-                        className={`flex items-center gap-1.5 group/v ${verified.editable ? 'cursor-pointer' : 'cursor-default'}`}
+        {/* Bloque de referencias: Verificado / Propuesta / RES060FC agrupados bajo
+            un único separador, cada uno con etiqueta de color a la izquierda. */}
+        {hasRefs && (
+            <div className="mt-1.5 pt-1.5 border-t border-white/[0.07] space-y-0.5">
+                {/* VERIFICADO: dato manual (read-only en Ayuda/Ganancia; editable en Volumen). */}
+                {hasVerifiedRow && (
+                    verified.editable && verified.isEditing ? (
+                        <div className="flex items-center gap-1.5" onClick={e => e.stopPropagation()} onDoubleClick={e => e.stopPropagation()}>
+                            <span className="text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded bg-amber-400/10 text-amber-400/90">Verif.</span>
+                            <input
+                                ref={verified.inputRef}
+                                type="number"
+                                step="1"
+                                value={verified.editValue}
+                                onChange={e => verified.onChange(e.target.value)}
+                                onKeyDown={verified.onKeyDown}
+                                className="bg-bkg-elevated border border-amber-400/50 rounded px-1.5 py-0.5 text-xs font-black text-amber-300 w-20 focus:outline-none focus:ring-2 focus:ring-amber-400/20"
+                            />
+                            <span className="text-[8px] font-black text-amber-400/50 uppercase tracking-tighter">kWh</span>
+                            <button type="button" onClick={(e) => { e.stopPropagation(); verified.onSave(); }} className="p-1 text-amber-400 hover:scale-110 active:scale-95 transition-all ml-auto" title="Aceptar">
+                                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
+                            </button>
+                            <button type="button" onClick={(e) => { e.stopPropagation(); verified.onCancel(); }} className="p-1 text-white/30 hover:text-white transition-all" title="Cancelar">
+                                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                            </button>
+                        </div>
+                    ) : (
+                        <RefRow
+                            labelText="Verificado"
+                            labelClass="bg-amber-400/10 text-amber-400/90"
+                            clickable={!!verified.editable}
+                            onClick={verified.editable ? (e) => { e.stopPropagation(); verified.onStart(); } : undefined}
+                            title="Ahorro verificado por el verificador (dato manual). Base del pago real al cliente y del margen."
+                            trailing={verified.editable ? (
+                                <svg className="w-3 h-3 text-white/15 group-hover/ref:text-amber-400/60 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                                </svg>
+                            ) : null}
+                        >
+                            {verified.value != null ? (
+                                <span className={`text-[11px] font-bold tracking-tight tabular-nums ${verified.diff ? 'text-amber-300' : 'text-white/60'}`}>{verified.value}</span>
+                            ) : (
+                                <span className="text-[11px] font-bold text-white/35 italic">añadir…</span>
+                            )}
+                        </RefRow>
+                    )
+                )}
+
+                {/* PROPUESTA: valor presentado al cliente en la oportunidad. */}
+                {proposalValue != null && (
+                    <RefRow
+                        labelText="Propuesta"
+                        labelClass="bg-white/[0.06] text-white/45"
+                        title="Valor que se presentó al cliente en la oportunidad"
+                        trailing={proposalDiff ? (
+                            <svg className="w-3 h-3 text-amber-400/70 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 9v2m0 4h.01M5.07 19h13.86c1.54 0 2.5-1.67 1.73-3L13.73 4a2 2 0 00-3.46 0L3.34 16c-.77 1.33.19 3 1.73 3z" />
+                            </svg>
+                        ) : null}
                     >
-                        <span className="text-[8px] font-black uppercase tracking-widest text-amber-400/70">Verificado</span>
-                        {verified.value != null ? (
-                            <span className={`text-[11px] font-bold tracking-tight ${verified.diff ? 'text-amber-300' : 'text-white/55'}`}>{verified.value}</span>
-                        ) : (
-                            <span className="text-[11px] font-bold text-white/30 italic">añadir…</span>
-                        )}
-                        {verified.editable && (
-                            <svg className="w-3 h-3 text-white/15 group-hover/v:text-amber-400/60 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                        <span className={`text-[11px] font-bold tracking-tight tabular-nums ${proposalDiff ? 'text-amber-400/90' : 'text-white/50'}`}>{proposalValue}</span>
+                    </RefRow>
+                )}
+
+                {/* RES060FC: proyección de la nueva normativa. Clic → popup de desglose. */}
+                {fc && fc.value != null && (
+                    <RefRow
+                        labelText="RES060FC"
+                        labelClass="bg-violet-400/10 text-violet-300"
+                        clickable
+                        onClick={(e) => { e.stopPropagation(); fc.onClick && fc.onClick(); }}
+                        title="Ver desglose de la ficha RES060FC (propuesta de nueva normativa)"
+                        trailing={(
+                            <svg className="w-3 h-3 text-violet-400/50 group-hover/ref:text-violet-300 transition-colors shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                             </svg>
                         )}
-                    </button>
-                )}
-            </div>
-        )}
-
-        {proposalValue != null && (
-            <div className="flex items-center gap-1.5 mt-1.5 pt-1.5 border-t border-white/[0.04]" title="Valor que se presentó al cliente en la oportunidad">
-                <span className="text-[8px] font-black uppercase tracking-widest text-white/25">Propuesta</span>
-                <span className={`text-[11px] font-bold tracking-tight ${proposalDiff ? 'text-amber-400/80' : 'text-white/45'}`}>
-                    {proposalValue}
-                </span>
-                {proposalDiff && (
-                    <svg className="w-3 h-3 text-amber-400/70" fill="none" viewBox="0 0 24 24" stroke="currentColor" title="Difiere del dato actual del expediente">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 9v2m0 4h.01M5.07 19h13.86c1.54 0 2.5-1.67 1.73-3L13.73 4a2 2 0 00-3.46 0L3.34 16c-.77 1.33.19 3 1.73 3z" />
-                    </svg>
+                    >
+                        <span className="text-[11px] font-bold tracking-tight tabular-nums text-violet-300">{fc.value}</span>
+                    </RefRow>
                 )}
             </div>
         )}
 
         {onDoubleClick && !isEditingVal && (
-            <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity bg-brand/10 text-brand text-[8px] font-black uppercase px-2 py-0.5 rounded-full border border-brand/20 backdrop-blur-sm">
+            <div className="absolute top-2.5 right-2.5 opacity-0 group-hover:opacity-100 transition-opacity bg-brand/10 text-brand text-[8px] font-black uppercase px-2 py-0.5 rounded-full border border-brand/20 backdrop-blur-sm">
                 Doble clic para editar
             </div>
         )}
     </div>
-);
+    );
+};
 
 export function ResumenEconomicoExpediente({ results, proposal, onUpdatePrice, onLivePrice, onUpdateVerified, onLiveVerified }) {
     const [isEditing, setIsEditing] = useState(false);
@@ -177,8 +231,23 @@ export function ResumenEconomicoExpediente({ results, proposal, onUpdatePrice, o
         caeBonusVerificado = null,
         profitBrokergyVerificado = null,
         // El ahorro viene de la oportunidad porque el expediente aún no tiene CEE.
-        ahorroHeredado = false
+        ahorroHeredado = false,
+        // ── Ficha RES060FC (propuesta de nueva normativa) ──
+        res060fc = null,
+        financialsRes060FC = null,
+        res060fcInputs = null,
     } = results;
+
+    // Popup de desglose RES060FC (mismo componente que la calculadora).
+    const [showFcModal, setShowFcModal] = useState(false);
+    const hasFc = !!(res060fc && res060fc.cae > 0 && financialsRes060FC);
+    // Result con la forma que espera Res060FCModal: la comparativa "actual" usa el ESTIMADO.
+    const fcModalResult = hasFc ? {
+        res060fc,
+        financialsRes060FC,
+        savings: { savingsKwh },
+        financials: { caeBonus, profitBrokergy },
+    } : null;
 
     // ─── Propuesta original presentada al cliente en la oportunidad ──────────────
     const fmtMwh = (n) => `${((n || 0) / 1000).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MWh`;
@@ -313,6 +382,8 @@ export function ResumenEconomicoExpediente({ results, proposal, onUpdatePrice, o
             num: `${(savingsKwh / 1000).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
             unit: 'MWh',
             accent: 'via-green-400/60',
+            chip: 'bg-green-500/10',
+            accentBar: 'bg-green-400',
             unitColor: 'text-green-400/50',
             sub: ahorroHeredado
                 ? 'Supuesto de la oportunidad · pdte. CEE inicial'
@@ -328,6 +399,7 @@ export function ResumenEconomicoExpediente({ results, proposal, onUpdatePrice, o
                 editable: !ahorroHeredado,
                 ...verifEditProps,
             },
+            fc: hasFc ? { value: fmtMwh(res060fc.cae), onClick: () => setShowFcModal(true) } : null,
             color: 'text-green-400',
             icon: (
                 <svg className="w-4 h-4 max-md:w-3.5 max-md:h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -342,6 +414,8 @@ export function ResumenEconomicoExpediente({ results, proposal, onUpdatePrice, o
             num: `${Math.round(caeBonus).toLocaleString('es-ES')}`,
             unit: '€',
             accent: 'via-amber-400/70',
+            chip: 'bg-brand/10',
+            accentBar: 'bg-brand',
             unitColor: 'text-brand/60',
             sub: 'Bono CAE Directo',
             proposalValue: prop ? fmtEur(prop.caeBonus) : null,
@@ -351,6 +425,7 @@ export function ResumenEconomicoExpediente({ results, proposal, onUpdatePrice, o
                 diff: fmtEur(caeBonusVerificado) !== fmtEur(caeBonus),
                 editable: false,
             } : null,
+            fc: hasFc ? { value: fmtEur(financialsRes060FC.caeBonus), onClick: () => setShowFcModal(true) } : null,
             color: 'text-brand',
             icon: (
                 <svg className="w-4 h-4 max-md:w-3.5 max-md:h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -365,6 +440,8 @@ export function ResumenEconomicoExpediente({ results, proposal, onUpdatePrice, o
             num: `${Math.round(finalPriceClient).toLocaleString('es-ES')}`,
             unit: '€/MWh',
             accent: 'via-white/30',
+            chip: 'bg-slate-400/15',
+            accentBar: 'bg-slate-400',
             unitColor: 'text-white/50',
             sub: 'Precio pagado al cliente',
             proposalValue: prop ? fmtPrice(prop.finalPriceClient) : null,
@@ -386,6 +463,8 @@ export function ResumenEconomicoExpediente({ results, proposal, onUpdatePrice, o
             num: `${Math.round(profitBrokergy).toLocaleString('es-ES')}`,
             unit: '€',
             accent: 'via-cyan-400/60',
+            chip: 'bg-cyan-500/10',
+            accentBar: 'bg-cyan-400',
             unitColor: 'text-cyan-400/50',
             sub: 'Margen tras ajuste',
             proposalValue: prop ? fmtEur(prop.profitBrokergy) : null,
@@ -395,6 +474,7 @@ export function ResumenEconomicoExpediente({ results, proposal, onUpdatePrice, o
                 diff: fmtEur(profitBrokergyVerificado) !== fmtEur(profitBrokergy),
                 editable: false,
             } : null,
+            fc: hasFc ? { value: fmtEur(financialsRes060FC.profitBrokergy), onClick: () => setShowFcModal(true) } : null,
             color: 'text-cyan-400',
             icon: (
                 <svg className="w-4 h-4 max-md:w-3.5 max-md:h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -415,10 +495,13 @@ export function ResumenEconomicoExpediente({ results, proposal, onUpdatePrice, o
             sub={m.sub}
             icon={m.icon}
             color={m.color}
+            chip={m.chip}
+            accentBar={m.accentBar}
             tag={m.tag}
             proposalValue={m.proposalValue}
             proposalDiff={m.proposalDiff}
             verified={m.verified}
+            fc={m.fc}
             {...(m.editable ? {
                 onDoubleClick: handleDoubleClick,
                 isEditingVal: isEditing,
@@ -500,6 +583,14 @@ export function ResumenEconomicoExpediente({ results, proposal, onUpdatePrice, o
             <div className="hidden md:flex divide-x divide-white/5">
                 {metrics.map(renderMetric)}
             </div>
+
+            {/* Popup de desglose RES060FC (mismo que la calculadora) */}
+            <Res060FCModal
+                isOpen={showFcModal}
+                onClose={() => setShowFcModal(false)}
+                result={fcModalResult}
+                inputs={res060fcInputs}
+            />
         </div>
     );
 }

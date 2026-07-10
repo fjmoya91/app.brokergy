@@ -10,7 +10,7 @@ import { DocumentacionModule } from '../components/DocumentacionModule';
 import { ChecklistModule } from '../components/ChecklistModule';
 import { EconomicoModule } from '../components/EconomicoModule';
 import { ResumenEconomicoExpediente } from '../components/ResumenEconomicoExpediente';
-import { 
+import {
     calculateSavings,
     calculateFinancials,
     calculateRes080,
@@ -18,6 +18,7 @@ import {
     calculateHybridization,
     BOILER_EFFICIENCIES
 } from '../../calculator/logic/calculation';
+import { calculateRes060FC } from '../../calculator/logic/res060fc';
 import { SeguimientoModule } from '../components/SeguimientoModule';
 import { ComunicacionesCertificador } from '../components/ComunicacionesCertificador';
 import { HistorialModal } from '../../../components/HistorialModal';
@@ -369,6 +370,10 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
         const opInputs = op.datos_calculo?.inputs || {};
 
         let savings = null;
+        // Ficha RES060FC (propuesta de nueva normativa): cálculo paralelo con las
+        // variables REALES del expediente. Se rellena en la rama RES060/RES093.
+        let res060fcRaw = null;
+        let res060fcCtx = null;
 
         if (ficha === 'RES060' || ficha === 'RES093') {
             // Priorizar CEE inicial (la demanda debe ser la misma en inicial y final para RES060/RES093).
@@ -407,6 +412,8 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
                     cb = hybridRes.cb;
                 }
 
+                const changeAcsFlag = inst.cambio_acs !== false && (!!inst.misma_aerotermia_acs || !!inst.aerotermia_acs?.aerotermia_db_id);
+
                 savings = calculateSavings({
                     q_net_heating,
                     dacs: inst.cambio_acs !== false ? dacs : 0,
@@ -414,8 +421,27 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
                     scopHeating,
                     scopAcs,
                     cb,
-                    changeAcs: inst.cambio_acs !== false && (!!inst.misma_aerotermia_acs || !!inst.aerotermia_acs?.aerotermia_db_id)
+                    changeAcs: changeAcsFlag
                 });
+
+                // ── Ficha RES060FC (propuesta) con las variables reales del expediente ──
+                // Demanda del Anexo IV (provincia + año + tipología), mismo η y SCOP,
+                // CEF = consumo previo estimado (finalEnergyOld del cálculo de ahorro).
+                const tipoFC = opInputs.tipo || (opInputs.housing_type === 'flat' ? 'piso' : 'unifamiliar');
+                res060fcRaw = calculateRes060FC({
+                    provinciaCode: opInputs.provincia || opInputs.provinceCode,
+                    anio: opInputs.anio || op.datos_calculo?.anio,
+                    tipo: tipoFC,
+                    superficie,
+                    boilerEff: boilerEffValue,
+                    scopHeating,
+                    scopAcs,
+                    changeAcs: changeAcsFlag,
+                    dacs,
+                    cef: savings.finalEnergyOld,
+                });
+                // Contexto para el popup de desglose (mismas unidades que la calculadora).
+                res060fcCtx = { scopHeating, scopAcs, changeAcs: changeAcsFlag, dacs };
             }
         } else if (ficha === 'RES080') {
             // Caso RES080: emisiones manuales (sin .xml) o XML Inicial vs Final.
@@ -506,6 +532,13 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
             ? calculateFinancials({ ...finArgs, savingsKwh: ahorroVerificadoKwh })
             : null;
 
+        // ── Financieros de la ficha RES060FC (mismas reglas que el estimado) ──
+        // Solo si hay cálculo válido (provincia disponible + Anexo IV con dato).
+        let financialsRes060FC = null;
+        if (res060fcRaw && res060fcRaw.cae > 0) {
+            financialsRes060FC = calculateFinancials({ ...finArgs, savingsKwh: res060fcRaw.cae });
+        }
+
         return {
             ...savings,
             ...financials,
@@ -514,7 +547,17 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
             // ── Verificación de ahorro (campo manual, mostrado junto al estimado) ──
             savingsKwhVerificado: ahorroVerificadoKwh,
             caeBonusVerificado: financialsVerificado ? financialsVerificado.caeBonus : null,
-            profitBrokergyVerificado: financialsVerificado ? financialsVerificado.profitBrokergy : null
+            profitBrokergyVerificado: financialsVerificado ? financialsVerificado.profitBrokergy : null,
+            // ── Ficha RES060FC (propuesta de nueva normativa) ──
+            res060fc: res060fcRaw,
+            financialsRes060FC,
+            res060fcInputs: res060fcCtx ? {
+                scopHeating: res060fcCtx.scopHeating,
+                scopAcs: res060fcCtx.scopAcs,
+                changeAcs: res060fcCtx.changeAcs,
+                dacs: res060fcCtx.dacs,
+                caePriceClient: finArgs.caePriceClient,
+            } : null,
         };
     }, [expediente, liveCee, liveInst]);
 
@@ -618,6 +661,74 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
 
     return (
         <div ref={rootRef} className="p-6 sm:p-8 lg:p-10 min-h-full max-md:pb-24">
+            {/* Panel de Resumen Económico Sticky (Solo RES060) — ARRIBA DEL TODO.
+                Va como primer elemento y con -mt para quedar pegado al borde superior;
+                sticky top-0 lo mantiene fijo al hacer scroll. Importes = SOLO ADMIN. */}
+            {resumenResults && isAdmin && (
+                <div className="sticky top-0 z-[100] -mt-6 sm:-mt-8 lg:-mt-10 -mx-6 sm:-mx-8 lg:-mx-10 px-6 sm:px-8 lg:px-10 py-3 md:py-2 bg-bkg-base/60 backdrop-blur-xl border-b border-white/[0.05] mb-6 md:mb-4 shadow-2xl max-md:fixed max-md:bottom-0 max-md:inset-x-0 max-md:top-auto max-md:mt-0 max-md:mx-0 max-md:px-3 max-md:py-2 max-md:mb-0 max-md:border-0 max-md:bg-transparent max-md:backdrop-blur-none max-md:shadow-none max-md:rounded-none">
+                    <ResumenEconomicoExpediente
+                        results={resumenResults}
+                        proposal={proposalResults}
+                        onLivePrice={(newPrice) => {
+                            // Reflejo en vivo (sin persistir) mientras se edita el precio
+                            // arriba: actualiza el cálculo y el módulo "Datos Económicos".
+                            setLiveInst(prev => ({
+                                ...(prev || {}),
+                                economico_override: {
+                                    ...(prev?.economico_override || {}),
+                                    cae_client_rate: newPrice
+                                }
+                            }));
+                        }}
+                        onUpdatePrice={(newPrice) => {
+                            // Confirmar = persistir en el expediente.
+                            const base = liveInst || expediente.instalacion || {};
+                            const newInst = {
+                                ...base,
+                                economico_override: {
+                                    ...(base.economico_override || {}),
+                                    cae_client_rate: newPrice
+                                }
+                            };
+                            setLiveInst(newInst);
+                            handleSave({ instalacion: newInst });
+                        }}
+                        onLiveVerified={(val) => {
+                            // Reflejo en vivo (sin persistir) del ahorro verificado mientras
+                            // se edita: recalcula pago al cliente y margen al momento. El dato
+                            // se introduce en kWh (= CAEs), tal cual lo da el verificador.
+                            const kwh = (val === null || val === '' || isNaN(val)) ? null : Math.round(parseFloat(val));
+                            setLiveInst(prev => {
+                                const base = prev || expediente.instalacion || {};
+                                return {
+                                    ...base,
+                                    verificacion: { ...(base.verificacion || {}), ahorro_verificado_kwh: kwh }
+                                };
+                            });
+                        }}
+                        onUpdateVerified={(val) => {
+                            // Confirmar = persistir el ahorro VERIFICADO (campo manual e
+                            // independiente del estimado), en kWh. Fuente del dato: verificador (Marwen).
+                            const base = liveInst || expediente.instalacion || {};
+                            const prevVerif = base.verificacion || {};
+                            const kwh = (val === null || val === '' || isNaN(val)) ? null : Math.round(parseFloat(val));
+                            const newInst = {
+                                ...base,
+                                verificacion: {
+                                    ...prevVerif,
+                                    ahorro_verificado_kwh: kwh,
+                                    fuente: 'MARWEN',
+                                    fecha: new Date().toISOString(),
+                                    registrado_por: user?.email || user?.nombre || null
+                                }
+                            };
+                            setLiveInst(newInst);
+                            handleSave({ instalacion: newInst });
+                        }}
+                    />
+                </div>
+            )}
+
             {/* Aviso de incidencias abiertas (solo ADMIN) */}
             {isAdmin && incidenciasAbiertas > 0 && (
                 <button
@@ -992,73 +1103,6 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
                     )}
                 </div>
             </div>
-
-            {/* Panel de Resumen Económico Sticky (Solo RES060).
-                Importes (PRECIO CAE, BENEFICIO BROKERGY…) = SOLO ADMIN. */}
-            {resumenResults && isAdmin && (
-                <div className="sticky top-0 z-[100] -mx-6 sm:-mx-8 lg:-mx-10 px-6 sm:px-8 lg:px-10 py-4 md:py-2 bg-bkg-base/60 backdrop-blur-xl border-b border-white/[0.05] mb-6 md:mb-4 shadow-2xl max-md:fixed max-md:bottom-0 max-md:inset-x-0 max-md:top-auto max-md:mx-0 max-md:px-3 max-md:py-2 max-md:mb-0 max-md:border-0 max-md:bg-transparent max-md:backdrop-blur-none max-md:shadow-none max-md:rounded-none">
-                    <ResumenEconomicoExpediente
-                        results={resumenResults}
-                        proposal={proposalResults}
-                        onLivePrice={(newPrice) => {
-                            // Reflejo en vivo (sin persistir) mientras se edita el precio
-                            // arriba: actualiza el cálculo y el módulo "Datos Económicos".
-                            setLiveInst(prev => ({
-                                ...(prev || {}),
-                                economico_override: {
-                                    ...(prev?.economico_override || {}),
-                                    cae_client_rate: newPrice
-                                }
-                            }));
-                        }}
-                        onUpdatePrice={(newPrice) => {
-                            // Confirmar = persistir en el expediente.
-                            const base = liveInst || expediente.instalacion || {};
-                            const newInst = {
-                                ...base,
-                                economico_override: {
-                                    ...(base.economico_override || {}),
-                                    cae_client_rate: newPrice
-                                }
-                            };
-                            setLiveInst(newInst);
-                            handleSave({ instalacion: newInst });
-                        }}
-                        onLiveVerified={(val) => {
-                            // Reflejo en vivo (sin persistir) del ahorro verificado mientras
-                            // se edita: recalcula pago al cliente y margen al momento. El dato
-                            // se introduce en kWh (= CAEs), tal cual lo da el verificador.
-                            const kwh = (val === null || val === '' || isNaN(val)) ? null : Math.round(parseFloat(val));
-                            setLiveInst(prev => {
-                                const base = prev || expediente.instalacion || {};
-                                return {
-                                    ...base,
-                                    verificacion: { ...(base.verificacion || {}), ahorro_verificado_kwh: kwh }
-                                };
-                            });
-                        }}
-                        onUpdateVerified={(val) => {
-                            // Confirmar = persistir el ahorro VERIFICADO (campo manual e
-                            // independiente del estimado), en kWh. Fuente del dato: verificador (Marwen).
-                            const base = liveInst || expediente.instalacion || {};
-                            const prevVerif = base.verificacion || {};
-                            const kwh = (val === null || val === '' || isNaN(val)) ? null : Math.round(parseFloat(val));
-                            const newInst = {
-                                ...base,
-                                verificacion: {
-                                    ...prevVerif,
-                                    ahorro_verificado_kwh: kwh,
-                                    fuente: 'MARWEN',
-                                    fecha: new Date().toISOString(),
-                                    registrado_por: user?.email || user?.nombre || null
-                                }
-                            };
-                            setLiveInst(newInst);
-                            handleSave({ instalacion: newInst });
-                        }}
-                    />
-                </div>
-            )}
 
             {/* Toast de guardado */}
             {saveMsg && (
