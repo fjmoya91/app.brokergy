@@ -1091,7 +1091,9 @@ const sendCeeInicialRegistradoClientEmail = async (to, clientName, numExp, porta
  * Notifica a Admin/Partner que el CEE (Inicial o Final) ha sido presentado
  */
 const sendCeeRegistradoStaffEmail = async (to, isPartner, numExp, clientName, ubicacion, techName, phaseLabel, portalLink, notifyClientLink = null) => {
-    const subject = `✅ REGISTRO ${phaseLabel} PRESENTADO — ${numExp}`;
+    // El asunto SIEMPRE empieza por el nº de expediente (mismo criterio que el resto
+    // de emails): es por lo que se busca y se ordena en la bandeja.
+    const subject = `${numExp} · ✅ Registro ${phaseLabel} presentado`;
 
     const html = brandEmailShell({
         preheader: `Justificante de registro del ${phaseLabel} presentado — ${numExp}.`,
@@ -1103,7 +1105,9 @@ const sendCeeRegistradoStaffEmail = async (to, isPartner, numExp, clientName, ub
                 ['Expediente', escapeHtml(numExp || '')],
                 ['Cliente', escapeHtml(clientName || '')],
                 ['Ubicación', escapeHtml(ubicacion || '')],
-                ['Certificador', escapeHtml(techName || '')],
+                // Si el expediente no tiene certificador asignado, no pintamos la fila
+                // en vez de dejar un guion suelto.
+                techName ? ['Certificador', escapeHtml(techName)] : null,
             ])) +
             (phaseLabel === 'CEE INICIAL'
                 ? emailBox(emailP('Desde este momento ya se pueden emitir facturas y pagos.', { bold: true, color: BRAND.greenDark, mb: 0 }), { bg: BRAND.greenTint, border: BRAND.green })

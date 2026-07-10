@@ -14,6 +14,7 @@ const anexoFotograficoService = require('../services/anexoFotograficoService');
 const { applyStatus, stampSeguimientoTimestamps, markCertContact } = require('../services/seguimientoTracking');
 const { partnerNotifyTargets, normalizeContactos } = require('../services/notifyContacts');
 const { buildCertClienteData } = require('../services/certClienteData');
+const { getCertificadorNombre } = require('../services/certificadorLookup');
 
 // ─── Guard global del módulo Expedientes (INTERNO de Brokergy) ────────────────
 // Los expedientes son datos internos: VER y gestionar expedientes está reservado a
@@ -1844,8 +1845,9 @@ router.put('/:id', enforceAuth, async (req, res) => {
                     const notifyLink = `https://app.brokergy.es/api/expedientes/${expId}/notify-client?token=${token}&phase=inicial`;
 
                     const ubicacion = cli ? `${cli.direccion || ''} - ${cli.codigo_postal || ''} ${cli.municipio || ''} (${cli.provincia || ''})` : '';
+                    const certNombre = await getCertificadorNombre(capturedExp);
                     await emailService.sendCeeRegistradoStaffEmail(
-                        'franciscojavier.moya.s2e2@gmail.com', false, numExp, clienteFull, ubicacion, '', 'CEE INICIAL', expedienteLink, notifyLink
+                        'franciscojavier.moya.s2e2@gmail.com', false, numExp, clienteFull, ubicacion, certNombre, 'CEE INICIAL', expedienteLink, notifyLink
                     ).catch(e => console.error('[Automation CEE_INI] Email Admin:', e.message));
                 } catch (notifErr) {
                     console.error('[Automation CEE_INI REGISTRADO] Admin notification error:', notifErr.message);
@@ -1867,8 +1869,9 @@ router.put('/:id', enforceAuth, async (req, res) => {
                     const notifyLink = `https://app.brokergy.es/api/expedientes/${expId}/notify-client?token=${token}&phase=final`;
 
                     const ubicacion = cli ? `${cli.direccion || ''} - ${cli.codigo_postal || ''} ${cli.municipio || ''} (${cli.provincia || ''})` : '';
+                    const certNombre = await getCertificadorNombre(capturedExp);
                     await emailService.sendCeeRegistradoStaffEmail(
-                        'franciscojavier.moya.s2e2@gmail.com', false, numExp, clienteFull, ubicacion, '', 'CEE FINAL', expedienteLink, notifyLink
+                        'franciscojavier.moya.s2e2@gmail.com', false, numExp, clienteFull, ubicacion, certNombre, 'CEE FINAL', expedienteLink, notifyLink
                     ).catch(e => console.error('[Automation CEE_FIN] Email Admin:', e.message));
                 } catch (notifErr) {
                     console.error('[Automation CEE_FIN REGISTRADO] Admin notification error:', notifErr.message);

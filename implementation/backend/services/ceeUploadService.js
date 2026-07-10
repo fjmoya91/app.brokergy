@@ -13,6 +13,7 @@ const supabase = require('./supabaseClient');
 const driveService = require('./driveService');
 const emailService = require('./emailService');
 const { applyStatus } = require('./seguimientoTracking');
+const { getCertificadorNombre } = require('./certificadorLookup');
 
 // Slots del CEE — ESPEJO de DOCUMENT_SLOTS del frontend (CeeDocumentsGrid.jsx).
 // El renombrado usa el mismo patrón `{numExp} – {SECCIÓN}{suffix}` que la app.
@@ -235,8 +236,10 @@ async function markCeeRegistradoFromUpload(exp, phase) {
             const ubicacion = cli ? `${cli.direccion || ''} - ${cli.codigo_postal || ''} ${cli.municipio || ''} (${cli.provincia || ''})` : '';
             const expedienteLink = `https://app.brokergy.es/?exp=${fresh.id}`;
             const notifyLink = `https://app.brokergy.es/api/expedientes/${fresh.id}/notify-client?token=${notifyToken}&phase=${ph}`;
+            // Quién ha registrado el CEE: vive en cee.certificador_id, no como columna.
+            const certNombre = await getCertificadorNombre(fresh);
             await emailService.sendCeeRegistradoStaffEmail(
-                'franciscojavier.moya.s2e2@gmail.com', false, numExp, clienteFull, ubicacion, '', phaseLabelUpper, expedienteLink, notifyLink
+                'franciscojavier.moya.s2e2@gmail.com', false, numExp, clienteFull, ubicacion, certNombre, phaseLabelUpper, expedienteLink, notifyLink
             );
         } catch (e) { console.error('[cee markRegistrado admin email]', e.message); }
     });
