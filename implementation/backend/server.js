@@ -68,6 +68,9 @@ app.use('/api/expedientes', expedientesRoutes);
 app.use('/api/lotes', require('./routes/lotes'));
 app.use('/api/auth', authRoutes);
 app.use('/api/public/portal', require('./routes/portal'));
+// Escaparate público de instaladores (instaladores.brokergy.es). El frontend vive
+// en un repo aparte (C:/Proyectos/marketplace); aquí solo servimos su API pública.
+app.use('/api/public/marketplace', require('./routes/publicMarketplace'));
 app.use('/api/public', require('./routes/public'));
 app.use('/api/landing', require('./routes/landing'));
 app.use('/api/settings', require('./routes/settings'));
@@ -121,6 +124,12 @@ app.get('/api/debug-direct', (req, res) => {
 if (require.main === module) {
   app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
+    // Refresco periódico de stats del escaparate de instaladores (no bloqueante).
+    try {
+      require('./services/marketplaceStatsRefresher').start();
+    } catch (err) {
+      console.warn('[marketplaceStats] no se pudo iniciar el refrescador:', err.message);
+    }
   });
 }
 

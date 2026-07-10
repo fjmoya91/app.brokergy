@@ -46,6 +46,9 @@ services:
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./implementation/frontend/dist:/usr/share/nginx/html:ro
+      # Escaparate de instaladores (repo aparte, build propio en /opt/marketplace).
+      # instaladores.brokergy.es sirve desde aquí; ver repo marketplace/DEPLOY.md.
+      - /opt/marketplace/dist:/usr/share/nginx/marketplace:ro
       - /etc/letsencrypt:/etc/letsencrypt:ro
       - /var/www/certbot:/var/www/certbot:ro
     depends_on:
