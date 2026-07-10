@@ -188,7 +188,7 @@ router.get('/:id/expedientes-certificador', enforceAuth, async (req, res) => {
 
         const { data: exps, error } = await supabase
             .from('expedientes')
-            .select('id, numero_expediente, estado, created_at, updated_at, cliente_id, seguimiento, documentacion, prioridad')
+            .select('id, numero_expediente, estado, created_at, updated_at, cliente_id, seguimiento, documentacion, prioridad, instalacion')
             .eq('cee->>certificador_id', id)
             .order('created_at', { ascending: false });
 
@@ -199,7 +199,7 @@ router.get('/:id/expedientes-certificador', enforceAuth, async (req, res) => {
         if (cliIds.length > 0) {
             const { data: clis } = await supabase
                 .from('clientes')
-                .select('id_cliente, nombre_razon_social, apellidos, municipio, provincia')
+                .select('id_cliente, nombre_razon_social, apellidos, municipio, provincia, direccion')
                 .in('id_cliente', cliIds);
             (clis || []).forEach(c => { cliMap[c.id_cliente] = c; });
         }
@@ -208,6 +208,11 @@ router.get('/:id/expedientes-certificador', enforceAuth, async (req, res) => {
             const c = cliMap[e.cliente_id];
             const seg = e.seguimiento || {};
             const doc = e.documentacion || {};
+            const inst = e.instalacion || {};
+            // La dirección que le importa al certificador es la de la INSTALACIÓN
+            // (donde va a hacer la visita), no el domicilio del cliente.
+            const direccion = (inst.direccion || c?.direccion || '').trim() || null;
+            const municipio = (inst.municipio || c?.municipio || '').trim() || null;
             return {
                 id: e.id,
                 numero_expediente: e.numero_expediente,
@@ -215,13 +220,17 @@ router.get('/:id/expedientes-certificador', enforceAuth, async (req, res) => {
                 prioridad: e.prioridad || 'NORMAL',
                 created_at: e.created_at,
                 cliente_nombre: c ? `${c.nombre_razon_social || ''} ${c.apellidos || ''}`.trim() : null,
-                cliente_municipio: c?.municipio || null,
-                cliente_provincia: c?.provincia || null,
+                direccion,
+                cliente_municipio: municipio,
+                cliente_provincia: (inst.provincia || c?.provincia || '').trim() || null,
                 // Los expedientes que nunca han arrancado el CEE no tienen la clave.
                 cee_inicial: seg.cee_inicial || 'PTE_ENVIO_CERT',
                 cee_final: seg.cee_final || 'PTE_ENVIO_CERT',
-                fecha_registro_cee_inicial: doc.fecha_registro_cee_inicial || null,
-                fecha_registro_cee_final: doc.fecha_registro_cee_final || null,
+                // La fecha de registro se sella en `documentacion`, pero los expedientes
+                // anteriores a ese sellado solo tienen el timestamp de la transición de
+                // subestado. Se usa como respaldo antes de dar la fecha por perdida.
+                fecha_registro_cee_inicial: doc.fecha_registro_cee_inicial || seg.cee_inicial_ts?.REGISTRADO || null,
+                fecha_registro_cee_final: doc.fecha_registro_cee_final || seg.cee_final_ts?.REGISTRADO || null,
             };
         });
 
