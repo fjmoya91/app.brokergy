@@ -169,10 +169,15 @@ function App() {
     return null;
   });
 
-  // 2. Inicializar navegación basada en los parámetros detectados
+  // 2. Inicializar navegación basada en los parámetros detectados.
+  //    La pestaña activa vive en la URL (?tab=), igual que el expediente abierto
+  //    (?exp=), para que al RECARGAR la página sigamos donde estábamos. Un efecto
+  //    más abajo mantiene la URL sincronizada con el estado.
+  const TABS_VALIDAS = ['oportunidades', 'expedientes', 'clientes', 'prescriptores', 'lotes', 'aerotermia', 'usuarios', 'whatsapp'];
   const [activeTab, setActiveTab] = useState(() => {
     if (initialExpediente) return 'expedientes';
-    return 'oportunidades';
+    const tab = new URLSearchParams(window.location.search).get('tab');
+    return TABS_VALIDAS.includes(tab) ? tab : 'oportunidades';
   });
 
   // Ajustar pestaña inicial cuando el usuario carga
@@ -197,15 +202,9 @@ function App() {
   const openNewSimulation = () => { setCeeResolved(false); setCeePrevioData(null); setShowSearchModal(true); };
   const closeNewSimulation = () => { setShowSearchModal(false); setCeeResolved(false); setCeePrevioData(null); };
 
-  // Efecto para limpiar el parámetro de la URL tras cargar el deep link
-  useEffect(() => {
-    if (initialExpediente) {
-      // Limpiar el parámetro ?exp de la URL sin recargar la página para que no se re-active al navegar
-      const url = new URL(window.location);
-      url.searchParams.delete('exp');
-      window.history.replaceState({}, '', url);
-    }
-  }, [initialExpediente]);
+  // El deep link ?exp ya NO se borra de la URL: es lo que permite que al recargar
+  // sigamos en el mismo expediente. La sincronización vive más abajo, junto a
+  // `selectedExpedienteId`.
 
   const [candidates, setCandidates] = useState([]);
   const [selectedCandidate, setSelectedCandidate] = useState(null);
@@ -562,6 +561,22 @@ function App() {
   const [selectedExpedienteId, setSelectedExpedienteId] = useState(initialExpediente);
   const [returnToExpediente, setReturnToExpediente] = useState(null);
   const [navNonce, setNavNonce] = useState(0);
+
+  // Refleja en la URL dónde estamos, para que un F5 no nos devuelva al principio.
+  // Solo en el dashboard logueado (`/`): las vistas públicas tienen su propio path
+  // y no deben verse alteradas. Se usa replaceState para no llenar el historial:
+  // el botón "atrás" del navegador debe seguir saliendo de la app, no deshaciendo
+  // cambios de pestaña.
+  useEffect(() => {
+    if (!user || window.location.pathname !== '/') return;
+    // Mientras se está en el flujo de la calculadora la vista no es una pestaña;
+    // conservamos la última pestaña en la URL para volver a ella al recargar.
+    const url = new URL(window.location);
+    if (activeTab) url.searchParams.set('tab', activeTab);
+    if (selectedExpedienteId) url.searchParams.set('exp', selectedExpedienteId);
+    else url.searchParams.delete('exp');
+    window.history.replaceState({}, '', url);
+  }, [user, activeTab, selectedExpedienteId]);
 
   const loadOpportunity = async (op) => {
     setStep('RESULT');

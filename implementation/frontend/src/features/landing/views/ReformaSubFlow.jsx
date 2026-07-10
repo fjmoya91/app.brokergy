@@ -14,7 +14,7 @@
  * que ve el cliente sea idéntico al de la calculadora interna.
  */
 
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import axios from 'axios';
 
 import { IconCard } from '../components/IconCard';
@@ -70,6 +70,20 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
     const isAdminUser = (user?.rol || user?.rol_nombre || '').toUpperCase() === 'ADMIN';
     // Oportunidad recién creada en internal (para abrir su documentación in-situ).
     const [createdOpp, setCreatedOpp] = useState(null);
+
+    // Un ADMIN no tiene prescriptor propio, así que la oportunidad que crea nacía sin
+    // partner atribuido. Le dejamos elegir de quién viene el lead.
+    const [prescriptores, setPrescriptores] = useState([]);
+    useEffect(() => {
+        if (!isInternal || !isAdminUser) return;
+        axios.get('/api/prescriptores')
+            .then(r => setPrescriptores(
+                (r.data || [])
+                    .filter(p => ['INSTALADOR', 'DISTRIBUIDOR', 'PRESCRIPTOR'].includes(p.tipo_empresa))
+                    .sort((a, b) => (a.razon_social || '').localeCompare(b.razon_social || ''))
+            ))
+            .catch(() => setPrescriptores([]));
+    }, [isInternal, isAdminUser]);
 
     // Arranca preguntando el ESTADO de la obra (primera pregunta del funnel /reforma).
     const [stack, setStack] = useState(['estado']);
@@ -330,6 +344,8 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
                 delivery_preference: ['tecnico'],
                 delivery_summary: null,
                 contacto,
+                // Atribución del lead elegida por el admin (null = BROKERGY).
+                prescriptor_id: contacto.prescriptorId || null,
                 catastro: {
                     ref_catastral: catastro?.rc,
                     address: catastro?.address,
@@ -947,6 +963,7 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
                     submitting={submitting}
                     submitError={submitError}
                     mode="internal"
+                    prescriptores={isAdminUser ? prescriptores : null}
                 />
             </>
         );

@@ -63,6 +63,13 @@ router.post('/internal-simulation', enforceAuth, async (req, res) => {
     try {
         const { contacto, catastro, funnel, calculatorInputs, precomputedResult, demandaCalefaccionPorM2 } = req.body || {};
 
+        // Un partner siempre se atribuye a sí mismo el lead. Solo un ADMIN (que no
+        // tiene prescriptor propio) puede elegir de quién viene; null = BROKERGY.
+        const esAdmin = req.user?.rol_nombre === 'ADMIN';
+        const prescriptorId = esAdmin
+            ? (req.body?.prescriptor_id || null)
+            : (req.user?.prescriptor_id || null);
+
         // Resolver geoContext sin gate (los partners no tienen restricción)
         const provCode = normalizeProvinceCode(catastro?.provinceCode);
         const provInfo = (provCode && getProvinceInfo(provCode)) || { provincia: null, ccaa: null };
@@ -81,7 +88,7 @@ router.post('/internal-simulation', enforceAuth, async (req, res) => {
             demandaCalefaccionPorM2: demandaCalefaccionPorM2 || null,
             geoContext,
             partnerSlug: null,
-            prescriptorId: req.user?.prescriptor_id || null,
+            prescriptorId,
             mode: 'internal',
             creatorUser: req.user
         });

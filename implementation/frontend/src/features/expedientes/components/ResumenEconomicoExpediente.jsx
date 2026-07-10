@@ -11,7 +11,7 @@ const AHORRO_DELTA_PCT = 10;   // % — variación de ahorro que pide revisar la
 // Movido fuera para evitar que React desmonte el componente en cada renderizado de ResumenEconomicoExpediente
 const Metric = ({ label, value, sub, icon, color = 'text-white', tag, proposalValue, proposalDiff, verified, onDoubleClick, isEditingVal, editValue, onEditChange, handleKeyDown, handleSaveLocal, onCancel, inputRef }) => (
     <div
-        className={`flex-1 min-w-[220px] p-5 border-r border-white/5 last:border-0 group hover:bg-white/[0.02] transition-colors relative max-md:min-w-0 max-md:p-3 max-md:border-0 max-md:rounded-xl max-md:bg-white/[0.03] ${onDoubleClick && !isEditingVal ? 'cursor-pointer' : ''}`}
+        className={`flex-1 min-w-[220px] p-5 md:min-w-[190px] md:p-3.5 border-r border-white/5 last:border-0 group hover:bg-white/[0.02] transition-colors relative max-md:min-w-0 max-md:p-3 max-md:border-0 max-md:rounded-xl max-md:bg-white/[0.03] ${onDoubleClick && !isEditingVal ? 'cursor-pointer' : ''}`}
         onDoubleClick={isEditingVal ? null : onDoubleClick}
     >
         <div className="flex items-center gap-2 mb-2 max-md:mb-1">
@@ -65,7 +65,7 @@ const Metric = ({ label, value, sub, icon, color = 'text-white', tag, proposalVa
                 </button>
             </div>
         ) : (
-            <div className={`text-3xl font-black tracking-tight leading-none ${color} flex items-baseline gap-1.5 max-md:text-2xl`}>
+            <div className={`text-3xl md:text-2xl font-black tracking-tight leading-none ${color} flex items-baseline gap-1.5 max-md:text-2xl`}>
                 {value}
                 {onDoubleClick && (
                     <svg className="w-4 h-4 text-white/10 group-hover:text-brand/40 transition-colors max-md:w-3.5 max-md:h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">

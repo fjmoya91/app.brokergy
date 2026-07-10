@@ -78,7 +78,9 @@ const CTA_CONFIG = {
 };
 
 // ── Componente principal ───────────────────────────────────────────────────────
-export function Step9_Contacto({ funnel, updateFunnel, contacto, setContacto, onSubmit, submitting, submitError, mode = 'public', submitLabel }) {
+// `prescriptores`: lista para el selector de atribución del lead. Solo llega con
+// valor cuando entra un ADMIN (que no tiene prescriptor propio); null en el resto.
+export function Step9_Contacto({ funnel, updateFunnel, contacto, setContacto, onSubmit, submitting, submitError, mode = 'public', submitLabel, prescriptores = null }) {
     const [touched, setTouched] = useState({});
     const isInternal = mode === 'internal';
 
@@ -172,6 +174,28 @@ export function Step9_Contacto({ funnel, updateFunnel, contacto, setContacto, on
                             Lo que verás en tu panel para identificar esta oportunidad.
                         </p>
                     </div>
+
+                    {/* Atribución del lead: solo para ADMIN, que no tiene partner propio. */}
+                    {Array.isArray(prescriptores) && (
+                        <div>
+                            <label className={fieldLabel}>¿De quién viene este lead?</label>
+                            <select
+                                value={contacto.prescriptorId || ''}
+                                onChange={e => setField('prescriptorId', e.target.value || null)}
+                                className={inputCls(false)}
+                            >
+                                <option value="">BROKERGY (sin partner)</option>
+                                {prescriptores.map(p => (
+                                    <option key={p.id_empresa} value={p.id_empresa}>
+                                        {p.razon_social}{p.acronimo && p.acronimo !== p.razon_social ? ` · ${p.acronimo}` : ''}
+                                    </option>
+                                ))}
+                            </select>
+                            <p className="text-white/35 text-[10px] mt-1.5 ml-1 leading-snug">
+                                Se le atribuirá la oportunidad. Si lo dejas en BROKERGY, podrás asignarlo más tarde.
+                            </p>
+                        </div>
+                    )}
 
                     {/* Separador visual */}
                     <div className="pt-3 pb-1 flex items-center gap-3">

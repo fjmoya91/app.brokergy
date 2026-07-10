@@ -4,6 +4,16 @@ const supabase = require('../services/supabaseClient');
 const { requireAuth, enforceAuth, adminOnly } = require('../middleware/auth');
 const { normalizeContactos } = require('../services/notifyContacts');
 
+// `prescriptores.notas` son notas INTERNAS del equipo sobre el partner. Un partner
+// nunca debe leerlas, ni siquiera las de su propia ficha, así que se eliminan de la
+// respuesta salvo para ADMIN/TRABAJADOR.
+const esInterno = (req) => req.user?.rol_nombre === 'ADMIN' || req.user?.rol_nombre === 'TRABAJADOR';
+const stripNotasSiNoEsInterno = (payload, req) => {
+    if (esInterno(req)) return payload;
+    const quitar = ({ notas, ...resto }) => resto;
+    return Array.isArray(payload) ? payload.map(quitar) : (payload ? quitar(payload) : payload);
+};
+
 // Validación del slug de la landing white-label (mismo patrón que el CHECK de
 // landing_schema.sql y que el regex de routes/landing.js): minúsculas, números
 // y guiones, 3-80 chars, sin empezar/terminar en guión.
@@ -66,7 +76,7 @@ router.get('/', enforceAuth, async (req, res) => {
 
         const { data, error } = await query;
         if (error) throw error;
-        res.json(data);
+        res.json(stripNotasSiNoEsInterno(data, req));
     } catch (err) {
         console.error('Error GET prescriptores:', err);
         res.status(500).json({ error: 'Error al recuperar prescriptores' });
@@ -783,6 +793,11 @@ router.patch('/:id', enforceAuth, async (req, res) => {
             if (prescriptorPayload.landing_activa === true && slugFinal === null) {
                 return res.status(400).json({ error: 'No puedes activar la landing sin un enlace (slug).', code: 'ACTIVE_WITHOUT_SLUG' });
             }
+        }
+
+        // Notas internas: las escribe el equipo (ADMIN/TRABAJADOR), nunca el partner.
+        if (payload.notas !== undefined && esInterno(req)) {
+            prescriptorPayload.notas = (payload.notas || '').toString().trim() || null;
         }
 
         // Limpiar undefined

@@ -258,6 +258,8 @@ function DireccionEdit({ values, onChange }) {
 export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp, onUpdated, onCreated, onNavigate }) {
     const { user } = useAuth();
     const isAdmin = user?.rol?.toUpperCase() === 'ADMIN';
+    // Las notas internas las ve y edita el equipo (ADMIN o TRABAJADOR), no el partner.
+    const isStaff = isAdmin || user?.rol?.toUpperCase() === 'TRABAJADOR';
     // Un partner puede ver/editar SU PROPIA ficha (con campos capados: sin toggle
     // de acceso, sin tipo/rol, sin toggle de autónomo — esos solo los toca un admin).
     const isOwnProfile = !!user?.prescriptor_id && user?.prescriptor_id === prescProp?.id_empresa;
@@ -296,6 +298,7 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
         landing_subtitulo: '',
         landing_telefono_contacto: '',
         landing_email_contacto: '',
+        notas: '',
     };
     const [form, setForm] = useState(emptyForm);
     const [loading, setLoading] = useState(false);
@@ -466,6 +469,7 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                 landing_subtitulo:            p.landing_subtitulo || '',
                 landing_telefono_contacto:    p.landing_telefono_contacto || '',
                 landing_email_contacto:       p.landing_email_contacto || '',
+                notas:                       p.notas || '',
             };
         });
     }, [p]);
@@ -581,6 +585,8 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                 landing_subtitulo:            form.landing_subtitulo.trim() || null,
                 landing_telefono_contacto:    form.landing_telefono_contacto.trim() || null,
                 landing_email_contacto:       form.landing_email_contacto.trim().toLowerCase() || null,
+                // Notas internas: el backend solo las acepta de ADMIN/TRABAJADOR.
+                ...(isStaff ? { notas: form.notas.trim() || null } : {}),
                 // slug + activación SOLO las envía el admin (backend también lo refuerza).
                 ...(isAdmin ? {
                     landing_slug:   form.landing_slug.trim().toLowerCase() || null,
@@ -1005,6 +1011,15 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                                             ))}
                                         </div>
                                     )}
+                                </Section>
+                            )}
+
+                            {/* Notas internas del equipo. El backend no se las envía al partner. */}
+                            {isStaff && (
+                                <Section title="Notas internas" iconPath="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z">
+                                    {p.notas
+                                        ? <p className="text-[12px] text-white/70 leading-relaxed whitespace-pre-wrap normal-case">{p.notas}</p>
+                                        : <p className="text-[11px] text-white/25">Sin notas. Pulsa «Editar» para añadirlas.</p>}
                                 </Section>
                             )}
 
@@ -1488,6 +1503,24 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                                     </FI>
                                 </div>
                                 <p className="text-[10px] text-white/20">El logotipo de la landing es el mismo logo del partner (arriba). Si dejas un campo vacío, se usa el branding por defecto de Brokergy.</p>
+                            </div>
+                            )}
+
+                            {/* Notas internas — para cualquier tipo de partner (instalador,
+                                certificador, S.O., verificador). El partner no las ve. */}
+                            {isStaff && (
+                            <div className="pt-4 border-t border-white/5 space-y-3">
+                                <div>
+                                    <p className="text-[10px] uppercase tracking-[0.2em] font-black text-white/30">Notas internas</p>
+                                    <p className="text-[11px] text-white/20 mt-0.5">Solo para el equipo de Brokergy: acuerdos, incidencias, avisos. El partner no las ve.</p>
+                                </div>
+                                <textarea
+                                    value={form.notas}
+                                    onChange={e => upd({ notas: e.target.value })}
+                                    rows={4}
+                                    placeholder="Ej.: factura siempre a fin de mes. Contactar con Jesús, no con el técnico."
+                                    className="w-full bg-bkg-surface px-3 py-2.5 text-white text-sm rounded-xl border border-white/[0.08] placeholder:text-white/20 focus:outline-none focus:ring-2 focus:ring-brand/40 resize-none normal-case"
+                                />
                             </div>
                             )}
 

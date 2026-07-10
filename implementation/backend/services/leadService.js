@@ -384,16 +384,26 @@ async function createLead({ contacto, catastro, funnel, calculatorInputs, precom
     // 7. INSERT de la oportunidad (caso nuevo)
     // En modo internal, el creador puede ser un PARTNER que tiene su propio
     // prescriptor_id (su empresa) → la oportunidad queda asignada a él.
-    // Si es ADMIN, prescriptor_id queda null hasta que el admin lo asigne.
+    // Un ADMIN no tiene prescriptor propio: usa el que haya elegido en el paso de
+    // identificación (o null = BROKERGY, para asignarlo más tarde).
     const finalPrescriptorId = isInternal
         ? (creatorUser?.prescriptor_id || prescriptorId || null)
         : (prescriptorId || null);
 
-    // El campo `prescriptor` (string display) en internal usa el nombre del
-    // partner si existe, BROKERGY si admin.
-    const prescriptorDisplay = isInternal && rolCreator !== 'ADMIN'
+    // El campo `prescriptor` (string display) en internal usa el nombre del partner.
+    // Si lo eligió un admin, hay que resolverlo: él no lo lleva en su sesión.
+    let prescriptorDisplay = isInternal && rolCreator !== 'ADMIN'
         ? (creatorUser?.acronimo || creatorUser?.razon_social || 'BROKERGY')
         : 'BROKERGY';
+
+    if (isInternal && rolCreator === 'ADMIN' && finalPrescriptorId) {
+        const { data: pres } = await supabase
+            .from('prescriptores')
+            .select('acronimo, razon_social')
+            .eq('id_empresa', finalPrescriptorId)
+            .maybeSingle();
+        if (pres) prescriptorDisplay = pres.acronimo || pres.razon_social || 'BROKERGY';
+    }
 
     const newOpp = {
         id_oportunidad: idOportunidad,
