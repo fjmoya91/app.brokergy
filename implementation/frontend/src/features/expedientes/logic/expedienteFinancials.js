@@ -155,16 +155,25 @@ export function computeExpedienteFinancials(exp) {
         }
     }
 
-    // Fallback: sin CEE parseado (expedientes migrados desde la BBDD antigua de
-    // AppSheet, que solo trae fechas de CEE, no el XML) no hay datos para recalcular
-    // en vivo. Si la oportunidad ya trae financials guardados (del origen), úsalos
-    // tal cual en vez de mostrar "—". Marcado con `estimadoGuardado` para distinguirlo
-    // de un cálculo en vivo desde el CEE real.
+    // Fallback: mientras no haya CEE parseado con el que recalcular en vivo (expedientes
+    // migrados de AppSheet, o recién aceptados), el expediente HEREDA la economía que se
+    // le presentó al cliente en la oportunidad. Es un supuesto, pero es lo que permite
+    // saber qué ahorro tenemos aceptado para negociar con el Sujeto Obligado antes de
+    // que llegue el CEE. Se marca con `estimadoGuardado`. En cuanto hay CEE inicial o
+    // final real, el cálculo de arriba manda y este bloque no se ejecuta.
+    //
+    // OJO con dónde vive cada dato: el ahorro puede estar en `result.savings.savingsKwh`
+    // (oportunidades de la app) o en `result.financials.ahorroKwh` (migradas), y una
+    // oportunidad puede traer uno y no el otro — por eso se miran las tres rutas.
     let estimadoGuardado = false;
     if (savingsKwh === null && cae === null && profit === null) {
-        const storedFin = op.datos_calculo?.result?.financials;
-        if (storedFin && (storedFin.caeBonus != null || storedFin.ahorroKwh != null)) {
-            savingsKwh = storedFin.ahorroKwh ?? null;
+        const storedRes = op.datos_calculo?.result || {};
+        const storedFin = storedRes.financials || {};
+        const storedSav = storedRes.savings || {};
+        const heredadoKwh = storedFin.ahorroKwh ?? storedSav.savingsKwh ?? storedRes.savingsKwh ?? null;
+
+        if (heredadoKwh != null || storedFin.caeBonus != null) {
+            savingsKwh = heredadoKwh;
             cae = storedFin.caeBonus ?? null;
             profit = storedFin.profitBrokergy ?? null;
             estimadoGuardado = true;
