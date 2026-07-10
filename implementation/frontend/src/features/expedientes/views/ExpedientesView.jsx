@@ -588,7 +588,7 @@ function CrearLoteDesdeSeleccionModal({ soList, count, anio, ccaa, totals, canSe
     );
 }
 
-export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialSelection }) {
+export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialSelection, onOpenExpedienteChange }) {
     const { showAlert, showConfirm } = useModal();
     const { user } = useAuth();
     const [expedientes, setExpedientes] = useState([]);
@@ -815,6 +815,13 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
             }
         }
     }, [initialSelectedId, expedientes, onClearInitialSelection]);
+
+    // Avisar al contenedor (App) del expediente abierto para que lo refleje en la
+    // URL: así, al recargar dentro de un expediente, seguimos en él en vez de volver
+    // a la lista. El detalle vive en el estado local de esta vista, no en App.
+    useEffect(() => {
+        onOpenExpedienteChange?.(selectedExpediente?.id || null);
+    }, [selectedExpediente, onOpenExpedienteChange]);
 
     const [search, setSearch] = useState('');
     // Filtro de estado MULTI-selección: Set vacío = todos. Permite sumar varios

@@ -204,7 +204,7 @@ function App() {
 
   // El deep link ?exp ya NO se borra de la URL: es lo que permite que al recargar
   // sigamos en el mismo expediente. La sincronización vive más abajo, junto a
-  // `selectedExpedienteId`.
+  // `openExpedienteId`.
 
   const [candidates, setCandidates] = useState([]);
   const [selectedCandidate, setSelectedCandidate] = useState(null);
@@ -558,25 +558,44 @@ function App() {
   };
 
   const [selectedClientId, setSelectedClientId] = useState(null);
-  const [selectedExpedienteId, setSelectedExpedienteId] = useState(initialExpediente);
+  // `pendingRestoreExp` — expediente a ABRIR al montar/navegar (se pasa a
+  // ExpedientesView como initialSelectedId y se limpia tras restaurarlo).
+  // `openExpedienteId` — expediente REALMENTE abierto ahora mismo, que ExpedientesView
+  // reporta de vuelta; es el que se refleja en la URL. Van separados porque el detalle
+  // vive dentro de ExpedientesView, no aquí.
+  const [pendingRestoreExp, setPendingRestoreExp] = useState(initialExpediente);
+  const [openExpedienteId, setOpenExpedienteId] = useState(null);
   const [returnToExpediente, setReturnToExpediente] = useState(null);
   const [navNonce, setNavNonce] = useState(0);
 
+  // Oportunidad abierta en la calculadora (solo si es una guardada, con id): es lo
+  // que permite volver a ella con ?op= al recargar.
+  const openOportunidadId = (step === 'CALCULATOR' && persistentCalculatorInputs?.isPersistent)
+    ? (persistentCalculatorInputs.id_oportunidad || null)
+    : null;
+
   // Refleja en la URL dónde estamos, para que un F5 no nos devuelva al principio.
-  // Solo en el dashboard logueado (`/`): las vistas públicas tienen su propio path
-  // y no deben verse alteradas. Se usa replaceState para no llenar el historial:
-  // el botón "atrás" del navegador debe seguir saliendo de la app, no deshaciendo
-  // cambios de pestaña.
+  // Solo en el dashboard logueado (`/`): las vistas públicas tienen su propio path.
+  // Se usa replaceState para no llenar el historial: el botón "atrás" del navegador
+  // debe seguir saliendo de la app, no deshaciendo cambios de pestaña.
+  //
+  // Tres estados posibles, excluyentes: un expediente abierto (?tab=expedientes&exp=),
+  // una oportunidad abierta en la calculadora (?op=), o una pestaña a secas (?tab=).
   useEffect(() => {
     if (!user || window.location.pathname !== '/') return;
-    // Mientras se está en el flujo de la calculadora la vista no es una pestaña;
-    // conservamos la última pestaña en la URL para volver a ella al recargar.
     const url = new URL(window.location);
-    if (activeTab) url.searchParams.set('tab', activeTab);
-    if (selectedExpedienteId) url.searchParams.set('exp', selectedExpedienteId);
-    else url.searchParams.delete('exp');
+    const p = url.searchParams;
+    p.delete('exp'); p.delete('op'); p.delete('tab');
+    if (openExpedienteId && activeTab === 'expedientes') {
+      p.set('tab', 'expedientes');
+      p.set('exp', openExpedienteId);
+    } else if (openOportunidadId) {
+      p.set('op', openOportunidadId);
+    } else if (activeTab) {
+      p.set('tab', activeTab);
+    }
     window.history.replaceState({}, '', url);
-  }, [user, activeTab, selectedExpedienteId]);
+  }, [user, activeTab, openExpedienteId, openOportunidadId]);
 
   const loadOpportunity = async (op) => {
     setStep('RESULT');
@@ -702,12 +721,11 @@ function App() {
 
   // Deep-link a oportunidad: al cargar con /?op=<id> y usuario logueado, traemos la
   // oportunidad y la abrimos en la calculadora (loadOpportunity). Solo una vez.
+  // NO se borra el ?op de la URL: es lo que permite volver a la misma oportunidad al
+  // recargar. El efecto de sincronización de arriba lo mantiene mientras siga abierta.
   useEffect(() => {
     if (!initialOportunidad || !user || opLinkHandled) return;
     setOpLinkHandled(true);
-    const url = new URL(window.location);
-    url.searchParams.delete('op');
-    window.history.replaceState({}, '', url);
     axios.get(`/api/oportunidades/${initialOportunidad}`)
       .then(r => { if (r.data && r.data.id_oportunidad) loadOpportunity(r.data); })
       .catch(e => console.warn('[op deep-link] no se pudo cargar la oportunidad:', e.message));
@@ -731,7 +749,7 @@ function App() {
       setActiveTab('expedientes');
       setStep('ADMIN');
       if (payload?.expediente_id) {
-        setSelectedExpedienteId(payload.expediente_id);
+        setPendingRestoreExp(payload.expediente_id);
       }
     } else if (tab === 'oportunidades') {
       if (payload?.ref_catastral) {
@@ -827,7 +845,8 @@ function App() {
               setActiveTab(tab);
               setStep('ADMIN'); // Volver a la lista al cambiar de pestaña
               setSelectedClientId(null); // Limpiar seleccion previa
-              setSelectedExpedienteId(null); // Limpiar seleccion previa
+              setPendingRestoreExp(null); // Cancelar restauración pendiente
+              setOpenExpedienteId(null); // Al cambiar de pestaña ya no hay expediente abierto
               setReturnToExpediente(null); // Limpiar retorno si cambia manualmente
               setNavNonce(prev => prev + 1); // Incrementar nonce para forzar reset de vista si se pulsa de nuevo
             }}
@@ -870,11 +889,12 @@ function App() {
             ) : step === 'ADMIN' && activeTab === 'usuarios' && isAdminUser ? (
               <UsuariosView key={`usuarios-${navNonce}`} />
             ) : step === 'ADMIN' && activeTab === 'expedientes' ? (
-              <ExpedientesView 
+              <ExpedientesView
                 key={`exp-${navNonce}`}
-                onNavigate={handleNavigate} 
-                initialSelectedId={selectedExpedienteId}
-                onClearInitialSelection={() => setSelectedExpedienteId(null)}
+                onNavigate={handleNavigate}
+                initialSelectedId={pendingRestoreExp}
+                onClearInitialSelection={() => setPendingRestoreExp(null)}
+                onOpenExpedienteChange={setOpenExpedienteId}
               />
             ) : step === 'ADMIN' && activeTab === 'lotes' && isStaffUser ? (
               <LotesView key={`lotes-${navNonce}`} onNavigate={handleNavigate} />
