@@ -601,15 +601,24 @@ export function CeeDocumentsGrid({
                 if (slot.id === 'registro') {
                     if (onAutoStatus) {
                         // Auto-fecha de registro: garantiza que cee_ini/fin_registro_ok sea true en BD
-                        // (única fuente de verdad para el tick de REGISTRO en la vista SQL)
+                        // (única fuente de verdad para el tick de REGISTRO en la vista SQL).
+                        //
+                        // Las tres cosas van en UN SOLO guardado. Antes eran tres llamadas
+                        // seguidas y cada una construía su PUT desde la misma copia del
+                        // expediente: se pisaban entre sí y el subestado REGISTRADO podía
+                        // perderse aunque la fecha sí quedara guardada.
                         const today = new Date().toISOString().split('T')[0];
                         if (section === 'inicial') {
-                            onAutoStatus('fecha_registro_cee_inicial', today);
-                            onAutoStatus('cee_inicial', 'REGISTRADO');
-                            onAutoStatus('estado', 'PTE. FIN OBRA');
+                            onAutoStatus({
+                                fecha_registro_cee_inicial: today,
+                                cee_inicial: 'REGISTRADO',
+                                estado: 'PTE. FIN OBRA',
+                            });
                         } else if (section === 'final') {
-                            onAutoStatus('fecha_registro_cee_final', today);
-                            onAutoStatus('cee_final', 'REGISTRADO');
+                            onAutoStatus({
+                                fecha_registro_cee_final: today,
+                                cee_final: 'REGISTRADO',
+                            });
                         }
                     }
                     // Popup de notificación manual (Cliente/Partner) solo para ADMIN

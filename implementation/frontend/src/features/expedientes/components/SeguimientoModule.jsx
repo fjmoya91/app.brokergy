@@ -47,6 +47,10 @@ export function SeguimientoModule({ expediente, onSave, saving }) {
     });
 
     const [hasChanges, setHasChanges] = useState(false);
+    // Claves que el usuario ha tocado a mano en esta sesión de edición. Solo esas se
+    // envían: `local` arrastra los defaults de arriba ('ASIGNADO'…) para las claves
+    // que aún no existen, y mandarlo entero degradaba subestados que nadie tocó.
+    const [dirty, setDirty] = useState(() => new Set());
 
     useEffect(() => {
         if (expediente?.seguimiento) {
@@ -57,18 +61,24 @@ export function SeguimientoModule({ expediente, onSave, saving }) {
                 ...expediente.seguimiento
             });
             setHasChanges(false);
+            setDirty(new Set());
         }
     }, [expediente?.seguimiento]);
 
     const updateStatus = (key, val) => {
         setLocal(prev => ({ ...prev, [key]: val }));
+        setDirty(prev => new Set(prev).add(key));
         setHasChanges(true);
     };
 
     const handleSave = () => {
-        if (onSave) {
-            onSave({ seguimiento: local });
-        }
+        if (!onSave) return;
+        // Solo los subestados cambiados a mano. `seguimiento_manual` autoriza al
+        // backend a aceptar una regresión desde REGISTRADO (que si no, protege).
+        const patch = {};
+        for (const key of dirty) patch[key] = local[key];
+        if (!Object.keys(patch).length) return;
+        onSave({ seguimiento: patch, seguimiento_manual: true });
     };
 
     return (

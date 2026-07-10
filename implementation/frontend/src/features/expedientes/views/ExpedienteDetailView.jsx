@@ -256,28 +256,38 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
         }));
     }, []);
 
-    const handleCeeAutoStatus = useCallback((key, value) => {
-        if (key === 'estado') {
-            handleSave({ estado: value });
-            return;
+    // Acepta un objeto con varias claves (`{ fecha_registro_cee_inicial, cee_inicial,
+    // estado }`) y las reparte en UN ÚNICO guardado. Admite también la forma antigua
+    // (key, value) por compatibilidad con las llamadas sueltas que aún existen.
+    //
+    // Es importante que sea un solo PUT: si se lanzan varios, cada uno se construye
+    // desde la misma copia del expediente y se pisan entre sí.
+    const handleCeeAutoStatus = useCallback((keyOrPatch, value) => {
+        const patch = typeof keyOrPatch === 'object' && keyOrPatch !== null
+            ? keyOrPatch
+            : { [keyOrPatch]: value };
+
+        const cambios = {};
+        const seguimiento = {};
+        const documentacion = {};
+
+        for (const [key, val] of Object.entries(patch)) {
+            if (key === 'estado') cambios.estado = val;
+            // Claves fecha_* van a documentacion (ej: fecha_registro_cee_inicial).
+            // Esto garantiza que los flags cee_ini/fin_registro_ok de la vista SQL
+            // sean correctos.
+            else if (key.startsWith('fecha_')) documentacion[key] = val;
+            else seguimiento[key] = val;
         }
-        // Claves fecha_* van a documentacion (ej: fecha_registro_cee_inicial)
-        // Esto garantiza que los flags cee_ini/fin_registro_ok de la vista SQL sean correctos
-        if (key.startsWith('fecha_')) {
-            handleSave({
-                documentacion: {
-                    ...expediente?.documentacion,
-                    [key]: value,
-                }
-            });
-            return;
+
+        if (Object.keys(seguimiento).length) {
+            cambios.seguimiento = { ...expediente?.seguimiento, ...seguimiento };
         }
-        handleSave({
-            seguimiento: {
-                ...expediente?.seguimiento,
-                [key]: value
-            }
-        });
+        if (Object.keys(documentacion).length) {
+            cambios.documentacion = { ...expediente?.documentacion, ...documentacion };
+        }
+
+        if (Object.keys(cambios).length) handleSave(cambios);
     }, [handleSave, expediente?.seguimiento, expediente?.documentacion]);
 
     const handleQuickNoteSave = async (text) => {

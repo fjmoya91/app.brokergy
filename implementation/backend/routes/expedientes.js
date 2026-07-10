@@ -1732,6 +1732,25 @@ router.put('/:id', enforceAuth, async (req, res) => {
         if (instalacion !== undefined)   updates.instalacion   = { ...existing.instalacion,   ...instalacion };
         if (seguimiento !== undefined) {
             updates.seguimiento = { ...existing.seguimiento, ...seguimiento };
+
+            // REGISTRADO es TERMINAL: el CEE ya está inscrito en Industria. Varios
+            // módulos reenvían una copia completa de `seguimiento` que puede estar
+            // OBSOLETA (o rellenan el hueco con el default 'ASIGNADO' cuando la clave
+            // no existía) y degradaban el subestado sin que nadie lo pidiera — así
+            // aparecieron expedientes con fecha de registro pero seguimiento en
+            // 'ASIGNADO'. Mismo blindaje que `cee.estado` justo arriba.
+            //
+            // Para corregir un registro erróneo hay que pedirlo explícitamente:
+            // el módulo de Seguimiento manda `seguimiento_manual: true`.
+            if (body.seguimiento_manual !== true) {
+                for (const clave of ['cee_inicial', 'cee_final']) {
+                    if (existing.seguimiento?.[clave] === 'REGISTRADO' && updates.seguimiento[clave] !== 'REGISTRADO') {
+                        console.warn(`[PUT expediente ${req.params.id}] Ignorado intento de degradar ${clave}: REGISTRADO → ${updates.seguimiento[clave]}`);
+                        updates.seguimiento[clave] = 'REGISTRADO';
+                    }
+                }
+            }
+
             // Sellar timestamps de transición de subestado (cee_inicial/cee_final/anexos).
             // Es el chokepoint por el que pasan los auto-status de subida de .CEX/registro
             // y los cambios manuales del módulo de Seguimiento.
