@@ -816,7 +816,15 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
     }, [initialSelectedId, expedientes, onClearInitialSelection]);
 
     const [search, setSearch] = useState('');
-    const [statusFilter, setStatusFilter] = useState('ALL');
+    // Filtro de estado MULTI-selección: Set vacío = todos. Permite sumar varios
+    // estados en el resumen (p. ej. todo menos FINALIZADO). 'CON_INCIDENCIAS' es
+    // un pseudo-estado más dentro del mismo Set.
+    const [statusSel, setStatusSel] = useState(() => new Set());
+    const toggleStatus = (st) => setStatusSel(prev => {
+        const next = new Set(prev);
+        if (next.has(st)) next.delete(st); else next.add(st);
+        return next;
+    });
     const [certificadorFilter, setCertificadorFilter] = useState('ALL');
     const [ccaaFilter, setCcaaFilter] = useState('ALL');
     const [prioridadFilter, setPrioridadFilter] = useState('ALL');
@@ -1122,10 +1130,11 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
 
         const matchesSearch = norm(searchableText).includes(q);
 
-        const matchesStatus =
-            statusFilter === 'ALL' ? true
-            : statusFilter === 'CON_INCIDENCIAS' ? (e.incidencias_abiertas > 0)
-            : (e.estado || 'PTE. CEE INICIAL') === statusFilter;
+        // Set vacío = sin filtro. Con varios estados, el expediente casa si está en
+        // cualquiera de ellos (unión), de modo que el resumen suma esos estados.
+        const matchesStatus = statusSel.size === 0 ? true
+            : (statusSel.has('CON_INCIDENCIAS') && e.incidencias_abiertas > 0)
+              || statusSel.has(e.estado || 'PTE. CEE INICIAL');
         const matchesCert = certificadorFilter === 'ALL'
             || (certificadorFilter === 'NONE' ? !e.cee?.certificador_id : String(e.cee?.certificador_id) === String(certificadorFilter));
         const matchesCCAA = ccaaFilter === 'ALL' || getCCAA(e) === ccaaFilter;
@@ -1394,16 +1403,17 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
                     {/* Status Filter Cards */}
                     <div className="flex overflow-x-auto gap-2 pb-2 snap-x snap-mandatory hide-scrollbar custom-scrollbar-h" style={{ WebkitOverflowScrolling: 'touch' }}>
                          <button
-                            onClick={() => setStatusFilter('ALL')}
+                            onClick={() => setStatusSel(new Set())}
+                            title="Quitar el filtro de estados"
                             className={`relative py-2.5 px-4 rounded-xl border flex items-center justify-between transition-all duration-200 min-w-[140px] snap-start shrink-0 ${
-                                statusFilter === 'ALL' 
-                                    ? 'border-brand bg-white/[0.04] shadow-lg shadow-brand/10' 
+                                statusSel.size === 0
+                                    ? 'border-brand bg-white/[0.04] shadow-lg shadow-brand/10'
                                     : 'border-white/[0.06] hover:border-white/10 bg-bkg-surface/50'
                             }`}
                         >
                             <div className="flex items-center gap-2">
-                                <span className={`w-1.5 h-1.5 rounded-full bg-white/30 ${statusFilter === 'ALL' ? 'animate-pulse' : 'opacity-80'}`}></span>
-                                <span className={`text-[9px] uppercase tracking-wider font-bold transition-colors ${statusFilter === 'ALL' ? 'text-white' : 'text-white/40'}`}>
+                                <span className={`w-1.5 h-1.5 rounded-full bg-white/30 ${statusSel.size === 0 ? 'animate-pulse' : 'opacity-80'}`}></span>
+                                <span className={`text-[9px] uppercase tracking-wider font-bold transition-colors ${statusSel.size === 0 ? 'text-white' : 'text-white/40'}`}>
                                     Total
                                 </span>
                             </div>
@@ -1414,8 +1424,8 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
 
                         {(() => {
                             const incCount = expedientes.filter(e => e.incidencias_abiertas > 0).length;
-                            if (incCount === 0 && statusFilter !== 'CON_INCIDENCIAS') return null;
-                            const active = statusFilter === 'CON_INCIDENCIAS';
+                            if (incCount === 0 && !statusSel.has('CON_INCIDENCIAS')) return null;
+                            const active = statusSel.has('CON_INCIDENCIAS');
                             const hayGraves = expedientes.some(e => e.incidencias_graves_abiertas > 0);
                             const c = hayGraves
                                 ? { dot: 'bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.9)]', text: active ? 'text-red-300' : 'text-red-400/80', num: 'text-red-400',
@@ -1424,7 +1434,7 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
                                     box: active ? 'border-amber-500 bg-amber-500/10 shadow-lg shadow-amber-500/20' : 'border-amber-500/40 hover:border-amber-500/60 bg-amber-500/5 drop-shadow-[0_0_6px_rgba(245,158,11,0.4)]' };
                             return (
                                 <button
-                                    onClick={() => setStatusFilter('CON_INCIDENCIAS')}
+                                    onClick={() => toggleStatus('CON_INCIDENCIAS')}
                                     className={`relative py-2.5 px-4 rounded-xl border flex items-center justify-between transition-all duration-200 min-w-[140px] snap-start shrink-0 ${c.box}`}
                                 >
                                     <div className="flex items-center gap-2">
@@ -1442,21 +1452,23 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
 
                         {EXPEDIENTE_ESTADOS.map((st, i) => {
                             const count = expedientes.filter(e => (e.estado || 'PTE. CEE INICIAL') === st).length;
-                            if (count === 0 && statusFilter !== st) return null;
-                            
+                            const active = statusSel.has(st);
+                            if (count === 0 && !active) return null;
+
                             return (
                                 <button
                                     key={st}
-                                    onClick={() => setStatusFilter(st)}
+                                    onClick={() => toggleStatus(st)}
+                                    title={active ? `Quitar "${st}" de la suma` : `Añadir "${st}" a la suma`}
                                     className={`relative py-2.5 px-4 rounded-xl border flex items-center justify-between transition-all duration-200 min-w-[140px] snap-start shrink-0 ${
-                                        statusFilter === st 
-                                            ? 'border-brand bg-white/[0.04] shadow-lg shadow-brand/10' 
+                                        active
+                                            ? 'border-brand bg-white/[0.04] shadow-lg shadow-brand/10'
                                             : 'border-white/[0.06] hover:border-white/10 bg-bkg-surface/50'
                                     }`}
                                 >
                                     <div className="flex items-center gap-2">
-                                        <span className={`w-1.5 h-1.5 rounded-full ${st === 'FINALIZADO' ? 'bg-emerald-400' : st.includes('REQUERIMIENTO') ? 'bg-red-400' : 'bg-brand'} ${statusFilter === st ? 'animate-pulse' : 'opacity-80'}`}></span>
-                                        <span className={`text-[9px] uppercase tracking-wider font-bold transition-colors truncate max-w-[120px] ${statusFilter === st ? 'text-white' : 'text-white/40'}`}>
+                                        <span className={`w-1.5 h-1.5 rounded-full ${st === 'FINALIZADO' ? 'bg-emerald-400' : st.includes('REQUERIMIENTO') ? 'bg-red-400' : 'bg-brand'} ${active ? 'animate-pulse' : 'opacity-80'}`}></span>
+                                        <span className={`text-[9px] uppercase tracking-wider font-bold transition-colors truncate max-w-[120px] ${active ? 'text-white' : 'text-white/40'}`}>
                                             {st}
                                         </span>
                                     </div>
@@ -1467,6 +1479,27 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
                             );
                         })}
                     </div>
+
+                    {/* Selección múltiple activa: qué se está sumando + atajos */}
+                    {statusSel.size > 0 && (
+                        <div className="flex items-center flex-wrap gap-2 mt-2 text-[10px]">
+                            <span className="uppercase tracking-wider font-bold text-white/40">
+                                Sumando {statusSel.size} estado{statusSel.size > 1 ? 's' : ''}
+                            </span>
+                            <button
+                                onClick={() => setStatusSel(new Set(EXPEDIENTE_ESTADOS.filter(s => s !== 'FINALIZADO')))}
+                                className="px-2 py-1 rounded-lg border border-white/10 hover:border-brand text-white/60 hover:text-white uppercase tracking-wider font-bold transition-colors"
+                            >
+                                Todos menos finalizado
+                            </button>
+                            <button
+                                onClick={() => setStatusSel(new Set())}
+                                className="px-2 py-1 rounded-lg border border-white/10 hover:border-brand text-white/60 hover:text-white uppercase tracking-wider font-bold transition-colors"
+                            >
+                                Limpiar
+                            </button>
+                        </div>
+                    )}
                 </div>
             )}
 
@@ -1702,11 +1735,15 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
                                     <td className="px-4 py-3 border-b border-white/[0.04]">
                                         <div className="relative group">
                                             <select
-                                                value={statusFilter}
-                                                onChange={(e) => setStatusFilter(e.target.value)}
+                                                // Con multi-selección, el desplegable actúa como atajo a UN estado
+                                                // (o a ninguno). Para sumar varios se usan los chips de arriba.
+                                                value={statusSel.size === 1 ? [...statusSel][0] : 'ALL'}
+                                                onChange={(e) => setStatusSel(e.target.value === 'ALL' ? new Set() : new Set([e.target.value]))}
                                                 className="bg-transparent text-[10px] font-black text-brand uppercase tracking-wider focus:outline-none transition-colors cursor-pointer w-full p-0 pr-4 appearance-none"
                                             >
-                                                <option value="ALL" className="bg-bkg-deep text-white">TODOS LOS ESTADOS</option>
+                                                <option value="ALL" className="bg-bkg-deep text-white">
+                                                    {statusSel.size > 1 ? `${statusSel.size} ESTADOS (CHIPS)` : 'TODOS LOS ESTADOS'}
+                                                </option>
                                                 {EXPEDIENTE_ESTADOS.map(st => (
                                                     <option key={st} value={st} className="bg-bkg-deep text-white">{st}</option>
                                                 ))}
