@@ -118,8 +118,11 @@ export function buildAnexoListadoHtml(lote, opts = {}) {
       .meta { width: 100%; margin: 10px 0; font-size: 9px; }
       .meta td { padding: 2px 6px; }
       .meta .k { color: #444; }
-      table.data { width: 100%; border-collapse: collapse; margin-top: 6px; }
-      table.data th, table.data td { border: 1px solid #999; padding: 3px 4px; font-size: 8px; text-align: center; vertical-align: middle; }
+      /* table-layout:fixed + colgroup: sin esto, la tabla no puede encoger por debajo
+         del min-content de sus 13 columnas (la dirección y el título descriptivo son
+         largos) y se sale del papel por la derecha. */
+      table.data { width: 100%; border-collapse: collapse; margin-top: 6px; table-layout: fixed; }
+      table.data th, table.data td { border: 1px solid #999; padding: 3px 4px; font-size: 8px; text-align: center; vertical-align: middle; word-wrap: break-word; overflow-wrap: anywhere; }
       table.data th { background: #FF8F00; color: #fff; font-weight: bold; }
       table.data td.l { text-align: left; }
       table.data td.r { text-align: right; }
@@ -146,7 +149,13 @@ export function buildAnexoListadoHtml(lote, opts = {}) {
         </tr>
       </tbody></table>
 
-      <table class="data"><thead><tr>
+      <table class="data">
+      <colgroup>
+        <col style="width:3%"><col style="width:9%"><col style="width:15%"><col style="width:10%"><col style="width:8%">
+        <col style="width:6%"><col style="width:6%"><col style="width:5%"><col style="width:17%">
+        <col style="width:6%"><col style="width:4%"><col style="width:7%"><col style="width:4%">
+      </colgroup>
+      <thead><tr>
         <th>Nº</th><th>Código actuación</th><th>Dirección</th><th>Ref. catastral</th><th>Coordenadas UTM</th>
         <th>Fecha inicio</th><th>Fecha fin</th><th>Código ficha</th><th>Título descriptivo de la actuación</th>
         <th>Inversión (€)</th><th>Vida útil (años)</th><th>Ahorro energ. estimado (kWh/año)</th><th>Precio (€/MWh)</th>

@@ -9,6 +9,7 @@ import { computeLoteEco } from '../logic/loteEco';
 import { AnexoListadoModal } from './AnexoListadoModal';
 import { SolicitudVerificacionModal } from './SolicitudVerificacionModal';
 import { FacturaSoModal } from './FacturaSoModal';
+import { LoteDocumentosModule } from './LoteDocumentosModule';
 
 const presName = (p) => p ? (p.acronimo || p.razon_social || '—') : null;
 const eur = (n) => (Number(n) || 0).toLocaleString('es-ES', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
@@ -430,6 +431,11 @@ export function LoteDetailModal({ loteId, soList: soListProp, verList: verListPr
                                 )}
                             </div>
                         )}
+
+                        {/* Documentos del lote (Anexo I, solicitud, oferta, fichas, factura) */}
+                        <div className="border-t border-white/5 pt-5">
+                            <LoteDocumentosModule lote={lote} onChanged={() => { refresh(); onChanged?.(); }} />
+                        </div>
 
                         {/* Acciones del lote */}
                         <div className="border-t border-white/5 pt-5">

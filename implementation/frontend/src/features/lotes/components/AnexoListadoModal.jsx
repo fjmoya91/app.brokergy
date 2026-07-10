@@ -38,13 +38,44 @@ export function AnexoListadoModal({ lote, onClose }) {
     // ── Envío al Sujeto Obligado ──────────────────────────────────────────────
     const so = lote.sujeto_obligado || {};
     const soEmail = so.email || '';
-    const soNotifyEmail = so.notify_email || so.email || '';
     const soRepNombre = [so.nombre_responsable, so.apellidos_responsable].filter(Boolean).join(' ') || undefined;
     const soRepNif = so.nif_responsable || undefined;
+
+    // Los contactos del S.O. ya están en su ficha (`contactos_notificacion`): el
+    // interlocutor habitual va como destinatario y el email de la empresa en copia,
+    // en vez de escribirlos a mano en cada envío.
+    const soContactos = useMemo(() => {
+        const raw = so.contactos_notificacion;
+        const arr = Array.isArray(raw) ? raw : (typeof raw === 'string' && raw.trim() ? JSON.parse(raw || '[]') : []);
+        return (arr || []).filter(c => c && (c.email || c.tlf));
+    }, [so.contactos_notificacion]);
+
+    const contactoPrincipal = soContactos[0] || null;
+    const soNotifyEmail = so.notify_email || contactoPrincipal?.email || soEmail || '';
+    const soNotifyPhone = contactoPrincipal?.tlf || so.tlf || '';
+    // En copia: el email de la empresa y el resto de contactos, sin repetir el destinatario.
+    const soCc = useMemo(() => {
+        const dest = (soNotifyEmail || '').toLowerCase();
+        return [soEmail, ...soContactos.map(c => c.email)]
+            .filter(e => e && e.toLowerCase() !== dest)
+            .filter((e, i, arr) => arr.indexOf(e) === i);
+    }, [soEmail, soContactos, soNotifyEmail]);
+
+    // Aviso corto por WhatsApp al interlocutor, además del email con los documentos.
+    const avisoWaDefault = `Hola ${contactoPrincipal?.nombre ? String(contactoPrincipal.nombre).split(' ')[0] : ''}, os hemos enviado por email otro lote (${lote.codigo || ''}) para firmar.
+
+Una vez firmado a través de la app, nos llegará una notificación para continuar con el proceso.
+Cuando tengamos la oferta del verificador formal os la enviamos para su firma.
+Un saludo.`.replace(/ ,/g, ',');
     const numFichas = (lote.expedientes || []).length;
     const [sendOpen, setSendOpen] = useState(false);
     const [solicitud, setSolicitud] = useState(null);   // { name, base64 }
     const [solicitudErr, setSolicitudErr] = useState('');
+    const [solicitudDrag, setSolicitudDrag] = useState(false);
+    // Aviso por WhatsApp al interlocutor del S.O. (editable antes de enviar).
+    const [avisoWaOn, setAvisoWaOn] = useState(true);
+    const [avisoWaPhone, setAvisoWaPhone] = useState('');
+    const [avisoWaMsg, setAvisoWaMsg] = useState('');
     // Firma del PROVEEDOR (Brokergy) del Anexo I ANTES de enviarlo al S.O.
     const [provSignOpen, setProvSignOpen] = useState(false);
     const [provPdfB64, setProvPdfB64] = useState(null);       // PDF del listado a firmar
@@ -52,6 +83,15 @@ export function AnexoListadoModal({ lote, onClose }) {
     const [provBusy, setProvBusy] = useState(false);
     // Si cambian mes/convenio, el listado se regenera → invalida la firma previa de Brokergy.
     useEffect(() => { setProveedorSigned(null); }, [mes, convenioFecha]);
+
+    // Al abrir el envío, sembramos el aviso con el contacto y el texto por defecto.
+    useEffect(() => {
+        if (!sendOpen) return;
+        setAvisoWaPhone(soNotifyPhone || '');
+        setAvisoWaMsg(avisoWaDefault);
+        setAvisoWaOn(!!soNotifyPhone);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [sendOpen]);
     const sendMsg = `Estimados,\n\nAdjuntamos el Anexo I (Listado de Cesión de Ahorros) del lote ${lote.codigo || ''}, que recoge ${totals.numActuaciones} actuaciones con un ahorro total de ${totals.ahorroMwh.toLocaleString('es-ES', { maximumFractionDigits: 1 })} MWh/año (${totals.ahorroGwh.toLocaleString('es-ES', { maximumFractionDigits: 2 })} GWh/año), junto con las fichas técnicas RES de cada actuación y la solicitud de verificación.\n\nRogamos procedan a su firma con el certificado electrónico del representante legal. Pueden firmar todo en cadena desde el enlace que incluimos más abajo (Autofirma), sin descargar ni volver a subir nada. Quedamos a su disposición para cualquier aclaración.\n\nUn saludo,\nBROKERGY · Ingeniería Energética`;
 
     // Construye los documentos a adjuntar: Anexo I (listado) + una ficha por expediente (RES060/080/093).
@@ -70,9 +110,7 @@ export function AnexoListadoModal({ lote, onClose }) {
         return docs;
     };
 
-    const onPickSolicitud = async (e) => {
-        const file = e.target.files?.[0];
-        e.target.value = '';
+    const aceptarSolicitud = async (file) => {
         if (!file) return;
         if (file.type !== 'application/pdf') { setSolicitudErr('El fichero debe ser un PDF.'); return; }
         setSolicitudErr('');
@@ -82,14 +120,30 @@ export function AnexoListadoModal({ lote, onClose }) {
         } catch { setSolicitudErr('No se pudo leer el fichero.'); }
     };
 
+    const onPickSolicitud = async (e) => {
+        const file = e.target.files?.[0];
+        e.target.value = '';
+        await aceptarSolicitud(file);
+    };
+
+    const onDropSolicitud = async (e) => {
+        e.preventDefault();
+        setSolicitudDrag(false);
+        await aceptarSolicitud(e.dataTransfer.files?.[0]);
+    };
+
     // Envío al S.O. vía el backend del lote: crea carpeta, mueve expedientes, guarda
     // borradores (Anexo I + fichas + solicitud) y manda el email/WhatsApp con el enlace de firma.
     const handleEnviarSo = async ({ email, phone, channels, message }) => {
         const { data } = await axios.post(`/api/lotes/${lote.id}/enviar-so`, {
             to: email,
+            cc: soCc,
             phone,
             channels,
             customMessage: message,
+            avisoWhatsApp: (avisoWaOn && avisoWaPhone.trim())
+                ? { phone: avisoWaPhone.trim(), message: avisoWaMsg }
+                : null,
             summaryData: { id: lote.codigo || 'LOTE', docType: 'Anexo I · Listado Cesión + Fichas RES' },
             docs: buildDocs().map(d => ({ html: d.html, pdfBase64: d.pdfBase64 || null, fileName: d.fileName, label: d.label, tipo: d.tipo, expediente_id: d.expediente_id || null, anchor: d.anchor || null, fixedBox: d.fixedBox || null })),
             solicitud: solicitud ? { base64: solicitud.base64, fileName: solicitud.name, fixedBox: SIGN_BOXES.solicitud_verificacion } : null,
@@ -99,34 +153,82 @@ export function AnexoListadoModal({ lote, onClose }) {
         const results = [];
         if (channels.email) {
             const w = warnings.find(x => /^email/i.test(x));
-            results.push({ channel: 'email', status: w ? 'fail' : 'ok', text: w || `→ ${email}` });
+            const ccTxt = soCc.length ? ` (cc: ${soCc.join(', ')})` : '';
+            results.push({ channel: 'email', status: w ? 'fail' : 'ok', text: w || `→ ${email}${ccTxt}` });
         }
         if (channels.whatsapp) {
             const w = warnings.find(x => /^whatsapp/i.test(x));
             results.push({ channel: 'whatsapp', status: w ? 'fail' : 'ok', text: w || `→ ${phone}` });
+        }
+        if (avisoWaOn && avisoWaPhone.trim()) {
+            const w = warnings.find(x => /^aviso whatsapp/i.test(x));
+            results.push({ channel: 'whatsapp', status: w ? 'fail' : 'ok', text: w || `Aviso → ${avisoWaPhone.trim()}` });
         }
         return results;
     };
 
     // Slot para subir la Solicitud de Verificación descargada (se inyecta en el modal de envío).
     const solicitudSlot = (
-        <div>
-            <label className="block text-[9px] font-black text-white/30 uppercase tracking-[0.2em] mb-2">Solicitud de Verificación (PDF)</label>
-            {solicitud ? (
-                <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-emerald-500/10 border border-emerald-400/30">
-                    <svg className="w-4 h-4 text-emerald-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-                    <span className="text-[11px] text-white/80 truncate flex-1">{solicitud.name}</span>
-                    <button type="button" onClick={() => setSolicitud(null)} className="text-white/40 hover:text-red-400 transition-colors text-xs font-black shrink-0">✕</button>
-                </div>
-            ) : (
-                <label className="flex items-center gap-2 px-3 py-2.5 rounded-xl border border-dashed border-white/15 text-white/50 text-[11px] cursor-pointer hover:border-brand/40 hover:text-white/70 transition-all">
-                    <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
-                    Subir el PDF de la solicitud descargada
-                    <input type="file" accept="application/pdf" className="hidden" onChange={onPickSolicitud} />
+        <div className="space-y-5">
+            <div>
+                <label className="block text-[9px] font-black text-white/30 uppercase tracking-[0.2em] mb-2">Solicitud de Verificación (PDF)</label>
+                {solicitud ? (
+                    <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-emerald-500/10 border border-emerald-400/30">
+                        <svg className="w-4 h-4 text-emerald-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                        <span className="text-[11px] text-white/80 truncate flex-1">{solicitud.name}</span>
+                        <button type="button" onClick={() => setSolicitud(null)} className="text-white/40 hover:text-red-400 transition-colors text-xs font-black shrink-0">✕</button>
+                    </div>
+                ) : (
+                    <label
+                        onDragOver={(e) => { e.preventDefault(); setSolicitudDrag(true); }}
+                        onDragLeave={() => setSolicitudDrag(false)}
+                        onDrop={onDropSolicitud}
+                        className={`flex items-center gap-2 px-3 py-4 rounded-xl border border-dashed text-[11px] cursor-pointer transition-all ${solicitudDrag ? 'border-brand bg-brand/5 text-white/80' : 'border-white/15 text-white/50 hover:border-brand/40 hover:text-white/70'}`}
+                    >
+                        <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
+                        {solicitudDrag ? 'Suelta aquí el PDF' : 'Arrastra el PDF de la solicitud o pulsa para elegirlo'}
+                        <input type="file" accept="application/pdf" className="hidden" onChange={onPickSolicitud} />
+                    </label>
+                )}
+                {solicitudErr && <p className="mt-1 text-[10px] text-red-400">{solicitudErr}</p>}
+                <p className="mt-1 text-[9px] text-white/25">Se adjunta al email y entra en la firma en cadena del S.O.</p>
+            </div>
+
+            {/* Aviso por WhatsApp al interlocutor del S.O., además del email. */}
+            <div>
+                <label className="flex items-center gap-2 cursor-pointer mb-2">
+                    <input type="checkbox" checked={avisoWaOn} onChange={e => setAvisoWaOn(e.target.checked)} disabled={!soNotifyPhone} className="w-4 h-4 accent-emerald-500" />
+                    <span className="text-[9px] font-black text-white/30 uppercase tracking-[0.2em]">
+                        Avisar por WhatsApp {contactoPrincipal?.nombre ? `a ${contactoPrincipal.nombre}` : ''}
+                    </span>
                 </label>
+                {!soNotifyPhone && (
+                    <p className="text-[10px] text-amber-400/80">El S.O. no tiene teléfono de contacto en su ficha.</p>
+                )}
+                {avisoWaOn && soNotifyPhone && (
+                    <>
+                        <input
+                            type="tel"
+                            value={avisoWaPhone}
+                            onChange={e => setAvisoWaPhone(e.target.value)}
+                            className="w-full bg-black/30 border border-white/10 rounded-xl px-3 py-2 text-[11px] text-white mb-2 focus:outline-none focus:border-emerald-500/40"
+                        />
+                        <textarea
+                            value={avisoWaMsg}
+                            onChange={e => setAvisoWaMsg(e.target.value)}
+                            rows={5}
+                            className="w-full bg-black/30 border border-white/10 rounded-xl px-3 py-2 text-[11px] leading-relaxed text-white normal-case resize-none focus:outline-none focus:border-emerald-500/40"
+                        />
+                    </>
+                )}
+            </div>
+
+            {/* A quién va: destinatario + copias, resueltos desde la ficha del S.O. */}
+            {soCc.length > 0 && (
+                <p className="text-[10px] text-white/30 leading-snug">
+                    En copia: <span className="text-white/50">{soCc.join(', ')}</span>
+                </p>
             )}
-            {solicitudErr && <p className="mt-1 text-[10px] text-red-400">{solicitudErr}</p>}
-            <p className="mt-1 text-[9px] text-white/25">Se adjunta al email y entra en la firma en cadena del S.O.</p>
         </div>
     );
 

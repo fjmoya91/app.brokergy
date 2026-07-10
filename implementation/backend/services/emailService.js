@@ -103,21 +103,30 @@ const transporter = nodemailer.createTransport({
 /**
  * Envía un email genérico
  */
-const sendMail = async ({ to, subject, html, text, attachments, replyTo }) => {
+const sendMail = async ({ to, cc, subject, html, text, attachments, replyTo }) => {
     const sender = await getSender();
     const from = `"${sender.name}" <${sender.address}>`;
+
+    // `cc` admite string o array. Se descartan los vacíos y los que ya estén en `to`,
+    // para no mandar el mismo correo dos veces a la misma persona.
+    const toList = (Array.isArray(to) ? to : [to]).filter(Boolean).map(e => String(e).trim().toLowerCase());
+    const ccList = (Array.isArray(cc) ? cc : [cc])
+        .filter(Boolean)
+        .map(e => String(e).trim())
+        .filter(e => !toList.includes(e.toLowerCase()));
 
     try {
         const info = await transporter.sendMail({
             from,
             to,
+            cc: ccList.length ? ccList : undefined,
             replyTo: replyTo || undefined,
             subject,
             html,
             text: text || subject,
             attachments
         });
-        console.log(`[Email] Enviado a ${to}: ${info.messageId}`);
+        console.log(`[Email] Enviado a ${to}${ccList.length ? ` (cc: ${ccList.join(', ')})` : ''}: ${info.messageId}`);
         return { success: true, messageId: info.messageId };
     } catch (error) {
         console.error(`[Email] Error enviando a ${to}: [${error.code}] ${error.message}`);
@@ -422,7 +431,7 @@ const sendAcceptanceNotificationEmail = async ({ to, userName, numeroExpediente,
 /**
  * Envía anexos (Anexo I, Anexo Cesión, etc.) por correo
  */
-const sendAnnexEmail = async ({ to, userName, attachments, customMessage, summaryData }) => {
+const sendAnnexEmail = async ({ to, cc, userName, attachments, customMessage, summaryData }) => {
     const docType = summaryData?.docType || 'Documentación';
     const subject = `${docType} — Brokergy (${summaryData.id})`;
     
@@ -450,7 +459,7 @@ const sendAnnexEmail = async ({ to, userName, attachments, customMessage, summar
 
     const text = customMessage || `Hola ${userName},\n\nAdjuntamos la documentación solicitada (${docType}) para tu expediente ${summaryData.id}.\n\nQuedamos a tu disposición.\n\nBROKERGY · Ingeniería Energética`;
 
-    return sendMail({ to, subject, html, text, attachments });
+    return sendMail({ to, cc, subject, html, text, attachments });
 };
 
 /**

@@ -206,7 +206,12 @@ export default function FirmarConCertificadoModal({
         const raw = page.getViewport({ scale: 1 });
         // Ancho útil del visor = ancho del contenedor menos su padding (16px×2) y un
         // margen para la barra de scroll. Así el documento entra completo sin recortarse.
-        const avail = Math.max(300, (bodyRef.current?.clientWidth || 660) - 40);
+        // Si el contenedor todavía no ha maquetado (clientWidth 0), deducimos su ancho
+        // del propio modal (`min(920px, 96vw)`) en vez de asumir un valor fijo que
+        // podía quedarse largo y hacer que el documento se saliera por la derecha.
+        const medido = bodyRef.current?.clientWidth || 0;
+        const teorico = Math.min(920, window.innerWidth * 0.96);
+        const avail = Math.max(300, (medido || teorico) - 40);
         const scale = Math.min(avail / raw.width, 2.2);
         const viewport = page.getViewport({ scale });
         viewportRef.current = viewport;
@@ -387,14 +392,14 @@ export default function FirmarConCertificadoModal({
                     <button onClick={handleClose} style={xBtn} aria-label="Cerrar">✕</button>
                 </div>
 
-                <div style={{ padding: '10px 16px', fontSize: 13, color: '#cbd5e1' }}>
+                <div style={{ padding: '10px 16px', fontSize: 13, color: C.textSoft }}>
                     {isSuggested
-                        ? <>Te hemos marcado <b style={{ color: '#f59e0b' }}>dónde debes firmar</b> (recuadro que parpadea). <b>Pulsa dentro del recuadro</b> o el botón <b>Firmar con Autofirma</b> y elige tu certificado. Si quieres, puedes arrastrar otro recuadro.</>
+                        ? <>Te hemos marcado <b style={{ color: C.brand }}>dónde debes firmar</b> (recuadro que parpadea). <b>Pulsa dentro del recuadro</b> o el botón <b>Firmar con Autofirma</b> y elige tu certificado. Si quieres, puedes arrastrar otro recuadro.</>
                         : <>Arrastra sobre la página el recuadro donde quieres que aparezca tu firma. Luego pulsa <b>Firmar con Autofirma</b> y elige tu certificado.</>}
                 </div>
 
                 <div style={body} ref={bodyRef}>
-                    {loading && <div style={{ padding: 40, textAlign: 'center', color: '#94a3b8' }}>Cargando PDF…</div>}
+                    {loading && <div style={{ padding: 40, textAlign: 'center', color: C.textMuted }}>Cargando PDF…</div>}
                     {!loading && (
                         <div style={{ position: 'relative', display: 'inline-block', boxShadow: '0 4px 24px rgba(0,0,0,.4)' }}>
                             <canvas ref={canvasRef} style={{ display: 'block' }} />
@@ -410,14 +415,14 @@ export default function FirmarConCertificadoModal({
                                     <div style={{
                                         position: 'absolute',
                                         left: showRect.x, top: showRect.y, width: showRect.w, height: showRect.h,
-                                        border: '2px solid #f59e0b',
+                                        border: `2px solid ${C.brand}`,
                                         background: 'rgba(245,158,11,.18)',
                                         borderRadius: 4,
                                         pointerEvents: 'none',
                                         ...(isSuggested ? { animation: 'bkgFirmaPulse 1.2s ease-in-out infinite', cursor: 'pointer' } : {}),
                                     }}>
                                         {isSuggested && (
-                                            <span style={{ position: 'absolute', top: -22, left: -2, background: '#f59e0b', color: '#000', fontSize: 10, fontWeight: 900, padding: '2px 8px', borderRadius: 6, whiteSpace: 'nowrap', textTransform: 'uppercase', letterSpacing: '.5px' }}>✍️ Pulsa aquí para firmar</span>
+                                            <span style={{ position: 'absolute', top: -22, left: -2, background: C.brand, color: '#000', fontSize: 10, fontWeight: 900, padding: '2px 8px', borderRadius: 6, whiteSpace: 'nowrap', textTransform: 'uppercase', letterSpacing: '.5px' }}>✍️ Pulsa aquí para firmar</span>
                                         )}
                                     </div>
                                 )}
@@ -429,7 +434,7 @@ export default function FirmarConCertificadoModal({
                 {numPages > 1 && (
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'center', padding: '4px 0' }}>
                         <button style={navBtn} disabled={pageNum <= 1} onClick={() => setPageNum(p => Math.max(1, p - 1))}>‹</button>
-                        <span style={{ fontSize: 13, color: '#cbd5e1' }}>Página {pageNum} / {numPages}</span>
+                        <span style={{ fontSize: 13, color: C.textSoft }}>Página {pageNum} / {numPages}</span>
                         <button style={navBtn} disabled={pageNum >= numPages} onClick={() => setPageNum(p => Math.min(numPages, p + 1))}>›</button>
                     </div>
                 )}
@@ -446,7 +451,7 @@ export default function FirmarConCertificadoModal({
                 )}
 
                 <div style={foot}>
-                    <span style={{ fontSize: 12, color: signReady ? '#34d399' : '#94a3b8' }}>
+                    <span style={{ fontSize: 12, color: signReady ? '#34d399' : C.textMuted }}>
                         {signReady ? `✓ Recuadro fijado en página ${rectPage || pageNum}` : 'Sin recuadro'}
                     </span>
                     <div style={{ display: 'flex', gap: 8 }}>
@@ -461,12 +466,28 @@ export default function FirmarConCertificadoModal({
     );
 }
 
+// Este modal se pinta con estilos inline (no Tailwind), así que los colores de marca
+// van aquí como constantes en vez de tokens `bkg-*` / `brand`. Son los mismos valores
+// que define tailwind.config.js e index.css — antes usaba la paleta slate de Tailwind
+// (azulada) y desentonaba con el resto de la app.
+const C = {
+    surface: '#13151A',   // bkg-surface
+    deep: '#08090C',      // bkg-deep
+    brand: '#FFA000',     // brand.DEFAULT
+    text: '#FFFFFF',
+    textSoft: 'rgba(255,255,255,.70)',
+    textMuted: 'rgba(255,255,255,.45)',
+    border: 'rgba(255,255,255,.08)',
+    borderStrong: 'rgba(255,255,255,.14)',
+    elevated: '#1A1C22',  // bkg-elevated
+};
+
 const ovl = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10000, padding: 16 };
-const box = { background: '#0f172a', color: '#e2e8f0', borderRadius: 14, border: '1px solid #1e293b', width: 'min(920px, 96vw)', maxHeight: '94vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' };
-const head = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderBottom: '1px solid #1e293b' };
-const body = { flex: 1, overflow: 'auto', padding: 16, textAlign: 'center', background: '#020617' };
-const foot = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', borderTop: '1px solid #1e293b' };
-const xBtn = { background: 'transparent', border: 'none', color: '#94a3b8', fontSize: 18, cursor: 'pointer' };
-const navBtn = { background: '#1e293b', border: '1px solid #334155', color: '#e2e8f0', borderRadius: 8, width: 32, height: 28, cursor: 'pointer' };
-const ghostBtn = { background: 'transparent', border: '1px solid #334155', color: '#cbd5e1', borderRadius: 10, padding: '10px 16px', cursor: 'pointer', fontWeight: 600 };
-const primaryBtn = { background: '#f59e0b', border: 'none', color: '#000', borderRadius: 10, padding: '10px 18px', cursor: 'pointer', fontWeight: 800 };
+const box = { background: C.surface, color: C.text, borderRadius: 14, border: `1px solid ${C.border}`, width: 'min(920px, 96vw)', maxHeight: '94vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' };
+const head = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderBottom: `1px solid ${C.border}` };
+const body = { flex: 1, overflow: 'auto', padding: 16, textAlign: 'center', background: C.deep };
+const foot = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', borderTop: `1px solid ${C.border}` };
+const xBtn = { background: 'transparent', border: 'none', color: C.textMuted, fontSize: 18, cursor: 'pointer' };
+const navBtn = { background: C.elevated, border: `1px solid ${C.borderStrong}`, color: C.text, borderRadius: 8, width: 32, height: 28, cursor: 'pointer' };
+const ghostBtn = { background: 'transparent', border: `1px solid ${C.borderStrong}`, color: C.textSoft, borderRadius: 10, padding: '10px 16px', cursor: 'pointer', fontWeight: 600 };
+const primaryBtn = { background: C.brand, border: 'none', color: '#000', borderRadius: 10, padding: '10px 18px', cursor: 'pointer', fontWeight: 800 };

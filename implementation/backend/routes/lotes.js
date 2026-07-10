@@ -516,11 +516,72 @@ router.post('/:id/factura-so', adminOnly, async (req, res) => {
 // Verificación subida), los envía por email/WhatsApp al S.O. con el enlace de
 // firma, y registra todo en lotes.documentos_so para la firma en cadena del S.O.
 // (/firmar-lote/:id). Los HTML de Anexo I y fichas los construye el frontend.
+// ─── POST /api/lotes/:id/documentos/oferta ────────────────────────────────
+// Sube la OFERTA DE VERIFICACIÓN que devuelve el verificador. Va a la carpeta
+// Drive del lote y se registra en `documentos_so` como una entrada más, para que
+// aparezca en el visor de documentos junto al Anexo I y la solicitud.
+router.post('/:id/documentos/oferta', staffOnly, async (req, res) => {
+    try {
+        const { base64, fileName } = req.body || {};
+        if (!base64) return res.status(400).json({ error: 'Falta el fichero' });
+
+        const { data: lote, error } = await supabase.from('lotes').select('*').eq('id', req.params.id).maybeSingle();
+        if (error || !lote) return res.status(404).json({ error: 'Lote no encontrado' });
+
+        const folderId = await ensureLoteFolder(lote);
+        const buffer = Buffer.from(String(base64).split(',').pop(), 'base64');
+        const name = pdfFileName(fileName || `${lote.codigo || 'LOTE'} - Oferta de verificacion`);
+        const saved = await saveOrReplacePdf(folderId, name, buffer);
+        if (!saved) throw new Error('No se pudo guardar la oferta en Drive');
+
+        // Releemos `documentos_so` justo antes de escribir para no pisar cambios de
+        // otro envío en curso, y sustituimos la entrada de la oferta si ya existía.
+        const { data: fresh } = await supabase.from('lotes').select('documentos_so, historial').eq('id', lote.id).maybeSingle();
+        const docs = Array.isArray(fresh?.documentos_so) ? [...fresh.documentos_so] : [];
+        const entrada = {
+            key: 'oferta_verificacion',
+            tipo: 'oferta_verificacion',
+            label: 'Oferta de verificación',
+            expediente_id: null,
+            file_name: name,
+            draft_link: saved.link,
+            draft_file_id: saved.id,
+            signed_link: null,
+            signed_file_id: null,
+            sent_at: null,
+            signed_at: null,
+            uploaded_at: nowIso(),
+        };
+        const idx = docs.findIndex(d => d?.key === 'oferta_verificacion');
+        if (idx >= 0) docs[idx] = entrada; else docs.push(entrada);
+
+        const historial = Array.isArray(fresh?.historial) ? [...fresh.historial] : [];
+        historial.push({
+            id: `${Date.now()}_oferta`, tipo: 'sistema',
+            texto: `Subida la oferta de verificación (${name}).`,
+            fecha: nowIso(), usuario: usuarioDe(req),
+        });
+
+        await supabase.from('lotes').update({
+            documentos_so: docs, historial, drive_folder_id: folderId, updated_at: nowIso(),
+        }).eq('id', lote.id);
+
+        res.json({ ok: true, documento: entrada });
+    } catch (err) {
+        console.error('[POST /lotes/:id/documentos/oferta]', err.message);
+        res.status(500).json({ error: err.message || 'Error al subir la oferta de verificación' });
+    }
+});
+
 router.post('/:id/enviar-so', staffOnly, async (req, res) => {
     try {
         const {
-            to, phone, channels = { email: true, whatsapp: false },
+            to, cc, phone, channels = { email: true, whatsapp: false },
             customMessage, summaryData, docs = [], solicitud, frontendOrigin,
+            // Aviso corto por WhatsApp al contacto del S.O. ("os hemos enviado otro
+            // lote para firmar"). Independiente del canal WhatsApp, que manda además
+            // todos los adjuntos.
+            avisoWhatsApp,
         } = req.body || {};
 
         if (!Array.isArray(docs) || docs.length === 0) {
@@ -630,7 +691,7 @@ router.post('/:id/enviar-so', staffOnly, async (req, res) => {
         if (channels.email && to) {
             try {
                 const emailService = require('../services/emailService');
-                await emailService.sendAnnexEmail({ to, userName: summ.id, attachments, customMessage: msgConEnlace, summaryData: summ });
+                await emailService.sendAnnexEmail({ to, cc, userName: summ.id, attachments, customMessage: msgConEnlace, summaryData: summ });
             } catch (e) { warnings.push(`Email: ${e.message}`); }
         }
         if (channels.whatsapp && phone) {
@@ -645,6 +706,19 @@ router.post('/:id/enviar-so', staffOnly, async (req, res) => {
                     );
                 }
             } catch (e) { warnings.push(`WhatsApp: ${e.message}`); }
+        }
+
+        // Aviso corto por WhatsApp al contacto del S.O., avisando de que el lote ya
+        // está en su email. Solo si no se ha enviado ya todo por WhatsApp a ese mismo
+        // número (evita duplicar el mensaje).
+        const avisoPhone = (avisoWhatsApp?.phone || '').trim();
+        const avisoMsg = (avisoWhatsApp?.message || '').trim();
+        const yaEnviadoPorWa = channels.whatsapp && phone && String(phone).trim() === avisoPhone;
+        if (avisoPhone && avisoMsg && !yaEnviadoPorWa) {
+            try {
+                const whatsappService = require('../services/whatsappService');
+                await whatsappService.sendText(avisoPhone, avisoMsg);
+            } catch (e) { warnings.push(`Aviso WhatsApp: ${e.message}`); }
         }
 
         // 6) Persistir documentos + historial.
