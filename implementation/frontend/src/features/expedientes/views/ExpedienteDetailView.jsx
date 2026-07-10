@@ -25,6 +25,7 @@ import { IncidenciasModal } from '../components/IncidenciasModal';
 import { DocsAdminModal } from '../../calculator/components/DocsAdminModal';
 import { ClienteDetailModal } from '../../clientes/components/ClienteDetailModal';
 import { LoteDetailModal } from '../../lotes/components/LoteDetailModal';
+import { FechasPrevistasEjecucion } from '../components/FechasPrevistasEjecucion';
 
 export const EXPEDIENTE_ESTADOS = [
     'PTE. CEE INICIAL',
@@ -101,6 +102,8 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
     const userRoleId = user?.id_rol ? Number(user.id_rol) : null;
     const isCertificador = userRole === 'CERTIFICADOR' || userRoleId === 4;
     const isAdmin = userRole === 'ADMIN' || userRoleId === 1;
+    // Equipo interno: opera el expediente (el TRABAJADOR también, sin ver margen).
+    const isStaff = isAdmin || userRole === 'TRABAJADOR' || userRoleId === 8;
 
     const [expediente, setExpediente] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -1120,16 +1123,26 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
                     onToggle={setActiveSection}
                     badge={expediente.cee?.tipo === 'xml' ? 'XML' : 'Aportado'}
                     headerAction={
-                        assignedCertificador && (
-                            <div className="hidden md:flex items-center gap-2 bg-white/[0.04] border border-white/10 px-3 py-1.5 rounded-xl ml-4 mr-2 group/cert">
-                                <svg className="w-3.5 h-3.5 text-white/30 group-hover/cert:text-brand transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                                </svg>
-                                <span className="text-[10px] font-black text-white/40 uppercase tracking-widest group-hover/cert:text-white transition-colors">
-                                    {assignedCertificador.razon_social || assignedCertificador.acronimo}
-                                </span>
-                            </div>
-                        )
+                        <>
+                            {/* La fecha prevista de inicio de obra es la que marca el plazo
+                                real del CEE inicial: debe estar registrado antes. */}
+                            <FechasPrevistasEjecucion
+                                expediente={{ ...expediente, instalacion: liveInst || expediente.instalacion, seguimiento: liveSeguimiento || expediente.seguimiento }}
+                                onSave={handleSave}
+                                editable={isStaff}
+                                saving={saving}
+                            />
+                            {assignedCertificador && (
+                                <div className="hidden md:flex items-center gap-2 bg-white/[0.04] border border-white/10 px-3 py-1.5 rounded-xl ml-4 mr-2 group/cert">
+                                    <svg className="w-3.5 h-3.5 text-white/30 group-hover/cert:text-brand transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                                    </svg>
+                                    <span className="text-[10px] font-black text-white/40 uppercase tracking-widest group-hover/cert:text-white transition-colors">
+                                        {assignedCertificador.razon_social || assignedCertificador.acronimo}
+                                    </span>
+                                </div>
+                            )}
+                        </>
                     }
                 >
                     <CeeModule

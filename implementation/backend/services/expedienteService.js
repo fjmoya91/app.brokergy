@@ -164,7 +164,12 @@ async function createExpediente(uuid_oportunidad, id_cliente, manualNumber = nul
             aerotermia_acs: aerotermiaAcs,
             hibridacion: opInputs.hibridacion === true,
             potencia_bomba: opInputs.potenciaBomba != null && opInputs.potenciaBomba !== '' ? Number(opInputs.potenciaBomba) : 0,
-            instalador_id: op.prescriptor_id || null
+            instalador_id: op.prescriptor_id || null,
+            // Fechas que el cliente indicó al aceptar la propuesta (las que le dio su
+            // instalador). La de inicio fija el plazo del CEE inicial: debe estar
+            // registrado antes de que la obra empiece. Editables luego en el expediente.
+            fecha_prevista_inicio: op.datos_calculo?.fecha_prevista_inicio || null,
+            fecha_prevista_fin: op.datos_calculo?.fecha_prevista_fin || null,
         };
 
         console.log(`[ExpedienteService] Instalación pre-rellenada desde oportunidad → ` +

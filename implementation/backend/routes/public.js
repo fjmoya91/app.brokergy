@@ -418,6 +418,18 @@ router.post('/aceptar/:id', upload.single('justificante'), async (req, res) => {
         const ceeDecision = ceeChoice === 'aportado' ? 'usar_cee_aportado'
             : (ceeChoice === 'nuevo' ? 'calcular_cee_nuevo' : null);
 
+        // Fechas que el cliente dice que le ha dado su instalador. Son OPCIONALES.
+        // La de inicio marca el plazo del CEE inicial: debe registrarse antes de que
+        // empiece la obra. Se guardan en la oportunidad y `createExpediente` las hereda.
+        const esFechaIso = (v) => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v);
+        const fechaInicio = esFechaIso(formFields.fecha_prevista_inicio) ? formFields.fecha_prevista_inicio : null;
+        const fechaFinRaw = esFechaIso(formFields.fecha_prevista_fin) ? formFields.fecha_prevista_fin : null;
+        // Una obra no puede terminar antes de empezar: si llega incoherente, se ignora el fin.
+        const fechaFin = (fechaInicio && fechaFinRaw && fechaFinRaw < fechaInicio) ? null : fechaFinRaw;
+        const fechasPrevistas = (fechaInicio || fechaFin)
+            ? { fecha_prevista_inicio: fechaInicio, fecha_prevista_fin: fechaFin }
+            : null;
+
         if (prevEstado !== 'ACEPTADA') {
             const clienteNombre = [formFields.nombre_razon_social, formFields.apellidos].filter(Boolean).join(' ');
             const newHistorial = [...currentHistorial, {
@@ -429,17 +441,18 @@ router.post('/aceptar/:id', upload.single('justificante'), async (req, res) => {
                 ...(ceeDecision ? { cee_decision: ceeDecision } : {})
             }];
 
-            const newData = { ...(opp.datos_calculo || {}), estado: 'ACEPTADA', historial: newHistorial, ...(ceeDecision ? { cee_decision: ceeDecision } : {}) };
+            const newData = { ...(opp.datos_calculo || {}), estado: 'ACEPTADA', historial: newHistorial, ...(ceeDecision ? { cee_decision: ceeDecision } : {}), ...(fechasPrevistas || {}) };
             await supabase.from('oportunidades')
                 .update({ datos_calculo: newData })
                 .eq('id_oportunidad', id);
-            console.log(`[Public] Oportunidad ${id} marcada como ACEPTADA${ceeDecision ? ` (CEE: ${ceeDecision})` : ''}`);
-        } else if (ceeDecision && opp.datos_calculo?.cee_decision !== ceeDecision) {
-            // Re-aceptación o cambio de decisión CEE cuando ya estaba ACEPTADA.
-            const newData = { ...(opp.datos_calculo || {}), cee_decision: ceeDecision };
+            opp.datos_calculo = newData; // reflejar para createExpediente
+            console.log(`[Public] Oportunidad ${id} marcada como ACEPTADA${ceeDecision ? ` (CEE: ${ceeDecision})` : ''}${fechaInicio ? ` (inicio obra: ${fechaInicio})` : ''}`);
+        } else if ((ceeDecision && opp.datos_calculo?.cee_decision !== ceeDecision) || fechasPrevistas) {
+            // Re-aceptación, cambio de decisión CEE o fechas nuevas cuando ya estaba ACEPTADA.
+            const newData = { ...(opp.datos_calculo || {}), ...(ceeDecision ? { cee_decision: ceeDecision } : {}), ...(fechasPrevistas || {}) };
             await supabase.from('oportunidades').update({ datos_calculo: newData }).eq('id_oportunidad', id);
             opp.datos_calculo = newData; // reflejar para createExpediente
-            console.log(`[Public] Oportunidad ${id}: decisión CEE actualizada a ${ceeDecision}`);
+            console.log(`[Public] Oportunidad ${id}: datos de aceptación actualizados`);
         } else {
             console.log(`[Public] La oportunidad ${id} ya estaba en estado ACEPTADA`);
         }

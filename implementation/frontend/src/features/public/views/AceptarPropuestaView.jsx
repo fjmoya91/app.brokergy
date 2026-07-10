@@ -191,7 +191,12 @@ export function AceptarPropuestaView({ idOportunidad }) {
         dni_cif: '',
         email: '',
         telefono: '',
-        iban: ''
+        iban: '',
+        // Fechas que le ha dado su instalador. OPCIONALES: no bloquean la aceptación.
+        // La de inicio nos marca el plazo para registrar el CEE inicial, que tiene
+        // que estar hecho antes de que la obra empiece.
+        fecha_prevista_inicio: '',
+        fecha_prevista_fin: '',
     });
 
     const [generatedExpediente, setGeneratedExpediente] = useState(null);
@@ -758,6 +763,50 @@ export function AceptarPropuestaView({ idOportunidad }) {
                                             ))}
                                         </div>
                                     )}
+
+                                    {/* Fechas de la obra. Opcionales: si el cliente no las
+                                        sabe, puede aceptar igualmente. Nos sirven para
+                                        priorizar el CEE inicial, que debe estar registrado
+                                        antes de que empiece la instalación. */}
+                                    <div className="pt-6 border-t border-white/10">
+                                        <p className="text-white font-bold text-sm mb-1">¿Qué fechas te ha indicado tu instalador?</p>
+                                        <p className="text-white/40 text-xs mb-4">
+                                            Opcional. Nos ayuda a tener listo tu certificado energético a tiempo. Si aún no las sabes, déjalo en blanco.
+                                        </p>
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                            <div>
+                                                <label className="block text-white/50 text-[11px] font-bold uppercase tracking-widest mb-1.5">
+                                                    Inicio previsto de la obra
+                                                </label>
+                                                <input
+                                                    type="date"
+                                                    name="fecha_prevista_inicio"
+                                                    value={formData.fecha_prevista_inicio}
+                                                    onChange={handleChange}
+                                                    className="w-full bg-black/30 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-brand/50 transition-all"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="block text-white/50 text-[11px] font-bold uppercase tracking-widest mb-1.5">
+                                                    Fin previsto de la obra
+                                                </label>
+                                                <input
+                                                    type="date"
+                                                    name="fecha_prevista_fin"
+                                                    value={formData.fecha_prevista_fin}
+                                                    min={formData.fecha_prevista_inicio || undefined}
+                                                    onChange={handleChange}
+                                                    className="w-full bg-black/30 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-brand/50 transition-all"
+                                                />
+                                            </div>
+                                        </div>
+                                        {formData.fecha_prevista_inicio && formData.fecha_prevista_fin
+                                            && formData.fecha_prevista_fin < formData.fecha_prevista_inicio && (
+                                            <p className="mt-2 text-[11px] text-amber-400">
+                                                El fin no puede ser anterior al inicio.
+                                            </p>
+                                        )}
+                                    </div>
 
                                     <div className="pt-6">
                                         <button

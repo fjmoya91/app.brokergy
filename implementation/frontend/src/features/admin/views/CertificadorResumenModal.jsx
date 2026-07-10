@@ -1,5 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
 import axios from 'axios';
+import { estadoPlazoCeeInicial, PESO_PLAZO, COLOR_PLAZO, BORDE_PLAZO, fmtFechaCorta } from '../../expedientes/logic/fechasPrevistas';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Seguimiento de certificados de un CERTIFICADOR.
@@ -86,6 +87,9 @@ const diasDesde = (iso) => {
 // La fase que bloquea es la del CEE inicial mientras no esté registrado.
 const faseActivaDe = (r) => (r.cee_inicial !== 'REGISTRADO' ? r.cee_inicial : r.cee_final);
 
+// Plazo del CEE inicial respecto a la fecha prevista de inicio de obra.
+const plazoDe = (r) => estadoPlazoCeeInicial(r.fecha_prevista_inicio, r.cee_inicial === 'REGISTRADO');
+
 // Mismos códigos y mismo orden que la tabla del panel de administración.
 const PRIORITY_ORDER = { URGENTE: 0, ALTA: 1, NORMAL: 2 };
 
@@ -116,7 +120,7 @@ const norm = (s) => (s || '').toString().toLowerCase().normalize('NFD').replace(
 // Descarga un CSV que Excel abre directamente: separador ';' (locale es-ES) y BOM
 // UTF-8 para que no rompa las tildes.
 const descargarCsv = (filas, nombreFichero) => {
-    const CABECERAS = ['Expediente', 'Prioridad', 'Cliente', 'Dirección', 'Municipio', 'Provincia', 'Estado', 'CEE inicial', 'Fecha registro CEE inicial', 'CEE final', 'Fecha registro CEE final', 'Falta', 'Siguiente paso'];
+    const CABECERAS = ['Expediente', 'Prioridad', 'Cliente', 'Dirección', 'Municipio', 'Provincia', 'Inicio previsto obra', 'Fin previsto obra', 'Plazo CEE inicial', 'Estado', 'CEE inicial', 'Fecha registro CEE inicial', 'CEE final', 'Fecha registro CEE final', 'Falta', 'Siguiente paso'];
     const celda = (v) => {
         const s = (v ?? '').toString();
         return /[";\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
@@ -126,6 +130,7 @@ const descargarCsv = (filas, nombreFichero) => {
         const fase = faseActivaDe(r);
         lineas.push([
             r.numero_expediente, r.prioridad || 'NORMAL', r.cliente_nombre, r.direccion, r.cliente_municipio, r.cliente_provincia,
+            fmtFechaCorta(r.fecha_prevista_inicio) || '', fmtFechaCorta(r.fecha_prevista_fin) || '', plazoDe(r).texto,
             r.estado, ETIQUETAS[r.cee_inicial] || r.cee_inicial, fmtFecha(r.fecha_registro_cee_inicial) || '',
             ETIQUETAS[r.cee_final] || r.cee_final, fmtFecha(r.fecha_registro_cee_final) || '',
             RESPONSABLE[fase] || 'COMPLETO', SIGUIENTE_PASO[fase] || 'Sin acciones pendientes',
@@ -188,17 +193,24 @@ export function CertificadorResumenPanel({ prescriptorId, certificadorNombre, on
             return true;
         });
 
-        // La PRIORIDAD manda, como en el panel de administración: urgentes arriba.
-        // Después, lo que espera por el certificador; y dentro de cada grupo, lo más
-        // antiguo primero (es lo que más tiempo lleva parado). Lo completo, al final.
+        // Orden: primero la PRIORIDAD manual de Brokergy (urgentes arriba, como en el
+        // panel de administración). Después el PLAZO real: lo que vence antes sube, y
+        // lo que ya está registrado baja. Luego de quién depende avanzar, y por último
+        // lo más antiguo (lo que más tiempo lleva parado).
+        //
+        // El plazo NUNCA reordena por encima de la prioridad manual: es un cálculo,
+        // no un dato, y la etiqueta manual sigue mandando.
         const peso = (r) => {
             const resp = RESPONSABLE[faseActivaDe(r)];
             if (resp === 'CERTIFICADOR') return 0;
             if (resp === 'BROKERGY') return 1;
             return 2;
         };
+        const pesoPlazo = (r) => PESO_PLAZO[plazoDe(r).nivel] ?? 4;
+
         return filtradas.sort((a, b) =>
             (PRIORITY_ORDER[a.prioridad] ?? 2) - (PRIORITY_ORDER[b.prioridad] ?? 2)
+            || pesoPlazo(a) - pesoPlazo(b)
             || peso(a) - peso(b)
             || new Date(a.created_at) - new Date(b.created_at)
         );
@@ -327,7 +339,7 @@ export function CertificadorResumenPanel({ prescriptorId, certificadorNombre, on
                     <table className="w-full text-left border-collapse">
                         <thead className="sticky top-0 bg-bkg-deep z-10">
                             <tr className="border-b border-white/[0.06]">
-                                {['Expediente', 'Cliente', 'Estado', 'CEE inicial', 'Registrado', 'CEE final', 'Registrado', 'Siguiente paso'].map((h, i) => (
+                                {['Expediente', 'Cliente', 'Inicio obra', 'Estado', 'CEE inicial', 'Registrado', 'CEE final', 'Registrado', 'Siguiente paso'].map((h, i) => (
                                     <th key={`${h}-${i}`} className="pb-2 text-[9px] font-black uppercase tracking-widest text-white/25 whitespace-nowrap pr-4">{h}</th>
                                 ))}
                             </tr>
@@ -340,7 +352,9 @@ export function CertificadorResumenPanel({ prescriptorId, certificadorNombre, on
                                 const fFin = fmtFecha(r.fecha_registro_cee_final);
                                 // Solo tiene sentido avisar de la espera si la pelota es del certificador.
                                 const dias = responsableFila === 'CERTIFICADOR' ? diasDesde(r.created_at) : null;
-                                const borde = bordePrioridad(r.prioridad);
+                                const plazo = plazoDe(r);
+                                // La franja de prioridad manual manda; si no la hay, la del plazo.
+                                const borde = bordePrioridad(r.prioridad) || BORDE_PLAZO[plazo.nivel] || '';
                                 return (
                                     <tr
                                         key={r.id}
@@ -356,6 +370,18 @@ export function CertificadorResumenPanel({ prescriptorId, certificadorNombre, on
                                             {/* La dirección de la instalación es donde el certificador hace la visita. */}
                                             {r.direccion && <span className="block text-[9px] text-white/30 leading-snug">{r.direccion}</span>}
                                             {r.cliente_municipio && <span className="block text-[9px] text-white/25">{r.cliente_municipio}</span>}
+                                        </td>
+                                        {/* Fecha prevista de inicio de obra: el CEE inicial debe
+                                            estar registrado antes de ese día. */}
+                                        <td className="py-2.5 pr-4 max-w-[170px]">
+                                            {r.fecha_prevista_inicio ? (
+                                                <>
+                                                    <span className="block text-[10px] text-white/50 whitespace-nowrap">{fmtFechaCorta(r.fecha_prevista_inicio)}</span>
+                                                    <span className={`block text-[9px] font-bold leading-snug ${COLOR_PLAZO[plazo.nivel]}`}>{plazo.texto}</span>
+                                                </>
+                                            ) : (
+                                                <span className="text-[10px] text-white/15">—</span>
+                                            )}
                                         </td>
                                         <td className="py-2.5 pr-4"><span className="text-[10px] text-white/40 whitespace-nowrap">{r.estado}</span></td>
                                         <td className="py-2.5 pr-4"><Badge fase={r.cee_inicial} /></td>

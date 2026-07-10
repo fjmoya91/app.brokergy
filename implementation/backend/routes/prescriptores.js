@@ -221,6 +221,10 @@ router.get('/:id/expedientes-certificador', enforceAuth, async (req, res) => {
                 created_at: e.created_at,
                 cliente_nombre: c ? `${c.nombre_razon_social || ''} ${c.apellidos || ''}`.trim() : null,
                 direccion,
+                // El CEE inicial tiene que estar registrado ANTES de que empiece la
+                // obra: es lo que marca la urgencia real del certificado.
+                fecha_prevista_inicio: inst.fecha_prevista_inicio || null,
+                fecha_prevista_fin: inst.fecha_prevista_fin || null,
                 cliente_municipio: municipio,
                 cliente_provincia: (inst.provincia || c?.provincia || '').trim() || null,
                 // Los expedientes que nunca han arrancado el CEE no tienen la clave.
