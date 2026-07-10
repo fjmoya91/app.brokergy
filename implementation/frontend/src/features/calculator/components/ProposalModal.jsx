@@ -232,6 +232,13 @@ const formatNumber = (val) => {
     }).format(Math.round(num));
 };
 
+// El backend guarda el presupuesto en Drive con este nombre exacto y versiona el
+// anterior añadiéndole "_old" (ver POST /api/oportunidades/:id/anexos).
+const BUDGET_LABEL = 'PRESUPUESTO DE LA INSTALACIÓN';
+const stripExt = (name) => (name || '').replace(/\.[^.]+$/, '').trim();
+const isBudgetFileName = (name) => stripExt(name).toUpperCase() === BUDGET_LABEL;
+const isBudgetOldFileName = (name) => stripExt(name).toUpperCase() === `${BUDGET_LABEL}_OLD`;
+
 export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }) {
     const { showAlert, showConfirm } = useModal();
     const { user } = useAuth();
@@ -254,28 +261,31 @@ export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }
     const [attachments, setAttachments] = useState([]);
     const [loadingAnnexes, setLoadingAnnexes] = useState(false);
     const [isGlobalDragging, setIsGlobalDragging] = useState(false);
+    const [isBudgetDragging, setIsBudgetDragging] = useState(false);
     const [draggedIndex, setDraggedIndex] = useState(null);
 
     // Cargar anexos desde Drive al abrir el modal
     useEffect(() => {
         const fetchAnnexes = async () => {
             if (!isOpen || !inputs?.id_oportunidad) return;
-            
+
             setLoadingAnnexes(true);
             try {
                 // 1. Obtener lista de archivos en la carpeta "0. PRESUPUESTO"
                 const driveFolderId = inputs?.drive_folder_id;
                 const resp = await axios.get(`/api/oportunidades/${inputs.id_oportunidad || 'unknown'}/anexos${driveFolderId ? `?driveFolderId=${driveFolderId}` : ''}`);
-                const driveFiles = (resp.data || []).filter(f => f.name !== 'test.txt');
+                // El backend versiona el presupuesto anterior como "..._old.pdf" y lo deja
+                // en la misma carpeta: no es un anexo, no debe entrar en la propuesta.
+                const driveFiles = (resp.data || []).filter(f => f.name !== 'test.txt' && !isBudgetOldFileName(f.name));
 
                 if (driveFiles && driveFiles.length > 0) {
                     const loadedAttachments = [];
-                    
+
                     for (const file of driveFiles) {
                         // 2. Descargar contenido de cada archivo
                         const fileResp = await axios.get(`/api/oportunidades/${inputs.id_oportunidad}/anexos/${file.id}`, { responseType: 'arraybuffer' });
                         const blob = new Blob([fileResp.data], { type: file.mimeType });
-                        
+
                         const reader = new FileReader();
                         const dataUrl = await new Promise((resolve) => {
                             reader.onloadend = () => resolve(reader.result);
@@ -284,19 +294,28 @@ export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }
 
                         const isPdf = file.mimeType === 'application/pdf';
                         let finalData = [dataUrl];
-                        
+
                         if (isPdf) {
                             finalData = await convertPdfToImages(dataUrl);
                         }
 
+                        // El presupuesto llega de Drive con su nombre de fichero
+                        // ("PRESUPUESTO DE LA INSTALACIÓN.pdf"): hay que reconocerlo para
+                        // que caiga en su slot y no en "otros anexos".
+                        const isBudget = isBudgetFileName(file.name);
+
                         loadedAttachments.push({
                             id: file.id,
-                            label: file.name,
+                            label: isBudget ? BUDGET_LABEL : file.name,
                             file: { name: file.name, data: finalData, type: file.mimeType },
-                            isDrive: true
+                            isDrive: true,
+                            isBudget,
+                            isOther: !isBudget
                         });
                     }
-                    
+
+                    // El presupuesto va siempre el primero (portada).
+                    loadedAttachments.sort((a, b) => (b.isBudget ? 1 : 0) - (a.isBudget ? 1 : 0));
                     setAttachments(loadedAttachments);
                 }
             } catch (err) {
@@ -490,6 +509,24 @@ export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }
         }
     };
 
+    // Descarga un anexo ya guardado en Drive y lo convierte en páginas para la
+    // vista previa. Drive es la fuente de verdad cuando la conversión local falla.
+    const fetchDrivePages = async (fileId, mimeType) => {
+        try {
+            const fileResp = await axios.get(`/api/oportunidades/${inputs.id_oportunidad}/anexos/${fileId}`, { responseType: 'arraybuffer' });
+            const blob = new Blob([fileResp.data], { type: mimeType });
+            const dataUrl = await new Promise((resolve) => {
+                const r = new FileReader();
+                r.onloadend = () => resolve(r.result);
+                r.readAsDataURL(blob);
+            });
+            return mimeType === 'application/pdf' ? await convertPdfToImages(dataUrl) : [dataUrl];
+        } catch (err) {
+            console.error('[Anexos] No se pudo reconstruir la vista previa desde Drive:', err);
+            return [];
+        }
+    };
+
     const handleFileChange = async (targetIdOrIndex, file, isOther = false, isBudget = false) => {
         if (!file) return;
         return new Promise((resolve) => {
@@ -514,18 +551,31 @@ export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }
 
                     const driveFile = uploadResp.data.file;
 
-                    // 2. Procesar para vista previa
-                    // Si el backend lo convirtió a PDF, el front debe tratarlo como tal
-                    const effectiveIsPdf = isPdf || isImage || isBudget;
+                    // 2. Procesar para vista previa.
+                    // OJO: el dataUrl local sigue siendo el ORIGINAL. Si era una imagen,
+                    // el backend la convirtió a PDF, pero aquí todavía es un JPG/PNG: pasarlo
+                    // por pdf.js reventaba y devolvía [] en silencio, así que el anexo se
+                    // añadía con 0 páginas y no salía en la propuesta pese a estar en Drive.
+                    // Una imagen ya es una "página": se usa tal cual.
                     let finalData = [dataUrl];
-                    if (effectiveIsPdf) {
+                    if (isPdf) {
                         finalData = await convertPdfToImages(dataUrl);
                     }
 
-                    const newAttachment = { 
-                        id: driveFile.id, 
-                        label: isBudget ? "PRESUPUESTO DE LA INSTALACIÓN" : file.name, 
-                        file: { name: driveFile.name, data: finalData, type: driveFile.mimeType }, 
+                    // Red de seguridad: si la rasterización falla (p.ej. pdf.js no cargó
+                    // desde el CDN), reconstruimos las páginas desde el fichero ya
+                    // guardado en Drive antes que dejar el anexo vacío.
+                    if (!finalData.length && !isImage) {
+                        finalData = await fetchDrivePages(driveFile.id, driveFile.mimeType);
+                    }
+                    if (!finalData.length) {
+                        throw new Error('No se pudo generar la vista previa del documento.');
+                    }
+
+                    const newAttachment = {
+                        id: driveFile.id,
+                        label: isBudget ? BUDGET_LABEL : file.name,
+                        file: { name: driveFile.name, data: finalData, type: driveFile.mimeType },
                         isOther: !isBudget,
                         isDrive: true,
                         isBudget
@@ -576,8 +626,8 @@ export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }
     };
 
     const AnexosModal = () => {
-        const budgetAttachment = attachments.find(a => a.isBudget || a.label === "PRESUPUESTO DE LA INSTALACIÓN");
-        const otherAttachments = attachments.filter(a => !a.isBudget && a.label !== "PRESUPUESTO DE LA INSTALACIÓN");
+        const budgetAttachment = attachments.find(a => a.isBudget || a.label === BUDGET_LABEL);
+        const otherAttachments = attachments.filter(a => !a.isBudget && a.label !== BUDGET_LABEL);
 
         return (
             <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/95 backdrop-blur-xl" onClick={() => setIsAnexosOpen(false)}>
@@ -615,7 +665,19 @@ export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }
                         <div className="mb-4">
                             <p className="text-white/30 text-[10px] uppercase font-bold tracking-widest mb-3">Presupuesto del Instalador</p>
                             {budgetAttachment ? (
-                                <div className="group flex items-center justify-between p-4 bg-brand/5 rounded-2xl border border-brand/30 transition-all duration-300">
+                                <div
+                                    onDragOver={(e) => { e.preventDefault(); setIsBudgetDragging(true); }}
+                                    onDragLeave={() => setIsBudgetDragging(false)}
+                                    onDrop={(e) => {
+                                        e.preventDefault();
+                                        setIsBudgetDragging(false);
+                                        // Soltar encima sustituye el presupuesto actual.
+                                        if (e.dataTransfer.files?.length > 0) {
+                                            handleFileChange(null, e.dataTransfer.files[0], false, true);
+                                        }
+                                    }}
+                                    title="Arrastra un PDF o imagen aquí para sustituir el presupuesto"
+                                    className={`group flex items-center justify-between p-4 rounded-2xl border transition-all duration-300 ${isBudgetDragging ? 'bg-brand/10 border-brand' : 'bg-brand/5 border-brand/30'}`}>
                                     <div className="flex items-center gap-4">
                                         <div className="w-10 h-10 rounded-xl bg-brand/20 flex items-center justify-center text-brand">
                                             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
@@ -643,7 +705,7 @@ export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }
                                     </div>
                                 </div>
                             ) : (
-                                <button 
+                                <button
                                     onClick={() => {
                                         const input = document.createElement('input');
                                         input.type = 'file';
@@ -651,11 +713,22 @@ export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }
                                         input.onchange = (e) => handleFileChange(null, e.target.files[0], false, true);
                                         input.click();
                                     }}
-                                    className="w-full p-6 border-2 border-dashed border-white/5 bg-white/[0.02] hover:bg-brand/5 hover:border-brand/40 rounded-2xl flex flex-col items-center justify-center gap-2 transition-all group">
-                                    <div className="w-12 h-12 rounded-full bg-white/5 group-hover:bg-brand/20 flex items-center justify-center transition-all">
-                                        <svg className="w-6 h-6 text-white/20 group-hover:text-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>
+                                    onDragOver={(e) => { e.preventDefault(); setIsBudgetDragging(true); }}
+                                    onDragLeave={() => setIsBudgetDragging(false)}
+                                    onDrop={(e) => {
+                                        e.preventDefault();
+                                        setIsBudgetDragging(false);
+                                        if (e.dataTransfer.files?.length > 0) {
+                                            handleFileChange(null, e.dataTransfer.files[0], false, true);
+                                        }
+                                    }}
+                                    className={`w-full p-6 border-2 border-dashed rounded-2xl flex flex-col items-center justify-center gap-2 transition-all group ${isBudgetDragging ? 'border-brand bg-brand/5 scale-[1.02]' : 'border-white/5 bg-white/[0.02] hover:bg-brand/5 hover:border-brand/40'}`}>
+                                    <div className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${isBudgetDragging ? 'bg-brand/20' : 'bg-white/5 group-hover:bg-brand/20'}`}>
+                                        <svg className={`w-6 h-6 ${isBudgetDragging ? 'text-brand' : 'text-white/20 group-hover:text-brand'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>
                                     </div>
-                                    <span className="text-[10px] font-black uppercase tracking-widest text-white/30 group-hover:text-white/60">Subir Presupuesto del Instalador</span>
+                                    <span className="text-[10px] font-black uppercase tracking-widest text-white/30 group-hover:text-white/60">
+                                        {isBudgetDragging ? 'Suelta el presupuesto aquí' : 'Arrastra o pulsa para subir el presupuesto del instalador'}
+                                    </span>
                                 </button>
                             )}
                         </div>
