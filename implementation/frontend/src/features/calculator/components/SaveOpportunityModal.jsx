@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
-
-const norm = s => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 import axios from 'axios';
 import { Button, Input, Label, Select } from './UIComponents';
 import { ClienteFormModal } from '../../clientes/components/ClienteFormModal';
 import { useAuth } from '../../../context/AuthContext';
 import { PrescriptorDetailModal } from '../../admin/views/PrescriptorDetailModal';
+import { PrescriptorPicker } from '../../../components/PrescriptorPicker';
+
+// Búsqueda insensible a tildes (la usa aún el desplegable de instaladores).
+const norm = s => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 
 export function SaveOpportunityModal({ isOpen, onClose, onSaveSuccess, onClientLinked, inputs, result }) {
     const { user } = useAuth();
@@ -17,8 +19,6 @@ export function SaveOpportunityModal({ isOpen, onClose, onSaveSuccess, onClientL
     const [prescriptores, setPrescriptores] = useState([]);
     const [showClienteModal, setShowClienteModal] = useState(false);
     const [savedOportunidadData, setSavedOportunidadData] = useState(null);
-    const [searchTerm, setSearchTerm] = useState('');
-    const [isDropdownOpen, setIsDropdownOpen] = useState(false);
     
     const [instaladores, setInstaladores] = useState([]);
     const [instaladorId, setInstaladorId] = useState('');
@@ -26,12 +26,6 @@ export function SaveOpportunityModal({ isOpen, onClose, onSaveSuccess, onClientL
     const [instaladorSearchTerm, setInstaladorSearchTerm] = useState('');
     const [isInstaladorDropdownOpen, setIsInstaladorDropdownOpen] = useState(false);
     const [showNewInstaladorModal, setShowNewInstaladorModal] = useState(false);
-
-    // Filtrar prescriptores por búsqueda
-    const filteredPrescriptores = prescriptores.filter(p => {
-        const name = norm(p.acronimo || p.razon_social);
-        return name.includes(norm(searchTerm));
-    });
 
     const selectedPrescriptor = prescriptores.find(p => p.id_empresa === prescriptorId);
 
@@ -316,86 +310,16 @@ export function SaveOpportunityModal({ isOpen, onClose, onSaveSuccess, onClientL
                                         {isAdmin && (
                                             <div className="relative">
                                                 <Label htmlFor="prescriptor">Asignar a Prescriptor / Partner</Label>
-                                                
-                                                {/* Gatillo del Dropdown */}
-                                                <div 
-                                                    className={`w-full px-4 py-3 bg-bkg-elevated border ${isDropdownOpen ? 'border-brand ring-1 ring-brand' : 'border-white/[0.1]'} rounded-xl text-white cursor-pointer transition-all flex items-center justify-between min-h-[52px]`}
-                                                    onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-                                                >
-                                                    <div className="flex items-center gap-3">
-                                                        {selectedPrescriptor?.logo_empresa ? (
-                                                            <img src={selectedPrescriptor.logo_empresa} alt="" className="w-6 h-6 rounded-md object-contain bg-white/5" />
-                                                        ) : (
-                                                            <div className="w-6 h-6 rounded-md bg-white/5 flex items-center justify-center">
-                                                                <svg className="w-3.5 h-3.5 text-white/20" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-                                                                </svg>
-                                                            </div>
-                                                        )}
-                                                        <span className={selectedPrescriptor ? 'text-white font-bold' : 'text-white/40 italic'}>
-                                                            {selectedPrescriptor ? (selectedPrescriptor.acronimo || selectedPrescriptor.razon_social) : '— Selecciona Partner —'}
-                                                        </span>
-                                                    </div>
-                                                    <svg className={`w-5 h-5 text-white/30 transition-transform ${isDropdownOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                                                    </svg>
-                                                </div>
-
-                                                {isDropdownOpen && (
-                                                    <div className="absolute z-[210] left-0 right-0 mt-2 bg-bkg-surface border border-white/10 rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-                                                        <div className="p-3 border-b border-white/[0.05] bg-white/[0.02]">
-                                                            <div className="relative">
-                                                                <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                                                                </svg>
-                                                                <input 
-                                                                    autoFocus
-                                                                    type="text" 
-                                                                    placeholder="Buscar partner..."
-                                                                    className="w-full bg-bkg-deep/50 border border-white/[0.08] rounded-lg pl-9 pr-3 py-2 text-sm text-white focus:outline-none focus:border-brand/50 transition-all"
-                                                                    value={searchTerm}
-                                                                    onChange={(e) => setSearchTerm(e.target.value)}
-                                                                    onClick={(e) => e.stopPropagation()}
-                                                                />
-                                                            </div>
-                                                        </div>
-
-                                                        <div className="max-h-[200px] overflow-y-auto custom-scrollbar p-1">
-                                                            {filteredPrescriptores.map(p => (
-                                                                <div 
-                                                                    key={p.id_empresa}
-                                                                    className={`flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-colors hover:bg-white/[0.05] ${prescriptorId === p.id_empresa ? 'bg-brand/10 border border-brand/20' : 'border border-transparent'}`}
-                                                                    onClick={() => { 
-                                                                        setPrescriptorId(p.id_empresa); 
-                                                                        setInstaladorId(''); // Limpiar instalador al cambiar de partner
-                                                                        setIsDropdownOpen(false); 
-                                                                        setSearchTerm(''); 
-                                                                    }}
-                                                                >
-                                                                    {p.logo_empresa ? (
-                                                                        <img src={p.logo_empresa} alt="" className="w-8 h-8 rounded-lg object-contain bg-white/5 shrink-0" />
-                                                                    ) : (
-                                                                        <div className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center shrink-0">
-                                                                            <span className="text-xs font-black text-white/20">{(p.acronimo || p.razon_social || '?').charAt(0).toUpperCase()}</span>
-                                                                        </div>
-                                                                    )}
-                                                                    <div className="flex flex-col min-w-0">
-                                                                        <span className="text-sm font-black text-white truncate uppercase tracking-tight">{p.acronimo || p.razon_social}</span>
-                                                                        {p.acronimo && p.razon_social && p.acronimo !== p.razon_social && (
-                                                                            <span className="text-[10px] text-white/30 truncate uppercase">{p.razon_social}</span>
-                                                                        )}
-                                                                    </div>
-                                                                </div>
-                                                            ))}
-
-                                                            {filteredPrescriptores.length === 0 && (
-                                                                <div className="p-8 text-center text-white/20 text-xs italic uppercase tracking-widest">
-                                                                    No se encontraron partners
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                    </div>
-                                                )}
+                                                <PrescriptorPicker
+                                                    prescriptores={prescriptores}
+                                                    value={prescriptorId || null}
+                                                    onChange={(id) => {
+                                                        setPrescriptorId(id || '');
+                                                        setInstaladorId(''); // Limpiar instalador al cambiar de partner
+                                                    }}
+                                                    sinPartnerLabel={null}
+                                                    placeholder="— Selecciona Partner —"
+                                                />
                                             </div>
                                         )}
 

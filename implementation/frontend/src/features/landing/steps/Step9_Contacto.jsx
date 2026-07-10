@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { StepLayout } from '../components/StepLayout';
+import { PrescriptorPicker } from '../../../components/PrescriptorPicker';
 
 // ── Iconos SVG ────────────────────────────────────────────────────────────────
 const IconMail = ({ className = 'w-5 h-5' }) => (
@@ -175,22 +176,16 @@ export function Step9_Contacto({ funnel, updateFunnel, contacto, setContacto, on
                         </p>
                     </div>
 
-                    {/* Atribución del lead: solo para ADMIN, que no tiene partner propio. */}
+                    {/* Atribución del lead: solo para ADMIN, que no tiene partner propio.
+                        Mismo selector con buscador y logo que al guardar la oportunidad. */}
                     {Array.isArray(prescriptores) && (
                         <div>
                             <label className={fieldLabel}>¿De quién viene este lead?</label>
-                            <select
-                                value={contacto.prescriptorId || ''}
-                                onChange={e => setField('prescriptorId', e.target.value || null)}
-                                className={inputCls(false)}
-                            >
-                                <option value="">BROKERGY (sin partner)</option>
-                                {prescriptores.map(p => (
-                                    <option key={p.id_empresa} value={p.id_empresa}>
-                                        {p.razon_social}{p.acronimo && p.acronimo !== p.razon_social ? ` · ${p.acronimo}` : ''}
-                                    </option>
-                                ))}
-                            </select>
+                            <PrescriptorPicker
+                                prescriptores={prescriptores}
+                                value={contacto.prescriptorId || null}
+                                onChange={(id) => setField('prescriptorId', id)}
+                            />
                             <p className="text-white/35 text-[10px] mt-1.5 ml-1 leading-snug">
                                 Se le atribuirá la oportunidad. Si lo dejas en BROKERGY, podrás asignarlo más tarde.
                             </p>
