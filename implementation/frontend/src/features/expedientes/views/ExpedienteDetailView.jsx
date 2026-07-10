@@ -1130,6 +1130,7 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
                         saving={saving}
                         certificadores={certificadores}
                         onAutoStatus={handleCeeAutoStatus}
+                        onEditCliente={() => setShowClienteModal(true)}
                     />
 
                     {/* Comunicaciones con el certificador — dentro del bloque CEE,

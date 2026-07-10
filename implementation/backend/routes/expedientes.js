@@ -13,6 +13,7 @@ const reformaUploadService = require('../services/reformaUploadService');
 const anexoFotograficoService = require('../services/anexoFotograficoService');
 const { applyStatus, stampSeguimientoTimestamps, markCertContact } = require('../services/seguimientoTracking');
 const { partnerNotifyTargets, normalizeContactos } = require('../services/notifyContacts');
+const { buildCertClienteData } = require('../services/certClienteData');
 
 // ─── Guard global del módulo Expedientes (INTERNO de Brokergy) ────────────────
 // Los expedientes son datos internos: VER y gestionar expedientes está reservado a
@@ -3415,33 +3416,10 @@ router.post('/:id/notify-certificador', enforceAuth, async (req, res) => {
 
         const expedienteNum = exp.numero_expediente || op?.id_oportunidad || req.params.id;
         
-        // Prioridad de nombre: 1. Tabla clientes, 2. Referencia cliente en Oportunidad
-        const clienteName = (cli
-            ? `${cli.nombre_razon_social || ''} ${cli.apellidos || ''}`.trim()
-            : null) || op?.referencia_cliente || null;
-
-        // Datos completos del cliente con fallbacks. Evitamos duplicados si la dirección base ya es completa.
-        const baseDir = (inputs.direccion || inputs.address || cli?.direccion || '').trim();
-        const cp = (cli?.codigo_postal || inputs.cp || '').trim();
-        const municipio = (cli?.municipio || inputs.municipio || '').trim();
-        const provincia = (cli?.provincia || inputs.provincia || '').trim();
-
-        let direccionCompleta = baseDir;
-        
-        // Si la dirección base es corta (solo la calle), añadimos el resto. 
-        // Si ya contiene el código postal o el municipio, la dejamos como está.
-        if (baseDir.length < 30 && cp && !baseDir.includes(cp)) {
-            direccionCompleta = [baseDir, cp, municipio, provincia ? `(${provincia})` : null].filter(Boolean).join(', ');
-        }
-
-        const clienteData = {
-            nombre: clienteName,
-            dni: cli?.dni || inputs.dni || null,
-            tlf: cli?.tlf || cli?.telefono || inputs.tlf || inputs.phone || null,
-            email: cli?.email || inputs.email || null,
-            refCatastral: op?.ref_catastral || inputs.rc || inputs.referencia_catastral || null,
-            direccion: direccionCompleta || null,
-        };
+        // Ficha del cliente para el certificador. Separa la dirección de la
+        // INSTALACIÓN del domicilio del CLIENTE (solo se envía si difieren).
+        const { data: clienteData } = buildCertClienteData(exp, op, cli);
+        const clienteName = clienteData.nombre;
 
         const certName = cert.razon_social || cert.acronimo || 'Técnico';
         const portalLink = `${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/?exp=${req.params.id}`;
@@ -3783,27 +3761,10 @@ router.post('/:id/notify-review', enforceAuth, async (req, res) => {
         ]);
 
         const inputs = op?.datos_calculo?.inputs || {};
-        const clienteName = (cli
-            ? `${cli.nombre_razon_social || ''} ${cli.apellidos || ''}`.trim()
-            : null) || op?.referencia_cliente || null;
-
-        const baseDir = (inputs.direccion || inputs.address || cli?.direccion || '').trim();
-        const cp = (cli?.codigo_postal || inputs.cp || '').trim();
-        const municipio = (cli?.municipio || inputs.municipio || '').trim();
-        const provincia = (cli?.provincia || inputs.provincia || '').trim();
-        let direccionCompleta = baseDir;
-        if (baseDir.length < 30 && cp && !baseDir.includes(cp)) {
-            direccionCompleta = [baseDir, cp, municipio, provincia ? `(${provincia})` : null].filter(Boolean).join(', ');
-        }
-
-        const clienteData = {
-            nombre: clienteName,
-            dni: cli?.dni || inputs.dni || null,
-            tlf: cli?.tlf || cli?.telefono || inputs.tlf || inputs.phone || null,
-            email: cli?.email || inputs.email || null,
-            refCatastral: op?.ref_catastral || inputs.rc || inputs.referencia_catastral || null,
-            direccion: direccionCompleta || null,
-        };
+        // Misma ficha de cliente que en el encargo inicial: dirección de instalación
+        // y domicilio del cliente por separado.
+        const { data: clienteData } = buildCertClienteData(exp, op, cli);
+        const clienteName = clienteData.nombre;
 
         const certName = (cert?.razon_social || cert?.acronimo) || userName || 'Técnico';
         const certPhone = cert?.telefono || cert?.movil || cert?.tlf || null;
@@ -3990,6 +3951,29 @@ router.get('/:id/approve-cee-links', staffOnly, async (req, res) => {
     }
 });
 
+// ─── GET /api/expedientes/:id/cert-cliente-data ───────────────────────────
+// Ficha del cliente tal y como la recibirá el certificador, más la lista de datos
+// que faltan. El popup de envío la usa para avisar antes de mandar un encargo
+// incompleto (el certificador no puede visitar sin dirección ni llamar sin teléfono).
+router.get('/:id/cert-cliente-data', staffOnly, async (req, res) => {
+    try {
+        const { data: exp } = await supabase
+            .from('expedientes').select('id, cliente_id, oportunidad_id, instalacion').eq('id', req.params.id).maybeSingle();
+        if (!exp) return res.status(404).json({ error: 'Expediente no encontrado' });
+
+        const [{ data: cli }, { data: op }] = await Promise.all([
+            exp.cliente_id ? supabase.from('clientes').select('*').eq('id_cliente', exp.cliente_id).maybeSingle() : Promise.resolve({ data: null }),
+            exp.oportunidad_id ? supabase.from('oportunidades').select('*').eq('id', exp.oportunidad_id).maybeSingle() : Promise.resolve({ data: null }),
+        ]);
+
+        const { data, missing } = buildCertClienteData(exp, op, cli);
+        res.json({ data, missing, clienteId: exp.cliente_id || null });
+    } catch (err) {
+        console.error('[cert-cliente-data]', err.message);
+        res.status(500).json({ error: 'Error obteniendo los datos del cliente' });
+    }
+});
+
 // ─── POST /api/expedientes/:id/approve-cee ────────────────────────────────
 // Admin aprueba el CEX y autoriza presentación
 router.post('/:id/approve-cee', staffOnly, async (req, res) => {
@@ -3998,7 +3982,13 @@ router.post('/:id/approve-cee', staffOnly, async (req, res) => {
         const adminMessage = (req.body?.adminMessage || '').trim() || null;
         // Mensaje editado en el popup de "Validar" + canales elegidos.
         const customMessage = (req.body?.customMessage || '').trim() || null;
-        const bodyMsg = customMessage || adminMessage;
+        // Nota adicional del popup: se añade al final del mensaje (WhatsApp, email e
+        // historial). Va aparte del cuerpo para que "Restaurar plantilla" no la borre.
+        const notaAdicional = (req.body?.notaAdicional || '').trim() || null;
+        const baseMsg = customMessage || adminMessage;
+        const bodyMsg = notaAdicional
+            ? `${baseMsg ? `${baseMsg}\n\n` : ''}${notaAdicional}`
+            : baseMsg;
         // Por compatibilidad: si no se especifica canal, se envía email (comportamiento previo).
         const sendEmail = req.body?.sendEmail !== false;
         const sendWhatsApp = req.body?.sendWhatsApp === true;
@@ -4108,10 +4098,17 @@ router.post('/:id/approve-cee', staffOnly, async (req, res) => {
         // EMAIL
         if (sendEmail && certEmail) {
             try {
+                // Ficha del cliente para que el certificador la tenga a mano al registrar.
+                const [{ data: cliAp }, { data: opAp }] = await Promise.all([
+                    exp.cliente_id ? supabase.from('clientes').select('*').eq('id_cliente', exp.cliente_id).maybeSingle() : Promise.resolve({ data: null }),
+                    exp.oportunidad_id ? supabase.from('oportunidades').select('*').eq('id', exp.oportunidad_id).maybeSingle() : Promise.resolve({ data: null }),
+                ]);
+                const { data: clienteDataAp } = buildCertClienteData(exp, opAp, cliAp);
+
                 await emailService.sendCertificadorApproveNotification(
                     certEmail, certName, exp.numero_expediente, phaseLabel, portalLink,
-                    (cee.cee_folder_link || null), adminMessage, customMessage,
-                    { presentFolderLink, ceeUploadLink, attachments }
+                    (cee.cee_folder_link || null), adminMessage, bodyMsg,
+                    { presentFolderLink, ceeUploadLink, attachments, clienteData: clienteDataAp }
                 );
                 emailSent = true;
             } catch (mailErr) {

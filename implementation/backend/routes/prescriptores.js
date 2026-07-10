@@ -163,6 +163,65 @@ router.get('/:id/expedientes', enforceAuth, async (req, res) => {
     }
 });
 
+// GET /api/prescriptores/:id/expedientes-certificador
+// Seguimiento del certificador: sus expedientes y en qué punto está cada CEE
+// (inicial y final), para ver de un vistazo qué falta por presentar o registrar.
+// Lo consulta el equipo interno desde la ficha del certificador, y el propio
+// certificador desde su panel — pero SOLO de sí mismo. Sin importes: el
+// certificador no ve dinero (ver `roleFlags`).
+router.get('/:id/expedientes-certificador', enforceAuth, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const esInterno = req.user.rol_nombre === 'ADMIN' || req.user.rol_nombre === 'TRABAJADOR';
+        const esElMismo = String(req.user.prescriptor_id || '') === String(id);
+        if (!esInterno && !esElMismo) return res.status(403).json({ error: 'No autorizado' });
+
+        const { data: exps, error } = await supabase
+            .from('expedientes')
+            .select('id, numero_expediente, estado, created_at, updated_at, cliente_id, seguimiento, documentacion, prioridad')
+            .eq('cee->>certificador_id', id)
+            .order('created_at', { ascending: false });
+
+        if (error) throw error;
+
+        const cliIds = [...new Set((exps || []).map(e => e.cliente_id).filter(Boolean))];
+        const cliMap = {};
+        if (cliIds.length > 0) {
+            const { data: clis } = await supabase
+                .from('clientes')
+                .select('id_cliente, nombre_razon_social, apellidos, municipio, provincia')
+                .in('id_cliente', cliIds);
+            (clis || []).forEach(c => { cliMap[c.id_cliente] = c; });
+        }
+
+        const result = (exps || []).map(e => {
+            const c = cliMap[e.cliente_id];
+            const seg = e.seguimiento || {};
+            const doc = e.documentacion || {};
+            return {
+                id: e.id,
+                numero_expediente: e.numero_expediente,
+                estado: e.estado,
+                prioridad: e.prioridad || 'NORMAL',
+                created_at: e.created_at,
+                cliente_nombre: c ? `${c.nombre_razon_social || ''} ${c.apellidos || ''}`.trim() : null,
+                cliente_municipio: c?.municipio || null,
+                cliente_provincia: c?.provincia || null,
+                // Los expedientes que nunca han arrancado el CEE no tienen la clave.
+                cee_inicial: seg.cee_inicial || 'PTE_ENVIO_CERT',
+                cee_final: seg.cee_final || 'PTE_ENVIO_CERT',
+                fecha_registro_cee_inicial: doc.fecha_registro_cee_inicial || null,
+                fecha_registro_cee_final: doc.fecha_registro_cee_final || null,
+            };
+        });
+
+        res.json(result);
+    } catch (err) {
+        console.error('Error GET expedientes del certificador:', err);
+        res.status(500).json({ error: 'Error al recuperar los expedientes del certificador' });
+    }
+});
+
 // GET /api/prescriptores/check-internal-number -> Comprobar si un número de cliente ya existe en la red del distribuidor
 router.get('/check-internal-number', enforceAuth, async (req, res) => {
     try {

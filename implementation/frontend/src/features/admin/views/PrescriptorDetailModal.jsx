@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
 import { useAuth } from '../../../context/AuthContext';
+import { CertificadorResumenModal } from './CertificadorResumenModal';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 function normalize(s) {
@@ -267,6 +268,7 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
 
     const [p, setP] = useState(null);
     const [editing, setEditing] = useState(false);
+    const [showResumenCert, setShowResumenCert] = useState(false);
     const emptyForm = {
         razon_social: '', acronimo: '', cif: '', email: '', tlf: '', sitio_web: '',
         tipo_empresa: 'DISTRIBUIDOR', marca_referencia: '', marca_secundaria: '',
@@ -763,6 +765,17 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                                     <div className={`absolute top-[2px] rounded-full shadow transition-transform duration-300 ${accesoActivo ? 'bg-white translate-x-[22px]' : 'bg-orange-500 translate-x-[2px]'}`}
                                         style={{ width: '20px', height: '20px' }}></div>
                                 </div>
+                            </button>
+                        )}
+
+                        {/* Seguimiento de los CEE que tiene asignados este certificador. */}
+                        {!isCreating && !editing && p?.tipo_empresa === 'CERTIFICADOR' && (
+                            <button onClick={() => setShowResumenCert(true)}
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-black uppercase tracking-widest hover:bg-emerald-500/20 transition-all">
+                                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 17v-6h13M9 7h13M4 7h.01M4 12h.01M4 17h.01" />
+                                </svg>
+                                Ver resumen
                             </button>
                         )}
 
@@ -1575,6 +1588,13 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                     </div>
                 )}
             </div>
+
+            <CertificadorResumenModal
+                isOpen={showResumenCert}
+                onClose={() => setShowResumenCert(false)}
+                prescriptorId={p?.id_empresa}
+                certificadorNombre={p?.razon_social || p?.acronimo}
+            />
         </div>
     );
 }

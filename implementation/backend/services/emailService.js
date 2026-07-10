@@ -52,6 +52,41 @@ const escapeHtml = (str) => String(str ?? '')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
 
+// Filas de la ficha "Datos del cliente" que reciben los certificadores.
+// La dirección de INSTALACIÓN y el domicilio del CLIENTE son cosas distintas:
+// el domicilio solo se lista cuando difiere (`certClienteData` lo deja a null si no).
+// `full` en false = versión reducida (encargo del CEE final, que ya se envió completa).
+const clienteDataRows = (clienteData, { full = true } = {}) => {
+    if (!clienteData) return [];
+    const link = (href, txt, color) => `<a href="${href}" style="color:${color};text-decoration:none;">${escapeHtml(txt)}</a>`;
+    const direccionInstalacion = clienteData.direccionInstalacion || clienteData.direccion;
+    return [
+        clienteData.nombre ? ['Nombre y apellidos', escapeHtml(clienteData.nombre)] : null,
+        full && clienteData.dni ? ['DNI', escapeHtml(clienteData.dni)] : null,
+        full && clienteData.tlf ? ['Teléfono', link(`tel:${escapeHtml(clienteData.tlf)}`, clienteData.tlf, BRAND.greenDark)] : null,
+        full && clienteData.email ? ['Email', link(`mailto:${escapeHtml(clienteData.email)}`, clienteData.email, BRAND.greenDark)] : null,
+        clienteData.refCatastral ? ['Referencia Catastral', escapeHtml(clienteData.refCatastral)] : null,
+        direccionInstalacion ? ['Dirección de la instalación', escapeHtml(direccionInstalacion)] : null,
+        clienteData.direccionCliente ? ['Domicilio del cliente', escapeHtml(clienteData.direccionCliente)] : null,
+    ];
+};
+
+// Misma ficha, en texto plano (fallback de los clientes de correo sin HTML).
+const clienteDataText = (clienteData) => {
+    if (!clienteData) return '';
+    const direccionInstalacion = clienteData.direccionInstalacion || clienteData.direccion;
+    const rows = [
+        clienteData.nombre ? `Cliente: ${clienteData.nombre}` : null,
+        clienteData.dni ? `DNI: ${clienteData.dni}` : null,
+        clienteData.tlf ? `Tlf: ${clienteData.tlf}` : null,
+        clienteData.email ? `Email: ${clienteData.email}` : null,
+        clienteData.refCatastral ? `Ref. Catastral: ${clienteData.refCatastral}` : null,
+        direccionInstalacion ? `Dirección de la instalación: ${direccionInstalacion}` : null,
+        clienteData.direccionCliente ? `Domicilio del cliente: ${clienteData.direccionCliente}` : null,
+    ].filter(Boolean);
+    return rows.length ? rows.join('\n') + '\n\n' : '';
+};
+
 const transporter = nodemailer.createTransport({
     host: process.env.SMTP_HOST || 'smtp.hostinger.com',
     port: parseInt(process.env.SMTP_PORT || '465'),
@@ -508,14 +543,7 @@ const sendCertificadorNotificationEmail = async ({
     // Bloque de datos del cliente (solo si hay info)
     const clienteInfoHtml = clienteData ? emailBox(
         emailP('📋 Datos del cliente', { size: 11, bold: true, color: BRAND.muted, mb: 12 }) +
-        emailDataTable([
-            clienteData.nombre ? ['Nombre y apellidos', escapeHtml(clienteData.nombre)] : null,
-            clienteData.dni ? ['DNI', escapeHtml(clienteData.dni)] : null,
-            clienteData.tlf ? ['Teléfono', `<a href="tel:${escapeHtml(clienteData.tlf)}" style="color:${BRAND.greenDark};text-decoration:none;">${escapeHtml(clienteData.tlf)}</a>`] : null,
-            clienteData.email ? ['Email', `<a href="mailto:${escapeHtml(clienteData.email)}" style="color:${BRAND.greenDark};text-decoration:none;">${escapeHtml(clienteData.email)}</a>`] : null,
-            clienteData.refCatastral ? ['Referencia Catastral', escapeHtml(clienteData.refCatastral)] : null,
-            clienteData.direccion ? ['Dirección completa', escapeHtml(clienteData.direccion)] : null,
-        ]),
+        emailDataTable(clienteDataRows(clienteData)),
         { mb: 22 }
     ) : '';
 
@@ -539,14 +567,7 @@ const sendCertificadorNotificationEmail = async ({
         footerNote: `<a href="https://brokergy.es" style="color:${BRAND.greenDark};text-decoration:none;">brokergy.es</a>`,
     });
 
-    const clienteText = clienteData ? [
-        clienteData.nombre ? `Cliente: ${clienteData.nombre}` : null,
-        clienteData.dni ? `DNI: ${clienteData.dni}` : null,
-        clienteData.tlf ? `Tlf: ${clienteData.tlf}` : null,
-        clienteData.email ? `Email: ${clienteData.email}` : null,
-        clienteData.refCatastral ? `Ref. Catastral: ${clienteData.refCatastral}` : null,
-        clienteData.direccion ? `Dirección: ${clienteData.direccion}` : null,
-    ].filter(Boolean).join('\n') + '\n\n' : '';
+    const clienteText = clienteDataText(clienteData);
 
     const urgentText = isUrgent ? '🚨 URGENTE 🚨\n\n' : '';
     const adminMsgText = adminMessage ? `\nMensaje de Brokergy:\n${adminMessage}\n\n` : '';
@@ -591,11 +612,7 @@ const sendCertificadorFinalNotificationEmail = async ({
 
     const clienteInfoHtml = clienteData ? emailBox(
         emailP('📋 Datos del cliente', { size: 11, bold: true, color: BRAND.muted, mb: 12 }) +
-        emailDataTable([
-            clienteData.nombre ? ['Nombre y apellidos', escapeHtml(clienteData.nombre)] : null,
-            clienteData.refCatastral ? ['Referencia Catastral', escapeHtml(clienteData.refCatastral)] : null,
-            clienteData.direccion ? ['Dirección completa', escapeHtml(clienteData.direccion)] : null,
-        ]),
+        emailDataTable(clienteDataRows(clienteData, { full: false })),
         { mb: 22 }
     ) : '';
 
@@ -778,14 +795,7 @@ const sendReviewRequestEmailToAdmin = async ({
     // Bloque "Datos del cliente"
     const clienteInfoHtml = clienteData ? emailBox(
         emailP('📋 Datos del cliente', { size: 11, bold: true, color: BRAND.muted, mb: 12 }) +
-        emailDataTable([
-            clienteData.nombre ? ['Nombre y apellidos', escapeHtml(clienteData.nombre)] : null,
-            clienteData.dni ? ['DNI', escapeHtml(clienteData.dni)] : null,
-            clienteData.tlf ? ['Teléfono', `<a href="tel:${escapeHtml(clienteData.tlf)}" style="color:${BRAND.greenDark};text-decoration:none;">${escapeHtml(clienteData.tlf)}</a>`] : null,
-            clienteData.email ? ['Email', `<a href="mailto:${escapeHtml(clienteData.email)}" style="color:${BRAND.greenDark};text-decoration:none;">${escapeHtml(clienteData.email)}</a>`] : null,
-            clienteData.refCatastral ? ['Ref. Catastral', escapeHtml(clienteData.refCatastral)] : null,
-            clienteData.direccion ? ['Dirección completa', escapeHtml(clienteData.direccion)] : null,
-        ]),
+        emailDataTable(clienteDataRows(clienteData)),
         { mb: 22 }
     ) : '';
 
@@ -812,14 +822,7 @@ const sendReviewRequestEmailToAdmin = async ({
         footerNote: 'Notificación automática · ERP',
     });
 
-    const clienteText = clienteData ? [
-        clienteData.nombre ? `Cliente: ${clienteData.nombre}` : null,
-        clienteData.dni ? `DNI: ${clienteData.dni}` : null,
-        clienteData.tlf ? `Tlf: ${clienteData.tlf}` : null,
-        clienteData.email ? `Email: ${clienteData.email}` : null,
-        clienteData.refCatastral ? `Ref. Catastral: ${clienteData.refCatastral}` : null,
-        clienteData.direccion ? `Dirección: ${clienteData.direccion}` : null,
-    ].filter(Boolean).join('\n') + '\n\n' : '';
+    const clienteText = clienteDataText(clienteData);
 
     const urgentText = isUrgent ? '🚨 URGENTE 🚨\n\n' : '';
     const techMsgText = techMessage ? `\nMensaje del técnico:\n${techMessage}\n\n` : '';
@@ -1024,11 +1027,26 @@ const sendCertificadorApproveNotification = async (to, certName, numExp, phaseLa
         ? `<p style="margin:0 0 18px 0;font-size:12px;color:#667085;text-align:center;">📎 Se adjuntan ${attachments.length} archivo(s) del CEE a este correo.</p>`
         : '';
 
+    // Ficha del cliente: el certificador la necesita a mano al registrar en Industria.
+    const filas = clienteDataRows(extra.clienteData).filter(Boolean);
+    const clienteBox = filas.length ? `
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F8F9F6;border:1px solid #E8E9E4;border-radius:10px;margin-bottom:22px;">
+        <tr><td style="padding:18px 22px;">
+          <p style="margin:0 0 12px 0;font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#667085;">📋 Datos del cliente</p>
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+            ${filas.map(([k, v]) => `<tr>
+              <td style="padding:4px 0;font-size:13px;color:#667085;width:42%;">${escapeHtml(k)}</td>
+              <td style="padding:4px 0;font-size:13px;color:#1A1A1A;font-weight:600;">${v}</td>
+            </tr>`).join('')}
+          </table>
+        </td></tr>
+      </table>` : '';
+
     const html = certEmailShell({
         preheader: `Tu ${phaseLabel} ha sido validado — ya puedes registrarlo en Industria.`,
         title: 'Certificado Validado',
         pillEmoji: '✅', pillText: 'Visto Bueno', pillBg: '#EEF6E1', pillColor: '#5C9A1B',
-        contentHtml: bodyParagraphs + stepsBox + attachNote,
+        contentHtml: bodyParagraphs + clienteBox + stepsBox + attachNote,
         portalLink,
     });
 

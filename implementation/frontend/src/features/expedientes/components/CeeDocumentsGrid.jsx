@@ -182,7 +182,8 @@ export function CeeDocumentsGrid({
     onForceNotify,
     onNotifyReview,
     onApproveCee,
-    onApproveSend
+    onApproveSend,
+    onEditCliente
 }) {
     const { showAlert, showConfirm } = useModal();
     const { user } = useAuth();
@@ -203,6 +204,11 @@ export function CeeDocumentsGrid({
     const [sendingCertNotify, setSendingCertNotify] = useState(false);
     // Visto bueno: adjuntar los archivos del CEE directamente al email.
     const [certAttachFiles, setCertAttachFiles] = useState(false);
+    // Nota adicional del envío: se añade al final del mensaje (WhatsApp y email).
+    // Vive aparte de la plantilla para que "Restaurar plantilla" no se la lleve.
+    const [certNota, setCertNota] = useState('');
+    // Datos del cliente que faltan para que el certificador pueda trabajar.
+    const [certClienteMissing, setCertClienteMissing] = useState([]);
     // Enlaces (descarga carpeta CEE + subida del CEE registrado) para el preview del visto bueno.
     const [certApproveLinks, setCertApproveLinks] = useState(null);
     // Guarda la última plantilla autogenerada para saber si el admin la ha editado a mano.
@@ -274,12 +280,18 @@ export function CeeDocumentsGrid({
         setCertNotifyMessage(def);
         lastCertDefaultRef.current = def;
         setCertAttachFiles(false);
+        setCertNota('');
         // Cargar los enlaces del visto bueno (descarga + subida) para el preview.
         setCertApproveLinks(null);
+        setCertClienteMissing([]);
         if (expediente?.id) {
             axios.get(`/api/expedientes/${expediente.id}/approve-cee-links?phase=${certNotifyModal.section}`)
                 .then(r => setCertApproveLinks(r.data))
                 .catch(() => setCertApproveLinks(null));
+            // Avisar de los datos del cliente que el certificador NO recibirá.
+            axios.get(`/api/expedientes/${expediente.id}/cert-cliente-data`)
+                .then(r => setCertClienteMissing(r.data?.missing || []))
+                .catch(() => setCertClienteMissing([]));
         }
         // Solo al abrir el modal (no en cada cambio de tipo: eso lo gestiona handleCertTemplateChange).
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1315,7 +1327,7 @@ export function CeeDocumentsGrid({
             {/* ── Modal de Notificación al Certificador ───────────────────────── */}
             {certNotifyModal && (
                 <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/70 backdrop-blur-sm animate-fade-in" onClick={() => { if (!sendingCertNotify) setCertNotifyModal(null); }}>
-                    <div className="bg-bkg-deep border border-white/10 rounded-2xl p-6 max-w-md w-full mx-4 shadow-2xl" onClick={e => e.stopPropagation()}>
+                    <div className="bg-bkg-deep border border-white/10 rounded-2xl p-6 max-w-md md:max-w-2xl w-full mx-4 shadow-2xl max-h-[90vh] overflow-y-auto custom-scrollbar" onClick={e => e.stopPropagation()}>
                         <div className="flex items-center gap-3 mb-5">
                             <div className="w-10 h-10 rounded-full bg-brand/20 flex items-center justify-center">
                                 <svg className="w-5 h-5 text-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1473,6 +1485,40 @@ export function CeeDocumentsGrid({
                             <p className="text-[9px] text-white/20 shrink-0 ml-3">{certNotifyMessage.length}/2000</p>
                         </div>
 
+                        <p className="text-[9px] font-black text-white/30 uppercase tracking-widest mb-2">Nota adicional (opcional)</p>
+                        <textarea
+                            value={certNota}
+                            onChange={e => setCertNota(e.target.value)}
+                            disabled={sendingCertNotify}
+                            placeholder="Aclaración para este envío concreto. Se añade al final del mensaje, en WhatsApp y en el email."
+                            rows={3}
+                            maxLength={1000}
+                            className="w-full bg-black/30 border border-white/10 rounded-xl p-3 text-sm leading-relaxed text-white normal-case placeholder:text-white/20 focus:outline-none focus:border-brand/40 resize-none mb-1"
+                        />
+                        <div className="flex items-center justify-end mb-5">
+                            <p className="text-[9px] text-white/20 shrink-0">{certNota.length}/1000</p>
+                        </div>
+
+                        {/* Datos del cliente incompletos: el email al certificador saldrá
+                            sin ellos, y sin dirección o teléfono no puede hacer la visita. */}
+                        {certClienteMissing.length > 0 && (
+                            <div className="mb-5 px-4 py-3 rounded-xl bg-amber-500/[0.06] border border-amber-500/30">
+                                <p className="text-[10px] font-black text-amber-400 uppercase tracking-widest mb-1.5">
+                                    ⚠ Faltan datos del cliente
+                                </p>
+                                <p className="text-[11px] text-white/60 leading-snug normal-case mb-2">
+                                    El certificador no recibirá: <b className="text-amber-300/90">{certClienteMissing.join(', ')}</b>.
+                                </p>
+                                {onEditCliente && (
+                                    <button
+                                        type="button"
+                                        onClick={onEditCliente}
+                                        className="text-[10px] font-black uppercase tracking-widest text-amber-400 hover:text-amber-300 transition-colors"
+                                    >Completar ficha del cliente →</button>
+                                )}
+                            </div>
+                        )}
+
                         {/* Botón Enviar */}
                         <button
                             disabled={sendingCertNotify || certChannels.length === 0}
@@ -1496,10 +1542,13 @@ export function CeeDocumentsGrid({
                                 setSendingCertNotify(true);
                                 try {
                                     const phase = certNotifyModal.section === 'final' ? 'final' : 'initial';
+                                    // La nota se envía al final del cuerpo, sea cual sea la plantilla.
+                                    const nota = certNota.trim();
+                                    const mensajeFinal = nota ? `${certNotifyMessage}\n\n${nota}` : certNotifyMessage;
                                     if (certTemplate === 'approve') {
                                         // Visto bueno: avanza el estado a REVISADO y avisa al certificador.
                                         const data = onApproveSend
-                                            ? await onApproveSend(phase, certChannels, certNotifyMessage, certAttachFiles)
+                                            ? await onApproveSend(phase, certChannels, mensajeFinal, certAttachFiles)
                                             : null;
                                         // Avisar solo si algún canal no salió limpio (mismo criterio que onForceNotify).
                                         const issues = [];
@@ -1513,7 +1562,7 @@ export function CeeDocumentsGrid({
                                         }
                                         if (issues.length) setTimeout(() => showAlert(issues.join('\n'), 'Aviso de envío', 'warning'), 400);
                                     } else {
-                                        await onForceNotify(phase, certChannels, certTemplate, certNotifyMessage);
+                                        await onForceNotify(phase, certChannels, certTemplate, mensajeFinal);
                                     }
                                     setCertNotifyModal(null);
                                 } catch (err) {

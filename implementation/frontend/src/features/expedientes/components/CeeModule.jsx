@@ -315,7 +315,7 @@ function SearchableSelect({ value, onChange, options, placeholder = '— Sin asi
 }
 
 // ─── Componente Principal ─────────────────────────────────────────────────────
-export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving, certificadores = [], onAutoStatus }) {
+export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving, certificadores = [], onAutoStatus, onEditCliente }) {
     const isReforma = expediente?.oportunidades?.ficha === 'RES080' || expediente?.cee?.is_reforma;
 
     const [local, setLocal] = useState(() => {
@@ -385,6 +385,9 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
     const [approvePendingPhase, setApprovePendingPhase] = useState(null);
     const [approveChannels, setApproveChannels] = useState(['email']);
     const [approveAttachFiles, setApproveAttachFiles] = useState(false);
+    // Nota adicional: texto libre que se añade al final del mensaje (WhatsApp y email)
+    // sin tocar la plantilla, para poder restaurarla sin perder la nota.
+    const [approveNota, setApproveNota] = useState('');
     // Enlaces (descarga carpeta CEE + subida del CEE registrado) que el backend
     // añadirá al mensaje. Se muestran en el preview para que el admin los vea.
     const [approveLinks, setApproveLinks] = useState(null);
@@ -647,6 +650,7 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
         setApprovePendingPhase(phase);
         setApproveChannels(['email']);
         setApproveAttachFiles(false);
+        setApproveNota('');
         setApproveMessage(buildCertApproveMessage(section, selectedCertName, clienteNombre, numExp, ceeFolderLink, expedienteId));
         setApproveResult(null);
         setApproveLinks(null);
@@ -685,6 +689,7 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                 sendEmail: approveChannels.includes('email'),
                 sendWhatsApp: approveChannels.includes('whatsapp'),
                 customMessage: approveMessage.trim() || null,
+                notaAdicional: approveNota.trim() || null,
                 attachFiles: approveAttachFiles && approveChannels.includes('email')
             });
             const phaseLabel = approvePendingPhase === 'final' ? 'CEE Final' : 'CEE Inicial';
@@ -852,6 +857,7 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
         <div className="space-y-8">
             <CeeDocumentsGrid
                 expediente={expediente}
+                onEditCliente={onEditCliente}
                 certName={selectedCertName}
                 ceeFiles={local.cee_files}
                 onFilesChange={(newFiles) => {
@@ -961,6 +967,7 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
         <div className="space-y-8">
             <CeeDocumentsGrid
                 expediente={expediente}
+                onEditCliente={onEditCliente}
                 certName={selectedCertName}
                 ceeFiles={local.cee_files}
                 onFilesChange={(newFiles) => {
@@ -1122,7 +1129,7 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
             {/* ─── Popup de validación CEE (approve-cee) ─────────────────── */}
             {showApprovePopup && (
                 <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/70 backdrop-blur-sm animate-fade-in" onClick={() => { if (!approveLoading) setShowApprovePopup(false); }}>
-                    <div className="bg-bkg-deep border border-white/10 rounded-2xl p-6 max-w-md w-full mx-4 shadow-2xl" onClick={e => e.stopPropagation()}>
+                    <div className="bg-bkg-deep border border-white/10 rounded-2xl p-6 max-w-md md:max-w-2xl w-full mx-4 shadow-2xl max-h-[90vh] overflow-y-auto custom-scrollbar" onClick={e => e.stopPropagation()}>
                         {approveResult ? (
                             <div className="text-center py-4">
                                 <div className={`w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-4 border ${approveResult.type === 'ok' ? 'bg-emerald-500/20 border-emerald-500/30' : 'bg-red-500/20 border-red-500/30'}`}>
@@ -1213,6 +1220,22 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                                         Puedes editarlo libremente.{approveChannels.includes('email') ? ' El email mantiene la cabecera de marca y los botones de acceso.' : ''}
                                     </p>
                                     <p className="text-[9px] text-white/20 shrink-0 ml-3">{approveMessage.length}/2000</p>
+                                </div>
+
+                                {/* Nota adicional: va aparte de la plantilla para que
+                                    "Restaurar plantilla" no se la lleve por delante. */}
+                                <p className="text-[9px] font-black text-white/30 uppercase tracking-widest mb-2">Nota adicional (opcional)</p>
+                                <textarea
+                                    value={approveNota}
+                                    onChange={e => setApproveNota(e.target.value)}
+                                    disabled={approveLoading}
+                                    placeholder="Cualquier aclaración para este envío concreto. Se añade al final del mensaje, en WhatsApp y en el email."
+                                    rows={3}
+                                    maxLength={1000}
+                                    className="w-full bg-black/30 border border-white/10 rounded-xl p-3 text-sm leading-relaxed text-white normal-case placeholder:text-white/20 focus:outline-none focus:border-emerald-500/40 resize-none mb-1"
+                                />
+                                <div className="flex items-center justify-end mb-4">
+                                    <p className="text-[9px] text-white/20 shrink-0">{approveNota.length}/1000</p>
                                 </div>
 
                                 {/* Enlaces que se AÑADEN automáticamente al final del mensaje. */}
