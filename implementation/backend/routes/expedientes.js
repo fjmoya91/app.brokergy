@@ -1708,7 +1708,7 @@ router.put('/:id', enforceAuth, async (req, res) => {
 
         const { data: existing, error: fetchErr } = await supabase
             .from('expedientes')
-            .select('id, cee, instalacion, documentacion, estado, seguimiento, cliente_id, oportunidad_id, numero_expediente')
+            .select('id, cee, instalacion, documentacion, estado, seguimiento, cliente_id, oportunidad_id, numero_expediente, prioridad')
 
             .eq('id', req.params.id)
             .single();
@@ -1763,6 +1763,12 @@ router.put('/:id', enforceAuth, async (req, res) => {
             updates.seguimiento.notify_client_token_final_exp = Date.now() + 7 * 24 * 60 * 60 * 1000;
             _notifyAdminCeeFinal = { token: notifyToken, expId: req.params.id, exp: existing };
             console.log(`[Automation] Exp ${req.params.id}: CEE FINAL → REGISTRADO, token generado`);
+        }
+
+        // La etiqueta URGENTE existe para que certificador y admin prioricen el
+        // registro del CEE. Una vez registrado, deja de tener sentido.
+        if ((_notifyAdminCeeInicial || _notifyAdminCeeFinal) && existing.prioridad === 'URGENTE') {
+            updates.prioridad = 'NORMAL';
         }
 
         let docObj = existing.documentacion || {};

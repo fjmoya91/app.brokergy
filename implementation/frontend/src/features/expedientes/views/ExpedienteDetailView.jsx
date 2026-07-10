@@ -505,6 +505,43 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
         };
     }, [expediente, liveCee, liveInst]);
 
+    // Mientras no haya CEE cargado el expediente no tiene ahorro propio, pero SÍ
+    // hereda como supuesto la economía que se le presentó al cliente en la
+    // oportunidad. Sirve para saber de qué ahorro disponemos antes de arrancar.
+    //
+    // Se toman los importes GUARDADOS, sin recalcular: los expedientes migrados de
+    // AppSheet no traen `cae_client_rate` en inputs (su precio pactado real fue de
+    // 52 a 80 €/MWh), así que un recálculo caería al default de 95 €/MWh e inflaría
+    // la ayuda al cliente y el margen. Mismo criterio que la lista de expedientes
+    // (`expedienteFinancials.estimadoGuardado`).
+    //
+    // Alimenta SOLO el panel de resumen. Los documentos oficiales (Anexo I, fichas
+    // RES, CIFO) siguen recibiendo `calcResults`, para que ninguno pueda emitirse
+    // con un ahorro supuesto en lugar del real del CEE.
+    const resumenResults = useMemo(() => {
+        if (calcResults) return calcResults;
+        const opResult = expediente?.oportunidades?.datos_calculo?.result || {};
+        const opFin = opResult.financials || {};
+        const heredadoKwh = parseFloat(
+            opResult.savings?.savingsKwh ?? opFin.ahorroKwh ?? opResult.savingsKwh
+        );
+        if (!(heredadoKwh > 0)) return null;
+        // Los financials antiguos no guardaban `finalPriceClient`; se deriva del
+        // CAE pagado y el ahorro para no pintar un precio de 0 €/MWh.
+        const precioImplicito = opFin.caeBonus > 0 ? opFin.caeBonus / (heredadoKwh / 1000) : 0;
+        return {
+            ...opResult.savings,
+            ...opFin,
+            savingsKwh: heredadoKwh,
+            finalPriceClient: opFin.finalPriceClient ?? precioImplicito,
+            profit_neto: opFin.profitBrokergy ?? 0,
+            ahorroHeredado: true,
+            savingsKwhVerificado: null,
+            caeBonusVerificado: null,
+            profitBrokergyVerificado: null
+        };
+    }, [calcResults, expediente]);
+
     const assignedCertificador = useMemo(() => {
         const id = liveCee?.certificador_id || expediente?.cee?.certificador_id;
         if (!id) return null;
@@ -945,10 +982,10 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
 
             {/* Panel de Resumen Económico Sticky (Solo RES060).
                 Importes (PRECIO CAE, BENEFICIO BROKERGY…) = SOLO ADMIN. */}
-            {calcResults && isAdmin && (
+            {resumenResults && isAdmin && (
                 <div className="sticky top-0 z-[100] -mx-6 sm:-mx-8 lg:-mx-10 px-6 sm:px-8 lg:px-10 py-4 bg-bkg-base/60 backdrop-blur-xl border-b border-white/[0.05] mb-6 shadow-2xl max-md:fixed max-md:bottom-0 max-md:inset-x-0 max-md:top-auto max-md:mx-0 max-md:px-3 max-md:py-2 max-md:mb-0 max-md:border-0 max-md:bg-transparent max-md:backdrop-blur-none max-md:shadow-none max-md:rounded-none">
                     <ResumenEconomicoExpediente
-                        results={calcResults}
+                        results={resumenResults}
                         proposal={proposalResults}
                         onLivePrice={(newPrice) => {
                             // Reflejo en vivo (sin persistir) mientras se edita el precio

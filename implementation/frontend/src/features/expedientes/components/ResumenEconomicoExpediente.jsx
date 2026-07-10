@@ -175,7 +175,9 @@ export function ResumenEconomicoExpediente({ results, proposal, onUpdatePrice, o
         // ── Verificación de ahorro (campo manual, junto al estimado) ──
         savingsKwhVerificado = null,
         caeBonusVerificado = null,
-        profitBrokergyVerificado = null
+        profitBrokergyVerificado = null,
+        // El ahorro viene de la oportunidad porque el expediente aún no tiene CEE.
+        ahorroHeredado = false
     } = results;
 
     // ─── Propuesta original presentada al cliente en la oportunidad ──────────────
@@ -312,14 +314,18 @@ export function ResumenEconomicoExpediente({ results, proposal, onUpdatePrice, o
             unit: 'MWh',
             accent: 'via-green-400/60',
             unitColor: 'text-green-400/50',
-            sub: `${Math.round(savingsKwh).toLocaleString('es-ES')} CAEs (1 kWh = 1 CAE)`,
+            sub: ahorroHeredado
+                ? 'Supuesto de la oportunidad · pdte. CEE inicial'
+                : `${Math.round(savingsKwh).toLocaleString('es-ES')} CAEs (1 kWh = 1 CAE)`,
             proposalValue: prop ? fmtMwh(prop.savingsKwh) : null,
             proposalDiff: prop ? fmtMwh(prop.savingsKwh) !== fmtMwh(savingsKwh) : false,
-            tag: hasVerified ? { text: 'Verificado', tone: 'ok' } : { text: 'Pdte. verif.', tone: 'muted' },
+            tag: ahorroHeredado
+                ? { text: 'Supuesto', tone: 'muted' }
+                : (hasVerified ? { text: 'Verificado', tone: 'ok' } : { text: 'Pdte. verif.', tone: 'muted' }),
             verified: {
                 value: hasVerified ? fmtKwh(verifKwh) : null,
                 diff: hasVerified ? fmtKwh(verifKwh) !== fmtKwh(savingsKwh) : false,
-                editable: true,
+                editable: !ahorroHeredado,
                 ...verifEditProps,
             },
             color: 'text-green-400',
@@ -364,7 +370,9 @@ export function ResumenEconomicoExpediente({ results, proposal, onUpdatePrice, o
             proposalValue: prop ? fmtPrice(prop.finalPriceClient) : null,
             proposalDiff: prop ? fmtPrice(prop.finalPriceClient) !== fmtPrice(finalPriceClient) : false,
             color: 'text-white',
-            editable: true,
+            // Con el ahorro heredado los importes son los guardados en la propuesta,
+            // no un cálculo vivo: editar el precio no recalcularía nada.
+            editable: !ahorroHeredado,
             icon: (
                 <svg className="w-4 h-4 max-md:w-3.5 max-md:h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />

@@ -214,9 +214,14 @@ async function markCeeRegistradoFromUpload(exp, phase) {
     });
     docObj.historial = historial;
 
-    await supabase.from('expedientes').update({
+    // La etiqueta URGENTE existe para que certificador y admin prioricen el
+    // registro del CEE. Una vez registrado, deja de tener sentido.
+    const updatePayload = {
         seguimiento, estado: newEstado, documentacion: docObj, updated_at: new Date().toISOString()
-    }).eq('id', exp.id);
+    };
+    if (fresh.prioridad === 'URGENTE') updatePayload.prioridad = 'NORMAL';
+
+    await supabase.from('expedientes').update(updatePayload).eq('id', exp.id);
 
     // Email al admin con enlace one-tap (fire-and-forget), igual que la app.
     setImmediate(async () => {
