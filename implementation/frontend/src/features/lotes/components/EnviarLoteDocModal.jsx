@@ -35,6 +35,9 @@ import confetti from 'canvas-confetti';
 
 const phoneValid = (ph) => (ph || '').replace(/[^0-9]/g, '').length >= 9;
 
+// Parsea una cadena de CC ("a@x.com, b@y.com") a una lista de emails limpia.
+const parseCcList = (s) => (s || '').split(/[;,\s]+/).map(e => e.trim()).filter(e => e && e.includes('@'));
+
 // Props extra (opcionales, no rompen usos previos):
 //   extraBody        ReactNode → contenido adicional en el cuerpo (p.ej. slot para
 //                    subir la Solicitud de Verificación en el envío al S.O.).
@@ -43,11 +46,12 @@ const phoneValid = (ph) => (ph || '').replace(/[^0-9]/g, '').length >= 9;
 //                    whatsapp) por la lógica del llamante (p.ej. /api/lotes/:id/enviar-so).
 //   onBeforeSend     async () => boolean → validación previa (p.ej. confirmar si falta
 //                    la solicitud). Si devuelve false, el envío se cancela.
-export function EnviarLoteDocModal({ onClose, title, subtitle, defaultEmail = '', defaultPhone = '', defaultMessage = '', summaryData, docs, extraBody = null, onSendOverride = null, onBeforeSend = null }) {
+export function EnviarLoteDocModal({ onClose, title, subtitle, defaultEmail = '', defaultPhone = '', defaultMessage = '', defaultCc = '', ccSuggestions = [], summaryData, docs, extraBody = null, onSendOverride = null, onBeforeSend = null }) {
     const docList = Array.isArray(docs) ? docs : [];
 
     // ── Estado ───────────────────────────────────────────────────────────────
-    const [email, setEmail]       = useState(defaultEmail || '');
+    const [email, setEmail]       = useState((defaultEmail || '').toLowerCase());
+    const [cc, setCc]             = useState((defaultCc || '').toLowerCase());
     const [phone, setPhone]       = useState(defaultPhone || '');
     const [message, setMessage]   = useState(defaultMessage || '');
     const [channels, setChannels] = useState({ email: true, whatsapp: false });
@@ -99,10 +103,12 @@ export function EnviarLoteDocModal({ onClose, title, subtitle, defaultEmail = ''
 
         const out = [];
 
+        const ccArr = parseCcList(cc);
+
         if (onSendOverride) {
             // ── Envío delegado en el llamante (p.ej. /api/lotes/:id/enviar-so) ───
             try {
-                const res = await onSendOverride({ email: email.trim(), phone: phone.trim(), channels: { email: doEmail, whatsapp: doWa }, message });
+                const res = await onSendOverride({ email: email.trim(), cc: ccArr, phone: phone.trim(), channels: { email: doEmail, whatsapp: doWa }, message });
                 if (Array.isArray(res)) out.push(...res);
             } catch (err) {
                 out.push({ channel: doEmail ? 'email' : 'whatsapp', status: 'fail', text: err.response?.data?.error || err.response?.data?.message || err.message });
@@ -113,6 +119,7 @@ export function EnviarLoteDocModal({ onClose, title, subtitle, defaultEmail = ''
                 try {
                     await axios.post('/api/pdf/send-annex', {
                         to: email.trim(),
+                        cc: ccArr,
                         customMessage: message,
                         summaryData,
                         docs: docList.map(d => ({ html: d.html, fileName: d.fileName })),
@@ -186,8 +193,32 @@ export function EnviarLoteDocModal({ onClose, title, subtitle, defaultEmail = ''
                     {/* Destinatario (email) */}
                     <div>
                         <label className="block text-[9px] font-black text-white/30 uppercase tracking-[0.2em] mb-2">Destinatario (email)</label>
-                        <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="correo@dominio.com"
+                        <input type="email" value={email} onChange={e => setEmail(e.target.value.toLowerCase())} placeholder="correo@dominio.com"
                             className="w-full lowercase bg-bkg-elevated border border-white/5 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-brand/40 transition-all" />
+                    </div>
+
+                    {/* En copia (CC) — editable; ya no se copia a nadie automáticamente */}
+                    <div>
+                        <label className="block text-[9px] font-black text-white/30 uppercase tracking-[0.2em] mb-2">En copia (CC)</label>
+                        <input type="text" value={cc} onChange={e => setCc(e.target.value.toLowerCase())} placeholder="correo@dominio.com, otro@dominio.com"
+                            className="w-full lowercase bg-bkg-elevated border border-white/5 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-brand/40 transition-all" />
+                        {(() => {
+                            const yaEnCc = parseCcList(cc).map(x => x.toLowerCase());
+                            const sugerencias = (Array.isArray(ccSuggestions) ? ccSuggestions : [])
+                                .filter(s => s && !yaEnCc.includes(String(s).toLowerCase()));
+                            return sugerencias.length > 0 ? (
+                                <div className="flex flex-wrap gap-1.5 mt-2">
+                                    {sugerencias.map(s => (
+                                        <button key={s} type="button"
+                                            onClick={() => setCc(prev => [...parseCcList(prev), s].join(', '))}
+                                            className="text-[10px] px-2 py-1 rounded-lg bg-white/[0.04] border border-white/10 text-white/60 hover:text-white hover:border-brand/40 transition-all">
+                                            + {s}
+                                        </button>
+                                    ))}
+                                </div>
+                            ) : null;
+                        })()}
+                        <p className="mt-1 text-[9px] text-white/25">Opcional. Pulsa un contacto para añadirlo o escribe otro email.</p>
                     </div>
 
                     {/* Teléfono (WhatsApp) */}

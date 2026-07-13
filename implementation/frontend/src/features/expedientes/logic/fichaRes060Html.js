@@ -44,8 +44,6 @@ td.lbl { background-color: #f2f2f2; }
 .grey-row td { background-color:#d9d9d9; font-style:italic; font-weight: normal !important; }
 `;
 
-const DACS_STR = '2.731,40';
-
 // Representante por defecto (compatibilidad). En producción se inyecta el del S.O.
 const REPRESENTANTE_DEFAULT = { nombre: 'Pedro José López Montero', nif: '06239730-Z' };
 
@@ -57,8 +55,20 @@ export function buildFichaRes060Html(expediente, results = {}, opts = {}) {
 
     const aeKwh = Math.round(results?.savingsKwh || 0).toLocaleString('es-ES');
     const dcal = (parseFloat(ceeFinal.demandaCalefaccion) || 0).toFixed(2).replace('.', ',');
-    const sStr = (parseFloat(ceeFinal.superficieHabitable) || 0).toFixed(2).replace('.', ',');
-    const dacsStr = DACS_STR;
+    const superficieAcs = parseFloat(ceeFinal.superficieHabitable) || 0;
+    const sStr = superficieAcs.toFixed(2).replace('.', ',');
+
+    // Demanda de ACS — DEBE coincidir con la del Certificado CIFO (CertificadoCifoModal.jsx).
+    // Misma lógica: por defecto modo 'xml' (demandaACS · superficie); en modo CTE, fórmula por personas.
+    const acsMode = cee.acs_method || 'xml';
+    const numPeopleAcs = (parseInt(cee.num_rooms) || 4) + 1;
+    let dacsValue = 0;
+    if (acsMode === 'xml') {
+        dacsValue = (parseFloat(ceeFinal.demandaACS) || 0) * superficieAcs;
+    } else {
+        dacsValue = 28 * numPeopleAcs * 0.001162 * 365 * 46;
+    }
+    const dacsStr = dacsValue.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
     const boilerEffId = inst.caldera_antigua_cal?.rendimiento_id || 'default';
     const etaBoiler = BOILER_EFFICIENCIES.find(b => b.id === boilerEffId)?.value || 0.92;
@@ -67,8 +77,11 @@ export function buildFichaRes060Html(expediente, results = {}, opts = {}) {
     const scopCal = parseFloat(inst.aerotermia_cal?.scop) || 0;
     const scopCalStr = scopCal ? scopCal.toFixed(2).replace('.', ',') : '—';
 
-    const tieneAcs = (inst.cambio_acs !== false) && (!!inst.aerotermia_acs?.aerotermia_db_id || !!inst.misma_aerotermia_acs);
-    const scopAcsRaw = tieneAcs ? parseFloat(inst.aerotermia_acs?.scop || inst.aerotermia_cal?.scop || 0) : null;
+    // SCOP_dhw — DEBE coincidir con el Certificado CIFO (CertificadoCifoModal.jsx):
+    // tieneAcs = solo el toggle cambio_acs; el SCOP se toma de la aerotermia de
+    // calefacción si es la misma, o de la de ACS en caso contrario.
+    const tieneAcs = inst.cambio_acs !== false;
+    const scopAcsRaw = tieneAcs ? parseFloat(inst.misma_aerotermia_acs ? inst.aerotermia_cal?.scop : inst.aerotermia_acs?.scop || 0) : 0;
     const scopAcsStr = tieneAcs ? (scopAcsRaw ? scopAcsRaw.toFixed(2).replace('.', ',') : '—') : 'no aplica';
 
     const formatFecha = (isoDate) => {
@@ -79,8 +92,9 @@ export function buildFichaRes060Html(expediente, results = {}, opts = {}) {
     // Recalculado en vivo (igual que DocumentacionModule): el campo persistido
     // documentacion.fecha_inicio_cifo/fecha_fin_cifo puede quedar desfasado.
     const cifoDates060 = calcCifo(doc);
-    const fechaInicio = formatFecha(cifoDates060.inicio || doc.fecha_inicio_cifo);
-    const fechaFin = formatFecha(cifoDates060.fin || doc.fecha_fin_cifo);
+    // Mismos fallbacks que el CIFO (CertificadoCifoModal.jsx) para que la fecha coincida.
+    const fechaInicio = formatFecha(cifoDates060.inicio || doc.fecha_inicio_cifo || doc.fecha_visita_cee_inicial);
+    const fechaFin = formatFecha(cifoDates060.fin || doc.fecha_fin_cifo || doc.fecha_firma_cee_final);
 
     const REPRESENTANTE_NOMBRE = opts.representanteNombre || REPRESENTANTE_DEFAULT.nombre;
     const REPRESENTANTE_NIF = opts.representanteNif || REPRESENTANTE_DEFAULT.nif;

@@ -136,10 +136,11 @@ Un saludo.`.replace(/ ,/g, ',');
 
     // Envío al S.O. vía el backend del lote: crea carpeta, mueve expedientes, guarda
     // borradores (Anexo I + fichas + solicitud) y manda el email/WhatsApp con el enlace de firma.
-    const handleEnviarSo = async ({ email, phone, channels, message }) => {
+    const handleEnviarSo = async ({ email, cc, phone, channels, message }) => {
+        const ccList = Array.isArray(cc) ? cc : [];
         const { data } = await axios.post(`/api/lotes/${lote.id}/enviar-so`, {
             to: email,
-            cc: soCc,
+            cc: ccList,
             phone,
             channels,
             customMessage: message,
@@ -155,7 +156,7 @@ Un saludo.`.replace(/ ,/g, ',');
         const results = [];
         if (channels.email) {
             const w = warnings.find(x => /^email/i.test(x));
-            const ccTxt = soCc.length ? ` (cc: ${soCc.join(', ')})` : '';
+            const ccTxt = ccList.length ? ` (cc: ${ccList.join(', ')})` : '';
             results.push({ channel: 'email', status: w ? 'fail' : 'ok', text: w || `→ ${email}${ccTxt}` });
         }
         if (channels.whatsapp) {
@@ -248,12 +249,6 @@ Un saludo.`.replace(/ ,/g, ',');
                 )}
             </div>
 
-            {/* A quién va: destinatario + copias, resueltos desde la ficha del S.O. */}
-            {soCc.length > 0 && (
-                <p className="text-[10px] text-white/30 leading-snug">
-                    En copia: <span className="text-white/50">{soCc.join(', ')}</span>
-                </p>
-            )}
         </div>
     );
 
@@ -387,6 +382,8 @@ Un saludo.`.replace(/ ,/g, ',');
                     subtitle={`${lote.codigo || 'Lote'} · Anexo I + ${numFichas} ficha(s) RES${solicitud ? ' + solicitud' : ''}`}
                     defaultEmail={soNotifyEmail}
                     defaultMessage={sendMsg}
+                    defaultCc={soCc.join(', ')}
+                    ccSuggestions={soCc}
                     summaryData={{ id: lote.codigo || 'LOTE', docType: 'Anexo I · Listado Cesión + Fichas RES' }}
                     docs={buildDocs()}
                     extraBody={solicitudSlot}

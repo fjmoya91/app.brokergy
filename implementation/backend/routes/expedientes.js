@@ -3674,8 +3674,15 @@ router.post('/:id/cert-ack', async (req, res) => {
 
         // Token válido — marcar como confirmado
         const certId = cee.certificador_id;
-        const { data: cert } = await supabase.from('prescriptores').select('razon_social, acronimo').eq('id_empresa', certId).maybeSingle();
+        const [{ data: cert }, { data: cli }, { data: op }] = await Promise.all([
+            supabase.from('prescriptores').select('razon_social, acronimo').eq('id_empresa', certId).maybeSingle(),
+            exp.cliente_id ? supabase.from('clientes').select('*').eq('id_cliente', exp.cliente_id).maybeSingle() : Promise.resolve({ data: null }),
+            exp.oportunidad_id ? supabase.from('oportunidades').select('*').eq('id', exp.oportunidad_id).maybeSingle() : Promise.resolve({ data: null }),
+        ]);
         const certName = cert?.razon_social || cert?.acronimo || 'Técnico';
+
+        // Ficha del cliente (nombre + dirección de instalación) para dar más contexto en el aviso a BROKERGY
+        const { data: clienteData } = buildCertClienteData(exp, op, cli);
 
         const phaseLabel = phase === 'final' ? 'CEE Final' : 'CEE Inicial';
         const newEstado = phase === 'final' ? 'EN TRABAJO (CEE FINAL)' : 'EN TRABAJO (CEE INICIAL)';
@@ -3727,7 +3734,7 @@ router.post('/:id/cert-ack', async (req, res) => {
         // Notificar a BROKERGY por email (de fondo, sin bloquear respuesta)
         setImmediate(async () => {
             try {
-                await emailService.sendCertifierAcceptedAdminNotification(exp.id, exp.numero_expediente, certName, phaseLabel);
+                await emailService.sendCertifierAcceptedAdminNotification(exp.id, exp.numero_expediente, certName, phaseLabel, clienteData);
             } catch (mailErr) {
                 console.error('[cert-ack] Error enviando notificación a admin:', mailErr.message);
             }

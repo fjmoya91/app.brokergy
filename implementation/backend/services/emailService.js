@@ -100,12 +100,62 @@ const transporter = nodemailer.createTransport({
     }
 });
 
+// ─── Transporters dedicados (enviar-como) ────────────────────────────────────
+// Hostinger NO deja que la cuenta SMTP principal (brokergy@) ponga un `From:` de
+// otra dirección del dominio: rechaza el envío ("all recipients were rejected").
+// Para enviar REALMENTE desde otra dirección (p.ej. el correo al S.O. desde
+// franciscojavier.moya@brokergy.es) hay que autenticarse con ESE buzón. Aquí se
+// crea un transporter dedicado por cuenta configurada vía env; si no hay
+// credenciales, no se crea y el `from` de esa dirección cae a la cuenta principal.
+const altTransporters = {};
+if (process.env.LOTE_SO_SMTP_USER && process.env.LOTE_SO_SMTP_PASS) {
+    altTransporters[process.env.LOTE_SO_SMTP_USER.toLowerCase()] = nodemailer.createTransport({
+        host: process.env.LOTE_SO_SMTP_HOST || process.env.SMTP_HOST || 'smtp.hostinger.com',
+        port: parseInt(process.env.LOTE_SO_SMTP_PORT || process.env.SMTP_PORT || '465'),
+        secure: true,
+        auth: { user: process.env.LOTE_SO_SMTP_USER, pass: process.env.LOTE_SO_SMTP_PASS },
+        tls: { rejectUnauthorized: false },
+    });
+    console.log(`[Email] Transporter dedicado activo para ${process.env.LOTE_SO_SMTP_USER}`);
+}
+
 /**
  * Envía un email genérico
  */
-const sendMail = async ({ to, cc, subject, html, text, attachments, replyTo }) => {
+const sendMail = async ({ to, cc, subject, html, text, attachments, replyTo, from: fromOverride }) => {
     const sender = await getSender();
-    const from = `"${sender.name}" <${sender.address}>`;
+    // Dirección "from" efectiva. Por defecto, el remitente configurado. `fromOverride`
+    // (opcional) permite pedir otra dirección (p.ej. el correo al S.O.). Admite string
+    // ("addr" o "Nombre <addr>") u objeto { name?, address }.
+    let fromName = sender.name;
+    let fromAddress = sender.address;
+    if (typeof fromOverride === 'string' && fromOverride.trim()) {
+        const m = fromOverride.match(/<([^>]+)>/);
+        fromAddress = (m ? m[1] : fromOverride).trim();
+        if (fromOverride.includes('<')) {
+            const nm = fromOverride.split('<')[0].replace(/"/g, '').trim();
+            if (nm) fromName = nm;
+        }
+    } else if (fromOverride && fromOverride.address) {
+        fromAddress = fromOverride.address;
+        if (fromOverride.name) fromName = fromOverride.name;
+    }
+
+    // Selección de transporter: si hay uno dedicado autenticado como `fromAddress`, se
+    // usa (puede enviar como sí mismo). Si no, y la dirección NO es la de la cuenta SMTP
+    // principal, se revierte al remitente principal para no provocar rechazo del SMTP
+    // ("all recipients were rejected") por enviar-como no autorizado.
+    const mainUser = (process.env.SMTP_USER || DEFAULT_FROM_ADDRESS).toLowerCase();
+    const alt = altTransporters[fromAddress.toLowerCase()];
+    let activeTransporter = transporter;
+    if (alt) {
+        activeTransporter = alt;
+    } else if (fromAddress.toLowerCase() !== mainUser && fromAddress.toLowerCase() !== sender.address.toLowerCase()) {
+        console.warn(`[Email] Sin cuenta SMTP dedicada para "${fromAddress}"; se envía desde ${sender.address}. Configura LOTE_SO_SMTP_USER/PASS para enviar realmente desde esa dirección.`);
+        fromAddress = sender.address;
+        fromName = sender.name;
+    }
+    const from = `"${fromName}" <${fromAddress}>`;
 
     // `cc` admite string o array. Se descartan los vacíos y los que ya estén en `to`,
     // para no mandar el mismo correo dos veces a la misma persona.
@@ -116,7 +166,7 @@ const sendMail = async ({ to, cc, subject, html, text, attachments, replyTo }) =
         .filter(e => !toList.includes(e.toLowerCase()));
 
     try {
-        const info = await transporter.sendMail({
+        const info = await activeTransporter.sendMail({
             from,
             to,
             cc: ccList.length ? ccList : undefined,
@@ -431,7 +481,7 @@ const sendAcceptanceNotificationEmail = async ({ to, userName, numeroExpediente,
 /**
  * Envía anexos (Anexo I, Anexo Cesión, etc.) por correo
  */
-const sendAnnexEmail = async ({ to, cc, userName, attachments, customMessage, summaryData }) => {
+const sendAnnexEmail = async ({ to, cc, userName, attachments, customMessage, summaryData, from }) => {
     const docType = summaryData?.docType || 'Documentación';
     const subject = `${docType} — Brokergy (${summaryData.id})`;
     
@@ -459,7 +509,7 @@ const sendAnnexEmail = async ({ to, cc, userName, attachments, customMessage, su
 
     const text = customMessage || `Hola ${userName},\n\nAdjuntamos la documentación solicitada (${docType}) para tu expediente ${summaryData.id}.\n\nQuedamos a tu disposición.\n\nBROKERGY · Ingeniería Energética`;
 
-    return sendMail({ to, cc, subject, html, text, attachments });
+    return sendMail({ to, cc, subject, html, text, attachments, from });
 };
 
 /**
@@ -544,8 +594,14 @@ const sendCertificadorNotificationEmail = async ({
         { bg: BRAND.orangeTint, border: BRAND.orange, mb: 22 }
     ) : emailBox(
         emailP(`⚡ Directriz Técnica — ${escapeHtml(ficha || 'RES060/RES093')}`, { size: 11, bold: true, color: BRAND.orangeDark, mb: 6 }) +
-        emailP('Para garantizar el éxito del expediente, la demanda específica de calefacción certificada debe situarse, como <strong>objetivo de seguridad</strong>, <strong>por encima</strong> del valor estimado en la propuesta comercial.', { size: 14, color: BRAND.muted, mb: 12 }) +
-        `<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td style="background:${BRAND.card};border:1px solid ${BRAND.border};border-radius:8px;padding:16px;text-align:center;"><div style="font-size:11px;color:${BRAND.muted};text-transform:uppercase;letter-spacing:1px;">Demanda mínima esperada</div><div style="font-size:26px;font-weight:800;color:${BRAND.orangeDark};margin-top:4px;">${demandaPerM2 ? demandaPerM2.toFixed(1).replace('.', ',') + ' kWh/m²·año' : 'Consultar propuesta'}</div></td></tr></table>`,
+        emailP(`Para garantizar el éxito del expediente, la demanda específica de calefacción certificada debe situarse, como <strong>objetivo de seguridad</strong>, <strong>por encima</strong> del valor estimado en la propuesta comercial${superficieRef ? `, y la <strong>superficie útil habitable</strong> del certificado no debe ser <strong>inferior</strong> a la indicada` : ''}.`, { size: 14, color: BRAND.muted, mb: 12 }) +
+        `<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+           <td width="${superficieRef ? '48%' : '100%'}" valign="top" style="background:${BRAND.card};border:1px solid ${BRAND.border};border-radius:8px;padding:16px;text-align:center;">
+             <div style="font-size:11px;color:${BRAND.muted};text-transform:uppercase;letter-spacing:1px;">Demanda mínima esperada</div>
+             <div style="font-size:26px;font-weight:800;color:${BRAND.orangeDark};margin-top:4px;">${demandaPerM2 ? demandaPerM2.toFixed(1).replace('.', ',') + ' kWh/m²·año' : 'Consultar propuesta'}</div>
+           </td>
+           ${superficieRef ? `<td width="4%"></td><td width="48%" valign="top" style="background:${BRAND.card};border:1px solid ${BRAND.border};border-radius:8px;padding:16px;text-align:center;"><div style="font-size:11px;color:${BRAND.muted};text-transform:uppercase;letter-spacing:1px;">Superficie mínima</div><div style="font-size:26px;font-weight:800;color:${BRAND.orangeDark};margin-top:4px;">${superficieRef.toLocaleString('es-ES', { maximumFractionDigits: 2 })} m²</div></td>` : ''}
+         </tr></table>`,
         { bg: BRAND.orangeTint, border: BRAND.orange, mb: 22 }
     );
 
@@ -583,7 +639,7 @@ const sendCertificadorNotificationEmail = async ({
     const linksText = `${ackLink ? 'Para aceptar el encargo haz clic aquí: ' + ackLink + '\n\n' : ''}${portalLink ? 'Portal: ' + portalLink + '\n' : ''}${ceeFolderLink ? 'Carpeta CEE: ' + ceeFolderLink : ''}`;
     const text = customMessage
         ? `${customMessage}\n\n${linksText}\n\nBROKERGY · Ingeniería Energética`
-        : `${urgentText}Hola ${certName}!\n\nTe asignamos el expediente ${expedienteNum}.\n\n${clienteText}${isReforma ? `Ahorro mínimo esperado: ${ahorroObjetivo ? Math.round(ahorroObjetivo) + ' kWh/año' : 'Consultar propuesta'}` : `Demanda mínima esperada: ${demandaPerM2 ? demandaPerM2.toFixed(1).replace('.', ',') + ' kWh/m²·año' : 'Consultar propuesta'}`}\n\n${adminMsgText}${linksText}\n\nBROKERGY · Ingeniería Energética`;
+        : `${urgentText}Hola ${certName}!\n\nTe asignamos el expediente ${expedienteNum}.\n\n${clienteText}${isReforma ? `Ahorro mínimo esperado: ${ahorroObjetivo ? Math.round(ahorroObjetivo) + ' kWh/año' : 'Consultar propuesta'}` : `Demanda mínima esperada: ${demandaPerM2 ? demandaPerM2.toFixed(1).replace('.', ',') + ' kWh/m²·año' : 'Consultar propuesta'}${superficieRef ? `\nSuperficie mínima: ${superficieRef.toLocaleString('es-ES', { maximumFractionDigits: 2 })} m²` : ''}`}\n\n${adminMsgText}${linksText}\n\nBROKERGY · Ingeniería Energética`;
 
     return sendMail({ to, subject, html, text });
 };
@@ -844,25 +900,38 @@ const sendReviewRequestEmailToAdmin = async ({
 /**
  * Notifica a BROKERGY que un técnico ha aceptado el encargo a través del enlace de correo
  */
-const sendCertifierAcceptedAdminNotification = async (expedienteId, numExp, certName, phase) => {
+const sendCertifierAcceptedAdminNotification = async (expedienteId, numExp, certName, phase, clienteData = null) => {
     const to = 'franciscojavier.moya.s2e2@gmail.com'; // Email de administración
     const subject = `✅ ENCARGO ACEPTADO — ${numExp} — ${certName}`;
-    
+
+    const clienteNombre = clienteData?.nombre || null;
+    const direccion = clienteData?.direccionInstalacion || clienteData?.direccion || null;
+
+    const dataRows = [
+        ['Expediente', escapeHtml(numExp)],
+        ...(clienteNombre ? [['Cliente', escapeHtml(clienteNombre)]] : []),
+        ...(direccion ? [['Dirección', escapeHtml(direccion)]] : []),
+        ['Estado', 'EN TRABAJO (actualizado automáticamente)'],
+    ];
+
     const html = brandEmailShell({
         preheader: `${certName} ha aceptado el encargo del ${phase} — ${numExp}.`,
         title: 'Encargo aceptado',
         pill: PILL.success('Encargo aceptado'),
         contentHtml:
             emailP(`El técnico <strong>${escapeHtml(certName)}</strong> ha aceptado el encargo del <strong>${escapeHtml(phase)}</strong>.`, { mb: 22 }) +
-            emailBox(emailDataTable([
-                ['Expediente', escapeHtml(numExp)],
-                ['Estado', 'EN TRABAJO (actualizado automáticamente)'],
-            ]), { mb: 22 }) +
+            emailBox(emailDataTable(dataRows), { mb: 22 }) +
             `<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">${emailButton(`${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/?exp=${expedienteId}`, 'Ver Expediente')}</td></tr></table>`,
         footerNote: 'Notificación automática de BROKERGY ERP',
     });
 
-    return sendMail({ to, subject, html, text: `El técnico ${certName} ha aceptado el encargo del ${phase} para el expediente ${numExp}.` });
+    const textLines = [
+        `El técnico ${certName} ha aceptado el encargo del ${phase} para el expediente ${numExp}.`,
+        ...(clienteNombre ? [`Cliente: ${clienteNombre}`] : []),
+        ...(direccion ? [`Dirección: ${direccion}`] : []),
+    ];
+
+    return sendMail({ to, subject, html, text: textLines.join('\n') });
 };
 
 /**

@@ -10,6 +10,7 @@ import { AnexoListadoModal } from './AnexoListadoModal';
 import { SolicitudVerificacionModal } from './SolicitudVerificacionModal';
 import { FacturaSoModal } from './FacturaSoModal';
 import { LoteDocumentosModule } from './LoteDocumentosModule';
+import { RequerimientoModal } from './RequerimientoModal';
 
 const presName = (p) => p ? (p.acronimo || p.razon_social || '—') : null;
 const eur = (n) => (Number(n) || 0).toLocaleString('es-ES', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
@@ -78,6 +79,7 @@ export function LoteDetailModal({ loteId, soList: soListProp, verList: verListPr
     const [showAnexo, setShowAnexo] = useState(false);
     const [showSolicitud, setShowSolicitud] = useState(false);
     const [showFactura, setShowFactura] = useState(false);
+    const [showRequerimiento, setShowRequerimiento] = useState(false);
     const [showExpedientes, setShowExpedientes] = useState(true);
     const [soList, setSoList] = useState(soListProp || []);
     const [verList, setVerList] = useState(verListProp || []);
@@ -96,6 +98,13 @@ export function LoteDetailModal({ loteId, soList: soListProp, verList: verListPr
     const isBorrador = lote?.estado === 'BORRADOR';
     // La factura al S.O. se habilita a partir de "CAE EMITIDO – PTE PAGO BROKERGY".
     const facturaEnabled = LOTE_ESTADOS.indexOf(lote?.estado) >= LOTE_ESTADOS.indexOf('CAE EMITIDO – PTE PAGO BROKERGY');
+    // El requerimiento (reenviar para nueva firma) se habilita cuando el lote está
+    // en un estado de REQUERIMIENTO (verificador / G.A.) o cuando ya se envió alguna
+    // vez al S.O. (hay documentos en documentos_so). En ambos casos hace falta que
+    // el lote tenga expedientes (las fichas se regeneran a partir de ellos).
+    const enRequerimiento = String(lote?.estado || '').includes('REQUERIMIENTO');
+    const puedeRequerimiento = (lote?.expedientes || []).length > 0
+        && ((lote?.documentos_so || []).length > 0 || enRequerimiento);
 
     const refresh = useCallback(async () => {
         const { data } = await axios.get(`/api/lotes/${loteId}`);
@@ -467,6 +476,20 @@ export function LoteDetailModal({ loteId, soList: soListProp, verList: verListPr
                                     <svg className="w-4 h-4 text-white/20 group-hover:text-brand/60 ml-auto shrink-0 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
                                 </button>
 
+                                {/* Requerimiento — reenviar fichas (regeneradas) al S.O. para nueva firma */}
+                                <button onClick={() => setShowRequerimiento(true)} disabled={!puedeRequerimiento}
+                                    title={!puedeRequerimiento ? 'Disponible cuando el lote esté en REQUERIMIENTO o ya se haya enviado al S.O.' : ''}
+                                    className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-bkg-surface border border-white/[0.06] hover:border-amber-400/30 hover:bg-amber-500/5 disabled:opacity-40 disabled:cursor-not-allowed transition-all group text-left">
+                                    <div className="shrink-0 w-8 h-8 rounded-lg bg-amber-500/10 border border-amber-400/20 flex items-center justify-center group-hover:bg-amber-500/20 transition-colors">
+                                        <svg className="w-4 h-4 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M5.07 19h13.86a2 2 0 001.74-2.99L13.74 4.01a2 2 0 00-3.48 0L3.33 16.01A2 2 0 005.07 19z" /></svg>
+                                    </div>
+                                    <div className="min-w-0">
+                                        <p className="text-sm font-black text-white group-hover:text-amber-300 transition-colors">Requerimiento · reenviar para firma</p>
+                                        <p className="text-[11px] text-white/40">Regenera las fichas seleccionadas y las reenvía al S.O. para que las vuelva a firmar</p>
+                                    </div>
+                                    <svg className="w-4 h-4 text-white/20 group-hover:text-amber-400/60 ml-auto shrink-0 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                                </button>
+
                                 {/* Factura S.O. — venta de CAEs al Sujeto Obligado = margen: SOLO ADMIN */}
                                 {canSeeMargin && (
                                 <button onClick={() => setShowFactura(true)}
@@ -517,6 +540,13 @@ export function LoteDetailModal({ loteId, soList: soListProp, verList: verListPr
                     lote={lote}
                     onClose={() => { setShowFactura(false); refresh().catch(() => {}); onChanged?.(); }}
                     onGenerated={() => { refresh().catch(() => {}); onChanged?.(); }}
+                />
+            )}
+            {showRequerimiento && lote && (
+                <RequerimientoModal
+                    lote={lote}
+                    onClose={() => setShowRequerimiento(false)}
+                    onSent={() => { refresh().catch(() => {}); onChanged?.(); }}
                 />
             )}
         </div>

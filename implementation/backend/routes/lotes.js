@@ -23,6 +23,12 @@ function usuarioDe(req) {
 
 function nowIso() { return new Date().toISOString(); }
 
+// Remitente del email al Sujeto Obligado (decisión usuario 2026-07-13): sale desde la
+// cuenta personal en lugar de la genérica brokergy@brokergy.es. Debe ser una dirección
+// del MISMO dominio SMTP. Editable por env. El nombre visible lo pone el remitente
+// configurado en la app (getSender) salvo que se especifique aquí.
+const SO_EMAIL_FROM = { address: process.env.LOTE_SO_EMAIL_FROM || 'franciscojavier.moya@brokergy.es' };
+
 // Email al que dirigir las notificaciones de un prescriptor: el contacto de
 // notificaciones activo (si lo hay) o, en su defecto, el email principal.
 function resolveNotifyEmail(p) {
@@ -81,6 +87,39 @@ async function saveOrReplacePdf(folderId, fileName, buffer) {
         if (prev) await driveService.deleteFile(prev);
     } catch (_) { /* no bloqueante */ }
     return driveService.saveFileToFolder(folderId, fileName, 'application/pdf', buffer);
+}
+
+// Guarda un documento del lote como una REVISIÓN. Si ya existía una versión previa
+// (borrador y/o firmado) generada por la app, se ARCHIVA en la subcarpeta "OLD"
+// (renombrada _OLD) en vez de mandarla a la papelera, y el nuevo borrador se nombra
+// con sufijo _rev{N}. Si no había versión previa (primer envío / lote legacy), se
+// guarda con el nombre base sin sufijo. Devuelve { rev, fileName, saved }.
+//   · existing     entrada previa de documentos_so (o null)
+//   · baseFileName nombre base sin extensión ni sufijo (p.ej. "26RES060_89 - Ficha RES060")
+//   · key          clave del documento (para derivar el nombre del firmado antiguo)
+//   · expFolder    carpeta del expediente (para archivar el firmado en "10. EXPEDIENTE CAE"); null si es doc de lote
+//   · draftFolder  carpeta donde vive el borrador
+//   · folderId     carpeta del lote (fallback para el firmado de docs de lote)
+async function saveDocRevision({ existing, baseFileName, key, expFolder, draftFolder, folderId, pdf }) {
+    const hadPrev = !!(existing && (existing.draft_file_id || existing.signed_file_id));
+    const rev = hadPrev ? ((existing.rev || 0) + 1) : (existing?.rev || 0);
+
+    // Archivar el FIRMADO anterior (si el S.O. ya lo había firmado) a OLD.
+    if (existing?.signed_file_id) {
+        const signedFolder = expFolder
+            ? (await driveService.getOrCreateSubfolder(expFolder, '10. EXPEDIENTE CAE') || folderId)
+            : folderId;
+        const oldSignedName = `${String(existing.file_name || existing.label || key).replace(/\.pdf$/i, '')}_fdo.pdf`;
+        await driveService.archiveExistingToOld(signedFolder, existing.signed_file_id, oldSignedName);
+    }
+    // Archivar el BORRADOR anterior a OLD.
+    if (existing?.draft_file_id) {
+        await driveService.archiveExistingToOld(draftFolder, existing.draft_file_id, existing.file_name || pdfFileName(baseFileName));
+    }
+
+    const fileName = pdfFileName(rev > 0 ? `${baseFileName}_rev${rev}` : baseFileName);
+    const saved = await saveOrReplacePdf(draftFolder, fileName, pdf);
+    return { rev, fileName, saved };
 }
 
 // Siguiente número de factura de CAE para un año concreto: F-{año}CAE_{N}.
@@ -625,13 +664,19 @@ router.post('/:id/enviar-so', staffOnly, async (req, res) => {
         const attachments = [];
         const documentosSo = [];
         const sentAt = nowIso();
+        // Entradas previas por clave: si el lote ya se había enviado, la versión anterior
+        // de cada documento se archiva a "OLD" y el nuevo se nombra _rev{N} (saveDocRevision).
+        const existingByKey = {};
+        for (const x of (Array.isArray(lote.documentos_so) ? lote.documentos_so : [])) {
+            if (x && x.key) existingByKey[x.key] = x;
+        }
 
         for (const d of docs) {
             if (!d.html && !d.pdfBase64) continue;
             // `pdfBase64` = PDF ya firmado (p.ej. el Anexo I firmado por el PROVEEDOR/Brokergy);
             // tiene prioridad sobre el HTML para no regenerarlo y perder la firma.
             const pdf = d.pdfBase64 ? Buffer.from(d.pdfBase64, 'base64') : await htmlToPdf(d.html);
-            const fileName = pdfFileName(d.fileName);
+            const key = d.expediente_id ? `ficha_${d.expediente_id}` : (d.key || `anexo_i`);
             // Carpeta destino del borrador: expediente/"6. ANEXOS CAE" si es ficha con
             // carpeta resoluble; si no, la carpeta del lote.
             const expFolder = d.expediente_id ? expFolderMap[d.expediente_id] : null;
@@ -639,15 +684,16 @@ router.post('/:id/enviar-so', staffOnly, async (req, res) => {
             if (expFolder) {
                 draftFolder = await driveService.getOrCreateSubfolder(expFolder, '6. ANEXOS CAE') || folderId;
             }
-            const saved = await saveOrReplacePdf(draftFolder, fileName, pdf);
+            const { rev, fileName, saved } = await saveDocRevision({ existing: existingByKey[key], baseFileName: d.fileName, key, expFolder, draftFolder, folderId, pdf });
             attachments.push({ filename: fileName, content: pdf });
             documentosSo.push({
-                key: d.expediente_id ? `ficha_${d.expediente_id}` : (d.key || `anexo_i`),
+                key,
                 tipo: d.tipo || (d.expediente_id ? 'ficha_res' : 'anexo_i_listado'),
                 expediente_id: d.expediente_id || null,
                 exp_folder_id: expFolder || null,
                 label: d.label || fileName.replace(/\.pdf$/i, ''),
                 file_name: fileName,
+                rev,
                 anchor: d.anchor || null,
                 fixedBox: d.fixedBox || null,
                 draft_link: saved?.link || null, draft_file_id: saved?.id || null,
@@ -659,13 +705,14 @@ router.post('/:id/enviar-so', staffOnly, async (req, res) => {
         // Solicitud de Verificación (PDF subido en base64).
         if (solicitud && solicitud.base64) {
             const buf = Buffer.from(solicitud.base64, 'base64');
-            const fileName = pdfFileName(solicitud.fileName || `Solicitud Verificacion - ${lote.codigo || 'lote'}`);
-            const saved = await saveOrReplacePdf(folderId, fileName, buf);
+            const baseName = String(solicitud.fileName || `Solicitud Verificacion - ${lote.codigo || 'lote'}`).replace(/\.pdf$/i, '');
+            const { rev, fileName, saved } = await saveDocRevision({ existing: existingByKey['solicitud_verificacion'], baseFileName: baseName, key: 'solicitud_verificacion', expFolder: null, draftFolder: folderId, folderId, pdf: buf });
             attachments.push({ filename: fileName, content: buf });
             documentosSo.push({
                 key: 'solicitud_verificacion', tipo: 'solicitud_verificacion',
                 expediente_id: null, exp_folder_id: null, label: 'Solicitud de Verificación',
                 file_name: fileName,
+                rev,
                 anchor: ['solicitante', 'fdo', 'firma'],
                 fixedBox: solicitud.fixedBox || null,
                 draft_link: saved?.link || null, draft_file_id: saved?.id || null,
@@ -691,7 +738,7 @@ router.post('/:id/enviar-so', staffOnly, async (req, res) => {
         if (channels.email && to) {
             try {
                 const emailService = require('../services/emailService');
-                await emailService.sendAnnexEmail({ to, cc, userName: summ.id, attachments, customMessage: msgConEnlace, summaryData: summ });
+                await emailService.sendAnnexEmail({ to, cc, userName: summ.id, attachments, customMessage: msgConEnlace, summaryData: summ, from: SO_EMAIL_FROM });
             } catch (e) { warnings.push(`Email: ${e.message}`); }
         }
         if (channels.whatsapp && phone) {
@@ -739,6 +786,178 @@ router.post('/:id/enviar-so', staffOnly, async (req, res) => {
     } catch (err) {
         console.error('[POST /lotes/:id/enviar-so]', err.message);
         res.status(500).json({ error: err.message || 'Error al enviar al Sujeto Obligado' });
+    }
+});
+
+// ─── POST /api/lotes/:id/requerimiento — reenviar docs concretos para NUEVA firma ─
+// Un requerimiento del S.O./verificador pide corregir y volver a firmar documentos
+// concretos (típicamente fichas RES) SIN tocar el resto del lote. A diferencia de
+// `enviar-so`, este endpoint:
+//   · NO mueve carpetas de expediente (ya se movieron en el envío inicial).
+//   · NO sobrescribe `documentos_so`: regenera SOLO las entradas de los `docs`
+//     recibidos (match por `key`), reseteando su firma (signed_link=null) para que
+//     el S.O. las vuelva a firmar por el mismo enlace `/firmar-lote/:id`, y deja el
+//     resto de documentos (ya firmados) intactos.
+router.post('/:id/requerimiento', staffOnly, async (req, res) => {
+    try {
+        const {
+            to, cc, phone, channels = { email: true, whatsapp: false },
+            customMessage, summaryData, docs = [], frontendOrigin, avisoWhatsApp,
+        } = req.body || {};
+
+        if (!Array.isArray(docs) || docs.length === 0) {
+            return res.status(400).json({ error: 'No hay documentos que reenviar' });
+        }
+        if (channels.email && !to) return res.status(400).json({ error: 'Falta el email del destinatario' });
+        if (channels.whatsapp && !phone) return res.status(400).json({ error: 'Falta el teléfono para WhatsApp' });
+
+        const { data: lote, error } = await supabase.from('lotes').select('*').eq('id', req.params.id).maybeSingle();
+        if (error) throw error;
+        if (!lote) return res.status(404).json({ error: 'Lote no encontrado' });
+
+        const folderId = await ensureLoteFolder(lote);
+
+        // Estado actual de documentos_so (se conserva; solo se tocan las entradas reenviadas).
+        const documentosSo = Array.isArray(lote.documentos_so) ? [...lote.documentos_so] : [];
+        const keyOf = (d) => (d.expediente_id ? `ficha_${d.expediente_id}` : (d.key || 'anexo_i'));
+
+        // Resolver la carpeta "6. ANEXOS CAE" del expediente solo para las fichas que
+        // no tengan ya `exp_folder_id` en su entrada (p.ej. una ficha nueva).
+        const needExpFolder = docs
+            .filter(d => d.expediente_id && !documentosSo.find(x => x.key === keyOf(d))?.exp_folder_id)
+            .map(d => d.expediente_id);
+        let expFolderMap = {};
+        if (needExpFolder.length) {
+            const { data: exps } = await supabase
+                .from('expedientes').select('id, oportunidad_id').in('id', needExpFolder);
+            const opIds = [...new Set((exps || []).map(e => e.oportunidad_id).filter(Boolean))];
+            let opMap = {};
+            if (opIds.length) {
+                const { data: ops } = await supabase.from('oportunidades').select('id, datos_calculo').in('id', opIds);
+                opMap = Object.fromEntries((ops || []).map(o => [o.id, o]));
+            }
+            for (const e of (exps || [])) {
+                const dc = opMap[e.oportunidad_id]?.datos_calculo || {};
+                expFolderMap[e.id] = dc.drive_folder_id || dc.inputs?.drive_folder_id || null;
+            }
+        }
+
+        const attachments = [];
+        const reenviados = [];
+        const sentAt = nowIso();
+
+        for (const d of docs) {
+            if (!d.html && !d.pdfBase64) continue;
+            const key = keyOf(d);
+            const idx = documentosSo.findIndex(x => x.key === key);
+            const existing = idx >= 0 ? documentosSo[idx] : null;
+
+            // Carpeta del borrador: "6. ANEXOS CAE" del expediente si es ficha; si no, la del lote.
+            const expFolder = existing?.exp_folder_id || (d.expediente_id ? expFolderMap[d.expediente_id] : null) || null;
+            let draftFolder = folderId;
+            if (expFolder) {
+                draftFolder = await driveService.getOrCreateSubfolder(expFolder, '6. ANEXOS CAE') || folderId;
+            }
+
+            // Guardar como nueva revisión: archiva a OLD la versión anterior (borrador +
+            // firmado, si existían) y nombra el nuevo con sufijo _rev{N}. Ver saveDocRevision().
+            const pdf = d.pdfBase64 ? Buffer.from(d.pdfBase64, 'base64') : await htmlToPdf(d.html);
+            const { rev, fileName, saved } = await saveDocRevision({ existing, baseFileName: d.fileName, key, expFolder, draftFolder, folderId, pdf });
+            attachments.push({ filename: fileName, content: pdf });
+
+            const entry = {
+                ...(existing || {}),
+                key,
+                tipo: d.tipo || existing?.tipo || (d.expediente_id ? 'ficha_res' : 'anexo_i_listado'),
+                expediente_id: d.expediente_id || null,
+                exp_folder_id: expFolder,
+                label: d.label || existing?.label || fileName.replace(/\.pdf$/i, ''),
+                file_name: fileName,
+                rev,
+                anchor: d.anchor || existing?.anchor || null,
+                fixedBox: d.fixedBox || existing?.fixedBox || null,
+                draft_link: saved?.link || null, draft_file_id: saved?.id || null,
+                // Reseteo de la firma: el S.O. debe volver a firmar este documento.
+                signed_link: null, signed_file_id: null, signed_at: null,
+                sent_at: sentAt,
+                requerimiento_at: sentAt,
+            };
+            if (idx >= 0) documentosSo[idx] = entry; else documentosSo.push(entry);
+            reenviados.push(entry.label);
+        }
+
+        if (!attachments.length) return res.status(400).json({ error: 'No se regeneró ningún documento (falta HTML).' });
+
+        // Enlace de firma (el mismo de siempre): al resetear signed_link, los docs
+        // reenviados vuelven a aparecer como pendientes en la firma en cadena.
+        const origin = (frontendOrigin || process.env.FRONTEND_URL || 'https://app.brokergy.es').replace(/\/$/, '');
+        const firmaUrl = `${origin}/firmar-lote/${lote.id}`;
+        const msgConEnlace = `${customMessage || ''}\n\n${firmaUrl}`.trim();
+
+        const warnings = [];
+        const summ = {
+            id: (summaryData && summaryData.id) || lote.codigo || 'LOTE',
+            docType: (summaryData && summaryData.docType) || 'Requerimiento · documentos para nueva firma',
+        };
+
+        if (channels.email && to) {
+            try {
+                const emailService = require('../services/emailService');
+                await emailService.sendAnnexEmail({ to, cc, userName: summ.id, attachments, customMessage: msgConEnlace, summaryData: summ, from: SO_EMAIL_FROM });
+            } catch (e) { warnings.push(`Email: ${e.message}`); }
+        }
+        if (channels.whatsapp && phone) {
+            try {
+                const whatsappService = require('../services/whatsappService');
+                await whatsappService.sendText(phone, msgConEnlace);
+                for (const a of attachments) {
+                    await whatsappService.sendMedia(
+                        phone,
+                        { base64: a.content.toString('base64'), filename: a.filename, mimetype: 'application/pdf' },
+                        { caption: a.filename.replace(/\.pdf$/i, ''), splitCaption: false }
+                    );
+                }
+            } catch (e) { warnings.push(`WhatsApp: ${e.message}`); }
+        }
+        const avisoPhone = (avisoWhatsApp?.phone || '').trim();
+        const avisoMsg = (avisoWhatsApp?.message || '').trim();
+        const yaEnviadoPorWa = channels.whatsapp && phone && String(phone).trim() === avisoPhone;
+        if (avisoPhone && avisoMsg && !yaEnviadoPorWa) {
+            try {
+                const whatsappService = require('../services/whatsappService');
+                await whatsappService.sendText(avisoPhone, avisoMsg);
+            } catch (e) { warnings.push(`Aviso WhatsApp: ${e.message}`); }
+        }
+
+        // Persistir: releemos documentos_so justo antes de escribir para no pisar
+        // firmas que hayan podido entrar mientras generábamos los PDFs.
+        const { data: fresh } = await supabase.from('lotes').select('documentos_so, historial').eq('id', lote.id).maybeSingle();
+        const freshDocs = Array.isArray(fresh?.documentos_so) ? [...fresh.documentos_so] : [];
+        // Aplicamos nuestras entradas reenviadas sobre la copia fresca (por key).
+        for (const d of docs) {
+            const key = keyOf(d);
+            const mine = documentosSo.find(x => x.key === key);
+            if (!mine) continue;
+            const fi = freshDocs.findIndex(x => x.key === key);
+            if (fi >= 0) freshDocs[fi] = mine; else freshDocs.push(mine);
+        }
+        const historial = Array.isArray(fresh?.historial) ? [...fresh.historial] : [];
+        const canales = [channels.email && to ? 'email' : null, channels.whatsapp && phone ? 'whatsapp' : null].filter(Boolean).join('+');
+        historial.push({
+            id: `${Date.now()}_requerimiento`, tipo: 'sistema',
+            texto: `Requerimiento: reenviados ${reenviados.length} documento(s) para nueva firma${canales ? ` (${canales})` : ''} — ${reenviados.join(', ')}.`,
+            fecha: sentAt, usuario: usuarioDe(req),
+        });
+        await supabase.from('lotes').update({
+            documentos_so: freshDocs, historial, drive_folder_id: folderId, updated_at: sentAt,
+        }).eq('id', lote.id);
+
+        const { data: updated } = await supabase.from('lotes').select('*').eq('id', lote.id).maybeSingle();
+        const [enriched] = await enrichLotes([updated]);
+        res.json({ ok: true, firma_url: firmaUrl, reenviados, warnings, lote: scrubLoteForUser(enriched, req) });
+    } catch (err) {
+        console.error('[POST /lotes/:id/requerimiento]', err.message);
+        res.status(500).json({ error: err.message || 'Error al reenviar el requerimiento' });
     }
 });
 

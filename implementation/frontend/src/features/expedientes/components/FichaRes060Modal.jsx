@@ -173,7 +173,14 @@ export function FichaRes060Modal({ isOpen, onClose, expediente, results, onSaveD
     const sRaw = parseFloat(ceeFinal.superficieHabitable) || 0;
     const sStr = sRaw.toFixed(2).replace('.', ',');
 
-    const dacsStr = '2.731,40';
+    // Demanda de ACS — DEBE coincidir con la del Certificado CIFO (CertificadoCifoModal.jsx).
+    // Misma lógica: por defecto modo 'xml' (demandaACS · superficie); en modo CTE, fórmula por personas.
+    const acsMode = cee.acs_method || 'xml';
+    const numPeopleAcs = (parseInt(cee.num_rooms) || 4) + 1;
+    const dacsValue = acsMode === 'xml'
+        ? (parseFloat(ceeFinal.demandaACS) || 0) * sRaw
+        : 28 * numPeopleAcs * 0.001162 * 365 * 46;
+    const dacsStr = dacsValue.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
     const boilerEffId = inst.caldera_antigua_cal?.rendimiento_id || 'default';
     const boilerEffEntry = BOILER_EFFICIENCIES.find(b => b.id === boilerEffId);
@@ -183,8 +190,11 @@ export function FichaRes060Modal({ isOpen, onClose, expediente, results, onSaveD
     const scopCal = parseFloat(inst.aerotermia_cal?.scop) || 0;
     const scopCalStr = scopCal ? scopCal.toFixed(2).replace('.', ',') : '—';
 
-    const tieneAcs = (inst.cambio_acs !== false) && (!!inst.aerotermia_acs?.aerotermia_db_id || !!inst.misma_aerotermia_acs);
-    const scopAcsRaw = tieneAcs ? parseFloat(inst.aerotermia_acs?.scop || inst.aerotermia_cal?.scop || 0) : null;
+    // SCOP_dhw — DEBE coincidir con el Certificado CIFO (CertificadoCifoModal.jsx):
+    // tieneAcs = solo el toggle cambio_acs; el SCOP se toma de la aerotermia de
+    // calefacción si es la misma, o de la de ACS en caso contrario.
+    const tieneAcs = inst.cambio_acs !== false;
+    const scopAcsRaw = tieneAcs ? parseFloat(inst.misma_aerotermia_acs ? inst.aerotermia_cal?.scop : inst.aerotermia_acs?.scop || 0) : 0;
     const scopAcsStr = tieneAcs ? (scopAcsRaw ? scopAcsRaw.toFixed(2).replace('.', ',') : '—') : 'no aplica';
 
     // El ahorro ya está calculado arriba como aeKwh
@@ -197,8 +207,9 @@ export function FichaRes060Modal({ isOpen, onClose, expediente, results, onSaveD
     // Recalculado en vivo (igual que DocumentacionModule): el campo persistido
     // documentacion.fecha_inicio_cifo/fecha_fin_cifo puede quedar desfasado.
     const cifoDates060Modal = calcCifo(doc);
-    const fechaInicio = formatFecha(cifoDates060Modal.inicio || doc.fecha_inicio_cifo);
-    const fechaFin    = formatFecha(cifoDates060Modal.fin    || doc.fecha_fin_cifo);
+    // Mismos fallbacks que el CIFO (CertificadoCifoModal.jsx) para que la fecha coincida.
+    const fechaInicio = formatFecha(cifoDates060Modal.inicio || doc.fecha_inicio_cifo || doc.fecha_visita_cee_inicial);
+    const fechaFin    = formatFecha(cifoDates060Modal.fin    || doc.fecha_fin_cifo    || doc.fecha_firma_cee_final);
 
     const REPRESENTANTE_NOMBRE = 'Pedro José López Montero';
     const REPRESENTANTE_NIF    = '06239730-Z';
