@@ -204,13 +204,16 @@ export function EnviarLoteDocModal({ onClose, title, subtitle, defaultEmail = ''
                             className="w-full lowercase bg-bkg-elevated border border-white/5 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-brand/40 transition-all" />
                         {(() => {
                             const yaEnCc = parseCcList(cc).map(x => x.toLowerCase());
-                            const sugerencias = (Array.isArray(ccSuggestions) ? ccSuggestions : [])
-                                .filter(s => s && !yaEnCc.includes(String(s).toLowerCase()));
+                            // Sugerencias normalizadas a minúscula (un email siempre en minúscula).
+                            const sugerencias = [...new Set(
+                                (Array.isArray(ccSuggestions) ? ccSuggestions : [])
+                                    .filter(Boolean).map(s => String(s).toLowerCase())
+                            )].filter(s => !yaEnCc.includes(s));
                             return sugerencias.length > 0 ? (
                                 <div className="flex flex-wrap gap-1.5 mt-2">
                                     {sugerencias.map(s => (
                                         <button key={s} type="button"
-                                            onClick={() => setCc(prev => [...parseCcList(prev), s].join(', '))}
+                                            onClick={() => setCc(prev => [...parseCcList(prev), s].join(', ').toLowerCase())}
                                             className="text-[10px] px-2 py-1 rounded-lg bg-white/[0.04] border border-white/10 text-white/60 hover:text-white hover:border-brand/40 transition-all">
                                             + {s}
                                         </button>
