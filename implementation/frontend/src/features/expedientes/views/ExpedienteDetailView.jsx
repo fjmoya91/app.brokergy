@@ -376,9 +376,12 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
         let res060fcCtx = null;
 
         if (ficha === 'RES060' || ficha === 'RES093') {
-            // Priorizar CEE inicial (la demanda debe ser la misma en inicial y final para RES060/RES093).
-            // Si solo hay inicial, ya podemos calcular el ahorro estimado.
-            const ceeBase = cee.cee_inicial || cee.cee_final || {};
+            // Elegir el CEE que corresponde: si el CEE FINAL ya está cargado, su demanda
+            // y superficie son las definitivas y mandan sobre el inicial (los documentos
+            // —CIFO, fichas RES— ya usan el final, así que el panel debe reflejar el mismo).
+            // Mientras no haya final, el inicial da el ahorro estimado.
+            const ceeFinalValido = cee.cee_final && parseFloat(cee.cee_final.demandaCalefaccion) > 0;
+            const ceeBase = ceeFinalValido ? cee.cee_final : (cee.cee_inicial || cee.cee_final || {});
             const superficie = parseFloat(ceeBase.superficieHabitable) || parseFloat(op.datos_calculo?.surface) || 0;
             const q_net_heating = (parseFloat(ceeBase.demandaCalefaccion) || 0) * superficie || parseFloat(op.datos_calculo?.Q_net) || 0;
 

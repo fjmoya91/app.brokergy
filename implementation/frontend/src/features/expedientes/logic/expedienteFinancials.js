@@ -39,8 +39,10 @@ export function computeExpedienteFinancials(exp) {
     let profitVerificado = null;
 
     if (ficha === 'RES060' || ficha === 'RES093') {
-        // Priorizar CEE inicial (la demanda debe ser la misma en inicial y final para RES060/RES093)
-        const ceeBase = cee.cee_inicial || cee.cee_final || {};
+        // Si el CEE FINAL ya está cargado, su demanda/superficie mandan (definitivas);
+        // mientras no exista, se usa el inicial para el ahorro estimado.
+        const ceeFinalValido = cee.cee_final && parseFloat(cee.cee_final.demandaCalefaccion) > 0;
+        const ceeBase = ceeFinalValido ? cee.cee_final : (cee.cee_inicial || cee.cee_final || {});
         // Determinar si tenemos datos REALES del expediente (no solo de la oportunidad)
         const hasExpData = !!ceeBase.superficieHabitable || !!ceeBase.demandaCalefaccion;
 
