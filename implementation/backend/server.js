@@ -72,6 +72,10 @@ app.use('/api/public/portal', require('./routes/portal'));
 // en un repo aparte (C:/Proyectos/marketplace); aquí solo servimos su API pública.
 app.use('/api/public/marketplace', require('./routes/publicMarketplace'));
 app.use('/api/public', require('./routes/public'));
+// Servlets de almacenamiento intermedio de Autofirma (@firma) para firmar/recuperar
+// ficheros GRANDES (montado a nivel raíz porque autoscript.js los busca en
+// `${origin}/afirma-signature-storage/...` y `/afirma-signature-retriever/...`).
+app.use('/', require('./routes/afirmaStorage'));
 app.use('/api/landing', require('./routes/landing'));
 app.use('/api/settings', require('./routes/settings'));
 app.use('/api/cee-ocr', require('./routes/ceeOcr'));

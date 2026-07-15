@@ -10,7 +10,10 @@ export default defineConfig({
       '/api': {
         target: 'http://localhost:3000',
         changeOrigin: true,
-      }
+      },
+      // Servlets de Autofirma (@firma) para ficheros grandes → backend.
+      '/afirma-signature-storage': { target: 'http://localhost:3000', changeOrigin: true },
+      '/afirma-signature-retriever': { target: 'http://localhost:3000', changeOrigin: true },
     }
   }
 })

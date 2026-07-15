@@ -21,6 +21,8 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 // ─────────────────────────────────────────────────────────────────────────────
 
 const AUTOSCRIPT_SRC = '/autofirma/autoscript.js';
+// Trazo de firma para la animación "Firmando…" (el ✍️ recorre esta misma ruta).
+const SIG_PATH = 'M18,58 C34,22 48,74 64,48 C78,26 92,72 108,48 C122,28 138,70 156,44 C168,30 180,52 186,42';
 const DEFAULT_RUBRIC_IMAGE_URL = '/logo-brokergy-circular-transparent.png';
 const INSTALL_URL = 'https://firmaelectronica.gob.es/Home/Descargas.html';
 
@@ -148,6 +150,7 @@ export default function FirmarConCertificadoModal({
     const [signReady, setSignReady] = useState(false); // hay coordenadas de firma listas (caja fija o arrastrada)
     const [loading, setLoading] = useState(true);
     const [signing, setSigning] = useState(false);
+    const [signedOk, setSignedOk] = useState(false);   // firma completada: overlay "✓ Firmado"
     const [error, setError] = useState(null);
     const [needsInstall, setNeedsInstall] = useState(false);
 
@@ -352,6 +355,16 @@ export default function FirmarConCertificadoModal({
         try {
             const AutoScript = await loadAutoScript();
             AutoScript.cargarAppAfirma();
+            // Configura el servidor intermedio (mismo origen) para ficheros GRANDES.
+            // Sin esto, un resultado grande (p. ej. Anexo Fotográfico) no cabe por el
+            // WebSocket y no vuelve al navegador ("se firma pero vuelve atrás").
+            try {
+                const origin = window.location.origin;
+                AutoScript.setServlets(
+                    origin + '/afirma-signature-storage/StorageService',
+                    origin + '/afirma-signature-retriever/RetrieveService'
+                );
+            } catch (e) { console.debug('setServlets no disponible, modo WS:', e); }
             const extraParams = buildExtraParams(coords);
             AutoScript.sign(
                 pdfBase64,
@@ -360,7 +373,9 @@ export default function FirmarConCertificadoModal({
                 extraParams,
                 (signedB64 /*, certB64 */) => {
                     setSigning(false);
-                    onSigned?.(signedB64);
+                    setSignedOk(true);
+                    // Breve "✓ Firmado" antes de continuar (subir/avanzar).
+                    setTimeout(() => onSigned?.(signedB64), 1100);
                 },
                 (errType, errMsg) => {
                     setSigning(false);
@@ -385,8 +400,44 @@ export default function FirmarConCertificadoModal({
 
     return (
         <div style={ovl} onMouseDown={(e) => { if (e.target === e.currentTarget && !signing) handleClose(); }}>
-            <style>{`@keyframes bkgFirmaPulse{0%,100%{box-shadow:0 0 0 0 rgba(245,158,11,.55),0 0 14px 2px rgba(245,158,11,.5);background:rgba(245,158,11,.22)}50%{box-shadow:0 0 0 6px rgba(245,158,11,0),0 0 26px 8px rgba(245,158,11,.85);background:rgba(245,158,11,.32)}}`}</style>
-            <div style={box}>
+            <style>{`@keyframes bkgFirmaPulse{0%,100%{box-shadow:0 0 0 0 rgba(245,158,11,.55),0 0 14px 2px rgba(245,158,11,.5);background:rgba(245,158,11,.22)}50%{box-shadow:0 0 0 6px rgba(245,158,11,0),0 0 26px 8px rgba(245,158,11,.85);background:rgba(245,158,11,.32)}}@keyframes bkgSpin{to{transform:rotate(360deg)}}@keyframes bkgPop{0%{transform:scale(.4);opacity:0}60%{transform:scale(1.12)}100%{transform:scale(1);opacity:1}}@keyframes bkgRing{0%{transform:scale(.8);opacity:.7}100%{transform:scale(1.9);opacity:0}}
+.bkg-sig{stroke-dasharray:560;stroke-dashoffset:560;animation:bkgSigDraw 2.3s ease-in-out infinite}
+@keyframes bkgSigDraw{0%{stroke-dashoffset:560}52%{stroke-dashoffset:0}74%{stroke-dashoffset:0;opacity:1}84%{opacity:0}85%{stroke-dashoffset:560;opacity:0}100%{stroke-dashoffset:560;opacity:1}}
+.bkg-pen{position:absolute;left:0;top:0;font-size:22px;line-height:1;offset-path:path('${SIG_PATH}');offset-rotate:8deg;animation:bkgSigPen 2.3s ease-in-out infinite}
+@keyframes bkgSigPen{0%{offset-distance:0%}52%{offset-distance:100%}74%{offset-distance:100%}84%{opacity:0}85%{offset-distance:0%;opacity:0}100%{offset-distance:0%;opacity:1}}`}</style>
+            <div style={{ ...box, position: 'relative' }}>
+                {(signing || signedOk) && (
+                    <div style={{ position: 'absolute', inset: 0, zIndex: 20, background: 'rgba(15,23,42,.92)', backdropFilter: 'blur(3px)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 18, borderRadius: 14, textAlign: 'center', padding: 24 }}>
+                        {signedOk ? (
+                            <>
+                                <div style={{ position: 'relative', width: 76, height: 76, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                    <div style={{ position: 'absolute', inset: 0, borderRadius: '50%', border: '2px solid rgba(52,211,153,.6)', animation: 'bkgRing 1s ease-out infinite' }} />
+                                    <div style={{ width: 76, height: 76, borderRadius: '50%', background: 'rgba(16,185,129,.15)', border: '2px solid #34d399', display: 'flex', alignItems: 'center', justifyContent: 'center', animation: 'bkgPop .4s ease-out' }}>
+                                        <svg width="38" height="38" viewBox="0 0 24 24" fill="none" stroke="#34d399" strokeWidth="3"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+                                    </div>
+                                </div>
+                                <div>
+                                    <div style={{ fontSize: 18, fontWeight: 900, color: '#34d399', letterSpacing: '.3px' }}>¡Documento firmado!</div>
+                                    <div style={{ fontSize: 13, color: C.textSoft, marginTop: 4 }}>Guardando y enviando…</div>
+                                </div>
+                            </>
+                        ) : (
+                            <>
+                                <div style={{ position: 'relative', width: 200, height: 90 }}>
+                                    <svg width="200" height="90" viewBox="0 0 200 90" style={{ display: 'block' }}>
+                                        <path d="M14,76 H186" stroke="rgba(255,255,255,.14)" strokeWidth="2" strokeLinecap="round" />
+                                        <path className="bkg-sig" d={SIG_PATH} fill="none" stroke={C.brand} strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" />
+                                    </svg>
+                                    <div className="bkg-pen">✍️</div>
+                                </div>
+                                <div>
+                                    <div style={{ fontSize: 18, fontWeight: 900, color: C.brand, letterSpacing: '.3px' }}>Firmando documento…</div>
+                                    <div style={{ fontSize: 13, color: C.textSoft, marginTop: 6, maxWidth: 320, lineHeight: 1.5 }}>Confirma la firma en <b>Autofirma</b> y elige tu certificado. Esto puede tardar unos segundos — <b>no cierres esta ventana</b>.</div>
+                                </div>
+                            </>
+                        )}
+                    </div>
+                )}
                 <div style={head}>
                     <span style={{ fontWeight: 800, letterSpacing: '.5px' }}>{title}</span>
                     <button onClick={handleClose} style={xBtn} aria-label="Cerrar">✕</button>
