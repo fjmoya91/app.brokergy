@@ -361,8 +361,8 @@ export default function FirmarConCertificadoModal({
             try {
                 const origin = window.location.origin;
                 AutoScript.setServlets(
-                    origin + '/afirma-signature-storage/StorageService',
-                    origin + '/afirma-signature-retriever/RetrieveService'
+                    origin + '/api/afirma-signature-storage/StorageService',
+                    origin + '/api/afirma-signature-retriever/RetrieveService'
                 );
             } catch (e) { console.debug('setServlets no disponible, modo WS:', e); }
             const extraParams = buildExtraParams(coords);

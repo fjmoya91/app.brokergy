@@ -7,13 +7,11 @@ export default defineConfig({
   envPrefix: ['VITE_', 'NEXT_PUBLIC_'],
   server: {
     proxy: {
+      // Cubre también los servlets de Autofirma en /api/afirma-signature-*.
       '/api': {
         target: 'http://localhost:3000',
         changeOrigin: true,
       },
-      // Servlets de Autofirma (@firma) para ficheros grandes → backend.
-      '/afirma-signature-storage': { target: 'http://localhost:3000', changeOrigin: true },
-      '/afirma-signature-retriever': { target: 'http://localhost:3000', changeOrigin: true },
     }
   }
 })
