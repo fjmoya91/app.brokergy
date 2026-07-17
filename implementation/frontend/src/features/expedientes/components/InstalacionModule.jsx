@@ -212,10 +212,23 @@ function CalderaSection({ title, data, onChange, readOnly }) {
 function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tipoEmisor, isAcs = false, readOnly = false }) {
     const brandOptions = marcas.map(m => ({ value: m.nombre, label: m.nombre, logo: m.logo, acronimo: m.nombre }));
     const availableModels = data?.marca ? (modelosPorMarca[data.marca.toUpperCase()] || []) : [];
-    const modelOptions = availableModels.map(m => ({
-        value: String(m.id),
-        label: `${m.modelo_comercial || m.modelo_conjunto || ''} ${m.potencia_calefaccion ? `(${m.potencia_calefaccion}kW)` : ''}`
-    }));
+    // La etiqueta principal es el nombre comercial + potencia, pero muchos modelos
+    // comparten nombre y potencia (p. ej. dos "All in One 16 kW" con unidad exterior
+    // distinta: WH-UD16HE5 vs WH-UD16HE8). Se muestra la referencia de la ud. exterior
+    // (y la interior) como sublínea para poder distinguirlos y filtrar por ella.
+    const modelOptions = availableModels.map(m => {
+        // Línea 1: nombre comercial + potencia. Línea 2 (co-protagonista, resaltada):
+        // la unidad exterior, que es la referencia de la placa. El par comercial +
+        // ud. exterior es lo que evita equivocarse al elegir entre modelos gemelos.
+        const ext = m.modelo_ud_exterior ? `Ud. ext: ${m.modelo_ud_exterior}` : '';
+        const int = m.modelo_ud_interior ? `int: ${m.modelo_ud_interior}` : '';
+        const sub = [ext, int].filter(Boolean).join('  ·  ');
+        return {
+            value: String(m.id),
+            label: `${m.modelo_comercial || m.modelo_conjunto || ''}${m.potencia_calefaccion ? ` · ${m.potencia_calefaccion} kW` : ''}`,
+            sublabel: sub || (m.modelo_conjunto ? `Conjunto: ${m.modelo_conjunto}` : ''),
+        };
+    });
 
     // El input de litros de acumulación ACS solo aplica si el modelo de ACS
     // seleccionado lleva depósito incluido (deposito_acs_incluido = true).
@@ -223,7 +236,7 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
     const showLitros = isAcs && !!selectedModel?.deposito_acs_incluido;
 
     const handleMarcaChange = (brand) => {
-        onChange({ ...data, marca: brand, aerotermia_db_id: null, modelo: '', scop: null, metodo_scop: 'ficha' });
+        onChange({ ...data, marca: brand, aerotermia_db_id: null, modelo: '', modelo_ud_exterior: '', modelo_ud_interior: '', modelo_conjunto: '', scop: null, metodo_scop: 'ficha' });
     };
 
     const handleModeloChange = (idStr) => {
@@ -244,6 +257,12 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
                 ...data,
                 aerotermia_db_id: found.id,
                 modelo: found.modelo_comercial || found.modelo_conjunto || found.modelo_exterior || '',
+                // Snapshot de las referencias del catálogo en el expediente: el CIFO y
+                // demás documentos leen de aquí, no del catálogo. La ud. exterior es la
+                // que figura en la placa de las fotos → debe viajar con el expediente.
+                modelo_ud_exterior: found.modelo_ud_exterior || '',
+                modelo_ud_interior: found.modelo_ud_interior || '',
+                modelo_conjunto: found.modelo_conjunto || '',
                 scop,
                 potencia: found.potencia_calefaccion || found.potencia_nominal_35 || 0,
                 metodo_scop: method,
@@ -255,7 +274,7 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
                 ...(isAcs ? { litros: found.deposito_acs_incluido ? (found.litros_acs ?? '') : null } : {})
             });
         } else {
-            onChange({ ...data, aerotermia_db_id: null, modelo: '', scop: null });
+            onChange({ ...data, aerotermia_db_id: null, modelo: '', modelo_ud_exterior: '', modelo_ud_interior: '', modelo_conjunto: '', scop: null });
         }
     };
 
@@ -333,10 +352,54 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
                     onChange={handleModeloChange}
                     disabled={readOnly || !data?.marca}
                     showAvatar={false}
-                    searchPlaceholder="Buscar modelo..."
+                    searchPlaceholder="Buscar por nombre o referencia (p. ej. UD16HE5)..."
                     placeholder={data?.marca ? '— Selecciona —' : '— Elige marca primero —'}
                 />
             </div>
+
+            {/* Confirmación del equipo elegido: la ud. exterior es la referencia de la
+                placa que debe coincidir con las fotos y viaja al CIFO. Editable como
+                override por si el catálogo no la trae o es incorrecta. */}
+            {data?.aerotermia_db_id && (
+                <div className="bg-brand/[0.06] border border-brand/20 rounded-xl p-3 space-y-2">
+                    <div className="flex items-center gap-1.5">
+                        <svg className="w-3.5 h-3.5 text-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>
+                        <span className="text-[10px] font-black text-brand uppercase tracking-widest">Equipo seleccionado</span>
+                    </div>
+                    <div>
+                        <label className="block text-[10px] text-white/40 uppercase tracking-wider mb-1 font-bold">
+                            Modelo unidad exterior <span className="text-white/25 normal-case tracking-normal">· debe coincidir con la foto de la placa</span>
+                        </label>
+                        <input
+                            type="text"
+                            value={data?.modelo_ud_exterior ?? ''}
+                            onChange={e => onChange({ ...data, modelo_ud_exterior: e.target.value.toUpperCase() })}
+                            readOnly={readOnly}
+                            placeholder="Ej: WH-UD16HE5"
+                            className={`w-full bg-bkg-elevated border rounded-lg px-3 py-2 text-white text-sm font-mono tracking-wide focus:outline-none ${
+                                readOnly ? 'border-white/5 text-white/60 cursor-not-allowed' : 'border-brand/30 focus:border-brand/60'
+                            }`}
+                        />
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
+                        {data?.modelo_ud_interior && (
+                            <div className="flex items-center gap-1.5 min-w-0">
+                                <span className="text-white/30 uppercase tracking-wider font-bold text-[9px] flex-shrink-0">Ud. interior:</span>
+                                <span className="text-white/70 font-mono truncate">{data.modelo_ud_interior}</span>
+                            </div>
+                        )}
+                        {data?.modelo_conjunto && (
+                            <div className="flex items-center gap-1.5 min-w-0 sm:col-span-2">
+                                <span className="text-white/30 uppercase tracking-wider font-bold text-[9px] flex-shrink-0">Conjunto:</span>
+                                <span className="text-white/50 truncate">{data.modelo_conjunto}</span>
+                            </div>
+                        )}
+                    </div>
+                    {!data?.modelo_ud_exterior && (
+                        <p className="text-[10px] text-amber-400/90 font-semibold">⚠ Este modelo no tiene referencia de unidad exterior en el catálogo. Escríbela a mano para que aparezca en el CIFO.</p>
+                    )}
+                </div>
+            )}
 
             <div className="space-y-1">
                 <label className="flex items-center gap-1.5 text-xs text-brand/40 uppercase tracking-wider font-bold">
@@ -489,7 +552,7 @@ function SearchableSelect({ value, onChange, options, label, placeholder = '— 
 
     const selected = options.find(o => String(o.value) === String(value));
     const filtered = query
-        ? options.filter(o => o.label.toLowerCase().includes(query.toLowerCase()))
+        ? options.filter(o => `${o.label} ${o.sublabel || ''}`.toLowerCase().includes(query.toLowerCase()))
         : options;
 
     React.useEffect(() => {
@@ -540,7 +603,10 @@ function SearchableSelect({ value, onChange, options, label, placeholder = '— 
                                 }
                             </span>
                         )}
-                        <span className="truncate">{selected.label}</span>
+                        <span className="flex flex-col min-w-0">
+                            <span className="truncate">{selected.label}</span>
+                            {selected.sublabel && <span className="text-[11px] text-brand/80 font-mono font-semibold truncate leading-tight">{selected.sublabel}</span>}
+                        </span>
                     </span>
                 ) : (
                     <span className="text-white/30">{placeholder}</span>
@@ -592,8 +658,11 @@ function SearchableSelect({ value, onChange, options, label, placeholder = '— 
                                             }
                                         </div>
                                     )}
-                                    <span className={`text-sm truncate ${isActive ? 'text-brand font-semibold' : 'text-white/70'}`}>
-                                        {o.label}
+                                    <span className="flex flex-col min-w-0">
+                                        <span className={`text-sm truncate ${isActive ? 'text-brand font-semibold' : 'text-white/70'}`}>
+                                            {o.label}
+                                        </span>
+                                        {o.sublabel && <span className="text-[11px] text-brand/70 font-mono font-semibold truncate leading-tight">{o.sublabel}</span>}
                                     </span>
                                 </li>
                             );

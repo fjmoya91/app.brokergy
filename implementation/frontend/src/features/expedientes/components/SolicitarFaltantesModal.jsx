@@ -4,14 +4,16 @@ import { SendActionOverlay } from '../../../components/SendActionOverlay';
 import { WhatsappConnectModal } from '../../whatsapp/components/WhatsappConnectModal';
 
 // ─── SolicitarFaltantesModal ─────────────────────────────────────────────────
-// Genera un mensaje (editable, para revisar) por destinatario —Cliente / Instalador—
-// con SOLO lo que falta de cada uno, mapeado a su flujo público correcto:
+// Checklist INTERACTIVO de todo lo pendiente del expediente (obligatorio incluido
+// por defecto, opcional visible y marcable) + mensaje editable por destinatario
+// —Cliente / Instalador—, mapeado a su flujo público correcto:
 //   · IBAN + justificante + firma de anexos → /firmar-anexos/:id
 //   · Certificado RITE → /subir-rite/:id     · CIFO firmado → /subir-cifo/:id
-//   · Factura y fotos de obra → /subir-docs?rol=instalador&need=…
-//   · Fotos del estado previo → /subir-docs?rol=cliente&need=…
-// Cada enlace de subida lleva ?need= para que el destinatario vea únicamente los
-// slots pendientes. El envío (WhatsApp/Email) queda registrado en el historial.
+//   · Factura y fotos → /subir-docs?rol=…&need=… (solo los slots reclamados)
+// Por ítem se puede: incluir/excluir del mensaje, cambiar de destinatario (fotos/
+// factura) y marcar "No necesario" (persiste docs_overrides[slot].waived en BD,
+// igual que desde el slot de fotos). El mensaje se regenera al tocar el checklist.
+// El envío (WhatsApp/Email) queda registrado en el historial.
 
 const RECIPIENTS = [
     { id: 'CLIENTE', key: 'cliente', label: 'Cliente' },
@@ -43,11 +45,98 @@ function buildMessage({ nombre, numExp, acciones, obra, target }) {
     return `${saludo}${obraLine}\n\n${intro}\n\n${blocks}\n\nGracias.\nBROKERGY — Ingeniería Energética`;
 }
 
+// Compone las ACCIONES del mensaje a partir de los ítems marcados en el checklist
+// (espejo del buildSolicitudAcciones del backend, pero dirigido por lo que el
+// admin marca: incluir/excluir, destinatario por ítem y "no necesario").
+function buildAccionesFromItems(allItems, owner, info) {
+    const urls = info?.urls || {};
+    const uploadBase = info?.uploadBase || null;
+    const mine = (allItems || []).filter(it => it.incluido && !it.waived && it.owner === owner);
+    const acciones = [];
+
+    // Datos y firmas de anexos (siempre del CLIENTE). La secuencia "primero datos,
+    // luego firma" viene del backend vía defaultIncluido: si el admin marca ambos,
+    // se piden ambos (control explícito).
+    const datos = mine.filter(it => it.tipo === 'dato');
+    const firmas = mine.filter(it => it.tipo === 'firma' && it.flujo === 'firmar-anexos');
+    if (datos.length) {
+        acciones.push({
+            owner: 'CLIENTE',
+            titulo: 'Completa los datos que faltan',
+            tituloRelay: 'El cliente debe aportar los datos que faltan',
+            url: urls.firmarAnexos,
+            items: datos.map(i => i.label),
+            nota: 'Con estos datos preparamos tus anexos; después te llegará el enlace para firmarlos.',
+            notaRelay: 'Con estos datos se preparan los anexos; después le llegará al cliente el enlace para firmarlos.',
+        });
+    }
+    if (firmas.length) {
+        acciones.push({
+            owner: 'CLIENTE',
+            titulo: 'Firma los anexos',
+            tituloRelay: 'El cliente debe firmar los anexos',
+            url: urls.firmarAnexos,
+            items: firmas.map(i => i.label),
+            nota: null, notaRelay: null,
+        });
+    }
+
+    const rite = mine.find(it => it.flujo === 'subir-rite');
+    if (rite) acciones.push({ owner, titulo: 'Sube el Certificado RITE', url: urls.subirRite, items: [rite.label], nota: null });
+
+    // Subidas a /subir-docs (fotos + factura), agrupadas por fase de la obra.
+    const subir = mine.filter(it => it.flujo === 'subir-docs');
+    const antes = subir.filter(it => it.fase !== 'DESPUES');
+    const despues = subir.filter(it => it.fase === 'DESPUES');
+    const rol = owner === 'INSTALADOR' ? 'instalador' : 'cliente';
+    if (antes.length && uploadBase) {
+        acciones.push({
+            owner,
+            titulo: 'Sube las fotos del estado ANTES de la obra',
+            tituloRelay: 'Fotos del estado ANTES de la obra',
+            url: `${uploadBase}&rol=${rol}&need=${antes.map(i => i.slot || i.key).join(',')}`,
+            items: antes.map(i => i.label),
+            nota: null, notaRelay: null,
+        });
+    }
+    if (despues.length && uploadBase) {
+        const conFactura = despues.some(i => i.key === 'factura');
+        const titulo = conFactura ? 'Sube la factura y las fotos de la instalación terminada' : 'Sube las fotos de la instalación terminada';
+        acciones.push({
+            owner,
+            titulo,
+            tituloRelay: conFactura ? 'Factura y fotos de la instalación terminada' : 'Fotos de la instalación terminada',
+            url: `${uploadBase}&rol=${rol}&need=${despues.map(i => i.slot || i.key).join(',')}`,
+            items: despues.map(i => i.label),
+            nota: null, notaRelay: null,
+        });
+    }
+
+    const cifo = mine.find(it => it.flujo === 'subir-cifo');
+    if (cifo) acciones.push({ owner, titulo: 'Sube el Certificado CIFO firmado', url: urls.subirCifo, items: [cifo.label], nota: null });
+
+    return acciones;
+}
+
+// Orden estable del checklist: primero lo activo (datos → firmas → docs → fotos,
+// ANTES antes que DESPUÉS) y al final lo marcado "no necesario".
+const TIPO_ORDER = { dato: 0, firma: 1, doc: 2, foto: 3 };
+function sortItems(a, b) {
+    if (!!a.waived !== !!b.waived) return a.waived ? 1 : -1;
+    const t = (TIPO_ORDER[a.tipo] ?? 9) - (TIPO_ORDER[b.tipo] ?? 9);
+    if (t !== 0) return t;
+    const fa = a.fase === 'DESPUES' ? 1 : 0, fb = b.fase === 'DESPUES' ? 1 : 0;
+    return fa - fb;
+}
+
 export function SolicitarFaltantesModal({ isOpen, onClose, expedienteId, numeroExpediente }) {
     const [info, setInfo] = useState(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
     const [active, setActive] = useState('CLIENTE');
+    // Checklist interactivo: ítems pendientes con estado local
+    // { ...pendiente, incluido: bool, owner: 'CLIENTE'|'INSTALADOR' }.
+    const [items, setItems] = useState([]);
     const [messages, setMessages] = useState({ CLIENTE: '', INSTALADOR: '' });
     const [channels, setChannels] = useState({ CLIENTE: [], INSTALADOR: [] });
     // Destinatario editable (tlf/email): por defecto la persona de notificaciones,
@@ -68,11 +157,19 @@ export function SolicitarFaltantesModal({ isOpen, onClose, expedienteId, numeroE
         axios.get(`/api/expedientes/${expedienteId}/solicitud-info`)
             .then(({ data }) => {
                 setInfo(data);
+                // Checklist interactivo (backend nuevo). Si `pendientes` no viene
+                // (backend antiguo), se cae a las acciones precalculadas del server.
+                const pend = Array.isArray(data.pendientes) ? data.pendientes : null;
+                const its = pend ? pend.map(p => ({ ...p, incluido: !!p.defaultIncluido, owner: p.ownerDefault || 'CLIENTE' })).sort(sortItems) : [];
+                setItems(its);
+                const accFor = (rid) => pend
+                    ? buildAccionesFromItems(its, rid, data)
+                    : ((data[RECIPIENTS.find(r => r.id === rid).key] || {}).acciones || []);
                 const numExp = data.numero_expediente || numeroExpediente;
                 const msgs = {}, chs = {}, dst = {};
                 for (const r of RECIPIENTS) {
                     const c = data[r.key] || {};
-                    msgs[r.id] = buildMessage({ nombre: c.nombre, numExp, acciones: c.acciones, obra: data.obra, target: r.id });
+                    msgs[r.id] = buildMessage({ nombre: c.nombre, numExp, acciones: accFor(r.id), obra: data.obra, target: r.id });
                     chs[r.id] = [c.tlf && 'whatsapp', c.email && 'email'].filter(Boolean);
                     dst[r.id] = { nombre: c.nombre || '', tlf: c.tlf || '', email: c.email || '' };
                 }
@@ -86,8 +183,7 @@ export function SolicitarFaltantesModal({ isOpen, onClose, expedienteId, numeroE
                 const def = insContacts.find(c => (c.tlf && c.tlf === data.instalador?.tlf) || (c.email && c.email === data.instalador?.email)) || insContacts[0];
                 setSelectedInstIds(def ? [def.id] : []);
                 // Empezar en el destinatario que tenga pendientes.
-                const cliN = (data.cliente?.acciones || []).length;
-                setActive(cliN > 0 ? 'CLIENTE' : ((data.instalador?.acciones || []).length > 0 ? 'INSTALADOR' : 'CLIENTE'));
+                setActive(accFor('CLIENTE').length > 0 ? 'CLIENTE' : (accFor('INSTALADOR').length > 0 ? 'INSTALADOR' : 'CLIENTE'));
             })
             .catch(e => setError(e.response?.data?.error || 'No se pudo cargar la información de contacto.'))
             .finally(() => setLoading(false));
@@ -98,13 +194,44 @@ export function SolicitarFaltantesModal({ isOpen, onClose, expedienteId, numeroE
     const rk = RECIPIENTS.find(r => r.id === active)?.key;
     const c = info?.[rk] || {};
     const dst = dest[active] || { nombre: '', tlf: '', email: '' };
-    const cliAcciones = info?.cliente?.acciones || [];
-    const insAcciones = info?.instalador?.acciones || [];
+    // Con backend nuevo las acciones salen del checklist interactivo; si no hay
+    // `pendientes` (backend antiguo) se usan las precalculadas del server.
+    const legacy = !Array.isArray(info?.pendientes);
+    const cliAcciones = legacy ? (info?.cliente?.acciones || []) : buildAccionesFromItems(items, 'CLIENTE', info);
+    const insAcciones = legacy ? (info?.instalador?.acciones || []) : buildAccionesFromItems(items, 'INSTALADOR', info);
     // Acciones efectivas del destinatario activo (instalador puede englobar las del cliente).
-    const acciones = (active === 'INSTALADOR' && todoAlInstalador) ? [...cliAcciones, ...insAcciones] : (c.acciones || []);
+    const acciones = (active === 'INSTALADOR' && todoAlInstalador)
+        ? [...cliAcciones, ...insAcciones]
+        : (active === 'CLIENTE' ? cliAcciones : insAcciones);
+    const tabItems = items.filter(it => it.owner === active);
     const actChannels = channels[active] || [];
     const sinPendientes = !loading && acciones.length === 0;
     const puedeTodoInstalador = cliAcciones.length > 0;
+
+    // ── Handlers del checklist: cualquier cambio regenera ambos mensajes ──
+    const applyItems = (next) => {
+        setItems(next);
+        const numExp = info?.numero_expediente || numeroExpediente;
+        const cliAcc = buildAccionesFromItems(next, 'CLIENTE', info);
+        const insAcc = buildAccionesFromItems(next, 'INSTALADOR', info);
+        setMessages({
+            CLIENTE: buildMessage({ nombre: dest.CLIENTE?.nombre, numExp, acciones: cliAcc, obra: info?.obra, target: 'CLIENTE' }),
+            INSTALADOR: buildMessage({ nombre: dest.INSTALADOR?.nombre, numExp, acciones: todoAlInstalador ? [...cliAcc, ...insAcc] : insAcc, obra: info?.obra, target: 'INSTALADOR' }),
+        });
+    };
+    const toggleIncluido = (it) => { if (!it.waived) applyItems(items.map(x => x.key === it.key ? { ...x, incluido: !x.incluido } : x)); };
+    const switchOwner = (it) => applyItems(items.map(x => x.key === it.key ? { ...x, owner: x.owner === 'CLIENTE' ? 'INSTALADOR' : 'CLIENTE' } : x));
+    // "No necesario" PERSISTE en el expediente (docs_overrides[slot].waived), igual
+    // que el botón del slot de fotos: deja de contar como pendiente en toda la app.
+    const setWaive = async (it, waived) => {
+        if (!info?.oportunidad_id) return;
+        try {
+            await axios.post(`/api/oportunidades/${info.oportunidad_id}/docs/${it.slot || it.key}/waive`, { waived });
+            applyItems(items.map(x => x.key === it.key ? { ...x, waived, incluido: waived ? false : !!x.required } : x).sort(sortItems));
+        } catch (e) {
+            setResult(p => ({ ...p, [active]: { type: 'error', text: e.response?.data?.error || 'No se pudo guardar el cambio de "no necesario".' } }));
+        }
+    };
 
     // Destinatarios efectivos del tab activo. Para el INSTALADOR, si tiene contactos
     // configurados, se usan los marcados (varios); para el CLIENTE, el contacto único editable.
@@ -218,7 +345,9 @@ export function SolicitarFaltantesModal({ isOpen, onClose, expedienteId, numeroE
                 <div className="px-5 pt-4">
                     <div className="grid grid-cols-2 gap-2 p-1 bg-white/[0.03] rounded-xl border border-white/10">
                         {RECIPIENTS.map(r => {
-                            const n = (info?.[r.key]?.acciones || []).length;
+                            const n = !legacy
+                                ? items.filter(it => it.owner === r.id && it.incluido && !it.waived).length
+                                : (info?.[r.key]?.acciones || []).length;
                             return (
                                 <button key={r.id} onClick={() => setActive(r.id)}
                                     className={`py-2.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${active === r.id ? 'bg-brand text-black shadow-lg shadow-brand/20' : 'text-white/40 hover:text-white/70'}`}>
@@ -305,8 +434,56 @@ export function SolicitarFaltantesModal({ isOpen, onClose, expedienteId, numeroE
                                 </button>
                             )}
 
-                            {/* Resumen de acciones */}
-                            {sinPendientes ? (
+                            {/* Checklist interactivo de pendientes (o resumen fijo con backend antiguo) */}
+                            {!legacy ? (
+                                tabItems.length === 0 ? (
+                                    <div className="px-4 py-3 mb-4 rounded-xl border border-emerald-400/20 bg-emerald-500/[0.06] text-[12px] text-emerald-300">
+                                        ✓ No hay nada pendiente por parte {active === 'CLIENTE' ? 'del cliente' : 'del instalador'}.
+                                    </div>
+                                ) : (
+                                    <div className="mb-4">
+                                        <div className="flex items-center justify-between mb-1.5">
+                                            <p className="text-[9px] font-black text-white/30 uppercase tracking-widest">Qué se pide</p>
+                                            <p className="text-[9px] text-white/25">✓ incluir · ⇄ destinatario · 🚫 no necesario</p>
+                                        </div>
+                                        <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
+                                            {tabItems.map(it => {
+                                                const otherLabel = it.owner === 'CLIENTE' ? 'Instalador' : 'Cliente';
+                                                return (
+                                                    <div key={it.key} className={`flex items-center gap-2.5 px-2.5 py-2 rounded-lg border transition-all ${it.waived ? 'border-white/5 bg-white/[0.01] opacity-60' : it.incluido ? 'border-brand/25 bg-brand/[0.05]' : 'border-white/10 bg-white/[0.02]'}`}>
+                                                        <button type="button" onClick={() => toggleIncluido(it)} disabled={it.waived}
+                                                            className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 transition-all ${it.waived ? 'border-white/10 cursor-not-allowed' : it.incluido ? 'border-brand bg-brand' : 'border-white/25 hover:border-white/50'}`}>
+                                                            {it.incluido && !it.waived && <svg className="w-3 h-3 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
+                                                        </button>
+                                                        <div className="min-w-0 flex-1">
+                                                            <div className="flex items-center gap-1.5 flex-wrap">
+                                                                <span className={`text-[11px] font-bold ${it.waived ? 'text-white/35 line-through' : 'text-white/85'}`}>{it.label}</span>
+                                                                {it.fase && <span className={`text-[8px] font-black px-1 py-0.5 rounded uppercase tracking-wider shrink-0 ${it.fase === 'DESPUES' ? 'bg-sky-500/15 text-sky-300' : 'bg-amber-500/15 text-amber-300'}`}>{it.fase === 'DESPUES' ? 'Después' : 'Antes'}</span>}
+                                                                {!it.required && !it.waived && <span className="text-[8px] font-black px-1 py-0.5 rounded uppercase tracking-wider bg-white/5 text-white/35 shrink-0">Opcional</span>}
+                                                                {it.waived && <span className="text-[8px] font-black px-1 py-0.5 rounded uppercase tracking-wider bg-white/5 text-white/35 shrink-0">No necesario</span>}
+                                                            </div>
+                                                            {it.nota && !it.waived && <p className="text-[9px] text-amber-400/60 mt-0.5">{it.nota}</p>}
+                                                        </div>
+                                                        {it.flujo === 'subir-docs' && !it.waived && (
+                                                            <button type="button" onClick={() => switchOwner(it)} title={`Pedírselo al ${otherLabel.toLowerCase()}`}
+                                                                className="shrink-0 text-[8px] font-black uppercase tracking-wider px-1.5 py-1 rounded-lg border border-white/10 text-white/35 hover:text-white/70 hover:border-white/25 transition-all">
+                                                                ⇄ {otherLabel}
+                                                            </button>
+                                                        )}
+                                                        {it.tipo === 'foto' && (
+                                                            <button type="button" onClick={() => setWaive(it, !it.waived)}
+                                                                title={it.waived ? 'Volver a requerir esta documentación' : 'Marcar como no necesario (se guarda en el expediente)'}
+                                                                className={`shrink-0 text-[10px] px-1.5 py-1 rounded-lg border transition-all ${it.waived ? 'border-emerald-400/25 text-emerald-400/80 hover:bg-emerald-500/10' : 'border-white/10 text-white/30 hover:text-red-400/80 hover:border-red-400/25'}`}>
+                                                                {it.waived ? '↺' : '🚫'}
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                )
+                            ) : sinPendientes ? (
                                 <div className="px-4 py-3 mb-1 rounded-xl border border-emerald-400/20 bg-emerald-500/[0.06] text-[12px] text-emerald-300">
                                     ✓ No hay nada pendiente por parte {active === 'CLIENTE' ? 'del cliente' : 'del instalador'}.
                                 </div>

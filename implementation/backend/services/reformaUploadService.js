@@ -234,19 +234,20 @@ function buildDocChecklist(datosCalculo = {}) {
     if (want('FOTO_VENTANAS_DESPUES', sel.reforma.ventanas)) push({ key: 'FOTO_VENTANAS_DESPUES', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Ventanas nuevas (después)', help: 'Las ventanas nuevas ya instaladas.' });
     if (want('FOTO_CUBIERTA_DESPUES', sel.reforma.cubierta)) push({ key: 'FOTO_CUBIERTA_DESPUES', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Cubierta terminada', help: 'La cubierta o tejado ya terminado tras la obra.' });
     if (want('FOTO_FACHADA_DESPUES', sel.reforma.paredes))  push({ key: 'FOTO_FACHADA_DESPUES', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Aislamiento de fachada terminado', help: 'La fachada ya aislada y terminada.' });
-    push({ key: 'VIDEO_REFORMA', fase: PHASE.DESPUES, required: false, multiple: false, accept: ACCEPT_VIDEO, label: 'Vídeo de la reforma (opcional)', help: 'Recorrido en vídeo de la instalación ya terminada.' });
+    push({ key: 'VIDEO_REFORMA', fase: PHASE.DESPUES, required: false, optionalAlways: true, multiple: false, accept: ACCEPT_VIDEO, label: 'Vídeo de la reforma (opcional)', help: 'Recorrido en vídeo de la instalación ya terminada.' });
     push({ key: 'DOC_FACTURAS', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_DOC, label: 'Facturas de la instalación', help: 'Las facturas de los materiales y de la instalación (en PDF o foto).' });
     push({ key: 'DOC_RITE', fase: PHASE.DESPUES, required: false, multiple: false, accept: ACCEPT_DOC, label: 'Certificado RITE', help: 'Lo emite el instalador: es el certificado de la instalación térmica (RITE) que debe entregar al terminar la obra.' });
-    push({ key: 'OTROS_DESPUES', fase: PHASE.DESPUES, required: false, multiple: true, named: true, accept: 'image/*,application/pdf,video/*',
+    push({ key: 'OTROS_DESPUES', fase: PHASE.DESPUES, required: false, optionalAlways: true, multiple: true, named: true, accept: 'image/*,application/pdf,video/*',
            label: 'Otros (después de la obra)', help: 'PDF, fotos, vídeos u otros archivos que no encajen en las categorías anteriores. Al subirlos se te pedirá un nombre para guardarlos identificados.' });
 
-    // Tras ACEPTAR (ya es expediente), TODA la documentación de ANTES pasa a ser
-    // obligatoria (es imprescindible para emitir el CEE inicial / tramitar el CAE).
-    // Las de DESPUÉS siguen opcionales hasta que la obra avance (no tiene sentido
-    // exigirlas si aún no se ha instalado nada).
+    // Tras ACEPTAR (ya es expediente), la documentación pasa a ser obligatoria:
+    //   · ANTES: imprescindible para emitir el CEE inicial / tramitar el CAE.
+    //   · DESPUÉS (núcleo técnico): unidades, placas, caldera desmontada, reformas,
+    //     facturas y RITE — necesarios para el Anexo Fotográfico y el CIFO. Solo
+    //     quedan opcionales los marcados optionalAlways (vídeo, "otros", CEE previo).
     if (datosCalculo.estado === 'ACEPTADA') {
         for (const s of slots) {
-            if (s.fase === PHASE.ANTES && !s.optionalAlways) s.required = true;
+            if (!s.optionalAlways) s.required = true;
         }
     }
 

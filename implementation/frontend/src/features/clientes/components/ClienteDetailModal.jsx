@@ -323,6 +323,53 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
     const [showNotas, setShowNotas] = useState(false);
     const [autoMunicipioHint, setAutoMunicipioHint] = useState('');
 
+    // ── Acceso directo a la carpeta (local / Drive) del expediente vinculado ──
+    const [folderBusy, setFolderBusy] = useState(null); // 'local' | 'drive' | null
+    const [folderMsg, setFolderMsg] = useState(null);
+    // Expedientes son INTERNOS: solo el ADMIN los ve. Usamos el más reciente.
+    const targetExpediente = cliente?.expedientes_vinculados?.[0] || null;
+
+    // Abre la carpeta LOCAL de Windows (espejo de Drive) vía protocolo brokergylocal:
+    const handleOpenLocalFolder = useCallback(async () => {
+        if (!targetExpediente?.id) return;
+        setFolderMsg(null);
+        setFolderBusy('local');
+        try {
+            const { data } = await axios.get(`/api/expedientes/${targetExpediente.id}/local-path`);
+            const path = data?.path;
+            if (!path) { setFolderMsg('No se pudo obtener la ruta local.'); return; }
+            try { await navigator.clipboard.writeText(path); } catch (e) { /* contexto no seguro */ }
+            const b64url = btoa(unescape(encodeURIComponent(path))).replace(/\+/g, '-').replace(/\//g, '_');
+            const a = document.createElement('a');
+            a.href = `brokergylocal:${b64url}`;
+            a.style.display = 'none';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+        } catch (err) {
+            setFolderMsg(err?.response?.data?.error || 'No se pudo abrir la carpeta local.');
+        } finally {
+            setFolderBusy(null);
+        }
+    }, [targetExpediente]);
+
+    // Abre la carpeta de Google Drive del expediente en una pestaña nueva.
+    const handleOpenDriveFolder = useCallback(async () => {
+        if (!targetExpediente?.id) return;
+        setFolderMsg(null);
+        setFolderBusy('drive');
+        try {
+            const { data } = await axios.get(`/api/expedientes/${targetExpediente.id}/drive-link`);
+            const link = data?.drive_folder_link;
+            if (!link) { setFolderMsg('El expediente no tiene carpeta de Drive.'); return; }
+            window.open(link, '_blank', 'noopener,noreferrer');
+        } catch (err) {
+            setFolderMsg(err?.response?.data?.error || 'No se pudo abrir la carpeta de Drive.');
+        } finally {
+            setFolderBusy(null);
+        }
+    }, [targetExpediente]);
+
     // ── Cambiar titular (solo dentro de un expediente/oportunidad) ──
     const [showSwap, setShowSwap] = useState(false);
     const [swapList, setSwapList] = useState([]);
@@ -690,10 +737,51 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
                         </div>
                     </div>
                     <div className="flex items-center gap-2">
+                        {folderMsg && (
+                            <span className="text-[10px] text-red-400 font-bold uppercase tracking-widest animate-fade-in max-w-[180px] text-right leading-tight">
+                                {folderMsg}
+                            </span>
+                        )}
                         {saved && (
                             <span className="text-xs text-emerald-400 font-black uppercase tracking-widest animate-fade-in">
                                 ✓ Guardado
                             </span>
+                        )}
+                        {/* Accesos directos a la carpeta del expediente (solo ADMIN, si hay expediente) */}
+                        {!editing && isAdmin && targetExpediente && (
+                            <>
+                                <button
+                                    type="button"
+                                    onClick={handleOpenLocalFolder}
+                                    disabled={folderBusy === 'local'}
+                                    title={`Abrir la carpeta LOCAL del expediente ${targetExpediente.numero_expediente || ''} en el Explorador de Windows`}
+                                    className="p-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20 transition-all disabled:opacity-50 disabled:cursor-wait"
+                                >
+                                    {folderBusy === 'local' ? (
+                                        <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                                    ) : (
+                                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" />
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 13l2 2 4-4" />
+                                        </svg>
+                                    )}
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={handleOpenDriveFolder}
+                                    disabled={folderBusy === 'drive'}
+                                    title={`Abrir la carpeta de Google Drive del expediente ${targetExpediente.numero_expediente || ''}`}
+                                    className="p-2 rounded-lg bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 hover:bg-cyan-500/20 transition-all disabled:opacity-50 disabled:cursor-wait"
+                                >
+                                    {folderBusy === 'drive' ? (
+                                        <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                                    ) : (
+                                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                                        </svg>
+                                    )}
+                                </button>
+                            </>
                         )}
                         {!editing && canSwap && (
                             <button onClick={openSwap}

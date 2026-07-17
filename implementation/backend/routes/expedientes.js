@@ -183,6 +183,58 @@ function approveCeeSignatureValid(expId, phase, token) {
     return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
+// Firma HMAC para el enlace público "abrir carpeta local" del email de revisión.
+// Evita que se pueda enumerar /open-local-folder para expedientes arbitrarios.
+function openFolderSignature(expId) {
+    const secret = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.JWT_SECRET || 'brokergy-open-folder';
+    return crypto.createHmac('sha256', secret).update(`open-folder:${expId}`).digest('hex');
+}
+function openFolderSignatureValid(expId, token) {
+    if (!token) return false;
+    const expected = openFolderSignature(expId);
+    const a = Buffer.from(String(token));
+    const b = Buffer.from(expected);
+    return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+// Resuelve el expediente (por UUID o nº) + el id/enlace de su carpeta raíz de Drive.
+// La carpeta vive SIEMPRE dentro de datos_calculo de la oportunidad (JSONB).
+async function resolveExpedienteDriveFolder(idParam) {
+    let { data: exp } = await supabase
+        .from('expedientes').select('*').eq('id', idParam).maybeSingle();
+    if (!exp) {
+        const { data: expSeq } = await supabase
+            .from('expedientes').select('*').eq('numero_expediente', idParam).maybeSingle();
+        exp = expSeq;
+    }
+    if (!exp) return { exp: null, driveFolderId: null, driveLink: null };
+
+    const { data: op } = await supabase
+        .from('oportunidades').select('id, datos_calculo').eq('id', exp.oportunidad_id).maybeSingle();
+    let datos = op?.datos_calculo || {};
+    if (typeof datos === 'string') { try { datos = JSON.parse(datos); } catch (e) { datos = {}; } }
+
+    let driveFolderId = datos?.drive_folder_id || datos?.inputs?.drive_folder_id || exp.drive_folder_id || null;
+    let driveLink = datos?.drive_folder_link || null;
+    if (!driveFolderId && driveLink) {
+        const m = String(driveLink).match(/folders\/([A-Za-z0-9_-]+)/);
+        if (m) driveFolderId = m[1];
+    }
+    if (driveFolderId && !driveLink) driveLink = `https://drive.google.com/drive/folders/${driveFolderId}`;
+    return { exp, driveFolderId, driveLink };
+}
+
+// Reconstruye la ruta LOCAL de Windows (espejo de Google Drive para escritorio) de
+// una carpeta de Drive, saneando los nombres como hace Google al espejar.
+async function resolveLocalPathFromDriveFolder(driveFolderId) {
+    const { getFolderPathSegments, sanitizeWindowsSegment } = require('../services/driveService');
+    const rawSegments = await getFolderPathSegments(driveFolderId);
+    if (!rawSegments.length) return null;
+    const segments = rawSegments.map(sanitizeWindowsSegment);
+    const base = (process.env.LOCAL_DRIVE_BASE || 'C:\\Users\\Usuario\\Mi unidad').replace(/[\\/]+$/, '');
+    return { path: [base, ...segments].join('\\'), segments, folderName: segments[segments.length - 1] };
+}
+
 
 // ─── Helpers de notificación CEE registrado ───────────────────────────────────
 // Extraídos de los IIFE async dentro de PUT /:id para que también se puedan
@@ -666,8 +718,9 @@ async function buildChecklistData(exp, cli, op) {
             const requerida = !waived && !!s.required;
             const obj = requerida ? ['final'] : [];
             const detalle = waived ? 'No necesario' : (subida ? `${arr.length} archivo(s)` : (requerida ? 'Requerida — sin subir' : 'Opcional'));
-            // `fase` y `required` se exponen para el scoping por rol de "solicitar lo que falta".
-            return mk(s.key, s.label || s.key, 'CUALQUIERA', subida || waived, obj, detalle, null, { waived, fase: s.fase, required: !!s.required });
+            // `fase`, `required` y `subida` se exponen para "solicitar lo que falta"
+            // (presente mezcla subida||waived y no basta para saber si hay fichero).
+            return mk(s.key, s.label || s.key, 'CUALQUIERA', subida || waived, obj, detalle, null, { waived, fase: s.fase, required: !!s.required, subida });
         });
 
     const todos = [...grupoCliente, ...grupoInstalador, ...grupoCertificador, ...grupoFotos];
@@ -713,7 +766,9 @@ function buildSolicitudAcciones(checklist, { expId, uploadBase }) {
     const cliPend = items('CLIENTE').filter(i => !i.presente);
     const insPend = items('INSTALADOR').filter(i => !i.presente);
     const fotosAntes = fotos.filter(i => !i.presente && !i.waived && i.fase === 'ANTES' && i.required);
-    const fotosDespues = fotos.filter(i => !i.presente && !i.waived && i.fase === 'DESPUES');
+    // Solo lo OBLIGATORIO por defecto (lo opcional —vídeo, "otros"— se puede añadir
+    // a mano desde el modal de solicitar, que trabaja sobre `pendientes`).
+    const fotosDespues = fotos.filter(i => !i.presente && !i.waived && i.fase === 'DESPUES' && i.required);
 
     // ── CLIENTE ── (owner=CLIENTE; tituloRelay/notaRelay = 3ª persona para cuando
     // se le pide al instalador en nombre del cliente).
@@ -795,6 +850,50 @@ function buildSolicitudAcciones(checklist, { expId, uploadBase }) {
     return { cliente, instalador, adminCliente };
 }
 
+// Lista PLANA de TODO lo pendiente para el modal "Solicitar lo que falta": lo
+// obligatorio (incluido por defecto), lo opcional (visible, desmarcado) y lo
+// marcado "no necesario" (waived, desmarcado pero reactivable). El frontend
+// compone el mensaje a partir de esta lista según lo que el admin marque.
+//   { key, label, tipo:'dato'|'firma'|'doc'|'foto', fase, required, waived,
+//     ownerDefault, flujo, slot?, defaultIncluido, nota? }
+function buildSolicitudPendientes(checklist, { hayInstalador }) {
+    const items = (r) => (checklist.grupos.find(g => g.responsable === r)?.items || []);
+    const out = [];
+    const cliPend = items('CLIENTE').filter(i => !i.presente);
+    const insPend = items('INSTALADOR').filter(i => !i.presente);
+
+    // Los anexos se GENERAN con IBAN+justificante: mientras falten datos, la firma
+    // no se incluye por defecto (el admin puede forzarla desde el checklist).
+    const datosFaltan = cliPend.some(i => i.key === 'numero_cuenta' || i.key === 'justificante');
+    for (const i of cliPend) {
+        if (i.key === 'datos_personales') continue;          // los completa Brokergy (adminPendiente)
+        if (i.key === 'anexo_fotografico_firmado') continue; // sin flujo público de firma todavía
+        const tipo = (i.key === 'numero_cuenta' || i.key === 'justificante') ? 'dato' : 'firma';
+        const espera = tipo === 'firma' && datosFaltan;
+        out.push({ key: i.key, label: i.label, tipo, fase: null, required: true, waived: false, ownerDefault: 'CLIENTE', flujo: 'firmar-anexos', defaultIncluido: !espera, nota: espera ? 'Los anexos se generan con el IBAN y el justificante; la firma se pedirá cuando estén.' : (i.detalle || null) });
+    }
+
+    const riteFalta = insPend.some(i => i.key === 'rite');
+    const factFalta = insPend.some(i => i.key === 'factura');
+    for (const i of insPend) {
+        if (i.key === 'rite') out.push({ key: 'rite', label: 'Certificado RITE (y memoria firmada)', tipo: 'doc', fase: 'DESPUES', required: true, waived: false, ownerDefault: 'INSTALADOR', flujo: 'subir-rite', defaultIncluido: true });
+        if (i.key === 'factura') out.push({ key: 'factura', label: 'Factura(s) de la obra', tipo: 'doc', fase: 'DESPUES', required: true, waived: false, ownerDefault: 'INSTALADOR', flujo: 'subir-docs', slot: 'DOC_FACTURAS', defaultIncluido: true });
+        if (i.key === 'cifo') {
+            // El CIFO se GENERA con los datos del RITE y de las facturas: hasta
+            // tenerlos no se incluye por defecto (el admin puede forzarlo).
+            const listo = !riteFalta && !factFalta;
+            out.push({ key: 'cifo', label: i.label, tipo: 'firma', fase: 'DESPUES', required: true, waived: false, ownerDefault: 'INSTALADOR', flujo: 'subir-cifo', defaultIncluido: listo, nota: listo ? null : 'Se genera con el RITE y la factura; se pedirá cuando estén.' });
+        }
+    }
+
+    for (const f of items('CUALQUIERA')) {
+        if (f.subida) continue; // ya aportada
+        const ownerDefault = (f.fase === 'DESPUES' && hayInstalador) ? 'INSTALADOR' : 'CLIENTE';
+        out.push({ key: f.key, label: f.label, tipo: 'foto', fase: f.fase || null, required: !!f.required, waived: !!f.waived, ownerDefault, flujo: 'subir-docs', slot: f.key, defaultIncluido: !!f.required && !f.waived });
+    }
+    return out;
+}
+
 // ─── GET /api/expedientes/:id/solicitud-info ──────────────────────────────────
 // Contactos (cliente/instalador) + ACCIONES a solicitar (solo lo que falta), cada
 // una con su enlace público correcto. Asegura el token de subida (idempotente).
@@ -828,11 +927,22 @@ router.get('/:id/solicitud-info', internalKeyOrAuth, async (req, res) => {
                 : null,
         };
 
+        const FRONTEND = process.env.FRONTEND_URL || 'https://app.brokergy.es';
+        const hayInstalador = !!(instalador?.nombre || instalador?.tlf || instalador?.email || (instalador?.contactos || []).length);
         res.json({
             numero_expediente: exp.numero_expediente,
             obra,
             cliente: { ...cliente, acciones: acciones.cliente, adminPendiente: acciones.adminCliente },
             instalador: { ...instalador, acciones: acciones.instalador },
+            // ── Datos para el checklist interactivo del modal ──
+            oportunidad_id: exp.oportunidad_id || null,
+            uploadBase,
+            urls: {
+                firmarAnexos: `${FRONTEND}/firmar-anexos/${exp.id}`,
+                subirRite: `${FRONTEND}/subir-rite/${exp.id}`,
+                subirCifo: `${FRONTEND}/subir-cifo/${exp.id}`,
+            },
+            pendientes: buildSolicitudPendientes(checklist, { hayInstalador }),
         });
     } catch (err) {
         console.error('[solicitud-info]', err.message);
@@ -3057,6 +3167,84 @@ router.get('/:id/local-path', staffOnly, async (req, res) => {
     }
 });
 
+// ─── GET /api/expedientes/:id/drive-link ──────────────────────────────────────
+// Solo staff. Devuelve el enlace a la carpeta RAÍZ de Drive del expediente. Lo usa
+// la ficha del cliente para el botón "Drive" sin tener que cargar el expediente
+// completo (datos_calculo es enorme).
+router.get('/:id/drive-link', staffOnly, async (req, res) => {
+    try {
+        const { exp, driveLink } = await resolveExpedienteDriveFolder(req.params.id);
+        if (!exp) return res.status(404).json({ error: 'Expediente no encontrado' });
+        if (!driveLink) return res.status(404).json({ error: 'El expediente no tiene carpeta de Drive asociada' });
+        res.json({ drive_folder_link: driveLink });
+    } catch (err) {
+        console.error('Error GET expedientes/:id/drive-link:', err);
+        res.status(500).json({ error: 'Error al resolver el enlace de Drive', details: err.message });
+    }
+});
+
+// ─── GET /api/expedientes/:id/open-local-folder ───────────────────────────────
+// Endpoint PÚBLICO (token HMAC). El admin lo recibe como botón "Abrir carpeta
+// local del expediente" en el email de SOLICITUD DE REVISIÓN. Los clientes de
+// correo (Gmail/Outlook) no permiten enlaces con protocolos personalizados
+// (brokergylocal:), así que el botón apunta aquí (https) y esta página lanza el
+// protocolo en el navegador. Degrada con elegancia a la carpeta de Drive si el
+// handler no está instalado o falla la resolución.
+router.get('/:id/open-local-folder', async (req, res) => {
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    const page = ({ b64 = '', path = '', driveLink = '', error = '' }) => `<!DOCTYPE html>
+<html lang="es"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BROKERGY · Carpeta local</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#0a0e1a;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#fff;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px}
+  .card{background:#111827;border:1px solid #334155;border-radius:20px;padding:40px 30px;max-width:480px;width:100%;text-align:center}
+  .icon{font-size:48px;margin-bottom:16px}
+  h2{color:#10b981;margin-bottom:12px;font-size:22px}
+  p{color:#94a3b8;line-height:1.5;margin-bottom:14px;font-size:14px}
+  code{display:block;background:#0a0e1a;border:1px solid #334155;border-radius:10px;padding:10px 12px;color:#cbd5e1;font-size:12px;word-break:break-all;margin:10px 0 18px}
+  a.btn,button.btn{display:inline-block;border:none;cursor:pointer;font-family:inherit;background:#10b981;color:#fff;text-decoration:none;font-weight:700;font-size:14px;padding:12px 22px;border-radius:10px;margin:4px}
+  a.ghost{display:inline-block;color:#22d3ee;text-decoration:none;font-size:13px;font-weight:600;margin-top:8px}
+  .brand{color:#475569;font-size:11px;margin-top:26px;letter-spacing:.05em}
+</style></head>
+<body><div class="card">
+  <div class="icon">${error ? '⚠️' : '📂'}</div>
+  <h2>${error ? 'No se pudo resolver la carpeta' : 'Abriendo la carpeta local…'}</h2>
+  ${error
+    ? `<p>${error}</p>`
+    : `<p>Si no se abre el Explorador de Windows automáticamente, pulsa el botón. Requiere haber instalado una vez <strong>brokergylocal_setup.reg</strong> en este PC.</p>
+       <code>${path}</code>
+       <button class="btn" onclick="openLocal()">Abrir carpeta local</button>`}
+  ${driveLink ? `<p style="margin-top:10px"><a class="ghost" href="${driveLink}" target="_blank" rel="noopener noreferrer">¿No se abre? Abrir en Google Drive →</a></p>` : ''}
+  <div class="brand">BROKERGY · Ingeniería Energética</div>
+</div>
+${error ? '' : `<script>
+  var B64=${JSON.stringify(b64)};
+  function openLocal(){ try{ window.location.href='brokergylocal:'+B64; }catch(e){} }
+  setTimeout(openLocal, 300);
+</script>`}
+</body></html>`;
+
+    try {
+        if (!openFolderSignatureValid(req.params.id, req.query.token)) {
+            return res.status(403).send(page({ error: 'El enlace no es válido o ha cambiado.' }));
+        }
+        const { exp, driveFolderId, driveLink } = await resolveExpedienteDriveFolder(req.params.id);
+        if (!exp) return res.status(404).send(page({ error: 'Expediente no encontrado.' }));
+        if (!driveFolderId) return res.status(404).send(page({ error: 'El expediente no tiene carpeta de Drive asociada.', driveLink }));
+
+        const local = await resolveLocalPathFromDriveFolder(driveFolderId);
+        if (!local) return res.status(502).send(page({ error: 'No se pudo resolver la ruta de la carpeta en Drive.', driveLink }));
+
+        // base64url CONSERVANDO el padding '=' (lo espera el handler .vbs).
+        const b64 = Buffer.from(local.path, 'utf8').toString('base64').replace(/\+/g, '-').replace(/\//g, '_');
+        res.send(page({ b64, path: local.path, driveLink }));
+    } catch (err) {
+        console.error('Error GET expedientes/:id/open-local-folder:', err);
+        res.status(500).send(page({ error: 'Error interno al resolver la carpeta local.' }));
+    }
+});
+
 // ─── POST /api/expedientes/:id/documents/repair-cee-links ─────────────────────
 // Repara los webViewLink rotos en cee.cee_files (todos en mayúsculas por bug histórico).
 // Escanea la carpeta CEE en Drive y sustituye cada slot por el link real del archivo.
@@ -3901,6 +4089,10 @@ router.post('/:id/notify-review', enforceAuth, async (req, res) => {
         // Enlace one-tap para el email del admin
         const approveLink = `${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/api/expedientes/${req.params.id}/approve-cee-from-email?token=${approveCeeToken}&phase=${approvePhaseKey}`;
 
+        // Enlace "abrir carpeta LOCAL del expediente" (https → lanza brokergylocal:).
+        const openFolderToken = openFolderSignature(req.params.id);
+        const openLocalLink = `${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/api/expedientes/${req.params.id}/open-local-folder?token=${openFolderToken}`;
+
         const channels = [];
 
         // Email rico al admin
@@ -3916,6 +4108,7 @@ router.post('/:id/notify-review', enforceAuth, async (req, res) => {
                 clienteData,
                 portalLink,
                 ceeFolderLink,
+                openLocalLink,
                 approveLink,
                 priority,
                 techMessage,

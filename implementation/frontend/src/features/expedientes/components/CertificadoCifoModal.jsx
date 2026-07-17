@@ -565,7 +565,11 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
 
     // Aerotermia Calefaccion (3)
     const calNuMarca = inst.aerotermia_cal?.marca || '—';
-    const calNuMod = inst.aerotermia_cal?.modelo || '—';
+    // El "Modelo" del equipo nuevo es NOMBRE COMERCIAL + UNIDAD EXTERIOR (la ref. de
+    // la placa que se ve en las fotos): el par identifica el equipo sin ambigüedad.
+    // Fallback al conjunto (que incluye la ext) para expedientes antiguos sin snapshot.
+    const calNuMod = [inst.aerotermia_cal?.modelo, inst.aerotermia_cal?.modelo_ud_exterior].filter(Boolean).join(' · ')
+        || inst.aerotermia_cal?.modelo_conjunto || '—';
     const calNuSerieEx = inst.aerotermia_cal?.numero_serie || inst.aerotermia_cal?.n_serie_ext || '—';
     const scopCalRaw = parseFloat(inst.aerotermia_cal?.scop) || 0;
     const scopCalStr = scopCalRaw ? scopCalRaw.toFixed(2).replace('.', ',') : '—';
@@ -582,7 +586,12 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
     const acsExComb = acsExTipo.split(',')[0] || '—';
 
     const acsNuMarca = tieneAcs ? (inst.misma_aerotermia_acs ? calNuMarca : inst.aerotermia_acs?.marca || '—') : '—';
-    const acsNuMod = tieneAcs ? (inst.misma_aerotermia_acs ? calNuMod : inst.aerotermia_acs?.modelo || '—') : '—';
+    const acsNuMod = tieneAcs
+        ? (inst.misma_aerotermia_acs
+            ? calNuMod
+            : ([inst.aerotermia_acs?.modelo, inst.aerotermia_acs?.modelo_ud_exterior].filter(Boolean).join(' · ')
+                || inst.aerotermia_acs?.modelo_conjunto || '—'))
+        : '—';
     const acsNuSerieEx = tieneAcs ? (inst.misma_aerotermia_acs ? calNuSerieEx : inst.aerotermia_acs?.numero_serie || inst.aerotermia_acs?.n_serie_ext || '—') : '—';
     const scopAcsRaw = tieneAcs ? parseFloat(inst.misma_aerotermia_acs ? inst.aerotermia_cal?.scop : inst.aerotermia_acs?.scop || 0) : 0;
     const scopAcsStr = tieneAcs ? (scopAcsRaw ? scopAcsRaw.toFixed(2).replace('.', ',') : '—') : 'no aplica';

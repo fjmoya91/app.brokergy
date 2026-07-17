@@ -821,6 +821,7 @@ const sendReviewRequestEmailToAdmin = async ({
     expedienteId, numExp, certName, certPhone, certEmail, phase,
     clienteName, clienteData,
     portalLink, ceeFolderLink,
+    openLocalLink = null,
     approveLink = null,
     priority = 'normal',
     techMessage = null,
@@ -864,9 +865,18 @@ const sendReviewRequestEmailToAdmin = async ({
         { mb: 22 }
     ) : '';
 
+    // Botón de carpeta: preferimos abrir la carpeta LOCAL del expediente (https →
+    // lanza el protocolo brokergylocal: en el navegador). Si no hay enlace local,
+    // caemos a la carpeta CEE en Drive. Con enlace local dejamos además un enlace
+    // pequeño a Drive como respaldo.
+    const folderRowsHtml = openLocalLink
+        ? `<tr><td align="center" style="padding-bottom:6px;">${emailOutlineButton(openLocalLink, '📂 Abrir carpeta local del expediente')}</td></tr>` +
+          (ceeFolderLink ? `<tr><td align="center" style="padding-bottom:12px;">${emailP(`¿No se abre? <a href="${ceeFolderLink}" style="color:${BRAND.greenDark};text-decoration:none;">Abrir la carpeta CEE en Google Drive</a>`, { size: 11, color: BRAND.muted, center: true, mb: 0 })}</td></tr>` : '')
+        : (ceeFolderLink ? `<tr><td align="center" style="padding-bottom:12px;">${emailOutlineButton(ceeFolderLink, '📁 Abrir Carpeta CEE')}</td></tr>` : '');
+
     const botonesHtml = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0">` +
         `<tr><td align="center" style="padding-bottom:12px;">${emailButton(finalPortalLink, '🔗 Ver Expediente', BRAND.orange)}</td></tr>` +
-        (ceeFolderLink ? `<tr><td align="center" style="padding-bottom:12px;">${emailOutlineButton(ceeFolderLink, '📁 Abrir Carpeta CEE')}</td></tr>` : '') +
+        folderRowsHtml +
         (approveLink ? `<tr><td align="center" style="padding-top:6px;">${emailButton(approveLink, '✅ Dar Visto Bueno')}</td></tr><tr><td align="center" style="padding-top:8px;">${emailP('Al pulsar autorizas el registro en Industria y se avisa al técnico automáticamente por <strong>email y WhatsApp</strong>.', { size: 11, color: BRAND.muted, center: true, mb: 0 })}</td></tr>` : '') +
         `</table>`;
 
@@ -892,7 +902,10 @@ const sendReviewRequestEmailToAdmin = async ({
     const urgentText = isUrgent ? '🚨 URGENTE 🚨\n\n' : '';
     const techMsgText = techMessage ? `\nMensaje del técnico:\n${techMessage}\n\n` : '';
     const approveText = approveLink ? `\n✅ Dar visto bueno (un clic, avisa al técnico por email + WhatsApp):\n${approveLink}\n` : '';
-    const text = `${urgentText}SOLICITUD DE REVISIÓN TÉCNICA\n\nEl técnico ${certName || 'Técnico'} ha subido el .CEX del CEE ${phaseLabel} del expediente ${numExp}.\n\n${clienteText}${techMsgText}Ver expediente: ${finalPortalLink}\n${ceeFolderLink ? 'Carpeta CEE: ' + ceeFolderLink + '\n' : ''}${approveText}\nBROKERGY · Ingeniería Energética`;
+    const folderText = openLocalLink
+        ? `Abrir carpeta local del expediente: ${openLocalLink}\n${ceeFolderLink ? 'Carpeta CEE (Drive): ' + ceeFolderLink + '\n' : ''}`
+        : (ceeFolderLink ? 'Carpeta CEE: ' + ceeFolderLink + '\n' : '');
+    const text = `${urgentText}SOLICITUD DE REVISIÓN TÉCNICA\n\nEl técnico ${certName || 'Técnico'} ha subido el .CEX del CEE ${phaseLabel} del expediente ${numExp}.\n\n${clienteText}${techMsgText}Ver expediente: ${finalPortalLink}\n${folderText}${approveText}\nBROKERGY · Ingeniería Energética`;
 
     return sendMail({ to, subject, html, text });
 };
