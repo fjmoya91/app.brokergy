@@ -34,6 +34,9 @@ const PUBLIC_EXPEDIENTE_ROUTES = [
     { method: 'GET',  re: /^\/[^/]+\/anexos-cifo\/[^/]+\/content\/?$/ },
     { method: 'GET',  re: /^\/[^/]+\/notify-client\/?$/ },
     { method: 'GET',  re: /^\/[^/]+\/approve-cee-from-email\/?$/ },
+    // "Abrir carpeta local del expediente": página pública firmada con HMAC que se
+    // pincha desde el email de revisión (sin sesión). Su propio handler valida el token.
+    { method: 'GET',  re: /^\/[^/]+\/open-local-folder\/?$/ },
     // Anexo fotográfico (generar/estado): su propio middleware (internalKeyOrAuth)
     // exige sesión interna O la clave interna del MCP.
     { method: 'POST', re: /^\/[^/]+\/anexo-fotografico\/generar\/?$/ },
