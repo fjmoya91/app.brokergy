@@ -92,7 +92,10 @@ const PDF_CSS = `
     .doc-page {
         width: 210mm;
         min-height: 297mm;
-        padding: 15mm 14mm 12mm;
+        /* padding-bottom amplio (18mm) para reservar la banda del pie, que ahora
+           va en posición absoluta (fuera del flujo). Así el contenido nunca se
+           solapa con el pie ni lo empuja a una hoja nueva. */
+        padding: 15mm 14mm 18mm;
         page-break-after: always;
         break-after: page;
         position: relative;
@@ -100,6 +103,18 @@ const PDF_CSS = `
         flex-direction: column;
     }
     .doc-page:last-child { page-break-after: auto; break-after: auto; }
+    /* CLAVE anti-desbordamiento en PDF: el pie se ancla al fondo de la hoja en
+       posición absoluta, SIN 'margin-top:auto' (que lo mantenía en el flujo). En
+       el flujo, una página casi llena empujaba el pie ~1-2mm por encima de los
+       297mm y Chromium lo mandaba, solo, a una hoja física nueva (página en
+       blanco con el pie). Fuera del flujo eso ya no puede pasar. */
+    .doc-page > .doc-foot {
+        position: absolute;
+        left: 14mm;
+        right: 14mm;
+        bottom: 10mm;
+        margin-top: 0;
+    }
 `;
 
 function formatDateSpanish(isoStr) {
@@ -1000,7 +1015,7 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
                 `)}
 
                 ${sectionTitle('Firma y sello', '12px')}
-                <div style="border:2px solid #1A1A1A;border-radius:16px;padding:12px 18px;min-height:130px;display:flex;flex-direction:column;break-inside:avoid;">
+                <div style="border:2px solid #1A1A1A;border-radius:16px;padding:12px 18px;min-height:104px;display:flex;flex-direction:column;break-inside:avoid;">
                     <div style="font-family:'Archivo';font-weight:800;font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:#6E6E66;">Espacio reservado para firma electrónica</div>
                     <div style="flex:1;"></div>
                     <div style="border-top:1px solid #ECECE4;padding-top:10px;font-size:12.5px;font-weight:700;color:#1A1A1A;">${empResponsable} <span style="font-weight:600;color:#6E6E66;">· ${empCargo}</span></div>
@@ -1186,11 +1201,19 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
             ${tieneAcs ? renderAcsScopJustification() : scopCallout('SCOP en ACS = no aplica.')}
         `;
 
-        // PÁGINA 4/5: Anexo I + SCOP. Cuando la demanda de ACS es "pesada" (cálculo
-        // CTE completo) cada bloque ya llena su propia hoja; en el resto de casos
-        // (sin ACS o ACS por XML) hay hueco de sobra y se funden en una sola página
-        // para no dejar una hoja casi vacía.
-        if (acsDemandHeavy) {
+        // PÁGINA 4/5: Anexo I + SCOP. Se fusionan en UNA sola hoja solo cuando
+        // AMBOS bloques son "ligeros"; si cualquiera es voluminoso, cada uno va en
+        // su propia hoja para no desbordar. Bloques voluminosos:
+        //   · Anexo I pesado  → demanda de ACS por cálculo CTE (tablas + fórmula).
+        //   · SCOP pesado     → justificación EPREL en calefacción (tabla completa)
+        //                        o justificación ACS por conjunto/independiente (tabla).
+        // Antes solo se miraba `acsDemandHeavy`, por lo que un SCOP con tabla EPREL
+        // (caso muy común) fusionado con el Anexo I desbordaba y arrastraba su cola
+        // (p.ej. el callout de SCOP ACS) a una hoja casi vacía.
+        const scopHeavy = metodoCal === 'eprel'
+            || (tieneAcs && (metodoAcs === 'conjunto' || metodoAcs === 'independiente'));
+        const splitAnexoScop = acsDemandHeavy || scopHeavy;
+        if (splitAnexoScop) {
             pages.push(`<div class="doc-page">${pageHeader}${anexoIBlock}${footer}</div>`);
             pages.push(`<div class="doc-page">${pageHeader}${scopJustBlock}${footer}</div>`);
         } else {
