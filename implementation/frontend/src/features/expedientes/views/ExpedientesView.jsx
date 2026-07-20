@@ -588,6 +588,11 @@ function CrearLoteDesdeSeleccionModal({ soList, count, anio, ccaa, totals, canSe
     );
 }
 
+// UUID canónico de un expediente. Un deep-link `?exp=<uuid>` (p. ej. desde el
+// resumen del certificador, abierto en pestaña nueva) siempre trae el UUID, no el
+// número legible; nos permite abrir el detalle sin resolverlo contra la lista.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialSelection, onOpenExpedienteChange }) {
     const { showAlert, showConfirm } = useModal();
     const { user } = useAuth();
@@ -800,7 +805,23 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
     const [editingText, setEditingText] = useState('');
     const [updatingEntry, setUpdatingEntry] = useState(false);
 
-    // Auto-selección inicial
+    // Deep-link directo a un expediente por UUID (?exp=<uuid>): abrimos el detalle al
+    // INSTANTE, sin esperar a que baje la lista completa. El detalle
+    // (ExpedienteDetailView) trae sus propios datos con GET /api/expedientes/:id, así
+    // que basta el id. Evita encadenar dos cargas pesadas en serie (lista → detalle)
+    // en el camino crítico de abrir un expediente por enlace. La lista se carga en
+    // diferido (ver efecto de montaje), solo al pulsar "volver".
+    const openedFromDeepLink = useRef(UUID_RE.test(initialSelectedId || ''));
+    useEffect(() => {
+        if (openedFromDeepLink.current && initialSelectedId && !selectedExpediente) {
+            setSelectedExpediente({ id: initialSelectedId });
+            onClearInitialSelection?.();
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    // Auto-selección inicial (deep-links por número legible / id de oportunidad, que sí
+    // necesitan resolverse contra la lista ya cargada).
     useEffect(() => {
         if (initialSelectedId && expedientes.length > 0) {
             // Permitir búsqueda tanto por UUID como por número de expediente legible (24RES060_...)
@@ -923,8 +944,11 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
         }
     }, []);
 
-    useEffect(() => { 
-        fetchExpedientes(); 
+    useEffect(() => {
+        // Si entramos por deep-link directo a un expediente (UUID), NO descargamos la
+        // tabla completa todavía: la query pesada de toda la lista sale del camino
+        // crítico y se carga al pulsar "volver" (onBack → fetchExpedientes).
+        if (!openedFromDeepLink.current) fetchExpedientes();
         // Cargar lista de certificadores para el filtro y mapeo de nombres
         axios.get('/api/prescriptores')
             .then(res => {

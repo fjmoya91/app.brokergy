@@ -479,6 +479,9 @@ export function CertificadorResumenModal({ isOpen, onClose, prescriptorId, certi
                 <CertificadorResumenPanel
                     prescriptorId={prescriptorId}
                     certificadorNombre={certificadorNombre}
+                    // Desde el modal (equipo interno) el expediente se abre en una pestaña
+                    // nueva del navegador, para no perder este listado de seguimiento.
+                    onOpenExpediente={(id) => window.open(`/?tab=expedientes&exp=${id}`, '_blank', 'noopener,noreferrer')}
                 />
 
             </div>
