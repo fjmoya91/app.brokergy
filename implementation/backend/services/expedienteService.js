@@ -420,17 +420,27 @@ async function migrateExpedienteProgram(expedienteId, usuarioName = 'Sistema', t
         // 3. Generar nuevo número
         const currentYear = new Date().getFullYear().toString().slice(-2);
         const newPrefix = `${currentYear}${newPrograma}_`;
-        
-        // Buscamos el máximo correlativo de forma numérico (mucho más fiable)
-        const { data: lastExp } = await supabase
-            .from('expedientes')
-            .select('correlativo')
-            .like('numero_expediente', `${newPrefix}%`)
-            .order('correlativo', { ascending: false })
-            .limit(1)
-            .maybeSingle();
 
-        const maxNumberFound = lastExp?.correlativo || 0;
+        // Traemos TODOS los expedientes del prefijo y calculamos el máximo de
+        // forma robusta. NO confiamos en ORDER BY correlativo DESC ... LIMIT 1
+        // porque en Postgres los NULL van primero y un único registro con
+        // correlativo NULL hacía que el contador se reiniciara a 1 (bug
+        // 26RESxxx_1 al cambiar de tipo de expediente). El máximo se obtiene
+        // del MAYOR entre `correlativo` y el sufijo numérico parseado de
+        // `numero_expediente`, ignorando nulos. Misma lógica que createExpediente.
+        const { data: rows } = await supabase
+            .from('expedientes')
+            .select('numero_expediente, correlativo')
+            .like('numero_expediente', `${newPrefix}%`);
+
+        let maxNumberFound = 0;
+        for (const r of (rows || [])) {
+            const corr = Number.isInteger(r.correlativo) ? r.correlativo : 0;
+            const suffix = parseInt(String(r.numero_expediente || '').slice(newPrefix.length), 10);
+            const val = Math.max(corr, Number.isNaN(suffix) ? 0 : suffix);
+            if (val > maxNumberFound) maxNumberFound = val;
+        }
+        console.log(`[ExpedienteService] Máximo correlativo detectado para ${newPrograma}: ${maxNumberFound} (sobre ${rows?.length || 0} registros)`);
 
         const startOffset = newPrograma === 'RES080' ? 36 : 1;
         const nextCorrelativo = Math.max(maxNumberFound + 1, startOffset);
