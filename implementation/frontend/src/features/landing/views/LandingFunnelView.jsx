@@ -828,6 +828,14 @@ export default function LandingFunnelView({ route, mode = 'public', variant = 'd
                                             {' '}cuando contactes.
                                         </p>
                                     </div>
+                                    {isInternal && duplicateRcInfo.idOportunidad && (
+                                        <button
+                                            onClick={() => window.open(`/?op=${duplicateRcInfo.idOportunidad}`, '_blank', 'noopener,noreferrer')}
+                                            className="w-full py-3 mb-3 bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-400 hover:to-amber-300 text-bkg-deep font-black uppercase tracking-widest text-xs rounded-2xl shadow-lg shadow-amber-500/20 transition-all"
+                                        >
+                                            Abrir oportunidad {duplicateRcInfo.idOportunidad}
+                                        </button>
+                                    )}
                                     <button
                                         onClick={handleDuplicateRcCancel}
                                         className="w-full py-3 bg-white/[0.04] hover:bg-white/[0.07] border border-white/10 text-white/80 font-black uppercase tracking-widest text-xs rounded-2xl transition-all"

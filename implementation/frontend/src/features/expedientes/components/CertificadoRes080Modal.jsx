@@ -769,6 +769,11 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, a
     // Determinar si se sustituyen ventanas (Prioridad: Detección automática > flag manual)
     const seSustituyen = changedHuecos.length > 0 || env.sustituye_ventanas === true;
 
+    // ⚠️ ESPEJO: la maquetación de este generateHtml está replicada en
+    // features/expedientes/logic/res080Doc.js (buildRes080Html), que el BACKEND
+    // usa para generar el RES080 server-side (skill de Cowork / tool MCP generar_cifo)
+    // con formato IDÉNTICO. Si tocas el DISEÑO o la derivación aquí, actualiza también
+    // res080Doc.js para que ambos caminos sigan saliendo iguales.
     const generateHtml = (isForPdf = false, withAnnexPreview = false) => {
         const ed = (f) => editableData[f] || editableRef.current[f] || '';
         const eb = (f) => isForPdf ? ed(f) : `<div contenteditable="true" class="doc-editable" data-field="${f}">${ed(f)}</div>`;

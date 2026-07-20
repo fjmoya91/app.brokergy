@@ -624,6 +624,70 @@ function createMcpServer() {
         }
     );
 
+    // ── Tool 8b: Generar el Certificado CIFO (ESCRITURA / genera PDF) ─────────
+    // Delega en el backend (mismo builder que el modal de la app → PDF idéntico).
+    // El backend valida, genera, fusiona las fichas técnicas, guarda en Drive y
+    // enlaza el slot. Registra incidencias LEVE por lo que falte (GRAVE si es
+    // imposible generar). Cubre RES060 y RES093 (el RES080 es otro documento).
+    mcp.tool(
+        'generar_cifo',
+        'Genera el CIFO (Certificado de Instalación, RES060/RES093) o el Certificado Final de Obra (RES080) de un expediente con el MISMO formato que la app, lo guarda como PDF en "6. ANEXOS CAE" y lo deja enlazado, listo para revisar/firmar. Úsalo cuando el usuario pida "genera/crea el CIFO del expediente NNN", "prepara el certificado de instalación" o "genera el RES080". El backend detecta la tipología por el número. AUTOMÁTICAMENTE adjunta y fusiona TODO lo que justifica el SCOP: la ficha técnica de la aerotermia (copiándola del catálogo si falta en el expediente) y, si el método de SCOP es EPREL, descarga y adjunta el Fiche y el Label de EPREL; además ENRIQUECE el catálogo `aerotermia` (rellena eprel/ficha_tecnica del modelo si le faltaban, para la próxima vez). Validación: si falta algo no crítico lo registra como incidencia LEVE y genera igual; si es imposible (sin demanda/superficie/SCOP/empresa/carpeta en RES060/093, o sin comparativa energética en RES080) NO genera y lo registra como GRAVE. Para regenerar sobre un certificado ya FIRMADO hay que pasar force:true.',
+        {
+            numero: z.string().describe('Número del expediente, ej: 26RES060_165'),
+            force: z.boolean().optional().describe('Regenerar aunque ya exista un CIFO firmado (invalida la firma anterior).'),
+        },
+        async ({ numero, force }) => {
+            const found = await findExpediente(numero);
+            if (found.error) return err(found.error);
+            if (found.notFound) return ok({ ok: false, message: found.notFound });
+            if (found.ambiguous) return ok({ ok: false, message: found.message, coincidencias: found.ambiguous });
+            const exp = found.exp;
+
+            const r = await backendFetch('POST', `/api/expedientes/${exp.id}/cifo/generar`, { force: force === true });
+            if (r.httpError) return err(r.httpError);
+            if (!r.okHttp || !r.data?.ok) {
+                return ok({
+                    ok: false,
+                    expediente: exp.numero_expediente,
+                    message: r.data?.message || `Error ${r.status} al generar el CIFO.`,
+                    bloqueantes: r.data?.blocking || undefined,
+                    avisos: r.data?.warnings || undefined,
+                    needsConfirm: r.data?.needsConfirm || undefined,
+                });
+            }
+            return ok({
+                ok: true,
+                expediente: exp.numero_expediente,
+                tipologia: r.data.tipologia,
+                link: r.data.link,
+                anexos: r.data.anexos,
+                catalogo_actualizado: r.data.catalogo_actualizado,
+                avisos: r.data.warnings,
+                incidencias_leves: r.data.incidencias_leves,
+                message: r.data.message,
+            });
+        }
+    );
+
+    // ── Tool 8c: Estado del CIFO (LECTURA) ────────────────────────────────────
+    mcp.tool(
+        'estado_cifo',
+        'Consulta si se puede generar el CIFO de un expediente ANTES de generarlo: tipología (RES060/RES093/RES080), si puede generarse, qué falta que lo BLOQUEA (datos_faltan) y qué avisos LEVES hay, y si ya está generado/firmado. Úsalo para saber si conviene generar o primero completar datos.',
+        { numero: z.string().describe('Número del expediente, ej: 26RES060_165') },
+        async ({ numero }) => {
+            const found = await findExpediente(numero);
+            if (found.error) return err(found.error);
+            if (found.notFound) return ok({ ok: false, message: found.notFound });
+            if (found.ambiguous) return ok({ ok: false, message: found.message, coincidencias: found.ambiguous });
+            const exp = found.exp;
+
+            const r = await backendFetch('GET', `/api/expedientes/${exp.id}/cifo/estado`);
+            if (r.httpError) return err(r.httpError);
+            if (!r.okHttp) return ok({ ok: false, expediente: exp.numero_expediente, message: r.data?.message || `Error ${r.status}.` });
+            return ok(r.data);
+        }
+    );
+
     // ── Tool 9: Datos de contacto y qué falta (LECTURA) ───────────────────────
     // Para preparar un WhatsApp: devuelve a quién iría (cliente / instalador) con el
     // teléfono ENMASCARADO, si es alcanzable, qué documentación falta y los ENLACES

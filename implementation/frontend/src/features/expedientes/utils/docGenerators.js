@@ -4,7 +4,10 @@
  * Generadores compartidos para Anexo I y Anexo de Cesión.
  */
 
-const APP_URL = import.meta.env.VITE_APP_URL || window.location.origin;
+// Node-safe: este módulo también se importa server-side (cifoService vía cifoDoc).
+// En Node no existen import.meta.env ni window, así que se accede con guardas.
+const APP_URL = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_APP_URL)
+    || (typeof window !== 'undefined' ? window.location.origin : '');
 
 // Mapa código de provincia (2 díg.) → nombre. Permite mostrar la provincia
 // cuando solo tenemos el código (p.ej. oportunidades migradas) o el CP.

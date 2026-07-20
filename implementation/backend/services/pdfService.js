@@ -1,7 +1,12 @@
 const path = require('path');
+const { PDFDocument } = require('pdf-lib');
 
 // Localización de Chrome en Windows para desarrollo local
 const LOCAL_CHROME_PATH = 'C:\\\\Program Files\\\\Google\\\\Chrome\\\\Application\\\\chrome.exe';
+
+// Tamaño A4 en puntos PDF (1 pt = 1/72 pulgada).
+const A4_WIDTH_PT = 595.276;
+const A4_HEIGHT_PT = 841.890;
 
 async function getBrowser() {
     // Importamos dinámicamente para evitar problemas de ESM/CJS en Node 25
@@ -98,8 +103,72 @@ async function htmlToPdf(html) {
     }
 }
 
+// ── Concatenación de anexos (movido desde routes/pdf.js para reutilizarlo también
+// desde cifoService). Detecta tipo por magic bytes y embebe cada página/imagen en
+// una A4 escalada y centrada, para que todo el PDF final tenga el mismo tamaño.
+function detectBufferType(buf) {
+    if (!buf || buf.length < 4) return null;
+    if (buf[0] === 0x25 && buf[1] === 0x50 && buf[2] === 0x44 && buf[3] === 0x46) return 'pdf';   // %PDF
+    if (buf[0] === 0xFF && buf[1] === 0xD8 && buf[2] === 0xFF) return 'jpg';                        // JPEG
+    if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4E && buf[3] === 0x47) return 'png';    // PNG
+    return null;
+}
+
+async function mergePdfs(mainBuffer, annexBuffers) {
+    if (!annexBuffers || annexBuffers.length === 0) return mainBuffer;
+    const merged = await PDFDocument.load(mainBuffer);
+
+    const addScaledA4Page = ({ width: w, height: h }, draw) => {
+        const page = merged.addPage([A4_WIDTH_PT, A4_HEIGHT_PT]);
+        const scale = Math.min(A4_WIDTH_PT / w, A4_HEIGHT_PT / h);
+        const drawW = w * scale;
+        const drawH = h * scale;
+        const x = (A4_WIDTH_PT - drawW) / 2;
+        const y = (A4_HEIGHT_PT - drawH) / 2;
+        draw(page, { x, y, width: drawW, height: drawH });
+    };
+
+    for (const buf of annexBuffers) {
+        if (!buf || buf.length === 0) continue;
+        const type = detectBufferType(buf);
+        try {
+            if (type === 'jpg' || type === 'png') {
+                const img = type === 'jpg' ? await merged.embedJpg(buf) : await merged.embedPng(buf);
+                addScaledA4Page(img, (page, opts) => page.drawImage(img, opts));
+                console.log(`[mergePdfs] Anexo imagen (${type}): 1 pág embebida`);
+            } else {
+                const annexDoc = await PDFDocument.load(buf, { ignoreEncryption: true });
+                const indices = annexDoc.getPageIndices();
+                const embedded = await merged.embedPdf(annexDoc, indices);
+                console.log(`[mergePdfs] Anexo PDF: ${indices.length} pág → ${embedded.length} embebidas`);
+                for (const ep of embedded) {
+                    addScaledA4Page(ep, (page, opts) => page.drawPage(ep, opts));
+                }
+            }
+        } catch (e) {
+            console.warn('[mergePdfs] Skip anexo no parseable:', e.message);
+        }
+    }
+    return Buffer.from(await merged.save());
+}
+
+async function fetchAnnexBuffers(annexDriveFileIds) {
+    if (!Array.isArray(annexDriveFileIds) || annexDriveFileIds.length === 0) return [];
+    const { getFileContent } = require('./driveService');
+    const buffers = await Promise.all(
+        annexDriveFileIds.map(id => getFileContent(id).catch(err => {
+            console.warn(`[fetchAnnexBuffers] Falló ${id}:`, err.message);
+            return null;
+        }))
+    );
+    return buffers.filter(b => b && b.length > 0);
+}
+
 module.exports = {
     getBrowser,
     imageToPdf,
-    htmlToPdf
+    htmlToPdf,
+    detectBufferType,
+    mergePdfs,
+    fetchAnnexBuffers,
 };

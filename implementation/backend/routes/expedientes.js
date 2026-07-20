@@ -11,6 +11,7 @@ const emailService = require('../services/emailService');
 const whatsappService = require('../services/whatsappService');
 const reformaUploadService = require('../services/reformaUploadService');
 const anexoFotograficoService = require('../services/anexoFotograficoService');
+const cifoService = require('../services/cifoService');
 const { applyStatus, stampSeguimientoTimestamps, markCertContact } = require('../services/seguimientoTracking');
 const { partnerNotifyTargets, normalizeContactos } = require('../services/notifyContacts');
 const { buildCertClienteData } = require('../services/certClienteData');
@@ -41,6 +42,10 @@ const PUBLIC_EXPEDIENTE_ROUTES = [
     // exige sesión interna O la clave interna del MCP.
     { method: 'POST', re: /^\/[^/]+\/anexo-fotografico\/generar\/?$/ },
     { method: 'GET',  re: /^\/[^/]+\/anexo-fotografico\/estado\/?$/ },
+    // CIFO (generar/estado): mismo patrón: su propio middleware (internalKeyOrAuth)
+    // exige sesión interna O la clave interna del MCP.
+    { method: 'POST', re: /^\/[^/]+\/cifo\/generar\/?$/ },
+    { method: 'GET',  re: /^\/[^/]+\/cifo\/estado\/?$/ },
     // Solicitud de documentación (info + envío WhatsApp/email): también accesible
     // por el MCP con la clave interna (flujo "revisar → pedir al cliente/instalador").
     { method: 'GET',  re: /^\/[^/]+\/solicitud-info\/?$/ },
@@ -1453,6 +1458,37 @@ router.get('/:id/anexo-fotografico/estado', internalKeyOrAuth, async (req, res) 
         });
     } catch (e) {
         console.error('[anexo-fotografico/estado]', e);
+        res.status(500).json({ ok: false, message: 'Error interno', error: e.message });
+    }
+});
+
+// ─── POST /api/expedientes/:id/cifo/generar ──────────────────────────────────
+// Genera el Certificado CIFO (RES060/RES093) con el MISMO builder que el modal
+// (features/expedientes/logic/cifoDoc.js), fusiona las fichas técnicas, lo guarda
+// en "6. ANEXOS CAE" y enlaza documentacion.cert_cifo_drive_link. Registra
+// incidencias LEVE por lo que falte (y GRAVE, sin generar, si es imposible).
+// Flujo AUTOMÁTICO (skill de Cowork vía MCP) y también accesible por el equipo.
+router.post('/:id/cifo/generar', internalKeyOrAuth, async (req, res) => {
+    try {
+        const force = req.body?.force === true;
+        const result = await cifoService.generarCifo(req.params.id, { force });
+        if (!result.ok) return res.status(422).json(result);
+        res.json(result);
+    } catch (e) {
+        console.error('[cifo/generar]', e);
+        res.status(500).json({ ok: false, message: 'Error interno al generar el CIFO', error: e.message });
+    }
+});
+
+// ─── GET /api/expedientes/:id/cifo/estado ─────────────────────────────────────
+// Estado del CIFO: tipología, si puede generarse, qué falta (bloqueante) y avisos.
+router.get('/:id/cifo/estado', internalKeyOrAuth, async (req, res) => {
+    try {
+        const result = await cifoService.getEstadoCifo(req.params.id);
+        if (!result.ok && result.message && !result.tipologia) return res.status(404).json(result);
+        res.json(result);
+    } catch (e) {
+        console.error('[cifo/estado]', e);
         res.status(500).json({ ok: false, message: 'Error interno', error: e.message });
     }
 });
