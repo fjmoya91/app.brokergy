@@ -1736,10 +1736,14 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                                         )}
                                     </div>
 
-                                    {/* Fechas del periodo CIFO (calculadas según facturas/certificados) */}
+                                    {/* Fechas del periodo CIFO: se rellenan solas (min/max de
+                                        facturas + fecha de pruebas del cert.), pero son EDITABLES.
+                                        Al editar se guarda un override manual (fecha_*_cifo_manual)
+                                        que manda sobre el cálculo automático — útil para
+                                        requerimientos. Vaciar el campo revierte al automático. */}
                                     <div className="flex items-center gap-3 shrink-0">
-                                        <InlineDate label="Fecha Inicio CIFO" value={local.fecha_inicio_cifo} />
-                                        <InlineDate label="Fecha Fin CIFO" value={local.fecha_fin_cifo} />
+                                        <InlineDate label="Fecha Inicio CIFO" value={local.fecha_inicio_cifo} onChange={v => commitField('fecha_inicio_cifo_manual', v)} />
+                                        <InlineDate label="Fecha Fin CIFO" value={local.fecha_fin_cifo} onChange={v => commitField('fecha_fin_cifo_manual', v)} />
                                     </div>
 
                                     <div className="flex items-center gap-6">
