@@ -878,16 +878,17 @@ app.post('/sse', requireApiKey, async (req, res) => {
         return;
     }
 
-    // Sesión expirada (server reiniciado) + petición que NO es initialize:
-    // devolver un error claro y accionable en lugar del críptico "Server not initialized".
+    // Sesión desconocida/expirada (p.ej. el server se reinició y perdió la sesión
+    // en memoria) + petición que NO es initialize: respondemos HTTP 404, que es lo
+    // que marca el spec de MCP (Streamable HTTP). Ante un 404 con Mcp-Session-Id,
+    // el cliente (claude.ai / Cowork) DEBE reiniciar la sesión automáticamente
+    // enviando un initialize nuevo — sin que el usuario tenga que reconectar a mano,
+    // y sin que el conector se quede en "no conectado". (Devolver 200+error rompía
+    // esa auto-recuperación; devolver 400 daba "Server not initialized".)
     if (sessionId && !sessions.has(sessionId) && body?.method !== 'initialize') {
-        return res.status(200).json({
+        return res.status(404).json({
             jsonrpc: '2.0',
-            error: {
-                code: -32001,
-                message: 'La sesión MCP expiró porque el servidor se reinició. ' +
-                    'Ve a claude.ai → Conectores → MCP BROKERGY → Desconectar → Conectar de nuevo.'
-            },
+            error: { code: -32001, message: 'Session not found' },
             id: body?.id ?? null
         });
     }
