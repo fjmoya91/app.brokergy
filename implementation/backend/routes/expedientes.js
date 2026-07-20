@@ -4596,14 +4596,7 @@ router.post('/:id/fichas-tecnicas/auto-copy', enforceAuth, async (req, res) => {
             return res.status(400).json({ error: 'no_ficha_in_db', model: modelLabel });
         }
 
-        // Extraer fileId del URL de Drive (formatos /d/<id>/ o ?id=<id>)
-        const m = String(equipo.ficha_tecnica).match(/\/d\/([a-zA-Z0-9_-]+)/) || String(equipo.ficha_tecnica).match(/[?&]id=([a-zA-Z0-9_-]+)/);
-        const sourceFileId = m?.[1];
-        if (!sourceFileId) {
-            return res.status(400).json({ error: 'bad_ficha_url', model: modelLabel, url: equipo.ficha_tecnica });
-        }
-
-        const { findSubfolderByName, createSubfolder, findFileByName, copyFile, deleteFile, getFileMetadata } = require('../services/driveService');
+        const { findSubfolderByName, createSubfolder, findFileByName, copyFile, deleteFile, getFileMetadata, saveFileToFolder } = require('../services/driveService');
 
         let ftFolderId = await findSubfolderByName(driveFolderId, '3. FICHAS TÉCNICAS Y CERTIFICACIONES');
         if (!ftFolderId) ftFolderId = await createSubfolder(driveFolderId, '3. FICHAS TÉCNICAS Y CERTIFICACIONES');
@@ -4626,7 +4619,48 @@ router.post('/:id/fichas-tecnicas/auto-copy', enforceAuth, async (req, res) => {
             await deleteFile(existingId);
         }
 
-        const result = await copyFile(sourceFileId, ftFolderId, fileName);
+        // La ficha del modelo puede vivir en Google Drive (copia Drive→Drive) o en
+        // una URL EXTERNA del fabricante/EPREL (descarga HTTP + subida a Drive).
+        // Antes solo se contemplaba Drive: cualquier URL externa (p.ej. la ficha de
+        // ACS "AEROMAX VM" en ayudasaerotermia.com) devolvía bad_ficha_url y la
+        // ficha NO se adjuntaba al CIFO aunque el modelo estuviera seleccionado.
+        const fichaUrl = String(equipo.ficha_tecnica);
+        const driveMatch = fichaUrl.match(/\/d\/([a-zA-Z0-9_-]+)/) || fichaUrl.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+        const sourceFileId = driveMatch?.[1];
+
+        let result;
+        if (sourceFileId) {
+            result = await copyFile(sourceFileId, ftFolderId, fileName);
+        } else if (/^https?:\/\//i.test(fichaUrl)) {
+            let dl;
+            try {
+                dl = await axios.get(fichaUrl, {
+                    responseType: 'arraybuffer',
+                    timeout: 20000,
+                    maxRedirects: 5,
+                    validateStatus: s => s >= 200 && s < 400,
+                    headers: {
+                        'User-Agent': 'Mozilla/5.0 (compatible; Brokergy/1.0; +https://app.brokergy.es)',
+                        'Accept': 'application/pdf,*/*'
+                    }
+                });
+            } catch (dlErr) {
+                console.error(`[FT auto-copy] descarga externa falló (${fichaUrl}): ${dlErr.message}`);
+                return res.status(400).json({ error: 'external_fetch_failed', model: modelLabel, url: fichaUrl });
+            }
+            const buf = Buffer.from(dl.data);
+            const ct = String(dl.headers['content-type'] || '').toLowerCase();
+            const isPdf = buf.slice(0, 5).toString('latin1') === '%PDF-' || ct.includes('application/pdf');
+            if (!isPdf) {
+                // p.ej. una URL a una página de producto HTML, no al PDF de la ficha.
+                console.warn(`[FT auto-copy] URL externa no es un PDF (${fichaUrl}, content-type="${ct}")`);
+                return res.status(400).json({ error: 'external_not_pdf', model: modelLabel, url: fichaUrl });
+            }
+            result = await saveFileToFolder(ftFolderId, fileName, 'application/pdf', buf);
+            if (result) console.log(`[FT auto-copy] ficha externa descargada y subida (${buf.length} bytes) ← ${fichaUrl}`);
+        } else {
+            return res.status(400).json({ error: 'bad_ficha_url', model: modelLabel, url: fichaUrl });
+        }
         if (!result) return res.status(500).json({ error: 'copy_failed' });
 
         const linkField = type === 'acs' ? 'ft_aerotermia_acs_link' : 'ft_aerotermia_cal_link';

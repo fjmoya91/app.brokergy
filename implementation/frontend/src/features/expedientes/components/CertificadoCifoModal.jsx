@@ -661,6 +661,8 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
             case 'no_model': return '⚠ Selecciona un modelo de aerotermia en Instalación';
             case 'no_ficha_in_db': return `⚠ El modelo "${item.missingModel || '?'}" no tiene ficha técnica en la BD`;
             case 'bad_ficha_url': return '⚠ La URL de la ficha del modelo no es válida';
+            case 'external_fetch_failed': return '⚠ No se pudo descargar la ficha externa del fabricante — súbela manualmente';
+            case 'external_not_pdf': return '⚠ La ficha del fabricante no es un PDF (es una web) — súbela manualmente';
             case 'model_not_found': return '⚠ El modelo no existe en la BD';
             case 'no_drive_folder': return '⚠ La oportunidad no tiene carpeta de Drive';
             case 'network_error': return '⚠ Error de red — reintenta';
