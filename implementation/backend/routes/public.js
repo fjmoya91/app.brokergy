@@ -1416,20 +1416,39 @@ router.post('/cifo-upload/:expedienteId', upload.single('cifo'), async (req, res
         if (!driveFolderId) return res.status(400).json({ error: 'El expediente no tiene carpeta Drive configurada' });
 
         const numexpte = exp.numero_expediente || expedienteId;
-        const fileName = `${numexpte} - Certificado_CIFO_fdo.pdf`;
-
-        // Subir a "6. ANEXOS CAE"
         const subfolderId = await driveService.getOrCreateSubfolder(driveFolderId, '6. ANEXOS CAE');
+        const currentDoc = exp.documentacion || {};
+
+        // ── VERSIONADO (requerimientos → re-firma) ────────────────────────────
+        // Si YA había un CIFO firmado, se ARCHIVA el anterior en la subcarpeta "OLD"
+        // y el nuevo se nombra `_rev{N}_fdo` (N = nº de versión). La 1ª firma va sin
+        // sufijo (`_fdo`). Cubre: 1ª firma, re-firma por requerimiento y sucesivas.
+        const prevSignedLink = currentDoc.cert_cifo_signed_link;
+        const prevRev = currentDoc.cert_cifo_rev || (prevSignedLink ? 1 : 0);
+        let rev, fileName;
+        if (prevSignedLink) {
+            rev = prevRev + 1;
+            fileName = `${numexpte} - Certificado_CIFO_rev${rev}_fdo.pdf`;
+            const prevId = (String(prevSignedLink).match(/[-\w]{25,}/) || [])[0];
+            if (prevId) {
+                const prevName = `${numexpte} - Certificado_CIFO${prevRev > 1 ? `_rev${prevRev}` : ''}_fdo.pdf`;
+                try { await driveService.archiveExistingToOld(subfolderId, prevId, prevName); }
+                catch (e) { console.warn('[CIFO upload] no se pudo archivar el firmado anterior a OLD:', e.message); }
+            }
+        } else {
+            rev = 1;
+            fileName = `${numexpte} - Certificado_CIFO_fdo.pdf`;
+        }
+
         const driveFile = await driveService.saveFileToFolder(subfolderId, fileName, req.file.mimetype, req.file.buffer);
         const fileLink = driveFile?.link || null;
 
-        // Guardar link en cert_cifo_signed_link (mismo campo que usa DocumentacionModule)
-        const currentDoc = exp.documentacion || {};
+        // Guardar link + versión (mismo campo cert_cifo_signed_link que usa DocumentacionModule)
         await supabase.from('expedientes').update({
-            documentacion: { ...currentDoc, cert_cifo_signed_link: fileLink }
+            documentacion: { ...currentDoc, cert_cifo_signed_link: fileLink, cert_cifo_rev: rev }
         }).eq('id', expedienteId);
 
-        res.json({ success: true, fileLink });
+        res.json({ success: true, fileLink, rev });
 
         // Notificaciones en background
         setImmediate(async () => {
