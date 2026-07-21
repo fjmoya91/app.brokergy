@@ -4,6 +4,8 @@
  * Generadores compartidos para Anexo I y Anexo de Cesión.
  */
 
+import { formatSeries, countUnidades } from '../logic/aerotermiaUnits.js';
+
 // Node-safe: este módulo también se importa server-side (cifoService vía cifoDoc).
 // En Node no existen import.meta.env ni window, así que se accede con guardas.
 const APP_URL = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_APP_URL)
@@ -318,10 +320,24 @@ export const buildAnexoIHtml = (expediente, results, states = {}, isForPdf = tru
     const hasAcs = inst.cambio_acs != null
         ? !!(inst.cambio_acs === true || inst.cambio_acs === 'si')
         : !!(opInputs.changeAcs === true || opInputs.changeAcs === 'si' || opInputs.incluir_acs === true || opInputs.incluir_acs === 'si');
-    const snExt = inst.aerotermia_cal?.numero_serie || '___________';
-    const snInt = inst.misma_aerotermia_acs ? snExt : (inst.aerotermia_acs?.numero_serie || '___________');
+    // Nº de serie de los equipos. En instalaciones EN CASCADA hay varias unidades
+    // y TODAS deben figurar aquí (la casilla oficial dice "de los equipos", en
+    // plural). formatSeries numera las unidades cuando hay más de una.
+    const nUdsCal = countUnidades(inst.aerotermia_cal);
+    const nUdsAcs = inst.misma_aerotermia_acs ? nUdsCal : countUnidades(inst.aerotermia_acs);
+    const snExt = formatSeries(inst.aerotermia_cal, { dash: '___________', prefijo: '' });
+    const snInt = inst.misma_aerotermia_acs
+        ? snExt
+        : formatSeries(inst.aerotermia_acs, { dash: '___________', prefijo: '' });
     const refCatastral = instAddr.refCatastral || '___________';
-    const serialsHtml = hasAcs ? `Ud. exterior: ${snExt}<br>Ud. interior: ${snInt}` : `Ud. exterior: ${snExt}`;
+    // Con una sola unidad la línea queda igual que siempre ("Ud. exterior: XXX").
+    // Con varias, el rótulo lleva el recuento y las series se listan numeradas debajo.
+    const bloqueSeries = (label, plural, n, valor) =>
+        n > 1 ? `${plural} (${n}):<br>${valor}` : `${label}: ${valor}`;
+    const serialsHtml = [
+        bloqueSeries('Ud. exterior', 'Uds. exteriores', nUdsCal, snExt),
+        ...(hasAcs ? [bloqueSeries('Ud. interior', 'Uds. interiores', nUdsAcs, snInt)] : []),
+    ].join('<br>');
     const nombrePropietario = [cliente.nombre_razon_social, cliente.apellidos].filter(Boolean).join(' ') || '___________';
     const nif = cliente.dni_nie || cliente.dni || '___________';
     const domicilio = [cliente.direccion, cliente.codigo_postal, cliente.municipio].filter(Boolean).join(', ') || '___________';

@@ -21,6 +21,7 @@ import { BOILER_EFFICIENCIES } from '../../calculator/logic/calculation.js';
 import { buildInstalacionAddress } from '../utils/docGenerators.js';
 import { calcCifo } from './calcCifo.js';
 import { EMITTER_OPTIONS, getEmitterTemp } from './cifoDoc.js';
+import { formatMarcas, formatModelos, formatSeries, countUnidades } from './aerotermiaUnits.js';
 
 const DOC_WIDTH = '794px';
 
@@ -238,10 +239,13 @@ export function deriveRes080Data({ expediente, results, parseHuecosFromXml }) {
     const calExFuel = calEffEntry.id === 'electric' ? 'Electricidad'
         : calEffEntry.id !== 'default' ? calEffEntry.label.split(',')[0].trim()
         : (inst.caldera_antigua_cal?.combustible || '—');
-    const calNuBrand = inst.aerotermia_cal?.marca || '—';
-    const calNuMod = inst.aerotermia_cal?.modelo || '—';
+    // Equipo(s) nuevo(s): puede haber varios en CASCADA. Modelo agrupado ("(×3)"),
+    // números de serie listados TODOS. Ver logic/aerotermiaUnits.js.
+    const calNuBrand = formatMarcas(inst.aerotermia_cal);
+    const calNuMod = formatModelos(inst.aerotermia_cal);
     const calNuScop = inst.aerotermia_cal?.scop || '—';
-    const calNuSerieOut = inst.aerotermia_cal?.numero_serie || '—';
+    const calNuSerieOut = formatSeries(inst.aerotermia_cal);
+    const calNuUds = countUnidades(inst.aerotermia_cal);
 
     const acsExBrand = inst.caldera_antigua_acs?.marca || calExBrand;
     const acsExMod = inst.caldera_antigua_acs?.modelo || calExMod;
@@ -253,10 +257,13 @@ export function deriveRes080Data({ expediente, results, parseHuecosFromXml }) {
         : (inst.caldera_antigua_acs?.combustible || calExFuel);
     const acsSeActua = inst.cambio_acs !== false;
     const sameAero = !!inst.misma_aerotermia_acs;
-    const acsNuBrand = sameAero ? calNuBrand : (inst.aerotermia_acs?.marca || '—');
-    const acsNuMod = sameAero ? calNuMod : (inst.aerotermia_acs?.modelo || '—');
+    const acsNuBrand = sameAero ? calNuBrand : formatMarcas(inst.aerotermia_acs);
+    const acsNuMod = sameAero ? calNuMod : formatModelos(inst.aerotermia_acs);
     const acsNuScop = sameAero ? calNuScop : (inst.aerotermia_acs?.scop || '—');
-    const acsNuSerie = sameAero ? 'Misma unidad' : (inst.aerotermia_acs?.numero_serie || '—');
+    const acsNuSerie = sameAero
+        ? (calNuUds > 1 ? 'Mismas unidades' : 'Misma unidad')
+        : formatSeries(inst.aerotermia_acs);
+    const acsNuUds = sameAero ? calNuUds : countUnidades(inst.aerotermia_acs);
 
     // ── SCOP ──
     const zoneStr = (op.datos_calculo?.zona || 'D3').toUpperCase();
@@ -308,8 +315,8 @@ export function deriveRes080Data({ expediente, results, parseHuecosFromXml }) {
         fields, env, inst, cli, results,
         numExpte, locCA, locDir, locCat, utmX, utmY, clientFull, clientDir,
         aeTotal, ef_i, ef_f,
-        calExBrand, calExMod, calExSerie, calExTipoEq, calExFuel, calNuBrand, calNuMod, calNuScop, calNuSerieOut,
-        acsSeActua, acsExBrand, acsExMod, acsExSerie, acsExTipoEq, acsExFuel, acsNuBrand, acsNuMod, acsNuScop, acsNuSerie,
+        calExBrand, calExMod, calExSerie, calExTipoEq, calExFuel, calNuBrand, calNuMod, calNuScop, calNuSerieOut, calNuUds,
+        acsSeActua, acsExBrand, acsExMod, acsExSerie, acsExTipoEq, acsExFuel, acsNuBrand, acsNuMod, acsNuScop, acsNuSerie, acsNuUds,
         sameAero, tieneAcs,
         zoneStr, zoneLabel, scopCalRaw, scopCalStr, scopAcsRaw, scopAcsStr, emiLabel, metodoCal, metodoAcs,
         changedHuecos, changedOpacos, seSustituyen,
@@ -331,8 +338,8 @@ export function buildRes080Html({ data, appUrl, attachments = [], isForPdf = tru
         fields, env, inst, cli, results,
         numExpte, locCA, locDir, locCat, utmX, utmY, clientFull, clientDir,
         aeTotal, ef_i, ef_f,
-        calExBrand, calExMod, calExSerie, calExTipoEq, calExFuel, calNuBrand, calNuMod, calNuScop, calNuSerieOut,
-        acsSeActua, acsExBrand, acsExMod, acsExSerie, acsExTipoEq, acsExFuel, acsNuBrand, acsNuMod, acsNuScop, acsNuSerie,
+        calExBrand, calExMod, calExSerie, calExTipoEq, calExFuel, calNuBrand, calNuMod, calNuScop, calNuSerieOut, calNuUds,
+        acsSeActua, acsExBrand, acsExMod, acsExSerie, acsExTipoEq, acsExFuel, acsNuBrand, acsNuMod, acsNuScop, acsNuSerie, acsNuUds,
         sameAero, tieneAcs,
         zoneStr, zoneLabel, scopCalRaw, scopCalStr, scopAcsRaw, scopAcsStr, emiLabel, metodoCal, metodoAcs,
         changedHuecos, changedOpacos, seSustituyen,
@@ -506,22 +513,24 @@ export function buildRes080Html({ data, appUrl, attachments = [], isForPdf = tru
 
             ${subLabel('Instalación de calefacción')}
             ${cmpBox(cmpHead(), `
-                ${cmpRow('Tipo de equipo', calExTipoEq, 'Bomba de calor (aerotermia)')}
+                ${cmpRow('Tipo de equipo', calExTipoEq, calNuUds > 1 ? 'Bombas de calor en cascada (aerotermia)' : 'Bomba de calor (aerotermia)')}
                 ${cmpRow('Marca', calExBrand, calNuBrand)}
                 ${cmpRow('Modelo', calExMod, calNuMod)}
+                ${calNuUds > 1 ? cmpRow('Nº de equipos instalados', '—', String(calNuUds)) : ''}
                 ${cmpRow('Combustible', calExFuel, 'Electricidad')}
-                ${cmpRow('Nº serie unidad exterior', calExSerie, calNuSerieOut)}
+                ${cmpRow(calNuUds > 1 ? 'Nº serie unidades exteriores' : 'Nº serie unidad exterior', calExSerie, calNuSerieOut)}
                 ${cmpRow('SCOP / Rendimiento', 'Según CEE inicial <sup>(1)</sup>', `${calNuScop} <sup>(2)</sup>`)}
             `)}
 
             ${subLabel('Agua caliente sanitaria (ACS)', '#6E6E66', '20px')}
             ${acsSeActua
                 ? cmpBox(cmpHead(), `
-                    ${cmpRow('Tipo de equipo', acsExTipoEq, 'Bomba de calor')}
+                    ${cmpRow('Tipo de equipo', acsExTipoEq, acsNuUds > 1 ? 'Bombas de calor en cascada' : 'Bomba de calor')}
                     ${cmpRow('Marca', acsExBrand, acsNuBrand)}
                     ${cmpRow('Modelo', acsExMod, acsNuMod)}
+                    ${acsNuUds > 1 ? cmpRow('Nº de equipos instalados', '—', String(acsNuUds)) : ''}
                     ${cmpRow('Combustible', acsExFuel, 'Electricidad')}
-                    ${cmpRow('Nº serie equipo ACS', acsExSerie, acsNuSerie)}
+                    ${cmpRow(acsNuUds > 1 ? 'Nº serie equipos ACS' : 'Nº serie equipo ACS', acsExSerie, acsNuSerie)}
                     ${cmpRow('SCOP / Rendimiento', 'Según CEE inicial <sup>(1)</sup>', `${acsNuScop} <sup>(3)</sup>`)}
                 `)
                 : `<div style="border:1px solid #E9E9E1;border-radius:16px;padding:28px;text-align:center;font-size:13px;color:#6E6E66;font-weight:700;">No se actúa sobre el ACS · No aplica</div>`}

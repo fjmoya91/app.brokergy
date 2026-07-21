@@ -2,6 +2,7 @@ import React, { useState, useCallback } from 'react';
 import axios from 'axios';
 import { useAuth } from '../../../context/AuthContext';
 import { toTitleCase } from '../logic/certMessages';
+import { unidadesSinSerie, countUnidades } from '../logic/aerotermiaUnits';
 import { AnexoIModal } from './AnexoIModal';
 import { AnexoCesionModal } from './AnexoCesionModal';
 import { FichaRes060Modal } from './FichaRes060Modal';
@@ -655,13 +656,21 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
 
         if (docType === 'anexo1') {
             if (!isPresent(op.datos_calculo?.inputs?.rc || cli.referencia_catastral || inst.ref_catastral)) missing.push('Referencia Catastral');
-            if (!isPresent(inst.aerotermia_cal?.numero_serie)) missing.push('Número de Serie Ud. Exterior');
-            
+            // En cascada el Anexo I lista el nº de serie de TODAS las unidades:
+            // ninguna puede quedar sin él.
+            const nCal = countUnidades(inst.aerotermia_cal);
+            for (const n of unidadesSinSerie(inst.aerotermia_cal)) {
+                missing.push(nCal > 1 ? `Número de Serie Ud. Exterior — equipo ${n}` : 'Número de Serie Ud. Exterior');
+            }
+
             const hasAcs = inst.cambio_acs != null
                 ? !!(inst.cambio_acs === true || inst.cambio_acs === 'si')
                 : !!(op.datos_calculo?.inputs?.changeAcs === true || op.datos_calculo?.inputs?.incluir_acs === true);
-            if (hasAcs && !isPresent(inst.aerotermia_acs?.numero_serie) && !inst.misma_aerotermia_acs) {
-                missing.push('Número de Serie Ud. Interior (ACS)');
+            if (hasAcs && !inst.misma_aerotermia_acs) {
+                const nAcs = countUnidades(inst.aerotermia_acs);
+                for (const n of unidadesSinSerie(inst.aerotermia_acs)) {
+                    missing.push(nAcs > 1 ? `Número de Serie Ud. Interior (ACS) — equipo ${n}` : 'Número de Serie Ud. Interior (ACS)');
+                }
             }
             if (!isPresent(cli.tlf || cli.telefono)) missing.push('Teléfono Cliente');
             if (!isPresent(cli.email)) missing.push('Email Cliente');
@@ -703,7 +712,11 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
             // Equipo calefacción
             if (!isPresent(cal.marca)) missing.push('Marca Aerotermia Calefacción (Instalación)');
             if (!isPresent(cal.modelo)) missing.push('Modelo Aerotermia Calefacción (Instalación)');
-            if (!isPresent(cal.numero_serie)) missing.push('Nº Serie Aerotermia Calefacción (Instalación)');
+            for (const n of unidadesSinSerie(cal)) {
+                missing.push(countUnidades(cal) > 1
+                    ? `Nº Serie Aerotermia Calefacción — equipo ${n} (Instalación)`
+                    : 'Nº Serie Aerotermia Calefacción (Instalación)');
+            }
             if (!isPresent(cal.potencia)) missing.push('Potencia Aerotermia Calefacción (Instalación)');
 
             // Equipo ACS (solo si hay cambio de ACS)
@@ -711,7 +724,11 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
             if (hasAcs) {
                 if (!isPresent(acs.marca)) missing.push('Marca Aerotermia ACS (Instalación)');
                 if (!isPresent(acs.modelo)) missing.push('Modelo Aerotermia ACS (Instalación)');
-                if (!isPresent(acs.numero_serie)) missing.push('Nº Serie Aerotermia ACS (Instalación)');
+                for (const n of unidadesSinSerie(acs)) {
+                    missing.push(countUnidades(acs) > 1
+                        ? `Nº Serie Aerotermia ACS — equipo ${n} (Instalación)`
+                        : 'Nº Serie Aerotermia ACS (Instalación)');
+                }
                 if (!isPresent(acs.potencia)) missing.push('Potencia Aerotermia ACS (Instalación)');
             }
 

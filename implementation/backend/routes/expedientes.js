@@ -7,6 +7,7 @@ const { enforceAuth, adminOnly, staffOnly, internalOnly } = require('../middlewa
 const { stripDatosCalculoMargin } = require('../utils/financialScrub');
 const { getCoordinatesByRC } = require('../services/catastroService');
 const { normalizeData } = require('../utils/normalization');
+const { unidadesSinSerie, countUnidades: countUnidadesAero } = require('../utils/aerotermiaUnits');
 const emailService = require('../services/emailService');
 const whatsappService = require('../services/whatsappService');
 const reformaUploadService = require('../services/reformaUploadService');
@@ -2683,7 +2684,13 @@ function validateMemoriaRite({ exp, cli, op, pres }) {
     // Equipo calefacción
     if (!P(cal.marca)) missing.push('Marca Aerotermia Calefacción (Instalación)');
     if (!P(cal.modelo)) missing.push('Modelo Aerotermia Calefacción (Instalación)');
-    if (!P(cal.numero_serie)) missing.push('Nº Serie Aerotermia Calefacción (Instalación)');
+    // En cascada, TODAS las unidades deben tener nº de serie: la memoria RITE los
+    // concatena en una única casilla y ninguno puede faltar.
+    for (const n of unidadesSinSerie(cal)) {
+        missing.push(countUnidadesAero(cal) > 1
+            ? `Nº Serie Aerotermia Calefacción — equipo ${n} (Instalación)`
+            : 'Nº Serie Aerotermia Calefacción (Instalación)');
+    }
     if (!P(cal.potencia)) missing.push('Potencia Aerotermia Calefacción (Instalación)');
 
     // Equipo ACS (solo si hay cambio de ACS)
@@ -2691,7 +2698,11 @@ function validateMemoriaRite({ exp, cli, op, pres }) {
     if (hasAcs) {
         if (!P(acs.marca)) missing.push('Marca Aerotermia ACS (Instalación)');
         if (!P(acs.modelo)) missing.push('Modelo Aerotermia ACS (Instalación)');
-        if (!P(acs.numero_serie)) missing.push('Nº Serie Aerotermia ACS (Instalación)');
+        for (const n of unidadesSinSerie(acs)) {
+            missing.push(countUnidadesAero(acs) > 1
+                ? `Nº Serie Aerotermia ACS — equipo ${n} (Instalación)`
+                : 'Nº Serie Aerotermia ACS (Instalación)');
+        }
         if (!P(acs.potencia)) missing.push('Potencia Aerotermia ACS (Instalación)');
     }
 

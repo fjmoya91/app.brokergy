@@ -93,14 +93,22 @@ def normalizar(raw: dict, fecha_firma: str = None) -> dict:
     # Etiqueta del emisor (lo marcado en la app) para la tabla de cargas térmicas.
     emisor = "SUELO RADIANTE" if es_suelo else "RADIADORES"
 
-    pot_cal = _f(cal.get("potencia"))
+    # ── Instalación EN CASCADA (varias bombas de calor) ──────────────────────
+    # `aerotermia_cal.equipos_extra` lleva las unidades 2..N. La plantilla oficial
+    # de la JCCM tiene UNA sola casilla de marca/modelo/nº de serie/potencia, así
+    # que se concatena: el modelo con su recuento "(x3)", los números de serie
+    # separados por " / " (deben figurar TODOS) y la potencia como suma total.
+    cal_uds = _unidades(cal)
+    acs_uds = _unidades(acs)
+
+    pot_cal = sum(_f(u.get("potencia")) for u in cal_uds) or _f(cal.get("potencia"))
     # El ACS solo cuenta como equipo propio (potencia + acumulación aparte) si el
     # equipo de ACS es DISTINTO al de calefacción. Si es el mismo modelo, es una
     # única bomba de calor que da calor+ACS → no se rellena potencia/volumen ACS.
     _cal_mod = (cal.get("modelo") or "").strip().upper()
     _acs_mod = (acs.get("modelo") or "").strip().upper()
     acs_distinto = bool(_acs_mod) and _acs_mod != _cal_mod
-    pot_acs = _f(acs.get("potencia")) if acs_distinto else 0.0
+    pot_acs = (sum(_f(u.get("potencia")) for u in acs_uds) or _f(acs.get("potencia"))) if acs_distinto else 0.0
 
     # FIRMANTE del RITE (memoria + certificado). Si el instalador marca "técnico
     # firmante distinto", el que firma el RITE es el TÉCNICO habilitado (con su
@@ -166,8 +174,9 @@ def normalizar(raw: dict, fecha_firma: str = None) -> dict:
                    "climatizacion": es_suelo},
         "tipo": {"nueva": not exp.get("is_reforma"), "reforma": bool(exp.get("is_reforma")) or bool(inst.get("caldera_antigua_cal"))},
         "generador_calor": {
-            "marca": cal.get("marca", ""), "modelo": cal.get("modelo", ""),
-            "num_serie": cal.get("numero_serie", ""),
+            "marca": _marcas(cal_uds) or cal.get("marca", ""),
+            "modelo": _modelos(cal_uds) or cal.get("modelo", ""),
+            "num_serie": _series(cal_uds) or cal.get("numero_serie", ""),
             "potencia_cal": pot_cal,
             "potencia_acs": (pot_acs if acs_distinto else ""),
             "acumulacion_l": (_acumulacion(acs) if acs_distinto else ""),
@@ -204,6 +213,57 @@ def _f(v):
         return float(v)
     except (TypeError, ValueError):
         return 0.0
+
+
+# ── Instalación en cascada (varias bombas de calor) ─────────────────────────
+# Espejo en Python de frontend/src/features/expedientes/logic/aerotermiaUnits.js.
+# La unidad 1 son los campos sueltos del nodo; las 2..N viven en `equipos_extra`.
+
+def _unidades(aero):
+    """[unidad1, *extras] descartando las que no tienen ningún dato real."""
+    if not isinstance(aero, dict):
+        return []
+    extras = aero.get("equipos_extra") or []
+    if not isinstance(extras, list):
+        extras = []
+    u1 = {k: v for k, v in aero.items() if k != "equipos_extra"}
+    return [u for u in [u1, *extras]
+            if isinstance(u, dict) and (u.get("marca") or u.get("modelo")
+                                        or u.get("numero_serie") or u.get("aerotermia_db_id"))]
+
+
+def _marcas(uds):
+    """Marcas distintas unidas por " + "."""
+    out = []
+    for u in uds:
+        m = (u.get("marca") or "").strip()
+        if m and m not in out:
+            out.append(m)
+    return " + ".join(out)
+
+
+def _modelos(uds):
+    """Modelos agrupados con recuento: "SHP M PRO 012 (x3)". La casilla de la
+    plantilla es única, así que se compacta sin perder cuántos equipos hay."""
+    grupos = []
+    for u in uds:
+        label = (u.get("modelo") or u.get("modelo_conjunto") or "").strip()
+        if not label:
+            continue
+        for g in grupos:
+            if g[0] == label:
+                g[1] += 1
+                break
+        else:
+            grupos.append([label, 1])
+    return " + ".join(f"{lbl} (x{n})" if n > 1 else lbl for lbl, n in grupos)
+
+
+def _series(uds):
+    """TODOS los números de serie, separados por " / ". Nunca se agrupan: cada
+    equipo instalado debe quedar identificado en la memoria RITE."""
+    series = [str(u.get("numero_serie") or "").strip() for u in uds]
+    return " / ".join(s for s in series if s)
 
 
 def _refrigerante(modelo):

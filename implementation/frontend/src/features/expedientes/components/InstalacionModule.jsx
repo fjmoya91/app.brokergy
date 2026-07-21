@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { BOILER_EFFICIENCIES, getScopFromModel, getScopAcsFromModel, calculateHybridization } from '../../calculator/logic/calculation';
 import { PROVINCE_CODE_TO_CCAA, PROVINCE_CODE_TO_NAME } from '../utils/docGenerators';
+import { withScopAplicado, cloneAero, potenciaTotal, countUnidades, scopPropioUnidad1, scopAplicado } from '../logic/aerotermiaUnits';
 
 const EMITTER_OPTIONS = [
     { value: 'suelo_radiante',          label: 'Suelo Radiante (35°C)',           temp: 35 },
@@ -235,8 +236,71 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
     const selectedModel = availableModels.find(m => String(m.id) === String(data?.aerotermia_db_id));
     const showLitros = isAcs && !!selectedModel?.deposito_acs_incluido;
 
+    // ── Instalación EN CASCADA ────────────────────────────────────────────────
+    // `data.equipos_extra` guarda las unidades 2..N. Todo cambio pasa por emit(),
+    // que recalcula el SCOP APLICADO (el MENOR de las unidades) y lo deja en
+    // `data.scop` — el campo que leen el CIFO, las fichas RES y el cálculo de
+    // ahorro. Ver logic/aerotermiaUnits.js.
+    const emit = (next) => onChange(withScopAplicado(next));
+    const extras = Array.isArray(data?.equipos_extra) ? data.equipos_extra : [];
+    const nUnidades = countUnidades(data);
+    const scopPropio = scopPropioUnidad1(data);
+    const scopMin = scopAplicado(data);
+
+    // Añadir equipo: hereda marca/modelo/SCOP de la unidad 1 (el caso normal en
+    // cascada es repetir el mismo equipo) y deja el nº de serie vacío, que es
+    // siempre distinto y obligatorio en CIFO / Anexo I / memoria RITE.
+    const handleAddEquipo = () => {
+        emit({
+            ...data,
+            equipos_extra: [...extras, {
+                aerotermia_db_id: data?.aerotermia_db_id ?? null,
+                marca: data?.marca || '',
+                modelo: data?.modelo || '',
+                modelo_ud_exterior: data?.modelo_ud_exterior || '',
+                modelo_ud_interior: data?.modelo_ud_interior || '',
+                modelo_conjunto: data?.modelo_conjunto || '',
+                scop: scopPropio ?? null,
+                potencia: data?.potencia ?? 0,
+                metodo_scop: data?.metodo_scop || 'ficha',
+                numero_serie: '',
+            }],
+        });
+    };
+
+    const handleRemoveEquipo = (idx) => {
+        emit({ ...data, equipos_extra: extras.filter((_, i) => i !== idx) });
+    };
+
+    const handleExtraChange = (idx, patch) => {
+        emit({ ...data, equipos_extra: extras.map((u, i) => (i === idx ? { ...u, ...patch } : u)) });
+    };
+
+    // Cambio de modelo en una unidad extra: mismo lookup en el catálogo que la
+    // unidad 1, para que arrastre ud. exterior, SCOP y potencia reales.
+    const handleExtraModeloChange = (idx, idStr) => {
+        const found = availableModels.find(m => String(m.id) === String(idStr));
+        if (!found) {
+            handleExtraChange(idx, { aerotermia_db_id: null, modelo: '', modelo_ud_exterior: '', modelo_ud_interior: '', modelo_conjunto: '', scop: null });
+            return;
+        }
+        const method = extras[idx]?.metodo_scop || data?.metodo_scop || 'ficha';
+        const scop = isAcs
+            ? getScopAcsFromModel(found, found.zona_climatica || 'D3', method)
+            : getScopFromModel(found, found.zona_climatica || 'D3', getEmitterTemp(tipoEmisor), method);
+        handleExtraChange(idx, {
+            aerotermia_db_id: found.id,
+            modelo: found.modelo_comercial || found.modelo_conjunto || found.modelo_exterior || '',
+            modelo_ud_exterior: found.modelo_ud_exterior || '',
+            modelo_ud_interior: found.modelo_ud_interior || '',
+            modelo_conjunto: found.modelo_conjunto || '',
+            potencia: found.potencia_calefaccion || found.potencia_nominal_35 || 0,
+            scop,
+        });
+    };
+
     const handleMarcaChange = (brand) => {
-        onChange({ ...data, marca: brand, aerotermia_db_id: null, modelo: '', modelo_ud_exterior: '', modelo_ud_interior: '', modelo_conjunto: '', scop: null, metodo_scop: 'ficha' });
+        emit({ ...data, marca: brand, aerotermia_db_id: null, modelo: '', modelo_ud_exterior: '', modelo_ud_interior: '', modelo_conjunto: '', scop: null, metodo_scop: 'ficha' });
     };
 
     const handleModeloChange = (idStr) => {
@@ -253,7 +317,7 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
                 scop = getScopFromModel(found, found.zona_climatica || 'D3', temp, method);
             }
             
-            onChange({
+            emit({
                 ...data,
                 aerotermia_db_id: found.id,
                 modelo: found.modelo_comercial || found.modelo_conjunto || found.modelo_exterior || '',
@@ -274,7 +338,7 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
                 ...(isAcs ? { litros: found.deposito_acs_incluido ? (found.litros_acs ?? '') : null } : {})
             });
         } else {
-            onChange({ ...data, aerotermia_db_id: null, modelo: '', modelo_ud_exterior: '', modelo_ud_interior: '', modelo_conjunto: '', scop: null });
+            emit({ ...data, aerotermia_db_id: null, modelo: '', modelo_ud_exterior: '', modelo_ud_interior: '', modelo_conjunto: '', scop: null });
         }
     };
 
@@ -288,7 +352,7 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
                 const temp = getEmitterTemp(tipoEmisor);
                 scop = getScopFromModel(found, found.zona_climatica || 'D3', temp, method);
             }
-            onChange({
+            emit({
                 ...data,
                 metodo_scop: method,
                 scop,
@@ -301,7 +365,7 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
                 url_ficha: found.ficha_tecnica ?? data?.url_ficha ?? null,
             });
         } else {
-            onChange({ ...data, metodo_scop: method });
+            emit({ ...data, metodo_scop: method });
         }
     };
 
@@ -311,7 +375,7 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
     // equipo nuevo de ACS como "Acumulador ACS" con nº de serie "No aplica".
     const handleAcumuladorToggle = (val) => {
         if (!val) {
-            onChange({ ...data, es_acumulador: false });
+            emit({ ...data, es_acumulador: false });
             return;
         }
         // Activar → forzar método Anexo VI y recalcular SCOP si hay modelo elegido
@@ -319,7 +383,7 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
         const scop = found
             ? getScopAcsFromModel(found, found.zona_climatica || 'D3', 'independiente')
             : data?.scop;
-        onChange({
+        emit({
             ...data,
             es_acumulador: true,
             metodo_scop: 'independiente',
@@ -373,7 +437,7 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
                         <input
                             type="text"
                             value={data?.modelo_ud_exterior ?? ''}
-                            onChange={e => onChange({ ...data, modelo_ud_exterior: e.target.value.toUpperCase() })}
+                            onChange={e => emit({ ...data, modelo_ud_exterior: e.target.value.toUpperCase() })}
                             readOnly={readOnly}
                             placeholder="Ej: WH-UD16HE5"
                             className={`w-full bg-bkg-elevated border rounded-lg px-3 py-2 text-white text-sm font-mono tracking-wide focus:outline-none ${
@@ -411,7 +475,7 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
                 <input
                     type="text"
                     value={isAcs && data?.es_acumulador ? '' : (data?.numero_serie ?? '')}
-                    onChange={v => onChange({ ...data, numero_serie: v.target.value })}
+                    onChange={v => emit({ ...data, numero_serie: v.target.value })}
                     readOnly={readOnly || (isAcs && data?.es_acumulador)}
                     placeholder={isAcs && data?.es_acumulador ? 'No aplica (acumulador ACS)' : ''}
                     className={`w-full bg-bkg-elevated border rounded-lg px-3 py-2 text-white text-sm focus:outline-none ${
@@ -506,16 +570,140 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
                     <input
                         type="number"
                         step="0.01"
-                        value={data?.scop ?? ''}
-                        onChange={e => onChange({ ...data, scop: e.target.value })}
+                        value={scopPropio ?? ''}
+                        onChange={e => emit({ ...data, scop: e.target.value, scop_propio: e.target.value })}
                         readOnly={readOnly}
                         className={`w-full bg-bkg-elevated border rounded-lg px-3 py-2 text-white text-sm focus:outline-none ${
                             readOnly ? 'border-white/5 text-white/60 cursor-not-allowed' : 'border-white/10 focus:border-brand/50'
                         }`}
                         placeholder="Se obtiene del modelo"
                     />
+                    {/* En cascada el SCOP que entra en la fórmula de ahorro es el MENOR
+                        de todas las unidades (criterio conservador: nunca sobreestima
+                        el ahorro declarado). Se recalcula solo. */}
+                    {nUnidades > 1 && (
+                        <div className="flex items-center justify-between gap-2 bg-brand/[0.06] border border-brand/20 rounded-lg px-3 py-2">
+                            <span className="text-[10px] font-black text-brand uppercase tracking-widest">
+                                SCOP aplicado · el menor de {nUnidades} uds.
+                            </span>
+                            <span className="text-sm font-mono font-bold text-white">
+                                {scopMin != null ? Number(scopMin).toFixed(2).replace('.', ',') : '—'}
+                            </span>
+                        </div>
+                    )}
                 </div>
             </div>
+
+            {/* ── EQUIPOS ADICIONALES (instalación en cascada) ────────────────── */}
+            {extras.map((u, idx) => (
+                <div key={idx} className="bg-bkg-elevated/40 rounded-xl p-3 border border-white/10 space-y-3">
+                    <div className="flex items-center justify-between gap-2">
+                        <span className="text-[10px] font-black text-white/50 uppercase tracking-widest">
+                            Equipo {idx + 2} · cascada
+                        </span>
+                        {!readOnly && (
+                            <button
+                                type="button"
+                                onClick={() => handleRemoveEquipo(idx)}
+                                className="text-[10px] font-bold uppercase tracking-wider text-red-400/70 hover:text-red-400 transition-colors"
+                            >
+                                ✕ Quitar
+                            </button>
+                        )}
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <SearchableSelect
+                            label="Marca"
+                            options={brandOptions}
+                            value={u?.marca ?? ''}
+                            onChange={(brand) => handleExtraChange(idx, { marca: brand, aerotermia_db_id: null, modelo: '', modelo_ud_exterior: '', modelo_ud_interior: '', modelo_conjunto: '', scop: null })}
+                            disabled={readOnly}
+                            searchPlaceholder="Buscar marca..."
+                        />
+                        <SearchableSelect
+                            label="Modelo"
+                            options={(u?.marca ? (modelosPorMarca[u.marca.toUpperCase()] || []) : []).map(m => ({
+                                value: String(m.id),
+                                label: `${m.modelo_comercial || m.modelo_conjunto || ''}${m.potencia_calefaccion ? ` · ${m.potencia_calefaccion} kW` : ''}`,
+                                sublabel: [m.modelo_ud_exterior ? `Ud. ext: ${m.modelo_ud_exterior}` : '', m.modelo_ud_interior ? `int: ${m.modelo_ud_interior}` : ''].filter(Boolean).join('  ·  '),
+                            }))}
+                            value={String(u?.aerotermia_db_id ?? '')}
+                            onChange={(idStr) => handleExtraModeloChange(idx, idStr)}
+                            disabled={readOnly || !u?.marca}
+                            showAvatar={false}
+                            searchPlaceholder="Buscar por nombre o referencia..."
+                            placeholder={u?.marca ? '— Selecciona —' : '— Elige marca primero —'}
+                        />
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                            <label className="block text-[10px] text-white/40 uppercase tracking-wider mb-1 font-bold">
+                                Modelo ud. exterior
+                            </label>
+                            <input
+                                type="text"
+                                value={u?.modelo_ud_exterior ?? ''}
+                                onChange={e => handleExtraChange(idx, { modelo_ud_exterior: e.target.value.toUpperCase() })}
+                                readOnly={readOnly}
+                                placeholder="Ej: WH-UD16HE5"
+                                className={`w-full bg-bkg-elevated border rounded-lg px-3 py-2 text-white text-sm font-mono tracking-wide focus:outline-none ${
+                                    readOnly ? 'border-white/5 text-white/60 cursor-not-allowed' : 'border-white/10 focus:border-brand/50'
+                                }`}
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-[10px] text-brand/50 uppercase tracking-wider mb-1 font-bold">
+                                Número de serie <span className="text-amber-400/70">· obligatorio</span>
+                            </label>
+                            <input
+                                type="text"
+                                value={u?.numero_serie ?? ''}
+                                onChange={e => handleExtraChange(idx, { numero_serie: e.target.value })}
+                                readOnly={readOnly}
+                                className={`w-full bg-bkg-elevated border rounded-lg px-3 py-2 text-white text-sm focus:outline-none ${
+                                    readOnly ? 'border-white/5 text-white/60 cursor-not-allowed'
+                                        : (u?.numero_serie ? 'border-white/10 focus:border-brand/50' : 'border-amber-500/40 focus:border-amber-400')
+                                }`}
+                            />
+                        </div>
+                    </div>
+
+                    <div>
+                        <label className="block text-[10px] text-white/40 uppercase tracking-wider mb-1 font-bold">SCOP de este equipo</label>
+                        <input
+                            type="number"
+                            step="0.01"
+                            value={u?.scop ?? ''}
+                            onChange={e => handleExtraChange(idx, { scop: e.target.value })}
+                            readOnly={readOnly}
+                            placeholder="Se obtiene del modelo"
+                            className={`w-full bg-bkg-elevated border rounded-lg px-3 py-2 text-white text-sm focus:outline-none ${
+                                readOnly ? 'border-white/5 text-white/60 cursor-not-allowed' : 'border-white/10 focus:border-brand/50'
+                            }`}
+                        />
+                    </div>
+                </div>
+            ))}
+
+            {/* Añadir equipo: solo tiene sentido con la unidad 1 ya elegida, porque
+                el equipo nuevo hereda su marca/modelo/SCOP. En ACS no aplica si es
+                un mero acumulador (no hay BdC que poner en cascada). */}
+            {!readOnly && !(isAcs && data?.es_acumulador) && (
+                <button
+                    type="button"
+                    onClick={handleAddEquipo}
+                    disabled={!data?.aerotermia_db_id && !data?.marca}
+                    className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-dashed border-brand/30 text-brand/80 text-[11px] font-black uppercase tracking-widest hover:bg-brand/[0.06] hover:border-brand/50 hover:text-brand transition-all disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+                    title={!data?.aerotermia_db_id && !data?.marca ? 'Elige primero el equipo principal' : 'Instalación en cascada: añade otra unidad'}
+                >
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" />
+                    </svg>
+                    Añadir equipo (cascada)
+                </button>
+            )}
 
             {showLitros && (
                 <div className="space-y-1">
@@ -530,7 +718,7 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
                         min="0"
                         step="1"
                         value={data?.litros ?? ''}
-                        onChange={e => onChange({ ...data, litros: e.target.value })}
+                        onChange={e => emit({ ...data, litros: e.target.value })}
                         readOnly={readOnly}
                         placeholder="Ej: 200"
                         className={`w-full bg-bkg-elevated border rounded-lg px-3 py-2 text-white text-sm focus:outline-none ${
@@ -900,16 +1088,26 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
     const handleTipoEmisorChange = (tipo_emisor) => {
         const temp = getEmitterTemp(tipo_emisor);
         setLocal(p => {
+            // Recalcula el SCOP de UNA unidad según el nuevo emisor.
+            const recalcUnidad = (u, scopKeys) => {
+                if (!u?.aerotermia_db_id) return u;
+                const modelos = modelosPorMarca[u.marca?.toUpperCase()] || [];
+                const found = modelos.find(m => m.id === u.aerotermia_db_id);
+                if (!found) return u;
+                const scop = getScopFromModel(found, found.zona_climatica || 'D3', temp);
+                return { ...u, ...Object.fromEntries(scopKeys.map(k => [k, scop])) };
+            };
+            // En cascada hay que recalcular TODAS las unidades y volver a derivar el
+            // SCOP aplicado (el menor), no solo el de la unidad 1.
             const recalcScop = (aero) => {
-                if (!aero?.aerotermia_db_id) return aero;
-                const marca = aero.marca?.toUpperCase();
-                const modelos = modelosPorMarca[marca] || [];
-                const found = modelos.find(m => m.id === aero.aerotermia_db_id);
-                if (!found) return aero;
-                return { ...aero, scop: getScopFromModel(found, found.zona_climatica || 'D3', temp) };
+                if (!aero) return aero;
+                const extras = Array.isArray(aero.equipos_extra) ? aero.equipos_extra : [];
+                const base = recalcUnidad(aero, extras.length ? ['scop', 'scop_propio'] : ['scop']);
+                if (!extras.length) return base;
+                return withScopAplicado({ ...base, equipos_extra: extras.map(u => recalcUnidad(u, ['scop'])) });
             };
             const newCal = recalcScop(p.aerotermia_cal);
-            const newAcs = p.misma_aerotermia_acs ? { ...newCal } : recalcScop(p.aerotermia_acs);
+            const newAcs = p.misma_aerotermia_acs ? cloneAero(newCal) : recalcScop(p.aerotermia_acs);
             return { ...p, tipo_emisor, aerotermia_cal: newCal, aerotermia_acs: newAcs };
         });
     };
@@ -924,7 +1122,7 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
 
     const handleMismaAerotermiaAcsChange = (val) => {
         if (val) {
-            setLocal(p => ({ ...p, misma_aerotermia_acs: true, aerotermia_acs: { ...p.aerotermia_cal } }));
+            setLocal(p => ({ ...p, misma_aerotermia_acs: true, aerotermia_acs: cloneAero(p.aerotermia_cal) }));
         } else {
             setLocal(p => ({ ...p, misma_aerotermia_acs: false }));
         }
@@ -938,7 +1136,7 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
                 misma_caldera_acs: true,
                 caldera_antigua_acs: { ...p.caldera_antigua_cal },
                 misma_aerotermia_acs: true,
-                aerotermia_acs: { ...p.aerotermia_cal },
+                aerotermia_acs: cloneAero(p.aerotermia_cal),
             }));
         } else {
             setLocal(p => ({ ...p, cambio_acs: false }));
@@ -1134,12 +1332,15 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
                         readOnly={readOnly}
                         onChange={v => {
                             setLocal(p => {
+                                // La potencia de bomba que alimenta la hibridación (RES093)
+                                // es la TOTAL instalada: en cascada, la suma de las unidades.
+                                const total = potenciaTotal(v);
                                 const next = {
                                     ...p,
                                     aerotermia_cal: v,
-                                    potencia_bomba: v.potencia || p.potencia_bomba
+                                    potencia_bomba: total || v.potencia || p.potencia_bomba
                                 };
-                                if (p.misma_aerotermia_acs) next.aerotermia_acs = { ...v };
+                                if (p.misma_aerotermia_acs) next.aerotermia_acs = cloneAero(v);
                                 return next;
                             });
                         }}

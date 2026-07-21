@@ -20,6 +20,7 @@ const { pathToFileURL } = require('url');
 const supabase = require('./supabaseClient');
 const driveService = require('./driveService');
 const pdfService = require('./pdfService');
+const { getUnidades: getUnidadesAero, unidadesSinSerie } = require('../utils/aerotermiaUnits');
 
 const SUBCARPETA_ANEXOS = '6. ANEXOS CAE';
 const SUBCARPETA_FT = '3. FICHAS TÉCNICAS Y CERTIFICACIONES';
@@ -405,6 +406,22 @@ function buildValidation(exp, data, savingsKwh, folderId) {
     }
     if (!(doc.ft_aerotermia_cal_id || doc.ft_aerotermia_cal_link)) {
         warnings.push('Falta la ficha técnica de la aerotermia de calefacción: el CIFO se genera sin ese anexo.');
+    }
+    // Instalaciones EN CASCADA: cada equipo tiene que ir identificado con su nº de
+    // serie en la tabla del CIFO, y dos equipos distintos no pueden compartirlo.
+    for (const [bloque, aero] of [['calefacción', inst.aerotermia_cal], ['ACS', inst.misma_aerotermia_acs ? null : inst.aerotermia_acs]]) {
+        if (!aero) continue;
+        if (bloque === 'ACS' && !data.tieneAcs) continue;
+        const uds = getUnidadesAero(aero);
+        if (uds.length < 2) continue;
+        const faltan = unidadesSinSerie(aero);
+        if (faltan.length) {
+            warnings.push(`Instalación en cascada de ${bloque} (${uds.length} equipos): falta el nº de serie del equipo ${faltan.join(', ')}.`);
+        }
+        const series = uds.map(u => String(u.numero_serie || u.n_serie_ext || '').trim().toUpperCase()).filter(Boolean);
+        if (new Set(series).size !== series.length) {
+            warnings.push(`Instalación en cascada de ${bloque}: hay números de serie repetidos entre los equipos. Revisa que no sea una copia por error.`);
+        }
     }
     if (data.tieneAcs) {
         if (!(doc.ft_aerotermia_acs_id || doc.ft_aerotermia_acs_link)) {
