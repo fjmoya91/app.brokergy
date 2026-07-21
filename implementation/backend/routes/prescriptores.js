@@ -3,6 +3,8 @@ const router = express.Router();
 const supabase = require('../services/supabaseClient');
 const { requireAuth, enforceAuth, adminOnly } = require('../middleware/auth');
 const { normalizeContactos } = require('../services/notifyContacts');
+const { searchAddress } = require('../services/googleService');
+const marketplaceStats = require('../services/marketplaceStatsRefresher');
 
 // `prescriptores.notas` son notas INTERNAS del equipo sobre el partner. Un partner
 // nunca debe leerlas, ni siquiera las de su propia ficha, así que se eliminan de la
@@ -18,6 +20,10 @@ const stripNotasSiNoEsInterno = (payload, req) => {
 // landing_schema.sql y que el regex de routes/landing.js): minúsculas, números
 // y guiones, 3-80 chars, sin empezar/terminar en guión.
 const LANDING_SLUG_REGEX = /^[a-z0-9]([a-z0-9-]{1,78}[a-z0-9])$/;
+// Mismo patrón para el slug público del escaparate de instaladores.
+const MARKETPLACE_SLUG_REGEX = /^[a-z0-9]([a-z0-9-]{1,78}[a-z0-9])$/;
+// Versión del texto de consentimiento del escaparate (para auditar qué aceptó cada instalador).
+const MARKETPLACE_CONSENT_VERSION = 1;
 
 // Construye los campos de contacto a persistir a partir del payload:
 //  · contactos_notificacion: array normalizado de { nombre, tlf, email } (fuente preferente)
@@ -48,6 +54,19 @@ function buildContactosFields(payload) {
         email_contacto: first.email || null,
     };
 }
+
+// POST /api/prescriptores/marketplace/refresh -> Recalcular YA las stats del escaparate
+// (nº instalaciones, ayuda media, zona…). Normalmente se refresca cada 6h; esto lo
+// fuerza al instante tras publicar/dar de alta a un instalador. Solo ADMIN.
+router.post('/marketplace/refresh', adminOnly, async (req, res) => {
+    try {
+        await marketplaceStats.refreshNow();
+        res.json({ ok: true });
+    } catch (err) {
+        console.error('Error refrescando stats del escaparate:', err);
+        res.status(500).json({ error: 'No se pudo refrescar el escaparate' });
+    }
+});
 
 // GET /api/prescriptores -> Listar prescriptores
 router.get('/', enforceAuth, async (req, res) => {
@@ -805,6 +824,67 @@ router.patch('/:id', enforceAuth, async (req, res) => {
                 : undefined; // si no viene en el payload, lo valida la BD contra lo existente
             if (prescriptorPayload.landing_activa === true && slugFinal === null) {
                 return res.status(400).json({ error: 'No puedes activar la landing sin un enlace (slug).', code: 'ACTIVE_WITHOUT_SLUG' });
+            }
+        }
+
+        // ── Escaparate público de instaladores (instaladores.brokergy.es) ──────
+        // Publicación + consentimiento: SOLO ADMIN (curación manual; nadie sale sin
+        // revisión). Al publicar, si falta lat/lng se geocodifica desde la dirección
+        // para que aparezca en el mapa sin pasos manuales.
+        if (isAdminReq) {
+            if (payload.marketplace_slug !== undefined) {
+                const raw = (payload.marketplace_slug || '').toString().trim().toLowerCase();
+                if (raw === '') {
+                    prescriptorPayload.marketplace_slug = null;
+                } else if (!MARKETPLACE_SLUG_REGEX.test(raw)) {
+                    return res.status(400).json({ error: 'El enlace del escaparate debe tener 3-80 caracteres: minúsculas, números y guiones, sin empezar/terminar en guión.', code: 'INVALID_MARKETPLACE_SLUG' });
+                } else {
+                    prescriptorPayload.marketplace_slug = raw;
+                }
+            }
+            if (payload.especialidades !== undefined) {
+                prescriptorPayload.especialidades = Array.isArray(payload.especialidades)
+                    ? payload.especialidades.map((e) => (e || '').toString().trim()).filter(Boolean)
+                    : [];
+            }
+            if (payload.google_place_id !== undefined) {
+                prescriptorPayload.google_place_id = (payload.google_place_id || '').toString().trim() || null;
+            }
+            if (payload.descripcion_publica !== undefined) {
+                prescriptorPayload.descripcion_publica = (payload.descripcion_publica || '').toString().trim().slice(0, 1000) || null;
+            }
+            if (payload.visible_marketplace !== undefined) {
+                const activar = !!payload.visible_marketplace;
+                const slugFinal = prescriptorPayload.marketplace_slug !== undefined ? prescriptorPayload.marketplace_slug : undefined;
+                if (activar && slugFinal === null) {
+                    return res.status(400).json({ error: 'No puedes publicar en el escaparate sin un enlace (slug).', code: 'MARKETPLACE_ACTIVE_WITHOUT_SLUG' });
+                }
+                prescriptorPayload.visible_marketplace = activar;
+                if (activar) {
+                    prescriptorPayload.marketplace_consent_at = new Date().toISOString();
+                    prescriptorPayload.marketplace_consent_version = MARKETPLACE_CONSENT_VERSION;
+                    // Geocodificar si aún no tiene coordenadas (sin lat/lng no sale en el mapa).
+                    try {
+                        const { data: cur } = await supabase.from('prescriptores')
+                            .select('lat, lng, direccion, municipio, provincia, codigo_postal')
+                            .eq('id_empresa', req.params.id).maybeSingle();
+                        if (cur && cur.lat == null) {
+                            const q = [cur.direccion, cur.codigo_postal, cur.municipio, cur.provincia]
+                                .map((s) => (s || '').toString().trim()).filter(Boolean).join(', ');
+                            if (q.length >= 4) {
+                                const results = await searchAddress(q);
+                                const loc = results && results[0] && results[0].location;
+                                if (loc && loc.lat != null) {
+                                    prescriptorPayload.lat = loc.lat;
+                                    prescriptorPayload.lng = loc.lng;
+                                    console.log(`[PATCH escaparate] geocodificado ${req.params.id}: ${loc.lat},${loc.lng}`);
+                                }
+                            }
+                        }
+                    } catch (geoErr) {
+                        console.warn('[PATCH escaparate] geocode falló (se publica igual, sin pin):', geoErr.message);
+                    }
+                }
             }
         }
 

@@ -298,6 +298,12 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
         landing_subtitulo: '',
         landing_telefono_contacto: '',
         landing_email_contacto: '',
+        // Escaparate público de instaladores (instaladores.brokergy.es)
+        marketplace_slug: '',
+        visible_marketplace: false,
+        descripcion_publica: '',
+        especialidades: [],
+        google_place_id: '',
         notas: '',
     };
     const [form, setForm] = useState(emptyForm);
@@ -320,6 +326,31 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
     const SLUG_RE = /^[a-z0-9]([a-z0-9-]{1,78}[a-z0-9])$/;
     const slugValido = !form.landing_slug || SLUG_RE.test(form.landing_slug);
     const landingBase = typeof window !== 'undefined' ? window.location.origin : 'https://app.brokergy.es';
+
+    // ─── Escaparate público de instaladores ────────────────────────────────────
+    const MKT_SLUG_RE = /^[a-z0-9]([a-z0-9-]{1,78}[a-z0-9])$/;
+    const mktSlugValido = !form.marketplace_slug || MKT_SLUG_RE.test(form.marketplace_slug);
+    const marketplaceBase = typeof window !== 'undefined' && window.location.hostname === 'app.brokergy.es'
+        ? 'https://instaladores.brokergy.es/escaparate'
+        : `${landingBase}/escaparate`;
+    const [mktLinkCopied, setMktLinkCopied] = useState(false);
+    const copyMarketplaceLink = (slug) => {
+        try {
+            navigator.clipboard?.writeText(`${marketplaceBase}/${slug}`);
+            setMktLinkCopied(true);
+            setTimeout(() => setMktLinkCopied(false), 2000);
+        } catch { /* clipboard no disponible */ }
+    };
+    // Refrescar YA las cifras del escaparate (normalmente cada 6h).
+    const [mktRefreshing, setMktRefreshing] = useState(false);
+    const [mktRefreshed, setMktRefreshed] = useState(false);
+    const refreshEscaparate = async () => {
+        setMktRefreshing(true); setMktRefreshed(false);
+        try {
+            await axios.post('/api/prescriptores/marketplace/refresh');
+            setMktRefreshed(true); setTimeout(() => setMktRefreshed(false), 3000);
+        } catch { /* noop */ } finally { setMktRefreshing(false); }
+    };
     const copyLandingLink = (slug) => {
         const url = `${landingBase}/p/${slug}`;
         try {
@@ -469,6 +500,11 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                 landing_subtitulo:            p.landing_subtitulo || '',
                 landing_telefono_contacto:    p.landing_telefono_contacto || '',
                 landing_email_contacto:       p.landing_email_contacto || '',
+                marketplace_slug:             p.marketplace_slug || '',
+                visible_marketplace:          p.visible_marketplace || false,
+                descripcion_publica:          p.descripcion_publica || '',
+                especialidades:               Array.isArray(p.especialidades) ? p.especialidades : [],
+                google_place_id:              p.google_place_id || '',
                 notas:                       p.notas || '',
             };
         });
@@ -591,6 +627,15 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                 ...(isAdmin ? {
                     landing_slug:   form.landing_slug.trim().toLowerCase() || null,
                     landing_activa: !!form.landing_activa,
+                } : {}),
+
+                // Escaparate de instaladores: publicación/consentimiento SOLO admin.
+                ...(isAdmin ? {
+                    marketplace_slug:     form.marketplace_slug.trim().toLowerCase() || null,
+                    visible_marketplace:  !!form.visible_marketplace,
+                    descripcion_publica:  form.descripcion_publica.trim() || null,
+                    especialidades:       form.especialidades || [],
+                    google_place_id:      form.google_place_id.trim() || null,
                 } : {}),
 
                 // Campos para el backend (creación/actualización de usuario vinculado)
@@ -975,6 +1020,54 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                                             {isAdmin ? 'Sin landing configurada. Pulsa «Editar» para asignar un enlace.' : 'Sin landing configurada. Pídele a Brokergy que te active tu enlace de captación.'}
                                         </p>
                                     )}
+                                </Section>
+                            )}
+
+                            {/* Escaparate público de instaladores (instaladores.brokergy.es) — solo ADMIN */}
+                            {isAdmin && p.tipo_empresa === 'INSTALADOR' && (
+                                <Section
+                                    title="Escaparate de Instaladores"
+                                    iconPath="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                                    badge={p.marketplace_slug && (
+                                        <span className={`text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded border ${p.visible_marketplace ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-white/5 text-white/40 border-white/10'}`}>
+                                            {p.visible_marketplace ? 'Publicado' : 'Sin publicar'}
+                                        </span>
+                                    )}
+                                >
+                                    {p.marketplace_slug ? (
+                                        <div className="space-y-3">
+                                            <div className="flex items-center gap-2">
+                                                <code className="flex-1 min-w-0 truncate text-sm text-amber-400 font-mono bg-black/30 rounded-lg px-3 py-2 border border-white/[0.06]">
+                                                    {marketplaceBase}/{p.marketplace_slug}
+                                                </code>
+                                                <button type="button" onClick={() => copyMarketplaceLink(p.marketplace_slug)}
+                                                    title="Copiar enlace"
+                                                    className="shrink-0 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[10px] font-black uppercase tracking-widest hover:bg-amber-500/20 transition-all">
+                                                    {mktLinkCopied ? '✓ Copiado' : 'Copiar'}
+                                                </button>
+                                                <a href={`${marketplaceBase}/${p.marketplace_slug}`} target="_blank" rel="noopener noreferrer"
+                                                    title="Abrir ficha pública en nueva pestaña"
+                                                    className="shrink-0 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white/50 hover:text-white transition-all">
+                                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
+                                                </a>
+                                            </div>
+                                            {!p.visible_marketplace && (
+                                                <p className="text-[11px] text-amber-400/70">Sin publicar: no aparece en el escaparate hasta que actives «Publicar en el escaparate» (en Editar).</p>
+                                            )}
+                                            {p.visible_marketplace && p.marketplace_consent_at && (
+                                                <p className="text-[11px] text-white/25">Publicado · consentimiento registrado el {new Date(p.marketplace_consent_at).toLocaleDateString('es-ES')}.</p>
+                                            )}
+                                        </div>
+                                    ) : (
+                                        <p className="text-xs text-white/25 italic">Sin ficha en el escaparate. Pulsa «Editar» para asignarle un enlace y publicarla.</p>
+                                    )}
+                                    <div className="mt-3 flex items-center gap-2">
+                                        <button type="button" onClick={refreshEscaparate} disabled={mktRefreshing}
+                                            className="px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white/60 text-[10px] font-black uppercase tracking-widest hover:text-white hover:border-amber-500/30 transition-all disabled:opacity-50">
+                                            {mktRefreshing ? 'Actualizando…' : mktRefreshed ? '✓ Actualizado' : '↻ Actualizar cifras ahora'}
+                                        </button>
+                                        <span className="text-[10px] text-white/25">Las cifras (instalaciones, ayuda media) se recalculan solas cada 6 h.</span>
+                                    </div>
                                 </Section>
                             )}
 
@@ -1522,6 +1615,73 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                                     </FI>
                                 </div>
                                 <p className="text-[10px] text-white/20">El logotipo de la landing es el mismo logo del partner (arriba). Si dejas un campo vacío, se usa el branding por defecto de Brokergy.</p>
+                            </div>
+                            )}
+
+                            {/* Escaparate público de instaladores — SOLO ADMIN (consentimiento + curación manual) */}
+                            {isAdmin && form.tipo_empresa === 'INSTALADOR' && (
+                            <div className="pt-4 border-t border-white/5 space-y-4">
+                                <div>
+                                    <p className="text-[10px] uppercase tracking-[0.2em] font-black text-white/30">Escaparate de Instaladores</p>
+                                    <p className="text-[11px] text-white/20 mt-0.5">
+                                        Ficha pública en instaladores.brokergy.es. Al publicar se geolocaliza solo (si falta) y aparece en el mapa. Nunca se muestran datos personales de clientes.
+                                    </p>
+                                </div>
+
+                                <FI label="Enlace (slug)">
+                                    <div className="flex items-stretch rounded-xl border border-white/[0.08] overflow-hidden focus-within:ring-2 focus-within:ring-brand/40 focus-within:border-brand/40 transition-all">
+                                        <span className="flex items-center px-3 text-[11px] text-white/30 font-mono bg-white/[0.03] border-r border-white/[0.06] whitespace-nowrap">{marketplaceBase}/</span>
+                                        <input
+                                            value={form.marketplace_slug}
+                                            onChange={e => upd({ marketplace_slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '') })}
+                                            placeholder="mi-empresa"
+                                            style={{ textTransform: 'lowercase' }}
+                                            className="flex-1 min-w-0 bg-bkg-surface px-3 py-2.5 text-white text-sm font-mono placeholder:text-white/20 focus:outline-none"
+                                        />
+                                    </div>
+                                    {!mktSlugValido && (
+                                        <p className="text-[10px] text-red-400 font-bold mt-1 uppercase tracking-wider">Mín. 3 caracteres: minúsculas, números y guiones, sin empezar/terminar en guión.</p>
+                                    )}
+                                </FI>
+
+                                <label className={`flex items-center gap-3 ${form.marketplace_slug && mktSlugValido ? 'cursor-pointer' : 'opacity-40 cursor-not-allowed'}`}>
+                                    <div className="relative h-5 w-9 shrink-0">
+                                        <input type="checkbox" checked={form.visible_marketplace}
+                                            disabled={!form.marketplace_slug || !mktSlugValido}
+                                            onChange={e => upd({ visible_marketplace: e.target.checked })}
+                                            className="sr-only peer" />
+                                        <div className="w-full h-full bg-transparent border border-amber-500 rounded-full peer peer-checked:bg-amber-500 peer-checked:after:translate-x-[16px] peer-checked:after:bg-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-amber-500 after:rounded-full after:h-4 after:w-4 after:transition-all"></div>
+                                    </div>
+                                    <div>
+                                        <span className="text-[10px] font-black uppercase tracking-widest text-white/40">Publicar en el escaparate</span>
+                                        <p className="text-[9px] text-white/20 -mt-0.5">Solo actívalo si el instalador ha dado su consentimiento. Requiere un enlace válido.</p>
+                                    </div>
+                                </label>
+
+                                <FI label="Descripción pública (opcional)">
+                                    <textarea
+                                        value={form.descripcion_publica}
+                                        onChange={e => upd({ descripcion_publica: e.target.value })}
+                                        rows={3}
+                                        maxLength={1000}
+                                        placeholder="Frase que verá el cliente en la ficha (si la dejas vacía se usa una por defecto)…"
+                                        className="w-full bg-bkg-surface rounded-xl px-3 py-2.5 text-white text-sm placeholder:text-white/20 border border-white/[0.08] focus:outline-none focus:ring-2 focus:ring-brand/40 focus:border-brand/40 transition-all resize-none no-uppercase"
+                                    />
+                                </FI>
+
+                                <FI label="Especialidades (separadas por coma)">
+                                    <Inp
+                                        value={(form.especialidades || []).join(', ')}
+                                        onChange={e => upd({ especialidades: e.target.value.split(',').map(s => s.trim()).filter(Boolean) })}
+                                        placeholder="Aerotermia, Reforma energética"
+                                        className="no-uppercase"
+                                    />
+                                </FI>
+
+                                <FI label="Google Place ID (opcional)">
+                                    <Inp value={form.google_place_id} onChange={e => upd({ google_place_id: e.target.value.trim() })} placeholder="ChIJ…" className="font-mono" />
+                                    <p className="text-[9px] text-white/20 mt-1">Habilita el botón «Escribe una reseña en Google» en la ficha pública.</p>
+                                </FI>
                             </div>
                             )}
 
