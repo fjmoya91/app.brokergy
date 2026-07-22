@@ -148,6 +148,24 @@ export function DashboardLayout({ children, activeTab, onTabChange }) {
 
                 {/* Tabs */}
                 <nav className="relative z-10 flex-1 px-4 space-y-3">
+                    {/* Cuadro de mando — pantalla de inicio, SOLO ADMIN (agrega
+                        importes y margen de toda la cartera) */}
+                    {isAdmin && (
+                        <button
+                            onClick={() => go('dashboard')}
+                            className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all ${
+                                activeTab === 'dashboard'
+                                    ? 'bg-gradient-to-r from-brand to-brand-700 text-bkg-deep shadow-lg shadow-brand/20'
+                                    : 'text-white/50 hover:bg-bkg-hover hover:text-white border border-transparent'
+                            } ${isSidebarCollapsed ? 'justify-center px-0' : ''}`}
+                        >
+                            <svg className="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                            </svg>
+                            {!isSidebarCollapsed && <span>Cuadro de mando</span>}
+                        </button>
+                    )}
+
                     {!isCertificador && (
                         <button
                             onClick={() => go('oportunidades')}

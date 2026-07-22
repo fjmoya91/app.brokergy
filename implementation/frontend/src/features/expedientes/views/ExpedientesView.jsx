@@ -18,6 +18,7 @@ import {
     BOILER_EFFICIENCIES
 } from '../../calculator/logic/calculation';
 import { computeExpedienteFinancials } from '../logic/expedienteFinancials';
+import { CCAA_MAP, pad2, getFicha, getCifoYear, getCCAA } from '../logic/expedienteTaxonomia';
 
 // ─── Dropzone de XML (migración de expedientes desde CE3X) ────────────────────
 function XmlDrop({ label, slot, error, onFile }) {
@@ -492,24 +493,6 @@ function NuevoExpedienteModal({ onClose, onCreated, existingOportunidadIds = [] 
 }
 
 // ─── Vista principal ──────────────────────────────────────────────────────────
-const CCAA_MAP = {
-    '01': 'País Vasco', '02': 'Castilla-La Mancha', '03': 'Comunidad Valenciana', '04': 'Andalucía',
-    '05': 'Castilla y León', '06': 'Extremadura', '07': 'Islas Baleares', '08': 'Cataluña',
-    '09': 'Castilla y León', '10': 'Extremadura', '11': 'Andalucía', '12': 'Comunidad Valenciana',
-    '13': 'Castilla-La Mancha', '14': 'Andalucía', '15': 'Galicia', '16': 'Castilla-La Mancha',
-    '17': 'Cataluña', '18': 'Andalucía', '19': 'Castilla-La Mancha', '20': 'País Vasco',
-    '21': 'Andalucía', '22': 'Aragón', '23': 'Andalucía', '24': 'Castilla y León',
-    '25': 'Cataluña', '26': 'La Rioja', '27': 'Galicia', '28': 'Madrid',
-    '29': 'Andalucía', '30': 'Murcia', '31': 'Navarra', '32': 'Galicia',
-    '33': 'Asturias', '34': 'Castilla y León', '35': 'Canarias', '36': 'Galicia',
-    '37': 'Castilla y León', '38': 'Canarias', '39': 'Cantabria', '40': 'Castilla y León',
-    '41': 'Andalucía', '42': 'Castilla y León', '43': 'Cataluña', '44': 'Aragón',
-    '45': 'Castilla-La Mancha', '46': 'Comunidad Valenciana', '47': 'Castilla y León',
-    '48': 'País Vasco', '49': 'Castilla y León', '50': 'Aragón', '51': 'Ceuta', '52': 'Melilla'
-};
-
-// Código de provincia INE a 2 dígitos ('9' → '09'), o null.
-const pad2 = (v) => { const s = String(v ?? '').trim(); return s ? s.padStart(2, '0') : null; };
 
 // ─── Modal de creación de lote desde la selección de expedientes ──────────────
 // Reutiliza POST /api/lotes { sujeto_obligado_id, expediente_ids, notas }. El SO es
@@ -593,7 +576,7 @@ function CrearLoteDesdeSeleccionModal({ soList, count, anio, ccaa, totals, canSe
 // número legible; nos permite abrir el detalle sin resolverlo contra la lista.
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialSelection, onOpenExpedienteChange }) {
+export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialSelection, onOpenExpedienteChange, initialEstados, onClearInitialEstados, initialPrioridad }) {
     const { showAlert, showConfirm } = useModal();
     const { user } = useAuth();
     const [expedientes, setExpedientes] = useState([]);
@@ -602,38 +585,6 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
     const [localPathLoadingId, setLocalPathLoadingId] = useState(null); // id del expediente cuyo botón "carpeta local" está cargando
     const userRole = (user?.rol || '').toUpperCase();
     const { isAdmin, isStaff, isCertificador, canSeeMargin, canDelete } = getRoleFlags(user);
-
-    const getFicha = (exp) => {
-        if (exp.numero_expediente?.includes('RES080')) return 'RES080';
-        if (exp.numero_expediente?.includes('RES093')) return 'RES093';
-        return 'RES060';
-    };
-
-    const getCifoYear = (exp) => {
-        const fin = exp.fecha_fin_cifo;
-        if (!fin) return null;
-        const y = new Date(fin).getFullYear();
-        return isNaN(y) ? null : y;
-    };
-
-    // CCAA de la ACTUACIÓN (instalación), NO la del cliente. Mismo criterio que el
-    // backend (geoCcaa.resolveCcaaInstalacion): así el filtro, la selección de lote y
-    // la validación del servidor coinciden. El cliente solo es último recurso.
-    const getCCAA = (exp) => {
-        const inst = exp.instalacion || {};
-        // 1. Instalación con dirección propia → su provincia manda.
-        if (inst.misma_direccion === false) {
-            const cod = pad2(inst.provincia_cod);
-            if (cod && CCAA_MAP[cod]) return CCAA_MAP[cod];
-        }
-        // 2. Código de provincia del funnel de la oportunidad (el dato más fiable).
-        const opCod = pad2(exp.oportunidades?.datos_calculo?.inputs?.provincia);
-        if (opCod && CCAA_MAP[opCod]) return CCAA_MAP[opCod];
-        // 3. Fallbacks al cliente: CCAA guardada o provincia textual.
-        if (exp.clientes?.ccaa) return exp.clientes.ccaa;
-        if (exp.clientes?.provincia) return exp.clientes.provincia;
-        return '—';
-    };
 
     // Delegado al helper compartido (fuente única de verdad del cálculo económico).
     const getExpedienteFinancials = (exp) => computeExpedienteFinancials(exp);
@@ -850,7 +801,14 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
     // Filtro de estado MULTI-selección: Set vacío = todos. Permite sumar varios
     // estados en el resumen (p. ej. todo menos FINALIZADO). 'CON_INCIDENCIAS' es
     // un pseudo-estado más dentro del mismo Set.
-    const [statusSel, setStatusSel] = useState(() => new Set());
+    const [statusSel, setStatusSel] = useState(() => new Set(initialEstados || []));
+    // Al llegar desde el cuadro de mando con un estado concreto, se siembra el
+    // filtro y se limpia el encargo para que no vuelva a aplicarse al regresar.
+    useEffect(() => {
+        if (!initialEstados?.length) return;
+        setStatusSel(new Set(initialEstados));
+        onClearInitialEstados?.();
+    }, [initialEstados]);
     const toggleStatus = (st) => setStatusSel(prev => {
         const next = new Set(prev);
         if (next.has(st)) next.delete(st); else next.add(st);
@@ -858,7 +816,8 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
     });
     const [certificadorFilter, setCertificadorFilter] = useState('ALL');
     const [ccaaFilter, setCcaaFilter] = useState('ALL');
-    const [prioridadFilter, setPrioridadFilter] = useState('ALL');
+    // 'ALL' salvo que se llegue con ?prioridad= desde el cuadro de mando.
+    const [prioridadFilter, setPrioridadFilter] = useState(initialPrioridad || 'ALL');
     const [yearFilter, setYearFilter] = useState('ALL');
     const [fichaFilter, setFichaFilter] = useState('ALL');
     const [certificadores, setCertificadores] = useState([]);

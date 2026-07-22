@@ -465,6 +465,18 @@ input[type="email"],
     text-transform: none !important;
 }
 
+/* Contraseñas: SIEMPRE tal cual se escriben.
+   El selector de arriba excluye [type="password"], pero el botón de "ver
+   contraseña" cambia el input a type="text" y entonces sí le entraba el
+   uppercase: al revelarla se leía en mayúsculas y no se podía comprobar lo
+   tecleado. Se ancla al autocomplete, que no cambia al alternar el tipo.
+   La utilidad normal-case de Tailwind no basta: pierde por especificidad. */
+input[type="password"],
+input[autocomplete="current-password"],
+input[autocomplete="new-password"] {
+    text-transform: none !important;
+}
+
 /* Los correos dentro de las tablas a minúsculas por legibilidad */
 .data-table td.email-cell {
     text-transform: lowercase;

@@ -427,6 +427,61 @@ router.get('/', requireAuth, async (req, res) => {
 
 // 3. RUTAS ESPECÍFICAS (Deben ir ANTES de las genéricas de abajo)
 
+// GET /api/oportunidades/captacion — resumen LIGERO para el cuadro de mando.
+//
+// El GET / de arriba devuelve `datos_calculo` entero de cada oportunidad
+// (inputs, historial, subidas de fotos…): con ~320 registros son megas y tarda
+// más de 30 s, lo que bloqueaba el panel. Aquí se extraen por JSON path solo los
+// campos que necesita el embudo de captación, y se filtra en la propia consulta
+// a los estados previos a la aceptación. Es un proyector de datos: NO calcula
+// economía — devuelve el snapshot tal cual y el frontend lo interpreta con la
+// misma lógica que el resto del panel.
+const ESTADOS_CAPTACION = ['LEAD', 'PTE ENVIAR', 'EN CURSO', 'ENVIADA'];
+
+router.get('/captacion', staffOnly, async (req, res) => {
+    try {
+        const { data, error } = await supabase
+            .from('oportunidades')
+            .select(`id, id_oportunidad, referencia_cliente, ficha, prescriptor_id, instalador_asociado_id, created_at,
+                     estado:datos_calculo->>estado,
+                     origen:datos_calculo->>origen,
+                     provincia:datos_calculo->inputs->>provincia,
+                     cae_so_rate:datos_calculo->inputs->>cae_so_rate,
+                     financials:datos_calculo->result->financials,
+                     savings:datos_calculo->result->savings`)
+            .in('datos_calculo->>estado', ESTADOS_CAPTACION);
+
+        if (error) {
+            console.error('[GET /captacion]', error.message);
+            return res.status(500).json({ error: error.message });
+        }
+
+        // Las oportunidades sintéticas de la migración desde XML no son captación
+        // real: nacen ya aceptadas para colgar de ellas un expediente.
+        const visible = (data || []).filter(o => o.origen !== 'migracion_xml');
+
+        // Se devuelve con la misma forma que espera el frontend (datos_calculo
+        // anidado), para que pueda reutilizar el mismo constructor de filas.
+        res.status(200).json(visible.map(o => ({
+            id: o.id,
+            id_oportunidad: o.id_oportunidad,
+            referencia_cliente: o.referencia_cliente,
+            ficha: o.ficha,
+            prescriptor_id: o.prescriptor_id,
+            instalador_asociado_id: o.instalador_asociado_id,
+            created_at: o.created_at,
+            datos_calculo: {
+                estado: o.estado,
+                inputs: { provincia: o.provincia, cae_so_rate: o.cae_so_rate },
+                result: { financials: o.financials || {}, savings: o.savings || {} }
+            }
+        })));
+    } catch (e) {
+        console.error('[GET /captacion] fatal:', e.message);
+        res.status(500).json({ error: 'Error del servidor.' });
+    }
+});
+
 // Añadir un comentario (POST /api/oportunidades/:id/comentarios)
 router.post('/:id/comentarios', requireAuth, async (req, res) => {
     const { id } = req.params;

@@ -16,6 +16,7 @@ import { ClientesView } from './features/clientes/views/ClientesView';
 import { AerotermiaView } from './features/aerotermia/views/AerotermiaView';
 import { ExpedientesView } from './features/expedientes/views/ExpedientesView';
 import { LotesView } from './features/lotes/views/LotesView';
+import { DashboardView } from './features/dashboard/views/DashboardView';
 import { ResetPasswordView } from './features/auth/views/ResetPasswordView';
 import { AceptarPropuestaView } from './features/public/views/AceptarPropuestaView';
 import { CertAckView } from './features/public/views/CertAckView';
@@ -75,6 +76,20 @@ function App() {
   const [initialExpediente] = useState(() => {
     const params = new URLSearchParams(window.location.search);
     return params.get('exp') || null;
+  });
+
+  // Deep-link a un listado ya filtrado por estado: ?tab=expedientes&estados=X
+  // o ?tab=oportunidades&opestado=X. Los genera el cuadro de mando al abrir una
+  // pestaña nueva desde el embudo, para no perder el panel de origen.
+  const [initialExpEstados] = useState(() => {
+    const v = new URLSearchParams(window.location.search).get('estados');
+    return v ? v.split(',').filter(Boolean) : null;
+  });
+  const [initialOpEstado] = useState(() => {
+    return new URLSearchParams(window.location.search).get('opestado') || null;
+  });
+  const [initialExpPrioridad] = useState(() => {
+    return new URLSearchParams(window.location.search).get('prioridad') || null;
   });
 
   // Deep-link a una oportunidad: /?op=<id_oportunidad> (usado por los enlaces de la
@@ -173,11 +188,14 @@ function App() {
   //    La pestaña activa vive en la URL (?tab=), igual que el expediente abierto
   //    (?exp=), para que al RECARGAR la página sigamos donde estábamos. Un efecto
   //    más abajo mantiene la URL sincronizada con el estado.
-  const TABS_VALIDAS = ['oportunidades', 'expedientes', 'clientes', 'prescriptores', 'lotes', 'aerotermia', 'usuarios', 'whatsapp'];
+  const TABS_VALIDAS = ['dashboard', 'oportunidades', 'expedientes', 'clientes', 'prescriptores', 'lotes', 'aerotermia', 'usuarios', 'whatsapp'];
+  // Sin ?tab= no sabemos aún el rol (el usuario carga después), así que arrancamos
+  // en 'dashboard' y el efecto de abajo redirige a quien no deba verlo. Al revés
+  // —arrancar en oportunidades y saltar al panel— provocaría un parpadeo de vista.
   const [activeTab, setActiveTab] = useState(() => {
     if (initialExpediente) return 'expedientes';
     const tab = new URLSearchParams(window.location.search).get('tab');
-    return TABS_VALIDAS.includes(tab) ? tab : 'oportunidades';
+    return TABS_VALIDAS.includes(tab) ? tab : 'dashboard';
   });
 
   // Ajustar pestaña inicial cuando el usuario carga
@@ -185,6 +203,12 @@ function App() {
     const { isAdmin, isCertificador, isStaff } = getRoleFlags(user);
     if (isCertificador && activeTab !== 'expedientes') {
       setActiveTab('expedientes');
+    }
+    // El cuadro de mando es SOLO ADMIN: agrega los importes y el margen de toda
+    // la cartera. Cualquier otro rol (incluido TRABAJADOR) que llegue por
+    // ?tab=dashboard cae en su vista de siempre.
+    if (user && activeTab === 'dashboard' && !isAdmin) {
+      setActiveTab('oportunidades');
     }
     // Expedientes son INTERNOS de Brokergy (ADMIN/TRABAJADOR/CERTIFICADOR). Si un
     // partner llega a la pestaña (p.ej. abriendo una URL ?exp=<id> a mano), lo
@@ -564,6 +588,12 @@ function App() {
   // reporta de vuelta; es el que se refleja en la URL. Van separados porque el detalle
   // vive dentro de ExpedientesView, no aquí.
   const [pendingRestoreExp, setPendingRestoreExp] = useState(initialExpediente);
+  // Filtros precargados al saltar desde el cuadro de mando a un listado —ya sea
+  // navegación interna o, como ahora, una pestaña nueva abierta con ?estados=/
+  // ?opestado= en la URL—. Se consumen y se limpian en destino para que no se
+  // reapliquen al volver.
+  const [pendingExpEstados, setPendingExpEstados] = useState(initialExpEstados);
+  const [pendingOpEstado, setPendingOpEstado] = useState(initialOpEstado);
   const [openExpedienteId, setOpenExpedienteId] = useState(null);
   const [returnToExpediente, setReturnToExpediente] = useState(null);
   const [navNonce, setNavNonce] = useState(0);
@@ -585,7 +615,11 @@ function App() {
     if (!user || window.location.pathname !== '/') return;
     const url = new URL(window.location);
     const p = url.searchParams;
+    // 'estados'/'opestado' solo sirven para sembrar el filtro AL ABRIR la
+    // pestaña (deep-link del cuadro de mando); una vez consumidos no deben
+    // quedar pegados en la barra de direcciones en cada cambio de pestaña.
     p.delete('exp'); p.delete('op'); p.delete('tab');
+    p.delete('estados'); p.delete('opestado'); p.delete('prioridad');
     if (openExpedienteId && activeTab === 'expedientes') {
       p.set('tab', 'expedientes');
       p.set('exp', openExpedienteId);
@@ -751,12 +785,15 @@ function App() {
       if (payload?.expediente_id) {
         setPendingRestoreExp(payload.expediente_id);
       }
+      // Filtro de estados precargado (lo usa el cuadro de mando al abrir una fase).
+      if (payload?.estados) setPendingExpEstados(payload.estados);
     } else if (tab === 'oportunidades') {
       if (payload?.ref_catastral) {
         loadOpportunity(payload);
       } else {
         setActiveTab('oportunidades');
         setStep('ADMIN');
+        if (payload?.estado) setPendingOpEstado(payload.estado);
       }
     } else {
       setActiveTab(tab);
@@ -835,6 +872,7 @@ function App() {
               const uRole = (user?.rol || '').toUpperCase();
 
               // Bloqueos de seguridad por pestaña
+              if (tab === 'dashboard' && !isAdmin) return;      // cuadro de mando: SOLO ADMIN
               if (tab === 'aerotermia' && !isAdmin) return;   // ajustes globales: solo ADMIN
               if (tab === 'whatsapp' && !isAdmin) return;      // ajustes globales: solo ADMIN
               if (tab === 'usuarios' && !isAdmin) return;      // gestión de usuarios: solo ADMIN
@@ -884,7 +922,9 @@ function App() {
                 </div>
               </div>
             )}
-            {step === 'ADMIN' && activeTab === 'whatsapp' && isAdminUser ? (
+            {step === 'ADMIN' && activeTab === 'dashboard' && isAdminUser ? (
+              <DashboardView key={`dash-${navNonce}`} />
+            ) : step === 'ADMIN' && activeTab === 'whatsapp' && isAdminUser ? (
               <WhatsappSettingsView key={`wwa-${navNonce}`} />
             ) : step === 'ADMIN' && activeTab === 'usuarios' && isAdminUser ? (
               <UsuariosView key={`usuarios-${navNonce}`} />
@@ -895,6 +935,9 @@ function App() {
                 initialSelectedId={pendingRestoreExp}
                 onClearInitialSelection={() => setPendingRestoreExp(null)}
                 onOpenExpedienteChange={setOpenExpedienteId}
+                initialEstados={pendingExpEstados}
+                onClearInitialEstados={() => setPendingExpEstados(null)}
+                initialPrioridad={initialExpPrioridad}
               />
             ) : step === 'ADMIN' && activeTab === 'lotes' && isStaffUser ? (
               <LotesView key={`lotes-${navNonce}`} onNavigate={handleNavigate} />
@@ -920,6 +963,8 @@ function App() {
                 key={`admin-${navNonce}`}
                 activeTab={activeTab}
                 onNavigate={handleNavigate}
+                initialEstado={pendingOpEstado}
+                onClearInitialEstado={() => setPendingOpEstado(null)}
                 onBackToCalculator={openNewSimulation}
                 onLoadOpportunity={loadOpportunity}
                 returnToExpediente={returnToExpediente}

@@ -7,7 +7,7 @@
       "runtimeArgs": ["server.js"],
       "cwd": "implementation/backend",
       "port": 3000,
-      "autoPort": false
+      "autoPort": true
     },
     {
       "name": "frontend",
@@ -16,6 +16,22 @@
       "cwd": "implementation/frontend",
       "port": 5173,
       "autoPort": true
+    },
+    {
+      "name": "mcp",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["server.js"],
+      "cwd": "implementation/backend/mcp-brokergy",
+      "port": 3001,
+      "autoPort": true
+    },
+    {
+      "name": "rite-generator",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8080"],
+      "cwd": "implementation/rite-generator",
+      "port": 8080,
+      "autoPort": false
     },
     {
       "name": "reforma-prototype",

@@ -1713,6 +1713,7 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                                                 <Inp
                                                     type={showNewPwd ? 'text' : 'password'}
                                                     placeholder="Mín. 6 caracteres"
+                                                    autoComplete="new-password"
                                                     value={form.usuario_password}
                                                     onChange={e => upd({ usuario_password: e.target.value })}
                                                     className="font-mono pr-9"
@@ -1731,6 +1732,7 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                                                 <Inp
                                                     type={showConfirmPwd ? 'text' : 'password'}
                                                     placeholder="Repetir contraseña"
+                                                    autoComplete="new-password"
                                                     value={form.usuario_confirm_password}
                                                     onChange={e => upd({ usuario_confirm_password: e.target.value })}
                                                     className={`font-mono pr-9 ${form.usuario_password && form.usuario_confirm_password && form.usuario_password !== form.usuario_confirm_password ? 'border-red-500/50 focus:ring-red-500/30' : ''}`}

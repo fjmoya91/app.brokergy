@@ -15,7 +15,9 @@ export function AdminPanelView({
     activeTab,
     onNavigate,
     returnToExpediente,
-    onReturnToExpediente
+    onReturnToExpediente,
+    initialEstado,
+    onClearInitialEstado
 }) {
     const { user } = useAuth();
     const { canDelete } = getRoleFlags(user);
@@ -343,9 +345,17 @@ export function AdminPanelView({
         ficha: '',
         ccaa: '',
         prescriptor_id: '',
-        estado: '',
+        estado: initialEstado || '',
         cod_cliente_interno: ''
     });
+
+    // Estado precargado al saltar desde el cuadro de mando. Se consume una vez
+    // para que volver a esta pestaña no reaplique el filtro.
+    useEffect(() => {
+        if (!initialEstado) return;
+        setFilters(prev => ({ ...prev, estado: initialEstado }));
+        onClearInitialEstado?.();
+    }, [initialEstado]);
 
     useEffect(() => {
         fetchOportunidades();
