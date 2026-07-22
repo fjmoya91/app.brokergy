@@ -83,19 +83,21 @@ export function ClientesView({
         }
     };
 
-    // Filtrado
-    const norm = s => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+    // Filtrado — insensible a tildes y por PALABRAS sueltas: "carmen d" encuentra
+    // a "MARÍA DEL CARMEN …" aunque el texto exacto no aparezca seguido, y da igual
+    // en qué campo esté cada palabra (nombre, apellidos, municipio…).
+    const norm = s => (s ?? '').toString().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+    const tokens = norm(searchTerm).split(/\s+/).filter(Boolean);
     const filtered = clientes.filter(c => {
-        if (!searchTerm.trim()) return true;
-        const term = norm(searchTerm);
-        return (
-            norm(c.nombre_razon_social).includes(term) ||
-            norm(c.apellidos).includes(term) ||
-            norm(c.email).includes(term) ||
-            norm(c.dni).includes(term) ||
-            (c.tlf || '').includes(term) ||
-            norm(c.municipio).includes(term)
-        );
+        if (!tokens.length) return true;
+        const hay = norm([
+            c.nombre_razon_social, c.apellidos, c.email, c.dni, c.tlf,
+            c.municipio, c.provincia, c.prescriptores?.acronimo,
+        ].filter(Boolean).join(' '));
+        // Los teléfonos se guardan con o sin espacios ("677 052 554"): para un
+        // token puramente numérico se compara también contra el texto sin separadores.
+        const hayPlano = hay.replace(/[\s.\-/]/g, '');
+        return tokens.every(t => hay.includes(t) || (/^[\d+]+$/.test(t) && hayPlano.includes(t)));
     });
 
     // Paginación
@@ -105,14 +107,34 @@ export function ClientesView({
     return (
         <div className="flex flex-col h-full">
             {/* ── Header ── */}
-            <div className="px-6 sm:px-10 py-10 flex flex-col sm:flex-row items-center justify-between gap-6 relative">
+            <div className="px-6 sm:px-10 pt-8 pb-5 flex flex-col sm:flex-row items-center justify-between gap-4 sm:gap-6 relative">
                  <div className="absolute top-0 right-0 w-64 h-64 bg-brand/[0.03] rounded-full blur-[100px] pointer-events-none"></div>
-                <div>
+                <div className="max-sm:self-start">
                     <h1 className="text-3xl font-black text-white uppercase tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-white via-white to-white/40">Clientes</h1>
                     <p className="text-[10px] text-brand uppercase tracking-[0.3em] mt-1 font-black">
                         {clientes.length} registro{clientes.length !== 1 ? 's' : ''} registrados
                     </p>
                 </div>
+
+                {/* ── Buscador (centrado en la cabecera para que el listado suba) ── */}
+                <div className="flex-1 flex justify-center w-full sm:w-auto max-sm:order-last">
+                    <div className="relative w-full max-w-xl group">
+                        <div className="absolute -inset-1 bg-gradient-to-r from-brand/20 to-transparent rounded-2xl blur opacity-0 group-focus-within:opacity-100 transition-opacity"></div>
+                        <div className="relative flex items-center">
+                            <svg className="absolute left-4 w-4 h-4 text-white/20 group-focus-within:text-brand transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                            </svg>
+                            <input
+                                type="text"
+                                placeholder="Buscar por nombre, email, DNI..."
+                                value={searchTerm}
+                                onChange={e => { setSearchTerm(e.target.value); setCurrentPage(1); }}
+                                className="w-full bg-bkg-surface border border-white/[0.06] rounded-2xl pl-11 pr-4 py-3.5 text-white text-sm placeholder:text-white/20 focus:outline-none focus:border-brand/40 focus:ring-4 focus:ring-brand/5 transition-all"
+                            />
+                        </div>
+                    </div>
+                </div>
+
                 <div className="flex items-center gap-3">
                     {returnToExpediente && (
                         <button
@@ -137,27 +159,8 @@ export function ClientesView({
                 </div>
             </div>
 
-            {/* ── Filtro ── */}
-            <div className="px-6 sm:px-10 py-6">
-                <div className="relative max-w-xl group">
-                    <div className="absolute -inset-1 bg-gradient-to-r from-brand/20 to-transparent rounded-2xl blur opacity-0 group-focus-within:opacity-100 transition-opacity"></div>
-                    <div className="relative flex items-center">
-                        <svg className="absolute left-4 w-4 h-4 text-white/20 group-focus-within:text-brand transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                        </svg>
-                        <input
-                            type="text"
-                            placeholder="Buscar por nombre, email, DNI..."
-                            value={searchTerm}
-                            onChange={e => { setSearchTerm(e.target.value); setCurrentPage(1); }}
-                            className="w-full bg-bkg-surface border border-white/[0.06] rounded-2xl pl-11 pr-4 py-4 text-white text-sm placeholder:text-white/20 focus:outline-none focus:border-brand/40 focus:ring-4 focus:ring-brand/5 transition-all"
-                        />
-                    </div>
-                </div>
-            </div>
-
             {/* ── Contenido ── */}
-            <div className="flex-1 overflow-y-auto px-6 sm:px-10 py-6">
+            <div className="flex-1 overflow-y-auto px-6 sm:px-10 pt-1 pb-6">
                 {loading && (
                     <div className="flex items-center justify-center py-20 text-white/30">
                         <svg className="w-5 h-5 animate-spin mr-2" fill="none" viewBox="0 0 24 24">
