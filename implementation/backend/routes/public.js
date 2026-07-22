@@ -1967,12 +1967,20 @@ router.post('/anexos-upload/:expedienteId',
                 // Misma ficha (titular + dirección de la instalación) que el resto de avisos.
                 const { data: clienteData } = buildCertClienteData(exp, exp.oportunidades, exp.clientes);
                 const portalLink = `https://app.brokergy.es/?exp=${exp.id}`;
+                // Firma electrónica del cliente ⇒ el Convenio de Cesión espera aún la
+                // contrafirma de Brokergy (con firma manuscrita el PDF ya va completo).
+                const pendienteContrafirma = !!docUpdate.anexo_cesion_signed_link
+                    && docUpdate.anexo_cesion_firma_tipo === 'electronica'
+                    && !docUpdate.cesion_firmado_brokergy;
                 const msg = [
-                    '✅ *Anexos firmados recibidos*',
+                    pendienteContrafirma ? '✍️ *Anexos firmados — falta tu firma*' : '✅ *Anexos firmados recibidos*',
                     `Expediente: *${numexpte}*`,
                     clienteData.nombre ? `Cliente: *${clienteData.nombre}*` : null,
                     clienteData.direccionInstalacion ? `Instalación: ${clienteData.direccionInstalacion}` : null,
                     `Recibido: ${partes}`,
+                    ...(pendienteContrafirma
+                        ? ['', `El cliente firmó *electrónicamente*: falta la firma de Brokergy en el Anexo de Cesión.\n${portalLink}`]
+                        : []),
                 ].filter(v => v !== null).join('\n');
                 try { if (adminPhone) await whatsappService.sendText(adminPhone, msg); } catch (e) { console.error('[anexos-upload] WA notify:', e.message); }
                 try {
@@ -1984,6 +1992,7 @@ router.post('/anexos-upload/:expedienteId',
                         cesionLink: docUpdate.anexo_cesion_signed_link || null,
                         anexoILink: docUpdate.anexo_i_signed_link || null,
                         portalLink,
+                        pendienteContrafirma,
                     });
                 } catch (e) { console.error('[anexos-upload] Email notify:', e.message); }
             });

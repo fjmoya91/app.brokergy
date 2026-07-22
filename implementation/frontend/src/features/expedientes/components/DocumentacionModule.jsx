@@ -13,6 +13,8 @@ import { CertificadoRes080Modal } from './CertificadoRes080Modal';
 import { AnexoFotograficoModal } from './AnexoFotograficoModal';
 import { EnviarBorradorRiteModal } from './EnviarBorradorRiteModal';
 import { EnviarAnexosModal } from './EnviarAnexosModal';
+import FirmarConCertificadoModal from './FirmarConCertificadoModal';
+import { SIGN_BOXES } from '../logic/signBoxes';
 import { calcCifo } from '../logic/calcCifo';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -616,6 +618,11 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
     const [rejectError, setRejectError] = useState(null);
     const [showEnviarBorrador, setShowEnviarBorrador] = useState(false);
     const [enviarAnexos, setEnviarAnexos] = useState({ open: false, docs: [], overrides: null });
+    // Firma con certificado (Autofirma) de un documento YA firmado que está en Drive:
+    // hoy la contrafirma de Brokergy del Anexo de Cesión. { field, label, fileName, box }
+    const [signCtx, setSignCtx] = useState(null);
+    const [signPdfB64, setSignPdfB64] = useState(null);
+    const [signBusy, setSignBusy] = useState(false);
 
     // ── Validación ───────────────────────────────────────────────────────────
     const [validation, setValidation] = useState({ isOpen: false, fields: [], onConfirm: null, docName: '' });
@@ -991,6 +998,64 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
         } catch (err) {
             console.error('Error validando documento:', err);
             alert(err.response?.data?.error || 'No se pudo validar el documento.');
+        }
+    };
+
+    // ── Contrafirma de Brokergy con certificado (Autofirma) ───────────────────
+    // Cuando el cliente firma electrónicamente el Anexo de Cesión falta nuestra
+    // firma. En vez de descargar → firmar con Adobe → volver a subir, se descarga
+    // el PDF que hay en Drive, se firma con el certificado desde el navegador y el
+    // backend lo sube (archivando el anterior en OLD), marca la firma de Brokergy
+    // y lo deja validado (verde).
+    const openFirmarConCertificado = async (field, label) => {
+        setSignBusy(true);
+        try {
+            const { data } = await axios.get(`/api/expedientes/${expediente.id}/documento-b64/${field}`);
+            if (!data?.pdf) throw new Error('No se pudo descargar el documento');
+            setSignPdfB64(data.pdf);
+            setSignCtx({
+                field,
+                label,
+                fileName: field === 'anexo_cesion_signed_link'
+                    ? `${expediente.numero_expediente || ''} - Anexo Cesión ahorro_fdo`
+                    : `${expediente.numero_expediente || ''} - ${label}_fdo`,
+                // Columna del CESIONARIO (Brokergy); la izquierda es la del cliente.
+                box: field === 'anexo_cesion_signed_link' ? SIGN_BOXES.anexo_cesion_cesionario : null,
+                // Esa columna ya lleva impresa la rúbrica manuscrita de Brokergy: la
+                // firma digital va sin logo (solo el texto del certificado) para no
+                // tapar la firma con el sello estirado.
+                sinRubrica: field === 'anexo_cesion_signed_link',
+            });
+            setManagingSigned(null);
+        } catch (err) {
+            alert(err.response?.data?.error || 'No se pudo preparar el documento para firmar.');
+        } finally {
+            setSignBusy(false);
+        }
+    };
+
+    const handleDocumentoFirmado = async (signedB64) => {
+        try {
+            const { data } = await axios.post(`/api/expedientes/${expediente.id}/documentos/firmar-subir`, {
+                field: signCtx.field,
+                signedPdfBase64: signedB64,
+                fileName: signCtx.fileName,
+                subfolderName: '6. ANEXOS CAE',
+            });
+            setSignCtx(null); setSignPdfB64(null);
+            // El backend ya persistió enlace + firma de Brokergy + validado: aquí solo
+            // se refleja en pantalla (sin re-guardar, para no pisar nada).
+            setLocal(prev => ({
+                ...prev,
+                [signCtx.field]: data.signed_link || prev[signCtx.field],
+                ...(signCtx.field === 'anexo_cesion_signed_link' ? { cesion_firmado_brokergy: true } : {}),
+                ...(data.validated
+                    ? { docs_validados: { ...(prev.docs_validados || {}), [signCtx.field]: new Date().toISOString() } }
+                    : {}),
+                docs_rechazados: (() => { const dr = { ...(prev.docs_rechazados || {}) }; delete dr[signCtx.field]; return dr; })(),
+            }));
+        } catch (err) {
+            alert('Se firmó pero no se pudo guardar: ' + (err.response?.data?.error || err.message));
         }
     };
 
@@ -2051,16 +2116,28 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                             {/* Principales: validar / rechazar */}
                             <div className="flex flex-col sm:flex-row gap-2.5">
                                 {managingSigned.field === 'anexo_cesion_signed_link' && !local.cesion_firmado_brokergy ? (
-                                    <button
-                                        onClick={() => {
-                                            setLocal(prev => { const next = { ...prev, cesion_firmado_brokergy: true }; onSave({ documentacion: next }); return next; });
-                                            setManagingSigned(null);
-                                        }}
-                                        className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-3.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[11px] font-black uppercase tracking-[0.15em] hover:bg-emerald-500 hover:text-white transition-all active:scale-[0.98] shadow-lg shadow-emerald-500/10"
-                                    >
-                                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
-                                        Brokergy ha firmado
-                                    </button>
+                                    <>
+                                        {/* Contrafirma con certificado: firma, sube y valida en un paso. */}
+                                        <button
+                                            onClick={() => openFirmarConCertificado(managingSigned.field, managingSigned.label)}
+                                            disabled={signBusy}
+                                            className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-3.5 rounded-2xl bg-brand/15 border border-brand/40 text-brand text-[11px] font-black uppercase tracking-[0.15em] hover:bg-brand hover:text-bkg-deep transition-all active:scale-[0.98] shadow-lg shadow-brand/10 disabled:opacity-40"
+                                        >
+                                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                                            {signBusy ? 'Preparando…' : 'Firmar con certificado'}
+                                        </button>
+                                        {/* Salida manual: ya se firmó por fuera (Adobe) y se sustituyó el PDF. */}
+                                        <button
+                                            onClick={() => {
+                                                setLocal(prev => { const next = { ...prev, cesion_firmado_brokergy: true }; onSave({ documentacion: next }); return next; });
+                                                setManagingSigned(null);
+                                            }}
+                                            className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-3.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[11px] font-black uppercase tracking-[0.15em] hover:bg-emerald-500 hover:text-white transition-all active:scale-[0.98] shadow-lg shadow-emerald-500/10"
+                                        >
+                                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
+                                            Ya firmado fuera
+                                        </button>
+                                    </>
                                 ) : isValidated(managingSigned.field) ? (
                                     <div className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-3.5 rounded-2xl bg-emerald-500/[0.07] border border-emerald-500/20 text-emerald-400/80 text-[11px] font-black uppercase tracking-[0.15em]">
                                         <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
@@ -2104,6 +2181,19 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                         </div>
                     </div>
                 </div>
+            )}
+
+            {/* Firma con certificado (Autofirma) del documento ya firmado por la otra parte */}
+            {signCtx && signPdfB64 && (
+                <FirmarConCertificadoModal
+                    pdfBase64={signPdfB64}
+                    title={`Firmar ${signCtx.label} · ${expediente?.numero_expediente || ''}`}
+                    fixedBox={signCtx.box}
+                    signatureAnchor={signCtx.box ? null : ['fdo', 'firma', 'cesionario']}
+                    {...(signCtx.sinRubrica ? { rubricImageUrl: null } : {})}
+                    onClose={() => { setSignCtx(null); setSignPdfB64(null); }}
+                    onSigned={handleDocumentoFirmado}
+                />
             )}
 
             {/* Modal de RECHAZO de documento (motivo + destinatario + mensaje → aviso) */}

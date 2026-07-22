@@ -26,6 +26,15 @@ export const SIGN_BOXES = {
     // Anexo de Cesión de Ahorros (individual, cliente) — FirmarAnexosView.jsx.
     anexo_cesion: { page: 2, llx: 25.68, lly: 55.99, urx: 276.72, ury: 166.24 },
 
+    // Anexo de Cesión — columna derecha (EL CESIONARIO / BROKERGY): la contrafirma
+    // que hace Brokergy cuando el cliente ha firmado electrónicamente.
+    // DERIVADA de la caja del Cedente: el bloque de firmas es un grid de 2 columnas
+    // iguales (`.conv-sign-grid`, gap 32px sobre 794px de ancho y 36px de padding),
+    // así que la columna 2 está desplazada 377px = 282.6 pt a la derecha.
+    // Si el recuadro no cae fino, se puede arrastrar en el modal (o re-derivar con
+    // un PDF de referencia marcado, como el resto de cajas).
+    anexo_cesion_cesionario: { page: 2, llx: 308.28, lly: 55.99, urx: 559.32, ury: 166.24 },
+
     // Anexo I · Listado Cesión (LOTE) — página 1, apaisada. DOS firmas:
     //   _proveedor = columna izquierda (EL PROVEEDOR / BROKERGY), la firma Brokergy antes de enviar.
     //   (por defecto)= columna derecha (el S.O.), la firma el Sujeto Obligado.

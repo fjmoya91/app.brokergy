@@ -1253,8 +1253,8 @@ const sendDatosClienteCompletadosEmail = async ({ to, numExp, partes, clienteDat
  * público. Misma identidad y misma ficha de cliente que el aviso de datos
  * completados, más los enlaces a los firmados en Drive.
  */
-function buildAnexosFirmadosEmail({ numExp, partes, clienteData, cesionLink, anexoILink, portalLink }) {
-    const subject = `${numExp} · ✅ Anexos firmados recibidos`;
+function buildAnexosFirmadosEmail({ numExp, partes, clienteData, cesionLink, anexoILink, portalLink, pendienteContrafirma = false }) {
+    const subject = `${numExp} · ${pendienteContrafirma ? '✍️ Anexos firmados — falta tu firma' : '✅ Anexos firmados recibidos'}`;
     const nombre = clienteData?.nombre || 'El cliente';
 
     const enlaces = [
@@ -1265,10 +1265,20 @@ function buildAnexosFirmadosEmail({ numExp, partes, clienteData, cesionLink, ane
         ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:22px;">${enlaces.map(b => `<tr><td align="center" style="padding-bottom:10px;">${b}</td></tr>`).join('')}</table>`
         : '';
 
+    // Firma electrónica del cliente: el Convenio de Cesión necesita todavía la
+    // contrafirma de Brokergy (con firma manuscrita no hace falta).
+    const contrafirmaHtml = pendienteContrafirma && portalLink
+        ? emailBox(
+            emailP('✍️ Falta tu firma en el Anexo de Cesión', { bold: true, color: BRAND.orangeDark, center: true, mb: 6 }) +
+            emailP('El cliente lo ha firmado electrónicamente. Abre el expediente, entra en el Anexo de Cesión firmado y pulsa "Firmar con certificado": se firma con Autofirma, se sube a Drive y queda validado.', { size: 13, color: BRAND.muted, center: true, mb: 16 }) +
+            `<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">${emailButton(portalLink, '🖊️ Abrir el expediente y firmar', BRAND.orange)}</td></tr></table>`,
+            { bg: BRAND.orangeTint, border: BRAND.orange })
+        : '';
+
     const html = brandEmailShell({
         preheader: `${nombre} — ${partes} · ${numExp}`,
-        title: 'Anexos firmados recibidos',
-        pill: PILL.success('Anexos firmados'),
+        title: pendienteContrafirma ? 'Anexos firmados — falta tu firma' : 'Anexos firmados recibidos',
+        pill: pendienteContrafirma ? PILL.warning('Pendiente de tu firma', '✍️') : PILL.success('Anexos firmados'),
         contentHtml:
             emailP(`<strong>${escapeHtml(nombre)}</strong> ha subido <strong>${escapeHtml(partes)}</strong> del expediente <strong>${escapeHtml(numExp)}</strong>.`, { mb: 22 }) +
             emailBox(emailDataTable([
@@ -1276,18 +1286,19 @@ function buildAnexosFirmadosEmail({ numExp, partes, clienteData, cesionLink, ane
                 ...clienteDataRows(clienteData),
                 ['Recibido', escapeHtml(partes || '')],
             ])) +
+            contrafirmaHtml +
             enlacesHtml +
             (portalLink
                 ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:4px;"><tr><td align="center">${emailOutlineButton(portalLink, '📁 Ver Expediente')}</td></tr></table>`
                 : ''),
     });
 
-    const text = `Anexos firmados recibidos — ${numExp}\n\n${clienteDataText(clienteData)}Recibido: ${partes}\n${cesionLink ? `\nAnexo de Cesión firmado: ${cesionLink}` : ''}${anexoILink ? `\nAnexo I firmado: ${anexoILink}` : ''}${portalLink ? `\n\n${portalLink}` : ''}`;
+    const text = `Anexos firmados recibidos — ${numExp}\n\n${clienteDataText(clienteData)}Recibido: ${partes}\n${pendienteContrafirma ? '\nFALTA LA FIRMA DE BROKERGY en el Anexo de Cesión (el cliente firmó electrónicamente).\n' : ''}${cesionLink ? `\nAnexo de Cesión firmado: ${cesionLink}` : ''}${anexoILink ? `\nAnexo I firmado: ${anexoILink}` : ''}${portalLink ? `\n\n${portalLink}` : ''}`;
     return { subject, html, text };
 }
 
-const sendAnexosFirmadosEmail = async ({ to, numExp, partes, clienteData, cesionLink, anexoILink, portalLink }) => {
-    const { subject, html, text } = buildAnexosFirmadosEmail({ numExp, partes, clienteData, cesionLink, anexoILink, portalLink });
+const sendAnexosFirmadosEmail = async ({ to, numExp, partes, clienteData, cesionLink, anexoILink, portalLink, pendienteContrafirma }) => {
+    const { subject, html, text } = buildAnexosFirmadosEmail({ numExp, partes, clienteData, cesionLink, anexoILink, portalLink, pendienteContrafirma });
     return sendMail({ to, subject, html, text });
 };
 

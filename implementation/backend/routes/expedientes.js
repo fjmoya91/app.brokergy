@@ -1170,7 +1170,9 @@ const DOCUMENTO_VALIDABLE_LABELS = {
 // (verde) y se copian a la carpeta de auditoría "10. EXPEDIENTE CAE" en el mismo
 // paso — no necesitan un click de validación aparte. El Anexo Fotográfico lo firma
 // internamente Brokergy/instalador, así que la firma ya es su validación final.
-const AUTO_VALIDATE_ON_SIGN = new Set(['anexo_fotografico_signed_link']);
+// El Anexo de Cesión entra aquí porque la contrafirma de Brokergy es el último
+// paso del documento: si lo firmamos nosotros es que ya lo hemos dado por bueno.
+const AUTO_VALIDATE_ON_SIGN = new Set(['anexo_fotografico_signed_link', 'anexo_cesion_signed_link']);
 
 function extractDriveFileId(link) {
     if (!link) return null;
