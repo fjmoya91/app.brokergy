@@ -1249,6 +1249,49 @@ const sendDatosClienteCompletadosEmail = async ({ to, numExp, partes, clienteDat
 };
 
 /**
+ * Avisa al equipo de que el cliente ha subido los anexos firmados por el enlace
+ * público. Misma identidad y misma ficha de cliente que el aviso de datos
+ * completados, más los enlaces a los firmados en Drive.
+ */
+function buildAnexosFirmadosEmail({ numExp, partes, clienteData, cesionLink, anexoILink, portalLink }) {
+    const subject = `${numExp} · ✅ Anexos firmados recibidos`;
+    const nombre = clienteData?.nombre || 'El cliente';
+
+    const enlaces = [
+        cesionLink ? emailButton(cesionLink, '📄 Anexo de Cesión firmado', BRAND.orange) : null,
+        anexoILink ? emailButton(anexoILink, '📄 Anexo I firmado', BRAND.orange) : null,
+    ].filter(Boolean);
+    const enlacesHtml = enlaces.length
+        ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:22px;">${enlaces.map(b => `<tr><td align="center" style="padding-bottom:10px;">${b}</td></tr>`).join('')}</table>`
+        : '';
+
+    const html = brandEmailShell({
+        preheader: `${nombre} — ${partes} · ${numExp}`,
+        title: 'Anexos firmados recibidos',
+        pill: PILL.success('Anexos firmados'),
+        contentHtml:
+            emailP(`<strong>${escapeHtml(nombre)}</strong> ha subido <strong>${escapeHtml(partes)}</strong> del expediente <strong>${escapeHtml(numExp)}</strong>.`, { mb: 22 }) +
+            emailBox(emailDataTable([
+                ['Expediente', escapeHtml(numExp || '')],
+                ...clienteDataRows(clienteData),
+                ['Recibido', escapeHtml(partes || '')],
+            ])) +
+            enlacesHtml +
+            (portalLink
+                ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:4px;"><tr><td align="center">${emailOutlineButton(portalLink, '📁 Ver Expediente')}</td></tr></table>`
+                : ''),
+    });
+
+    const text = `Anexos firmados recibidos — ${numExp}\n\n${clienteDataText(clienteData)}Recibido: ${partes}\n${cesionLink ? `\nAnexo de Cesión firmado: ${cesionLink}` : ''}${anexoILink ? `\nAnexo I firmado: ${anexoILink}` : ''}${portalLink ? `\n\n${portalLink}` : ''}`;
+    return { subject, html, text };
+}
+
+const sendAnexosFirmadosEmail = async ({ to, numExp, partes, clienteData, cesionLink, anexoILink, portalLink }) => {
+    const { subject, html, text } = buildAnexosFirmadosEmail({ numExp, partes, clienteData, cesionLink, anexoILink, portalLink });
+    return sendMail({ to, subject, html, text });
+};
+
+/**
  * Email genérico de entrega de un documento (CIFO al instalador, RES080 al
  * cliente…) con la MISMA identidad visual de marca que los emails al certificador
  * (brandEmailShell). El `message` es el texto editable del modal (admite
@@ -1316,5 +1359,7 @@ module.exports = {
     sendCeeInicialRegistradoClientEmail,
     sendCeeRegistradoStaffEmail,
     sendDatosClienteCompletadosEmail,
-    buildDatosClienteCompletadosEmail
+    buildDatosClienteCompletadosEmail,
+    sendAnexosFirmadosEmail,
+    buildAnexosFirmadosEmail
 };

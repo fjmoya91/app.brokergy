@@ -9,7 +9,7 @@ const reformaUploadService = require('../services/reformaUploadService');
 const ceeUploadService = require('../services/ceeUploadService');
 const anexoFotograficoService = require('../services/anexoFotograficoService');
 const { buildCertClienteData } = require('../services/certClienteData');
-const { requireAuth } = require('../middleware/auth');
+const { requireAuth, isStaff } = require('../middleware/auth');
 const axios = require('axios');
 const multer = require('multer');
 const { PDFDocument } = require('pdf-lib');
@@ -840,7 +840,10 @@ router.post('/reforma-docs/:uuid/:slot', requireAuth, uploadDocsSingle, async (r
             .eq('id', uuid)
             .maybeSingle();
         if (!opp) return res.status(404).json({ error: 'Solicitud no encontrada' });
-        if (!token || opp.datos_calculo?.upload_token !== token) {
+        // El token es la credencial del canal PÚBLICO (cliente/instalador por enlace).
+        // Una sesión interna (ADMIN/TRABAJADOR) vale igual: el gestor de fotos del
+        // Anexo Fotográfico sube por aquí sin tener que pedir antes el token.
+        if (!isStaff(req) && (!token || opp.datos_calculo?.upload_token !== token)) {
             return res.status(403).json({ error: 'Enlace inválido o caducado.' });
         }
 
@@ -870,8 +873,23 @@ router.post('/reforma-docs/:uuid/:slot', requireAuth, uploadDocsSingle, async (r
         let fileName;
         if (slotDef.named && rawLabel) {
             fileName = `${reformaUploadService.buildNamedFileBase(slot, rawLabel, prev)}.${ext}`;
+        } else if (slotDef.multiple) {
+            // El índice se calcula contra DRIVE, no solo contra reforma_uploads: las
+            // fotos que llegaron por migración o copia manual existen en Drive pero no
+            // en la BD, y `prev.length + 1` habría reutilizado un nombre ya ocupado
+            // (dos ficheros `FOTO_VENTANAS_DESPUES_1.jpg` en la misma carpeta).
+            let maxIdx = prev.length;
+            try {
+                const existing = await driveService.listFilesByPrefix(subId, slot);
+                const re = new RegExp(`^${slot}_(\\d+)\\.`, 'i');
+                for (const f of existing || []) {
+                    const m = re.exec(f.name || '');
+                    if (m) maxIdx = Math.max(maxIdx, parseInt(m[1], 10));
+                }
+            } catch (nErr) { console.warn('[Reforma] índice multiple desde Drive:', nErr.message); }
+            fileName = `${slot}_${maxIdx + 1}.${ext}`;
         } else {
-            fileName = slotDef.multiple ? `${slot}_${prev.length + 1}.${ext}` : `${slot}.${ext}`;
+            fileName = `${slot}.${ext}`;
         }
 
         // Slot único: borrar versión previa en Drive para no acumular duplicados
@@ -1284,23 +1302,50 @@ router.get('/scan-photos/:id', async (req, res) => {
  * (caldera, placa de caldera, ACS previo) para documentar el estado inicial. Se
  * omiten vídeos, documentos y catch-alls "otros". Imágenes en base64 listas para PDF.
  *
- * Respuesta: { success, groups: [{ key, label, fase, photos: [{ name, data }] }] }
+ * Además de los conceptos CON foto, devuelve los que el expediente ESPERA y aún
+ * están vacíos (`pendientes`) y el catálogo de apartados añadibles
+ * (`addableConcepts`): el gestor de fotos del Anexo pinta esos huecos para poder
+ * subir la foto que falta directamente a su slot de Drive, en vez de obligar a
+ * inventarse un "campo personalizado" que nunca llega a Drive.
+ *
+ * Respuesta: { success, oportunidad_id, groups: [{ key, label, fase, photos }],
+ *              pendientes: [{ key, label, fase }], addableConcepts }
  */
 router.get('/anexo-photos/:id', async (req, res) => {
     try {
         const id = await resolveOportunidadId(req.params.id);
         const { data: opp, error } = await supabase
             .from('oportunidades')
-            .select('datos_calculo')
+            .select('id, datos_calculo')
             .eq('id_oportunidad', id)
             .maybeSingle();
         if (error || !opp) return res.status(404).json({ error: 'Oportunidad no encontrada' });
 
+        const dc = opp.datos_calculo || {};
+
         // Recopilación centralizada (misma lógica que usa la generación automática
         // server-side del anexo, en anexoFotograficoService).
-        const { groups } = await anexoFotograficoService.collectPhotoGroups(opp.datos_calculo || {});
-        console.log(`[AnexoPhotos] ${id}: ${groups.length} concepto(s) con foto`);
-        res.json({ success: true, groups });
+        const { groups } = await anexoFotograficoService.collectPhotoGroups(dc);
+
+        // Huecos: conceptos esperados por el alcance del expediente que aún no
+        // tienen ninguna foto en "12. DOCUMENTOS PARA CEE".
+        const conFoto = new Set(groups.map(g => g.key));
+        const pendientes = anexoFotograficoService.anexoConcepts(dc)
+            .filter(c => !conFoto.has(c.key))
+            .map(c => ({ key: c.key, label: c.label, fase: c.fase }));
+
+        // Catálogo de apartados de obra que el admin puede activar (ventanas,
+        // cubierta, fachada…) con su estado actual, igual que en DocsManager.
+        const visibles = new Set(reformaUploadService.buildDocChecklist(dc).map(s => s.key));
+        const addableConcepts = reformaUploadService.ADDABLE_CONCEPTS.map(c => ({
+            id: c.id,
+            label: c.label,
+            slots: c.slots,
+            shown: c.slots.some(k => visibles.has(k)),
+        }));
+
+        console.log(`[AnexoPhotos] ${id}: ${groups.length} concepto(s) con foto, ${pendientes.length} pendiente(s)`);
+        res.json({ success: true, oportunidad_id: opp.id, groups, pendientes, addableConcepts });
     } catch (e) {
         console.error('[AnexoPhotos] error:', e);
         res.status(500).json({ error: 'Error al recopilar fotos del anexo' });
@@ -1818,7 +1863,7 @@ router.post('/anexos-upload/:expedienteId',
 
             const { data: exp, error } = await supabase
                 .from('expedientes')
-                .select('id, numero_expediente, documentacion, clientes!cliente_id(nombre_razon_social, apellidos), oportunidades!oportunidad_id(datos_calculo)')
+                .select('id, numero_expediente, documentacion, instalacion, clientes!cliente_id(nombre_razon_social, apellidos, dni, tlf, email, direccion, codigo_postal, municipio, provincia), oportunidades!oportunidad_id(datos_calculo, ref_catastral, referencia_cliente)')
                 .eq('id', expedienteId)
                 .maybeSingle();
             if (error) console.error('[anexos-upload] select error:', error.message);
@@ -1916,23 +1961,29 @@ router.post('/anexos-upload/:expedienteId',
 
             // Notificación al admin (background)
             setImmediate(async () => {
-                const clienteNombre = [exp.clientes?.nombre_razon_social, exp.clientes?.apellidos].filter(Boolean).join(' ') || '—';
                 const partes = recibido.join(' + ') || 'documentación';
                 const adminPhone = process.env.WHATSAPP_ADMIN_CHAT;
                 const adminEmail = process.env.ADMIN_EMAIL || 'franciscojavier.moya.s2e2@gmail.com';
-                const msg = `✅ *Anexos firmados recibidos*\nExpediente: *${numexpte}*\nCliente: ${clienteNombre}\nRecibido: ${partes}`;
+                // Misma ficha (titular + dirección de la instalación) que el resto de avisos.
+                const { data: clienteData } = buildCertClienteData(exp, exp.oportunidades, exp.clientes);
+                const portalLink = `https://app.brokergy.es/?exp=${exp.id}`;
+                const msg = [
+                    '✅ *Anexos firmados recibidos*',
+                    `Expediente: *${numexpte}*`,
+                    clienteData.nombre ? `Cliente: *${clienteData.nombre}*` : null,
+                    clienteData.direccionInstalacion ? `Instalación: ${clienteData.direccionInstalacion}` : null,
+                    `Recibido: ${partes}`,
+                ].filter(v => v !== null).join('\n');
                 try { if (adminPhone) await whatsappService.sendText(adminPhone, msg); } catch (e) { console.error('[anexos-upload] WA notify:', e.message); }
                 try {
-                    await emailService.sendMail({
+                    await emailService.sendAnexosFirmadosEmail({
                         to: adminEmail,
-                        subject: `✅ Anexos firmados recibidos — ${numexpte}`,
-                        html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
-                            <div style="background:linear-gradient(135deg,#f59e0b,#ea580c);padding:20px 28px;"><h2 style="margin:0;color:#fff;font-size:16px;">BROKERGY · Anexos firmados</h2></div>
-                            <div style="padding:24px;background:#fff;">
-                              <p>El cliente <strong>${clienteNombre}</strong> ha subido <strong>${partes}</strong> del expediente <strong>${numexpte}</strong>.</p>
-                              ${docUpdate.anexo_cesion_signed_link ? `<p><a href="${docUpdate.anexo_cesion_signed_link}" style="color:#f59e0b;font-weight:bold;">Anexo de Cesión firmado en Drive</a></p>` : ''}
-                              ${docUpdate.anexo_i_signed_link ? `<p><a href="${docUpdate.anexo_i_signed_link}" style="color:#f59e0b;font-weight:bold;">Anexo I firmado en Drive</a></p>` : ''}
-                            </div></div>`
+                        numExp: numexpte,
+                        partes,
+                        clienteData,
+                        cesionLink: docUpdate.anexo_cesion_signed_link || null,
+                        anexoILink: docUpdate.anexo_i_signed_link || null,
+                        portalLink,
                     });
                 } catch (e) { console.error('[anexos-upload] Email notify:', e.message); }
             });
