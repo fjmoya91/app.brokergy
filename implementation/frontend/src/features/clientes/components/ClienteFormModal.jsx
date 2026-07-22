@@ -319,6 +319,9 @@ export function ClienteFormModal({ isOpen, onClose, onSuccess, oportunidad, init
         tlf: '',
         dni: '',
         sexo: '',
+        representante_nombre: '',
+        representante_apellidos: '',
+        representante_dni: '',
         numero_cuenta: '',
         prescriptor_id: '',
         instalador_asociado_id: '',
@@ -474,6 +477,11 @@ export function ClienteFormModal({ isOpen, onClose, onSuccess, oportunidad, init
                 tlf: form.tlf.trim() || null,
                 dni: form.dni.trim() || null,
                 sexo: esEmpresa ? null : (form.sexo || null),
+                // Persona jurídica: quien firma los anexos es el representante legal.
+                es_empresa: esEmpresa,
+                representante_nombre: esEmpresa ? (form.representante_nombre?.trim() || null) : null,
+                representante_apellidos: esEmpresa ? (form.representante_apellidos?.trim() || null) : null,
+                representante_dni: esEmpresa ? (form.representante_dni?.trim() || null) : null,
                 ccaa: form.ccaa || null,
                 provincia: form.provincia || null,
                 municipio: form.municipio || null,
@@ -674,6 +682,29 @@ export function ClienteFormModal({ isOpen, onClose, onSuccess, oportunidad, init
                                         <Input placeholder={esEmpresa ? 'B12345678' : '12345678A'} uppercase
                                             value={form.dni} onChange={e => updateForm({ dni: e.target.value })} />
                                     </Field>
+                                    {/* Representante legal: quien firma los anexos por la sociedad */}
+                                    {esEmpresa && (
+                                        <div className="sm:col-span-2 animate-fade-in p-4 bg-white/[0.02] border border-white/[0.05] rounded-xl space-y-3">
+                                            <p className="text-[10px] uppercase tracking-[0.2em] font-black text-white/30">Representante legal</p>
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                                <Field label="Nombre">
+                                                    <Input placeholder="MARINA" uppercase value={form.representante_nombre}
+                                                        onChange={e => updateForm({ representante_nombre: e.target.value })} />
+                                                </Field>
+                                                <Field label="Apellidos">
+                                                    <Input placeholder="CARRASCO GARCÍA" uppercase value={form.representante_apellidos}
+                                                        onChange={e => updateForm({ representante_apellidos: e.target.value })} />
+                                                </Field>
+                                                <Field label="DNI / NIE">
+                                                    <Input placeholder="12345678A" uppercase value={form.representante_dni}
+                                                        onChange={e => updateForm({ representante_dni: e.target.value })} />
+                                                </Field>
+                                            </div>
+                                            <p className="text-[10px] text-white/25">
+                                                Firma los anexos en nombre de la sociedad. Se usa en el Convenio de Cesión de Ahorros y en el Anexo I.
+                                            </p>
+                                        </div>
+                                    )}
                                     <Field label="Email">
                                         <Input type="email" placeholder="cliente@email.com"
                                             value={form.email} onChange={e => updateForm({ email: e.target.value.toLowerCase() })} />
@@ -682,7 +713,7 @@ export function ClienteFormModal({ isOpen, onClose, onSuccess, oportunidad, init
                                         <Input placeholder="600 000 000" value={form.tlf}
                                             onChange={e => updateForm({ tlf: e.target.value })} />
                                     </Field>
-                                    {!esEmpresa && isAdmin && (
+                                    {isAdmin && (
                                         <Field label="Número de Cuenta (IBAN)">
                                             <Input placeholder="ES00 0000 0000 00 0000000000" uppercase
                                                 value={form.numero_cuenta}

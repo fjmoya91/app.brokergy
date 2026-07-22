@@ -154,7 +154,8 @@ router.post('/', enforceAuth, async (req, res) => {
             nombre_razon_social, apellidos, email, tlf, dni, sexo,
             ccaa, provincia, municipio, direccion, codigo_postal,
             numero_cuenta, prescriptor_id, oportunidad_id,
-            persona_contacto_nombre, persona_contacto_tlf, notificaciones_contacto_activas, notas
+            persona_contacto_nombre, persona_contacto_tlf, notificaciones_contacto_activas, notas,
+            es_empresa, representante_nombre, representante_apellidos, representante_dni
         } = body;
 
 
@@ -190,6 +191,10 @@ router.post('/', enforceAuth, async (req, res) => {
             codigo_postal: codigo_postal || null,
             numero_cuenta: numero_cuenta || null,
             prescriptor_id: finalPrescriptorId,
+            es_empresa: es_empresa === true || es_empresa === 'true' || false,
+            representante_nombre: representante_nombre || null,
+            representante_apellidos: representante_apellidos || null,
+            representante_dni: representante_dni || null,
             persona_contacto_nombre: persona_contacto_nombre || null,
             persona_contacto_tlf: persona_contacto_tlf || null,
             notificaciones_contacto_activas: notificaciones_contacto_activas === true || notificaciones_contacto_activas === 'true' || false,
@@ -291,7 +296,8 @@ router.put('/:id', enforceAuth, async (req, res) => {
             nombre_razon_social, apellidos, email, tlf, dni, sexo,
             ccaa, provincia, municipio, direccion, codigo_postal,
             numero_cuenta, prescriptor_id,
-            persona_contacto_nombre, persona_contacto_tlf, notificaciones_contacto_activas, notas
+            persona_contacto_nombre, persona_contacto_tlf, notificaciones_contacto_activas, notas,
+            es_empresa, representante_nombre, representante_apellidos, representante_dni
         } = body;
 
 
@@ -308,6 +314,11 @@ router.put('/:id', enforceAuth, async (req, res) => {
         if (direccion !== undefined) updates.direccion = direccion;
         if (codigo_postal !== undefined) updates.codigo_postal = codigo_postal;
         if (numero_cuenta !== undefined && isStaff(req)) updates.numero_cuenta = numero_cuenta;
+        // Empresa + representante legal (quien firma los anexos por la sociedad)
+        if (es_empresa !== undefined) updates.es_empresa = es_empresa === true || es_empresa === 'true' || false;
+        if (representante_nombre !== undefined) updates.representante_nombre = representante_nombre;
+        if (representante_apellidos !== undefined) updates.representante_apellidos = representante_apellidos;
+        if (representante_dni !== undefined) updates.representante_dni = representante_dni;
         if (persona_contacto_nombre !== undefined) updates.persona_contacto_nombre = persona_contacto_nombre;
         if (persona_contacto_tlf !== undefined) updates.persona_contacto_tlf = persona_contacto_tlf;
         if (notificaciones_contacto_activas !== undefined) updates.notificaciones_contacto_activas = notificaciones_contacto_activas === true || notificaciones_contacto_activas === 'true' || false;

@@ -1209,6 +1209,46 @@ const sendCeeRegistradoStaffEmail = async (to, isPartner, numExp, clientName, ub
 };
 
 /**
+ * Avisa al equipo de que el cliente ha completado/actualizado sus datos por el
+ * enlace público (email, teléfono, DNI/CIF, IBAN, justificante bancario).
+ * Lleva la ficha del cliente (titular + dirección de la instalación) porque el
+ * nº de expediente solo no dice de quién es el expediente.
+ */
+// Construye (sin enviar) asunto+HTML+texto, para poder previsualizarlo sin SMTP.
+function buildDatosClienteCompletadosEmail({ numExp, partes, clienteData, portalLink }) {
+    const subject = `${numExp} · 📝 Datos del cliente completados`;
+    const nombre = clienteData?.nombre || '';
+
+    const html = brandEmailShell({
+        preheader: `${nombre ? nombre + ' — ' : ''}${partes} · ${numExp}`,
+        title: 'Datos del cliente completados',
+        pill: PILL.success('Datos completados'),
+        contentHtml:
+            emailP(`El cliente ha completado sus datos del expediente <strong>${escapeHtml(numExp)}</strong>.`, { mb: 22 }) +
+            emailBox(emailDataTable([
+                ['Expediente', escapeHtml(numExp || '')],
+                ...clienteDataRows(clienteData),
+                ['Actualizado', escapeHtml(partes || '')],
+            ])) +
+            emailBox(
+                emailP('👉 Ya puedes generar y enviar los anexos al cliente para que los firme.', { bold: true, color: BRAND.greenDark, mb: 0 }),
+                { bg: BRAND.greenTint, border: BRAND.green }
+            ) +
+            (portalLink
+                ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:4px;"><tr><td align="center">${emailOutlineButton(portalLink, '📁 Ver Expediente')}</td></tr></table>`
+                : ''),
+    });
+
+    const text = `Datos del cliente completados — ${numExp}\n\n${clienteDataText(clienteData)}Actualizado: ${partes}\n\nYa puedes generar y enviar los anexos al cliente para que los firme.${portalLink ? '\n\n' + portalLink : ''}`;
+    return { subject, html, text };
+}
+
+const sendDatosClienteCompletadosEmail = async ({ to, numExp, partes, clienteData, portalLink }) => {
+    const { subject, html, text } = buildDatosClienteCompletadosEmail({ numExp, partes, clienteData, portalLink });
+    return sendMail({ to, subject, html, text });
+};
+
+/**
  * Email genérico de entrega de un documento (CIFO al instalador, RES080 al
  * cliente…) con la MISMA identidad visual de marca que los emails al certificador
  * (brandEmailShell). El `message` es el texto editable del modal (admite
@@ -1274,5 +1314,7 @@ module.exports = {
     sendCertifierAcceptedAdminNotification,
     sendCertificadorApproveNotification,
     sendCeeInicialRegistradoClientEmail,
-    sendCeeRegistradoStaffEmail
+    sendCeeRegistradoStaffEmail,
+    sendDatosClienteCompletadosEmail,
+    buildDatosClienteCompletadosEmail
 };

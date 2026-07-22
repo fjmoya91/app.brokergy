@@ -340,6 +340,12 @@ export const buildAnexoIHtml = (expediente, results, states = {}, isForPdf = tru
     ].join('<br>');
     const nombrePropietario = [cliente.nombre_razon_social, cliente.apellidos].filter(Boolean).join(' ') || '___________';
     const nif = cliente.dni_nie || cliente.dni || '___________';
+    // Persona jurídica: el propietario del ahorro sigue siendo la sociedad, pero
+    // quien firma es su representante legal (apartado 3 del Anexo I).
+    const esEmpresa = !!cliente.es_empresa;
+    const nombreRepresentante = [cliente.representante_nombre, cliente.representante_apellidos].filter(Boolean).join(' ');
+    const dniRepresentante = cliente.representante_dni || '';
+    const firmante = esEmpresa && nombreRepresentante ? nombreRepresentante : nombrePropietario;
     const domicilio = [cliente.direccion, cliente.codigo_postal, cliente.municipio].filter(Boolean).join(', ') || '___________';
     const municipioFirma = (cliente.municipio || '___________').toUpperCase();
     const fechaFirma = new Date().toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' });
@@ -382,7 +388,7 @@ export const buildAnexoIHtml = (expediente, results, states = {}, isForPdf = tru
         <div class="doc-page">
             <div class="doc-sec-title">3. Identificación del representante del propietario inicial del ahorro (a indicar únicamente en caso de representación)</div>
             <table class="doc-table">
-                <tr><td class="lbl">Representante (Nombre y apellidos / Razón social)</td><td colspan="2"></td><td style="width:10%">NIF/NIE</td><td></td></tr>
+                <tr><td class="lbl">Representante (Nombre y apellidos / Razón social)</td><td colspan="2">${esEmpresa ? nombreRepresentante : ''}</td><td style="width:10%">NIF/NIE</td><td>${esEmpresa ? dniRepresentante : ''}</td></tr>
                 <tr><td class="lbl">Domicilio</td><td colspan="4"></td></tr>
                 <tr><td class="lbl">Teléfono</td><td colspan="4"></td></tr>
                 <tr><td class="lbl">Correo electrónico</td><td colspan="4"></td></tr>
@@ -427,7 +433,8 @@ export const buildAnexoIHtml = (expediente, results, states = {}, isForPdf = tru
             <div class="doc-p" style="margin-top: 30px">Asimismo, se COMPROMETE a comunicar cualquier modificación o variación de las circunstancias anteriores en un plazo máximo de cinco días al sujeto obligado o sujeto delegado con el que haya formalizado el convenio CAE.</div>
             <div class="doc-p" style="margin-top: 15px">Y para que así conste, firma la presente en <b>${municipioFirma}</b>, a <b>${fechaFirma}</b>.</div>
             <div class="doc-signature">
-                <div>Fdo.: <b>${nombrePropietario}</b></div>
+                <div>Fdo.: <b>${firmante}</b></div>
+                ${esEmpresa && nombreRepresentante ? `<div style="font-size: 10pt">En representación de <b>${nombrePropietario}</b></div>` : ''}
                 <div style="font-size: 9pt; margin-top: 5px">(Firma del propietario inicial del ahorro o representante del mismo).</div>
             </div>
         </div>
@@ -448,6 +455,13 @@ export const buildAnexoCesionHtml = (expediente, results) => {
     const fechaFirma = new Date().toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' });
     const nombreCedente = [cliente.nombre_razon_social, cliente.apellidos].filter(Boolean).join(' ') || '___________';
     const dniCedente = cliente.dni_nie || cliente.dni || '___________';
+    // Persona jurídica: el convenio lo firma el representante legal en nombre de la
+    // sociedad, igual que el Cesionario. El nombre/NIF del Cedente sigue siendo el
+    // de la empresa; quien comparece (y firma) es el representante.
+    const esEmpresa = !!cliente.es_empresa;
+    const nombreRepresentante = [cliente.representante_nombre, cliente.representante_apellidos].filter(Boolean).join(' ') || '___________';
+    const dniRepresentante = cliente.representante_dni || '___________';
+    const firmanteCedente = esEmpresa ? nombreRepresentante : nombreCedente;
     const dirCedente = [cliente.direccion, cliente.codigo_postal, `${cliente.municipio} (${cliente.provincia})`].filter(Boolean).join(', ').toUpperCase() || '___________';
     const telCedente = cliente.tlf || cliente.telefono || '___________';
     const emailCedente = cliente.email || '___________';
@@ -510,7 +524,10 @@ export const buildAnexoCesionHtml = (expediente, results) => {
             <div class="conv-title">CONVENIO DE CESIÓN DE AHORROS ENERGÉTICOS</div>
             <div class="conv-dateline">En ${municipioFecha} a ${fechaFirma}</div>
             <div class="conv-subtitle">REUNIDOS</div>
-            <p class="conv-p">De una parte, Dª/D. <strong>${nombreCedente}</strong>, mayor de edad, con documento de identificación <strong>${dniCedente}</strong> y domicilio a efectos de notificaciones en <strong>${dirCedente}</strong>, teléfono de contacto <strong>${telCedente}</strong> y correo electrónico <strong>${emailCedente}</strong>, en adelante el <strong>Cedente</strong>.</p>
+            <p class="conv-p">${esEmpresa
+                ? `De una parte, Dª/D. <strong>${nombreRepresentante}</strong>, mayor de edad, con documento de identificación <strong>${dniRepresentante}</strong>, actuando en nombre y representación de la entidad <strong>${nombreCedente}</strong>, con código de identificación NIF <strong>${dniCedente}</strong> y domicilio a efectos de notificaciones en <strong>${dirCedente}</strong>, teléfono de contacto <strong>${telCedente}</strong> y correo electrónico <strong>${emailCedente}</strong>, en adelante el <strong>Cedente</strong>.`
+                : `De una parte, Dª/D. <strong>${nombreCedente}</strong>, mayor de edad, con documento de identificación <strong>${dniCedente}</strong> y domicilio a efectos de notificaciones en <strong>${dirCedente}</strong>, teléfono de contacto <strong>${telCedente}</strong> y correo electrónico <strong>${emailCedente}</strong>, en adelante el <strong>Cedente</strong>.`
+            }</p>
             <p class="conv-p">De otra parte, Dª/D. FRANCISCO JAVIER MOYA LÓPEZ mayor de edad, con documento de identificación 06282551D, actuando en nombre y representación de la entidad SOLUCIONES SOSTENIBLES PARA EFICIENCIA ENERGÉTICA, SL (<strong>BROKERGY</strong>), con código de identificación NIF B19350222 y domicilio a efectos de notificaciones en C/ Don Sergio, 12 – 1ºL de 13700 Tomelloso (Ciudad Real), en adelante el <strong>Cesionario</strong>.</p>
             <p class="conv-p"><strong>Las partes se reconocen mutua y recíprocamente la capacidad legal necesaria para otorgar este convenio y, a sus efectos, exponen lo siguiente:</strong></p>
             <div class="conv-subtitle">EXPONEN</div>
@@ -572,7 +589,8 @@ export const buildAnexoCesionHtml = (expediente, results) => {
                 <div class="conv-sign-col">
                   <div class="conv-sign-lbl">El Cedente</div>
                   <div class="conv-sign-box"></div>
-                  <div class="conv-sign-name">Dª/D. ${nombreCedente}</div>
+                  <div class="conv-sign-name">Dª/D. ${firmanteCedente}</div>
+                  ${esEmpresa ? `<div class="conv-sign-name" style="margin-top:2px">En representación de <strong>${nombreCedente}</strong></div>` : ''}
                 </div>
                 <div class="conv-sign-col">
                   <div class="conv-sign-lbl">El Cesionario</div>

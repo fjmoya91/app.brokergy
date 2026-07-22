@@ -432,6 +432,10 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
             dni: cliente.dni || '',
             sexo: cliente.sexo || '',
             numero_cuenta: cliente.numero_cuenta || '',
+            es_empresa: !!cliente.es_empresa,
+            representante_nombre: cliente.representante_nombre || '',
+            representante_apellidos: cliente.representante_apellidos || '',
+            representante_dni: cliente.representante_dni || '',
             ccaa: (cliente.ccaa || '').toUpperCase(),
             provincia: (cliente.provincia || '').toUpperCase(),
             provincia_cod: cod,
@@ -529,6 +533,11 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
                 direccion: form.direccion.trim() || null,
                 codigo_postal: form.codigo_postal.trim() || null,
                 numero_cuenta: form.numero_cuenta.trim() || null,
+                // Persona jurídica: quien firma es el representante legal, no la sociedad.
+                es_empresa: !!form.es_empresa,
+                representante_nombre: form.es_empresa ? (form.representante_nombre?.trim() || null) : null,
+                representante_apellidos: form.es_empresa ? (form.representante_apellidos?.trim() || null) : null,
+                representante_dni: form.es_empresa ? (form.representante_dni?.trim() || null) : null,
                 ...(isAdmin ? { prescriptor_id: form.prescriptor_id || null } : {}),
                 persona_contacto_nombre: form.persona_contacto_nombre?.trim() || null,
                 persona_contacto_tlf: form.persona_contacto_tlf?.trim() || null,
@@ -844,10 +853,21 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
                     {!fetching && cliente && !editing && (
                         <div className="space-y-6">
                             <div className="space-y-3">
-                                <p className="text-[10px] uppercase tracking-[0.2em] font-black text-white/30">Datos personales</p>
+                                <div className="flex items-center gap-2">
+                                    <p className="text-[10px] uppercase tracking-[0.2em] font-black text-white/30">Datos personales</p>
+                                    {cliente.es_empresa && (
+                                        <span className="text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-md bg-orange-500/10 border border-orange-500/20 text-orange-400">Empresa</span>
+                                    )}
+                                </div>
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4 [&_p.text-sm]:uppercase">
-                                    <FieldView label="Nombre / Razón Social" value={`${cliente.nombre_razon_social || ''}${cliente.apellidos ? ` ${cliente.apellidos}` : ''}`} />
-                                    <FieldView label="DNI / CIF" value={cliente.dni} />
+                                    <FieldView label={cliente.es_empresa ? 'Razón Social' : 'Nombre / Razón Social'} value={`${cliente.nombre_razon_social || ''}${cliente.apellidos ? ` ${cliente.apellidos}` : ''}`} />
+                                    <FieldView label={cliente.es_empresa ? 'CIF' : 'DNI / CIF'} value={cliente.dni} />
+                                    {cliente.es_empresa && (
+                                        <>
+                                            <FieldView label="Representante legal" value={[cliente.representante_nombre, cliente.representante_apellidos].filter(Boolean).join(' ')} />
+                                            <FieldView label="DNI Representante" value={cliente.representante_dni} />
+                                        </>
+                                    )}
                                     <FieldView label="Sexo" value={cliente.sexo === 'HOMBRE' ? 'Hombre' : cliente.sexo === 'MUJER' ? 'Mujer' : null} />
                                     <FieldView label="Email" value={cliente.email?.toLowerCase()} valueClassName="!lowercase" />
                                     <FieldView label="Teléfono" value={cliente.tlf} />
@@ -979,30 +999,76 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
                     {!fetching && cliente && editing && (
                         <div className="space-y-6">
                             <div className="space-y-3">
-                                <p className="text-[10px] uppercase tracking-[0.2em] font-black text-white/30">Datos personales</p>
+                                <div className="flex items-center justify-between gap-3 flex-wrap">
+                                    <p className="text-[10px] uppercase tracking-[0.2em] font-black text-white/30">Datos personales</p>
+                                    <label className="flex items-center gap-3 cursor-pointer group w-fit">
+                                        <div className="relative flex items-center">
+                                            <input
+                                                type="checkbox"
+                                                className="peer sr-only"
+                                                checked={!!form.es_empresa}
+                                                onChange={e => updateForm({ es_empresa: e.target.checked })}
+                                            />
+                                            <div className="w-8 h-4 bg-transparent rounded-full peer border border-orange-500 peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-orange-500 after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-orange-500 peer-checked:after:bg-white"></div>
+                                        </div>
+                                        <span className="text-[10px] font-black uppercase tracking-widest text-white/30 group-hover:text-white/60 transition-colors">
+                                            Empresa
+                                        </span>
+                                    </label>
+                                </div>
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                    <FieldInput label="Nombre / Razón Social" required>
+                                    <FieldInput label={form.es_empresa ? 'Razón Social' : 'Nombre / Razón Social'} required>
                                         <Input value={form.nombre_razon_social} required uppercase
                                             onChange={e => updateForm({ nombre_razon_social: e.target.value })} />
                                     </FieldInput>
-                                    <FieldInput label="Apellidos">
-                                        <Input value={form.apellidos} uppercase onChange={e => updateForm({ apellidos: e.target.value })} />
-                                    </FieldInput>
-                                    <FieldInput label="DNI / CIF">
+                                    {!form.es_empresa && (
+                                        <FieldInput label="Apellidos">
+                                            <Input value={form.apellidos} uppercase onChange={e => updateForm({ apellidos: e.target.value })} />
+                                        </FieldInput>
+                                    )}
+                                    <FieldInput label={form.es_empresa ? 'CIF' : 'DNI / CIF'}>
                                         <Input value={form.dni} uppercase onChange={e => updateForm({ dni: e.target.value })} />
                                     </FieldInput>
-                                    <FieldInput label="Sexo (para Memoria RITE)">
-                                        <div className="flex gap-2">
-                                            <button type="button" onClick={() => updateForm({ sexo: form.sexo === 'HOMBRE' ? '' : 'HOMBRE' })}
-                                                className={`flex-1 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all border ${form.sexo === 'HOMBRE' ? 'bg-brand text-bkg-deep border-brand' : 'border-white/10 text-white/40 hover:text-white hover:border-white/20'}`}>
-                                                Hombre
-                                            </button>
-                                            <button type="button" onClick={() => updateForm({ sexo: form.sexo === 'MUJER' ? '' : 'MUJER' })}
-                                                className={`flex-1 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all border ${form.sexo === 'MUJER' ? 'bg-brand text-bkg-deep border-brand' : 'border-white/10 text-white/40 hover:text-white hover:border-white/20'}`}>
-                                                Mujer
-                                            </button>
+                                    {!form.es_empresa && (
+                                        <FieldInput label="Sexo (para Memoria RITE)">
+                                            <div className="flex gap-2">
+                                                <button type="button" onClick={() => updateForm({ sexo: form.sexo === 'HOMBRE' ? '' : 'HOMBRE' })}
+                                                    className={`flex-1 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all border ${form.sexo === 'HOMBRE' ? 'bg-brand text-bkg-deep border-brand' : 'border-white/10 text-white/40 hover:text-white hover:border-white/20'}`}>
+                                                    Hombre
+                                                </button>
+                                                <button type="button" onClick={() => updateForm({ sexo: form.sexo === 'MUJER' ? '' : 'MUJER' })}
+                                                    className={`flex-1 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all border ${form.sexo === 'MUJER' ? 'bg-brand text-bkg-deep border-brand' : 'border-white/10 text-white/40 hover:text-white hover:border-white/20'}`}>
+                                                    Mujer
+                                                </button>
+                                            </div>
+                                        </FieldInput>
+                                    )}
+                                    {/* Representante legal: quien firma los anexos en nombre de la sociedad */}
+                                    {form.es_empresa && (
+                                        <div className="sm:col-span-2 animate-fade-in p-4 bg-white/[0.02] border border-white/[0.05] rounded-xl space-y-3">
+                                            <p className="text-[10px] uppercase tracking-[0.2em] font-black text-white/30">Representante legal</p>
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                                <FieldInput label="Nombre">
+                                                    <Input placeholder="MARINA" uppercase
+                                                        value={form.representante_nombre || ''}
+                                                        onChange={e => updateForm({ representante_nombre: e.target.value })} />
+                                                </FieldInput>
+                                                <FieldInput label="Apellidos">
+                                                    <Input placeholder="CARRASCO GARCÍA" uppercase
+                                                        value={form.representante_apellidos || ''}
+                                                        onChange={e => updateForm({ representante_apellidos: e.target.value })} />
+                                                </FieldInput>
+                                                <FieldInput label="DNI / NIE">
+                                                    <Input placeholder="12345678A" uppercase
+                                                        value={form.representante_dni || ''}
+                                                        onChange={e => updateForm({ representante_dni: e.target.value })} />
+                                                </FieldInput>
+                                            </div>
+                                            <p className="text-[10px] text-white/25">
+                                                Firma los anexos en nombre de la sociedad. Se usa en el Convenio de Cesión de Ahorros y en el Anexo I.
+                                            </p>
                                         </div>
-                                    </FieldInput>
+                                    )}
                                     <FieldInput label="Email">
                                         <Input type="email" value={form.email} onChange={e => updateForm({ email: e.target.value.toLowerCase() })} />
                                     </FieldInput>

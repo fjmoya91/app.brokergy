@@ -8,6 +8,7 @@ const driveService = require('../services/driveService');
 const reformaUploadService = require('../services/reformaUploadService');
 const ceeUploadService = require('../services/ceeUploadService');
 const anexoFotograficoService = require('../services/anexoFotograficoService');
+const { buildCertClienteData } = require('../services/certClienteData');
 const { requireAuth } = require('../middleware/auth');
 const axios = require('axios');
 const multer = require('multer');
@@ -1683,7 +1684,7 @@ router.post('/anexos-datos/:expedienteId',
             const b = req.body || {};
             const { data: exp, error } = await supabase
                 .from('expedientes')
-                .select('id, numero_expediente, cliente_id, documentacion, clientes!cliente_id(id_cliente, notificaciones_contacto_activas), oportunidades!oportunidad_id(datos_calculo)')
+                .select('id, numero_expediente, cliente_id, documentacion, instalacion, clientes!cliente_id(id_cliente, notificaciones_contacto_activas), oportunidades!oportunidad_id(datos_calculo, ref_catastral, referencia_cliente)')
                 .eq('id', expedienteId)
                 .maybeSingle();
             if (error) console.error('[anexos-datos] select error:', error.message);
@@ -1742,7 +1743,7 @@ router.post('/anexos-datos/:expedienteId',
             // Releer cliente para devolver el estado actualizado de "qué falta".
             const { data: cliFresh } = await supabase
                 .from('clientes')
-                .select('nombre_razon_social, apellidos, email, tlf, dni, numero_cuenta, notificaciones_contacto_activas, persona_contacto_email, persona_contacto_tlf')
+                .select('nombre_razon_social, apellidos, email, tlf, dni, numero_cuenta, notificaciones_contacto_activas, persona_contacto_email, persona_contacto_tlf, direccion, codigo_postal, municipio, provincia')
                 .eq('id_cliente', idCliente)
                 .maybeSingle();
             res.json({ success: true, datos_cliente: buildDatosCliente(cliFresh, docUpdate) });
@@ -1759,15 +1760,31 @@ router.post('/anexos-datos/:expedienteId',
                     clienteUpdate.numero_cuenta ? 'IBAN' : null,
                     req.file ? 'justificante bancario' : null,
                 ].filter(Boolean).join(' + ') || 'datos';
-                const msg = `📝 *Datos del cliente completados*\nExpediente: *${numexpte}*\nActualizado: ${partes}\n\n👉 Ya puedes *generar y enviar los anexos* al cliente para que los firme.`;
+                // El nº de expediente solo no dice de quién es: se manda la ficha
+                // (titular + dirección de la instalación), igual que en el resto
+                // de avisos (encargo al certificador, entrega de CIFO…).
+                const { data: clienteData } = buildCertClienteData(exp, exp.oportunidades, cliFresh);
+                const portalLink = `https://app.brokergy.es/?exp=${exp.id}`;
+                const msg = [
+                    '📝 *Datos del cliente completados*',
+                    `Expediente: *${numexpte}*`,
+                    clienteData.nombre ? `Cliente: *${clienteData.nombre}*` : null,
+                    clienteData.direccionInstalacion ? `Instalación: ${clienteData.direccionInstalacion}` : null,
+                    clienteData.direccionCliente ? `Domicilio: ${clienteData.direccionCliente}` : null,
+                    `Actualizado: ${partes}`,
+                    '',
+                    '👉 Ya puedes *generar y enviar los anexos* al cliente para que los firme.',
+                ].filter(v => v !== null).join('\n');
                 try { if (adminPhone) await whatsappService.sendText(adminPhone, msg); } catch (e) {}
                 try {
-                    await emailService.sendMail({
+                    await emailService.sendDatosClienteCompletadosEmail({
                         to: adminEmail,
-                        subject: `📝 Datos completados — ${numexpte} · listo para enviar anexos`,
-                        html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;"><div style="background:linear-gradient(135deg,#f59e0b,#ea580c);padding:20px 28px;"><h2 style="margin:0;color:#fff;font-size:16px;">BROKERGY · Datos del cliente</h2></div><div style="padding:24px;background:#fff;"><p>El cliente ha completado sus datos del expediente <strong>${numexpte}</strong>: <strong>${partes}</strong>.</p><p style="margin-top:12px;"><strong>👉 Ya puedes generar y enviar los anexos</strong> al cliente para que los firme.</p></div></div>`,
+                        numExp: numexpte,
+                        partes,
+                        clienteData,
+                        portalLink,
                     });
-                } catch (e) {}
+                } catch (e) { console.warn('[anexos-datos] email admin:', e.message); }
             });
         } catch (e) {
             console.error('[anexos-datos] Error:', e);
