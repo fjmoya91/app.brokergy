@@ -1757,28 +1757,77 @@ export function CalculatorForm({
                                                 <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
                                             </svg>
                                         </div>
+                                        {/* Método de cálculo del Cb: la cobertura puede referirse a la
+                                            potencia de diseño (demanda/horas eq.) o a la potencia nominal
+                                            de la caldera existente. La tabla del Anexo III es la misma. */}
+                                        <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                                            <Label className="text-[9px] text-slate-500 font-bold uppercase tracking-widest shrink-0">Base del % de cobertura</Label>
+                                            <div className="flex gap-1.5 p-1 bg-slate-950/50 border border-brand/20 rounded-xl">
+                                                {[
+                                                    { id: 'demanda', label: 'Demanda de calefacción' },
+                                                    { id: 'caldera', label: 'Potencia de la caldera' },
+                                                ].map(opt => (
+                                                    <button
+                                                        key={opt.id}
+                                                        type="button"
+                                                        onClick={() => handleChange('hibridacionMetodo', opt.id)}
+                                                        className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all border
+                                                            ${(inputs.hibridacionMetodo || 'demanda') === opt.id
+                                                                ? 'bg-brand text-bkg-deep border-brand'
+                                                                : 'text-slate-500 border-transparent hover:text-white'}`}
+                                                    >
+                                                        {opt.label}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+
                                         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
                                             <div className="min-w-[140px]">
                                                 <div className="flex items-center gap-2 mb-3">
                                                     <div className="w-2 h-2 rounded-full bg-brand shadow-[0_0_8px_rgba(255,160,0,0.5)] animate-pulse" />
                                                     <h4 className="text-[10px] font-black text-brand uppercase tracking-widest">Cálculo RES093</h4>
                                                 </div>
-                                                <Label htmlFor="potenciaBomba" className="text-[9px] text-slate-500 mb-1 font-bold">POTENCIA BdC (kW)</Label>
-                                                <Input
-                                                    id="potenciaBomba"
-                                                    type="text"
-                                                    inputMode="decimal"
-                                                    value={formatDisplay(inputs.potenciaBomba)}
-                                                    onChange={e => {
-                                                        handleSmartNumberChange('potenciaBomba', e.target.value);
-                                                        setDirtyPotenciaBomba(true);
-                                                    }}
-                                                    className="h-9 text-sm bg-slate-950/50 border-brand/30 focus:border-brand font-mono font-bold"
-                                                />
+                                                <div className="flex gap-3">
+                                                    <div className="flex-1">
+                                                        <Label htmlFor="potenciaBomba" className="text-[9px] text-slate-500 mb-1 font-bold">POTENCIA BdC (kW)</Label>
+                                                        <Input
+                                                            id="potenciaBomba"
+                                                            type="text"
+                                                            inputMode="decimal"
+                                                            value={formatDisplay(inputs.potenciaBomba)}
+                                                            onChange={e => {
+                                                                handleSmartNumberChange('potenciaBomba', e.target.value);
+                                                                setDirtyPotenciaBomba(true);
+                                                            }}
+                                                            className="h-9 text-sm bg-slate-950/50 border-brand/30 focus:border-brand font-mono font-bold"
+                                                        />
+                                                    </div>
+                                                    {inputs.hibridacionMetodo === 'caldera' && (
+                                                        <div className="flex-1 animate-fade-in">
+                                                            <Label htmlFor="potenciaCaldera" className="text-[9px] text-slate-500 mb-1 font-bold">P. CALDERA (kW)</Label>
+                                                            <Input
+                                                                id="potenciaCaldera"
+                                                                type="text"
+                                                                inputMode="decimal"
+                                                                value={formatDisplay(inputs.potenciaCaldera)}
+                                                                onChange={e => handleSmartNumberChange('potenciaCaldera', e.target.value)}
+                                                                className="h-9 text-sm bg-slate-950/50 border-brand/30 focus:border-brand font-mono font-bold"
+                                                            />
+                                                        </div>
+                                                    )}
+                                                </div>
                                             </div>
 
                                             {result?.hybridization && isAdmin && (
                                                 <div className="flex-1 w-full grid grid-cols-2 lg:grid-cols-4 gap-4 px-5 py-4 bg-bkg-deep border border-brand/20 rounded-xl shadow-inner-lg">
+                                                    {result.hybridization.method === 'caldera' ? (
+                                                        <div className="lg:col-span-2">
+                                                            <p className="text-[7px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 line-clamp-1">P. Caldera existente</p>
+                                                            <p className="text-sm font-black text-white leading-none tabular-nums">{result.hybridization.boilerPower.toFixed(2)} <span className="text-[8px] text-white/30">kW</span></p>
+                                                        </div>
+                                                    ) : (
+                                                        <>
                                                     <div>
                                                         <p className="text-[7px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 line-clamp-1">Horas Eq. (th)</p>
                                                         <p className="text-sm font-black text-white">{result.hybridization.th} <span className="text-[8px] text-white/30">h</span></p>
@@ -1787,6 +1836,8 @@ export function CalculatorForm({
                                                         <p className="text-[7px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 line-clamp-1">P. Diseño</p>
                                                         <p className="text-sm font-black text-white leading-none tabular-nums">{result.hybridization.pDesign.toFixed(2)} <span className="text-[8px] text-white/30">kW</span></p>
                                                     </div>
+                                                        </>
+                                                    )}
                                                     <div>
                                                         <p className="text-[7px] font-bold text-slate-400/60 uppercase tracking-widest mb-1.5 line-clamp-1">% Cobertura</p>
                                                         <div className="flex items-end gap-1 leading-none">

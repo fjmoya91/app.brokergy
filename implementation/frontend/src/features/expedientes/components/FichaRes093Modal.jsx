@@ -1,7 +1,7 @@
 import React, { useRef, useState, useCallback } from 'react';
 import axios from 'axios';
 import { useAuth } from '../../../context/AuthContext';
-import { BOILER_EFFICIENCIES, calculateHybridization } from '../../calculator/logic/calculation';
+import { BOILER_EFFICIENCIES, calculateHybridization, resolveHybridInputs } from '../../calculator/logic/calculation';
 import { calcCifo } from '../logic/calcCifo';
 
 // ─── Márgenes exactos Word: Sup 2,47cm Inf 0,49cm Izq 3cm Der 2,5cm ──────────
@@ -202,7 +202,7 @@ export function FichaRes093Modal({ isOpen, onClose, expediente, results, onSaveD
     const hybridRes = calculateHybridization({
         demandAnnual: q_net_heating,
         zone: op.datos_calculo?.zona || 'D3',
-        heatPumpPower: parseFloat(inst.potencia_bomba || opInputs.potenciaBomba) || 0
+        ...resolveHybridInputs(inst, opInputs)
     });
     const cbVal = hybridRes?.cb ?? 1;
     const cbStr = cbVal.toFixed(3).replace('.', ',');

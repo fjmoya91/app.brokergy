@@ -75,30 +75,78 @@ export function getCb(coverage) {
     return 0.984;
 }
 
+// ============================================================================
+// MÉTODOS DE CÁLCULO DE LA COBERTURA (y por tanto del Cb)
+// ----------------------------------------------------------------------------
+// 'demanda' (histórico): la cobertura es la fracción de la POTENCIA DE DISEÑO
+//     (demanda anual de calefacción / horas equivalentes de la zona) que aporta
+//     la bomba de calor. Necesita demanda anual + zona climática.
+// 'caldera': la cobertura es la fracción de la POTENCIA NOMINAL de la caldera
+//     existente que aporta la bomba de calor — P_BdC / P_caldera. No usa ni la
+//     demanda ni las horas equivalentes; la potencia de la caldera se introduce
+//     a mano.
+// En ambos casos el Cb sale de la MISMA tabla del Anexo III (BIVALENCE_TABLE).
+// ============================================================================
+export const HYBRID_METHODS = {
+    DEMANDA: 'demanda',
+    CALDERA: 'caldera',
+};
+
+/** Normaliza el método (tolerante a null, mayúsculas o valores antiguos). */
+export function normalizeHybridMethod(method) {
+    return String(method || '').trim().toLowerCase() === HYBRID_METHODS.CALDERA
+        ? HYBRID_METHODS.CALDERA
+        : HYBRID_METHODS.DEMANDA;
+}
+
 /**
  * Calcula los parámetros de hibridación
+ * @param {string} method - HYBRID_METHODS.DEMANDA (defecto) | HYBRID_METHODS.CALDERA
+ * @param {number} boilerPower - Potencia nominal (kW) de la caldera existente. Solo en método 'caldera'.
+ * @returns {{method,th,pDesign,boilerPower,refPower,coverage,cb,demandAnnual}}
+ *          `refPower` es el denominador realmente usado para la cobertura.
  */
-export function calculateHybridization({ demandAnnual, zone, heatPumpPower }) {
+export function calculateHybridization({ demandAnnual, zone, heatPumpPower, method, boilerPower }) {
+    const hybridMethod = normalizeHybridMethod(method);
     const th = EQUIVALENT_HOURS[zone] || EQUIVALENT_HOURS['D3'] || 3503;
-    const pDesign = parseFloat(demandAnnual) / th;
+    const hpPower = parseFloat(heatPumpPower) || 0;
+    const pBoiler = parseFloat(boilerPower) || 0;
+    const pDesignRaw = (parseFloat(demandAnnual) || 0) / th;
+    const pDesign = pDesignRaw > 0 ? pDesignRaw : 0;
 
-    if (!pDesign || pDesign <= 0) {
-        return { th, pDesign: 0, coverage: 0, cb: 1, demandAnnual: 0 };
+    // Denominador de la cobertura según el método elegido.
+    const refPower = hybridMethod === HYBRID_METHODS.CALDERA ? pBoiler : pDesign;
+
+    const base = { method: hybridMethod, th, pDesign, boilerPower: pBoiler, refPower, demandAnnual };
+
+    // Sin denominador (falta la demanda, o falta la potencia de la caldera) → no penalizamos.
+    if (!refPower || refPower <= 0) {
+        return { ...base, refPower: 0, coverage: 0, cb: 1 };
     }
 
     // Redondeamos cobertura a 2 decimales para que coincida mejor con los pasos de la tabla (ej: 0.853 -> 0.85)
-    let coverage = parseFloat((heatPumpPower / pDesign).toFixed(2));
+    let coverage = parseFloat((hpPower / refPower).toFixed(2));
     if (coverage > 1) coverage = 1;
     if (coverage < 0) coverage = 0;
     
-    const cb = getCb(coverage);
+    return { ...base, coverage, cb: getCb(coverage) };
+}
 
+/**
+ * Resuelve los parámetros de hibridación con la cadena de fallback ÚNICA
+ * expediente → oportunidad. Usar SIEMPRE esto en vez de repetir los `||` sueltos
+ * en cada consumidor (hay 8: vistas, fichas, CIFO y financials de front y back).
+ * @param {object} inst - expediente.instalacion
+ * @param {object} opSource - oportunidad.datos_calculo (o datos_calculo.inputs)
+ */
+export function resolveHybridInputs(inst = {}, opSource = {}) {
+    // Acepta tanto `datos_calculo` como `datos_calculo.inputs`: lo anidado manda.
+    const fromOp = (key) => opSource?.inputs?.[key] || opSource?.[key];
+    const num = (a, b) => parseFloat(a || b) || 0;
     return {
-        th,
-        pDesign,
-        coverage,
-        cb,
-        demandAnnual
+        method: normalizeHybridMethod(inst?.hibridacion_metodo || fromOp('hibridacionMetodo')),
+        heatPumpPower: num(inst?.potencia_bomba, fromOp('potenciaBomba')),
+        boilerPower: num(inst?.potencia_caldera, fromOp('potenciaCaldera')),
     };
 }
 

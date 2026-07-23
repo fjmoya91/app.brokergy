@@ -193,7 +193,7 @@ function resolveTipologia(exp, op) {
 
 // ─── Ahorro AE_TOTAL (savingsKwh) — espejo EXACTO de calcResults (final-first) ──
 async function computeSavingsKwh(exp, op) {
-    const { calculateSavings, calculateRes080, calculateRes080FromEmissions, calculateHybridization, BOILER_EFFICIENCIES } = await loadCalc();
+    const { calculateSavings, calculateRes080, calculateRes080FromEmissions, calculateHybridization, resolveHybridInputs, BOILER_EFFICIENCIES } = await loadCalc();
     const ficha = resolveTipologia(exp, op);
     const cee = exp.cee || {};
     const inst = exp.instalacion || {};
@@ -225,7 +225,7 @@ async function computeSavingsKwh(exp, op) {
                 const hybridRes = calculateHybridization({
                     demandAnnual: q_net_heating,
                     zone: op?.datos_calculo?.zona || 'D3',
-                    heatPumpPower: parseFloat(inst.potencia_bomba || calcInputs.potenciaBomba) || 0,
+                    ...resolveHybridInputs(inst, calcInputs),
                 });
                 cb = hybridRes.cb;
             }

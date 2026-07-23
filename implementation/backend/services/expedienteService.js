@@ -164,6 +164,10 @@ async function createExpediente(uuid_oportunidad, id_cliente, manualNumber = nul
             aerotermia_acs: aerotermiaAcs,
             hibridacion: opInputs.hibridacion === true,
             potencia_bomba: opInputs.potenciaBomba != null && opInputs.potenciaBomba !== '' ? Number(opInputs.potenciaBomba) : 0,
+            // Base del % de cobertura del Cb ('demanda' | 'caldera') y, si es por
+            // caldera, su potencia nominal. Se heredan de la oportunidad.
+            hibridacion_metodo: String(opInputs.hibridacionMetodo || '').toLowerCase() === 'caldera' ? 'caldera' : 'demanda',
+            potencia_caldera: opInputs.potenciaCaldera != null && opInputs.potenciaCaldera !== '' ? Number(opInputs.potenciaCaldera) : 0,
             instalador_id: op.prescriptor_id || null,
             // Fechas que el cliente indicó al aceptar la propuesta (las que le dio su
             // instalador). La de inicio fija el plazo del CEE inicial: debe estar
@@ -176,7 +180,8 @@ async function createExpediente(uuid_oportunidad, id_cliente, manualNumber = nul
             `cal=${aerotermiaCal.marca}/${aerotermiaCal.modelo}/SCOP=${aerotermiaCal.scop} ` +
             `cambio_acs=${cambioAcs} ` +
             (cambioAcs ? `acs=${aerotermiaAcs.marca}/${aerotermiaAcs.modelo}/SCOP=${aerotermiaAcs.scop} ` : '') +
-            `hibridacion=${instalacion.hibridacion} potencia=${instalacion.potencia_bomba}`);
+            `hibridacion=${instalacion.hibridacion} potencia=${instalacion.potencia_bomba} ` +
+            `cb_base=${instalacion.hibridacion_metodo}${instalacion.hibridacion_metodo === 'caldera' ? `/${instalacion.potencia_caldera}kW` : ''}`);
 
         const opCalculationResult = op.datos_calculo?.result || {};
 

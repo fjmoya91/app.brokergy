@@ -16,6 +16,7 @@ import {
     calculateRes080,
     calculateRes080FromEmissions,
     calculateHybridization,
+    resolveHybridInputs,
     BOILER_EFFICIENCIES
 } from '../../calculator/logic/calculation';
 import { calculateRes060FC } from '../../calculator/logic/res060fc';
@@ -410,7 +411,7 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
                     const hybridRes = calculateHybridization({
                         demandAnnual: q_net_heating,
                         zone: op.datos_calculo?.zona || 'D3',
-                        heatPumpPower: parseFloat(inst.potencia_bomba || calcInputs.potenciaBomba) || 0
+                        ...resolveHybridInputs(inst, calcInputs)
                     });
                     cb = hybridRes.cb;
                 }

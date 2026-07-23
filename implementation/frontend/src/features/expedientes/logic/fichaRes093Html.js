@@ -8,7 +8,7 @@
 // Autocontenido: el ahorro (savingsKwh) se calcula con computeExpedienteFinancials
 // y el resto de variables (Cb, etc.) con calculateHybridization, igual que el modal.
 // ============================================================
-import { BOILER_EFFICIENCIES, calculateHybridization } from '../../calculator/logic/calculation';
+import { BOILER_EFFICIENCIES, calculateHybridization, resolveHybridInputs } from '../../calculator/logic/calculation';
 import { computeExpedienteFinancials } from './expedienteFinancials';
 import { calcCifo } from './calcCifo';
 
@@ -98,7 +98,7 @@ export function buildFichaRes093Html(expediente, opts = {}) {
     const hybridRes = calculateHybridization({
         demandAnnual: q_net_heating,
         zone: op.datos_calculo?.zona || 'D3',
-        heatPumpPower: parseFloat(inst.potencia_bomba || opInputs.potenciaBomba) || 0
+        ...resolveHybridInputs(inst, opInputs)
     });
     const cbVal = hybridRes?.cb ?? 1;
     const cbStr = cbVal.toFixed(3).replace('.', ',');

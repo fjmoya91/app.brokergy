@@ -23,7 +23,7 @@ function loadCalc() {
 // Espejo de computeExpedienteFinancials(exp) del frontend, con `op` explícito.
 async function computeExpedienteFinancialsNode(exp, op) {
     if (!op) return { ficha: '—', savingsKwh: null, cae: null, profit: null };
-    const { calculateSavings, calculateFinancials, calculateRes080, calculateHybridization, BOILER_EFFICIENCIES } = await loadCalc();
+    const { calculateSavings, calculateFinancials, calculateRes080, calculateHybridization, resolveHybridInputs, BOILER_EFFICIENCIES } = await loadCalc();
 
     let ficha = op.ficha || 'RES060';
     if (exp.numero_expediente?.includes('RES080')) ficha = 'RES080';
@@ -61,7 +61,7 @@ async function computeExpedienteFinancialsNode(exp, op) {
                     const hybridRes = calculateHybridization({
                         demandAnnual: q_net_heating,
                         zone: op.datos_calculo?.zona || 'D3',
-                        heatPumpPower: parseFloat(inst.potencia_bomba || opInputs.potenciaBomba) || 0
+                        ...resolveHybridInputs(inst, opInputs)
                     });
                     cb = hybridRes.cb;
                 }

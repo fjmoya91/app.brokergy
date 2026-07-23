@@ -2,7 +2,7 @@ import React, { useRef, useState, useCallback, useEffect } from 'react';
 import axios from 'axios';
 import confetti from 'canvas-confetti';
 import { useAuth } from '../../../context/AuthContext';
-import { BOILER_EFFICIENCIES, calculateHybridization } from '../../calculator/logic/calculation';
+import { BOILER_EFFICIENCIES } from '../../calculator/logic/calculation';
 import { buildInstalacionAddress } from '../utils/docGenerators';
 import { calcCifo } from '../logic/calcCifo';
 // FUENTE ÚNICA del documento CIFO (derivación + HTML + CSS). El mismo módulo lo
@@ -526,25 +526,8 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
     const metodoCal = inst.aerotermia_cal?.metodo_scop || 'ficha';
     const metodoAcs = inst.aerotermia_acs?.metodo_scop || 'ficha';
 
-    // RES093 hybridization data
-    const isHybrid = numexpte.includes('RES093');
-    let cbStr = '—', pDesignKwStr = '—', coveragePct = 0, coveragePctStr = '—';
-    let thZone = 0, pbdcKw = 0, pbdcKwStr = '—', demandaAnualKwhStr = '—', appliedCovStr = '—';
-    if (isHybrid) {
-        const demandaAnual = dcalRaw * sRaw;
-        pbdcKw = parseFloat(inst.potencia_bomba || opInputs.inputs?.potenciaBomba || opInputs.potenciaBomba) || 0;
-        const hybridData = calculateHybridization({ demandAnnual: demandaAnual, zone: zoneStr, heatPumpPower: pbdcKw });
-        cbStr = hybridData?.cb != null ? ((hybridData.cb * 100).toFixed(2).replace('.', ',') + '%') : '—';
-        const pDesignRaw = hybridData?.pDesign || 0;
-        pDesignKwStr = pDesignRaw.toFixed(2).replace('.', ',');
-        const rawCoveragePct = pDesignRaw > 0 ? (pbdcKw / pDesignRaw) * 100 : 0;
-        coveragePct = rawCoveragePct;
-        coveragePctStr = rawCoveragePct.toFixed(0);
-        thZone = hybridData?.th || 0;
-        pbdcKwStr = pbdcKw.toFixed(2).replace('.', ',');
-        demandaAnualKwhStr = demandaAnual.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-        appliedCovStr = (coveragePct >= 95 ? 95 : coveragePct).toFixed(0);
-    }
+    // Los datos de hibridación (Cb, cobertura, potencias) los deriva la FUENTE
+    // ÚNICA cifoDoc.js → deriveCifoData; no se recalculan aquí.
 
     const missingReasonText = (item) => {
         switch (item.missingReason) {

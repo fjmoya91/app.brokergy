@@ -19,7 +19,7 @@
 // inyecte su propio origen absoluto (Puppeteer renderiza con setContent → base
 // about:blank, las rutas relativas no cargan).
 // ============================================================================
-import { BOILER_EFFICIENCIES, calculateHybridization } from '../../calculator/logic/calculation.js';
+import { BOILER_EFFICIENCIES, calculateHybridization, resolveHybridInputs, HYBRID_METHODS } from '../../calculator/logic/calculation.js';
 import { buildInstalacionAddress } from '../utils/docGenerators.js';
 import { calcCifo } from './calcCifo.js';
 import { formatMarcas, formatModelos, formatSeries, countUnidades } from './aerotermiaUnits.js';
@@ -287,14 +287,22 @@ export function deriveCifoData({ expediente, results }) {
     const isHybrid = numexpte.includes('RES093');
     let cbStr = '—', pDesignKwStr = '—', coveragePct = 0, coveragePctStr = '—';
     let thZone = 0, pbdcKw = 0, pbdcKwStr = '—', demandaAnualKwhStr = '—', appliedCovStr = '—';
+    // Método de cálculo de la cobertura: 'demanda' (P_diseño) o 'caldera' (P nominal caldera).
+    let hybridMethod = HYBRID_METHODS.DEMANDA, pCalderaKwStr = '—', refPowerKwStr = '—';
     if (isHybrid) {
         const demandaAnual = dcalRaw * sRaw;
-        pbdcKw = parseFloat(inst.potencia_bomba || opInputs.inputs?.potenciaBomba || opInputs.potenciaBomba) || 0;
-        const hybridData = calculateHybridization({ demandAnnual: demandaAnual, zone: zoneStr, heatPumpPower: pbdcKw });
+        const hybridIn = resolveHybridInputs(inst, opInputs);
+        hybridMethod = hybridIn.method;
+        pbdcKw = hybridIn.heatPumpPower;
+        const hybridData = calculateHybridization({ demandAnnual: demandaAnual, zone: zoneStr, ...hybridIn });
         cbStr = hybridData?.cb != null ? ((hybridData.cb * 100).toFixed(2).replace('.', ',') + '%') : '—';
         const pDesignRaw = hybridData?.pDesign || 0;
         pDesignKwStr = pDesignRaw.toFixed(2).replace('.', ',');
-        const rawCoveragePct = pDesignRaw > 0 ? (pbdcKw / pDesignRaw) * 100 : 0;
+        pCalderaKwStr = (hybridData?.boilerPower || 0).toFixed(2).replace('.', ',');
+        // Denominador realmente aplicado en la cobertura (P_diseño o P_caldera).
+        const refPowerRaw = hybridData?.refPower || 0;
+        refPowerKwStr = refPowerRaw.toFixed(2).replace('.', ',');
+        const rawCoveragePct = refPowerRaw > 0 ? (pbdcKw / refPowerRaw) * 100 : 0;
         coveragePct = rawCoveragePct;
         coveragePctStr = rawCoveragePct.toFixed(0);
         thZone = hybridData?.th || 0;
@@ -328,6 +336,7 @@ export function deriveCifoData({ expediente, results }) {
         empNombre, empCif, empDir, empCp, empMun, empProv, empCargo, empEmail, empTlf, empResponsable,
         // hibridación (RES093)
         cbStr, pDesignKwStr, coveragePct, coveragePctStr, thZone, pbdcKw, pbdcKwStr, demandaAnualKwhStr, appliedCovStr,
+        hybridMethod, pCalderaKwStr, refPowerKwStr,
     };
 }
 
@@ -355,6 +364,7 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
         metodoCal, metodoAcs, emiLabel,
         empNombre, empCif, empDir, empCp, empMun, empProv, empCargo, empEmail, empTlf, empResponsable,
         cbStr, pDesignKwStr, coveragePct, coveragePctStr, thZone, pbdcKwStr, demandaAnualKwhStr, appliedCovStr,
+        hybridMethod, pCalderaKwStr, refPowerKwStr,
     } = data;
 
     const pages = [];
@@ -729,31 +739,58 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
         const cappedNote = coveragePct >= 95
             ? obsBox(`<p style="margin:0;"><b>Nota:</b> El porcentaje de cobertura calculado (${coveragePctStr}%) es superior al 95%. Conforme al Anexo III de la ficha RES093, el valor máximo aplicable es el 95% (límite de la tabla de bivalencia).</p>`, '10px')
             : '';
-        pages.push(`
-            <div class="doc-page">
-                ${pageHeader}
-                ${subLabel('8. Coeficiente de cobertura por bivalencia C<sub>b</sub>', '#6E6E66', '20px')}
-                <p style="margin:0 0 6px;font-size:12.5px;color:#4a4a44;">La ficha técnica RES093 establece que el ahorro de energía se pondera mediante el coeficiente de cobertura por bivalencia (C<sub>b</sub>), que refleja la fracción de la demanda de calefacción cubierta por la bomba de calor en modo de funcionamiento bivalente paralelo. Su valor se determina conforme al Anexo III de la ficha RES093 siguiendo el procedimiento que se indica a continuación:</p>
 
+        // La cobertura admite dos determinaciones: por POTENCIA DE DISEÑO (demanda
+        // anual / horas equivalentes) o por POTENCIA NOMINAL DE LA CALDERA existente.
+        // El número de pasos cambia (3 frente a 4), por eso se arma el bloque aparte.
+        const esPorCaldera = hybridMethod === HYBRID_METHODS.CALDERA;
+
+        const formulaBox = (html) => `<div style="text-align:center;margin:6px 0;font-family:'Archivo';font-weight:800;font-size:13px;background:#FBF6EE;border-radius:10px;padding:8px;">${html}</div>`;
+
+        const pasosCobertura = esPorCaldera
+            ? `
+                ${subLabel('Paso 1 — Potencia nominal de la caldera existente (P<sub>caldera</sub>)', '#6E6E66', '16px')}
+                <p style="margin:0 0 6px;font-size:12px;color:#4a4a44;">La caldera de combustión existente permanece en la instalación como generador auxiliar del sistema híbrido. Su potencia nominal, según la placa de características del equipo, es:</p>
+                ${formulaBox(`P<sub>caldera</sub> = <span style="color:#4d6a12;">${pCalderaKwStr} kW</span>`)}
+
+                ${subLabel('Paso 2 — Porcentaje de cobertura de la bomba de calor', '#6E6E66', '16px')}
+                <p style="margin:0 0 6px;font-size:12px;color:#4a4a44;">El porcentaje de cobertura expresa la fracción de la potencia térmica del generador sustituido que aporta la bomba de calor instalada:</p>
+                ${formulaBox(`% cobertura = ${pbdcKwStr} kW / ${pCalderaKwStr} kW = <span style="color:#4d6a12;">${coveragePctStr}%</span>`)}
+                ${cappedNote}
+
+                ${subLabel('Paso 3 — Valor de C<sub>b</sub> aplicado', '#6E6E66', '16px')}
+                <p style="margin:0 0 8px;font-size:12px;color:#4a4a44;">Aplicando el ${appliedCovStr}% en la tabla del Anexo III de la ficha RES093:</p>`
+            : `
                 ${subLabel('Paso 1 — Horas equivalentes de calefacción (t<sub>h</sub>)', '#6E6E66', '16px')}
                 <p style="margin:0 0 6px;font-size:12px;color:#4a4a44;">Conforme a los valores recogidos en el Anexo de las fichas <b>RES220</b> y <b>RES230</b>, incluidas en la <i>Resolución de 3 de julio de 2024</i> de la Dirección General de Planificación y Coordinación Energética (por la que se actualiza el Anexo I de la <i>Orden TED/845/2023, de 18 de julio</i>), las horas equivalentes de calefacción para la zona climática <b>${zoneStr}</b> son:</p>
                 <div style="text-align:center;margin:6px 0;font-family:'Archivo';font-weight:800;font-size:14px;background:#FBF6EE;border-radius:10px;padding:8px;">t<sub>h</sub> = ${thZone.toLocaleString('es-ES')} h/año</div>
 
                 ${subLabel('Paso 2 — Potencia de diseño (P<sub>diseño</sub>)', '#6E6E66', '16px')}
                 <p style="margin:0 0 6px;font-size:12px;color:#4a4a44;">La potencia de diseño se obtiene dividiendo la demanda anual de calefacción entre las horas equivalentes:</p>
-                <div style="text-align:center;margin:6px 0;font-family:'Archivo';font-weight:800;font-size:13px;background:#FBF6EE;border-radius:10px;padding:8px;">P<sub>diseño</sub> = ${demandaAnualKwhStr} kWh / ${thZone.toLocaleString('es-ES')} h = <span style="color:#4d6a12;">${pDesignKwStr} kW</span></div>
+                ${formulaBox(`P<sub>diseño</sub> = ${demandaAnualKwhStr} kWh / ${thZone.toLocaleString('es-ES')} h = <span style="color:#4d6a12;">${pDesignKwStr} kW</span>`)}
 
                 ${subLabel('Paso 3 — Porcentaje de cobertura de la bomba de calor', '#6E6E66', '16px')}
                 <p style="margin:0 0 6px;font-size:12px;color:#4a4a44;">El porcentaje de cobertura expresa la fracción de la potencia de diseño que cubre la bomba de calor:</p>
-                <div style="text-align:center;margin:6px 0;font-family:'Archivo';font-weight:800;font-size:13px;background:#FBF6EE;border-radius:10px;padding:8px;">% cobertura = ${pbdcKwStr} kW / ${pDesignKwStr} kW = <span style="color:#4d6a12;">${coveragePctStr}%</span></div>
+                ${formulaBox(`% cobertura = ${pbdcKwStr} kW / ${pDesignKwStr} kW = <span style="color:#4d6a12;">${coveragePctStr}%</span>`)}
                 ${cappedNote}
 
                 ${subLabel('Paso 4 — Valor de C<sub>b</sub> aplicado', '#6E6E66', '16px')}
-                <p style="margin:0 0 8px;font-size:12px;color:#4a4a44;">Aplicando el ${appliedCovStr}% en la tabla del Anexo III de la ficha RES093:</p>
+                <p style="margin:0 0 8px;font-size:12px;color:#4a4a44;">Aplicando el ${appliedCovStr}% en la tabla del Anexo III de la ficha RES093:</p>`;
+
+        const introCb = esPorCaldera
+            ? 'La ficha técnica RES093 establece que el ahorro de energía se pondera mediante el coeficiente de cobertura por bivalencia (C<sub>b</sub>), que refleja la fracción de la demanda de energía térmica anual cubierta por la bomba de calor cuando ésta opera combinada con el generador auxiliar de combustión (caldera) formando un sistema híbrido. En esta actuación dicha fracción se determina por la relación entre la potencia térmica de la bomba de calor instalada y la potencia nominal de la caldera existente, obteniéndose el valor de C<sub>b</sub> de la tabla del Anexo III de la ficha RES093:'
+            : 'La ficha técnica RES093 establece que el ahorro de energía se pondera mediante el coeficiente de cobertura por bivalencia (C<sub>b</sub>), que refleja la fracción de la demanda de calefacción cubierta por la bomba de calor en modo de funcionamiento bivalente paralelo. Su valor se determina conforme al Anexo III de la ficha RES093 siguiendo el procedimiento que se indica a continuación:';
+
+        pages.push(`
+            <div class="doc-page">
+                ${pageHeader}
+                ${subLabel('8. Coeficiente de cobertura por bivalencia C<sub>b</sub>', '#6E6E66', '20px')}
+                <p style="margin:0 0 6px;font-size:12.5px;color:#4a4a44;">${introCb}</p>
+                ${pasosCobertura}
                 <div style="border-radius:16px;overflow:hidden;border:1px solid #E9E9E1;">
                     <table class="cmp" style="width:100%;border-collapse:collapse;font-size:12px;"><tbody>
                         <tr><td colspan="2" style="padding:8px 16px;background:#1A1A1A;color:#fff;font-family:'Archivo';font-weight:700;font-size:10.5px;letter-spacing:.5px;text-transform:uppercase;">Coeficiente de cobertura por bivalencia — valor aplicado</td></tr>
-                        <tr><td style="text-align:center;padding:6px 10px;background:#F7F7F1;color:#6E6E66;font-weight:700;font-size:10px;text-transform:uppercase;">Cobertura potencia térmica BdC — Zona ${zoneStr}</td><td style="text-align:center;padding:6px 10px;background:#F7F7F1;color:#6E6E66;font-weight:700;font-size:10px;text-transform:uppercase;">C<sub>b</sub></td></tr>
+                        <tr><td style="text-align:center;padding:6px 10px;background:#F7F7F1;color:#6E6E66;font-weight:700;font-size:10px;text-transform:uppercase;">${esPorCaldera ? 'Cobertura potencia térmica BdC sobre caldera existente' : `Cobertura potencia térmica BdC — Zona ${zoneStr}`}</td><td style="text-align:center;padding:6px 10px;background:#F7F7F1;color:#6E6E66;font-weight:700;font-size:10px;text-transform:uppercase;">C<sub>b</sub></td></tr>
                         <tr><td style="text-align:center;font-family:'Archivo';font-weight:800;font-size:15px;background:#FBF6EE;padding:10px;">${appliedCovStr}%${coveragePct >= 95 ? ' · valor aplicado' : ''}</td><td style="text-align:center;font-family:'Archivo';font-weight:900;font-size:16px;background:#F3F8E6;color:#4d6a12;">${cbStr}</td></tr>
                     </tbody></table>
                 </div>

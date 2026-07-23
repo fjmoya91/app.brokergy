@@ -14,6 +14,7 @@ import {
     calculateRes080Estimated,
     calculateRes080FromEmissions,
     calculateHybridization,
+    normalizeHybridMethod,
     FUEL_PRICES,
     getUByYear,
     getVentanaYACHByYear,
@@ -68,6 +69,8 @@ const INITIAL_INPUTS = {
     includeAnnualSavings: false,
     hibridacion: false,
     potenciaBomba: 12,
+    hibridacionMetodo: 'demanda',  // 'demanda' (P. de diseño) | 'caldera' (P. nominal caldera)
+    potenciaCaldera: 0,            // kW — solo se usa con hibridacionMetodo = 'caldera'
     discountCertificates: false,
     includeLegalization: false,
     installerNoCard: false,
@@ -434,6 +437,8 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
             // Hibridación
             hibridacion: inputs.hibridacion || false,
             potenciaBomba: parseFloat(inputs.potenciaBomba) || 12,
+            hibridacionMetodo: normalizeHybridMethod(inputs.hibridacionMetodo),
+            potenciaCaldera: parseFloat(inputs.potenciaCaldera) || 0,
 
             // Campos de Mejora Estimada
             reformaVentanas: !!inputs.reformaVentanas,
@@ -492,7 +497,9 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
         const hybridizationRes = sanitizedInputs.hibridacion ? calculateHybridization({
             demandAnnual: demandRes.Q_net,
             zone: sanitizedInputs.zona,
-            heatPumpPower: sanitizedInputs.potenciaBomba
+            heatPumpPower: sanitizedInputs.potenciaBomba,
+            method: sanitizedInputs.hibridacionMetodo,
+            boilerPower: sanitizedInputs.potenciaCaldera
         }) : null;
         const cb = hybridizationRes?.cb ?? 1.0;
 

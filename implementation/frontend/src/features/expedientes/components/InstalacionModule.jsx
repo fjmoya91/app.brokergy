@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { BOILER_EFFICIENCIES, getScopFromModel, getScopAcsFromModel, calculateHybridization } from '../../calculator/logic/calculation';
+import { BOILER_EFFICIENCIES, getScopFromModel, getScopAcsFromModel, calculateHybridization, resolveHybridInputs, HYBRID_METHODS } from '../../calculator/logic/calculation';
 import { PROVINCE_CODE_TO_CCAA, PROVINCE_CODE_TO_NAME } from '../utils/docGenerators';
 import { withScopAplicado, cloneAero, potenciaTotal, countUnidades, scopPropioUnidad1, scopAplicado } from '../logic/aerotermiaUnits';
 
@@ -894,6 +894,10 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
         caldera_antigua_acs: { tipo_equipo: 'Caldera', marca: '', modelo: '', numero_serie: '', rendimiento_id: 'default' },
         aerotermia_cal: { aerotermia_db_id: null, marca: '', modelo: '', numero_serie: '', scop: null, metodo_scop: 'ficha' },
         potencia_bomba: '',
+        // Base del % de cobertura para el Cb: 'demanda' (P. de diseño) o 'caldera'
+        // (potencia nominal de la caldera existente, que se introduce a mano).
+        hibridacion_metodo: HYBRID_METHODS.DEMANDA,
+        potencia_caldera: '',
         cambio_acs: true,
         misma_aerotermia_acs: true,
         aerotermia_acs: { aerotermia_db_id: null, marca: '', modelo: '', numero_serie: '', scop: null, metodo_scop: 'ficha' },
@@ -923,6 +927,8 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
                 misma_aerotermia_acs: true,
                 hibridacion: false,
                 potencia_bomba: 0,
+                hibridacion_metodo: HYBRID_METHODS.DEMANDA,
+                potencia_caldera: '',
                 ...inst,
                 // Normalizar a minúsculas por retrocompatibilidad con datos guardados en mayúsculas
                 tipo_emisor: (inst.tipo_emisor || 'suelo_radiante').toLowerCase(),
@@ -1157,11 +1163,15 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
     const superficie = parseFloat(ceeFinal.superficieHabitable) || parseFloat(opDatos.surface) || 0;
     const demandAnnual = (parseFloat(ceeFinal.demandaCalefaccion) || 0) * superficie || parseFloat(opDatos.Q_net) || 0;
 
+    // Misma cadena de fallback (expediente → oportunidad) que usan el CIFO y las
+    // fichas, para que lo que se ve aquí sea lo que sale en los documentos.
+    const hybridInputs = resolveHybridInputs(local, opDatos);
     const hybridizationRes = local.hibridacion ? calculateHybridization({
         demandAnnual: demandAnnual,
         zone: opDatos.zona || 'D3',
-        heatPumpPower: local.potencia_bomba || 0
+        ...hybridInputs
     }) : null;
+    const esCoberturaPorCaldera = hybridInputs.method === HYBRID_METHODS.CALDERA;
 
     return (
         <div className="space-y-6">
@@ -1397,6 +1407,49 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
                                     </div>
                                 </div>
                             )}
+
+                            {/* Base del % de cobertura para el Cb: potencia de diseño (demanda /
+                                horas eq.) o potencia nominal de la caldera existente. La tabla
+                                de bivalencia del Anexo III es la misma en ambos casos. */}
+                            {local.hibridacion && (
+                                <div className="flex flex-col gap-2 animate-in slide-in-from-left duration-500">
+                                    <span className="text-[10px] font-black text-amber-500/60 uppercase tracking-widest pl-1">Base de la cobertura</span>
+                                    <div className="flex items-center gap-1 p-1 bg-slate-900 rounded-xl border border-white/5">
+                                        {[
+                                            { id: HYBRID_METHODS.DEMANDA, label: 'Demanda' },
+                                            { id: HYBRID_METHODS.CALDERA, label: 'P. Caldera' },
+                                        ].map(opt => (
+                                            <button
+                                                key={opt.id}
+                                                type="button"
+                                                onClick={() => setLocal(p => ({ ...p, hibridacion_metodo: opt.id }))}
+                                                className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all border ${
+                                                    hybridInputs.method === opt.id
+                                                        ? 'bg-amber-500 text-bkg-deep border-amber-400'
+                                                        : 'text-slate-500 border-transparent hover:text-white'
+                                                }`}
+                                            >
+                                                {opt.label}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
+                            {local.hibridacion && esCoberturaPorCaldera && (
+                                <div className="flex flex-col gap-2 animate-in slide-in-from-left duration-500">
+                                    <span className="text-[10px] font-black text-amber-500/60 uppercase tracking-widest pl-1">P. Caldera (kW)</span>
+                                    <div className="p-0.5 bg-amber-500/10 rounded-xl border border-amber-500/20">
+                                        <input
+                                            type="number"
+                                            placeholder="0.00"
+                                            className="w-24 bg-transparent border-none text-amber-400 font-black text-sm px-3 py-2 focus:outline-none placeholder:text-amber-500/30 tabular-nums font-mono"
+                                            value={local.potencia_caldera || ''}
+                                            onChange={e => setLocal(prev => ({ ...prev, potencia_caldera: e.target.value }))}
+                                        />
+                                    </div>
+                                </div>
+                            )}
                         </div>
 
                         {local.hibridacion && hybridizationRes && (
@@ -1415,10 +1468,14 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
                                         </div>
                                     </div>
                                     <div>
-                                        <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-1.5">Horas Eq.</p>
+                                        <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-1.5">
+                                            {esCoberturaPorCaldera ? 'P. Caldera' : 'Horas Eq.'}
+                                        </p>
                                         <p className="text-sm font-black text-white leading-none tabular-nums font-mono">
-                                            {hybridizationRes.pDesign > 0 ? (demandAnnual / hybridizationRes.pDesign).toFixed(0) : '0'}
-                                            <span className="text-[10px] text-white/30 ml-1 font-sans">h</span>
+                                            {esCoberturaPorCaldera
+                                                ? hybridizationRes.boilerPower.toFixed(2)
+                                                : (hybridizationRes.pDesign > 0 ? (demandAnnual / hybridizationRes.pDesign).toFixed(0) : '0')}
+                                            <span className="text-[10px] text-white/30 ml-1 font-sans">{esCoberturaPorCaldera ? 'kW' : 'h'}</span>
                                         </p>
                                     </div>
                                     <div>
