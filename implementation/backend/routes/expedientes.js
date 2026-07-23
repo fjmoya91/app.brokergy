@@ -18,6 +18,7 @@ const { applyStatus, stampSeguimientoTimestamps, markCertContact } = require('..
 const { partnerNotifyTargets, normalizeContactos } = require('../services/notifyContacts');
 const { buildCertClienteData } = require('../services/certClienteData');
 const { getCertificadorNombre } = require('../services/certificadorLookup');
+const { avanzarEstado } = require('../utils/expedienteEstados');
 
 // ─── Guard global del módulo Expedientes (INTERNO de Brokergy) ────────────────
 // Los expedientes son datos internos: VER y gestionar expedientes está reservado a
@@ -623,6 +624,60 @@ async function buildChecklistData(exp, cli, op) {
         key, label, responsable, presente: !!presente, objetivos: obj || [], detalle: detalle || null, link: link || null, ...(extra || {}),
     });
 
+    // ── Eje temporal: emitido → enviado → firmado ────────────────────────────
+    // El `estado` del expediente es UN valor lineal y no puede representar que a
+    // la vez esté el CEE final en el certificador, los anexos en casa del cliente
+    // y el CIFO en la del instalador. Esas tres cosas avanzan EN PARALELO, así que
+    // el "qué falta" se responde por PISTAS, cada una con su propio ciclo y su
+    // propio reloj (desde cuándo estamos esperando).
+    const DIA_MS = 86400000;
+    const diasDesde = (iso) => {
+        if (!iso) return null;
+        const t = new Date(iso).getTime();
+        if (!Number.isFinite(t)) return null;
+        return Math.max(0, Math.floor((Date.now() - t) / DIA_MS));
+    };
+    // Fecha+hora de envío en horario de España, para que el detalle diga CUÁNDO se
+    // envió (más útil que "esperando 0 d" el mismo día del envío).
+    const fmtEnvio = (iso) => {
+        if (!iso) return null;
+        const dt = new Date(iso);
+        if (isNaN(dt.getTime())) return null;
+        try {
+            return dt.toLocaleString('es-ES', {
+                timeZone: 'Europe/Madrid',
+                day: '2-digit', month: '2-digit', year: 'numeric',
+                hour: '2-digit', minute: '2-digit',
+            });
+        } catch { return dt.toISOString().slice(0, 16).replace('T', ' '); }
+    };
+
+    // Situaciones, de peor a mejor. El orden IMPORTA: la situación de una pista es
+    // la peor de sus ítems (lo que de verdad la bloquea).
+    const SITUACIONES = ['SIN_EMITIR', 'SIN_ENVIAR', 'ESPERANDO', 'OK'];
+    const peorSituacion = (lista) => {
+        const idx = lista.map(s => SITUACIONES.indexOf(s)).filter(i => i >= 0);
+        return idx.length ? SITUACIONES[Math.min(...idx)] : 'OK';
+    };
+
+    // Ciclo de un documento con el modelo de 3 columnas de `documentacion`
+    // (borrador en Drive → marcado como enviado → PDF firmado subido).
+    const cicloDoc = (emitido, enviadoAt, firmado) => {
+        if (firmado) return { situacion: 'OK', enviado_at: enviadoAt || null, dias_esperando: null, detalle: null };
+        if (enviadoAt) {
+            const d = diasDesde(enviadoAt);
+            const cuando = fmtEnvio(enviadoAt);
+            // "Enviado el 23/07/2026 15:16 · pte. firma" — y solo si ya lleva días
+            // esperando se añade el contador, para no poner "0 d" el mismo día.
+            const detalle = cuando
+                ? `Enviado ${cuando} · pte. firma${d > 0 ? ` (${d} d)` : ''}`
+                : (d === null ? 'Enviado, pendiente de firma' : `Enviado — esperando ${d} d`);
+            return { situacion: 'ESPERANDO', enviado_at: enviadoAt, dias_esperando: d, detalle };
+        }
+        if (emitido) return { situacion: 'SIN_ENVIAR', enviado_at: null, dias_esperando: null, detalle: 'Generado, pendiente de enviar' };
+        return { situacion: 'SIN_EMITIR', enviado_at: null, dias_esperando: null, detalle: 'Pendiente de generar' };
+    };
+
     // ── CLIENTE ──
     const camposPers = [['Nombre', c.nombre_razon_social], ['DNI', c.dni || c.dni_nie], ['Dirección', c.direccion], ['CP', c.codigo_postal], ['Municipio', c.municipio], ['Provincia', c.provincia]];
     const faltanPers = camposPers.filter(([, v]) => !present(v)).map(([l]) => l);
@@ -665,20 +720,24 @@ async function buildChecklistData(exp, cli, op) {
     const cesionClienteFirmo = present(doc.anexo_cesion_signed_link);
     const cesionBrokergyFirmo = !!doc.cesion_firmado_brokergy;
     const cesionFirmado = cesionClienteFirmo && cesionBrokergyFirmo;
-    let cesionDetalle = null;
-    if (!cesionClienteFirmo) {
-        cesionDetalle = present(doc.anexo_cesion_drive_link) ? 'Generado, pendiente de firma' : null;
-    } else if (!cesionBrokergyFirmo) {
-        cesionDetalle = 'Cliente firmó — pendiente firma Brokergy';
-    }
     const anexoFotoFirmado = present(doc.anexo_fotografico_signed_link);
+
+    const cicloAnexoI  = cicloDoc(present(doc.anexo_i_drive_link),           doc.anexo_i_sent_at,           anexoIFirmado);
+    const cicloCesion  = cicloDoc(present(doc.anexo_cesion_drive_link),      doc.anexo_cesion_sent_at,      cesionFirmado);
+    const cicloFoto    = cicloDoc(present(doc.anexo_fotografico_drive_link), doc.anexo_fotografico_sent_at, anexoFotoFirmado);
+    // Matiz propio de la Cesión: la firma es a dos manos y puede faltar la nuestra.
+    if (cesionClienteFirmo && !cesionBrokergyFirmo) {
+        cicloCesion.situacion = 'ESPERANDO';
+        cicloCesion.detalle = 'Cliente firmó — pendiente firma Brokergy';
+    }
+
     const grupoCliente = [
         mk('datos_personales', 'Datos personales', 'CLIENTE', datosPersOk, ['anexos', 'final'], datosPersOk ? null : 'Faltan: ' + faltanPers.join(', ')),
         mk('numero_cuenta', 'Nº de cuenta (IBAN)', 'CLIENTE', ibanOk, ['anexos', 'final'], ibanOk ? c.numero_cuenta : 'Sin IBAN'),
         mk('justificante', 'Justificante titularidad bancaria', 'CLIENTE', justifOk, ['final'], null, justifLink),
-        mk('anexo_i_firmado', 'Anexo I firmado', 'CLIENTE', anexoIFirmado, ['final'], present(doc.anexo_i_drive_link) && !anexoIFirmado ? 'Generado, pendiente de firma' : null, doc.anexo_i_signed_link),
-        mk('cesion_firmado', 'Anexo Cesión firmado', 'CLIENTE', cesionFirmado, ['final'], cesionDetalle, doc.anexo_cesion_signed_link),
-        mk('anexo_fotografico_firmado', 'Anexo Fotográfico firmado', 'CLIENTE', anexoFotoFirmado, ['final'], null, doc.anexo_fotografico_signed_link),
+        mk('anexo_i_firmado', 'Anexo I firmado', 'CLIENTE', anexoIFirmado, ['final'], cicloAnexoI.detalle, doc.anexo_i_signed_link, cicloAnexoI),
+        mk('cesion_firmado', 'Anexo Cesión firmado', 'CLIENTE', cesionFirmado, ['final'], cicloCesion.detalle, doc.anexo_cesion_signed_link, cicloCesion),
+        mk('anexo_fotografico_firmado', 'Anexo Fotográfico firmado', 'CLIENTE', anexoFotoFirmado, ['final'], cicloFoto.detalle, doc.anexo_fotografico_signed_link, cicloFoto),
     ];
 
     // ── INSTALADOR ──
@@ -697,16 +756,43 @@ async function buildChecklistData(exp, cli, op) {
     const cifoOk = present(doc.cert_cifo_signed_link);
     const riteOk = present(doc.cert_rite_drive_link) || present(doc.cert_rite_signed_link) || (Array.isArray(uploads.DOC_RITE) && uploads.DOC_RITE.length > 0);
     const facturaOk = nFacturas > 0;
+    const cicloCifo = cicloDoc(present(doc.cert_cifo_drive_link), doc.cert_cifo_sent_at, cifoOk);
     const grupoInstalador = [
-        mk('cifo', 'Certificado CIFO (firmado)', 'INSTALADOR', cifoOk, ['final'], present(doc.cert_cifo_drive_link) && !cifoOk ? 'Generado, pendiente de firma' : null, doc.cert_cifo_signed_link),
-        mk('rite', 'Certificado RITE', 'INSTALADOR', riteOk, ['final'], null, doc.cert_rite_drive_link || doc.cert_rite_signed_link),
-        mk('factura', 'Factura de obra', 'INSTALADOR', facturaOk, ['final'], facturaOk ? `${nFacturas} factura(s)` : 'Sin facturas'),
+        mk('cifo', 'Certificado CIFO (firmado)', 'INSTALADOR', cifoOk, ['final'], cicloCifo.detalle, doc.cert_cifo_signed_link, cicloCifo),
+        // RITE y factura no viajan para firma: o los tenemos o no. Sin eje temporal.
+        mk('rite', 'Certificado RITE', 'INSTALADOR', riteOk, ['final'], null, doc.cert_rite_drive_link || doc.cert_rite_signed_link, { situacion: riteOk ? 'OK' : 'SIN_EMITIR' }),
+        mk('factura', 'Factura de obra', 'INSTALADOR', facturaOk, ['final'], facturaOk ? `${nFacturas} factura(s)` : 'Sin facturas', null, { situacion: facturaOk ? 'OK' : 'SIN_EMITIR' }),
     ];
 
     // ── CERTIFICADOR ──
+    // Aquí el eje temporal no son los `_sent_at` sino el subestado del CEE final y
+    // su sello de tiempo (`seguimiento.cee_final_ts`), que ya registra cada salto.
+    const ESPERA_CEE_FINAL = {
+        ASIGNADO:         'Encargo aceptado — pendiente de visita',
+        EN_TRABAJO:       'Técnico trabajando',
+        PTE_PRESENTACION: 'Pendiente de que suba el .cex',
+        PRESENTADO:       '.cex subido — pendiente de revisar',
+        PTE_REVISION:     'Pendiente de nuestra revisión',
+        REVISADO:         'Visto bueno dado — pendiente de registrar en Industria',
+    };
     const ceeFinalOk = present(doc.fecha_registro_cee_final) || (exp.seguimiento?.cee_final === 'REGISTRADO');
+    const segFinal = exp.seguimiento?.cee_final || null;
+    let cicloCeeFinal;
+    if (ceeFinalOk) {
+        cicloCeeFinal = { situacion: 'OK', enviado_at: null, dias_esperando: null,
+            detalle: doc.fecha_registro_cee_final ? `Registrado ${doc.fecha_registro_cee_final}` : 'Registrado' };
+    } else if (!segFinal || segFinal === 'PTE_ENVIO_CERT') {
+        cicloCeeFinal = { situacion: 'SIN_ENVIAR', enviado_at: null, dias_esperando: null,
+            detalle: 'Sin enviar el encargo al certificador' };
+    } else {
+        const enviadoAt = exp.seguimiento?.[`cee_final_ts`]?.[segFinal] || null;
+        const d = diasDesde(enviadoAt);
+        const base = ESPERA_CEE_FINAL[segFinal] || 'En el certificador';
+        cicloCeeFinal = { situacion: 'ESPERANDO', enviado_at: enviadoAt, dias_esperando: d,
+            detalle: d === null ? base : `${base} — ${d} d` };
+    }
     const grupoCertificador = [
-        mk('cee_final', 'CEE Final registrado', 'CERTIFICADOR', ceeFinalOk, ['final'], ceeFinalOk ? (doc.fecha_registro_cee_final ? `Registrado ${doc.fecha_registro_cee_final}` : 'Registrado') : 'Pendiente de registrar'),
+        mk('cee_final', 'CEE Final registrado', 'CERTIFICADOR', ceeFinalOk, ['final'], cicloCeeFinal.detalle, null, cicloCeeFinal),
     ];
 
     // ── CUALQUIERA (fotos) — slots REALES de la app, excluyendo RITE/Facturas (ya en Instalador).
@@ -728,14 +814,47 @@ async function buildChecklistData(exp, cli, op) {
 
     const todos = [...grupoCliente, ...grupoInstalador, ...grupoCertificador, ...grupoFotos];
     const faltanPara = (objetivo) => todos.filter(i => i.objetivos.includes(objetivo) && !i.presente).map(i => i.label);
+
+    // ── PISTAS PARALELAS ─────────────────────────────────────────────────────
+    // Las tres cosas que pueden estar en la calle A LA VEZ, cada una en manos de
+    // alguien distinto. Esto es lo que responde "dime qué falta" sin tener que
+    // exprimir un único `estado` lineal que no da para tanto.
+    const armarPista = (id, label, responsable, items) => {
+        const pendientes = items.filter(i => !i.presente);
+        const situacion = pendientes.length === 0 ? 'OK' : peorSituacion(pendientes.map(i => i.situacion || 'SIN_EMITIR'));
+        const esperas = pendientes.map(i => i.dias_esperando).filter(d => typeof d === 'number');
+        return {
+            id, label, responsable, situacion,
+            listo: pendientes.length === 0,
+            // Días que llevamos esperando a que nos devuelvan lo más antiguo.
+            dias_esperando: esperas.length ? Math.max(...esperas) : null,
+            pendientes: pendientes.map(i => ({
+                key: i.key, label: i.label, situacion: i.situacion || 'SIN_EMITIR',
+                dias_esperando: i.dias_esperando ?? null, detalle: i.detalle || null,
+            })),
+        };
+    };
+
+    const pistas = [
+        armarPista('cee_final', 'CEE final', 'CERTIFICADOR', grupoCertificador),
+        armarPista('anexos_cliente', 'Anexos para firma', 'CLIENTE',
+            grupoCliente.filter(i => ['anexo_i_firmado', 'cesion_firmado', 'anexo_fotografico_firmado'].includes(i.key))),
+        armarPista('cifo_instalador', 'CIFO', 'INSTALADOR',
+            grupoInstalador.filter(i => i.key === 'cifo')),
+    ];
+
     return {
         numero_expediente: exp.numero_expediente,
+        // El "no necesario" (waive) de una foto se guarda en docs_overrides de la
+        // OPORTUNIDAD, así que el barrido expone su id para poder marcarlo desde aquí.
+        oportunidad_id: exp.oportunidad_id,
         grupos: [
             { responsable: 'CLIENTE', label: 'Cliente', items: grupoCliente },
             { responsable: 'INSTALADOR', label: 'Instalador', items: grupoInstalador },
             { responsable: 'CERTIFICADOR', label: 'Certificador', items: grupoCertificador },
             { responsable: 'CUALQUIERA', label: 'Cualquiera (fotos)', items: grupoFotos },
         ],
+        pistas,
         objetivos: {
             anexos: { listo: faltanPara('anexos').length === 0, faltan: faltanPara('anexos') },
             expediente_final: { listo: faltanPara('final').length === 0, faltan: faltanPara('final') },
@@ -1992,9 +2111,11 @@ router.put('/:id', enforceAuth, async (req, res) => {
         //      pulsando el enlace que recibirá por WA/email
         let _notifyAdminCeeInicial = null;
         if (seguimiento?.cee_inicial === 'REGISTRADO' && existing.seguimiento?.cee_inicial !== 'REGISTRADO') {
-            if (existing.estado === 'PTE. CEE INICIAL') {
-                updates.estado = 'PTE. FIN OBRA';
-            }
+            // Avance desde CUALQUIER estado anterior a la obra, no solo desde
+            // 'PTE. CEE INICIAL': cuando el CEE se registra el expediente suele
+            // estar ya en 'REVISADO Y LISTO (INICIAL)' y el avance no ocurría.
+            const conObra = avanzarEstado(existing.estado, 'PTE. FIN OBRA');
+            if (conObra !== existing.estado) updates.estado = conObra;
             const notifyToken = crypto.randomBytes(32).toString('hex');
             if (!updates.seguimiento) updates.seguimiento = { ...existing.seguimiento };
             updates.seguimiento.notify_client_token_inicial = notifyToken;
@@ -2006,6 +2127,12 @@ router.put('/:id', enforceAuth, async (req, res) => {
         // ─── AUTOMATIZACIÓN REGISTRO CEE FINAL ──────────────────────────────────
         let _notifyAdminCeeFinal = null;
         if (seguimiento?.cee_final === 'REGISTRADO' && existing.seguimiento?.cee_final !== 'REGISTRADO') {
+            // Registrado el CEE final ya no queda nada del ciclo del certificado:
+            // todo lo que falta es documentación que viaja en paralelo (anexos al
+            // cliente, CIFO al instalador). Una sola fase macro; el desglose, en las
+            // pistas del barrido.
+            const conDoc = avanzarEstado(updates.estado || existing.estado, 'PTE FIN EXPTE');
+            if (conDoc !== (updates.estado || existing.estado)) updates.estado = conDoc;
             const notifyToken = crypto.randomBytes(32).toString('hex');
             if (!updates.seguimiento) updates.seguimiento = { ...existing.seguimiento };
             updates.seguimiento.notify_client_token_final = notifyToken;
@@ -3716,18 +3843,14 @@ router.post('/:id/notify-certificador', enforceAuth, async (req, res) => {
         if (!certId) return res.status(400).json({ error: 'El expediente no tiene certificador asignado' });
 
         // Automatización de estado
-        // GUARD: solo avanzar si el estado actual es anterior al de "en certificador".
-        // Evita que un recordatorio al certificador sobreescriba un estado más avanzado
-        // (ej: PENDIENTE REVISIÓN → EN CERTIFICADOR es un retroceso incorrecto).
-        const estadosQuePermiteAvanzar = [
-            'PTE. CEE INICIAL',
-            'EN CERTIFICADOR CEE INICIAL',
-            'PTE. CEE FINAL',
-            'EN CERTIFICADOR CEE FINAL'
-        ];
+        // GUARD: un recordatorio al certificador nunca puede hacer retroceder el
+        // expediente (ej: PENDIENTE REVISIÓN → EN CERTIFICADOR). `avanzarEstado`
+        // aplica el orden del ciclo de vida en vez de una lista blanca de estados
+        // que se quedaba corta en cuanto aparecía uno nuevo.
         const newEstado = phase === 'final' ? 'EN CERTIFICADOR CEE FINAL' : 'EN CERTIFICADOR CEE INICIAL';
-        if (estadosQuePermiteAvanzar.includes(exp.estado)) {
-            await supabase.from('expedientes').update({ estado: newEstado, updated_at: new Date().toISOString() }).eq('id', req.params.id);
+        const estadoTrasAviso = avanzarEstado(exp.estado, newEstado);
+        if (estadoTrasAviso !== exp.estado) {
+            await supabase.from('expedientes').update({ estado: estadoTrasAviso, updated_at: new Date().toISOString() }).eq('id', req.params.id);
         }
 
         // Persistir el cert si vino en body y difiere del guardado
@@ -4021,6 +4144,9 @@ router.post('/:id/cert-ack', async (req, res) => {
 
         const phaseLabel = phase === 'final' ? 'CEE Final' : 'CEE Inicial';
         const newEstado = phase === 'final' ? 'EN TRABAJO (CEE FINAL)' : 'EN TRABAJO (CEE INICIAL)';
+        // El estado global nunca retrocede: la confirmación de un encargo antiguo
+        // no puede devolver a "EN TRABAJO" un expediente que ya avanzó.
+        const globalEstado = avanzarEstado(exp.estado, newEstado);
 
         // Invalidar token (uso único)
         cee.ack_token = null;
@@ -4051,7 +4177,7 @@ router.post('/:id/cert-ack', async (req, res) => {
         // Entry de cambio de estado (para historial unificado)
         historial.push({
             id: Date.now().toString() + '_status_certack',
-            estado: newEstado,
+            estado: globalEstado,
             fecha: nowIso,
             usuario: certName
         });
@@ -4060,7 +4186,7 @@ router.post('/:id/cert-ack', async (req, res) => {
             .update({
                 cee,
                 seguimiento,
-                estado: newEstado,
+                estado: globalEstado,
                 documentacion: { ...docObj, historial },
                 updated_at: nowIso
             })
@@ -4177,7 +4303,8 @@ router.post('/:id/notify-review', enforceAuth, async (req, res) => {
         // Preparar actualizaciones
         const cee = exp.cee || {};
         cee.estado = newEstado;
-        const globalEstado = newEstado;
+        // `cee.estado` es la etiqueta de la fase del CEE; el estado GLOBAL solo avanza.
+        const globalEstado = avanzarEstado(exp.estado, newEstado);
 
         const priorityTag = priority === 'urgent' ? ' · 🚨 URGENTE' : '';
         const msgTag = techMessage ? `\n💬 Mensaje: "${techMessage}"` : '';
@@ -4391,7 +4518,7 @@ router.post('/:id/approve-cee', staffOnly, async (req, res) => {
 
         // Preparar actualizaciones (Estado interno, global y seguimiento)
         cee.estado = newEstado;
-        const globalEstado = newEstado;
+        const globalEstado = avanzarEstado(exp.estado, newEstado);
 
         const seguimiento = exp.seguimiento || { cee_inicial: 'ASIGNADO', cee_final: 'ASIGNADO', anexos: 'PTE_EMITIR' };
         if (phase === 'final') {
@@ -5139,6 +5266,7 @@ router.get('/:id/approve-cee-from-email', async (req, res) => {
 
         // Estado + seguimiento + historial
         cee.estado = newEstado;
+        const globalEstado = avanzarEstado(exp.estado, newEstado);
         applyStatus(seguimiento, segKey, 'REVISADO');
 
         const docObj = exp.documentacion || {};
@@ -5150,10 +5278,10 @@ router.get('/:id/approve-cee-from-email', async (req, res) => {
             fecha: new Date().toISOString(),
             usuario: 'ADMINISTRADOR'
         });
-        historial.push({ id: Date.now().toString() + '_status_revok_mail', estado: newEstado, fecha: new Date().toISOString(), usuario: 'ADMINISTRADOR' });
+        historial.push({ id: Date.now().toString() + '_status_revok_mail', estado: globalEstado, fecha: new Date().toISOString(), usuario: 'ADMINISTRADOR' });
 
         await supabase.from('expedientes')
-            .update({ cee, estado: newEstado, seguimiento, documentacion: { ...docObj, historial }, updated_at: new Date().toISOString() })
+            .update({ cee, estado: globalEstado, seguimiento, documentacion: { ...docObj, historial }, updated_at: new Date().toISOString() })
             .eq('id', req.params.id);
 
         // Mensaje de visto bueno IDÉNTICO al que la app envía por defecto (buildCertApproveMessage)
@@ -5229,3 +5357,6 @@ router.patch('/:id/prioridad', enforceAuth, async (req, res) => {
 });
 
 module.exports = router;
+// Expuesto para pruebas y para quien necesite el barrido sin pasar por HTTP
+// (p. ej. el MCP al responder "qué falta en el expediente NNN").
+module.exports.buildChecklistData = buildChecklistData;

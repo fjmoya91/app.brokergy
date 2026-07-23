@@ -60,7 +60,8 @@ export const FASES = [
         fiabilidad: 'probable',
         color: 'blue',
         estados: [
-            'PTE. CEE FINAL', 'EN CERTIFICADOR CEE FINAL', 'REVISADO Y LISTO (FINAL)',
+            'PTE. CEE FINAL', 'EN CERTIFICADOR CEE FINAL', 'EN TRABAJO (CEE FINAL)',
+            'PENDIENTE REVISIÓN (FINAL)', 'REVISADO Y LISTO (FINAL)',
             'PTE FIRMA ANEXOS', 'PTE. CIFO BROKERGY', 'PTE FIRMA CIFO', 'PTE FIN EXPTE'
         ]
     },

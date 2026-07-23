@@ -1916,6 +1916,12 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
                                                     'bg-white/5 text-white/50 border-white/10'
                                                 }`}
                                             >
+                                                {/* Estado no listado: lo pintamos igual, para que el
+                                                    <select> no caiga a su primera opción y muestre
+                                                    'PTE. CEE INICIAL' en un expediente avanzado. */}
+                                                {exp.estado && !EXPEDIENTE_ESTADOS.includes(exp.estado) && (
+                                                    <option value={exp.estado} className="bg-bkg-deep text-white">{exp.estado}</option>
+                                                )}
                                                 {EXPEDIENTE_ESTADOS.map(st => (
                                                     <option key={st} value={st} className="bg-bkg-deep text-white">{st}</option>
                                                 ))}
@@ -2183,6 +2189,9 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
                                                     : 'bg-white/5 text-white/50 border-white/10'
                                     }`}
                                 >
+                                    {!EXPEDIENTE_ESTADOS.includes(estado) && (
+                                        <option value={estado} className="bg-bkg-deep text-white">{estado}</option>
+                                    )}
                                     {EXPEDIENTE_ESTADOS.map(st => (
                                         <option key={st} value={st} className="bg-bkg-deep text-white">{st}</option>
                                     ))}

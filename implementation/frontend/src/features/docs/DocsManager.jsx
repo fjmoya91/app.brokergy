@@ -489,12 +489,21 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
     const aceptada = !!info?.aceptada;
     const canSeeDespues = aceptada || mode === 'admin' || roleFase === 'DESPUES';
 
+    // Un slot puede estar cubierto por un documento que ya está en el módulo de
+    // Documentación del expediente (el RITE en cert_rite_drive_link, o facturas):
+    // llega como externalRite/externalDocs, NO como items. Cuenta como resuelto —
+    // es el MISMO documento, solo subido por otra puerta. Sin esto, el slot se
+    // pintaba "Obligatorio/pendiente" teniéndolo ya, y parecía que faltaba.
+    const coveredExternally = (s) => !(s.items?.length) && (!!s.externalRite || (s.externalDocs?.length > 0));
+    const slotDone = (s) => (s.items?.length > 0) || coveredExternally(s);
+
     // Orden dentro de cada fase: lo accionable arriba, lo ya resuelto abajo.
     //   0 · rechazada (hay que volver a subir)   1 · pendiente (aún sin foto)
-    //   2 · subida / en revisión   3 · validada (✓)   4 · "no necesario"   5 · catch-all "ya aportados"
+    //   2 · subida / en revisión   3 · validada / aportado en Doc.   4 · "no necesario"   5 · catch-all
     const tierOf = (s) => {
         if (s.existing) return 5;       // catch-all "ya aportados" → siempre al final del todo
         if (s.waived) return 4;         // marcado "no necesario" → por debajo de los validados
+        if (coveredExternally(s)) return 3; // ya aportado en Documentación → resuelto
         const e = s.estado || (s.items?.length ? 'subida' : 'pendiente');
         if (e === 'rechazada') return 0; // acción urgente (volver a subir) → arriba del todo
         if (e === 'pendiente') return 1; // aún sin foto → acción pendiente, sube arriba
@@ -510,12 +519,13 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
     const antes = byTier(slots.filter(s => s.fase === 'ANTES' && matchesNeed(s)));
     const despues = byTier(slots.filter(s => s.fase === 'DESPUES' && matchesNeed(s)));
     const reqAntes = antes.filter(s => s.required);
-    const reqDone = reqAntes.filter(s => s.items?.length).length;
+    const reqDone = reqAntes.filter(slotDone).length;
     const allReqDone = reqAntes.length > 0 && reqDone === reqAntes.length;
 
-    // Progreso de la fase DESPUÉS (todas opcionales): apartados con al menos una foto.
+    // Progreso de la fase DESPUÉS (todas opcionales): apartados ya cubiertos
+    // (foto subida O documento aportado en Documentación, p.ej. el RITE).
     const despuesSlots = despues.filter(s => !s.existing);
-    const despuesDone = despuesSlots.filter(s => s.items?.length).length;
+    const despuesDone = despuesSlots.filter(slotDone).length;
 
     // Pendientes de revisión (estado 'subida') por fase, para los botones de "validar todo".
     const antesPending = canValidate ? pendingItemsOf(antes) : [];
@@ -523,10 +533,15 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
 
     const renderSlot = (slot) => {
         const items = slot.items || [];
-        const done = items.length > 0;
+        // Cubierto por Documentación (RITE/facturas ya en el expediente): resuelto,
+        // aunque no tenga fichero propio en este slot. Ver coveredExternally.
+        const coveredExt = coveredExternally(slot);
+        const done = items.length > 0 || coveredExt;
         const busy = busySlot === slot.key;
-        const estado = slot.estado || (done ? 'subida' : 'pendiente');
-        const ui = ESTADO_UI[estado] || ESTADO_UI.pendiente;
+        const estado = slot.estado || (items.length ? 'subida' : 'pendiente');
+        // Anillo verde de "resuelto"; el chip propio lo pone externalRite/externalDocs
+        // más abajo, así que aquí no duplicamos etiqueta (ui.chip se calla si coveredExt).
+        const ui = coveredExt ? ESTADO_UI.validada : (ESTADO_UI[estado] || ESTADO_UI.pendiente);
         const isDragOver = !slot.existing && !busy && dragOver === slot.key;
 
         const dragHandlers = slot.existing ? {} : {
@@ -556,7 +571,7 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
                             {slot.label}
                             {slot.required && !done && <span className="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-400/15 text-amber-300">Obligatorio</span>}
                             {slot.waived && <span className="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-white/10 text-white/50">No necesario</span>}
-                            {ui.chip && <span className={`text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full ${ui.chip.cls}`}>{ui.chip.txt}</span>}
+                            {ui.chip && !coveredExt && <span className={`text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full ${ui.chip.cls}`}>{ui.chip.txt}</span>}
                         </p>
                         {slot.help && <p className="text-white/45 text-xs mt-1 leading-snug">{slot.help}</p>}
                         {/* RITE unificado: ya aportado como enlace en el módulo de Documentación (admin) */}

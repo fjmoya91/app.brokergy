@@ -29,15 +29,30 @@ import { ClienteDetailModal } from '../../clientes/components/ClienteDetailModal
 import { LoteDetailModal } from '../../lotes/components/LoteDetailModal';
 import { FechasPrevistasEjecucion } from '../components/FechasPrevistasEjecucion';
 
+// ⚠️ Esta lista TIENE que contener todos los estados que escribe el backend.
+// El <select> del detalle y el de la lista muestran `expediente.estado`: si el
+// valor no está entre las <option>, el navegador pinta la PRIMERA opción, así
+// que un expediente en 'REVISADO Y LISTO (FINAL)' aparentaba estar en
+// 'PTE. CEE INICIAL' — y encima no se contaba en ningún chip del resumen.
+// Fuente de los estados que escribe el servidor: backend/utils/expedienteEstados.js
+// (mantener ambas en sintonía, junto con FASES de dashboard/logic/dashboardAgg.js).
 export const EXPEDIENTE_ESTADOS = [
     'PTE. CEE INICIAL',
     'EN CERTIFICADOR CEE INICIAL',
+    'EN TRABAJO (CEE INICIAL)',
+    'PENDIENTE REVISIÓN (INICIAL)',
+    'REVISADO Y LISTO (INICIAL)',
     'PTE. FIN OBRA',
     'PTE. CEE FINAL',
     'EN CERTIFICADOR CEE FINAL',
-    'PTE FIRMA ANEXOS',
-    'PTE. CIFO BROKERGY',
-    'PTE FIRMA CIFO',
+    'EN TRABAJO (CEE FINAL)',
+    'PENDIENTE REVISIÓN (FINAL)',
+    'REVISADO Y LISTO (FINAL)',
+    // Toda la zona de documentación es UN solo estado. 'PTE FIRMA ANEXOS',
+    // 'PTE. CIFO BROKERGY' y 'PTE FIRMA CIFO' se han retirado del desplegable:
+    // fingían ser fases sucesivas de algo que pasa en paralelo, así que nunca se
+    // sabía cuál marcar (en toda la historia se usaron 0, 1 y 1 veces). El detalle
+    // de quién tiene qué lo dan las PISTAS del módulo "Barrido · Qué falta".
     'PTE FIN EXPTE',
     'DOC. COMPLETA',
     'DOC. COMPLETA APPSHEET',
@@ -797,6 +812,14 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
                                      expediente.estado?.includes('REQUERIMIENTO') ? 'text-red-400' : 'text-brand'
                                  }`}
                               >
+                                 {/* Red de seguridad: si el servidor escribe un estado que esta
+                                     lista todavía no conoce, lo pintamos igualmente en vez de
+                                     dejar que el <select> caiga a su primera opción y mienta. */}
+                                 {expediente.estado && !EXPEDIENTE_ESTADOS.includes(expediente.estado) && (
+                                     <option value={expediente.estado} className="bg-bkg-deep text-white">
+                                         {expediente.estado}
+                                     </option>
+                                 )}
                                  {EXPEDIENTE_ESTADOS.map(st => (
                                      <option key={st} value={st} className="bg-bkg-deep text-white">
                                          {st}

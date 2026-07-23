@@ -254,6 +254,54 @@ function createMcpServer() {
         }
     );
 
+    // ── Tool 3b: Qué falta, por PISTAS PARALELAS ──────────────────────────────
+    // `list_pending` responde desde `responsable_bloqueo`, que es UN solo valor.
+    // Pero el CEE final (certificador), los anexos de firma (cliente) y el CIFO
+    // (instalador) viajan A LA VEZ: puede haber tres personas distintas con algo
+    // nuestro en la mano el mismo día. Esta herramienta lee `v_expedientes_pistas`,
+    // que trata cada pista por separado y con su propio reloj.
+    mcp.tool(
+        'que_falta',
+        'Dice QUÉ FALTA en la cartera tratando las tres pistas que avanzan EN PARALELO: CEE final (certificador), anexos de firma (cliente) y CIFO (instalador). Úsalo para "¿qué falta?", "¿qué le pido hoy al instalador?", "¿qué llevo más tiempo esperando?" o "¿qué está en nuestro tejado?". Preferible a list_pending cuando la pregunta es sobre pendientes concretos y de quién dependen.',
+        {
+            esperando_a: z.enum(['CERTIFICADOR', 'CLIENTE', 'INSTALADOR']).optional()
+                .describe('Solo expedientes donde esa parte tiene algo nuestro sin devolver'),
+            dias_minimos: z.number().optional()
+                .describe('Solo los que llevan más de N días esperando'),
+            solo_nuestro_tejado: z.boolean().optional()
+                .describe('true = solo lo que depende de BROKERGY (generar o enviar), no de terceros'),
+            expediente: z.string().optional()
+                .describe('Filtrar por número de expediente, ej: "26RES060_141"'),
+            limit: z.number().optional().describe('Máximo de resultados (default: 40)')
+        },
+        async ({ esperando_a, dias_minimos, solo_nuestro_tejado, expediente, limit = 40 }) => {
+            let query = supabase
+                .from('v_expedientes_pistas')
+                .select('*')
+                .order('dias_esperando_max', { ascending: false })
+                .limit(limit);
+            if (esperando_a) query = query.contains('esperando_a', [esperando_a]);
+            if (dias_minimos != null) query = query.gte('dias_esperando_max', dias_minimos);
+            if (expediente) query = query.ilike('numero_expediente', `%${expediente}%`);
+            const { data, error } = await query;
+            if (error) return err(error.message);
+            let filas = data || [];
+            // El filtro de "nuestro tejado" es un array no vacío; PostgREST no tiene
+            // un operador limpio para eso, así que se filtra aquí.
+            if (solo_nuestro_tejado) filas = filas.filter(f => (f.nos_toca_a_nosotros || []).length > 0);
+            return ok({
+                total: filas.length,
+                leyenda: {
+                    SIN_EMITIR: 'ni generado',
+                    SIN_ENVIAR: 'generado, sigue en nuestra mesa',
+                    ESPERANDO: 'enviado — lo tiene el otro, desde hace N días',
+                    OK: 'recibido / firmado / registrado',
+                },
+                expedientes: filas,
+            });
+        }
+    );
+
     // ── Tool 4: Resumen ejecutivo ─────────────────────────────────────────────
     mcp.tool(
         'get_summary',

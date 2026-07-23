@@ -40,6 +40,50 @@ function GoalPill({ titulo, sub, total, done }) {
     );
 }
 
+// ─── Pistas paralelas ────────────────────────────────────────────────────────
+// El CEE final (certificador), los anexos de firma (cliente) y el CIFO
+// (instalador) viajan A LA VEZ y a manos distintas. El `estado` del expediente es
+// un único valor lineal y no puede contar las tres, así que el "quién tiene la
+// pelota ahora mismo" se lee aquí, pista a pista y con su reloj.
+const SITUACION = {
+    OK:          { txt: 'Listo',        cls: 'border-emerald-400/25 bg-emerald-500/[0.06]', acento: 'text-emerald-400', dot: 'bg-emerald-400' },
+    ESPERANDO:   { txt: 'Esperando',    cls: 'border-sky-400/25 bg-sky-500/[0.06]',         acento: 'text-sky-400',     dot: 'bg-sky-400' },
+    SIN_ENVIAR:  { txt: 'Sin enviar',   cls: 'border-amber-400/25 bg-amber-500/[0.05]',     acento: 'text-amber-400',   dot: 'bg-amber-400' },
+    SIN_EMITIR:  { txt: 'Sin generar',  cls: 'border-white/10 bg-white/[0.02]',             acento: 'text-white/45',    dot: 'bg-white/30' },
+};
+
+function PistaCard({ pista }) {
+    const s = SITUACION[pista.situacion] || SITUACION.SIN_EMITIR;
+    const resp = RESP[pista.responsable] || RESP.CUALQUIERA;
+    return (
+        <div className={`rounded-xl border px-3.5 py-3 ${s.cls}`}>
+            <div className="flex items-center gap-2">
+                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${s.dot}`} />
+                <p className="text-[11px] font-black uppercase tracking-wider text-white truncate flex-1">{pista.label}</p>
+                <span className={`text-[9px] font-black uppercase tracking-widest shrink-0 ${s.acento}`}>{s.txt}</span>
+            </div>
+            {/* El reloj se etiqueta explícitamente: una pista puede estar "sin generar"
+                (lo peor que la bloquea) y a la vez llevar 16 días esperando OTRO de sus
+                documentos. Sin la palabra "esperando", "Sin generar · 16 d" se lee mal. */}
+            <p className={`mt-0.5 text-[9px] font-bold uppercase tracking-widest ${resp.text}`}>
+                {resp.label}
+                {typeof pista.dias_esperando === 'number' && (
+                    <span className="text-white/30"> · esperando {pista.dias_esperando} d</span>
+                )}
+            </p>
+            {pista.pendientes.length > 0 && (
+                <ul className="mt-2 space-y-0.5">
+                    {pista.pendientes.map(it => (
+                        <li key={it.key} className="text-[10px] text-white/45 leading-snug truncate" title={it.detalle || it.label}>
+                            {it.detalle || it.label}
+                        </li>
+                    ))}
+                </ul>
+            )}
+        </div>
+    );
+}
+
 // Fila compacta de un ítem PENDIENTE. `action` = botón opcional a la derecha.
 function PendingRow({ it, action }) {
     const bloqueaAnexos = it.objetivos?.includes('anexos');
@@ -48,7 +92,7 @@ function PendingRow({ it, action }) {
             <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${bloqueaAnexos ? 'bg-amber-400' : 'bg-white/30'}`} />
             <span className="text-[13px] font-medium text-white/85 truncate flex-1">{it.label}</span>
             {bloqueaAnexos && <span className="text-[8px] font-black uppercase tracking-wider text-amber-300/80 border border-amber-400/20 rounded px-1 py-0.5 shrink-0">anexos</span>}
-            {!action && it.detalle && it.detalle !== 'Requerida — sin subir' && <span className="text-[10px] text-white/30 truncate max-w-[40%]">{it.detalle}</span>}
+            {it.detalle && it.detalle !== 'Requerida — sin subir' && <span title={it.detalle} className="text-[10px] text-white/30 truncate max-w-[35%]">{it.detalle}</span>}
             {action}
         </div>
     );
@@ -61,6 +105,7 @@ export function ChecklistModule({ expediente, onChanged }) {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [showSolicitar, setShowSolicitar] = useState(false);
+    const [waiving, setWaiving] = useState(null); // slot en vuelo
 
     const load = useCallback(async () => {
         if (!expediente?.id) return;
@@ -79,6 +124,24 @@ export function ChecklistModule({ expediente, onChanged }) {
     // Re-sincroniza si el justificante cambia (p.ej. subido desde la ficha del cliente).
     // eslint-disable-next-line react-hooks/exhaustive-deps
     useEffect(() => { load(); }, [expediente?.documentacion?.justificante_titularidad_link]);
+
+    // Marcar una foto como "no necesario" (o volver a pedirla) SIN salir del barrido.
+    // Mismo endpoint que el popup de fotos y "Solicitar lo que falta": el override
+    // (docs_overrides[slot].waived) vive en la OPORTUNIDAD y persiste en el expediente.
+    const opId = data?.oportunidad_id || expediente?.oportunidad_id;
+    const handleWaive = useCallback(async (slot, waived) => {
+        if (!opId || !slot) return;
+        setWaiving(slot);
+        try {
+            await axios.post(`/api/oportunidades/${opId}/docs/${slot}/waive`, { waived });
+            await load();
+            if (onChanged) onChanged();
+        } catch (e) {
+            setError(e.response?.data?.error || 'No se pudo marcar como no necesario.');
+        } finally {
+            setWaiving(null);
+        }
+    }, [opId, load, onChanged]);
 
     if (loading) {
         return (
@@ -119,6 +182,19 @@ export function ChecklistModule({ expediente, onChanged }) {
 
     return (
         <div className="space-y-5">
+            {/* Pistas en marcha: quién tiene la pelota AHORA, en paralelo */}
+            {(data.pistas || []).length > 0 && (
+                <div>
+                    <div className="flex items-center gap-2 mb-2">
+                        <span className="text-[10px] font-black uppercase tracking-[0.2em] text-white/35">En marcha ahora</span>
+                        <div className="flex-1 h-px bg-white/5" />
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        {data.pistas.map(p => <PistaCard key={p.id} pista={p} />)}
+                    </div>
+                </div>
+            )}
+
             {/* Objetivos */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <GoalPill titulo="Generar anexos" sub="Para que el cliente los firme" total={anexos.total} done={anexos.done} />
@@ -164,7 +240,21 @@ export function ChecklistModule({ expediente, onChanged }) {
                                                 expedienteId={expediente.id}
                                                 onUploaded={() => { load(); if (onChanged) onChanged(); }} />
                                         ) : (
-                                            <PendingRow key={it.key} it={it} />
+                                            <PendingRow key={it.key} it={it}
+                                                // Solo las fotos se pueden marcar "no necesario" desde aquí
+                                                // (mismo waive que el popup); el resto no es opcional.
+                                                action={isAdmin && g.responsable === 'CUALQUIERA' && opId ? (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleWaive(it.key, true)}
+                                                        disabled={waiving === it.key}
+                                                        title="Marcar como no necesario (se guarda en el expediente)"
+                                                        className="shrink-0 text-[9px] font-black uppercase tracking-wider px-2 py-1 rounded-lg border border-white/10 text-white/35 hover:text-amber-300 hover:border-amber-400/30 hover:bg-amber-400/[0.06] transition-all disabled:opacity-40"
+                                                    >
+                                                        {waiving === it.key ? '…' : '🚫 No necesario'}
+                                                    </button>
+                                                ) : null}
+                                            />
                                         )
                                     ))}
                                 </div>

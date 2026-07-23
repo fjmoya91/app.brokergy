@@ -14,6 +14,7 @@ const driveService = require('./driveService');
 const emailService = require('./emailService');
 const { applyStatus } = require('./seguimientoTracking');
 const { getCertificadorNombre } = require('./certificadorLookup');
+const { avanzarEstado } = require('../utils/expedienteEstados');
 
 // Slots del CEE — ESPEJO de DOCUMENT_SLOTS del frontend (CeeDocumentsGrid.jsx).
 // El renombrado usa el mismo patrón `{numExp} – {SECCIÓN}{suffix}` que la app.
@@ -193,8 +194,17 @@ async function markCeeRegistradoFromUpload(exp, phase) {
     if (ph === 'final') docObj.fecha_registro_cee_final = today;
     else docObj.fecha_registro_cee_inicial = today;
 
+    // Registrado el CEE inicial, la pelota pasa al instalador: PTE. FIN OBRA.
+    // Antes esto solo ocurría si el estado era EXACTAMENTE 'PTE. CEE INICIAL',
+    // pero en el flujo real para entonces ya es 'REVISADO Y LISTO (INICIAL)'
+    // (el visto bueno es previo al registro), así que no avanzaba nunca y el
+    // expediente se quedaba clavado en la fase del CEE con la obra en marcha.
+    // `avanzarEstado` solo mueve hacia delante: no puede retroceder nada.
+    // Registrado el CEE final ya no queda ciclo de certificado: lo que falta es
+    // documentación que viaja en paralelo. Fase macro única, desglose en las pistas.
     let newEstado = fresh.estado;
-    if (ph === 'inicial' && fresh.estado === 'PTE. CEE INICIAL') newEstado = 'PTE. FIN OBRA';
+    if (ph === 'inicial') newEstado = avanzarEstado(fresh.estado, 'PTE. FIN OBRA');
+    else                  newEstado = avanzarEstado(fresh.estado, 'PTE FIN EXPTE');
 
     // Token one-tap (7 días) para que el admin notifique al cliente desde el email.
     const notifyToken = crypto.randomBytes(32).toString('hex');
