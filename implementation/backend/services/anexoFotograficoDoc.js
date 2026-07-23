@@ -76,7 +76,7 @@ const ANEXO_ACTUACIONES = [
         bandAntes: 'Antes · Situación inicial',
         bandDespues: 'Después · Actuación ejecutada',
         antes: ['FOTO_SUELO_ANTES'],
-        despues: [],
+        despues: ['FOTO_SUELO_DESPUES'],
     },
     {
         id: 'placas',
@@ -248,6 +248,12 @@ const ANEXO_BASE_CSS = `
     .af-band-line.antes { background: #ECECE4; }
     .af-band-line.despues { background: linear-gradient(100deg,#F39200,#A6CE39); }
     .af-band-act { font-family: 'Space Grotesk', sans-serif; font-size: 11px; font-weight: 600; color: #8A8C80; letter-spacing: 0.1em; white-space: nowrap; }
+    /* Comentario explicativo de un concepto. Solo se pinta si el usuario lo
+       escribió: sin texto no hay caja (nada de recuadros vacíos en el PDF). */
+    .af-comment { margin: -2mm 0 6mm; padding: 3.5mm 4.5mm; border-left: 2px solid #F39200; background: #FAFAF7; border-radius: 0 2mm 2mm 0; page-break-inside: avoid; }
+    .af-comment + .af-comment { margin-top: -4mm; }
+    .af-comment .lbl { font-family: 'Space Grotesk', sans-serif; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: #A08A5A; display: block; margin-bottom: 1.2mm; }
+    .af-comment p { font-family: 'Manrope', sans-serif; font-size: 11px; line-height: 1.5; color: #3A3C34; margin: 0; white-space: pre-wrap; }
     .af-grid { flex: 1; display: grid; grid-auto-rows: 1fr; min-height: 0; }
     .af-grid.cols-2 { grid-template-columns: 1fr 1fr; gap: 7mm; }
     .af-grid.cols-3 { grid-template-columns: 1fr 1fr 1fr; gap: 6mm; }
@@ -366,6 +372,28 @@ function buildFigure(row, numero, opts) {
         </figure>`;
 }
 
+/**
+ * Comentarios explicativos de los conceptos presentes en una fase.
+ * `ctx.opts.comentarios` es { <SLOT>: 'texto' }. Un concepto sin texto no
+ * genera nada — el bloque solo existe si alguien escribió algo.
+ */
+function buildComments(rows, ctx) {
+    const comentarios = (ctx.opts && ctx.opts.comentarios) || {};
+    const vistos = [];
+    for (const r of rows) {
+        const slot = r.slotKey || slotFromRowId(r.id);
+        if (slot && !vistos.includes(slot)) vistos.push(slot);
+    }
+    return vistos
+        .filter(slot => String(comentarios[slot] || '').trim())
+        .map(slot => {
+            const etiqueta = (rows.find(r => (r.slotKey || slotFromRowId(r.id)) === slot) || {}).groupLabel
+                || (rows.find(r => (r.slotKey || slotFromRowId(r.id)) === slot) || {}).label || '';
+            return `<div class="af-comment"><span class="lbl">${esc(etiqueta)}</span><p>${esc(String(comentarios[slot]).trim())}</p></div>`;
+        })
+        .join('');
+}
+
 function buildFasePages(act, fase, rows, ctx) {
     if (!rows.length) return [];
     const cols = rows.length <= 4 ? 2 : 3;
@@ -375,6 +403,7 @@ function buildFasePages(act, fase, rows, ctx) {
         : `<span class="af-band-pill despues">${esc(act.bandDespues)}</span><div class="af-band-line despues"></div>`;
 
     let counter = 0;
+    let isFirstPageOfFase = true;
     return chunk(rows, perPage).map((pageRows) => {
         const isFirstOfAct = !ctx.actStarted;
         ctx.actStarted = true;
@@ -388,6 +417,10 @@ function buildFasePages(act, fase, rows, ctx) {
                 </div>
             </div>` : '';
         const actTag = isFirstOfAct ? '' : `<span class="af-band-act">ACT. ${act.num}</span>`;
+        // Comentarios de los conceptos de ESTA fase, solo en su primera página
+        // (si no, se repetirían en cada página de la misma actuación).
+        const comments = isFirstPageOfFase ? buildComments(rows, ctx) : '';
+        isFirstPageOfFase = false;
         const figures = pageRows.map(r => buildFigure(r, ++counter, ctx.opts)).join('');
         const footerRight = ctx.firstPhotoPage ? (ctx.meta.refCatastral || ctx.meta.municipioLine || ctx.meta.numexpte) : (ctx.meta.municipioLine || ctx.meta.numexpte);
         ctx.firstPhotoPage = false;
@@ -395,6 +428,7 @@ function buildFasePages(act, fase, rows, ctx) {
             <div class="doc-page af-page">
                 ${header}
                 <div class="af-band">${pill}${actTag}</div>
+                ${comments}
                 <div class="af-grid cols-${cols}">${figures}</div>
                 <div class="af-page-footer">
                     <span class="l">Reportaje fotográfico de las actuaciones</span>
@@ -410,7 +444,8 @@ function buildFasePages(act, fase, rows, ctx) {
  * @param rows  filas del modal [{ id, label, file:{data}, slotKey?, fase? }]
  * @param meta  { ca, direccion, refCatastral, utmX, utmY, municipioLine,
  *                numexpte, logoSrc, clienteNombre, clienteDni }
- * @param opts  { preview?: bool, photoSizes?: {rowId: 30..100} }
+ * @param opts  { preview?: bool, photoSizes?: {rowId: 30..100},
+ *                comentarios?: {SLOT: 'texto explicativo'} }
  */
 function buildAnexoPages(rows, meta, opts = {}) {
     const actuaciones = groupRowsIntoActuaciones(rows);

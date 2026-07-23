@@ -44,6 +44,27 @@ const extToMime = (filename) => {
 };
 
 /**
+ * Conceptos fotografiables del expediente: todas las actuaciones (DESPUÉS) + el
+ * estado inicial de cada una (ANTES), excluyendo las fotos de CONTEXTO (fachada
+ * de la calle, patios), que no son actuación. Sin vídeos/docs/otros.
+ *
+ * FUENTE ÚNICA de `collectPhotoGroups` (el generador) y `getAnexoStatus` (lo que
+ * la skill/MCP consulta para saber qué falta). Antes cada uno lo derivaba por su
+ * cuenta y el parche legacy de FOTO_UNIDAD_INTERIOR solo estaba en el primero:
+ * el estado no listaba un slot que el generador SÍ recogía.
+ */
+function anexoConcepts(datosCalculo = {}) {
+    const ANTES_CONTEXTO = new Set(['FOTO_FACHADA_PRINCIPAL', 'FOTO_PATIOS_INTERIORES', 'FOTO_PATIO_LUCES']);
+    const concepts = reformaUploadService.buildDocChecklist(datosCalculo || {})
+        .filter(s => !/^(VIDEO_|DOC_|OTROS_)/.test(s.key) && (s.fase === 'DESPUES' || !ANTES_CONTEXTO.has(s.key)))
+        .map(s => ({ key: s.key, label: s.label, fase: s.fase, multiple: !!s.multiple }));
+    // (Antes había aquí un parche que inyectaba FOTO_UNIDAD_INTERIOR porque el
+    //  checklist no lo emitía. Ya lo emite buildDocChecklist, así que el slot es
+    //  también un destino de subida válido y no hace falta el parche.)
+    return concepts;
+}
+
+/**
  * Recopila las fotos del Anexo Fotográfico desde Drive, agrupadas por concepto
  * (mismo criterio que GET /api/public/anexo-photos). Un concepto sin foto no
  * aparece. Orden ANTES→DESPUÉS.
@@ -61,17 +82,7 @@ async function collectPhotoGroups(datosCalculo = {}) {
     const IMG_EXT = /\.(jpe?g|png|gif|webp|heic|heif|bmp|tiff?)$/i;
     const isImg = (f) => (f.mimeType || '').startsWith('image/') || IMG_EXT.test(f.name || '');
 
-    // Conceptos: todas las actuaciones (DESPUÉS) + el estado inicial de cada una
-    // (ANTES), excluyendo las fotos de CONTEXTO (fachada de la calle, patios), que
-    // no son actuación. Sin vídeos/docs/otros.
-    const ANTES_CONTEXTO = new Set(['FOTO_FACHADA_PRINCIPAL', 'FOTO_PATIOS_INTERIORES', 'FOTO_PATIO_LUCES']);
-    const concepts = reformaUploadService.buildDocChecklist(dc)
-        .filter(s => !/^(VIDEO_|DOC_|OTROS_)/.test(s.key) && (s.fase === 'DESPUES' || !ANTES_CONTEXTO.has(s.key)))
-        .map(s => ({ key: s.key, label: s.label, fase: s.fase }));
-    // Legacy: "unidad interior / ACS" suelto (expedientes del anexo previo).
-    if (!concepts.some(c => c.key === 'FOTO_UNIDAD_INTERIOR')) {
-        concepts.push({ key: 'FOTO_UNIDAD_INTERIOR', label: 'Unidad interior / ACS', fase: 'DESPUES' });
-    }
+    const concepts = anexoConcepts(dc);
 
     const toB64 = async (file) => {
         const buffer = await driveService.getFileContent(file.id);
@@ -99,16 +110,33 @@ async function collectPhotoGroups(datosCalculo = {}) {
 }
 
 /**
+ * Ordena las fotos de un concepto según el orden manual guardado
+ * (`documentacion.anexo_orden[SLOT] = [nombre de fichero, …]`). Lo que no esté
+ * en la lista (fotos subidas después de ordenar) va al final, en su orden natural.
+ */
+function applyOrden(photos, ordenSlot) {
+    if (!Array.isArray(ordenSlot) || !ordenSlot.length) return photos;
+    const pos = new Map(ordenSlot.map((name, i) => [name, i]));
+    return [...photos].sort((a, b) => {
+        const pa = pos.has(a.name) ? pos.get(a.name) : Number.MAX_SAFE_INTEGER;
+        const pb = pos.has(b.name) ? pos.get(b.name) : Number.MAX_SAFE_INTEGER;
+        return pa - pb;
+    });
+}
+
+/**
  * Aplana los grupos en las filas que consume buildAnexoFullHtml.
  * Etiqueta cada foto con su slotKey/fase y numera los duplicados: "Label (2)".
+ * El ORDEN de las filas es el orden en el documento.
  */
-function buildRowsFromGroups(groups) {
+function buildRowsFromGroups(groups, orden = {}) {
     const rows = [];
     for (const g of groups) {
-        (g.photos || []).forEach((ph, i) => {
+        applyOrden(g.photos || [], orden?.[g.key]).forEach((ph, i) => {
             rows.push({
                 id: `drive_${ph.name}`,
                 label: i === 0 ? g.label : `${g.label} (${i + 1})`,
+                groupLabel: g.label, // etiqueta del CONCEPTO (la usa el bloque de comentario)
                 slotKey: g.key,
                 fase: g.fase,
                 file: { name: ph.name, data: ph.data },
@@ -186,6 +214,31 @@ function buildDocMeta(exp, cliente, op) {
 }
 
 /**
+ * Auto-reparación del alcance antes de leer las fotos: si la pestaña Envolvente
+ * del expediente declara actuaciones (ventanas / cubierta / fachada) que el
+ * checklist todavía no ofrece, las habilita y devuelve el `datos_calculo` ya
+ * actualizado. Sin esto, un RES080 migrado (sin `inputs.reforma*`) no tiene slot
+ * de ventanas y sus fotos —aunque estén bien nombradas en Drive— son invisibles
+ * para el generador y para la tool MCP.
+ *
+ * Nunca hace fallar la generación: ante cualquier error sigue con lo que había.
+ */
+async function syncEnvolventeAndReload(exp, op) {
+    const dc = op?.datos_calculo || {};
+    const envolvente = exp?.documentacion?.envolvente;
+    if (!op?.id || !envolvente) return dc;
+    try {
+        const nuevos = await reformaUploadService.syncEnvolventeConcepts(op.id, envolvente, dc);
+        if (!nuevos.length) return dc;
+        const { data } = await supabase.from('oportunidades').select('datos_calculo').eq('id', op.id).maybeSingle();
+        return data?.datos_calculo || dc;
+    } catch (e) {
+        console.warn('[Anexo] sync envolvente:', e.message);
+        return dc;
+    }
+}
+
+/**
  * Genera el Anexo Fotográfico de un expediente y lo guarda en Drive
  * ("6. ANEXOS CAE"), dejando el enlace en documentacion.anexo_fotografico_drive_link.
  *
@@ -210,20 +263,24 @@ async function generateAndSaveAnexo(expedienteId) {
             : Promise.resolve({ data: null }),
     ]);
 
-    const dc = op?.datos_calculo || {};
+    const dc = await syncEnvolventeAndReload(exp, op);
     const driveFolderId = dc.drive_folder_id || dc.inputs?.drive_folder_id;
     if (!driveFolderId) return { ok: false, message: 'El expediente no tiene carpeta Drive configurada' };
 
-    // 2. Recopilar fotos de Drive.
+    // 2. Recopilar fotos de Drive, quitando las que se hayan excluido del anexo.
+    // `anexo_excluidas` son nombres de fichero: la foto sigue en Drive (es
+    // documentación del expediente), simplemente no entra en ESTE documento.
+    const excluidas = new Set(exp.documentacion?.anexo_excluidas || []);
     const { groups } = await collectPhotoGroups(dc);
-    const rows = buildRowsFromGroups(groups);
+    const rows = buildRowsFromGroups(groups, exp.documentacion?.anexo_orden || {})
+        .filter(r => !excluidas.has(r.file?.name));
     if (!rows.length) {
         return { ok: false, message: 'No hay fotos nombradas por slot en "12. DOCUMENTOS PARA CEE". Sube/renombra las fotos antes de generar el anexo.' };
     }
 
     // 3. Construir HTML con el diseño (mismo que el modal).
     const meta = buildDocMeta(exp, cliente, op);
-    const html = buildAnexoFullHtml(rows, meta);
+    const html = buildAnexoFullHtml(rows, meta, { comentarios: exp.documentacion?.anexo_comentarios || {} });
 
     // 4. Renderizar PDF con Puppeteer (mismo pipeline que /api/pdf/*).
     const { getBrowser } = require('./pdfService');
@@ -293,16 +350,7 @@ async function getAnexoStatus(datosCalculo = {}) {
     const driveFolderId = dc.drive_folder_id || dc.inputs?.drive_folder_id || null;
 
     // Slots de foto esperados (excluye vídeos/docs/otros y las fotos de contexto).
-    const ANTES_CONTEXTO = new Set(['FOTO_FACHADA_PRINCIPAL', 'FOTO_PATIOS_INTERIORES', 'FOTO_PATIO_LUCES']);
-    const slots = reformaUploadService.buildDocChecklist(dc)
-        .filter(s => !/^(VIDEO_|DOC_|OTROS_)/.test(s.key) && (s.fase === 'DESPUES' || !ANTES_CONTEXTO.has(s.key)))
-        .map(s => ({
-            key: s.key,
-            label: s.label,
-            fase: s.fase,
-            multiple: !!s.multiple,
-            actuacion: actuacionForSlot(s.key),
-        }));
+    const slots = anexoConcepts(dc).map(s => ({ ...s, actuacion: actuacionForSlot(s.key) }));
 
     let presentes = [];
     if (driveFolderId) {
@@ -312,12 +360,28 @@ async function getAnexoStatus(datosCalculo = {}) {
             const IMG_EXT = /\.(jpe?g|png|gif|webp|heic|heif|bmp|tiff?)$/i;
             const imgs = (files || []).filter(f => (f.mimeType || '').startsWith('image/') || IMG_EXT.test(f.name || ''));
             presentes = slots
-                .map(s => ({
-                    key: s.key,
-                    label: s.label,
-                    fase: s.fase,
-                    count: imgs.filter(f => reformaUploadService.fileBelongsToSlot(f.name, s.key)).length,
-                }))
+                .map(s => {
+                    const suyos = imgs.filter(f => reformaUploadService.fileBelongsToSlot(f.name, s.key));
+                    // `nombres` + `siguiente_indice` para que quien copie ficheros a
+                    // mano (la skill, vía Drive MCP) no reutilice un índice ocupado:
+                    // Drive ADMITE dos ficheros con el mismo nombre en una carpeta, y
+                    // el duplicado saldría dos veces en el anexo. `count` no sirve para
+                    // esto: los índices de Drive pueden tener huecos (_1, _2, _5).
+                    let maxIdx = 0;
+                    const re = new RegExp(`^${s.key}_(\\d+)\\.`, 'i');
+                    for (const f of suyos) {
+                        const m = re.exec(f.name || '');
+                        if (m) maxIdx = Math.max(maxIdx, parseInt(m[1], 10));
+                    }
+                    return {
+                        key: s.key,
+                        label: s.label,
+                        fase: s.fase,
+                        count: suyos.length,
+                        nombres: suyos.map(f => f.name),
+                        siguiente_indice: Math.max(maxIdx, suyos.length) + 1,
+                    };
+                })
                 .filter(s => s.count > 0);
         }
     }
@@ -328,11 +392,13 @@ async function getAnexoStatus(datosCalculo = {}) {
 }
 
 module.exports = {
+    anexoConcepts,
     collectPhotoGroups,
     buildRowsFromGroups,
     buildDocMeta,
     generateAndSaveAnexo,
     getAnexoStatus,
+    syncEnvolventeAndReload,
     actuacionForSlot,
     SUBCARPETA_DOCS,
     SUBCARPETA_ANEXOS,

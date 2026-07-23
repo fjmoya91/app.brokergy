@@ -11,6 +11,7 @@ const { unidadesSinSerie, countUnidades: countUnidadesAero } = require('../utils
 const emailService = require('../services/emailService');
 const whatsappService = require('../services/whatsappService');
 const reformaUploadService = require('../services/reformaUploadService');
+const { mergeDocumentacion } = require('../utils/mergeDocumentacion');
 const anexoFotograficoService = require('../services/anexoFotograficoService');
 const cifoService = require('../services/cifoService');
 const { applyStatus, stampSeguimientoTimestamps, markCertContact } = require('../services/seguimientoTracking');
@@ -480,8 +481,12 @@ router.get('/', enforceAuth, async (req, res) => {
         const canViewAll   = rol === 'ADMIN' || rol === 'TRABAJADOR';
         const isCertificador = rol === 'CERTIFICADOR';
 
-        // RPC: un solo JOIN en BD — evita 3 round-trips y el timeout por documentacion pesada
-        const { data: rpcData, error: rpcErr } = await supabase.rpc('get_expedientes_list_v2');
+        // RPC: un solo JOIN en BD — evita 3 round-trips y el timeout por documentacion pesada.
+        // v3 (2026-07-22) además NO trae el XML crudo del CEE ni los blobs anidados de
+        // `datos_calculo.inputs`, y ya devuelve agregados los contadores de incidencias:
+        // el payload bajó de 21 MB a 1,7 MB y se eliminó un segundo query que recorría
+        // toda la tabla. Ver scripts/get_expedientes_list_v3.sql.
+        const { data: rpcData, error: rpcErr } = await supabase.rpc('get_expedientes_list_v3');
         if (rpcErr) throw rpcErr;
 
         let data = rpcData || [];
@@ -498,25 +503,14 @@ router.get('/', enforceAuth, async (req, res) => {
             data = data.map(r => scrubExpedienteForUser(r, req));
         }
 
-        // Contador ligero de incidencias ABIERTAS por expediente (solo ADMIN gestiona
-        // incidencias; el badge rojo neón del listado se alimenta de aquí). Seleccionamos
-        // solo el subarray JSON `incidencias`, no el `documentacion` pesado que motivó la RPC.
-        if (canViewAll) {
-            const { data: incRows } = await supabase
-                .from('expedientes')
-                .select('id, inc:documentacion->incidencias');
-            const openByExp = new Map();
-            const gravesByExp = new Map();
-            (incRows || []).forEach(r => {
-                const abiertas = (r.inc || []).filter(i => i.estado !== 'SUBSANADA');
-                openByExp.set(r.id, abiertas.length);
-                gravesByExp.set(r.id, abiertas.filter(i => i.severidad === 'GRAVE').length);
-            });
-            data = data.map(r => ({
-                ...r,
-                incidencias_abiertas: openByExp.get(r.id) || 0,
-                incidencias_graves_abiertas: gravesByExp.get(r.id) || 0
-            }));
+        // Contador de incidencias ABIERTAS por expediente (el badge rojo neón del listado).
+        // Lo agrega ya la RPC: antes esto era un segundo query `select('id,
+        // documentacion->incidencias')` SIN filtro, y para leer ese subcampo Postgres
+        // descomprimía la columna `documentacion` ENTERA de todas las filas — 1,5 s de
+        // media y una de las causas de las caídas del 21/07. Aquí solo se capa por rol:
+        // las incidencias son cosa del equipo interno, el certificador no las ve.
+        if (!canViewAll) {
+            data = data.map(({ incidencias_abiertas, incidencias_graves_abiertas, ...r }) => r);
         }
 
         res.json(data);
@@ -1435,6 +1429,84 @@ router.post('/:id/anexo-fotografico/generar', internalKeyOrAuth, async (req, res
     }
 });
 
+// ─── PUT /api/expedientes/:id/anexo-fotografico/config ────────────────────────
+// Ajustes del Anexo Fotográfico que NO son ficheros:
+//   · `comentarios` { <SLOT>: 'texto' } — explicación de un concepto; se imprime
+//     bajo la banda de su fase, y solo si tiene texto.
+//   · `excluidas`   [ 'FOTO_X_1.jpg', … ] — fotos que NO entran en el documento.
+//     La foto SIGUE en Drive: es documentación del expediente, solo se omite aquí.
+//   · `orden`       { <SLOT>: ['FOTO_X_3.jpg', 'FOTO_X_1.jpg', …] } — orden manual
+//     de las fotos dentro de un concepto. El orden de las filas ES el orden del PDF.
+// Viven en `documentacion` para que el PDF salga igual por el modal y por el MCP.
+// Escritura acotada: relee `documentacion` y toca SOLO estas dos claves, así un
+// guardado en paralelo del detalle del expediente no las pisa ni las borra.
+// GET: los ajustes VIGENTES en BD. El modal los relee al abrirse en vez de fiarse
+// del objeto `expediente` que el frontend tiene en memoria: ese se cargó al entrar
+// en el expediente y no se entera de lo que guardó el propio anexo, así que las
+// fotos quitadas "reaparecían" y el orden y los comentarios se veían vacíos.
+router.get('/:id/anexo-fotografico/config', staffOnly, async (req, res) => {
+    try {
+        const { data: exp, error } = await supabase
+            .from('expedientes').select('documentacion').eq('id', req.params.id).maybeSingle();
+        if (error || !exp) return res.status(404).json({ error: 'Expediente no encontrado' });
+        const doc = exp.documentacion || {};
+        res.json({
+            comentarios: doc.anexo_comentarios || {},
+            excluidas: doc.anexo_excluidas || [],
+            orden: doc.anexo_orden || {},
+        });
+    } catch (e) {
+        console.error('[anexo-fotografico/config GET]', e);
+        res.status(500).json({ error: 'No se pudieron leer los ajustes del anexo' });
+    }
+});
+
+router.put('/:id/anexo-fotografico/config', staffOnly, async (req, res) => {
+    try {
+        const { comentarios, excluidas, orden } = req.body || {};
+        const { data: exp, error } = await supabase
+            .from('expedientes').select('documentacion').eq('id', req.params.id).maybeSingle();
+        if (error || !exp) return res.status(404).json({ error: 'Expediente no encontrado' });
+
+        const docObj = exp.documentacion || {};
+        if (comentarios !== undefined) {
+            // Se descartan los vacíos: un comentario borrado no debe dejar rastro
+            // (si no, el bloque se imprimiría con una caja vacía).
+            docObj.anexo_comentarios = Object.fromEntries(
+                Object.entries(comentarios || {})
+                    .map(([k, v]) => [k, String(v ?? '').trim()])
+                    .filter(([, v]) => v)
+            );
+        }
+        if (excluidas !== undefined) {
+            docObj.anexo_excluidas = [...new Set((excluidas || []).filter(Boolean).map(String))];
+        }
+        if (orden !== undefined) {
+            docObj.anexo_orden = Object.fromEntries(
+                Object.entries(orden || {})
+                    .map(([slot, lista]) => [slot, [...new Set((lista || []).filter(Boolean).map(String))]])
+                    .filter(([, lista]) => lista.length)
+            );
+        }
+
+        const { error: upErr } = await supabase
+            .from('expedientes')
+            .update({ documentacion: docObj, updated_at: new Date().toISOString() })
+            .eq('id', req.params.id);
+        if (upErr) throw upErr;
+
+        res.json({
+            success: true,
+            comentarios: docObj.anexo_comentarios || {},
+            excluidas: docObj.anexo_excluidas || [],
+            orden: docObj.anexo_orden || {},
+        });
+    } catch (e) {
+        console.error('[anexo-fotografico/config]', e);
+        res.status(500).json({ error: 'No se pudieron guardar los ajustes del anexo' });
+    }
+});
+
 // ─── GET /api/expedientes/:id/anexo-fotografico/estado ─────────────────────────
 // Estado ligero (sin descargar imágenes): qué slots de foto espera el expediente
 // según sus actuaciones, cuáles ya tienen fotos en "12. DOCUMENTOS PARA CEE" y
@@ -1449,10 +1521,14 @@ router.get('/:id/anexo-fotografico/estado', internalKeyOrAuth, async (req, res) 
         if (error || !exp) return res.status(404).json({ ok: false, message: 'Expediente no encontrado' });
 
         const { data: op } = exp.oportunidad_id
-            ? await supabase.from('oportunidades').select('datos_calculo').eq('id', exp.oportunidad_id).maybeSingle()
+            ? await supabase.from('oportunidades').select('id, datos_calculo').eq('id', exp.oportunidad_id).maybeSingle()
             : { data: null };
 
-        const status = await anexoFotograficoService.getAnexoStatus(op?.datos_calculo || {});
+        // Mismo saneado de alcance que la generación: la Envolvente del RES080
+        // habilita sus apartados de foto antes de decir qué falta. Si no, la skill
+        // recibiría una lista de slots que no incluye ventanas/cubierta/fachada.
+        const dc = await anexoFotograficoService.syncEnvolventeAndReload(exp, op);
+        const status = await anexoFotograficoService.getAnexoStatus(dc);
         res.json({
             ok: true,
             numero_expediente: exp.numero_expediente,
@@ -1944,18 +2020,10 @@ router.put('/:id', enforceAuth, async (req, res) => {
             updates.prioridad = 'NORMAL';
         }
 
-        let docObj = existing.documentacion || {};
-        if (documentacion !== undefined) {
-            docObj = { ...docObj, ...documentacion };
-            // cifo_extra_annexes se gestiona ATÓMICAMENTE vía RPC (cifo_annex_append /
-            // cifo_annex_remove en /anexos-cifo). Un PUT de documentacion completo
-            // NUNCA debe sobrescribirlo: si el frontend reenvía una copia obsoleta
-            // (p.ej. tras subir un anexo en paralelo) borraría anexos. Conservamos
-            // siempre el valor ya persistido en BD.
-            if (existing.documentacion && 'cifo_extra_annexes' in existing.documentacion) {
-                docObj.cifo_extra_annexes = existing.documentacion.cifo_extra_annexes;
-            }
-        }
+        // Fusión con las claves protegidas (cifo_extra_annexes + ajustes del Anexo
+        // Fotográfico): las escribe su endpoint dedicado, y la copia que reenvía el
+        // detalle del expediente al autoguardar es más vieja. Ver utils/mergeDocumentacion.
+        let docObj = mergeDocumentacion(existing.documentacion, documentacion);
         
         // Log de historial si cambia el estado (incluyendo el forzado por la automatización superior)
         const activeEstado = updates.estado || estado;
@@ -1981,13 +2049,26 @@ router.put('/:id', enforceAuth, async (req, res) => {
         // fila JSONB con ~MB de base64 y, sobre todo, normalizeData las corrompía
         // (base64 a MAYÚSCULAS → imagen rota). Mismo criterio que cifo_attachments.
         // Las filas manuales (`custom_*`) SÍ se conservan: su base64 es la única copia.
+        //
+        // 2026-07-22: se descarta además cualquier data-url ya corrupto (`DATA:` en
+        // mayúsculas), venga del id que venga. Los 47 MB de fotos que tumbaron la BD
+        // eran exactamente eso: base64 en mayúsculas, indescifrable, reescrito una y
+        // otra vez por el autoguardado. Ver scripts/purge_corrupt_blobs.sql.
         if (Array.isArray(docObj.photo_attachments)) {
-            docObj.photo_attachments = docObj.photo_attachments.map(p => (
-                p && String(p.id || '').startsWith('drive_') && p.file
-                    ? { ...p, file: { name: p.file.name } }
-                    : p
-            ));
+            docObj.photo_attachments = docObj.photo_attachments.map(p => {
+                if (!p || !p.file) return p;
+                const esDeDrive = String(p.id || '').startsWith('drive_');
+                const data = p.file.data;
+                const corrupto = typeof data === 'string' && data.startsWith('DATA:');
+                return (esDeDrive || corrupto) ? { ...p, file: { name: p.file.name } } : p;
+            });
         }
+
+        // `cifo_attachments` son las fichas técnicas del CIFO, que viven en Drive
+        // (ft_aerotermia_*_id) desde 2026-05-25. El frontend ya las descarta al cargar
+        // (DocumentacionModule.jsx), pero sobrevivían en BD porque el spread de arriba
+        // conserva las claves que el cliente no manda: 18 MB de base64 fantasma.
+        delete docObj.cifo_attachments;
 
         updates.documentacion = docObj;
 
@@ -2000,6 +2081,20 @@ router.put('/:id', enforceAuth, async (req, res) => {
             .single();
 
         if (error) throw error;
+
+        // ── Envolvente → apartados de foto (RES080) ──────────────────────────
+        // Guardar la pestaña Envolvente declara el ALCANCE de la obra. Habilitamos
+        // los apartados de foto correspondientes (ventanas / cubierta / fachada) en
+        // el checklist de la oportunidad, que es de donde beben DocsManager, el
+        // Anexo Fotográfico y las tools MCP. Solo añade; para quitar un apartado
+        // está el toggle "Añadir apartado de obra" del gestor de documentación.
+        if (documentacion?.envolvente && existing.oportunidad_id) {
+            setImmediate(() => {
+                reformaUploadService
+                    .syncEnvolventeConcepts(existing.oportunidad_id, docObj.envolvente)
+                    .catch(e => console.warn('[Envolvente] sync apartados:', e.message));
+            });
+        }
 
         // ── Notificaciones admin con enlace one-tap (fire-and-forget post-save) ──
         if (_notifyAdminCeeInicial) {

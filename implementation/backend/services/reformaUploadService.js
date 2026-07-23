@@ -121,10 +121,77 @@ const ADDABLE_CONCEPTS = [
     { id: 'ventanas', label: 'Ventanas (antes y después)', slots: ['FOTO_VENTANAS_ANTES', 'FOTO_VENTANAS_DESPUES'] },
     { id: 'cubierta', label: 'Cubierta / tejado (antes y después)', slots: ['FOTO_CUBIERTA_ANTES', 'FOTO_CUBIERTA_DESPUES'] },
     { id: 'fachada',  label: 'Aislamiento de fachada (antes y después)', slots: ['FOTO_FACHADA_ANTES', 'FOTO_FACHADA_DESPUES'] },
-    { id: 'suelo',    label: 'Suelo (antes)', slots: ['FOTO_SUELO_ANTES'] },
+    { id: 'suelo',    label: 'Suelo (antes y después)', slots: ['FOTO_SUELO_ANTES', 'FOTO_SUELO_DESPUES'] },
     { id: 'acs',      label: 'ACS: sistema actual + depósito', slots: ['FOTO_ACS_ANTES', 'FOTO_ACS_DEPOSITO'] },
+    { id: 'placas',   label: 'Placas solares (después)', slots: ['FOTO_PLACAS_SOLARES'] },
 ];
 const ADDABLE_SLOT_KEYS = new Set(ADDABLE_CONCEPTS.flatMap(c => c.slots));
+
+// ───────────────────────────────────────────────────────────────────────────
+// ENVOLVENTE → APARTADOS DE FOTO (RES080)
+// ---------------------------------------------------------------------------
+// En un RES080 el ALCANCE REAL de la obra lo declara el admin en la pestaña
+// Envolvente (`expedientes.documentacion.envolvente`), no la simulación: los
+// expedientes migrados de AppSheet o dados de alta por XML no traen
+// `inputs.reformaVentanas` ni `landing_funnel.reforma_elementos`, así que el
+// checklist se quedaba SIN slots de ventanas/cubierta/fachada — y sin slot no
+// hay dónde subir la foto, el Anexo Fotográfico no la recoge (collectPhotoGroups
+// deriva sus conceptos del checklist) y la tool MCP responde "no hay fotos".
+//
+// La Envolvente alimenta el MISMO mecanismo que el botón "Añadir apartado de
+// obra" (`docs_overrides[slot].enabled`), así que no hay una segunda fuente de
+// verdad que mantener: solo se rellena automáticamente lo que el admin habría
+// tenido que marcar a mano.
+//
+// Solo AÑADE, nunca quita: desmarcar una casilla de la Envolvente no puede
+// borrar un apartado que ya tenga fotos subidas. Para quitarlo está el toggle
+// del propio "Añadir apartado de obra".
+const ENVOLVENTE_CONCEPTS = [
+    { conceptId: 'ventanas', test: (e) => e.sustituye_ventanas === true },
+    { conceptId: 'cubierta', test: (e) => e.aislamiento_cubierta === true },
+    { conceptId: 'fachada',  test: (e) => e.aislamiento_muros === true },
+];
+
+/** Ids de ADDABLE_CONCEPTS que la envolvente de un RES080 declara como actuación. */
+function conceptsFromEnvolvente(envolvente) {
+    const env = envolvente || {};
+    return ENVOLVENTE_CONCEPTS.filter(c => c.test(env)).map(c => c.conceptId);
+}
+
+/**
+ * Habilita en `datos_calculo.docs_overrides` los apartados de foto que declara
+ * la Envolvente del expediente. Idempotente y seguro de llamar en cada guardado
+ * o antes de generar el anexo (auto-reparación de expedientes migrados).
+ *
+ * @returns {Promise<string[]>} slots recién habilitados (vacío si no había nada que hacer)
+ */
+async function syncEnvolventeConcepts(oportunidadUuid, envolvente, datosCalculo = null) {
+    if (!oportunidadUuid) return [];
+    const conceptIds = conceptsFromEnvolvente(envolvente);
+    if (!conceptIds.length) return [];
+
+    // Slots que la envolvente pide y que el checklist actual NO ofrece todavía.
+    let dc = datosCalculo;
+    if (!dc) {
+        const { data } = await supabase.from('oportunidades').select('datos_calculo').eq('id', oportunidadUuid).maybeSingle();
+        dc = data?.datos_calculo || {};
+    }
+    const yaVisibles = new Set(buildDocChecklist(dc).map(s => s.key));
+    const pendientes = ADDABLE_CONCEPTS
+        .filter(c => conceptIds.includes(c.id))
+        .flatMap(c => c.slots)
+        .filter(k => !yaVisibles.has(k));
+    if (!pendientes.length) return [];
+
+    const hechos = [];
+    for (const slot of pendientes) {
+        const { error } = await supabase.rpc('set_doc_concept_enabled', { p_id: oportunidadUuid, p_slot: slot, p_enabled: true });
+        if (error) { console.warn('[Docs] syncEnvolventeConcepts:', slot, error.message); continue; }
+        hechos.push(slot);
+    }
+    if (hechos.length) console.log(`[Docs] Envolvente → apartados habilitados: ${hechos.join(', ')}`);
+    return hechos;
+}
 
 // Formatos admitidos por el selector de archivos. Generosos: cualquier imagen + PDF
 // valen para todas las casillas de foto/documento (el backend no filtra por formato).
@@ -142,6 +209,7 @@ function deriveSelectors(datosCalculo = {}) {
         cubierta: inputs.reformaCubierta !== undefined ? !!inputs.reformaCubierta : !!funnel.reforma_elementos?.cubierta,
         suelo:    inputs.reformaSuelo    !== undefined ? !!inputs.reformaSuelo    : !!funnel.reforma_elementos?.suelo,
         paredes:  inputs.reformaParedes  !== undefined ? !!inputs.reformaParedes  : !!funnel.reforma_elementos?.paredes,
+        placas:   inputs.reformaPlacas   !== undefined ? !!inputs.reformaPlacas   : !!funnel.reforma_elementos?.placas,
     };
     const changeAcs = inputs.changeAcs !== undefined ? !!inputs.changeAcs : !!funnel.incluir_acs;
 
@@ -222,6 +290,14 @@ function buildDocChecklist(datosCalculo = {}) {
            label: 'Unidad exterior nueva (instalada)', help: 'La máquina nueva que va fuera (en fachada, terraza o patio), ya colocada y conectada.' });
     push({ key: 'FOTO_UNIDAD_EXTERIOR_PLACA', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO,
            label: 'Placa de la unidad exterior', help: 'La etiqueta de datos de la máquina de fuera. Acércate hasta que se lean marca, modelo y número de serie.' });
+    // La unidad INTERIOR en sí (no su placa). Existía en el mapa de actuaciones del
+    // Anexo y el generador la recogía de Drive, pero el checklist no la emitía: era
+    // un slot fantasma, imposible de subir ("Tipo de documento no válido" = el POST
+    // no encuentra el slot en el checklist). `optionalAlways` a propósito — se emite
+    // para que sea un destino válido de subida, NO para añadir una exigencia nueva a
+    // todos los expedientes al pasar a ACEPTADA.
+    push({ key: 'FOTO_UNIDAD_INTERIOR', fase: PHASE.DESPUES, required: false, optionalAlways: true, multiple: true, accept: ACCEPT_FOTO,
+           label: 'Unidad interior / ACS', help: 'La unidad de dentro (split, hidrokit o depósito) ya instalada.' });
     push({ key: 'FOTO_UNIDAD_INTERIOR_PLACA', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO,
            label: 'Placa de la unidad interior / DEPOSITO ACS', help: 'La etiqueta de datos de la unidad de dentro o del depósito de agua caliente. Que se lean marca, modelo y número de serie.' });
     if (want('FOTO_ACS_DEPOSITO', sel.changeAcs)) push({ key: 'FOTO_ACS_DEPOSITO', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO,
@@ -234,6 +310,8 @@ function buildDocChecklist(datosCalculo = {}) {
     if (want('FOTO_VENTANAS_DESPUES', sel.reforma.ventanas)) push({ key: 'FOTO_VENTANAS_DESPUES', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Ventanas nuevas (después)', help: 'Las ventanas nuevas ya instaladas.' });
     if (want('FOTO_CUBIERTA_DESPUES', sel.reforma.cubierta)) push({ key: 'FOTO_CUBIERTA_DESPUES', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Cubierta terminada', help: 'La cubierta o tejado ya terminado tras la obra.' });
     if (want('FOTO_FACHADA_DESPUES', sel.reforma.paredes))  push({ key: 'FOTO_FACHADA_DESPUES', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Aislamiento de fachada terminado', help: 'La fachada ya aislada y terminada.' });
+    if (want('FOTO_SUELO_DESPUES', sel.reforma.suelo))    push({ key: 'FOTO_SUELO_DESPUES', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Suelo terminado (después)', help: 'El suelo ya aislado y terminado.' });
+    if (want('FOTO_PLACAS_SOLARES', sel.reforma.placas))  push({ key: 'FOTO_PLACAS_SOLARES', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Placas solares instaladas', help: 'Las placas fotovoltaicas o solares térmicas ya montadas.' });
     push({ key: 'VIDEO_REFORMA', fase: PHASE.DESPUES, required: false, optionalAlways: true, multiple: false, accept: ACCEPT_VIDEO, label: 'Vídeo de la reforma (opcional)', help: 'Recorrido en vídeo de la instalación ya terminada.' });
     push({ key: 'DOC_FACTURAS', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_DOC, label: 'Facturas de la instalación', help: 'Las facturas de los materiales y de la instalación (en PDF o foto).' });
     push({ key: 'DOC_RITE', fase: PHASE.DESPUES, required: false, multiple: false, accept: ACCEPT_DOC, label: 'Certificado RITE', help: 'Lo emite el instalador: es el certificado de la instalación térmica (RITE) que debe entregar al terminar la obra.' });
@@ -801,6 +879,8 @@ module.exports = {
     buildNamedFileBase,
     buildDocChecklist,
     buildDocsView,
+    conceptsFromEnvolvente,
+    syncEnvolventeConcepts,
     syncRiteToExpediente,
     addFacturaToExpediente,
     removeFacturaFromExpediente,
