@@ -23,6 +23,9 @@ implementation/scratch/
 implementation/frontend/src/features/calculator/scratch/
 implementation/backend/scratch/
 
+# Volcados locales de la BD (datos de clientes — nunca subir)
+implementation/backend/scripts/backups/
+
 # Tokens y credenciales generadas localmente
 implementation/backend/refresh_token.txt
 implementation/backend/tmp_url.txt

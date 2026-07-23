@@ -61,10 +61,16 @@ function err(msg) {
 // ─── Helpers de incidencias ────────────────────────────────────────────────────
 // Busca un expediente por número en la TABLA base (necesitamos leer/escribir
 // documentacion, no la vista). Devuelve { exp } | { error } | { ambiguous }.
+// DOS PASOS a propósito. El `ilike '%…%'` no puede usar índice, así que recorre la
+// tabla entera; si además se pide `documentacion` en ese mismo select, Postgres tiene
+// que descomprimir esa columna de TODAS las filas solo para descartarlas. Con eso
+// llegó a haber 66 MB de JSONB, y cada alta de incidencia de las skills disparaba ese
+// trabajo — parte de lo que tumbó la BD el 21/07/2026. Resolvemos primero el número
+// (columnas ligeras) y solo después leemos `documentacion` de la fila ya identificada.
 async function findExpediente(numero) {
     const { data: matches, error } = await supabase
         .from('expedientes')
-        .select('id, numero_expediente, documentacion')
+        .select('id, numero_expediente')
         .ilike('numero_expediente', `%${(numero || '').replace(/\s/g, '')}%`);
     if (error) return { error: error.message };
     if (!matches || matches.length === 0) {
@@ -76,7 +82,13 @@ async function findExpediente(numero) {
             message: `Hay ${matches.length} expedientes que coinciden con "${numero}". Indica el número completo.`
         };
     }
-    return { exp: matches[0] };
+    const { data: exp, error: fullErr } = await supabase
+        .from('expedientes')
+        .select('id, numero_expediente, documentacion')
+        .eq('id', matches[0].id)
+        .single();
+    if (fullErr) return { error: fullErr.message };
+    return { exp };
 }
 
 // Persiste el array de incidencias en documentacion.incidencias[] del expediente.
@@ -305,23 +317,16 @@ function createMcpServer() {
             const sev = ['LEVE', 'GRAVE'].includes(severidad) ? severidad : 'GRAVE';
 
             // Buscar en la TABLA base (no en la vista) para poder leer/escribir documentacion.
-            const { data: matches, error: findErr } = await supabase
-                .from('expedientes')
-                .select('id, numero_expediente, documentacion')
-                .ilike('numero_expediente', `%${numero.replace(/\s/g, '')}%`);
-            if (findErr) return err(findErr.message);
-            if (!matches || matches.length === 0) {
-                return ok({ ok: false, message: `No se encontró ningún expediente que coincida con "${numero}".` });
-            }
-            if (matches.length > 1) {
-                return ok({
-                    ok: false,
-                    message: `Hay ${matches.length} expedientes que coinciden con "${numero}". Indica el número completo.`,
-                    coincidencias: matches.map(m => m.numero_expediente)
-                });
+            // Vía findExpediente, que lo hace en dos pasos para no des-TOASTear la tabla
+            // entera en cada alta de incidencia (ver comentario del helper).
+            const hallazgo = await findExpediente(numero);
+            if (hallazgo.error) return err(hallazgo.error);
+            if (hallazgo.notFound) return ok({ ok: false, message: hallazgo.notFound });
+            if (hallazgo.ambiguous) {
+                return ok({ ok: false, message: hallazgo.message, coincidencias: hallazgo.ambiguous });
             }
 
-            const exp = matches[0];
+            const exp = hallazgo.exp;
             const docObj = exp.documentacion || {};
             const incidencias = docObj.incidencias || [];
             const incidencia = {
