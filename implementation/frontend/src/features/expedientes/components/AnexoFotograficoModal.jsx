@@ -15,6 +15,13 @@ const Spinner = () => (
     </svg>
 );
 
+// Formatos que ofrece el diálogo de archivos. Las EXTENSIONES van explícitas además
+// del comodín `image/*`: en Windows el navegador expande `image/*` consultando el
+// registro, y una extensión sin `Content Type` allí sale EN GRIS y no se puede elegir
+// —aunque el backend la acepte sin problema (verificado: .jpg y .jpeg dan ambos 200)—.
+// `.heic` es el formato por defecto del iPhone y en muchos equipos NO está registrado.
+const ACCEPT_FOTOS = 'image/*,.jpg,.jpeg,.jpe,.jfif,.png,.webp,.heic,.heif,.bmp,.tif,.tiff,.gif,.avif';
+
 // (Aquí vivía SLOT_TO_CANONICAL, un mapa de 6 ids legacy → nombre canónico en Drive.
 //  Era el único camino por el que una subida desde el Anexo llegaba a Drive; el resto
 //  se quedaba en base64 en React. Ya no hace falta: cada fila lleva su `slotKey` real
@@ -811,7 +818,7 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
                                                         ? <Spinner />
                                                         : <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M12 4v16m8-8H4"/></svg>}
                                                     {uploadingSlot === group.slotKey ? 'Subiendo…' : 'Añadir fotos'}
-                                                    <input type="file" className="hidden" accept="image/*" multiple disabled={!!uploadingSlot}
+                                                    <input type="file" className="hidden" accept={ACCEPT_FOTOS} multiple disabled={!!uploadingSlot}
                                                            onChange={(e) => { handleFilesAdd(group.slotKey, e.target.files); e.target.value = ''; }} />
                                                 </label>
                                             </div>

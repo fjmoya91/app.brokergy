@@ -59,12 +59,12 @@ function getReformaSlots(funnel = {}) {
     if (els.placas) slots.push({ key: 'FOTO_PLACAS_SOLARES', label: 'Fotos de las placas solares', accept: ACCEPT_FOTO, required: false, multiple: true });
 
     if (funnel.reforma_cee_previo === 'si' || funnel.reforma_cee_ambos === 'si') {
-        slots.push({ key: 'DOC_CEE_PREVIO', label: 'Certificado energético previo', help: 'PDF (y los archivos .cex/.xml si los tienes).', accept: 'application/pdf,image/*,.cex,.xml', required: false, multiple: true });
+        slots.push({ key: 'DOC_CEE_PREVIO', label: 'Certificado energético previo', help: 'PDF (y los archivos .cex/.xml si los tienes).', accept: ACCEPT_CEE, required: false, multiple: true });
     }
-    if (ej) slots.push({ key: 'DOC_CEE_POSTERIOR', label: 'Certificado energético posterior', help: 'El emitido tras la reforma.', accept: 'application/pdf,image/*,.cex,.xml', required: false, multiple: true });
-    if (funnel.reforma_facturas === 'si' || ej) slots.push({ key: 'DOC_FACTURAS', label: 'Facturas de la reforma', accept: 'application/pdf,image/*', required: false, multiple: true });
+    if (ej) slots.push({ key: 'DOC_CEE_POSTERIOR', label: 'Certificado energético posterior', help: 'El emitido tras la reforma.', accept: ACCEPT_CEE, required: false, multiple: true });
+    if (funnel.reforma_facturas === 'si' || ej) slots.push({ key: 'DOC_FACTURAS', label: 'Facturas de la reforma', accept: ACCEPT_DOC, required: false, multiple: true });
 
-    slots.push({ key: 'OTROS', label: 'Otros documentos', help: 'Cualquier otra cosa que quieras aportar.', accept: 'application/pdf,image/*,.cex,.xml', required: false, multiple: true, named: true });
+    slots.push({ key: 'OTROS', label: 'Otros documentos', help: 'Cualquier otra cosa que quieras aportar.', accept: ACCEPT_CEE, required: false, multiple: true, named: true });
     return slots;
 }
 
@@ -85,7 +85,7 @@ function getAerotermiaSlots(funnel = {}) {
     slots.push({ key: 'FOTO_FACHADA_PRINCIPAL', label: 'Foto de la fachada principal', help: 'Para valorar dónde podría ir la unidad exterior.', accept: ACCEPT_FOTO, required: false, multiple: true });
     slots.push({ key: 'FOTO_PATIOS_INTERIORES', label: 'Foto de patios interiores', help: 'Si tu vivienda tiene patios interiores, una foto de cada uno.', accept: ACCEPT_FOTO, required: false, multiple: true });
     slots.push({ key: 'FOTO_PATIO_LUCES', label: 'Foto del patio de luces (si lo hay)', help: 'Solo si tu edificio tiene patio de luces.', accept: ACCEPT_FOTO, required: false, multiple: true });
-    slots.push({ key: 'OTROS', label: 'Otros documentos o fotos', help: 'Cualquier cosa más que quieras aportar.', accept: 'application/pdf,image/*', required: false, multiple: true, named: true });
+    slots.push({ key: 'OTROS', label: 'Otros documentos o fotos', help: 'Cualquier cosa más que quieras aportar.', accept: ACCEPT_DOC, required: false, multiple: true, named: true });
     return slots;
 }
 
@@ -194,10 +194,25 @@ async function syncEnvolventeConcepts(oportunidadUuid, envolvente, datosCalculo 
 }
 
 // Formatos admitidos por el selector de archivos. Generosos: cualquier imagen + PDF
-// valen para todas las casillas de foto/documento (el backend no filtra por formato).
-const ACCEPT_FOTO = 'image/*,application/pdf';
-const ACCEPT_DOC = 'application/pdf,image/*';
-const ACCEPT_VIDEO = 'video/*';
+// valen para todas las casillas de foto/documento (el backend NO filtra por formato:
+// se comprobó subiendo el mismo fichero como .jpg y como .jpeg — ambos 200).
+//
+// ⚠️ Las EXTENSIONES van explícitas además del comodín `image/*`. En Windows el
+// navegador expande `image/*` consultando el registro, y una extensión sin
+// `Content Type` allí aparece EN GRIS en el diálogo de archivos: el usuario no puede
+// elegirla aunque el servidor la acepte sin problema. Verificado en la máquina del
+// usuario: `.jpeg` sí está mapeada, pero `.webp` y `.heic` NO — y `.heic` es el
+// formato por defecto del iPhone, que es de donde vienen casi todas estas fotos.
+// Listarlas a mano hace que el selector no dependa del registro.
+const EXT_FOTO = '.jpg,.jpeg,.jpe,.jfif,.png,.webp,.heic,.heif,.bmp,.tif,.tiff,.gif,.avif';
+const EXT_VIDEO = '.mp4,.mov,.m4v,.3gp,.avi,.mkv,.webm';
+const ACCEPT_FOTO = `image/*,${EXT_FOTO},application/pdf,.pdf`;
+const ACCEPT_DOC = `application/pdf,.pdf,image/*,${EXT_FOTO}`;
+const ACCEPT_VIDEO = `video/*,${EXT_VIDEO}`;
+// Slots "Otros" (catch-all): foto, documento o vídeo.
+const ACCEPT_CUALQUIERA = `image/*,${EXT_FOTO},application/pdf,.pdf,video/*,${EXT_VIDEO}`;
+// CEE: PDF/foto + los ficheros del certificado (.cex/.xml), que no tienen MIME propio.
+const ACCEPT_CEE = `application/pdf,.pdf,image/*,${EXT_FOTO},.cex,.xml`;
 
 /** Normaliza distintas fuentes (inputs del calculador o landing_funnel) a selectores de slot. */
 function deriveSelectors(datosCalculo = {}) {
@@ -275,14 +290,14 @@ function buildDocChecklist(datosCalculo = {}) {
     // optionalAlways → nunca pasa a obligatorio al ACEPTAR (no toda vivienda tiene CEE previo).
     // mergePdf → puede aportarse como PDF directo O como fotos de las páginas; cuando estén
     // todas, el cliente/admin pulsa "Unir en un PDF" y el backend las funde en un único PDF.
-    push({ key: 'DOC_CEE_EXISTENTE', fase: PHASE.ANTES, required: false, multiple: true, optionalAlways: true, mergePdf: true, accept: 'application/pdf,image/*',
+    push({ key: 'DOC_CEE_EXISTENTE', fase: PHASE.ANTES, required: false, multiple: true, optionalAlways: true, mergePdf: true, accept: ACCEPT_DOC,
            label: 'Certificado de Eficiencia Energética existente', help: 'El CEE actual de la vivienda, si ya tienes uno. Puede ser un PDF o varias fotos de sus páginas: cuando estén todas, pulsa “Unir en un PDF” para juntarlas en un único documento.' });
     if (want('FOTO_VENTANAS_ANTES', sel.reforma.ventanas)) push({ key: 'FOTO_VENTANAS_ANTES', fase: PHASE.ANTES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Ventanas a sustituir (antes)', help: 'Las que vais a cambiar.' });
     if (want('FOTO_CUBIERTA_ANTES', sel.reforma.cubierta)) push({ key: 'FOTO_CUBIERTA_ANTES', fase: PHASE.ANTES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Cubierta / tejado (antes)' });
     if (want('FOTO_FACHADA_ANTES', sel.reforma.paredes))  push({ key: 'FOTO_FACHADA_ANTES', fase: PHASE.ANTES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Fachada a aislar (antes)' });
     if (want('FOTO_SUELO_ANTES', sel.reforma.suelo))    push({ key: 'FOTO_SUELO_ANTES', fase: PHASE.ANTES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Suelo (antes)' });
     if (want('FOTO_ACS_ANTES', sel.changeAcs))        push({ key: 'FOTO_ACS_ANTES', fase: PHASE.ANTES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Sistema de ACS actual', help: 'Termo eléctrico o conexión de ACS de la caldera.' });
-    push({ key: 'OTROS_ANTES', fase: PHASE.ANTES, required: false, multiple: true, named: true, accept: 'image/*,application/pdf,video/*',
+    push({ key: 'OTROS_ANTES', fase: PHASE.ANTES, required: false, multiple: true, named: true, accept: ACCEPT_CUALQUIERA,
            label: 'Otros (antes de la obra)', help: 'PDF, fotos, vídeos u otros archivos que no encajen en las categorías anteriores. Al subirlos se te pedirá un nombre para guardarlos identificados.' });
 
     // ───────── DESPUÉS DE LA OBRA ─────────
@@ -315,7 +330,7 @@ function buildDocChecklist(datosCalculo = {}) {
     push({ key: 'VIDEO_REFORMA', fase: PHASE.DESPUES, required: false, optionalAlways: true, multiple: false, accept: ACCEPT_VIDEO, label: 'Vídeo de la reforma (opcional)', help: 'Recorrido en vídeo de la instalación ya terminada.' });
     push({ key: 'DOC_FACTURAS', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_DOC, label: 'Facturas de la instalación', help: 'Las facturas de los materiales y de la instalación (en PDF o foto).' });
     push({ key: 'DOC_RITE', fase: PHASE.DESPUES, required: false, multiple: false, accept: ACCEPT_DOC, label: 'Certificado RITE', help: 'Lo emite el instalador: es el certificado de la instalación térmica (RITE) que debe entregar al terminar la obra.' });
-    push({ key: 'OTROS_DESPUES', fase: PHASE.DESPUES, required: false, optionalAlways: true, multiple: true, named: true, accept: 'image/*,application/pdf,video/*',
+    push({ key: 'OTROS_DESPUES', fase: PHASE.DESPUES, required: false, optionalAlways: true, multiple: true, named: true, accept: ACCEPT_CUALQUIERA,
            label: 'Otros (después de la obra)', help: 'PDF, fotos, vídeos u otros archivos que no encajen en las categorías anteriores. Al subirlos se te pedirá un nombre para guardarlos identificados.' });
 
     // Tras ACEPTAR (ya es expediente), la documentación pasa a ser obligatoria:
@@ -604,7 +619,7 @@ async function buildDocsView(opp, opts = {}) {
             required: false,
             multiple: true,
             existing: true,
-            accept: 'image/*,application/pdf,video/*',
+            accept: ACCEPT_CUALQUIERA,
             label: 'Otras fotos y documentos ya aportados',
             help: 'Material que ya está en la carpeta del expediente y no encaja en las casillas anteriores.',
             estado: rollupEstado(items),
