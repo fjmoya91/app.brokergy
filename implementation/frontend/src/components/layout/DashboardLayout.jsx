@@ -44,6 +44,19 @@ export function DashboardLayout({ children, activeTab, onTabChange }) {
         setMobileMenuOpen(false);
     };
 
+    // Navegación que ABRE OTRA PESTAÑA del navegador (misma sesión: el token vive
+    // en localStorage del mismo origen). Se usa en Aerotermia porque el catálogo se
+    // consulta MIENTRAS se edita un expediente (confirmar modelo, SCOP, ficha
+    // técnica): navegar en la misma pestaña perdería los cambios sin guardar.
+    // La pestaña destino se abre por deep-link ?tab=<tab>, que App.jsx ya entiende.
+    // En la app nativa (Capacitor) no hay pestañas → se navega en sitio, como siempre.
+    const goNewTab = (tab) => {
+        if (window.Capacitor?.isNativePlatform?.()) { go(tab); return; }
+        const win = window.open(`${window.location.origin}/?tab=${tab}`, '_blank');
+        if (!win) { go(tab); return; } // popup bloqueado → comportamiento de siempre
+        setMobileMenuOpen(false);
+    };
+
     // Polling del estado de WhatsApp (solo ADMIN).
     // Intervalo reducido de 5s → 30s el 2026-04-29 para recortar el egress de Supabase:
     // cada request pasa por el middleware de auth (DB hit), y 720 req/hora por usuario
@@ -216,7 +229,8 @@ export function DashboardLayout({ children, activeTab, onTabChange }) {
 
                     {user?.rol?.toUpperCase() === 'ADMIN' && (
                         <button
-                            onClick={() => go('aerotermia')}
+                            onClick={() => goNewTab('aerotermia')}
+                            title="Abre el catálogo de aerotermia en una pestaña nueva (no pierdes el expediente que estés editando)"
                             className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all ${
                                 activeTab === 'aerotermia'
                                     ? 'bg-gradient-to-r from-brand to-brand-700 text-bkg-deep shadow-lg shadow-brand/20'
@@ -226,7 +240,16 @@ export function DashboardLayout({ children, activeTab, onTabChange }) {
                             <svg className="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2v-4M9 21H5a2 2 0 01-2-2v-4m0 0h18" />
                             </svg>
-                            {!isSidebarCollapsed && <span>Aerotermia</span>}
+                            {!isSidebarCollapsed && (
+                                <>
+                                    <span>Aerotermia</span>
+                                    {/* Marca de "se abre fuera": el usuario debe saber que este
+                                        botón NO cambia de vista en la pestaña actual. */}
+                                    <svg className="w-3 h-3 flex-shrink-0 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                                    </svg>
+                                </>
+                            )}
                         </button>
                     )}
 

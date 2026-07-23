@@ -209,6 +209,80 @@ function CalderaSection({ title, data, onChange, readOnly }) {
     );
 }
 
+// ─── Enlaces de referencia del equipo elegido ─────────────────────────────────
+// La ficha técnica del catálogo es EXACTAMENTE el documento que el backend copia a
+// Drive y fusiona como anexo del CIFO para justificar el SCOP (ver
+// cifoService.ensureScopAnnexes), y el enlace EPREL es el que se imprime en la
+// justificación cuando el método es EPREL / depósito en conjunto. Se muestran aquí
+// para poder ABRIRLOS Y CONFIRMAR LOS DATOS sin salir del expediente → siempre en
+// pestaña nueva (target="_blank"), nunca navegando en la actual.
+//
+// Origen del enlace: primero el catálogo vivo (`model`, la fila de `aerotermia`) y,
+// si el catálogo ya no lo trae, el snapshot guardado en el expediente
+// (`url_ficha` / `url_eprel` / `url_keymark`), que es lo que leen los documentos.
+function EquipoRefLinks({ model, data, metodoScop = null }) {
+    const ficha   = model?.ficha_tecnica || data?.url_ficha   || null;
+    const eprel   = model?.eprel         || data?.url_eprel   || null;
+    const keymark = model?.url_keymark   || data?.url_keymark || null;
+
+    // Qué documento justifica el SCOP según el método:
+    //   calefacción → 'ficha' | 'eprel'
+    //   ACS         → 'ficha' | 'conjunto' (η_wh de EPREL) | 'independiente' (COP de la ficha)
+    const metodo = metodoScop || 'ficha';
+    const justifica = (metodo === 'eprel' || metodo === 'conjunto') ? 'eprel' : 'ficha';
+
+    const links = [
+        { id: 'ficha',   label: 'Ficha técnica', url: ficha },
+        { id: 'eprel',   label: 'EPREL',         url: eprel },
+        { id: 'keymark', label: 'KEYMARK',       url: keymark },
+    ].filter(l => l.url);
+
+    // Solo avisamos de que falta el justificante cuando TENEMOS la fila del catálogo:
+    // mientras el catálogo carga (o si la marca no casa) `model` es undefined y un
+    // aviso ahí sería una falsa alarma.
+    const faltaJustificante = !!metodoScop && !!model && (justifica === 'ficha' ? !ficha : !eprel);
+
+    if (!links.length && !faltaJustificante) return null;
+
+    return (
+        <div className="space-y-1.5 pt-2 border-t border-white/[0.06]">
+            <div className="flex flex-wrap items-center gap-1.5">
+                {links.map(l => {
+                    const esJustificante = metodoScop && l.id === justifica;
+                    return (
+                        <a
+                            key={l.id}
+                            href={l.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title={esJustificante
+                                ? `${l.label} — es el documento que justifica el SCOP en el anexo del CIFO. Se abre en una pestaña nueva.`
+                                : `${l.label} — se abre en una pestaña nueva.`}
+                            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[10px] font-black uppercase tracking-wider transition-all ${
+                                esJustificante
+                                    ? 'bg-brand/15 border-brand/40 text-brand hover:bg-brand/25'
+                                    : 'bg-bkg-elevated border-white/10 text-white/45 hover:text-white hover:border-white/25'
+                            }`}
+                        >
+                            <svg className="w-3 h-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                            </svg>
+                            {l.label}
+                            {esJustificante && <span className="font-bold normal-case tracking-normal opacity-70">· justifica el SCOP</span>}
+                        </a>
+                    );
+                })}
+            </div>
+            {faltaJustificante && (
+                <p className="text-[10px] text-amber-400/90 font-semibold">
+                    ⚠ El catálogo no tiene {justifica === 'ficha' ? 'ficha técnica' : 'enlace EPREL'} para este modelo:
+                    el CIFO no podrá adjuntarla como justificación del SCOP. Añádela en el módulo Aerotermia.
+                </p>
+            )}
+        </div>
+    );
+}
+
 // ─── Sección Aerotermia Nueva ─────────────────────────────────────────────────
 function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tipoEmisor, isAcs = false, readOnly = false }) {
     const brandOptions = marcas.map(m => ({ value: m.nombre, label: m.nombre, logo: m.logo, acronimo: m.nombre }));
@@ -462,6 +536,14 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
                     {!data?.modelo_ud_exterior && (
                         <p className="text-[10px] text-amber-400/90 font-semibold">⚠ Este modelo no tiene referencia de unidad exterior en el catálogo. Escríbela a mano para que aparezca en el CIFO.</p>
                     )}
+                    {/* Documentación del equipo: la ficha técnica/EPREL que acabará
+                        justificando el SCOP en el anexo del CIFO. Abrir en pestaña
+                        nueva para confirmar los datos sin perder el expediente. */}
+                    <EquipoRefLinks
+                        model={selectedModel}
+                        data={data}
+                        metodoScop={data?.metodo_scop || 'ficha'}
+                    />
                 </div>
             )}
 
@@ -684,6 +766,14 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
                             }`}
                         />
                     </div>
+
+                    {/* Misma documentación para las unidades en cascada: sin badge de
+                        justificación, porque el SCOP del CIFO se justifica con la
+                        unidad 1 (el aplicado es el MENOR, ver aerotermiaUnits.js). */}
+                    <EquipoRefLinks
+                        model={(u?.marca ? (modelosPorMarca[u.marca.toUpperCase()] || []) : []).find(m => String(m.id) === String(u?.aerotermia_db_id))}
+                        data={u}
+                    />
                 </div>
             ))}
 
