@@ -88,12 +88,29 @@ const baseCss = `
         .prop-logo h1 { font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif; font-weight: 900; font-size: 28px; color: var(--white); letter-spacing: 3.5px; }
         .prop-logo h1 span { color: var(--orange); }
         .prop-ltag { color: rgba(255,255,255,0.55); font-size: 9.5px; letter-spacing: 2.5px; text-transform: uppercase; font-weight: 700; }
+
+        /* Co-branding con el instalador/prescriptor: el logo va a la derecha del titular,
+           en el hueco que dejaba el texto. El chip es blanco porque no controlamos lo que
+           sube el partner (PNG transparente, logo oscuro, logo con fondo propio). */
+        .prop-cochip {
+            background: var(--white); border-radius: 6px; padding: 5px 10px;
+            display: flex; align-items: center; justify-content: center;
+            height: 62px; width: 150px; flex: none;
+        }
+        .prop-cochip img { max-height: 52px; max-width: 130px; object-fit: contain; display: block; }
+        /* En la variante compacta el chip mandaba sobre la altura de la fila (+43px de hero).
+           Reducido para que la altura la siga marcando el texto, como sin logo. */
+        .prop-compact .prop-htitle { gap: 16px; }
+        .prop-compact .prop-cochip { height: 52px; width: 128px; padding: 4px 8px; }
+        .prop-compact .prop-cochip img { max-height: 44px; max-width: 112px; }
+        .prop-compact .prop-htitle h2 small { font-size: 11px; margin-top: 2px; }
         .prop-hmeta { text-align: right; color: rgba(255,255,255,0.45); font-size: 10.5px; line-height: 1.6; position: relative; z-index: 1; }
         .prop-hmeta strong { color: var(--orange); font-size: 11px; display: block; font-weight: 700; }
         .prop-hline { height: 1px; background: rgba(255,255,255,0.1); margin: 18px 0 14px; position: relative; z-index: 1; }
-        .prop-htitle { position: relative; z-index: 1; }
-        .prop-htitle h2 { margin: 0; padding: 0; font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif; color: var(--white); font-size: 22px; font-weight: 800; line-height: 1.3; }
+        .prop-htitle { position: relative; z-index: 1; display: flex; align-items: center; gap: 22px; }
+        .prop-htitle h2 { margin: 0; padding: 0; font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif; color: var(--white); font-size: 22px; font-weight: 800; line-height: 1.3; flex: 1; min-width: 0; }
         .prop-htitle h2 em { font-style: normal; color: var(--orange); }
+        .prop-htitle h2 small { display: block; font-size: 12px; font-weight: 700; color: rgba(255,255,255,0.45); letter-spacing: 0.3px; margin-top: 3px; }
         .prop-hsub { color: rgba(255,255,255,0.4); font-size: 11px; margin-top: 5px; position: relative; z-index: 1; }
 
         .prop-cbar { 
@@ -358,7 +375,11 @@ export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }
                     name: useContact ? (p.nombre_contacto || p.acronimo || p.razon_social) : (p.acronimo || p.razon_social || 'Partner'),
                     phone: useContact ? (p.tlf_contacto || p.tlf) : (p.tlf || p.telefono || (Array.isArray(p.usuarios) ? p.usuarios[0]?.tlf : p.usuarios?.tlf) || null),
                     email: useContact ? (p.email_contacto || p.email) : (p.email || (Array.isArray(p.usuarios) ? p.usuarios[0]?.email : p.usuarios?.email) || null),
-                    redirectionActive: useContact
+                    redirectionActive: useContact,
+                    // Co-branding: siempre la EMPRESA, nunca el nombre del contacto
+                    brand: p.acronimo || p.razon_social || null,
+                    logo: p.logo_empresa || null,
+                    cif: p.cif || null
                 };
                 console.log('[PARTNER-DEBUG] Raw Data:', p);
                 console.log('[PARTNER-DEBUG] Redirección activa:', useContact);
@@ -377,7 +398,10 @@ export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }
                                 name: useContact ? (found.nombre_contacto || found.acronimo || found.razon_social) : (found.acronimo || found.razon_social || 'Partner'),
                                 phone: useContact ? (found.tlf_contacto || found.tlf) : (found.tlf || found.telefono || (Array.isArray(found.usuarios) ? found.usuarios[0]?.tlf : found.usuarios?.tlf) || null),
                                 email: useContact ? (found.email_contacto || found.email) : (found.email || (Array.isArray(found.usuarios) ? found.usuarios[0]?.email : found.usuarios?.email) || null),
-                                redirectionActive: useContact
+                                redirectionActive: useContact,
+                                brand: found.acronimo || found.razon_social || null,
+                                logo: found.logo_empresa || null,
+                                cif: found.cif || null
                             });
                             console.log('[PARTNER] Cargado desde listado:', found.acronimo || found.razon_social);
                         } else {
@@ -400,10 +424,30 @@ export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }
                     name: uc ? (p.nombre_contacto || p.acronimo || p.razon_social || 'Instalador') : (p.acronimo || p.razon_social || 'Instalador'),
                     phone: uc ? (p.tlf_contacto || p.tlf || p.telefono || null) : (p.tlf || p.telefono || null),
                     email: uc ? (p.email_contacto || p.email || null) : (p.email || null),
+                    brand: p.acronimo || p.razon_social || null,
+                    logo: p.logo_empresa || null,
+                    cif: p.cif || null
                 });
             })
             .catch(() => setInstaladorInfo({ name: 'Instalador', phone: null, email: null }));
     }, [isOpen, inputs?.instalador_asociado_id]);
+
+    // Co-branding de la propuesta: manda el instalador (es quien está delante del cliente);
+    // si no hay, el prescriptor que originó la oportunidad.
+    // Brokergy es un prescriptor más en la tabla (y tiene logo), pero no colabora consigo misma:
+    // si el partner es Brokergy —o no hay partner— la propuesta sale como siempre, sin co-branding.
+    const cobrand = useMemo(() => {
+        const esBrokergy = (p) => {
+            const cif = String(p?.cif || '').replace(/[\s.-]/g, '').toUpperCase();
+            if (cif === 'B19350222') return true;
+            return String(p?.brand || '').toLowerCase().includes('brokergy');
+        };
+        for (const src of [instaladorInfo, partnerInfo]) {
+            if (!src || esBrokergy(src)) continue;
+            if (src.logo || src.brand) return { logo: src.logo || null, name: src.brand || null };
+        }
+        return null;
+    }, [instaladorInfo, partnerInfo]);
 
     useEffect(() => {
         if (!isOpen) { setClienteInfo(null); return; }
@@ -1844,7 +1888,16 @@ info@brokergy.es · 623 926 179`;
                                         <div className="prop-hmeta"><strong>Propuesta Nº {displayId}</strong>Fecha: {formattedDate}<br />Oferta válida hasta: {formattedValidDate}</div>
                                     </div>
                                     <div className="prop-hline"></div>
-                                    <div className="prop-htitle"><h2>Propuesta de <em>Bono Energético CAE</em> y servicios de eficiencia energética</h2></div>
+                                    <div className="prop-htitle">
+                                        {cobrand?.logo ? (
+                                            <>
+                                                <h2>Propuesta de <em>Bono Energético CAE</em> y Servicios de Eficiencia Energética <small>en colaboración con:</small></h2>
+                                                <div className="prop-cochip"><img src={cobrand.logo} alt={cobrand.name || ''} /></div>
+                                            </>
+                                        ) : (
+                                            <h2>Propuesta de <em>Bono Energético CAE</em> y servicios de eficiencia energética</h2>
+                                        )}
+                                    </div>
                                     <div className="prop-hsub">Resumen personalizado de ayudas, subvenciones y deducciones fiscales</div>
                                 </div>
                                 <div className="prop-cbar">
@@ -2105,7 +2158,7 @@ info@brokergy.es · 623 926 179`;
                                         <div className="prop-ps"><div className="prop-pn" style={{ background: 'linear-gradient(135deg,#F5A623,#E0900F)' }}>07</div><div className="prop-pt">Cobro</div><div className="prop-pd">Recepción importe</div></div>
                                     </div>
                                 </div>
-                                <div className="prop-mfoot"><span>BROKERGY — Soluciones Sostenibles para Eficiencia Energética, S.L.</span><span><a href="mailto:info@brokergy.es">info@brokergy.es</a> · <a href="tel:623926179">623 926 179</a> · <a href="https://www.brokergy.es">brokergy.es</a></span></div>
+                                <div className="prop-mfoot"><span>BROKERGY — Soluciones Sostenibles para Eficiencia Energética, S.L.{cobrand?.name ? ` · en colaboración con ${cobrand.name}` : ''}</span><span><a href="mailto:info@brokergy.es">info@brokergy.es</a> · <a href="tel:623926179">623 926 179</a> · <a href="https://www.brokergy.es">brokergy.es</a></span></div>
                             </div>
 
                             {/* <!-- PAGINA 3 --> */}
@@ -2188,7 +2241,7 @@ info@brokergy.es · 623 926 179`;
                                         </div>
                                     </div>
                                 </div>
-                                <div className="prop-mfoot"><span>BROKERGY — Soluciones Sostenibles para Eficiencia Energética, S.L.</span><span><a href="mailto:info@brokergy.es">info@brokergy.es</a> · <a href="tel:623926179">623 926 179</a> · <a href="https://www.brokergy.es">brokergy.es</a></span></div>
+                                <div className="prop-mfoot"><span>BROKERGY — Soluciones Sostenibles para Eficiencia Energética, S.L.{cobrand?.name ? ` · en colaboración con ${cobrand.name}` : ''}</span><span><a href="mailto:info@brokergy.es">info@brokergy.es</a> · <a href="tel:623926179">623 926 179</a> · <a href="https://www.brokergy.es">brokergy.es</a></span></div>
                             </div>
 
                             {/* <!-- PAGINA 4 --> */}

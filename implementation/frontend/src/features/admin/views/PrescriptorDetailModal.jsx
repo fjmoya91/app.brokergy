@@ -527,11 +527,36 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
     });
 
     // ─── Logo upload ─────────────────────────────────────────────────────────
+    // El logo se guarda como data URL en BD y viaja dentro del HTML que se manda a
+    // /api/pdf/generate (propuesta, co-branding). Se reescala antes de guardar para no
+    // arrastrar un PNG de varios MB en cada generación de PDF.
+    const LOGO_MAX_H = 200;
     const handleLogoChange = (e) => {
         const file = e.target.files[0];
         if (!file) return;
         const reader = new FileReader();
-        reader.onloadend = () => upd({ logo_empresa: reader.result });
+        reader.onloadend = () => {
+            const original = reader.result;
+            const img = new Image();
+            // Si algo falla al reescalar (SVG sin dimensiones, formato raro), guardamos el original.
+            img.onerror = () => upd({ logo_empresa: original });
+            img.onload = () => {
+                try {
+                    const ratio = Math.min(1, LOGO_MAX_H / (img.naturalHeight || LOGO_MAX_H));
+                    if (ratio === 1 && original.length < 200000) return upd({ logo_empresa: original });
+                    const canvas = document.createElement('canvas');
+                    canvas.width = Math.round((img.naturalWidth || LOGO_MAX_H) * ratio);
+                    canvas.height = Math.round((img.naturalHeight || LOGO_MAX_H) * ratio);
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                    // PNG para conservar la transparencia de los logotipos.
+                    upd({ logo_empresa: canvas.toDataURL('image/png') });
+                } catch {
+                    upd({ logo_empresa: original });
+                }
+            };
+            img.src = original;
+        };
         reader.readAsDataURL(file);
     };
 
