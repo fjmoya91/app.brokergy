@@ -50,6 +50,15 @@ let meInfo = null;
 let lastError = null;
 let initTimeoutHandle = null; // timeout para evitar INITIALIZING infinito
 
+// ─── Estado del supervisor de auto-conexión (ver sección al final) ────────────
+// El admin ha parado el servicio a mano ("Desconectar" / "Cerrar sesión"): el
+// watchdog NO debe reconectarlo por su cuenta. Se re-arma al pulsar "Conectar".
+let manualStop = false;
+let initInFlight = false;  // hay un init() en curso: evita dos Chrome sobre el mismo perfil
+let autoFailures = 0;      // intentos fallidos consecutivos → backoff
+let nextAttemptAt = 0;     // timestamp del próximo reintento permitido
+let qrAlertSent = false;   // email de "hace falta QR" ya enviado en este episodio
+
 // Timestamp del arranque del módulo: sirve para detectar fácilmente si el
 // backend está ejecutando código stale (no reiniciado tras un edit).
 const SERVICE_START_TIME = new Date().toISOString();
@@ -399,7 +408,17 @@ async function init() {
         lastError = 'WHATSAPP_ENABLED=false. Ponlo a true en .env para habilitar.';
         return { ok: false, error: lastError };
     }
+    // Cualquier init (manual desde el panel o del supervisor) re-arma la
+    // auto-reconexión: si el admin había parado el servicio, vuelve a vigilarse.
+    manualStop = false;
+    qrAlertSent = false;
     if (client) {
+        return { ok: true, state, already: true };
+    }
+    // Ya hay un arranque en vuelo (auto-init + watchdog, o doble clic en
+    // "Conectar"): un segundo Chrome sobre el mismo perfil provoca el fallo de
+    // "browser is already running" / SingletonLock.
+    if (initInFlight) {
         return { ok: true, state, already: true };
     }
 
@@ -449,23 +468,27 @@ async function init() {
 
     const { Client, LocalAuth } = wweb;
 
+    initInFlight = true;
     state = 'INITIALIZING';
     lastError = null;
 
-    // Timeout de seguridad: si tras 90s no hay ningún evento (qr/ready/auth_failure),
+    // Timeout de seguridad: si tras N segundos no hay ningún evento (qr/ready/auth_failure),
     // probablemente Chrome cargó una sesión corrupta o se bloqueó sin disparar eventos.
-    // Reseteamos a DISCONNECTED para que el panel muestre el botón "Conectar" de nuevo.
+    // Reseteamos a DISCONNECTED; el supervisor (final del fichero) reintentará solo.
+    // 180s por defecto: tras un `build --no-cache` el contenedor arranca en frío
+    // (Chrome recién instalado, caché de página vacía) y 90s se quedaban cortos.
+    const initTimeoutMs = parseInt(process.env.WWA_INIT_TIMEOUT_MS || '180000', 10);
     if (initTimeoutHandle) clearTimeout(initTimeoutHandle);
     initTimeoutHandle = setTimeout(() => {
         if (state === 'INITIALIZING') {
-            console.error('[wwa] Timeout de inicialización (90s). Sesión posiblemente corrupta. Usa "Cerrar sesión" y reconecta.');
-            lastError = 'Timeout (90s): sesión expirada o Chrome bloqueado. Haz "Cerrar sesión" y reconecta.';
+            console.error(`[wwa] Timeout de inicialización (${initTimeoutMs / 1000}s). El supervisor reintentará.`);
+            lastError = `Timeout (${initTimeoutMs / 1000}s): Chrome no respondió. Reintentando automáticamente.`;
             try { if (client) client.destroy().catch(() => {}); } catch (_) {}
             client = null;
             state = 'DISCONNECTED';
             initTimeoutHandle = null;
         }
-    }, 90_000);
+    }, initTimeoutMs);
 
     const clearInitTimeout = () => {
         if (initTimeoutHandle) {
@@ -484,6 +507,7 @@ async function init() {
         console.error('[wwa] Error resolviendo Chrome:', err.message);
         lastError = err.message;
         state = 'DISCONNECTED';
+        initInFlight = false;
         return { ok: false, error: err.message };
     }
     console.log('[wwa] Lanzando Chrome desde:', executablePath);
@@ -568,12 +592,14 @@ async function init() {
             state = 'DISCONNECTED';
             client = null;
         });
+        initInFlight = false;
         return { ok: true, state };
     } catch (err) {
         clearInitTimeout();
         lastError = err.message;
         state = 'DISCONNECTED';
         client = null;
+        initInFlight = false;
         return { ok: false, error: err.message };
     }
 }
@@ -584,6 +610,8 @@ async function init() {
  * Usar para paradas temporales o cuando el servicio debe reiniciarse.
  */
 async function disconnect() {
+    manualStop = true; // parada deliberada: el supervisor no debe reconectar
+    initInFlight = false;
     if (!client) {
         // Cliente ya destruido pero puede haber timeout pendiente
         if (initTimeoutHandle) { clearTimeout(initTimeoutHandle); initTimeoutHandle = null; }
@@ -617,6 +645,8 @@ async function disconnect() {
  * Usar solo cuando se quiere cambiar de número o desvincular el dispositivo.
  */
 async function logout() {
+    manualStop = true; // desvinculación deliberada: el supervisor no debe reconectar
+    initInFlight = false;
     if (pollTimer) {
         clearInterval(pollTimer);
         pollTimer = null;
@@ -673,6 +703,14 @@ function getStatus() {
         sentInWindow: sentTimestamps.length,
         serviceStartTime: SERVICE_START_TIME,
         wwebVersion: WWEB_VERSION,
+        autoReconnect: {
+            enabled: AUTO.enabled,
+            manualStop,
+            hasStoredSession: hasStoredSession(),
+            failures: autoFailures,
+            nextAttemptInMs: nextAttemptAt ? Math.max(0, nextAttemptAt - Date.now()) : null,
+            stateAgeMs: seenState === state ? Date.now() - seenStateAt : 0,
+        },
         config: {
             clientId: CONFIG.clientId,
             minDelayMs: CONFIG.minDelayMs,
@@ -866,11 +904,186 @@ module.exports = {
     });
 });
 
+// ─── Supervisor de auto-conexión (watchdog) ───────────────────────────────────
+// Objetivo: tras CADA deploy —y ante cualquier caída posterior— WhatsApp vuelve
+// solo a READY sin que nadie toque el panel.
+//
+// El intento único de auto-init que había antes fallaba en silencio y dejaba el
+// servicio caído hasta que alguien pulsaba "Conectar" a mano: bastaba con que el
+// arranque en frío tras `build --no-cache` superase el timeout, que Chrome fallase
+// al lanzarse, o que WhatsApp tirase la conexión horas después. Ahora se reintenta
+// con backoff, y los estados que se quedan colgados (INITIALIZING / AUTHENTICATED
+// sin llegar nunca a READY) se detectan y se resetean.
+//
+// Único caso que sigue exigiendo intervención humana: que WhatsApp invalide la
+// sesión (dispositivo desvinculado, o el móvil >14 días sin conexión). Es la
+// autenticación de WhatsApp y no se puede automatizar — se avisa por email.
+const AUTO = {
+    enabled: process.env.WHATSAPP_AUTO_RECONNECT !== 'false',
+    checkMs: parseInt(process.env.WWA_WATCHDOG_MS || '20000', 10),
+    // Un intento que no alcanza READY/QR en este tiempo se considera atascado.
+    stuckMs: parseInt(process.env.WWA_STUCK_MS || '240000', 10),
+    // Espera entre reintentos (ms). Se queda en el último valor indefinidamente.
+    backoff: [5_000, 15_000, 45_000, 120_000, 300_000, 600_000],
+    // Tras N fallos seguidos (≈15 min con el backoff de arriba) se avisa al admin.
+    alertAfterFailures: parseInt(process.env.WWA_ALERT_AFTER_FAILURES || '6', 10),
+};
+
+let watchdogTimer = null;
+let watchdogBusy = false;
+// Aproximación de cuánto lleva el servicio en el estado actual. No usamos un
+// setter porque `state` se asigna desde muchos sitios; con la resolución del
+// watchdog (20s) sobra para detectar atascos de minutos.
+let seenState = null;
+let seenStateAt = Date.now();
+
+function hasStoredSession() {
+    try {
+        return fs.existsSync(path.join(SESSION_ROOT, `session-${CONFIG.clientId}`));
+    } catch (_) {
+        return false;
+    }
+}
+
+/**
+ * Destruye Chrome y deja el servicio listo para un init() limpio.
+ * Necesario antes de reintentar: init() sale por la puerta de atrás si `client`
+ * sigue instanciado (aunque su Chrome esté muerto o desconectado).
+ */
+async function hardReset(motivo) {
+    console.warn(`[wwa-watchdog] Reiniciando cliente — ${motivo}`);
+    if (initTimeoutHandle) { clearTimeout(initTimeoutHandle); initTimeoutHandle = null; }
+    if (client) {
+        try { await Promise.race([client.destroy(), sleep(8000)]); } catch (_) { /* noop */ }
+    }
+    client = null;
+    state = 'DISCONNECTED';
+    meInfo = null;
+    initInFlight = false; // si el reset pilló un init colgado, desbloquear reintentos
+    killOrphanChromeProcesses(path.join(SESSION_ROOT, `session-${CONFIG.clientId}`));
+}
+
+/**
+ * Avisa al admin POR EMAIL de que hace falta escanear el QR. Email y no WhatsApp
+ * por razones obvias: el canal caído es justamente WhatsApp. Uno por episodio.
+ */
+async function alertQrNeeded(motivo) {
+    if (qrAlertSent) return;
+    qrAlertSent = true;
+    const cuando = new Date().toLocaleString('es-ES', { timeZone: 'Europe/Madrid' });
+    const body = [
+        'El servicio de WhatsApp de Brokergy no puede reconectarse solo.',
+        '',
+        `Hora: ${cuando}`,
+        `Motivo: ${motivo}`,
+        `Estado actual: ${state}`,
+        '',
+        'Acción necesaria: entra en app.brokergy.es → WhatsApp y escanea el QR',
+        'con el móvil (WhatsApp → Dispositivos vinculados).',
+        '',
+        'Mientras tanto, los mensajes se guardan en la cola y se enviarán solos',
+        'en cuanto la sesión vuelva a estar activa.',
+        '',
+        '— BROKERGY Monitor',
+    ].join('\n');
+
+    try {
+        // require perezoso: evita ciclos de carga entre servicios.
+        const emailService = require('./emailService');
+        if (emailService.sendMail) {
+            await emailService.sendMail({
+                to: process.env.ADMIN_EMAIL || 'info@brokergy.es',
+                subject: '⚠️ WhatsApp de Brokergy necesita que escanees el QR',
+                text: body,
+                html: `<pre style="font-family: monospace; white-space: pre-wrap;">${body}</pre>`,
+            });
+            console.log('[wwa-watchdog] Email de aviso "hace falta QR" enviado.');
+        }
+    } catch (e) {
+        console.warn('[wwa-watchdog] No se pudo avisar por email:', e.message);
+    }
+}
+
+async function watchdogTick() {
+    if (!CONFIG.enabled || !AUTO.enabled) return;
+    if (watchdogBusy) return;
+
+    // Registrar cambios de estado para poder medir atascos
+    if (state !== seenState) { seenState = state; seenStateAt = Date.now(); }
+    const stateAgeMs = Date.now() - seenStateAt;
+
+    watchdogBusy = true;
+    try {
+        if (state === 'READY') {
+            autoFailures = 0;
+            nextAttemptAt = 0;
+            qrAlertSent = false;
+            return;
+        }
+
+        if (manualStop) return; // el admin lo paró a mano: respetarlo
+
+        // Esperando a que alguien escanee. No reiniciamos: invalidaría el QR.
+        if (state === 'QR') {
+            if (stateAgeMs > 60_000) {
+                await alertQrNeeded('WhatsApp pide QR: la sesión guardada ya no es válida.');
+            }
+            return;
+        }
+
+        // Estados transitorios: darles margen y, si se cuelgan, resetear.
+        // AUTHENTICATED sin llegar a READY es un cuelgue real y antes no lo veía nadie.
+        if (state === 'INITIALIZING' || state === 'AUTHENTICATED') {
+            if (stateAgeMs > AUTO.stuckMs) {
+                await hardReset(`atascado en ${state} durante ${Math.round(stateAgeMs / 1000)}s`);
+            }
+            return;
+        }
+
+        // DISCONNECTED / AUTH_FAILED → reintentar mientras haya sesión en disco.
+        if (!hasStoredSession()) {
+            await alertQrNeeded('No hay sesión guardada en el servidor (nunca se vinculó, o WhatsApp la borró).');
+            return;
+        }
+        if (Date.now() < nextAttemptAt) return;
+
+        // Reintentos persistentes sin llegar nunca a READY ni a QR: algo va mal
+        // de verdad (Chrome, perfil corrupto, sesión repudiada). Avisar una vez
+        // en lugar de reintentar en silencio eternamente.
+        if (autoFailures >= AUTO.alertAfterFailures) {
+            await alertQrNeeded(`${autoFailures} intentos de reconexión fallidos. Último error: ${lastError || 'desconocido'}`);
+        }
+
+        if (client) await hardReset('cliente residual antes de reintentar');
+
+        const wait = AUTO.backoff[Math.min(autoFailures, AUTO.backoff.length - 1)];
+        autoFailures += 1;
+        nextAttemptAt = Date.now() + wait;
+        console.log(`[wwa-watchdog] Auto-conexión (intento ${autoFailures}). Si falla, reintento en ${Math.round(wait / 1000)}s.`);
+
+        const res = await init();
+        if (res && res.ok === false) {
+            console.warn('[wwa-watchdog] init() falló:', res.error);
+        }
+    } catch (e) {
+        console.error('[wwa-watchdog] Error en el ciclo:', e.message);
+    } finally {
+        watchdogBusy = false;
+    }
+}
+
+function startWatchdog() {
+    if (watchdogTimer) return;
+    watchdogTimer = setInterval(() => {
+        watchdogTick().catch(e => console.error('[wwa-watchdog] Error:', e.message));
+    }, AUTO.checkMs);
+    console.log(`[wwa-watchdog] Supervisor de auto-conexión activo (cada ${AUTO.checkMs / 1000}s).`);
+}
+
 // Auto-inicializar si hay sesión previa guardada en el volumen.
 // Permite que WhatsApp se reconecte solo tras cada deploy sin intervención manual.
 if (CONFIG.enabled) {
-    const sessionDir = path.join(SESSION_ROOT, `session-${CONFIG.clientId}`);
-    if (fs.existsSync(sessionDir)) {
+    if (hasStoredSession()) {
         console.log('[wwa] Sesión previa detectada — auto-reconectando en 5s...');
         setTimeout(() => {
             init().catch(e => console.error('[wwa] Error en auto-init:', e.message));
@@ -878,4 +1091,5 @@ if (CONFIG.enabled) {
     } else {
         console.log('[wwa] Sin sesión previa. Conéctate desde el panel admin para iniciar.');
     }
+    if (AUTO.enabled) startWatchdog();
 }
