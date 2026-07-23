@@ -103,16 +103,31 @@ export function RequerimientoModal({ lote, onClose, onSent }) {
         ...(incluirAnexo ? ['Anexo I (Listado de Cesión)'] : []),
         ...selectedExps.map(e => `Ficha ${fichaDe(e.numero_expediente)} · ${e.numero_expediente}`),
     ];
-    const sendMsg = `Estimados,\n\nHemos recibido un requerimiento sobre el lote ${lote.codigo || ''} y hemos corregido y regenerado los siguientes documentos, que necesitamos que vuelvan a firmar:\n\n${listaDocs.map(l => `· ${l}`).join('\n')}\n\nPueden firmarlos de nuevo en cadena desde el enlace que incluimos más abajo (Autofirma), sin descargar ni volver a subir nada, o bien firmar los PDF adjuntos y devolvérnoslos. El resto de documentos que ya nos firmaron no se ven afectados.\n\nDisculpen las molestias y quedamos a su disposición para cualquier aclaración.\n\nUn saludo,\nBROKERGY · Ingeniería Energética`;
+    const cabecera = `Estimados,\n\nHemos recibido un requerimiento sobre el lote ${lote.codigo || ''} y hemos corregido y regenerado los siguientes documentos, que necesitamos que vuelvan a firmar:\n\n${listaDocs.map(l => `· ${l}`).join('\n')}`;
+    const cierre = `Disculpen las molestias y quedamos a su disposición para cualquier aclaración.\n\nUn saludo,\nBROKERGY · Ingeniería Energética`;
+
+    // Mensaje del EMAIL: lleva los PDF adjuntos y el enlace de firma en cadena.
+    const sendMsg = `${cabecera}\n\nPueden firmarlos de nuevo en cadena desde el enlace que incluimos más abajo (Autofirma), sin descargar ni volver a subir nada, o bien firmar los PDF adjuntos y devolvérnoslos. El resto de documentos que ya nos firmaron no se ven afectados.\n\n${cierre}`;
+
+    // Mensaje de WHATSAPP: solo un AVISO para que revisen el email. Ni enlace de
+    // firma ni PDFs adjuntos — el canal de trabajo es el correo. `*_..._*` es el
+    // formato de WhatsApp para negrita + cursiva.
+    const waMsg = `${cabecera}\n\nLes hemos enviado un email con los documentos para que puedan volver a firmarlos.\n\n${cierre}\n\n*_Esto es un mensaje automático generado desde la aplicación de Brokergy_*`;
 
     const handleRequerimiento = async ({ email, cc, phone, channels, message }) => {
         const ccList = Array.isArray(cc) ? cc : [];
+        // El aviso corto solo tiene sentido si además va el email. Si el envío es
+        // SOLO por WhatsApp, mandamos el mensaje completo (enlace + adjuntos), que
+        // si no el S.O. se quedaría sin forma de firmar.
+        const soloWhatsapp = channels.whatsapp && !channels.email;
         const { data } = await axios.post(`/api/lotes/${lote.id}/requerimiento`, {
             to: email,
             cc: ccList,
             phone,
             channels,
             customMessage: message,
+            whatsappMessage: soloWhatsapp ? null : waMsg,
+            whatsappAttachments: soloWhatsapp,
             summaryData: { id: lote.codigo || 'LOTE', docType: 'Requerimiento · documentos para nueva firma' },
             docs: buildDocs().map(d => ({ html: d.html, key: d.key || null, fileName: d.fileName, label: d.label, tipo: d.tipo, expediente_id: d.expediente_id || null, anchor: d.anchor || null, fixedBox: d.fixedBox || null })),
             frontendOrigin: window.location.origin,
@@ -227,6 +242,8 @@ export function RequerimientoModal({ lote, onClose, onSent }) {
                     defaultEmail={soNotifyEmail}
                     defaultPhone={soNotifyPhone}
                     defaultMessage={sendMsg}
+                    messageLabel="Mensaje (email)"
+                    whatsappNote={waMsg}
                     defaultCc={soCc.join(', ')}
                     ccSuggestions={soCc}
                     summaryData={{ id: lote.codigo || 'LOTE', docType: 'Requerimiento · documentos para nueva firma' }}

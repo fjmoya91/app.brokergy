@@ -3,6 +3,7 @@ const router = express.Router();
 const supabase = require('../services/supabaseClient');
 const { adminOnly, staffOnly, isAdmin } = require('../middleware/auth');
 const { stripDatosCalculoMargin } = require('../utils/financialScrub');
+const { CEE_ECO_SELECT, rebuildCee } = require('../utils/ceeEcoFields');
 const geoCcaa = require('../services/geoCcaa');
 const loteService = require('../services/loteService');
 const marwenService = require('../services/marwenService');
@@ -176,7 +177,12 @@ async function enrichLotes(lotes) {
         presIds.length
             ? supabase.from('prescriptores').select('id_empresa, razon_social, acronimo, precio_referencia, codigo_identificacion, email, cif, direccion, codigo_postal, municipio, provincia, nombre_responsable, apellidos_responsable, nif_responsable, landing_telefono_contacto, contactos_notificacion, contacto_notificaciones_activas').in('id_empresa', presIds)
             : Promise.resolve({ data: [] }),
-        supabase.from('expedientes').select('id, lote_id, numero_expediente, cee, instalacion, documentacion, oportunidad_id').in('lote_id', loteIds),
+        // `cee` se pide por campos (sin el XML crudo) y de `documentacion` solo la
+        // fecha del CIFO, que es lo único que mira geoCcaa.resolveAnioActuacion.
+        // Traer ambas columnas enteras costaba 1,5 s y descomprimía toda la tabla.
+        supabase.from('expedientes')
+            .select(`id, lote_id, numero_expediente, instalacion, oportunidad_id, doc_fecha_fin_cifo:documentacion->fecha_fin_cifo, ${CEE_ECO_SELECT}`)
+            .in('lote_id', loteIds),
         supabase.from('facturas_so').select('*').in('lote_id', loteIds),
     ]);
     const presMap = new Map((presRes.data || []).map(p => [p.id_empresa, p]));
@@ -194,7 +200,12 @@ async function enrichLotes(lotes) {
     }
     const expByLote = {};
     for (const e of allExps) {
-        (expByLote[e.lote_id] = expByLote[e.lote_id] || []).push({ ...e, oportunidades: ecoOpMap[e.oportunidad_id] || null });
+        // Rehacemos `cee` y `documentacion` con la forma de siempre a partir de los
+        // campos aplanados del select ligero: los consumidores no se enteran del cambio.
+        const { doc_fecha_fin_cifo, ...resto } = e;
+        const fila = rebuildCee(resto);
+        fila.documentacion = { fecha_fin_cifo: doc_fecha_fin_cifo ?? null };
+        (expByLote[e.lote_id] = expByLote[e.lote_id] || []).push({ ...fila, oportunidades: ecoOpMap[e.oportunidad_id] || null });
     }
 
     return lotes.map(l => {
@@ -269,11 +280,20 @@ router.get('/', staffOnly, async (req, res) => {
 router.get('/elegibles', staffOnly, async (req, res) => {
     try {
         const { anio, ccaa } = req.query;
-        const { data: rows, error } = await supabase
+        // Igual que enrichLotes: `cee` por campos (sin el XML crudo) y de `documentacion`
+        // solo la fecha del CIFO. Antes este select traía las dos columnas completas de
+        // ~220 expedientes — 3,5 s de media y el peor consumo de memoria de la app.
+        const { data: rawRows, error } = await supabase
             .from('expedientes')
-            .select('id, numero_expediente, estado, instalador_asociado_id, instalacion, cee, documentacion, cliente_id, oportunidad_id')
+            .select(`id, numero_expediente, estado, instalador_asociado_id, instalacion, cliente_id, oportunidad_id, doc_fecha_fin_cifo:documentacion->fecha_fin_cifo, ${CEE_ECO_SELECT}`)
             .is('lote_id', null);
         if (error) throw error;
+
+        const rows = (rawRows || []).map(({ doc_fecha_fin_cifo, ...r }) => {
+            const fila = rebuildCee(r);
+            fila.documentacion = { fecha_fin_cifo: doc_fecha_fin_cifo ?? null };
+            return fila;
+        });
 
         const opIds = [...new Set((rows || []).map(r => r.oportunidad_id).filter(Boolean))];
         const cliIds = [...new Set((rows || []).map(r => r.cliente_id).filter(Boolean))];
@@ -803,6 +823,10 @@ router.post('/:id/requerimiento', staffOnly, async (req, res) => {
         const {
             to, cc, phone, channels = { email: true, whatsapp: false },
             customMessage, summaryData, docs = [], frontendOrigin, avisoWhatsApp,
+            // WhatsApp con mensaje propio: cuando también va el email, por WhatsApp
+            // se manda solo un AVISO ("revisa el correo"), sin enlace de firma ni
+            // PDFs adjuntos. Si no vienen, se mantiene el envío completo de antes.
+            whatsappMessage, whatsappAttachments,
         } = req.body || {};
 
         if (!Array.isArray(docs) || docs.length === 0) {
@@ -909,13 +933,19 @@ router.post('/:id/requerimiento', staffOnly, async (req, res) => {
         if (channels.whatsapp && phone) {
             try {
                 const whatsappService = require('../services/whatsappService');
-                await whatsappService.sendText(phone, msgConEnlace);
-                for (const a of attachments) {
-                    await whatsappService.sendMedia(
-                        phone,
-                        { base64: a.content.toString('base64'), filename: a.filename, mimetype: 'application/pdf' },
-                        { caption: a.filename.replace(/\.pdf$/i, ''), splitCaption: false }
-                    );
+                // Con `whatsappMessage` (aviso de "revisa el email") se manda TAL CUAL:
+                // sin el enlace de firma y, salvo petición explícita, sin adjuntos.
+                const waTexto = (whatsappMessage || '').trim() || msgConEnlace;
+                const waConAdjuntos = whatsappMessage ? whatsappAttachments === true : whatsappAttachments !== false;
+                await whatsappService.sendText(phone, waTexto);
+                if (waConAdjuntos) {
+                    for (const a of attachments) {
+                        await whatsappService.sendMedia(
+                            phone,
+                            { base64: a.content.toString('base64'), filename: a.filename, mimetype: 'application/pdf' },
+                            { caption: a.filename.replace(/\.pdf$/i, ''), splitCaption: false }
+                        );
+                    }
                 }
             } catch (e) { warnings.push(`WhatsApp: ${e.message}`); }
         }

@@ -46,7 +46,12 @@ const parseCcList = (s) => (s || '').split(/[;,\s]+/).map(e => e.trim()).filter(
 //                    whatsapp) por la lógica del llamante (p.ej. /api/lotes/:id/enviar-so).
 //   onBeforeSend     async () => boolean → validación previa (p.ej. confirmar si falta
 //                    la solicitud). Si devuelve false, el envío se cancela.
-export function EnviarLoteDocModal({ onClose, title, subtitle, defaultEmail = '', defaultPhone = '', defaultMessage = '', defaultCc = '', ccSuggestions = [], summaryData, docs, extraBody = null, onSendOverride = null, onBeforeSend = null }) {
+//   messageLabel     string → etiqueta del textarea. Por defecto el mensaje va igual
+//                    por los dos canales; cámbiala si el llamante manda uno distinto
+//                    por WhatsApp (p.ej. el requerimiento, que solo avisa por WA).
+//   whatsappNote     string → texto que se muestra bajo el textarea SOLO cuando el
+//                    canal WhatsApp está activo (para ver qué se manda por ahí).
+export function EnviarLoteDocModal({ onClose, title, subtitle, defaultEmail = '', defaultPhone = '', defaultMessage = '', defaultCc = '', ccSuggestions = [], summaryData, docs, extraBody = null, onSendOverride = null, onBeforeSend = null, messageLabel = 'Mensaje (email / WhatsApp)', whatsappNote = '' }) {
     const docList = Array.isArray(docs) ? docs : [];
 
     // ── Estado ───────────────────────────────────────────────────────────────
@@ -262,7 +267,7 @@ export function EnviarLoteDocModal({ onClose, title, subtitle, defaultEmail = ''
                     {/* Mensaje (editable) */}
                     <div>
                         <div className="flex items-center justify-between mb-2">
-                            <label className="block text-[9px] font-black text-white/30 uppercase tracking-[0.2em]">Mensaje (email / WhatsApp)</label>
+                            <label className="block text-[9px] font-black text-white/30 uppercase tracking-[0.2em]">{messageLabel}</label>
                             {userEditedRef.current && (
                                 <button type="button" onClick={() => { userEditedRef.current = false; setMessage(defaultMessage || ''); }}
                                     className="text-[9px] font-black uppercase tracking-widest text-white/30 hover:text-brand transition-colors">↻ Restablecer</button>
@@ -274,6 +279,12 @@ export function EnviarLoteDocModal({ onClose, title, subtitle, defaultEmail = ''
                             rows={10}
                             className="w-full normal-case bg-bkg-elevated border border-white/5 rounded-xl px-4 py-3 text-white text-[12px] leading-relaxed focus:outline-none focus:border-brand/40 transition-all resize-y"
                         />
+                        {whatsappNote && willWhatsapp && (
+                            <div className="mt-2 px-3 py-2.5 rounded-xl bg-emerald-400/[0.06] border border-emerald-400/20">
+                                <p className="text-[9px] font-black text-emerald-400/70 uppercase tracking-[0.2em] mb-1.5">Por WhatsApp se envía</p>
+                                <p className="text-[11px] text-white/50 leading-relaxed whitespace-pre-line">{whatsappNote}</p>
+                            </div>
+                        )}
                     </div>
 
                     {/* Contenido extra del llamante (p.ej. slot de la Solicitud de Verificación) */}
