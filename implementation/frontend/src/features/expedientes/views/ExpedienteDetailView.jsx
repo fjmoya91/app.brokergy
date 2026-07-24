@@ -20,11 +20,12 @@ import {
     BOILER_EFFICIENCIES
 } from '../../calculator/logic/calculation';
 import { calculateRes060FC } from '../../calculator/logic/res060fc';
+import { esTermoElectrico } from '../logic/aerotermiaUnits';
 import { SeguimientoModule } from '../components/SeguimientoModule';
 import { ComunicacionesCertificador } from '../components/ComunicacionesCertificador';
 import { HistorialModal } from '../../../components/HistorialModal';
 import { IncidenciasModal } from '../components/IncidenciasModal';
-import { DocsAdminModal } from '../../calculator/components/DocsAdminModal';
+import { AnexoFotograficoModal } from '../components/AnexoFotograficoModal';
 import { ClienteDetailModal } from '../../clientes/components/ClienteDetailModal';
 import { LoteDetailModal } from '../../lotes/components/LoteDetailModal';
 import { FechasPrevistasEjecucion } from '../components/FechasPrevistasEjecucion';
@@ -431,7 +432,7 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
                     cb = hybridRes.cb;
                 }
 
-                const changeAcsFlag = inst.cambio_acs !== false && (!!inst.misma_aerotermia_acs || !!inst.aerotermia_acs?.aerotermia_db_id);
+                const changeAcsFlag = inst.cambio_acs !== false && !esTermoElectrico(inst.aerotermia_acs) && (!!inst.misma_aerotermia_acs || !!inst.aerotermia_acs?.aerotermia_db_id);
 
                 savings = calculateSavings({
                     q_net_heating,
@@ -1427,11 +1428,19 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
                 />
             )}
 
-            <DocsAdminModal
-                isOpen={showFotos}
-                onClose={() => setShowFotos(false)}
-                idOportunidad={expediente?.oportunidades?.id_oportunidad}
-            />
+            {/* "Fotos" abre el MISMO gestor que el Anexo Fotográfico (`soloFotos`),
+                no un popup distinto: gestionar fotos se ve igual desde los dos sitios.
+                Para SUBIR, ese gestor lleva dentro el botón "+ Subir fotos", que abre
+                el popup de documentación de siempre (validar, "no necesario",
+                reenviar el enlace al cliente). Un solo componente, sin copias. */}
+            {showFotos && (
+                <AnexoFotograficoModal
+                    isOpen={showFotos}
+                    onClose={() => setShowFotos(false)}
+                    expediente={expediente}
+                    soloFotos
+                />
+            )}
 
             {showClienteModal && (
                 <ClienteDetailModal

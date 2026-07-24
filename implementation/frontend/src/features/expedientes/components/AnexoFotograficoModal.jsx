@@ -9,6 +9,7 @@ import 'react-image-crop/dist/ReactCrop.css';
 import FirmarConCertificadoModal from './FirmarConCertificadoModal';
 import { prepararImagenParaSubir } from '../../../utils/imageResize';
 import { DocsAdminModal } from '../../calculator/components/DocsAdminModal';
+import { postEmail } from '../../../utils/emailFallback';
 
 const Spinner = () => (
     <svg className="animate-spin h-4 w-4 text-current inline-block" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -29,7 +30,14 @@ const ACCEPT_FOTOS = 'image/*,.jpg,.jpeg,.jpe,.jfif,.png,.webp,.heic,.heif,.bmp,
 //  se quedaba en base64 en React. Ya no hace falta: cada fila lleva su `slotKey` real
 //  desde /api/public/anexo-photos y se sube por el canal normal de documentación.)
 
-export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: externalPhotos, onPhotosChange, onSaveDrive, onSignedComplete, results }) {
+/**
+ * `soloFotos` — abre SOLO el gestor de fotos, sin la vista previa ni las acciones
+ * del documento. Es lo que usa el botón "Fotos" de la cabecera del expediente, para
+ * que gestionar fotos se vea EXACTAMENTE igual desde ahí que desde el Anexo
+ * Fotográfico (decisión del usuario, 2026-07-24). Mismo componente, no una copia:
+ * si se toca el gestor, cambia en los dos sitios a la vez.
+ */
+export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: externalPhotos, onPhotosChange, onSaveDrive, onSignedComplete, results, soloFotos = false }) {
     const { showAlert, showConfirm } = useModal();
     const { user } = useAuth();
     const containerRef = useRef(null);
@@ -171,23 +179,41 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
     // Drive (ver efecto de carga dinámica abajo), más un HUECO por cada concepto que
     // el alcance espera y aún no tiene foto. Del estado guardado solo se conservan
     // los recortes/tamaños y los campos manuales, que el efecto re-fusiona.
-    const photos = externalPhotos || [];
+    // El componente es CONTROLADO cuando quien lo monta es dueño de
+    // `photo_attachments` (DocumentacionModule, que las persiste en el expediente).
+    // Abierto desde la cabecera en modo "solo fotos" NO hay dueño: sin estado propio,
+    // `setPhotos` no tendría dónde escribir y `photoGroups` —que deriva de `photos`—
+    // se quedaría vacío, es decir, el gestor saldría SIN NINGUNA TARJETA.
+    const controlado = typeof onPhotosChange === 'function';
+    const [photosInternas, setPhotosInternas] = useState([]);
+    const photos = controlado ? (externalPhotos || []) : photosInternas;
 
-    // `setPhotos` no es un setState real: aplica el updater sobre el valor que venga
-    // por props. La ref garantiza que use SIEMPRE el último, aunque quien lo llame
-    // sea un callback memoizado (loadDynamic, que se re-ejecuta tras cada subida).
+    // `setPhotos` no es un setState real en modo controlado: aplica el updater sobre
+    // el valor que venga por props. La ref garantiza que use SIEMPRE el último, aunque
+    // quien lo llame sea un callback memoizado (loadDynamic, que se re-ejecuta tras
+    // cada subida).
     const photosRef = useRef(photos);
     photosRef.current = photos;
 
     const setPhotos = (newVal) => {
-        if (typeof newVal === 'function') {
-            onPhotosChange(newVal(photosRef.current));
+        if (controlado) {
+            onPhotosChange(typeof newVal === 'function' ? newVal(photosRef.current) : newVal);
         } else {
-            onPhotosChange(newVal);
+            setPhotosInternas(prev => (typeof newVal === 'function' ? newVal(prev) : newVal));
         }
     };
 
     const [isPhotosManagerOpen, setIsPhotosManagerOpen] = useState(false);
+
+    // En modo "solo fotos" el gestor ES la ventana: se abre solo y, al cerrarlo,
+    // se cierra todo (no hay vista previa detrás a la que volver).
+    useEffect(() => {
+        if (isOpen && soloFotos) setIsPhotosManagerOpen(true);
+    }, [isOpen, soloFotos]);
+    const cerrarGestor = () => {
+        setIsPhotosManagerOpen(false);
+        if (soloFotos) onClose();
+    };
 
     // Subida de fotos: SIEMPRE por el popup canónico de documentación (DocsManager),
     // el mismo que usan el botón "Fotos" del expediente y el enlace del cliente. Así
@@ -610,7 +636,7 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
                 userName: [cli.nombre_razon_social, cli.apellidos].filter(Boolean).join(' ')
             };
 
-            const response = await axios.post('/api/pdf/send-proposal', {
+            const response = await postEmail('/api/pdf/send-proposal', {
                 html: buildHtml(),
                 to: toEmail,
                 userName: summaryData.userName,
@@ -676,10 +702,14 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
     const beneficioStr = Math.round((results?.savingsKwh || results?.ahorroEnergiaFinalTotal || 0) * (results?.price_kwh || 0.102)).toLocaleString('es-ES');
 
     return (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-sm" onClick={onClose}>
-            <div className="bg-[#0F1013] border border-white/[0.07] rounded-2xl shadow-2xl flex flex-col overflow-hidden" 
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-sm" onClick={soloFotos ? undefined : onClose}>
+            {/* La vista previa del documento y sus acciones (generar/firmar/enviar)
+                solo tienen sentido dentro del Anexo Fotográfico. En modo "solo fotos"
+                se omiten y queda únicamente el gestor, que se pinta más abajo. */}
+            {!soloFotos && (
+            <div className="bg-[#0F1013] border border-white/[0.07] rounded-2xl shadow-2xl flex flex-col overflow-hidden"
                  style={{ width: '98vw', maxWidth: 1020, height: '96vh' }} onClick={e => e.stopPropagation()}>
-                
+
                 {/* HEADER */}
                 <div className="flex-shrink-0 flex items-center justify-between px-5 py-3 border-b border-white/[0.07]">
                     <div className="flex items-center gap-3">
@@ -788,10 +818,11 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
                     </div>
                 </div>
             </div>
+            )}
 
             {/* ── PHOTOS MANAGER MODAL ── */}
             {isPhotosManagerOpen && (
-                <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/95 backdrop-blur-xl" onClick={() => setIsPhotosManagerOpen(false)}>
+                <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/95 backdrop-blur-xl" onClick={cerrarGestor}>
                     <div className="bg-[#16181D] border border-white/10 rounded-3xl w-full max-w-2xl overflow-hidden shadow-2xl" onClick={e => e.stopPropagation()}>
                         <div className="px-8 py-5 border-b border-white/10 flex justify-between items-center bg-white/[0.02]">
                             <h3 className="text-white font-bold uppercase tracking-[0.2em] text-xs">Gestión de Fotos</h3>
@@ -805,7 +836,7 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
                                 >
                                     + Subir fotos
                                 </button>
-                                <button onClick={() => setIsPhotosManagerOpen(false)} className="text-white/20 hover:text-white transition-colors"><svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg></button>
+                                <button onClick={cerrarGestor} className="text-white/20 hover:text-white transition-colors"><svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg></button>
                             </div>
                         </div>
                         {/* Una tarjeta por CONCEPTO (no por foto): un concepto admite tantas
@@ -1020,7 +1051,7 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
                         </div>
 
                         <div className="p-5 bg-black/40 flex justify-end gap-3">
-                            <button onClick={() => setIsPhotosManagerOpen(false)} className="px-10 py-3 bg-brand text-black text-[11px] font-black rounded-2xl uppercase tracking-widest hover:scale-105 active:scale-95 transition-all">Cerrar</button>
+                            <button onClick={cerrarGestor} className="px-10 py-3 bg-brand text-black text-[11px] font-black rounded-2xl uppercase tracking-widest hover:scale-105 active:scale-95 transition-all">Cerrar</button>
                         </div>
                     </div>
                 </div>
