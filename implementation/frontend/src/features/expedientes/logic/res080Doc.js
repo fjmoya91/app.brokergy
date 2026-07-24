@@ -21,7 +21,7 @@ import { BOILER_EFFICIENCIES } from '../../calculator/logic/calculation.js';
 import { buildInstalacionAddress } from '../utils/docGenerators.js';
 import { calcCifo } from './calcCifo.js';
 import { EMITTER_OPTIONS, getEmitterTemp } from './cifoDoc.js';
-import { formatMarcas, formatModelos, formatSeries, countUnidades } from './aerotermiaUnits.js';
+import { formatMarcas, formatModelos, formatSeries, countUnidades, tipoEquipoNuevoLabel, esTermoElectrico } from './aerotermiaUnits.js';
 
 const DOC_WIDTH = '794px';
 
@@ -264,6 +264,14 @@ export function deriveRes080Data({ expediente, results, parseHuecosFromXml }) {
         ? (calNuUds > 1 ? 'Mismas unidades' : 'Misma unidad')
         : formatSeries(inst.aerotermia_acs);
     const acsNuUds = sameAero ? calNuUds : countUnidades(inst.aerotermia_acs);
+    // El equipo nuevo de ACS no siempre es una BdC: puede ser un acumulador o un
+    // TERMO ELÉCTRICO (efecto Joule, rendimiento 1). Ver logic/aerotermiaUnits.js.
+    const acsAero = sameAero ? inst.aerotermia_cal : inst.aerotermia_acs;
+    const acsEsTermo = acsSeActua && esTermoElectrico(acsAero);
+    const acsNuTipoEq = tipoEquipoNuevoLabel(acsAero);
+    // ACS fuera del alcance de la actuación pero con equipo nuevo declarado.
+    const acsTermoFuera = !acsSeActua && esTermoElectrico(inst.aerotermia_acs) ? inst.aerotermia_acs : null;
+    const acsNuScopStr = acsEsTermo ? '1,00' : acsNuScop;
 
     // ── SCOP ──
     const zoneStr = (op.datos_calculo?.zona || 'D3').toUpperCase();
@@ -317,6 +325,7 @@ export function deriveRes080Data({ expediente, results, parseHuecosFromXml }) {
         aeTotal, ef_i, ef_f,
         calExBrand, calExMod, calExSerie, calExTipoEq, calExFuel, calNuBrand, calNuMod, calNuScop, calNuSerieOut, calNuUds,
         acsSeActua, acsExBrand, acsExMod, acsExSerie, acsExTipoEq, acsExFuel, acsNuBrand, acsNuMod, acsNuScop, acsNuSerie, acsNuUds,
+        acsEsTermo, acsNuTipoEq, acsTermoFuera, acsNuScopStr,
         sameAero, tieneAcs,
         zoneStr, zoneLabel, scopCalRaw, scopCalStr, scopAcsRaw, scopAcsStr, emiLabel, metodoCal, metodoAcs,
         changedHuecos, changedOpacos, seSustituyen,
@@ -340,6 +349,7 @@ export function buildRes080Html({ data, appUrl, attachments = [], isForPdf = tru
         aeTotal, ef_i, ef_f,
         calExBrand, calExMod, calExSerie, calExTipoEq, calExFuel, calNuBrand, calNuMod, calNuScop, calNuSerieOut, calNuUds,
         acsSeActua, acsExBrand, acsExMod, acsExSerie, acsExTipoEq, acsExFuel, acsNuBrand, acsNuMod, acsNuScop, acsNuSerie, acsNuUds,
+        acsEsTermo, acsNuTipoEq, acsTermoFuera, acsNuScopStr,
         sameAero, tieneAcs,
         zoneStr, zoneLabel, scopCalRaw, scopCalStr, scopAcsRaw, scopAcsStr, emiLabel, metodoCal, metodoAcs,
         changedHuecos, changedOpacos, seSustituyen,
@@ -525,14 +535,28 @@ export function buildRes080Html({ data, appUrl, attachments = [], isForPdf = tru
             ${subLabel('Agua caliente sanitaria (ACS)', '#6E6E66', '20px')}
             ${acsSeActua
                 ? cmpBox(cmpHead(), `
-                    ${cmpRow('Tipo de equipo', acsExTipoEq, acsNuUds > 1 ? 'Bombas de calor en cascada' : 'Bomba de calor')}
+                    ${cmpRow('Tipo de equipo', acsExTipoEq, acsNuTipoEq)}
                     ${cmpRow('Marca', acsExBrand, acsNuBrand)}
                     ${cmpRow('Modelo', acsExMod, acsNuMod)}
-                    ${acsNuUds > 1 ? cmpRow('Nº de equipos instalados', '—', String(acsNuUds)) : ''}
+                    ${acsNuUds > 1 && !acsEsTermo ? cmpRow('Nº de equipos instalados', '—', String(acsNuUds)) : ''}
                     ${cmpRow('Combustible', acsExFuel, 'Electricidad')}
                     ${cmpRow(acsNuUds > 1 ? 'Nº serie equipos ACS' : 'Nº serie equipo ACS', acsExSerie, acsNuSerie)}
-                    ${cmpRow('SCOP / Rendimiento', 'Según CEE inicial <sup>(1)</sup>', `${acsNuScop} <sup>(3)</sup>`)}
+                    ${cmpRow('SCOP / Rendimiento', 'Según CEE inicial <sup>(1)</sup>', `${acsNuScopStr} <sup>(3)</sup>`)}
                 `)
+                : acsTermoFuera
+                // El ACS queda fuera del alcance de la actuación (no computa en el
+                // ahorro), pero se sustituye el equipo: se declara como información.
+                ? `${cmpBox(cmpHead(), `
+                    ${cmpRow('Tipo de equipo', acsExTipoEq, 'Termo eléctrico (efecto Joule)')}
+                    ${cmpRow('Marca', acsExBrand, acsTermoFuera.marca || '—')}
+                    ${cmpRow('Modelo', acsExMod, acsTermoFuera.modelo || '—')}
+                    ${cmpRow('Combustible', acsExFuel, 'Electricidad')}
+                    ${cmpRow('Nº serie equipo ACS', acsExSerie, acsTermoFuera.numero_serie || '—')}
+                    ${cmpRow('SCOP / Rendimiento', 'Según CEE inicial <sup>(1)</sup>', '1,00 <sup>(3)</sup>')}
+                `)}
+                <div style="margin-top:8px;border:1px solid #E9E9E1;border-radius:14px;padding:12px 16px;font-size:11.5px;color:#6E6E66;line-height:1.5;">
+                    <b style="color:#1A1A1A;">El ACS queda fuera del alcance de la actuación CAE.</b> Se produce con un equipo de efecto Joule (rendimiento = 1), no con una bomba de calor, por lo que <b style="color:#1A1A1A;">no computa en el ahorro de energía</b>. Se declara únicamente como información de la instalación resultante.
+                </div>`
                 : `<div style="border:1px solid #E9E9E1;border-radius:16px;padding:28px;text-align:center;font-size:13px;color:#6E6E66;font-weight:700;">No se actúa sobre el ACS · No aplica</div>`}
 
             ${subLabel('Empresa instaladora', '#6E6E66', '20px')}
@@ -545,7 +569,8 @@ export function buildRes080Html({ data, appUrl, attachments = [], isForPdf = tru
             ${obsBox(`
                 <p style="margin:0 0 5px;"><b>(1)</b> El rendimiento estacional de la caldera existente es el que consta en el Certificado de Eficiencia Energética Inicial, determinado por el programa oficial CE3X en función de su tipología, antigüedad y aislamiento.</p>
                 <p style="margin:0 0 5px;"><b>(2)</b> Según ficha técnica del fabricante y/o cálculos realizados según anexos III y IV de la ficha RES060 de la Orden TED/845/2023, de 18 de julio.</p>
-                ${acsSeActua ? `<p style="margin:0 0 5px;"><b>(3)</b> Según ficha técnica del fabricante y/o cálculos realizados según anexos III, V y VI de la ficha RES060 de la Orden TED/845/2023, de 18 de julio.</p>` : ''}
+                ${(acsSeActua && !acsEsTermo) ? `<p style="margin:0 0 5px;"><b>(3)</b> Según ficha técnica del fabricante y/o cálculos realizados según anexos III, V y VI de la ficha RES060 de la Orden TED/845/2023, de 18 de julio.</p>` : ''}
+                ${(acsEsTermo || acsTermoFuera) ? `<p style="margin:0 0 5px;"><b>(3)</b> El equipo de ACS produce el agua caliente por efecto Joule (resistencia eléctrica): su rendimiento es 1 por definición y no procede el cálculo de un rendimiento estacional (SCOP).</p>` : ''}
                 <p style="margin:0;">La duración indicativa de la actuación (Di) es de 15 años según Recomendación (UE) 2019/1658. Se adjuntan las fichas técnicas de los nuevos equipos instalados.</p>
             `)}
             ${footer}
@@ -755,6 +780,10 @@ export function buildRes080Html({ data, appUrl, attachments = [], isForPdf = tru
         );
     };
     const renderAcsScopJustification = () => {
+        // Termo eléctrico: rendimiento 1 por definición (efecto Joule), sin SCOP.
+        if (acsEsTermo) {
+            return scopCallout('Rendimiento del equipo de ACS = 1,00. El agua caliente sanitaria se produce por efecto Joule (resistencia eléctrica), cuyo rendimiento es la unidad por definición: no procede el cálculo de un SCOP estacional.');
+        }
         const FC_TABLE = { A3: 1.246, A4: 1.251, B3: 1.223, B4: 1.228, C1: 1.154, C2: 1.165, C3: 1.175, C4: 1.181, D1: 1.093, D2: 1.103, D3: 1.113, E1: 1.056 };
         const acsEprelUrl = sameAero ? inst.aerotermia_cal?.url_eprel : inst.aerotermia_acs?.url_eprel;
         const acsFtUrl = sameAero ? inst.aerotermia_cal?.url_ficha : inst.aerotermia_acs?.url_ficha;
@@ -817,14 +846,20 @@ export function buildRes080Html({ data, appUrl, attachments = [], isForPdf = tru
                 : scopCallout(`SCOP en Calefacción = ${scopCalStr}. Según la ficha técnica aportada por el fabricante que se entregará como anexo al expediente CAE.`)
             }
 
-            ${subLabel('SCOP de la bomba de calor para ACS (agua caliente sanitaria)', '#6E6E66', '20px')}
-            ${tieneAcs ? renderAcsScopJustification() : scopCallout('SCOP en ACS = no aplica.')}
+            ${subLabel(acsEsTermo
+                ? 'Rendimiento del equipo de ACS (agua caliente sanitaria)'
+                : 'SCOP de la bomba de calor para ACS (agua caliente sanitaria)', '#6E6E66', '20px')}
+            ${tieneAcs
+                ? renderAcsScopJustification()
+                : acsTermoFuera
+                ? scopCallout('SCOP en ACS = no aplica. El ACS queda fuera del alcance de la actuación: se produce con un termo eléctrico (efecto Joule, rendimiento = 1), que no computa en el ahorro.')
+                : scopCallout('SCOP en ACS = no aplica.')}
             ${footer}
         </div>
     `);
 
     // SEPARADOR ANEXOS
-    const annexList = attachments.filter(a => a.file?.driveId && (a.id !== 'aerotermia_acs' || tieneAcs));
+    const annexList = attachments.filter(a => a.file?.driveId && (a.id !== 'aerotermia_acs' || (tieneAcs && !acsEsTermo)));
     if (annexList.length > 0) {
         const items = annexList.map((a, i) => `
             <div style="display:flex;align-items:center;gap:16px;border:1px solid #E9E9E1;border-radius:16px;padding:14px 18px;background:#fff;">

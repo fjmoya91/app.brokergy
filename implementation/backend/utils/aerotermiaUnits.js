@@ -45,4 +45,28 @@ function seriesPlanas(aero) {
         .join(' / ');
 }
 
-module.exports = { getUnidades, countUnidades, unidadesSinSerie, seriesPlanas };
+/**
+ * Tipo del EQUIPO NUEVO del bloque (solo relevante en ACS):
+ *   'bdc' | 'acumulador' | 'termo_electrico'
+ * Retrocompatible con el booleano antiguo `es_acumulador`.
+ */
+// Se compara en MINÚSCULAS: normalizeData sube los strings a MAYÚSCULAS antes de
+// persistir, así que en BD el valor es 'TERMO_ELECTRICO'.
+function tipoEquipoNuevo(aero) {
+    const t = String((aero && aero.tipo_equipo_nuevo) || '').trim().toLowerCase();
+    if (t === 'termo_electrico' || t === 'termo') return 'termo_electrico';
+    if (t === 'acumulador' || (aero && aero.es_acumulador)) return 'acumulador';
+    return 'bdc';
+}
+
+/** Termo eléctrico: efecto Joule, rendimiento 1, sin ficha técnica que justificar. */
+function esTermoElectrico(aero) {
+    return tipoEquipoNuevo(aero) === 'termo_electrico';
+}
+
+/** ¿El equipo necesita ficha técnica/EPREL para justificar un SCOP? Solo la BdC. */
+function justificaScop(aero) {
+    return tipoEquipoNuevo(aero) === 'bdc';
+}
+
+module.exports = { getUnidades, countUnidades, unidadesSinSerie, seriesPlanas, tipoEquipoNuevo, esTermoElectrico, justificaScop };

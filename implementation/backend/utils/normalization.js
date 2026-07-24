@@ -5,7 +5,10 @@
  * 2. Si la clave es 'email', pasa a minúsculas.
  * 3. Se eliminan espacios en blanco extra (trim).
  */
-const BLACKLIST = ['id', 'id_oportunidad', 'id_cliente', 'password', 'token', 'reformaType', 'method', 'type', 'icon', 'link', 'url', 'ficha', 'tipo_emisor', 'metodo_scop', 'hibridacion_metodo', 'rendimiento_id', 'comb_', 'datos_calculo'];
+// `tipo_equipo_nuevo` va aquí por el mismo motivo que `tipo_emisor` / `metodo_scop`:
+// son ENUMS en minúscula que la app compara con === ('termo_electrico'). Subirlos a
+// MAYÚSCULAS los rompe (los lectores caían al valor por defecto).
+const BLACKLIST = ['id', 'id_oportunidad', 'id_cliente', 'password', 'token', 'reformaType', 'method', 'type', 'icon', 'link', 'url', 'ficha', 'tipo_emisor', 'tipo_equipo_nuevo', 'metodo_scop', 'hibridacion_metodo', 'rendimiento_id', 'comb_', 'datos_calculo'];
 
 function normalizeData(obj) {
     if (!obj || typeof obj !== 'object') return obj;

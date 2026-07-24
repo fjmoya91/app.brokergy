@@ -2,9 +2,12 @@ import React, { useRef, useState, useCallback, useEffect } from 'react';
 import axios from 'axios';
 import confetti from 'canvas-confetti';
 import { useAuth } from '../../../context/AuthContext';
+import { useModal } from '../../../context/ModalContext';
 import { BOILER_EFFICIENCIES } from '../../calculator/logic/calculation';
 import { buildInstalacionAddress } from '../utils/docGenerators';
 import { calcCifo } from '../logic/calcCifo';
+import { esTermoElectrico } from '../logic/aerotermiaUnits';
+import { postEmail } from '../../../utils/emailFallback';
 // FUENTE ÚNICA del documento CIFO (derivación + HTML + CSS). El mismo módulo lo
 // consume el backend (cifoService.js) por import() dinámico, así que el PDF sale
 // idéntico por app y por generación automática. NO dupliques la maquetación aquí.
@@ -31,6 +34,7 @@ const APP_URL = import.meta.env.VITE_APP_URL || (typeof window !== 'undefined' ?
 
 export function CertificadoCifoModal({ isOpen, onClose, expediente, results, attachments: externalAttachments, onAttachmentsChange, onSaveDrive, onSaveFichaLink, onSaveExtraAnnexes, onSaveAnnexPrefs, onMarkSent }) {
     const { user } = useAuth();
+    const { showConfirm } = useModal();
     const containerRef = useRef(null);
     const [generating, setGenerating] = useState(false);
     const [savingDrive, setSavingDrive] = useState(false);
@@ -533,6 +537,9 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
     // serie propia → el CIFO imprime "Acumulador ACS" y "no aplica" en el serie.
     const acsAero = inst.misma_aerotermia_acs ? inst.aerotermia_cal : inst.aerotermia_acs;
     const acsEsAcumulador = tieneAcs && !!acsAero?.es_acumulador;
+    // Termo eléctrico (efecto Joule): no es aerotermia → no hay ficha técnica que
+    // adjuntar como justificación del SCOP, así que su slot de anexo no se pide.
+    const acsEsTermo = tieneAcs && esTermoElectrico(acsAero);
 
     // Ahorro Total
     const aeRaw = results?.savingsKwh || 0;
@@ -581,7 +588,7 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
     // Lista completa en el orden en que saldrá en el PDF, y la filtrada que se
     // pinta (el slot de ACS se oculta si no se actúa sobre ACS).
     const orderedAttachments = orderAttachments(attachments, annexPrefs);
-    const visibleAttachments = orderedAttachments.filter(a => a.id !== 'aerotermia_acs' || tieneAcs);
+    const visibleAttachments = orderedAttachments.filter(a => a.id !== 'aerotermia_acs' || (tieneAcs && !acsEsTermo));
 
     // Reordena SOBRE LA LISTA COMPLETA (así las filas ocultas no se van al final)
     // colocando `fromId` en el sitio de `toId`, y guarda el orden resultante.
@@ -823,7 +830,7 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
 
     // Anexos a concatenar al PDF principal: driveId + páginas a omitir, en el
     // orden final. Lo consumen /api/pdf/generate, save-to-drive y send-cifo.
-    const getAnnexPayload = () => buildAnnexPayload(attachments, annexPrefs, { tieneAcs });
+    const getAnnexPayload = () => buildAnnexPayload(attachments, annexPrefs, { tieneAcs: tieneAcs && !acsEsTermo });
 
 
     const handleDownloadPdf = async () => {
@@ -957,7 +964,9 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
         const subject = templateKey === 'requerimiento'
             ? `${numexpte} - Requerimiento: firmar de nuevo Certificado CIFO`
             : `${numexpte} - Firmar Certificado CIFO de ${cliNombre}`;
-        const { data } = await axios.post('/api/pdf/send-cifo', {
+        // Si el buzón principal ha agotado su cuota diaria, postEmail pregunta
+        // si reenviar desde el alternativo (ver utils/emailFallback).
+        const { data } = await postEmail('/api/pdf/send-cifo', {
             html: buildHtml(),
             to: c.email,
             subject,
@@ -968,7 +977,7 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
             direccionInstalacion: instAddrText,
             uploadLink,
             annexes: getAnnexPayload(),
-        });
+        }, showConfirm);
         if (data.success) return { ok: true, text: `${c.label} → ${c.email}` };
         return { ok: false, text: `${c.label}: email no enviado` };
     };

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { BOILER_EFFICIENCIES, getScopFromModel, getScopAcsFromModel, calculateHybridization, resolveHybridInputs, HYBRID_METHODS } from '../../calculator/logic/calculation';
 import { PROVINCE_CODE_TO_CCAA, PROVINCE_CODE_TO_NAME } from '../utils/docGenerators';
-import { withScopAplicado, cloneAero, potenciaTotal, countUnidades, scopPropioUnidad1, scopAplicado } from '../logic/aerotermiaUnits';
+import { withScopAplicado, cloneAero, potenciaTotal, countUnidades, scopPropioUnidad1, scopAplicado, tipoEquipoNuevo, EQUIPO_NUEVO, RENDIMIENTO_JOULE } from '../logic/aerotermiaUnits';
 
 const EMITTER_OPTIONS = [
     { value: 'suelo_radiante',          label: 'Suelo Radiante (35°C)',           temp: 35 },
@@ -209,6 +209,94 @@ function CalderaSection({ title, data, onChange, readOnly }) {
     );
 }
 
+// ─── ACS FUERA DEL ALCANCE CAE: equipo nuevo que NO computa ───────────────────
+// Caso real (RES060): una caldera de gasoil daba calefacción + ACS; se instala
+// aerotermia SOLO para calefacción y el ACS pasa a un termo eléctrico. El termo
+// NO es actuación CAE (efecto Joule: no genera ahorro elegible), pero tiene que
+// quedar reflejado en los certificados y en la memoria RITE.
+//
+// Se guarda en el MISMO nodo `aerotermia_acs` con tipo_equipo_nuevo = 'termo_electrico'.
+// Con `cambio_acs = false` la fórmula de ahorro lo ignora por completo: se pasa
+// dacs = 0 y changeAcs = false (ver calculateSavings), así que no computa.
+function AcsFueraAlcanceSection({ data, onChange, readOnly }) {
+    const hayTermo = tipoEquipoNuevo(data) === EQUIPO_NUEVO.TERMO;
+
+    const setTermo = (val) => {
+        if (!val) {
+            // Volver a "se mantiene la existente": se limpia el nodo entero para no
+            // dejar rastros de un equipo nuevo que no existe.
+            onChange({ aerotermia_db_id: null, marca: '', modelo: '', numero_serie: '', scop: null, metodo_scop: 'ficha' });
+            return;
+        }
+        onChange({
+            aerotermia_db_id: null,
+            tipo_equipo_nuevo: EQUIPO_NUEVO.TERMO,
+            es_acumulador: false,
+            marca: '', modelo: '', numero_serie: '', litros: null,
+            modelo_ud_exterior: '', modelo_ud_interior: '', modelo_conjunto: '',
+            url_eprel: null, url_keymark: null, url_ficha: null,
+            metodo_scop: null,
+            equipos_extra: [],
+            scop: RENDIMIENTO_JOULE,
+        });
+    };
+
+    const set = (patch) => onChange({ ...data, ...patch });
+
+    return (
+        <div className="bg-bkg-surface/60 rounded-xl p-4 border border-white/[0.06] space-y-3">
+            <h4 className="text-xs font-black text-white/50 uppercase tracking-wider">Equipo nuevo de ACS (fuera del alcance CAE)</h4>
+            <Toggle
+                label="¿Se instala un termo eléctrico nuevo para el ACS?"
+                value={hayTermo}
+                onChange={setTermo}
+                readOnly={readOnly}
+            />
+            {hayTermo && (
+                <>
+                    <div className="flex items-start gap-2 bg-amber-500/[0.07] border border-amber-500/25 rounded-lg px-3 py-2">
+                        <span className="text-[10px] font-black text-amber-400 uppercase tracking-widest flex-shrink-0">No computa</span>
+                        <span className="text-[10px] text-white/45 leading-relaxed">
+                            Efecto Joule · rendimiento 1. No genera ahorro CAE: queda fuera de la fórmula del certificado y solo se refleja como información de la instalación.
+                        </span>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <Field
+                            label="Marca (opcional)"
+                            value={data?.marca ?? ''}
+                            onChange={v => set({ marca: v })}
+                            readOnly={readOnly}
+                            placeholder="Si no se conoce, en blanco"
+                        />
+                        <Field
+                            label="Modelo (opcional)"
+                            value={data?.modelo ?? ''}
+                            onChange={v => set({ modelo: v })}
+                            readOnly={readOnly}
+                            placeholder="Si no se conoce, en blanco"
+                        />
+                        <Field
+                            label="Número de serie (opcional)"
+                            value={data?.numero_serie ?? ''}
+                            onChange={v => set({ numero_serie: v })}
+                            readOnly={readOnly}
+                            placeholder="Si no se conoce, en blanco"
+                        />
+                        <Field
+                            label="Litros de acumulación (opcional)"
+                            type="number"
+                            value={data?.litros ?? ''}
+                            onChange={v => set({ litros: v })}
+                            readOnly={readOnly}
+                            placeholder="Ej: 100"
+                        />
+                    </div>
+                </>
+            )}
+        </div>
+    );
+}
+
 // ─── Enlaces de referencia del equipo elegido ─────────────────────────────────
 // La ficha técnica del catálogo es EXACTAMENTE el documento que el backend copia a
 // Drive y fusiona como anexo del CIFO para justificar el SCOP (ver
@@ -305,10 +393,17 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
         };
     });
 
+    // Tipo del equipo NUEVO: solo la columna de ACS admite algo que no sea una
+    // bomba de calor (acumulador o termo eléctrico). Ver logic/aerotermiaUnits.js.
+    const tipoNuevo = isAcs ? tipoEquipoNuevo(data) : EQUIPO_NUEVO.BDC;
+    const esTermo = tipoNuevo === EQUIPO_NUEVO.TERMO;
+    const esAcumulador = tipoNuevo === EQUIPO_NUEVO.ACUMULADOR;
+
     // El input de litros de acumulación ACS solo aplica si el modelo de ACS
-    // seleccionado lleva depósito incluido (deposito_acs_incluido = true).
+    // seleccionado lleva depósito incluido (deposito_acs_incluido = true). El termo
+    // eléctrico SIEMPRE acumula, así que ahí el campo va suelto (opcional).
     const selectedModel = availableModels.find(m => String(m.id) === String(data?.aerotermia_db_id));
-    const showLitros = isAcs && !!selectedModel?.deposito_acs_incluido;
+    const showLitros = isAcs && (esTermo || !!selectedModel?.deposito_acs_incluido);
 
     // ── Instalación EN CASCADA ────────────────────────────────────────────────
     // `data.equipos_extra` guarda las unidades 2..N. Todo cambio pasa por emit(),
@@ -443,37 +538,129 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
         }
     };
 
-    // Toggle "Es acumulador de ACS" (solo columna ACS): el depósito lo calienta
-    // la propia BdC de calefacción (no hay BdC dedicada para ACS). Al activarlo se
-    // fija el cálculo a Anexo VI (depósito independiente) y el CIFO representa el
-    // equipo nuevo de ACS como "Acumulador ACS" con nº de serie "No aplica".
-    const handleAcumuladorToggle = (val) => {
-        if (!val) {
-            emit({ ...data, es_acumulador: false });
+    // Tipo de equipo NUEVO (solo columna ACS). Tres casos:
+    //   · BdC         → bomba de calor aerotérmica del catálogo (caso normal).
+    //   · Acumulador  → el depósito lo calienta la propia BdC de calefacción (no
+    //                   hay BdC dedicada para ACS): cálculo por Anexo VI y el CIFO
+    //                   lo imprime como "Acumulador ACS" con serie "No aplica".
+    //   · Termo       → resistencia eléctrica (efecto Joule): NO está en el
+    //                   catálogo de aerotermia y su rendimiento es 1 por
+    //                   definición, así que marca/modelo pasan a texto libre
+    //                   (opcionales) y no hay SCOP que justificar.
+    const handleTipoNuevoChange = (tipo) => {
+        const prev = tipoEquipoNuevo(data);
+        if (tipo === prev) return;
+
+        if (tipo === EQUIPO_NUEVO.TERMO) {
+            emit({
+                ...data,
+                tipo_equipo_nuevo: EQUIPO_NUEVO.TERMO,
+                es_acumulador: false,
+                // Se sueltan TODAS las referencias del catálogo: si quedaran, el
+                // CIFO/RES080 imprimiría la ficha técnica de una aerotermia que no
+                // se ha instalado.
+                aerotermia_db_id: null,
+                marca: '', modelo: '',
+                modelo_ud_exterior: '', modelo_ud_interior: '', modelo_conjunto: '',
+                url_eprel: null, url_keymark: null, url_ficha: null,
+                metodo_scop: null,
+                equipos_extra: [],
+                scop_propio: null,
+                scop: RENDIMIENTO_JOULE,
+                potencia: null,
+            });
             return;
         }
-        // Activar → forzar método Anexo VI y recalcular SCOP si hay modelo elegido
-        const found = availableModels.find(m => String(m.id) === String(data?.aerotermia_db_id));
-        const scop = found
-            ? getScopAcsFromModel(found, found.zona_climatica || 'D3', 'independiente')
-            : data?.scop;
+
+        // Al salir del termo, marca/modelo/serie eran texto libre → no valen para
+        // el catálogo. Se limpian para obligar a elegir el equipo real.
+        const base = prev === EQUIPO_NUEVO.TERMO
+            ? {
+                ...data,
+                marca: '', modelo: '', numero_serie: '', litros: null,
+                aerotermia_db_id: null, scop: null, scop_propio: null,
+            }
+            : data;
+
+        if (tipo === EQUIPO_NUEVO.ACUMULADOR) {
+            // Forzar método Anexo VI y recalcular SCOP si hay modelo elegido
+            const found = availableModels.find(m => String(m.id) === String(base?.aerotermia_db_id));
+            const scop = found
+                ? getScopAcsFromModel(found, found.zona_climatica || 'D3', 'independiente')
+                : base?.scop;
+            emit({
+                ...base,
+                tipo_equipo_nuevo: EQUIPO_NUEVO.ACUMULADOR,
+                es_acumulador: true,
+                metodo_scop: 'independiente',
+                scop,
+                ...(found ? {
+                    url_eprel: found.eprel ?? base?.url_eprel ?? null,
+                    url_keymark: found.url_keymark ?? base?.url_keymark ?? null,
+                    url_ficha: found.ficha_tecnica ?? base?.url_ficha ?? null,
+                } : {}),
+            });
+            return;
+        }
+
         emit({
-            ...data,
-            es_acumulador: true,
-            metodo_scop: 'independiente',
-            scop,
-            ...(found ? {
-                url_eprel: found.eprel ?? data?.url_eprel ?? null,
-                url_keymark: found.url_keymark ?? data?.url_keymark ?? null,
-                url_ficha: found.ficha_tecnica ?? data?.url_ficha ?? null,
-            } : {}),
+            ...base,
+            tipo_equipo_nuevo: EQUIPO_NUEVO.BDC,
+            es_acumulador: false,
+            metodo_scop: base?.metodo_scop || 'ficha',
         });
     };
 
     return (
         <div className="bg-bkg-surface/60 rounded-xl p-4 border border-white/[0.06] space-y-3">
-            <h4 className="text-xs font-black text-brand/80 uppercase tracking-wider">{title}</h4>
-            
+            <h4 className="text-xs font-black text-brand/80 uppercase tracking-wider">
+                {esTermo ? (isAcs ? 'Equipo Nuevo — ACS' : title) : title}
+            </h4>
+
+            {/* Tipo de equipo nuevo (solo ACS): no siempre se instala aerotermia. */}
+            {isAcs && (
+                <div className="space-y-1">
+                    <label className="block text-[10px] text-brand/50 uppercase tracking-wider font-bold">
+                        Tipo de equipo nuevo de ACS
+                    </label>
+                    <div className="flex flex-wrap gap-1 bg-bkg-elevated p-1 rounded-lg border border-white/5">
+                        {[
+                            { id: EQUIPO_NUEVO.BDC,        label: 'Bomba de calor' },
+                            { id: EQUIPO_NUEVO.ACUMULADOR, label: 'Acumulador ACS' },
+                            { id: EQUIPO_NUEVO.TERMO,      label: 'Termo eléctrico' },
+                        ].map(t => (
+                            <button
+                                key={t.id}
+                                type="button"
+                                onClick={() => !readOnly && handleTipoNuevoChange(t.id)}
+                                disabled={readOnly}
+                                className={`px-3 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider transition-all ${
+                                    tipoNuevo === t.id
+                                        ? 'bg-brand text-bkg-deep'
+                                        : 'text-white/40 hover:text-white disabled:opacity-50'
+                                }`}
+                            >
+                                {t.label}
+                            </button>
+                        ))}
+                    </div>
+                    {esAcumulador && (
+                        <p className="text-[10px] text-white/30">
+                            El depósito lo calienta la BdC de calefacción. SCOP por Anexo VI. En el CIFO se imprime como «Acumulador ACS» con nº de serie «No aplica».
+                        </p>
+                    )}
+                    {esTermo && (
+                        <div className="flex items-start gap-2 bg-amber-500/[0.07] border border-amber-500/25 rounded-lg px-3 py-2">
+                            <span className="text-[10px] font-black text-amber-400 uppercase tracking-widest flex-shrink-0">No computa</span>
+                            <span className="text-[10px] text-white/45 leading-relaxed">
+                                Resistencia eléctrica: rendimiento = 1 (efecto Joule). No es actuación elegible, así que el ACS sale de la fórmula de ahorro y solo se refleja como información en el certificado. Marca, modelo y nº de serie son opcionales.
+                            </span>
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {!esTermo && (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <SearchableSelect
                     label="Marca"
@@ -494,11 +681,33 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
                     placeholder={data?.marca ? '— Selecciona —' : '— Elige marca primero —'}
                 />
             </div>
+            )}
+
+            {/* Termo eléctrico: no está en el catálogo de aerotermia → marca y modelo
+                a mano y OPCIONALES (muchas veces solo se sabe que es un termo). */}
+            {esTermo && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <Field
+                        label="Marca (opcional)"
+                        value={data?.marca ?? ''}
+                        onChange={v => emit({ ...data, marca: v })}
+                        readOnly={readOnly}
+                        placeholder="Si no se conoce, en blanco"
+                    />
+                    <Field
+                        label="Modelo (opcional)"
+                        value={data?.modelo ?? ''}
+                        onChange={v => emit({ ...data, modelo: v })}
+                        readOnly={readOnly}
+                        placeholder="Si no se conoce, en blanco"
+                    />
+                </div>
+            )}
 
             {/* Confirmación del equipo elegido: la ud. exterior es la referencia de la
                 placa que debe coincidir con las fotos y viaja al CIFO. Editable como
                 override por si el catálogo no la trae o es incorrecta. */}
-            {data?.aerotermia_db_id && (
+            {!esTermo && data?.aerotermia_db_id && (
                 <div className="bg-brand/[0.06] border border-brand/20 rounded-xl p-3 space-y-2">
                     <div className="flex items-center gap-1.5">
                         <svg className="w-3.5 h-3.5 text-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>
@@ -552,45 +761,38 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
                     <svg className="w-3 h-3 text-brand/50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
                     </svg>
-                    Número de serie
+                    Número de serie{esTermo && <span className="text-white/25 normal-case tracking-normal"> · opcional</span>}
                 </label>
                 <input
                     type="text"
-                    value={isAcs && data?.es_acumulador ? '' : (data?.numero_serie ?? '')}
+                    value={esAcumulador ? '' : (data?.numero_serie ?? '')}
                     onChange={v => emit({ ...data, numero_serie: v.target.value })}
-                    readOnly={readOnly || (isAcs && data?.es_acumulador)}
-                    placeholder={isAcs && data?.es_acumulador ? 'No aplica (acumulador ACS)' : ''}
+                    readOnly={readOnly || esAcumulador}
+                    placeholder={esAcumulador ? 'No aplica (acumulador ACS)' : (esTermo ? 'Si no se conoce, en blanco' : '')}
                     className={`w-full bg-bkg-elevated border rounded-lg px-3 py-2 text-white text-sm focus:outline-none ${
-                        readOnly || (isAcs && data?.es_acumulador) ? 'border-white/5 text-white/40 cursor-not-allowed' : 'border-white/10 focus:border-brand/50'
+                        readOnly || esAcumulador ? 'border-white/5 text-white/40 cursor-not-allowed' : 'border-white/10 focus:border-brand/50'
                     }`}
                 />
             </div>
-
-            {isAcs && (
-                <div className="bg-bkg-elevated/40 rounded-lg px-3 border border-white/5">
-                    <Toggle
-                        label="¿El ACS es un acumulador (sin BdC propia)?"
-                        value={!!data?.es_acumulador}
-                        onChange={handleAcumuladorToggle}
-                        readOnly={readOnly}
-                    />
-                    {data?.es_acumulador && (
-                        <p className="text-[10px] text-white/30 -mt-1 pb-2">
-                            El depósito lo calienta la BdC de calefacción. SCOP por Anexo VI. En el CIFO se imprime como «Acumulador ACS» con nº de serie «No aplica».
-                        </p>
-                    )}
-                </div>
-            )}
 
             <div className="space-y-1">
                 <label className="flex items-center gap-1.5 text-xs text-brand/40 uppercase tracking-wider font-bold">
                     <svg className="w-3.5 h-3.5 text-brand/50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
                     </svg>
-                    SCOP (rendimiento)
+                    {esTermo ? 'Rendimiento' : 'SCOP (rendimiento)'}
                 </label>
                 <div className="space-y-2">
-                    {isAcs ? (
+                    {esTermo ? (
+                        // Efecto Joule: el rendimiento es 1 por definición, no se edita
+                        // ni se justifica con ficha técnica.
+                        <div className="flex items-center justify-between gap-2 bg-brand/[0.06] border border-brand/20 rounded-lg px-3 py-2">
+                            <span className="text-[10px] font-black text-brand uppercase tracking-widest">
+                                Efecto Joule · rendimiento fijo
+                            </span>
+                            <span className="text-sm font-mono font-bold text-white">1,00</span>
+                        </div>
+                    ) : isAcs ? (
                         // ACS: 3 opciones de método
                         <div className="flex flex-wrap gap-1 bg-bkg-elevated p-1 rounded-lg border border-white/5">
                             {[
@@ -637,7 +839,7 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
                         </div>
                     )}
                     {/* Aviso si faltan datos para el método ACS seleccionado */}
-                    {isAcs && (() => {
+                    {isAcs && !esTermo && (() => {
                         const method = data?.metodo_scop || 'ficha';
                         const found = availableModels.find(m => String(m.id) === String(data?.aerotermia_db_id));
                         if (!found) return null;
@@ -649,17 +851,19 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
                         }
                         return null;
                     })()}
-                    <input
-                        type="number"
-                        step="0.01"
-                        value={scopPropio ?? ''}
-                        onChange={e => emit({ ...data, scop: e.target.value, scop_propio: e.target.value })}
-                        readOnly={readOnly}
-                        className={`w-full bg-bkg-elevated border rounded-lg px-3 py-2 text-white text-sm focus:outline-none ${
-                            readOnly ? 'border-white/5 text-white/60 cursor-not-allowed' : 'border-white/10 focus:border-brand/50'
-                        }`}
-                        placeholder="Se obtiene del modelo"
-                    />
+                    {!esTermo && (
+                        <input
+                            type="number"
+                            step="0.01"
+                            value={scopPropio ?? ''}
+                            onChange={e => emit({ ...data, scop: e.target.value, scop_propio: e.target.value })}
+                            readOnly={readOnly}
+                            className={`w-full bg-bkg-elevated border rounded-lg px-3 py-2 text-white text-sm focus:outline-none ${
+                                readOnly ? 'border-white/5 text-white/60 cursor-not-allowed' : 'border-white/10 focus:border-brand/50'
+                            }`}
+                            placeholder="Se obtiene del modelo"
+                        />
+                    )}
                     {/* En cascada el SCOP que entra en la fórmula de ahorro es el MENOR
                         de todas las unidades (criterio conservador: nunca sobreestima
                         el ahorro declarado). Se recalcula solo. */}
@@ -779,8 +983,8 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
 
             {/* Añadir equipo: solo tiene sentido con la unidad 1 ya elegida, porque
                 el equipo nuevo hereda su marca/modelo/SCOP. En ACS no aplica si es
-                un mero acumulador (no hay BdC que poner en cascada). */}
-            {!readOnly && !(isAcs && data?.es_acumulador) && (
+                un mero acumulador ni un termo (no hay BdC que poner en cascada). */}
+            {!readOnly && !esAcumulador && !esTermo && (
                 <button
                     type="button"
                     onClick={handleAddEquipo}
@@ -1402,14 +1606,23 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
                     <div className="space-y-2">
                         <div className="flex items-center gap-2 flex-wrap">
                             <span className="text-[10px] font-black text-brand/70 uppercase tracking-widest px-2 py-0.5 rounded bg-brand/10 border border-brand/20">ACS — no se actúa</span>
-                            <span className="text-[10px] text-white/40">Se conserva la instalación de ACS existente. Indica sus datos (p. ej. termo eléctrico) para reflejarlos en el certificado RES080.</span>
+                            <span className="text-[10px] text-white/40">El ACS queda fuera del alcance CAE: no entra en la fórmula de ahorro. Indica la instalación existente y, si se sustituye por un termo eléctrico, decláralo abajo.</span>
                         </div>
-                        <CalderaSection
-                            title="Instalación ACS existente (se mantiene)"
-                            data={local.caldera_antigua_acs}
-                            readOnly={readOnly}
-                            onChange={v => setLocal(p => ({ ...p, caldera_antigua_acs: v, misma_caldera_acs: false }))}
-                        />
+                        <div className="grid gap-4 grid-cols-1 lg:grid-cols-2">
+                            <CalderaSection
+                                title="Instalación ACS existente"
+                                data={local.caldera_antigua_acs}
+                                readOnly={readOnly}
+                                onChange={v => setLocal(p => ({ ...p, caldera_antigua_acs: v, misma_caldera_acs: false }))}
+                            />
+                            {/* Caso RES060: la caldera de gasoil daba calefacción + ACS, se
+                                pone aerotermia solo para calefacción y el ACS pasa a termo. */}
+                            <AcsFueraAlcanceSection
+                                data={local.aerotermia_acs}
+                                readOnly={readOnly}
+                                onChange={v => setLocal(p => ({ ...p, aerotermia_acs: v, misma_aerotermia_acs: false }))}
+                            />
+                        </div>
                     </div>
                 )}
 

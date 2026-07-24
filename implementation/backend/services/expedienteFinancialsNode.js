@@ -10,6 +10,7 @@
 // ============================================================================
 const path = require('path');
 const { pathToFileURL } = require('url');
+const { esTermoElectrico } = require('../utils/aerotermiaUnits');
 
 let _calcPromise = null;
 function loadCalc() {
@@ -73,7 +74,7 @@ async function computeExpedienteFinancialsNode(exp, op) {
                     scopHeating,
                     scopAcs,
                     cb,
-                    changeAcs: inst.cambio_acs !== false && (!!inst.misma_aerotermia_acs || !!inst.aerotermia_acs?.aerotermia_db_id)
+                    changeAcs: inst.cambio_acs !== false && !esTermoElectrico(inst.aerotermia_acs) && (!!inst.misma_aerotermia_acs || !!inst.aerotermia_acs?.aerotermia_db_id)
                 });
 
                 const overrides = inst.economico_override || {};

@@ -22,7 +22,7 @@
 import { BOILER_EFFICIENCIES, calculateHybridization, resolveHybridInputs, HYBRID_METHODS } from '../../calculator/logic/calculation.js';
 import { buildInstalacionAddress } from '../utils/docGenerators.js';
 import { calcCifo } from './calcCifo.js';
-import { formatMarcas, formatModelos, formatSeries, countUnidades } from './aerotermiaUnits.js';
+import { formatMarcas, formatModelos, formatSeries, countUnidades, tipoEquipoNuevo, tipoEquipoNuevoLabel, esTermoElectrico, EQUIPO_NUEVO } from './aerotermiaUnits.js';
 
 export const EMITTER_OPTIONS = [
     { value: 'suelo_radiante',          label: 'Suelo Radiante (35°C)',           temp: 35 },
@@ -247,7 +247,13 @@ export function deriveCifoData({ expediente, results }) {
     const scopCalRaw = parseFloat(inst.aerotermia_cal?.scop) || 0;
     const scopCalStr = scopCalRaw ? scopCalRaw.toFixed(2).replace('.', ',') : '—';
 
-    const tieneAcs = inst.cambio_acs !== false;
+    // El ACS solo COMPUTA en la ficha si se actúa sobre él CON UNA BOMBA DE CALOR.
+    // Un termo eléctrico (efecto Joule, rendimiento 1) no es actuación elegible:
+    // queda fuera de la fórmula (D_ACS no suma) y se declara aparte, como
+    // información de la instalación. Ver logic/aerotermiaUnits.js.
+    const acsAero = inst.misma_aerotermia_acs ? inst.aerotermia_cal : inst.aerotermia_acs;
+    const acsTermoDeclarado = esTermoElectrico(acsAero) || esTermoElectrico(inst.aerotermia_acs);
+    const tieneAcs = inst.cambio_acs !== false && !acsTermoDeclarado;
     const acsExMarca = inst.caldera_antigua_acs?.marca || calExMarca;
     const acsExMod = inst.caldera_antigua_acs?.modelo || calExMod;
     const acsExSerie = inst.caldera_antigua_acs?.numero_serie || inst.caldera_antigua_acs?.n_serie || '—';
@@ -264,8 +270,19 @@ export function deriveCifoData({ expediente, results }) {
     const scopAcsRaw = tieneAcs ? parseFloat(inst.misma_aerotermia_acs ? inst.aerotermia_cal?.scop : inst.aerotermia_acs?.scop || 0) : 0;
     const scopAcsStr = tieneAcs ? (scopAcsRaw ? scopAcsRaw.toFixed(2).replace('.', ',') : '—') : 'no aplica';
 
-    const acsAero = inst.misma_aerotermia_acs ? inst.aerotermia_cal : inst.aerotermia_acs;
-    const acsEsAcumulador = tieneAcs && !!acsAero?.es_acumulador;
+    const acsEsAcumulador = tieneAcs && tipoEquipoNuevo(acsAero) === EQUIPO_NUEVO.ACUMULADOR;
+    // Nunca es true a la vez que `tieneAcs` (un termo saca el ACS de la fórmula);
+    // se conserva por claridad en las plantillas.
+    const acsEsTermo = tieneAcs && esTermoElectrico(acsAero);
+    const acsNuTipo = tieneAcs ? tipoEquipoNuevoLabel(acsAero) : '—';
+
+    // ACS FUERA DEL ALCANCE CAE: el ACS no computa en la fórmula, pero la
+    // producción de agua caliente sí cambia — un termo eléctrico. Se refleja como
+    // información de la instalación, nunca como ahorro.
+    const acsTermoFuera = acsTermoDeclarado ? (esTermoElectrico(inst.aerotermia_acs) ? inst.aerotermia_acs : acsAero) : null;
+    const acsFueraMarca = acsTermoFuera ? (acsTermoFuera.marca || '—') : '—';
+    const acsFueraMod = acsTermoFuera ? (acsTermoFuera.modelo || '—') : '—';
+    const acsFueraSerie = acsTermoFuera ? (acsTermoFuera.numero_serie || '—') : '—';
 
     const aeRaw = results?.savingsKwh || 0;
     const aeKwhVal = aeRaw ? Math.round(aeRaw).toLocaleString('es-ES') : '—';
@@ -329,7 +346,8 @@ export function deriveCifoData({ expediente, results }) {
         calNuMarca, calNuMod, calNuSerieEx, calNuUds,
         // ACS
         tieneAcs, acsExTipo, acsExMarca, acsExMod, acsExComb, acsExSerie,
-        acsEsAcumulador, acsNuMarca, acsNuMod, acsNuSerieEx, acsNuUds,
+        acsEsAcumulador, acsEsTermo, acsNuTipo, acsNuMarca, acsNuMod, acsNuSerieEx, acsNuUds,
+        acsTermoFuera, acsFueraMarca, acsFueraMod, acsFueraSerie,
         // método SCOP / emisor
         metodoCal, metodoAcs, emiLabel,
         // empresa instaladora
@@ -360,7 +378,8 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
         calExTipo, calExMarca, calExMod, calExComb, calExSerie,
         calNuMarca, calNuMod, calNuSerieEx, calNuUds,
         tieneAcs, acsExTipo, acsExMarca, acsExMod, acsExComb, acsExSerie,
-        acsEsAcumulador, acsNuMarca, acsNuMod, acsNuSerieEx, acsNuUds,
+        acsEsAcumulador, acsEsTermo, acsNuTipo, acsNuMarca, acsNuMod, acsNuSerieEx, acsNuUds,
+        acsTermoFuera, acsFueraMarca, acsFueraMod, acsFueraSerie,
         metodoCal, metodoAcs, emiLabel,
         empNombre, empCif, empDir, empCp, empMun, empProv, empCargo, empEmail, empTlf, empResponsable,
         cbStr, pDesignKwStr, coveragePct, coveragePctStr, thZone, pbdcKwStr, demandaAnualKwhStr, appliedCovStr,
@@ -442,7 +461,7 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
         { n: 4, sym: 'D<sub>ACS</sub>', desc: 'Demanda de energía en agua caliente sanitaria', val: `${dacsStr} kWh/año` },
         { n: 5, sym: 'η<sub>i</sub>', desc: 'Rendimiento de caldera de combustión(PCS)', val: etaStr },
         { n: 6, sym: 'SCOP<sub>bdc</sub>', desc: 'Rendimiento estacional bomba calor calefacción', val: scopCalStr },
-        { n: 7, sym: 'SCOP<sub>dhw</sub>', desc: 'Rendimiento estacional bomba calor ACS', val: scopAcsStr },
+        { n: 7, sym: 'SCOP<sub>dhw</sub>', desc: acsEsTermo ? 'Rendimiento del equipo de ACS (efecto Joule)' : 'Rendimiento estacional bomba calor ACS', val: scopAcsStr },
         ...(isHybrid ? [{ n: 8, sym: 'C<sub>b</sub>', desc: 'Coeficiente de cobertura por bivalencia en paralelo', val: cbStr }] : []),
         { n: isHybrid ? 9 : 8, sym: 'D<sub>i</sub>', desc: 'Vida útil de la actuación de eficiencia energética', val: '15 años' },
     ];
@@ -568,14 +587,29 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
             ${sectionTitle('Datos de la instalación de agua caliente sanitaria (ACS)', '14px')}
             ${tieneAcs
                 ? cmpBox(cmpHead(), `
-                    ${cmpRow('Tipo de equipo', acsExTipo, acsEsAcumulador ? 'Acumulador ACS' : (acsNuUds > 1 ? 'Bombas de calor en cascada' : 'Bomba de calor'))}
+                    ${cmpRow('Tipo de equipo', acsExTipo, acsNuTipo)}
                     ${cmpRow('Marca', acsExMarca, acsNuMarca)}
                     ${cmpRow('Modelo', acsExMod, acsNuMod)}
-                    ${acsNuUds > 1 && !acsEsAcumulador ? cmpRow('Nº de equipos instalados', '—', String(acsNuUds)) : ''}
+                    ${acsNuUds > 1 && !acsEsAcumulador && !acsEsTermo ? cmpRow('Nº de equipos instalados', '—', String(acsNuUds)) : ''}
                     ${cmpRow('Fuente de energía', acsExComb, 'Electricidad')}
                     ${cmpRow(acsNuUds > 1 ? 'Nº serie equipos ACS' : 'Nº serie equipo ACS', acsExSerie, acsEsAcumulador ? 'No aplica' : acsNuSerieEx)}
                     ${cmpRow(acsNuUds > 1 ? 'SCOP<sub>dhw</sub> aplicado (menor) / Rendimiento' : 'SCOP<sub>dhw</sub> / Rendimiento', etaStr, scopAcsStr)}
                 `)
+                : acsTermoFuera
+                // ACS FUERA DEL ALCANCE CAE: no computa en la fórmula (D_ACS = 0),
+                // pero la producción de ACS cambia a un equipo de efecto Joule.
+                // Se declara como información de la instalación, con la advertencia.
+                ? `${cmpBox(cmpHead(), `
+                    ${cmpRow('Tipo de equipo', acsExTipo, 'Termo eléctrico (efecto Joule)')}
+                    ${cmpRow('Marca', acsExMarca, acsFueraMarca)}
+                    ${cmpRow('Modelo', acsExMod, acsFueraMod)}
+                    ${cmpRow('Fuente de energía', acsExComb, 'Electricidad')}
+                    ${cmpRow('Nº serie equipo ACS', acsExSerie, acsFueraSerie)}
+                    ${cmpRow('Rendimiento', etaStr, '1,00')}
+                `)}
+                <div style="margin-top:8px;border:1px solid #E9E9E1;border-radius:14px;padding:12px 16px;font-size:11.5px;color:#6E6E66;line-height:1.5;">
+                    <b style="color:#1A1A1A;">El ACS queda fuera del alcance de la actuación.</b> La producción de agua caliente sanitaria se resuelve con un equipo de efecto Joule (rendimiento = 1), que no es una bomba de calor: <b style="color:#1A1A1A;">no computa en el cálculo del ahorro de energía</b> y la demanda de ACS (D<sub>ACS</sub>) no se incluye en la fórmula. Se declara únicamente como información de la instalación resultante.
+                </div>`
                 : `<div style="border:1px solid #E9E9E1;border-radius:16px;padding:18px;text-align:center;font-size:13px;color:#6E6E66;font-weight:700;">No se actúa sobre el ACS · No aplica</div>`
             }
 
@@ -604,7 +638,7 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
 
         ${subLabel('4. Justificación de la demanda de ACS D<sub>ACS</sub>', '#6E6E66', '16px')}
         ${!tieneAcs
-            ? `<div style="border:1px solid #E9E9E1;border-radius:16px;padding:18px;text-align:center;font-size:13px;color:#6E6E66;font-weight:700;">No se actúa sobre el ACS · No aplica</div>`
+            ? `<div style="border:1px solid #E9E9E1;border-radius:16px;padding:18px;text-align:center;font-size:13px;color:#6E6E66;font-weight:700;">No se actúa sobre el ACS · No aplica${acsTermoFuera ? `<div style="margin-top:6px;font-weight:400;font-size:11.5px;line-height:1.5;">El ACS pasa a producirse con un termo eléctrico (efecto Joule, rendimiento = 1), fuera del alcance de la actuación: D<sub>ACS</sub> = 0 en la fórmula del ahorro.</div>` : ''}</div>`
             : acsMode === 'xml'
             ? `<p style="margin:0 0 6px;font-size:12.5px;color:#4a4a44;line-height:1.6;">La demanda de ACS ha sido calculada según el archivo .xml del certificado de eficiencia energética cuyo valor es <b style="color:#1A1A1A;">${parseFloat(ceeFinal.demandaACS || 0).toFixed(2).replace('.', ',')} kWh/m²·año</b>, que multiplicado por la superficie habitable (<b style="color:#1A1A1A;">${parseFloat(ceeFinal.superficieHabitable || 0).toFixed(2).replace('.', ',')} m²</b>) da como resultado <b style="color:#1A1A1A;">${dacsStr} kWh/año</b>.</p>`
             : `
@@ -657,6 +691,11 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
     };
 
     const renderAcsScopJustification = () => {
+        // Termo eléctrico: efecto Joule → rendimiento 1 por definición. No hay SCOP
+        // que justificar ni ficha técnica que aportar.
+        if (acsEsTermo) {
+            return scopCallout('Rendimiento del equipo de ACS = 1,00. El agua caliente sanitaria se produce por efecto Joule (resistencia eléctrica), cuyo rendimiento es la unidad por definición: no procede el cálculo de un SCOP estacional.');
+        }
         const FC_TABLE = { A3: 1.246, A4: 1.251, B3: 1.223, B4: 1.228, C1: 1.154, C2: 1.165, C3: 1.175, C4: 1.181, D1: 1.093, D2: 1.103, D3: 1.113, E1: 1.056 };
         const acsEprelUrl = inst.misma_aerotermia_acs ? inst.aerotermia_cal?.url_eprel : inst.aerotermia_acs?.url_eprel;
         const acsFtUrl   = inst.misma_aerotermia_acs ? inst.aerotermia_cal?.url_ficha  : inst.aerotermia_acs?.url_ficha;
@@ -721,7 +760,11 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
         }
 
         ${subLabel('7. Rendimiento estacional SCOP<sub>dhw</sub>', '#6E6E66', '20px')}
-        ${tieneAcs ? renderAcsScopJustification() : scopCallout('SCOP en ACS = no aplica.')}
+        ${tieneAcs
+            ? renderAcsScopJustification()
+            : acsTermoFuera
+            ? scopCallout('SCOP en ACS = no aplica. El ACS queda fuera del alcance de la actuación: se produce con un termo eléctrico (efecto Joule, rendimiento = 1), que no computa en el ahorro.')
+            : scopCallout('SCOP en ACS = no aplica.')}
     `;
 
     const scopHeavy = metodoCal === 'eprel'
@@ -800,7 +843,7 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
     }
 
     // SEPARADOR ANEXOS — solo si hay al menos un anexo con driveId.
-    const annexList = attachments.filter(a => a.file?.driveId && (a.id !== 'aerotermia_acs' || tieneAcs));
+    const annexList = attachments.filter(a => a.file?.driveId && (a.id !== 'aerotermia_acs' || (tieneAcs && !acsEsTermo)));
     if (annexList.length > 0) {
         const items = annexList.map((a, i) => `
             <div style="display:flex;align-items:center;gap:16px;border:1px solid #E9E9E1;border-radius:16px;padding:14px 18px;background:#fff;">

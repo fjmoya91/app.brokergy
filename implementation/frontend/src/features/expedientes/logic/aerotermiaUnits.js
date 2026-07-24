@@ -185,3 +185,64 @@ export function unidadesSinSerie(aero) {
         .filter(x => !x.serie)
         .map(x => x.n);
 }
+
+// ============================================================================
+// TIPO DE EQUIPO NUEVO (bloque de ACS)
+// ----------------------------------------------------------------------------
+// El equipo nuevo de ACS no siempre es una bomba de calor: en las reformas
+// integrales (RES080) el ACS puede quedar resuelto con un TERMO ELÉCTRICO
+// (resistencia — efecto Joule), que no está en el catálogo de aerotermia y cuyo
+// rendimiento es 1 POR DEFINICIÓN (toda la electricidad consumida se convierte
+// en calor; no hay SCOP que justificar).
+//
+// Se guarda en `aero.tipo_equipo_nuevo`. Retrocompatible: los expedientes
+// antiguos solo tienen el booleano `es_acumulador`, que sigue escribiéndose en
+// paralelo para no romper a los lectores existentes.
+// ============================================================================
+export const EQUIPO_NUEVO = {
+    BDC: 'bdc',                 // Bomba de calor aerotérmica (por defecto)
+    ACUMULADOR: 'acumulador',   // Depósito calentado por la BdC de calefacción
+    TERMO: 'termo_electrico',   // Termo eléctrico / resistencia · efecto Joule
+};
+
+/** Rendimiento de un equipo por efecto Joule (resistencia eléctrica). */
+export const RENDIMIENTO_JOULE = 1;
+
+/**
+ * Tipo de equipo nuevo del bloque. Deriva de `es_acumulador` si no está fijado.
+ *
+ * OJO: se compara SIEMPRE en minúsculas. El backend pasa por `normalizeData`,
+ * que sube todos los strings a MAYÚSCULAS antes de persistir, así que en BD el
+ * valor guardado es 'TERMO_ELECTRICO'. Comparar con === contra el literal en
+ * minúsculas hacía que el termo se leyera como bomba de calor.
+ */
+export function tipoEquipoNuevo(aero) {
+    const t = String(aero?.tipo_equipo_nuevo ?? '').trim().toLowerCase();
+    if (t === EQUIPO_NUEVO.TERMO || t === 'termo') return EQUIPO_NUEVO.TERMO;
+    if (t === EQUIPO_NUEVO.ACUMULADOR || aero?.es_acumulador) return EQUIPO_NUEVO.ACUMULADOR;
+    return EQUIPO_NUEVO.BDC;
+}
+
+/** true si el equipo nuevo es un termo eléctrico (efecto Joule, rendimiento 1). */
+export function esTermoElectrico(aero) {
+    return tipoEquipoNuevo(aero) === EQUIPO_NUEVO.TERMO;
+}
+
+/** true si el equipo lleva ficha técnica/EPREL que justifique un SCOP. */
+export function justificaScop(aero) {
+    return tipoEquipoNuevo(aero) === EQUIPO_NUEVO.BDC;
+}
+
+/**
+ * Etiqueta de "Tipo de equipo" del equipo NUEVO para las tablas de los
+ * certificados (CIFO, RES080). `sufijoBdc` permite el matiz de cada documento
+ * (p. ej. " (aerotermia)" en el RES080).
+ */
+export function tipoEquipoNuevoLabel(aero, { sufijoBdc = '' } = {}) {
+    const tipo = tipoEquipoNuevo(aero);
+    if (tipo === EQUIPO_NUEVO.TERMO) return 'Termo eléctrico (efecto Joule)';
+    if (tipo === EQUIPO_NUEVO.ACUMULADOR) return 'Acumulador ACS';
+    return countUnidades(aero) > 1
+        ? `Bombas de calor en cascada${sufijoBdc}`
+        : `Bomba de calor${sufijoBdc}`;
+}

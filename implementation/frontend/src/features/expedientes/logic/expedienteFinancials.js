@@ -18,6 +18,7 @@ import {
     resolveHybridInputs,
     BOILER_EFFICIENCIES,
 } from '../../calculator/logic/calculation';
+import { esTermoElectrico } from './aerotermiaUnits';
 
 export function computeExpedienteFinancials(exp) {
     const op = exp.oportunidades;
@@ -85,7 +86,7 @@ export function computeExpedienteFinancials(exp) {
                     scopHeating,
                     scopAcs,
                     cb,
-                    changeAcs: inst.cambio_acs !== false && (!!inst.misma_aerotermia_acs || !!inst.aerotermia_acs?.aerotermia_db_id)
+                    changeAcs: inst.cambio_acs !== false && !esTermoElectrico(inst.aerotermia_acs) && (!!inst.misma_aerotermia_acs || !!inst.aerotermia_acs?.aerotermia_db_id)
                 });
 
                 // Sincronizar parámetros financieros con ExpedienteDetailView

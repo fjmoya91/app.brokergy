@@ -8,6 +8,7 @@ import { getRoleFlags, DELETE_FORBIDDEN_MSG } from '../../../utils/roleFlags';
 import { CertificadorResumenPanel } from '../../admin/views/CertificadorResumenModal';
 import { ExpedienteDetailView, EXPEDIENTE_ESTADOS } from './ExpedienteDetailView';
 import { parseCeeXml } from '../../calculator/logic/xmlCeeParser';
+import { esTermoElectrico } from '../logic/aerotermiaUnits';
 import { ClienteFormModal } from '../../clientes/components/ClienteFormModal';
 import { IncidenciasModal } from '../components/IncidenciasModal';
 import {
@@ -680,7 +681,7 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
                         scopHeating,
                         scopAcs,
                         cb,
-                        changeAcs: inst.cambio_acs !== false && (!!inst.misma_aerotermia_acs || !!inst.aerotermia_acs?.aerotermia_db_id)
+                        changeAcs: inst.cambio_acs !== false && !esTermoElectrico(inst.aerotermia_acs) && (!!inst.misma_aerotermia_acs || !!inst.aerotermia_acs?.aerotermia_db_id)
                     });
 
                     // Sincronizar parámetros financieros con ExpedienteDetailView
