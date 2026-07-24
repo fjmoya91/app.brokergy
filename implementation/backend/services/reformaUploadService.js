@@ -937,6 +937,7 @@ module.exports = {
     PHASE,
     ADDABLE_CONCEPTS,
     ADDABLE_SLOT_KEYS,
+    FULL_RES_SLOTS,
     getReformaSlots,
     getAerotermiaSlots,
     getLeadSlots,

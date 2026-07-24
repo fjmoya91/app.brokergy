@@ -1,6 +1,7 @@
 const supabase = require('./supabaseClient');
 const { getCoordinatesByRC } = require('./catastroService');
 const driveService = require('./driveService');
+const { syncExpedienteFolder } = require('./expedienteFolderSync');
 const { ALLOWED_PROVINCES } = require('../data/allowedProvinces');
 
 // Mapa inverso "nombre de provincia normalizado" -> código (para migración desde XML).
@@ -325,11 +326,14 @@ async function createExpediente(uuid_oportunidad, id_cliente, manualNumber = nul
 
                 // 1. Renombrar en Drive
                 await driveService.renameFolder(driveFolderId, newFolderName);
-                
-                // 2. Mover a la carpeta de "ACEPTADAS" (usa env var, igual que el route de estado)
-                const ACEPTADAS_FOLDER_ID = process.env.DRIVE_FOLDER_ACEPTADA || '1L2Wl9OIOpvmihySZkT09S1FG14Pu3VNy';
-                await driveService.moveFolder(driveFolderId, ACEPTADAS_FOLDER_ID);
-                
+
+                // 2. Mover a la carpeta que le toque por su estado. Un expediente
+                //    recién aceptado (PTE. CEE INICIAL, sin certificador) va a
+                //    "03. ACEPTADO"; uno migrado (PENDIENTE REVISAR EXPTE) ya nace
+                //    en "04. EN CURSO". Ver services/driveFolders.js.
+                await syncExpedienteFolder(newExp, { motivo: 'expediente creado' });
+
+
                 // 3. Sincronizar oportunidad
                 const currentHistorial = dc.historial || [];
                 

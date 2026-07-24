@@ -3,7 +3,7 @@ import axios from 'axios';
 import { useAuth } from '../../../context/AuthContext';
 import { useModal } from '../../../context/ModalContext';
 import { buildInstalacionAddress } from '../utils/docGenerators';
-import { buildAnexoPages, buildAnexoFullHtml, ANEXO_SCREEN_CSS } from './anexoFotograficoDoc';
+import { buildAnexoPages, ANEXO_SCREEN_CSS } from './anexoFotograficoDoc';
 import ReactCrop, { centerCrop, makeAspectCrop } from 'react-image-crop';
 import 'react-image-crop/dist/ReactCrop.css';
 import FirmarConCertificadoModal from './FirmarConCertificadoModal';
@@ -473,9 +473,13 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
         
         setPhotos(prev => {
             const copy = [...prev];
-            copy[editingPhoto.index] = { 
-                ...copy[editingPhoto.index], 
-                file: { ...copy[editingPhoto.index].file, data: base64Image } 
+            copy[editingPhoto.index] = {
+                ...copy[editingPhoto.index],
+                // `recortada` marca la fila para enviarla al generar: el PDF se
+                // construye en el servidor desde Drive, así que solo viajan las
+                // imágenes que el usuario ha modificado a mano (no las 67).
+                recortada: true,
+                file: { ...copy[editingPhoto.index].file, data: base64Image }
             };
             return copy;
         });
@@ -548,22 +552,50 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
         clienteDni: cli.dni || cli.nif || '',
     };
 
-    // ── HTML GENERATION (FOR PDF) ──────────────────────────────────────
     // Las fotos quitadas del anexo no entran en el documento (siguen en Drive).
-    // Mismo criterio que el generador server-side, para que ambos PDF coincidan.
+    // Mismo criterio que el generador del servidor, para que ambos PDF coincidan.
     const photosDoc = photos.filter(p => !excluidas.includes(p.file?.name));
-    const buildHtml = () => buildAnexoFullHtml(photosDoc, docMeta, { photoSizes, comentarios });
+
+    // ── GENERACIÓN EN EL SERVIDOR ─────────────────────────────────────────────
+    // El PDF se construye en el backend leyendo las fotos de Drive. El navegador
+    // solo manda sus AJUSTES (tamaños, recortes): unos pocos KB en vez de decenas
+    // de MB. Antes se subía el HTML entero con las fotos en base64 y un expediente
+    // con muchas fotos (64 MB) superaba el límite del servidor → 413 y no se podía
+    // ni descargar, ni firmar, ni archivar.
+    const generarEnServidor = async ({ devolverPdf = false, guardarEnDrive = false } = {}) => {
+        // Solo las fotos retocadas a mano viajan; el resto ya están en Drive.
+        const recortes = {};
+        for (const p of photosDoc) {
+            if (p.recortada && p.file?.name && p.file?.data) recortes[p.file.name] = p.file.data;
+        }
+        const { data } = await axios.post(
+            `/api/expedientes/${expediente.id}/anexo-fotografico/generar`,
+            { devolverPdf, guardarEnDrive, photoSizes, recortes },
+            { timeout: 10 * 60 * 1000 } // Puppeteer con muchas fotos tarda
+        );
+        if (!data?.ok) throw new Error(data?.message || 'No se pudo generar el anexo');
+        return data;
+    };
+
+    const descargarPdfB64 = (b64, nombre) => {
+        const bin = atob(b64);
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        const blob = new Blob([bytes], { type: 'application/pdf' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = nombre; a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 10000);
+    };
 
     const handleDownloadPdf = async () => {
         setGenerating(true);
         try {
-            const { data } = await axios.post('/api/pdf/generate', { html: buildHtml() });
-            const bytes = new Uint8Array(atob(data.pdf).split('').map(c => c.charCodeAt(0)));
-            const blob = new Blob([bytes], { type: 'application/pdf' });
-            const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
-            a.download = `${numexpte || 'DRAFT'} - Anexo_Fotografico.pdf`; a.click();
-        } catch { 
-            showAlert('No se pudo generar el documento PDF. Por favor, inténtalo de nuevo.', 'Error de Generación', 'error'); 
+            // Descargar NO archiva en Drive: no debe pisar el anexo ya enlazado.
+            const data = await generarEnServidor({ devolverPdf: true, guardarEnDrive: false });
+            descargarPdfB64(data.pdf, `${numexpte || 'DRAFT'} - Anexo_Fotografico.pdf`);
+        } catch (err) {
+            showAlert(err.response?.data?.message || err.message || 'No se pudo generar el documento PDF. Por favor, inténtalo de nuevo.', 'Error de Generación', 'error');
         }
         finally { setGenerating(false); }
     };
@@ -572,12 +604,12 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
     const handleFirmar = async () => {
         setSignBusy(true);
         try {
-            const { data } = await axios.post('/api/pdf/generate', { html: buildHtml() });
+            const data = await generarEnServidor({ devolverPdf: true, guardarEnDrive: false });
             if (!data?.pdf) throw new Error('No se pudo generar el PDF');
             setSignPdfB64(data.pdf);
             setSignOpen(true);
-        } catch {
-            showAlert('No se pudo preparar el Anexo Fotográfico para firmar.', 'Error', 'error');
+        } catch (err) {
+            showAlert(err.response?.data?.message || err.message || 'No se pudo preparar el Anexo Fotográfico para firmar.', 'Error', 'error');
         } finally { setSignBusy(false); }
     };
     const handleSigned = async (signedB64) => {
@@ -602,22 +634,17 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
     };
 
     const handleSaveToDrive = async () => {
-        const folderId = op.drive_folder_id || op.datos_calculo?.drive_folder_id || op.datos_calculo?.inputs?.drive_folder_id;
-        if (!folderId) {
-            showAlert('No se encontró el identificador de la carpeta de Google Drive asociada a este expediente.', 'Carpeta no Encontrada', 'error');
-            return;
-        }
         setSavingDrive(true);
         try {
-            const { data } = await axios.post('/api/pdf/save-to-drive', {
-                html: buildHtml(), folderId, fileName: `${numexpte || 'DRAFT'} - Anexo Fotografico`, subfolderName: '6. ANEXOS CAE'
-            });
-            if (data.driveLink) {
-                if (onSaveDrive) onSaveDrive(data.driveLink);
+            // El backend resuelve la carpeta, sustituye la versión previa y enlaza
+            // el PDF en el expediente (mismo camino que la generación automática).
+            const data = await generarEnServidor({ guardarEnDrive: true });
+            if (data.link) {
+                if (onSaveDrive) onSaveDrive(data.link);
                 showAlert('El Anexo Fotográfico se ha guardado correctamente en la carpeta "6. ANEXOS CAE" de Google Drive.', 'Guardado en Drive', 'success');
             }
-        } catch { 
-            showAlert('No se pudo guardar el archivo en Google Drive.', 'Error de Guardado', 'error'); 
+        } catch (err) {
+            showAlert(err.response?.data?.message || err.message || 'No se pudo guardar el archivo en Google Drive.', 'Error de Guardado', 'error');
         }
         finally { setSavingDrive(false); }
     };
@@ -636,8 +663,11 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
                 userName: [cli.nombre_razon_social, cli.apellidos].filter(Boolean).join(' ')
             };
 
+            // El PDF se genera en el servidor y se manda ya hecho: enviar el HTML
+            // con las fotos en base64 supera el límite de tamaño de la petición.
+            const { pdf } = await generarEnServidor({ devolverPdf: true, guardarEnDrive: false });
             const response = await postEmail('/api/pdf/send-proposal', {
-                html: buildHtml(),
+                pdfBase64: pdf,
                 to: toEmail,
                 userName: summaryData.userName,
                 summaryData: { ...summaryData, id: numexpte }
@@ -669,9 +699,8 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
                 return;
             }
 
-            // 2. Generar PDF
-            const pdfResp = await axios.post('/api/pdf/generate', { html: buildHtml() });
-            const pdfBase64 = pdfResp.data?.pdf;
+            // 2. Generar PDF en el servidor (desde las fotos de Drive)
+            const { pdf: pdfBase64 } = await generarEnServidor({ devolverPdf: true, guardarEnDrive: false });
 
             // 3. Construir mensaje
             const firstName = (cli.nombre_razon_social || '').split(/\s+/)[0];

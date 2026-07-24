@@ -19,6 +19,7 @@ const { partnerNotifyTargets, normalizeContactos } = require('../services/notify
 const { buildCertClienteData } = require('../services/certClienteData');
 const { getCertificadorNombre } = require('../services/certificadorLookup');
 const { avanzarEstado } = require('../utils/expedienteEstados');
+const { syncExpedienteFolderAsync } = require('../services/expedienteFolderSync');
 
 // ─── Guard global del módulo Expedientes (INTERNO de Brokergy) ────────────────
 // Los expedientes son datos internos: VER y gestionar expedientes está reservado a
@@ -210,30 +211,9 @@ function openFolderSignatureValid(expId, token) {
 
 // Resuelve el expediente (por UUID o nº) + el id/enlace de su carpeta raíz de Drive.
 // La carpeta vive SIEMPRE dentro de datos_calculo de la oportunidad (JSONB).
-async function resolveExpedienteDriveFolder(idParam) {
-    let { data: exp } = await supabase
-        .from('expedientes').select('*').eq('id', idParam).maybeSingle();
-    if (!exp) {
-        const { data: expSeq } = await supabase
-            .from('expedientes').select('*').eq('numero_expediente', idParam).maybeSingle();
-        exp = expSeq;
-    }
-    if (!exp) return { exp: null, driveFolderId: null, driveLink: null };
-
-    const { data: op } = await supabase
-        .from('oportunidades').select('id, datos_calculo').eq('id', exp.oportunidad_id).maybeSingle();
-    let datos = op?.datos_calculo || {};
-    if (typeof datos === 'string') { try { datos = JSON.parse(datos); } catch (e) { datos = {}; } }
-
-    let driveFolderId = datos?.drive_folder_id || datos?.inputs?.drive_folder_id || exp.drive_folder_id || null;
-    let driveLink = datos?.drive_folder_link || null;
-    if (!driveFolderId && driveLink) {
-        const m = String(driveLink).match(/folders\/([A-Za-z0-9_-]+)/);
-        if (m) driveFolderId = m[1];
-    }
-    if (driveFolderId && !driveLink) driveLink = `https://drive.google.com/drive/folders/${driveFolderId}`;
-    return { exp, driveFolderId, driveLink };
-}
+// Vive en expedienteFolderSync porque el sincronizador de carpetas por estado la
+// necesita también; aquí solo se re-exporta el nombre para no tocar los usos.
+const { resolveExpedienteDriveFolder } = require('../services/expedienteFolderSync');
 
 // Reconstruye la ruta LOCAL de Windows (espejo de Google Drive para escritorio) de
 // una carpeta de Drive, saneando los nombres como hace Google al espejar.
@@ -1574,9 +1554,20 @@ router.get('/:id/documento-b64/:field', enforceAuth, async (req, res) => {
 // Guard: sesión interna (ADMIN/CERTIFICADOR/TRABAJADOR) O la clave interna
 // compartida con el servidor MCP. `internalKeyOrAuth` se define arriba (junto al
 // guard global del módulo), porque estas rutas lo referencian antes de este punto.
+//
+// El MODAL del anexo usa esta misma ruta para descargar / firmar / guardar en Drive
+// (body: { devolverPdf, guardarEnDrive, photoSizes, recortes }). Antes subía el HTML
+// con todas las fotos en base64 y con expedientes grandes daba 413 (64 MB > 50 MB).
+// Sin body, el comportamiento es el de siempre: generar y archivar (lo que usa el MCP).
 router.post('/:id/anexo-fotografico/generar', internalKeyOrAuth, async (req, res) => {
     try {
-        const result = await anexoFotograficoService.generateAndSaveAnexo(req.params.id);
+        const { devolverPdf, guardarEnDrive, photoSizes, recortes } = req.body || {};
+        const result = await anexoFotograficoService.generateAndSaveAnexo(req.params.id, {
+            devolverPdf: devolverPdf === true,
+            guardarEnDrive: guardarEnDrive !== false,
+            photoSizes: photoSizes || {},
+            recortes: recortes || {},
+        });
         if (!result.ok) return res.status(422).json(result);
         res.json(result);
     } catch (e) {
@@ -2246,6 +2237,16 @@ router.put('/:id', enforceAuth, async (req, res) => {
 
         if (error) throw error;
 
+        // ── Carpeta de Drive según el estado ─────────────────────────────────
+        // Este PUT es el chokepoint del desplegable de estado y del guardado del
+        // módulo CEE (donde se asigna el certificador), que son los dos hechos que
+        // cambian la carpeta: 03. ACEPTADO → 04. EN CURSO → 05 / 13. Ver driveFolders.js.
+        const estadoCambio = data.estado !== existing.estado;
+        const certAsignado = !existing.cee?.certificador_id && !!data.cee?.certificador_id;
+        if (estadoCambio || certAsignado) {
+            syncExpedienteFolderAsync(data, { motivo: certAsignado ? 'certificador asignado' : 'cambio de estado' });
+        }
+
         // ── Envolvente → apartados de foto (RES080) ──────────────────────────
         // Guardar la pestaña Envolvente declara el ALCANCE de la obra. Habilitamos
         // los apartados de foto correspondientes (ventanas / cubierta / fachada) en
@@ -2383,6 +2384,9 @@ router.patch('/:id/estado', enforceAuth, async (req, res) => {
             .single();
 
         if (upErr) return res.status(500).json({ error: 'Error al actualizar estado.' });
+        if (upData.estado !== exp.estado) {
+            syncExpedienteFolderAsync(upData, { motivo: 'cambio de estado' });
+        }
         res.status(200).json(upData);
     } catch (error) {
         res.status(500).json({ error: 'Error del servidor.' });
@@ -4010,6 +4014,14 @@ router.post('/:id/notify-certificador', enforceAuth, async (req, res) => {
             .eq('id', req.params.id);
         if (updErr) console.error('[notify-certificador] error persistiendo cee:', updErr.message);
 
+        // Encargado el CEE, el expediente deja de estar "solo aceptado": su carpeta
+        // baja de "03. ACEPTADO" a "04. EN CURSO". Si ya venía de más adelante
+        // (DOC. COMPLETA de un migrado), carpetaObjetivoExpediente no la retrocede.
+        syncExpedienteFolderAsync(
+            { ...exp, estado: estadoTrasAviso, cee: workingCee },
+            { motivo: 'certificador asignado' }
+        );
+
         // ── Envío de comunicaciones ──────────────────────────────────────────────
         const channels = [];
         const phaseLabel = phase === 'final' ? 'CEE Final' : 'CEE Inicial';
@@ -4229,6 +4241,10 @@ router.post('/:id/cert-ack', async (req, res) => {
             })
             .eq('id', req.params.id);
 
+        if (globalEstado !== exp.estado) {
+            syncExpedienteFolderAsync({ ...exp, estado: globalEstado, cee }, { motivo: 'cert-ack' });
+        }
+
         // Notificar a BROKERGY por email (de fondo, sin bloquear respuesta)
         setImmediate(async () => {
             try {
@@ -4395,6 +4411,10 @@ router.post('/:id/notify-review', enforceAuth, async (req, res) => {
         if (updErr) {
             console.error('Error actualizando Supabase en notify-review:', updErr);
             throw updErr;
+        }
+
+        if (globalEstado !== exp.estado) {
+            syncExpedienteFolderAsync({ ...exp, estado: globalEstado, cee }, { motivo: 'notify-review' });
         }
 
         // Enlace one-tap para el email del admin
@@ -4596,6 +4616,10 @@ router.post('/:id/approve-cee', staffOnly, async (req, res) => {
             .eq('id', req.params.id);
 
         if (updErr) throw updErr;
+
+        if (globalEstado !== exp.estado) {
+            syncExpedienteFolderAsync({ ...exp, estado: globalEstado, cee }, { motivo: 'approve-cee' });
+        }
 
         // Notificar al técnico que ya tiene luz verde, por los canales elegidos.
         // Esperamos los envíos para devolver el estado real de cada canal (sin esto el
@@ -5355,6 +5379,10 @@ router.get('/:id/approve-cee-from-email', async (req, res) => {
         await supabase.from('expedientes')
             .update({ cee, estado: globalEstado, seguimiento, documentacion: { ...docObj, historial }, updated_at: new Date().toISOString() })
             .eq('id', req.params.id);
+
+        if (globalEstado !== exp.estado) {
+            syncExpedienteFolderAsync({ ...exp, estado: globalEstado, cee }, { motivo: 'approve-cee (email)' });
+        }
 
         // Mensaje de visto bueno IDÉNTICO al que la app envía por defecto (buildCertApproveMessage)
         const ceeUploadService = require('../services/ceeUploadService');

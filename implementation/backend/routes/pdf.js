@@ -143,34 +143,42 @@ router.post('/save-to-drive', async (req, res) => {
  * Body: { html: string, to: string, userName: string, summaryData: object }
  */
 router.post('/send-proposal', async (req, res) => {
-    const { html, to, userName, summaryData, customMessage, from } = req.body;
+    const { html, to, userName, summaryData, customMessage, from, pdfBase64 } = req.body;
     const emailService = require('../services/emailService');
 
-    if (!html || !to) {
-        return res.status(400).json({ error: 'Se requiere el contenido HTML y el correo del destinatario.' });
+    // `pdfBase64`: el PDF ya viene hecho y no hay que rasterizar nada. Lo usa el
+    // Anexo Fotográfico, que se genera en el servidor desde las fotos de Drive —
+    // mandar su HTML aquí significaría subir decenas de MB de imágenes en base64.
+    if (!to || (!html && !pdfBase64)) {
+        return res.status(400).json({ error: 'Se requiere el contenido (HTML o PDF) y el correo del destinatario.' });
     }
 
     let browser = null;
     let page = null;
     try {
-        browser = await getBrowser();
-        page = await browser.newPage();
-        await page.setViewport({ width: 794, height: 1123, deviceScaleFactor: 2 });
-        await page.setContent(html, {
-            waitUntil: 'domcontentloaded',
-            timeout: 60000
-        });
+        let pdfBuffer;
+        if (pdfBase64) {
+            pdfBuffer = Buffer.from(pdfBase64, 'base64');
+        } else {
+            browser = await getBrowser();
+            page = await browser.newPage();
+            await page.setViewport({ width: 794, height: 1123, deviceScaleFactor: 2 });
+            await page.setContent(html, {
+                waitUntil: 'domcontentloaded',
+                timeout: 60000
+            });
 
-        // Esperar fuentes y estilos
-        await new Promise(r => setTimeout(r, 1000));
-        try { await page.evaluate(() => document.fonts.ready); } catch (_) { }
+            // Esperar fuentes y estilos
+            await new Promise(r => setTimeout(r, 1000));
+            try { await page.evaluate(() => document.fonts.ready); } catch (_) { }
 
-        // 1. Generar PDF
-        const pdfBuffer = await page.pdf({
-            format: 'A4',
-            printBackground: true,
-            margin: { top: 0, right: 0, bottom: 0, left: 0 }
-        });
+            // 1. Generar PDF
+            pdfBuffer = await page.pdf({
+                format: 'A4',
+                printBackground: true,
+                margin: { top: 0, right: 0, bottom: 0, left: 0 }
+            });
+        }
 
         // 2. Omitir captura de imagen (se enviará solo texto/HTML)
         let tableImageBase64 = null;
@@ -187,7 +195,9 @@ router.post('/send-proposal', async (req, res) => {
         });
 
         // 4. Guardar HTML en base de datos para la vista web online
-        if (summaryData && summaryData.id && summaryData.id !== 'Simulación') {
+        // Solo aplica al flujo de PROPUESTAS (que sí manda html). Con un PDF ya
+        // hecho (Anexo Fotográfico) no hay html que archivar para la vista web.
+        if (html && summaryData && summaryData.id && summaryData.id !== 'Simulación') {
             const supabase = require('../services/supabaseClient');
             const { data: opp, error: fetchErr } = await supabase
                 .from('oportunidades')

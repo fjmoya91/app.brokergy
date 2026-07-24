@@ -213,6 +213,71 @@ function buildDocMeta(exp, cliente, op) {
     };
 }
 
+// ───────────────────────────────────────────────────────────────────────────
+// REDUCCIÓN DE LAS FOTOS PARA EL PDF
+// ---------------------------------------------------------------------------
+// Chrome embebe los JPEG en el PDF casi a resolución original, así que un anexo
+// de 67 fotos de móvil daba un PDF de 88 MB: imposible de enviar por email (el
+// límite habitual son 25 MB) y absurdo de descargar o de mandar al verificador.
+//
+// En el documento cada foto se imprime en una celda de 60-85 mm, o sea unos
+// 500-700 px a 200 ppp. Con 1400 px va sobrada, y con eso el mismo anexo baja a
+// una fracción sin diferencia visible. Las PLACAS van a 2200 px porque de ellas
+// se lee el nº de serie ampliando el PDF (y son 2-4 fotos, apenas pesan).
+//
+// Se hace con la propia instancia de Chrome que ya se lanza para el PDF: nada de
+// dependencias nativas nuevas (sharp) en la imagen Docker.
+const PDF_MAX_LADO = 1400;
+const PDF_MAX_LADO_PLACA = 2200;
+const PDF_CALIDAD = 0.82;
+
+async function reducirFotosParaPdf(browser, rows) {
+    const { FULL_RES_SLOTS } = reformaUploadService;
+    const page = await browser.newPage();
+    let ahorrado = 0;
+    try {
+        await page.setContent('<!doctype html><html><body></body></html>');
+        for (const r of rows) {
+            const original = r.file?.data;
+            if (typeof original !== 'string' || !original.startsWith('data:image/')) continue;
+            const esPlaca = FULL_RES_SLOTS?.has?.(r.slotKey);
+            const max = esPlaca ? PDF_MAX_LADO_PLACA : PDF_MAX_LADO;
+            try {
+                // eslint-disable-next-line no-await-in-loop
+                const reducida = await page.evaluate(async (dataUrl, maxLado, calidad) => {
+                    const img = new Image();
+                    img.src = dataUrl;
+                    try { await img.decode(); } catch { return null; }
+                    const lado = Math.max(img.naturalWidth, img.naturalHeight);
+                    if (!lado || lado <= maxLado) return null;      // ya es pequeña
+                    const k = maxLado / lado;
+                    const c = document.createElement('canvas');
+                    c.width = Math.round(img.naturalWidth * k);
+                    c.height = Math.round(img.naturalHeight * k);
+                    const ctx = c.getContext('2d');
+                    if (!ctx) return null;
+                    ctx.drawImage(img, 0, 0, c.width, c.height);
+                    return c.toDataURL('image/jpeg', calidad);
+                }, original, max, PDF_CALIDAD);
+
+                if (reducida && reducida.length < original.length) {
+                    ahorrado += original.length - reducida.length;
+                    r.file = { ...r.file, data: reducida };
+                }
+            } catch (e) {
+                // Una foto que no se pueda reducir se embebe tal cual: el documento
+                // pesará más, pero nunca se queda sin generar por esto.
+                console.warn('[Anexo] no se pudo reducir', r.file?.name, e.message);
+            }
+        }
+    } finally {
+        try { await page.close(); } catch (_) {}
+    }
+    if (ahorrado > 0) {
+        console.log(`[Anexo] fotos reducidas para el PDF: ${(ahorrado / 1024 / 1024).toFixed(1)} MB menos`);
+    }
+}
+
 /**
  * Auto-reparación del alcance antes de leer las fotos: si la pestaña Envolvente
  * del expediente declara actuaciones (ventanas / cubierta / fachada) que el
@@ -242,10 +307,28 @@ async function syncEnvolventeAndReload(exp, op) {
  * Genera el Anexo Fotográfico de un expediente y lo guarda en Drive
  * ("6. ANEXOS CAE"), dejando el enlace en documentacion.anexo_fotografico_drive_link.
  *
+ * También es el camino que usa el MODAL (descargar / firmar / guardar en Drive).
+ * Antes el navegador construía el HTML con TODAS las fotos en base64 y lo subía al
+ * backend: con 67 fotos son 64 MB de payload y Express (límite 50 MB) devolvía 413,
+ * así que no se podía ni descargar, ni firmar, ni archivar. Las fotos ya están en
+ * Drive y el servidor las tiene a mano: no hace falta que bajen al navegador y
+ * vuelvan a subir. Ahora el navegador solo manda sus AJUSTES (unos pocos KB).
+ *
  * @param {string} expedienteId  UUID del expediente (columna id).
- * @returns {Promise<{ ok, link, numPhotos, numActuaciones, groups, message? }>}
+ * @param {object} opts
+ *   - devolverPdf   {boolean} incluir el PDF en base64 en la respuesta (descargar/firmar)
+ *   - guardarEnDrive{boolean} subirlo a "6. ANEXOS CAE" y enlazarlo (por defecto sí)
+ *   - photoSizes    {object}  { [rowId]: 30..100 } tamaño por foto (slider del modal)
+ *   - recortes      {object}  { [nombreFichero]: dataUrl } fotos recortadas a mano
+ * @returns {Promise<{ ok, link?, pdf?, numPhotos, numActuaciones, groups, message? }>}
  */
-async function generateAndSaveAnexo(expedienteId) {
+async function generateAndSaveAnexo(expedienteId, opts = {}) {
+    const {
+        devolverPdf = false,
+        guardarEnDrive = true,
+        photoSizes = {},
+        recortes = {},
+    } = opts;
     // 1. Cargar expediente + oportunidad + cliente.
     const { data: exp, error } = await supabase
         .from('expedientes')
@@ -278,15 +361,33 @@ async function generateAndSaveAnexo(expedienteId) {
         return { ok: false, message: 'No hay fotos nombradas por slot en "12. DOCUMENTOS PARA CEE". Sube/renombra las fotos antes de generar el anexo.' };
     }
 
-    // 3. Construir HTML con el diseño (mismo que el modal).
-    const meta = buildDocMeta(exp, cliente, op);
-    const html = buildAnexoFullHtml(rows, meta, { comentarios: exp.documentacion?.anexo_comentarios || {} });
+    // 2b. Recortes hechos a mano en el modal: sustituyen la imagen de esa fila.
+    // Solo viajan los ficheros recortados (no todos), así el payload sigue siendo
+    // pequeño. El recorte no se persiste: vale para ESTA generación.
+    if (recortes && typeof recortes === 'object') {
+        for (const r of rows) {
+            const dataUrl = recortes[r.file?.name];
+            if (typeof dataUrl === 'string' && dataUrl.startsWith('data:image/')) {
+                r.file = { ...r.file, data: dataUrl };
+            }
+        }
+    }
 
-    // 4. Renderizar PDF con Puppeteer (mismo pipeline que /api/pdf/*).
+    // 3. Renderizar PDF con Puppeteer (mismo pipeline que /api/pdf/*). Las fotos se
+    // reducen ANTES de montar el HTML: con muchas fotos, embeberlas a resolución de
+    // móvil daba un PDF imposible de enviar (88 MB con 67 fotos).
+    const meta = buildDocMeta(exp, cliente, op);
     const { getBrowser } = require('./pdfService');
     let browser = null, page = null, pdfBuffer;
     try {
         browser = await getBrowser();
+        await reducirFotosParaPdf(browser, rows);
+
+        const html = buildAnexoFullHtml(rows, meta, {
+            comentarios: exp.documentacion?.anexo_comentarios || {},
+            photoSizes: photoSizes || {},
+        });
+
         page = await browser.newPage();
         await page.setViewport({ width: 794, height: 1123, deviceScaleFactor: 2 });
         await page.setContent(html, { waitUntil: 'domcontentloaded', timeout: 60000 });
@@ -302,26 +403,33 @@ async function generateAndSaveAnexo(expedienteId) {
     }
 
     // 5. Guardar en Drive "6. ANEXOS CAE" (sustituye la versión previa).
-    const numexpte = exp.numero_expediente || 'DRAFT';
-    const fileName = `${numexpte} - Anexo Fotografico`.replace(/[\\/<>:"|?*]/g, '_') + '.pdf';
-    const targetFolderId = await driveService.getOrCreateSubfolder(driveFolderId, SUBCARPETA_ANEXOS);
-    try {
-        const existing = await driveService.findFileByName(targetFolderId, fileName);
-        if (existing) await driveService.deleteFile(existing);
-    } catch (_) {}
-    const saved = await driveService.saveFileToFolder(targetFolderId, fileName, 'application/pdf', pdfBuffer);
-    if (!saved?.link) return { ok: false, message: 'No se pudo guardar el anexo en Drive' };
-    try { if (saved.id) await driveService.setFolderPublic(saved.id, 'reader'); } catch (_) {}
+    // Al descargar o preparar la firma NO se archiva: el usuario solo quiere el PDF
+    // en la mano, y guardarlo pisaría el que ya hay enlazado en el expediente.
+    let link = null;
+    if (guardarEnDrive) {
+        const numexpte = exp.numero_expediente || 'DRAFT';
+        const fileName = `${numexpte} - Anexo Fotografico`.replace(/[\\/<>:"|?*]/g, '_') + '.pdf';
+        const targetFolderId = await driveService.getOrCreateSubfolder(driveFolderId, SUBCARPETA_ANEXOS);
+        try {
+            const existing = await driveService.findFileByName(targetFolderId, fileName);
+            if (existing) await driveService.deleteFile(existing);
+        } catch (_) {}
+        const saved = await driveService.saveFileToFolder(targetFolderId, fileName, 'application/pdf', pdfBuffer);
+        if (!saved?.link) return { ok: false, message: 'No se pudo guardar el anexo en Drive' };
+        try { if (saved.id) await driveService.setFolderPublic(saved.id, 'reader'); } catch (_) {}
+        link = saved.link;
 
-    // 6. Enlazar en el expediente (documentacion.anexo_fotografico_drive_link).
-    const docUpdate = { ...(exp.documentacion || {}), anexo_fotografico_drive_link: saved.link };
-    await supabase.from('expedientes')
-        .update({ documentacion: docUpdate, updated_at: new Date().toISOString() })
-        .eq('id', expedienteId);
+        // 6. Enlazar en el expediente (documentacion.anexo_fotografico_drive_link).
+        const docUpdate = { ...(exp.documentacion || {}), anexo_fotografico_drive_link: link };
+        await supabase.from('expedientes')
+            .update({ documentacion: docUpdate, updated_at: new Date().toISOString() })
+            .eq('id', expedienteId);
+    }
 
     return {
         ok: true,
-        link: saved.link,
+        link,
+        ...(devolverPdf ? { pdf: pdfBuffer.toString('base64') } : {}),
         numPhotos: rows.length,
         numActuaciones: groupRowsIntoActuaciones(rows).length,
         groups: groups.map(g => ({ key: g.key, label: g.label, fase: g.fase, count: g.photos.length })),

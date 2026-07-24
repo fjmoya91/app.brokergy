@@ -209,6 +209,14 @@ async function moveFolder(fileId, newParentId) {
             return false;
         }
 
+        // Ya está donde queremos: no gastamos una escritura en Drive. Los
+        // sincronizadores de carpeta por estado llaman a esto en cada cambio, así
+        // que la inmensa mayoría de invocaciones son no-ops.
+        if (file.data.parents.includes(newParentId)) {
+            console.log(`[DriveService] '${file.data.name}' (${fileId}) ya está en ${newParentId}. Nada que mover.`);
+            return true;
+        }
+
         const previousParents = file.data.parents.join(',');
         console.log(`[DriveService] Moviendo folder '${file.data.name}' (${fileId}). Padres antiguos: ${previousParents}`);
 
@@ -509,11 +517,11 @@ async function copyFile(sourceFileId, targetFolderId, newName) {
 /**
  * Obtiene metadatos básicos de un archivo (sin contenido).
  */
-async function getFileMetadata(fileId) {
+async function getFileMetadata(fileId, fields = 'id, name, size, mimeType, webViewLink') {
     try {
         const response = await drive.files.get({
             fileId,
-            fields: 'id, name, size, mimeType, webViewLink'
+            fields
         });
         return response.data;
     } catch (err) {

@@ -15,6 +15,7 @@ const emailService = require('./emailService');
 const { applyStatus } = require('./seguimientoTracking');
 const { getCertificadorNombre } = require('./certificadorLookup');
 const { avanzarEstado } = require('../utils/expedienteEstados');
+const { syncExpedienteFolderAsync } = require('./expedienteFolderSync');
 
 // Slots del CEE — ESPEJO de DOCUMENT_SLOTS del frontend (CeeDocumentsGrid.jsx).
 // El renombrado usa el mismo patrón `{numExp} – {SECCIÓN}{suffix}` que la app.
@@ -233,6 +234,10 @@ async function markCeeRegistradoFromUpload(exp, phase) {
     if (fresh.prioridad === 'URGENTE') updatePayload.prioridad = 'NORMAL';
 
     await supabase.from('expedientes').update(updatePayload).eq('id', exp.id);
+
+    if (newEstado !== fresh.estado) {
+        syncExpedienteFolderAsync({ ...fresh, estado: newEstado }, { motivo: 'CEE registrado por el certificador' });
+    }
 
     // Email al admin con enlace one-tap (fire-and-forget), igual que la app.
     setImmediate(async () => {

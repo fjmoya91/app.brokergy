@@ -62,7 +62,8 @@ export const FASES = [
         estados: [
             'PTE. CEE FINAL', 'EN CERTIFICADOR CEE FINAL', 'EN TRABAJO (CEE FINAL)',
             'PENDIENTE REVISIÓN (FINAL)', 'REVISADO Y LISTO (FINAL)',
-            'PTE FIRMA ANEXOS', 'PTE. CIFO BROKERGY', 'PTE FIRMA CIFO', 'PTE FIN EXPTE'
+            'PTE FIRMA ANEXOS', 'PTE. CIFO BROKERGY', 'PTE FIRMA CIFO', 'PTE FIN EXPTE',
+            'REQUERIMIENTO BROKERGY'
         ]
     },
     {

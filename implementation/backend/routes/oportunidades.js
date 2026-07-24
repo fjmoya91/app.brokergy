@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const supabase = require('../services/supabaseClient');
 const driveService = require('../services/driveService');
+const { syncOportunidadFolder, syncExpedienteFolder } = require('../services/expedienteFolderSync');
 const reformaUploadService = require('../services/reformaUploadService');
 const pdfService = require('../services/pdfService');
 const { requireAuth, enforceAuth, adminOnly, staffOnly, isStaff } = require('../middleware/auth');
@@ -595,28 +596,28 @@ router.patch('/:id/estado', requireAuth, async (req, res) => {
         if (upErr) return res.status(500).json({ error: 'Error al actualizar.' });
 
         // --- Automatización de MOVIMIENTO en Drive ---
+        // Mapa en services/driveFolders.js: mientras no se envía la propuesta la
+        // carpeta se queda en "01. OPORTUNIDADES" (antes 'EN CURSO' la mandaba a
+        // "04. EN CURSO", que ahora es de expedientes en marcha), enviada → "02.
+        // SIMULACION ENVIADA" y aceptada → "03. ACEPTADO".
+        // Si la oportunidad YA tiene expediente, manda el estado del EXPEDIENTE (o su
+        // lote): tocar aquí el estado de la oportunidad no puede arrastrar de vuelta a
+        // "03. ACEPTADO" la carpeta de un expediente que ya está en DOC. COMPLETA.
         if (folderId) {
             console.log(`[StatusUpdate] Detectada carpeta Drive vinculada (${folderId}). Procesando automovimiento...`);
-            // Mapa de IDs según el estado (Sacados de la petición del usuario)
-            const FOLDER_MAP = {
-                'EN CURSO':   process.env.DRIVE_FOLDER_EN_CURSO,
-                'ENVIADA':    process.env.DRIVE_FOLDER_ENVIADA,
-                'ACEPTADA':   process.env.DRIVE_FOLDER_ACEPTADA,
-                'PTE ENVIAR': process.env.DRIVE_ROOT_FOLDER_ID,
-            };
-
-            const targetFolderId = FOLDER_MAP[nuevo_estado];
-            if (targetFolderId) {
-                console.log(`[StatusUpdate] Enviando comando de movimiento a carpeta ID Target: ${targetFolderId}`);
-                driveService.moveFolder(folderId, targetFolderId).then(success => {
-                    if (success) console.log(`[StatusUpdate] ✅ Carpeta movida con éxito.`);
-                    else console.error(`[StatusUpdate] ❌ Falló el movimiento de carpeta.`);
-                }).catch(err => {
+            setImmediate(async () => {
+                try {
+                    const { data: expExistente } = await supabase
+                        .from('expedientes').select('id').eq('oportunidad_id', op.id).maybeSingle();
+                    if (expExistente) {
+                        await syncExpedienteFolder(expExistente.id, { motivo: 'estado de la oportunidad' });
+                    } else {
+                        await syncOportunidadFolder(folderId, nuevo_estado, { ref: id });
+                    }
+                } catch (err) {
                     console.error('[StatusUpdate] Error fatal moviendo carpeta:', err.message);
-                });
-            } else {
-                console.log(`[StatusUpdate] El estado '${nuevo_estado}' no tiene carpeta de destino configurada.`);
-            }
+                }
+            });
         } else {
             console.warn(`[StatusUpdate] La oportunidad ${id} no tiene una carpeta de Drive vinculada. No se puede mover.`);
         }

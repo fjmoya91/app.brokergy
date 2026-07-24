@@ -8,6 +8,10 @@ const geoCcaa = require('../services/geoCcaa');
 const loteService = require('../services/loteService');
 const marwenService = require('../services/marwenService');
 const driveService = require('../services/driveService');
+const { carpetaObjetivoLote } = require('../services/driveFolders');
+const {
+    syncLoteFolder, absorberExpedientesEnLote, devolverExpedienteDeLote,
+} = require('../services/expedienteFolderSync');
 const { htmlToPdf } = require('../services/pdfService');
 
 const {
@@ -54,14 +58,16 @@ async function validarPrescriptorTipo(id, tipo) {
     return { ok: true, value: data };
 }
 
-// Carpeta del lote en Drive. El padre es la carpeta de estado "07. ENVIADOS A
-// VERIFICAR" (env DRIVE_FOLDER_ENVIADOS_VERIFICAR); si no está configurada, cae a
-// {DRIVE_ROOT}/LOTES. Se crea bajo demanda y se cachea en lotes.drive_folder_id.
+// Carpeta del lote en Drive. El padre es la carpeta de estado que le toca al lote
+// (BORRADOR → "06. REVISADO LISTO PARA VERIFICAR", enviado → "07. ENVIADOS A
+// VERIFICAR", FINALIZADO → "11. FINALIZADOS"…, ver services/driveFolders.js).
+// Se crea bajo demanda y se cachea en lotes.drive_folder_id.
 // Dentro de esta carpeta se mueven las carpetas de los expedientes del lote y se
 // depositan los documentos del lote (Anexo I, fichas, solicitud y sus firmados).
+// A partir de ahí manda el ESTADO DEL LOTE: la carpeta viaja con todo dentro.
 async function ensureLoteFolder(lote) {
     if (lote.drive_folder_id) return lote.drive_folder_id;
-    let parent = process.env.DRIVE_FOLDER_ENVIADOS_VERIFICAR;
+    let parent = carpetaObjetivoLote(lote.estado);
     if (!parent) {
         const root = process.env.DRIVE_ROOT_FOLDER_ID;
         if (!root) throw new Error('DRIVE_ROOT_FOLDER_ID no está configurado');
@@ -1037,6 +1043,17 @@ router.post('/:id/expedientes', staffOnly, async (req, res) => {
             .update(loteUpdate).eq('id', lote.id).select().single();
         if (upLote) throw upLote;
 
+        // La carpeta del expediente entra YA en la del lote: a partir de aquí no se
+        // mueve por su cuenta, viaja con el lote. Fire-and-forget (Drive no bloquea).
+        setImmediate(async () => {
+            try {
+                const folderId = await ensureLoteFolder(updatedLote);
+                await absorberExpedientesEnLote(folderId, [{ ...ctx.exp, lote_id: lote.id }]);
+            } catch (e) {
+                console.warn('[POST /lotes/:id/expedientes] Drive:', e.message);
+            }
+        });
+
         const sugerencias = await sugerirMismoInstalador({
             instaladorId: ctx.instaladorId,
             anio: updatedLote.anio_actuacion,
@@ -1064,6 +1081,11 @@ router.delete('/:id/expedientes/:expId', staffOnly, async (req, res) => {
             .update({ lote_id: null, updated_at: nowIso() })
             .eq('id', req.params.expId).eq('lote_id', lote.id);
         if (upErr) throw upErr;
+
+        // Fuera del lote, su carpeta vuelve a la que le toca por estado (05 / 13).
+        setImmediate(() => {
+            devolverExpedienteDeLote(req.params.expId).catch(() => {});
+        });
 
         // Si el lote se queda vacío, liberar las claves año/CCAA y el código.
         const { data: restantes } = await supabase.from('expedientes').select('id').eq('lote_id', lote.id);
@@ -1133,6 +1155,12 @@ router.patch('/:id/estado', staffOnly, async (req, res) => {
                 .eq('lote_id', lote.id);
         }
 
+        // La carpeta del LOTE se mueve a la carpeta de su nuevo estado y arrastra
+        // dentro las de todos sus expedientes (que no se mueven por su cuenta).
+        setImmediate(() => {
+            syncLoteFolder(updated, { motivo: 'cambio de estado del lote' }).catch(() => {});
+        });
+
         const [enriched] = await enrichLotes([updated]);
         res.json(scrubLoteForUser(enriched, req));
     } catch (err) {
@@ -1150,7 +1178,15 @@ router.delete('/:id', adminOnly, async (req, res) => {
         if (lote.estado !== 'BORRADOR') return res.status(409).json({ error: 'Solo se pueden borrar lotes en BORRADOR' });
 
         // Desasignar expedientes (la FK es ON DELETE SET NULL, pero lo hacemos explícito).
+        const { data: miembrosLote } = await supabase.from('expedientes').select('id').eq('lote_id', lote.id);
         await supabase.from('expedientes').update({ lote_id: null, updated_at: nowIso() }).eq('lote_id', lote.id);
+
+        // Sus carpetas salen de la del lote y vuelven a la que les toca por estado.
+        setImmediate(async () => {
+            for (const m of (miembrosLote || [])) {
+                await devolverExpedienteDeLote(m.id, { motivo: 'lote borrado' }).catch(() => {});
+            }
+        });
         const { error: delErr } = await supabase.from('lotes').delete().eq('id', lote.id);
         if (delErr) throw delErr;
         res.json({ deleted: true });

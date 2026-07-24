@@ -70,7 +70,10 @@ function mapEstadoToHito(estadoActual) {
         return h(5, 'Tramitación del CAE', 'En verificación por una entidad externa acreditada por ENAC.', 'en_verificacion');
 
     // Hito 4 — Preparación del expediente
-    if (e.includes('CIFO') || e.includes('FIN EXPTE') || e.includes('DOC. COMPLETA') || e.includes('REVISAR EXPTE'))
+    // (REQUERIMIENTO BROKERGY = lo hemos revisado por dentro y falta algo; para el
+    // cliente sigue siendo "estamos preparando tu expediente".)
+    if (e.includes('CIFO') || e.includes('FIN EXPTE') || e.includes('DOC. COMPLETA')
+        || e.includes('REVISAR EXPTE') || e.includes('REQUERIMIENTO BROKERGY'))
         return h(4, 'Preparación del expediente', 'Preparamos y revisamos toda tu documentación.', 'preparacion');
 
     // Hito 3 — Certificado energético final

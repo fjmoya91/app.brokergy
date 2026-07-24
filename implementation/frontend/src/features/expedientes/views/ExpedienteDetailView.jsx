@@ -55,6 +55,9 @@ export const EXPEDIENTE_ESTADOS = [
     // sabía cuál marcar (en toda la historia se usaron 0, 1 y 1 veces). El detalle
     // de quién tiene qué lo dan las PISTAS del módulo "Barrido · Qué falta".
     'PTE FIN EXPTE',
+    // Revisión INTERNA nuestra: lo hemos repasado y falta algo. Va antes de
+    // DOC. COMPLETA porque es justo lo que impide darlo por completo.
+    'REQUERIMIENTO BROKERGY',
     'DOC. COMPLETA',
     'DOC. COMPLETA APPSHEET',
     'PENDIENTE REVISAR EXPTE',

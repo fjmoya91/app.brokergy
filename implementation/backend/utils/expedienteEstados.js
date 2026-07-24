@@ -57,6 +57,9 @@ const ORDEN_ESTADOS = [
     'PTE. CIFO BROKERGY',
     'PTE FIRMA CIFO',
     'PTE FIN EXPTE',
+    // Revisión INTERNA de Brokergy: hemos repasado el expediente y falta algo.
+    // Va antes de DOC. COMPLETA porque es justo lo que impide darlo por completo.
+    'REQUERIMIENTO BROKERGY',
     'DOC. COMPLETA',
     'DOC. COMPLETA APPSHEET',
 
