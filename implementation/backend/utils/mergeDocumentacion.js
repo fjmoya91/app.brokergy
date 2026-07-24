@@ -9,12 +9,14 @@
  * Estas claves las escribe SOLO su endpoint/RPC, nunca el PUT general, así que
  * para ellas manda siempre lo que ya hay en BD:
  *   · cifo_extra_annexes                → RPC cifo_annex_append/remove (/anexos-cifo)
+ *   · cifo_annex_prefs                  → RPC cifo_annex_prefs_set (/anexos-cifo/prefs)
  *   · anexo_comentarios/_excluidas/_orden → PUT /:id/anexo-fotografico/config
  *
  * Vive aparte para poder probarse sin levantar la ruta entera.
  */
 const CLAVES_PROTEGIDAS = [
     'cifo_extra_annexes',
+    'cifo_annex_prefs',
     'anexo_comentarios',
     'anexo_excluidas',
     'anexo_orden',

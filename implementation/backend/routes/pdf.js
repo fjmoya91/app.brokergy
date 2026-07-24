@@ -3,6 +3,11 @@ const router = express.Router();
 
 const { getBrowser, mergePdfs, fetchAnnexBuffers } = require("../services/pdfService");
 
+// Anexos a concatenar. Formato actual: `annexes` = [{ driveId, excludedPages }]
+// (permite recortar páginas de cada anexo, ver documentacion.cifo_annex_prefs).
+// Formato antiguo: `annexDriveFileIds` = ['driveId'] → todas las páginas.
+const annexSpecs = (body) => (Array.isArray(body?.annexes) ? body.annexes : body?.annexDriveFileIds);
+
 
 /**
  * POST /api/pdf/generate
@@ -10,8 +15,9 @@ const { getBrowser, mergePdfs, fetchAnnexBuffers } = require("../services/pdfSer
  * Returns: application/pdf
  */
 router.post('/generate', async (req, res) => {
-    const { html, annexDriveFileIds } = req.body;
-    console.log(`[PDF] Generando PDF oficial... (Payload: ${Math.round((html?.length || 0)/1024)} KB, anexos=${annexDriveFileIds?.length || 0})`);
+    const { html } = req.body;
+    const annexes = annexSpecs(req.body);
+    console.log(`[PDF] Generando PDF oficial... (Payload: ${Math.round((html?.length || 0)/1024)} KB, anexos=${annexes?.length || 0})`);
 
     if (!html || typeof html !== 'string') {
         return res.status(400).json({ error: 'Se requiere el campo "html" con el contenido HTML.' });
@@ -21,7 +27,7 @@ router.post('/generate', async (req, res) => {
     let page = null;
     try {
         // Lanzar la descarga de anexos en paralelo con la generación del PDF principal
-        const annexPromise = fetchAnnexBuffers(annexDriveFileIds);
+        const annexPromise = fetchAnnexBuffers(annexes);
 
         browser = await getBrowser();
         page = await browser.newPage();
@@ -73,7 +79,8 @@ router.post('/generate', async (req, res) => {
  * Returns: { success: boolean, driveLink: string }
  */
 router.post('/save-to-drive', async (req, res) => {
-    const { html, folderId, fileName, subfolderName, annexDriveFileIds } = req.body;
+    const { html, folderId, fileName, subfolderName } = req.body;
+    const annexes = annexSpecs(req.body);
     const driveService = require('../services/driveService');
 
     if (!html || !folderId) {
@@ -83,7 +90,7 @@ router.post('/save-to-drive', async (req, res) => {
     let browser = null;
     let page = null;
     try {
-        const annexPromise = fetchAnnexBuffers(annexDriveFileIds);
+        const annexPromise = fetchAnnexBuffers(annexes);
 
         browser = await getBrowser();
         page = await browser.newPage();
@@ -300,7 +307,8 @@ router.post('/send-annex', async (req, res) => {
  * Body: { html, to, instaladorNombre, numExpediente }
  */
 router.post('/send-cifo', async (req, res) => {
-    const { html, to, instaladorNombre, numExpediente, clienteNombre, direccionInstalacion, uploadLink, annexDriveFileIds, subject, message } = req.body;
+    const { html, to, instaladorNombre, numExpediente, clienteNombre, direccionInstalacion, uploadLink, subject, message } = req.body;
+    const annexes = annexSpecs(req.body);
     const emailService = require('../services/emailService');
 
     if (!html || !to) {
@@ -310,7 +318,7 @@ router.post('/send-cifo', async (req, res) => {
     let browser = null;
     let page = null;
     try {
-        const annexPromise = fetchAnnexBuffers(annexDriveFileIds);
+        const annexPromise = fetchAnnexBuffers(annexes);
 
         browser = await getBrowser();
         page = await browser.newPage();

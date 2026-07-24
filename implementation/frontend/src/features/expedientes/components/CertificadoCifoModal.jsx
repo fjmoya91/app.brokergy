@@ -9,6 +9,12 @@ import { calcCifo } from '../logic/calcCifo';
 // consume el backend (cifoService.js) por import() dinámico, así que el PDF sale
 // idéntico por app y por generación automática. NO dupliques la maquetación aquí.
 import { deriveCifoData, buildCifoHtml, buildDocCss, formatDateSpanish, EMITTER_OPTIONS } from '../logic/cifoDoc';
+// Orden de los anexos + páginas excluidas de cada uno (documentacion.cifo_annex_prefs).
+import {
+    readAnnexPrefs, orderAttachments, orderFromAttachments,
+    excludedPagesFor, prepareAnnexAttachments, buildAnnexPayload, formatPageRanges
+} from '../logic/annexPrefs';
+import AnexoPaginasModal from './AnexoPaginasModal';
 
 const APP_BASE_URL = 'https://app.brokergy.es';
 
@@ -23,7 +29,7 @@ const APP_URL = import.meta.env.VITE_APP_URL || (typeof window !== 'undefined' ?
 // (cabecera, pie, portada). La identidad que se muestra en la portada es la de la
 // empresa instaladora (mismos datos que la tabla "Datos de la empresa instaladora").
 
-export function CertificadoCifoModal({ isOpen, onClose, expediente, results, attachments: externalAttachments, onAttachmentsChange, onSaveDrive, onSaveFichaLink, onSaveExtraAnnexes, onMarkSent }) {
+export function CertificadoCifoModal({ isOpen, onClose, expediente, results, attachments: externalAttachments, onAttachmentsChange, onSaveDrive, onSaveFichaLink, onSaveExtraAnnexes, onSaveAnnexPrefs, onMarkSent }) {
     const { user } = useAuth();
     const containerRef = useRef(null);
     const [generating, setGenerating] = useState(false);
@@ -65,8 +71,22 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
     const [loadingFichas, setLoadingFichas] = useState({ cal: false, acs: false });
     const [resyncingType, setResyncingType] = useState(null);
     const [uploadingExtra, setUploadingExtra] = useState(false);
-    const [draggedIndex, setDraggedIndex] = useState(null);
+    const [draggedId, setDraggedId] = useState(null);
     const [isGlobalDragging, setIsGlobalDragging] = useState(false);
+
+    // Orden de los anexos + páginas excluidas de cada uno. Se persisten en
+    // documentacion.cifo_annex_prefs, así que valen igual para la descarga, el
+    // guardado en Drive, el envío al instalador y la generación automática (MCP).
+    const [annexPrefs, setAnnexPrefs] = useState(() => readAnnexPrefs(expediente?.documentacion));
+    const [pagesModalFor, setPagesModalFor] = useState(null);   // id del slot con el selector de páginas abierto
+
+    // Solo re-leemos de BD al ABRIR: mientras el modal está abierto manda el estado
+    // local (cada guardado del expediente dispara un refetch que, si llegase tarde,
+    // desharía visualmente el último cambio de orden).
+    useEffect(() => {
+        if (isOpen) setAnnexPrefs(readAnnexPrefs(expediente?.documentacion));
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isOpen, expediente?.id]);
 
     // Carga PDF.js (CDN) sólo cuando hace falta para renderizar el preview.
     // El resultado de la conversión NO se persiste ni se envía al backend
@@ -285,12 +305,14 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
         return btoa(binary);
     };
 
-    const removeAttachment = async (index) => {
-        const item = attachments[index];
+    // Por ITEM, nunca por índice: la lista que se pinta va filtrada (el slot de ACS
+    // se oculta si no se toca el ACS) y ordenada por prefs, así que el índice de
+    // pantalla no coincide con el del array del padre.
+    const removeAttachment = async (item) => {
         if (!item) return;
         if (item.required) {
             // Slot fijo: limpiamos el archivo localmente (no borramos de Drive)
-            setAttachments(prev => prev.map((a, i) => i === index ? { ...a, file: null, missing: false } : a));
+            setAttachments(prev => prev.map(a => a.id === item.id ? { ...a, file: null, missing: false } : a));
             return;
         }
         // Anexo extra: borrar del backend + Drive
@@ -304,17 +326,22 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
                 return;
             }
         }
-        setAttachments(prev => prev.filter((_, i) => i !== index));
+        setAttachments(prev => prev.filter(a => a.id !== item.id));
     };
 
-    const reorderAttachments = (dragIdx, dropIdx) => {
-        if (dragIdx === dropIdx) return;
-        setAttachments(prev => {
-            const copy = [...prev];
-            const [moved] = copy.splice(dragIdx, 1);
-            copy.splice(dropIdx, 0, moved);
-            return copy;
-        });
+    // Escritura ATÓMICA por endpoint propio (RPC cifo_annex_prefs_set): el
+    // autoguardado del expediente reenvía `documentacion` entera y pisaría estas
+    // claves, por eso están protegidas en el PUT (utils/mergeDocumentacion.js).
+    const persistAnnexPrefs = async (next) => {
+        setAnnexPrefs(next);
+        if (onSaveAnnexPrefs) onSaveAnnexPrefs(next);
+        if (!expediente?.id) return;
+        try {
+            await axios.put(`/api/expedientes/${expediente.id}/anexos-cifo/prefs`, next);
+        } catch (err) {
+            console.error('[CIFO] guardar preferencias de anexos falló:', err);
+            alert('❌ No se pudo guardar el orden / recorte de los anexos.');
+        }
     };
 
     const updateScale = useCallback(() => {
@@ -550,6 +577,55 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
         return { text: 'Drive', tone: 'emerald' };
     };
 
+    // ── Anexos: orden y recorte de páginas ───────────────────────────────────
+    // Lista completa en el orden en que saldrá en el PDF, y la filtrada que se
+    // pinta (el slot de ACS se oculta si no se actúa sobre ACS).
+    const orderedAttachments = orderAttachments(attachments, annexPrefs);
+    const visibleAttachments = orderedAttachments.filter(a => a.id !== 'aerotermia_acs' || tieneAcs);
+
+    // Reordena SOBRE LA LISTA COMPLETA (así las filas ocultas no se van al final)
+    // colocando `fromId` en el sitio de `toId`, y guarda el orden resultante.
+    const applyMove = (fromId, toId) => {
+        if (!fromId || !toId || fromId === toId) return;
+        const list = [...orderedAttachments];
+        const from = list.findIndex(a => a.id === fromId);
+        const to = list.findIndex(a => a.id === toId);
+        if (from < 0 || to < 0) return;
+        const [moved] = list.splice(from, 1);
+        const anchor = list.findIndex(a => a.id === toId);
+        list.splice(from < to ? anchor + 1 : anchor, 0, moved);
+        persistAnnexPrefs({ ...annexPrefs, order: orderFromAttachments(list) });
+    };
+
+    // Sube (-1) o baja (+1) un puesto respecto a la fila vecina VISIBLE.
+    const moveAttachment = (id, dir) => {
+        const idx = visibleAttachments.findIndex(a => a.id === id);
+        const target = visibleAttachments[idx + dir];
+        if (idx < 0 || !target) return;
+        applyMove(id, target.id);
+    };
+
+    // Reordenar arrastrando: por ID, no por índice (la lista va filtrada).
+    const dropAttachment = (dropId) => applyMove(draggedId, dropId);
+
+    // Guarda las páginas excluidas de un anexo (clave = driveId: el recorte es de
+    // ESE PDF, si se re-sincroniza la ficha el fichero nuevo entra completo).
+    const saveExcludedPages = async (driveId, pages) => {
+        const excluded = { ...(annexPrefs.excluded || {}) };
+        if (pages.length > 0) excluded[driveId] = pages;
+        else delete excluded[driveId];
+        await persistAnnexPrefs({ ...annexPrefs, excluded });
+        setPagesModalFor(null);
+    };
+
+    // Texto de estado del recorte: "8 de 30 págs" / "Todas las páginas".
+    const pagesLabel = (item) => {
+        const total = item.file?.previewPages?.length || 0;
+        const excluded = excludedPagesFor(annexPrefs, item.file?.driveId);
+        if (excluded.length === 0) return total ? `${total} págs` : 'Páginas';
+        return total ? `${total - excluded.length} de ${total} págs` : `Quitadas ${formatPageRanges(excluded)}`;
+    };
+
     const AnexosModal = () => (
         <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/95 backdrop-blur-xl" onClick={() => setIsAnexosOpen(false)}>
             <div className="bg-[#16181D] border border-white/10 rounded-3xl w-full max-w-2xl overflow-hidden shadow-[0_30px_60px_-15px_rgba(0,0,0,0.5)]"
@@ -566,16 +642,19 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
 
                 <div className="p-8 grid gap-4 max-h-[65vh] overflow-y-auto custom-scrollbar bg-gradient-to-b from-transparent to-black/20">
                     <p className="text-white/30 text-[10px] uppercase font-bold tracking-widest mb-2">Las fichas técnicas se concatenan al PDF automáticamente desde Drive</p>
+                    <p className="text-white/20 text-[10px] -mt-2 mb-2">Con ↑ ↓ (o arrastrando) cambias el orden en el que salen. Con el botón de páginas eliges cuáles de ese PDF se anexan. Todo queda guardado en el expediente.</p>
 
-                    {attachments.filter(item => item.id !== 'aerotermia_acs' || tieneAcs).map((item, idx) => {
+                    {visibleAttachments.map((item, idx) => {
                         const type = item.id === 'aerotermia_cal' ? 'cal' : item.id === 'aerotermia_acs' ? 'acs' : null;
                         const isLoading = type && loadingFichas[type];
                         const isResyncing = type && resyncingType === type;
                         const badge = item.file ? sourceBadge(item.file.source) : null;
+                        const excluded = excludedPagesFor(annexPrefs, item.file?.driveId);
                         return (
                             <div key={item.id}
                                  draggable={!isLoading && !isResyncing}
-                                 onDragStart={() => setDraggedIndex(idx)}
+                                 onDragStart={() => setDraggedId(item.id)}
+                                 onDragEnd={() => setDraggedId(null)}
                                  onDragOver={(e) => { e.preventDefault(); e.currentTarget.style.backgroundColor = 'rgba(242, 166, 64, 0.1)'; }}
                                  onDragLeave={(e) => { e.currentTarget.style.backgroundColor = ''; }}
                                  onDrop={(e) => {
@@ -586,12 +665,26 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
                                          if (item.required) handleManualFixedUpload(item.id, f);
                                          else handleManualExtraUpload(f);
                                      } else {
-                                         reorderAttachments(draggedIndex, idx);
+                                         dropAttachment(item.id);
                                      }
+                                     setDraggedId(null);
                                  }}
-                                 className={`group flex items-center justify-between p-4 bg-white/[0.03] rounded-2xl border transition-all duration-300 ${draggedIndex === idx ? 'opacity-30' : 'opacity-100'} ${item.file ? 'border-white/10 hover:border-brand/40' : item.missing ? 'border-amber-400/30 border-dashed hover:border-amber-400/60' : 'border-white/5 border-dashed hover:border-white/20'}`}>
+                                 className={`group flex items-center justify-between p-4 bg-white/[0.03] rounded-2xl border transition-all duration-300 ${draggedId === item.id ? 'opacity-30' : 'opacity-100'} ${item.file ? 'border-white/10 hover:border-brand/40' : item.missing ? 'border-amber-400/30 border-dashed hover:border-amber-400/60' : 'border-white/5 border-dashed hover:border-white/20'}`}>
 
                                 <div className="flex items-center gap-4 min-w-0">
+                                    {/* Subir/bajar: el orden se guarda en el expediente y manda en el PDF */}
+                                    <div className="flex flex-col gap-0.5 shrink-0">
+                                        <button onClick={() => moveAttachment(item.id, -1)} disabled={idx === 0}
+                                                title="Subir un puesto"
+                                                className="p-1 rounded-md text-white/25 hover:text-brand hover:bg-white/5 transition-all disabled:opacity-10 disabled:hover:bg-transparent disabled:hover:text-white/25">
+                                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 15l7-7 7 7"/></svg>
+                                        </button>
+                                        <button onClick={() => moveAttachment(item.id, 1)} disabled={idx === visibleAttachments.length - 1}
+                                                title="Bajar un puesto"
+                                                className="p-1 rounded-md text-white/25 hover:text-brand hover:bg-white/5 transition-all disabled:opacity-10 disabled:hover:bg-transparent disabled:hover:text-white/25">
+                                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M19 9l-7 7-7-7"/></svg>
+                                        </button>
+                                    </div>
                                     <div className="cursor-grab active:cursor-grabbing text-white/5 hover:text-white/20 transition-colors shrink-0">
                                         <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M7 2a2 2 0 1 0 .001 4.001A2 2 0 0 0 7 2zm0 6a2 2 0 1 0 .001 4.001A2 2 0 0 0 7 8zm0 6a2 2 0 1 0 .001 4.001A2 2 0 0 0 7 14zm6-12a2 2 0 1 0 .001 4.001A2 2 0 0 0 13 2zm0 6a2 2 0 1 0 .001 4.001A2 2 0 0 0 13 8zm0 6a2 2 0 1 0 .001 4.001A2 2 0 0 0 13 14z" /></svg>
                                     </div>
@@ -612,6 +705,9 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
                                                 {badge && (
                                                     <span className={`text-[9px] text-${badge.tone}-400/70 font-bold uppercase tracking-wider`}>✓ {badge.text}</span>
                                                 )}
+                                                {excluded.length > 0 && (
+                                                    <span className="text-[9px] text-red-400/80 font-bold uppercase tracking-wider">✂ No se anexan las págs {formatPageRanges(excluded)}</span>
+                                                )}
                                             </div>
                                         ) : item.missing ? (
                                             <span className="text-[10px] text-amber-400/80 font-bold">{missingReasonText(item)}</span>
@@ -622,6 +718,15 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
                                 </div>
 
                                 <div className="flex gap-2 shrink-0">
+                                    {item.file && !isLoading && !isResyncing && (
+                                        <button
+                                            onClick={() => setPagesModalFor(item.id)}
+                                            title="Elegir qué páginas de este anexo salen en el certificado"
+                                            className={`px-3 py-2.5 rounded-xl border text-[10px] font-black uppercase tracking-wider transition-all ${excluded.length > 0 ? 'text-red-300 border-red-400/40 bg-red-500/10 hover:bg-red-500/20' : 'text-white/40 border-white/10 bg-white/5 hover:text-brand hover:border-brand/40'}`}
+                                        >
+                                            {pagesLabel(item)}
+                                        </button>
+                                    )}
                                     {type && (item.file || item.missing) && !isLoading && (
                                         <button
                                             onClick={() => handleResync(type)}
@@ -633,7 +738,7 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
                                         </button>
                                     )}
                                     {item.file && (
-                                        <button onClick={() => removeAttachment(idx)} title={item.required ? 'Quitar del slot' : 'Eliminar del Drive'} className="p-2.5 text-red-500/50 hover:text-red-500 hover:bg-red-500/10 rounded-xl transition-all"><svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg></button>
+                                        <button onClick={() => removeAttachment(item)} title={item.required ? 'Quitar del slot' : 'Eliminar del Drive'} className="p-2.5 text-red-500/50 hover:text-red-500 hover:bg-red-500/10 rounded-xl transition-all"><svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg></button>
                                     )}
                                     {!item.file && !isLoading && (
                                         <label className="p-2.5 bg-white/5 text-white/40 border border-white/10 rounded-xl cursor-pointer hover:bg-brand hover:text-black hover:border-brand transition-all shadow-xl">
@@ -706,24 +811,25 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
     // 4 llamadas (/api/pdf/generate, save-to-drive, send-cifo, whatsapp).
     // buildHtml delega en la FUENTE ÚNICA (cifoDoc.js). El backend usa el mismo
     // builder → el PDF sale idéntico por app y por generación automática.
+    // Los anexos van ya ordenados y con las páginas excluidas fuera del preview,
+    // para que lo que se ve en el modal sea exactamente lo que se descarga.
     const buildHtml = ({ withAnnexPreview = false } = {}) =>
-        buildCifoHtml({ data: deriveCifoData({ expediente, results }), appUrl: APP_URL, attachments, withAnnexPreview });
+        buildCifoHtml({
+            data: deriveCifoData({ expediente, results }),
+            appUrl: APP_URL,
+            attachments: prepareAnnexAttachments(attachments, annexPrefs),
+            withAnnexPreview
+        });
 
-    // IDs de Drive a concatenar al PDF principal, en orden de attachments.
-    const getAnnexDriveFileIds = () => {
-        const inst = expediente?.instalacion || {};
-        const tieneAcs = inst.cambio_acs !== false;
-        return attachments
-            .filter(a => a.file?.driveId && (a.id !== 'aerotermia_acs' || tieneAcs))
-            .map(a => a.file.driveId);
-    };
+    // Anexos a concatenar al PDF principal: driveId + páginas a omitir, en el
+    // orden final. Lo consumen /api/pdf/generate, save-to-drive y send-cifo.
+    const getAnnexPayload = () => buildAnnexPayload(attachments, annexPrefs, { tieneAcs });
 
 
     const handleDownloadPdf = async () => {
         setGenerating(true);
         try {
-            const annexDriveFileIds = getAnnexDriveFileIds();
-            const { data } = await axios.post('/api/pdf/generate', { html: buildHtml(), annexDriveFileIds });
+            const { data } = await axios.post('/api/pdf/generate', { html: buildHtml(), annexes: getAnnexPayload() });
             const bytes = new Uint8Array(atob(data.pdf).split('').map(c => c.charCodeAt(0)));
             const blob = new Blob([bytes], { type: 'application/pdf' });
             const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
@@ -737,10 +843,9 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
         if (!folderId) { alert('No se encontró el identificador de la carpeta de Drive.'); return; }
         setSavingDrive(true);
         try {
-            const annexDriveFileIds = getAnnexDriveFileIds();
             const { data } = await axios.post('/api/pdf/save-to-drive', {
                 html: buildHtml(), folderId, fileName: `${numexpte || 'DRAFT'} - Certificado CIFO`, subfolderName: '6. ANEXOS CAE',
-                annexDriveFileIds
+                annexes: getAnnexPayload()
             });
             if (data.driveLink) {
                 if (onSaveDrive) onSaveDrive(data.driveLink);
@@ -862,7 +967,7 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
             clienteNombre: cliNombre,
             direccionInstalacion: instAddrText,
             uploadLink,
-            annexDriveFileIds: getAnnexDriveFileIds(),
+            annexes: getAnnexPayload(),
         });
         if (data.success) return { ok: true, text: `${c.label} → ${c.email}` };
         return { ok: false, text: `${c.label}: email no enviado` };
@@ -934,7 +1039,7 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
                 const st = await axios.get('/api/whatsapp/status');
                 if (!st.data?.ready) { setWaReady(false); waOk = false; results.push({ channel: 'whatsapp', status: 'fail', text: 'WhatsApp no conectado' }); }
                 else {
-                    const pdfResp = await axios.post('/api/pdf/generate', { html: buildHtml(), annexDriveFileIds: getAnnexDriveFileIds() });
+                    const pdfResp = await axios.post('/api/pdf/generate', { html: buildHtml(), annexes: getAnnexPayload() });
                     pdfBase64 = pdfResp.data?.pdf;
                 }
             } catch (e) { waOk = false; results.push({ channel: 'whatsapp', status: 'fail', text: 'WhatsApp: ' + (e.response?.data?.message || e.message) }); }
@@ -1059,6 +1164,19 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
                 </div>
 
                 {isAnexosOpen && <AnexosModal />}
+
+                {/* Selector de páginas del anexo (recorte guardado en el expediente) */}
+                <AnexoPaginasModal
+                    isOpen={!!pagesModalFor}
+                    annex={orderedAttachments.find(a => a.id === pagesModalFor) || null}
+                    excludedPages={excludedPagesFor(annexPrefs, orderedAttachments.find(a => a.id === pagesModalFor)?.file?.driveId)}
+                    onSave={(pages) => {
+                        const annex = orderedAttachments.find(a => a.id === pagesModalFor);
+                        if (annex?.file?.driveId) return saveExcludedPages(annex.file.driveId, pages);
+                        setPagesModalFor(null);
+                    }}
+                    onClose={() => setPagesModalFor(null)}
+                />
 
                 {/* ── MODAL ENVÍO AL INSTALADOR (contacto + plantilla + canal) ── */}
                 {sendOpen && (

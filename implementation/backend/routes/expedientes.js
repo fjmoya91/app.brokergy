@@ -5084,6 +5084,41 @@ router.get('/:id/anexos-cifo/:driveId/content', async (req, res) => {
     }
 });
 
+// ─── PUT /api/expedientes/:id/anexos-cifo/prefs ──────────────────────────────
+// Guarda el ORDEN de los anexos y las PÁGINAS EXCLUIDAS de cada uno para el
+// CIFO (RES060/RES093) y el Certificado RES080.
+// Body: { order: ['aerotermia_cal', 'extra_<driveId>'], excluded: { '<driveId>': [1,2,9] } }
+// Escritura atómica vía RPC: no toca el resto de `documentacion` (ver
+// scripts/cifo_annex_prefs.sql y utils/mergeDocumentacion.js).
+router.put('/:id/anexos-cifo/prefs', enforceAuth, async (req, res) => {
+    try {
+        const { order, excluded } = req.body || {};
+
+        const cleanOrder = Array.isArray(order)
+            ? order.filter(id => typeof id === 'string' && id.length > 0 && id.length <= 200).slice(0, 100)
+            : [];
+
+        const cleanExcluded = {};
+        for (const [driveId, pages] of Object.entries(excluded || {})) {
+            if (typeof driveId !== 'string' || !driveId) continue;
+            const list = [...new Set((Array.isArray(pages) ? pages : [])
+                .map(p => parseInt(p, 10))
+                .filter(n => Number.isFinite(n) && n >= 1 && n <= 5000))]
+                .sort((a, b) => a - b);
+            if (list.length > 0) cleanExcluded[driveId] = list;
+        }
+
+        const prefs = { order: cleanOrder, excluded: cleanExcluded };
+        const { error: rpcErr } = await supabase.rpc('cifo_annex_prefs_set', { p_id: req.params.id, p_prefs: prefs });
+        if (rpcErr) throw rpcErr;
+
+        res.json(prefs);
+    } catch (err) {
+        console.error('Error PUT /:id/anexos-cifo/prefs:', err);
+        res.status(500).json({ error: 'internal', message: err.message });
+    }
+});
+
 // ─── DELETE /api/expedientes/:id/anexos-cifo/:driveId ────────────────────────
 // Elimina un anexo extra del CIFO (de la lista cifo_extra_annexes y de Drive).
 router.delete('/:id/anexos-cifo/:driveId', enforceAuth, async (req, res) => {

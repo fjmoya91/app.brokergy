@@ -128,19 +128,37 @@ async function mergePdfs(mainBuffer, annexBuffers) {
         draw(page, { x, y, width: drawW, height: drawH });
     };
 
-    for (const buf of annexBuffers) {
+    for (const item of annexBuffers) {
+        // Cada anexo puede venir como Buffer pelado (llamadas antiguas) o como
+        // { buffer, excludedPages } cuando el usuario ha recortado páginas en el
+        // gestor de anexos (documentacion.cifo_annex_prefs.excluded).
+        const buf = Buffer.isBuffer(item) ? item : item?.buffer;
+        const excluded = new Set((Buffer.isBuffer(item) ? [] : (item?.excludedPages || []))
+            .map(p => parseInt(p, 10))
+            .filter(n => Number.isFinite(n) && n >= 1));
         if (!buf || buf.length === 0) continue;
         const type = detectBufferType(buf);
         try {
             if (type === 'jpg' || type === 'png') {
+                if (excluded.has(1)) {
+                    console.log('[mergePdfs] Anexo imagen omitido por recorte de páginas');
+                    continue;
+                }
                 const img = type === 'jpg' ? await merged.embedJpg(buf) : await merged.embedPng(buf);
                 addScaledA4Page(img, (page, opts) => page.drawImage(img, opts));
                 console.log(`[mergePdfs] Anexo imagen (${type}): 1 pág embebida`);
             } else {
                 const annexDoc = await PDFDocument.load(buf, { ignoreEncryption: true });
-                const indices = annexDoc.getPageIndices();
+                // getPageIndices() es 0-based; las páginas excluidas se guardan
+                // 1-based (tal y como se ven y se escriben en el modal).
+                const all = annexDoc.getPageIndices();
+                const indices = all.filter(i => !excluded.has(i + 1));
+                if (indices.length === 0) {
+                    console.log(`[mergePdfs] Anexo PDF omitido: sus ${all.length} pág están excluidas`);
+                    continue;
+                }
                 const embedded = await merged.embedPdf(annexDoc, indices);
-                console.log(`[mergePdfs] Anexo PDF: ${indices.length} pág → ${embedded.length} embebidas`);
+                console.log(`[mergePdfs] Anexo PDF: ${all.length} pág, ${all.length - indices.length} excluidas → ${embedded.length} embebidas`);
                 for (const ep of embedded) {
                     addScaledA4Page(ep, (page, opts) => page.drawPage(ep, opts));
                 }
@@ -152,16 +170,25 @@ async function mergePdfs(mainBuffer, annexBuffers) {
     return Buffer.from(await merged.save());
 }
 
-async function fetchAnnexBuffers(annexDriveFileIds) {
-    if (!Array.isArray(annexDriveFileIds) || annexDriveFileIds.length === 0) return [];
+// Acepta ['driveId', …] (formato antiguo) o [{ driveId, excludedPages }, …].
+// Devuelve [{ buffer, excludedPages }] en el MISMO orden recibido, que es el
+// orden en el que se concatenan al PDF principal.
+async function fetchAnnexBuffers(annexes) {
+    if (!Array.isArray(annexes) || annexes.length === 0) return [];
+    const specs = annexes
+        .map(a => (typeof a === 'string' ? { driveId: a, excludedPages: [] } : a))
+        .filter(a => a && a.driveId);
+    if (specs.length === 0) return [];
     const { getFileContent } = require('./driveService');
-    const buffers = await Promise.all(
-        annexDriveFileIds.map(id => getFileContent(id).catch(err => {
-            console.warn(`[fetchAnnexBuffers] Falló ${id}:`, err.message);
-            return null;
-        }))
+    const results = await Promise.all(
+        specs.map(spec => getFileContent(spec.driveId)
+            .then(buffer => ({ buffer, excludedPages: spec.excludedPages || [] }))
+            .catch(err => {
+                console.warn(`[fetchAnnexBuffers] Falló ${spec.driveId}:`, err.message);
+                return null;
+            }))
     );
-    return buffers.filter(b => b && b.length > 0);
+    return results.filter(r => r && r.buffer && r.buffer.length > 0);
 }
 
 module.exports = {

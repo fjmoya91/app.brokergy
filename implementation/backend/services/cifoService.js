@@ -54,6 +54,14 @@ function loadRes080Doc() {
     }
     return _res080DocPromise;
 }
+let _annexPrefsPromise = null;
+function loadAnnexPrefs() {
+    if (!_annexPrefsPromise) {
+        const url = pathToFileURL(path.join(__dirname, '../../frontend/src/features/expedientes/logic/annexPrefs.js')).href;
+        _annexPrefsPromise = import(url);
+    }
+    return _annexPrefsPromise;
+}
 
 // Parser de huecos/opacos del XML del CEE (equivalente Node de getHuecosFromXml,
 // que en el frontend usa DOMParser). Solo se usa como fallback cuando el cee NO
@@ -244,33 +252,38 @@ async function computeSavingsKwh(exp, op) {
 }
 
 // ─── Anexos: FT de calefacción (+ ACS si aplica) + extras del CIFO ────────────
-function resolveAnnexAttachments(exp) {
+// Respeta las preferencias que el usuario dejó guardadas en el modal
+// (documentacion.cifo_annex_prefs): ORDEN de los anexos y PÁGINAS EXCLUIDAS de
+// cada uno. Misma lógica que la app — el helper es el módulo compartido
+// logic/annexPrefs.js.
+async function resolveAnnexAttachments(exp) {
     const doc = exp.documentacion || {};
     const inst = exp.instalacion || {};
     const tieneAcs = inst.cambio_acs !== false;
     const attachments = [];
-    const driveIds = [];
 
     const ftCalId = doc.ft_aerotermia_cal_id || driveIdFromLink(doc.ft_aerotermia_cal_link);
     if (ftCalId) {
         attachments.push({ id: 'aerotermia_cal', label: 'Ficha técnica aerotermia calefacción', file: { driveId: ftCalId } });
-        driveIds.push(ftCalId);
     }
     if (tieneAcs) {
         const ftAcsId = doc.ft_aerotermia_acs_id || driveIdFromLink(doc.ft_aerotermia_acs_link);
         if (ftAcsId) {
             attachments.push({ id: 'aerotermia_acs', label: 'Ficha técnica aerotermia ACS', file: { driveId: ftAcsId } });
-            driveIds.push(ftAcsId);
         }
     }
     for (const ex of (Array.isArray(doc.cifo_extra_annexes) ? doc.cifo_extra_annexes : [])) {
         const id = ex.driveId || driveIdFromLink(ex.link);
         if (id) {
             attachments.push({ id: `extra_${id}`, label: ex.label || ex.fileName || 'Documento anexo', file: { driveId: id } });
-            driveIds.push(id);
         }
     }
-    return { attachments, driveIds, tieneAcs };
+
+    const { readAnnexPrefs, orderAttachments, buildAnnexPayload } = await loadAnnexPrefs();
+    const prefs = readAnnexPrefs(doc);
+    const ordered = orderAttachments(attachments, prefs);
+    const annexes = buildAnnexPayload(ordered, prefs, { tieneAcs });
+    return { attachments: ordered, annexes, tieneAcs };
 }
 
 // ─── Ensamblado AUTOMÁTICO de los anexos que justifican el SCOP ───────────────
@@ -543,7 +556,7 @@ async function generarCifo(numeroOrId, { force = false } = {}) {
 
     // Construir HTML + validación según tipología (RES060/093 vs RES080). El resto
     // (render, fusión de anexos, guardado, enlace, historial, incidencias) es común.
-    let html, blocking, warnings, attachments, docLabel;
+    let html, blocking, warnings, attachments, annexes, docLabel;
     if (tipologia === 'RES080') {
         await ensureHuecosParsed(exp.cee || {});
         const results = await computeRes080Results(exp);
@@ -551,7 +564,7 @@ async function generarCifo(numeroOrId, { force = false } = {}) {
         if (blocking.length === 0) {
             const { deriveRes080Data, buildRes080Html } = await loadRes080Doc();
             const data = deriveRes080Data({ expediente: exp, results });
-            ({ attachments } = resolveAnnexAttachments(exp));
+            ({ attachments, annexes } = await resolveAnnexAttachments(exp));
             html = buildRes080Html({ data, appUrl: ASSET_URL, attachments, isForPdf: true });
         }
         docLabel = 'Certificado Reforma RES080';
@@ -561,7 +574,7 @@ async function generarCifo(numeroOrId, { force = false } = {}) {
         const data = deriveCifoData({ expediente: exp, results: { savingsKwh } });
         ({ blocking, warnings } = buildValidation(exp, data, savingsKwh, folderId));
         if (blocking.length === 0) {
-            ({ attachments } = resolveAnnexAttachments(exp));
+            ({ attachments, annexes } = await resolveAnnexAttachments(exp));
             html = buildCifoHtml({ data, appUrl: ASSET_URL, attachments, withAnnexPreview: false });
         }
         docLabel = 'Certificado CIFO';
@@ -578,9 +591,8 @@ async function generarCifo(numeroOrId, { force = false } = {}) {
         return { ok: false, tipologia, expediente: numexpte, blocking, warnings, message: `No se pudo generar el ${docLabel}: ${blocking.join(' ')}` };
     }
 
-    const driveIds = attachments.map(a => a.file.driveId);
     let pdfBuffer = await pdfService.htmlToPdf(html);
-    const annexBuffers = await pdfService.fetchAnnexBuffers(driveIds);
+    const annexBuffers = await pdfService.fetchAnnexBuffers(annexes);
     if (annexBuffers.length > 0) pdfBuffer = await pdfService.mergePdfs(pdfBuffer, annexBuffers);
 
     // Guardar en "6. ANEXOS CAE" con el nombre oficial (mismo slot cert_cifo_* que

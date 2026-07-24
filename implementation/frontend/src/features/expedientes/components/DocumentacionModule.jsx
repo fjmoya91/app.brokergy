@@ -16,6 +16,7 @@ import { EnviarAnexosModal } from './EnviarAnexosModal';
 import FirmarConCertificadoModal from './FirmarConCertificadoModal';
 import { SIGN_BOXES } from '../logic/signBoxes';
 import { calcCifo } from '../logic/calcCifo';
+import { readAnnexPrefs, orderAttachments } from '../logic/annexPrefs';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 // Convierte un ArrayBuffer a base64 POR TROZOS. Evita el "Maximum call stack size
@@ -514,9 +515,12 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                     file: { driveId: e.driveId, link: e.link, name: e.fileName, source: 'manual_upload' }
                 };
             });
-            return [...fixed, ...extraSlots];
+            // El orden guardado (documentacion.cifo_annex_prefs.order) manda: si no
+            // se aplicase aquí, cada refetch devolvería los anexos a "fijos primero,
+            // extras por antigüedad" y el usuario vería deshacerse su reordenación.
+            return orderAttachments([...fixed, ...extraSlots], readAnnexPrefs(expediente?.documentacion));
         });
-    }, [expediente?.id, expediente?.documentacion?.cifo_extra_annexes]);
+    }, [expediente?.id, expediente?.documentacion?.cifo_extra_annexes, expediente?.documentacion?.cifo_annex_prefs]);
 
     React.useEffect(() => {
         if (expediente?.documentacion) {
@@ -1384,6 +1388,9 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                         return next;
                     });
                 }}
+                // Orden + páginas excluidas: el modal ya lo persistió por su endpoint
+                // atómico, aquí solo mantenemos coherente la copia local.
+                onSaveAnnexPrefs={(prefs) => setLocal(prev => ({ ...prev, cifo_annex_prefs: prefs }))}
             />
             <CertificadoRes080Modal
                 isOpen={showCertificadoRes080}
@@ -1419,6 +1426,7 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                         return next;
                     });
                 }}
+                onSaveAnnexPrefs={(prefs) => setLocal(prev => ({ ...prev, cifo_annex_prefs: prefs }))}
             />
             <AnexoFotograficoModal
                 isOpen={showAnexoFotografico}
