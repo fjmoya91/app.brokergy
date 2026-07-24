@@ -13,6 +13,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
+import { prepararImagenParaSubir } from '../../utils/imageResize';
 
 const ESTADO_UI = {
     pendiente: { ring: 'border-white/10 bg-white/[0.03]', chip: null },
@@ -121,6 +122,7 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
     const [info, setInfo] = useState(null);
     const [tab, setTab] = useState(roleFase || 'ANTES');
     const [busySlot, setBusySlot] = useState(null);
+    const [uploadPct, setUploadPct] = useState({}); // % de subida por slot
     const [slotError, setSlotError] = useState({});
     const [lightbox, setLightbox] = useState(null);
     const [lbConfirmDelete, setLbConfirmDelete] = useState(false); // confirmación de borrado en lightbox
@@ -282,7 +284,10 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
         setSlotError(prev => ({ ...prev, [slot.key]: null }));
         try {
             for (let i = 0; i < files.length; i++) {
-                const file = files[i];
+                // Foto de móvil = 5-12 MB. Se reduce antes de subirla salvo en los
+                // slots de PLACA (`fullRes`), donde hay que poder leer el nº de serie.
+                // Aquí importa el doble: el cliente suele subir con datos móviles.
+                const file = await prepararImagenParaSubir(files[i], { fullRes: slot.fullRes });
                 const form = new FormData();
                 // La etiqueta va ANTES del fichero para que multer la deje en req.body.
                 let fileLabel = null;
@@ -294,7 +299,14 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
                 const res = await axios.post(
                     `/api/public/reforma-docs/${uuidRef.current}/${slot.key}`,
                     form,
-                    { params: { token: tokenRef.current }, headers: { 'Content-Type': 'multipart/form-data' } }
+                    {
+                        params: { token: tokenRef.current },
+                        headers: { 'Content-Type': 'multipart/form-data' },
+                        timeout: 5 * 60 * 1000,
+                        onUploadProgress: (e) => {
+                            if (e.total) setUploadPct(prev => ({ ...prev, [slot.key]: Math.round((e.loaded / e.total) * 100) }));
+                        },
+                    }
                 );
                 const localUrl = file.type?.startsWith('image/') ? URL.createObjectURL(file) : null;
                 const entry = { name: res.data.name, label: res.data.label ?? fileLabel, link: res.data.link, thumb: res.data.thumb, driveId: res.data.driveId, localUrl, estado: 'subida', at: new Date().toISOString() };
@@ -306,9 +318,13 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
             }
         } catch (err) {
             ok = false;
-            setSlotError(prev => ({ ...prev, [slot.key]: err.response?.data?.error || 'No se pudo subir. Inténtalo de nuevo.' }));
+            const msg = err.code === 'ECONNABORTED'
+                ? 'La subida ha tardado demasiado. Comprueba tu conexión e inténtalo de nuevo.'
+                : (err.response?.data?.error || 'No se pudo subir. Inténtalo de nuevo.');
+            setSlotError(prev => ({ ...prev, [slot.key]: msg }));
         } finally {
             setBusySlot(null);
+            setUploadPct(prev => ({ ...prev, [slot.key]: undefined }));
         }
         return ok;
     };
@@ -715,7 +731,9 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
 
                     {!slot.existing && (
                         <label className={`shrink-0 cursor-pointer px-4 py-2.5 rounded-xl font-black uppercase tracking-widest text-[11px] transition-all ${busy ? 'bg-white/10 text-white/40' : done ? 'bg-white/[0.06] text-white/70 hover:bg-white/[0.1] border border-white/10' : 'bg-gradient-to-r from-amber-500 to-amber-400 text-black shadow-lg shadow-amber-500/20'}`}>
-                            {busy ? '…' : done ? (slot.multiple ? '+ Añadir' : 'Cambiar') : 'Subir'}
+                            {busy
+                                ? (uploadPct[slot.key] != null ? `${uploadPct[slot.key]}%` : '…')
+                                : done ? (slot.multiple ? '+ Añadir' : 'Cambiar') : 'Subir'}
                             <input type="file" accept={slot.accept}
                                 {...(slot.multiple ? { multiple: true } : {})}
                                 disabled={busy}

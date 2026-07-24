@@ -1329,10 +1329,16 @@ router.get('/anexo-photos/:id', async (req, res) => {
 
         // Huecos: conceptos esperados por el alcance del expediente que aún no
         // tienen ninguna foto en "12. DOCUMENTOS PARA CEE".
+        // `fullRes` viaja con cada concepto: dice al navegador si esa foto debe
+        // subirse intacta (placas) o puede reducirla antes de enviarla.
+        const conceptos = anexoFotograficoService.anexoConcepts(dc);
+        const fullResDe = new Map(conceptos.map(c => [c.key, !!c.fullRes]));
+        for (const g of groups) g.fullRes = fullResDe.get(g.key) === true;
+
         const conFoto = new Set(groups.map(g => g.key));
-        const pendientes = anexoFotograficoService.anexoConcepts(dc)
+        const pendientes = conceptos
             .filter(c => !conFoto.has(c.key))
-            .map(c => ({ key: c.key, label: c.label, fase: c.fase }));
+            .map(c => ({ key: c.key, label: c.label, fase: c.fase, fullRes: !!c.fullRes }));
 
         // Catálogo de apartados de obra que el admin puede activar (ventanas,
         // cubierta, fachada…) con su estado actual, igual que en DocsManager.

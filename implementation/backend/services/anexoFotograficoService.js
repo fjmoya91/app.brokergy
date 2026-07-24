@@ -57,7 +57,7 @@ function anexoConcepts(datosCalculo = {}) {
     const ANTES_CONTEXTO = new Set(['FOTO_FACHADA_PRINCIPAL', 'FOTO_PATIOS_INTERIORES', 'FOTO_PATIO_LUCES']);
     const concepts = reformaUploadService.buildDocChecklist(datosCalculo || {})
         .filter(s => !/^(VIDEO_|DOC_|OTROS_)/.test(s.key) && (s.fase === 'DESPUES' || !ANTES_CONTEXTO.has(s.key)))
-        .map(s => ({ key: s.key, label: s.label, fase: s.fase, multiple: !!s.multiple }));
+        .map(s => ({ key: s.key, label: s.label, fase: s.fase, multiple: !!s.multiple, fullRes: !!s.fullRes }));
     // (Antes había aquí un parche que inyectaba FOTO_UNIDAD_INTERIOR porque el
     //  checklist no lo emitía. Ya lo emite buildDocChecklist, así que el slot es
     //  también un destino de subida válido y no hace falta el parche.)

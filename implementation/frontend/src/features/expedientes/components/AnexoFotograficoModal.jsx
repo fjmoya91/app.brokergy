@@ -7,6 +7,8 @@ import { buildAnexoPages, buildAnexoFullHtml, ANEXO_SCREEN_CSS } from './anexoFo
 import ReactCrop, { centerCrop, makeAspectCrop } from 'react-image-crop';
 import 'react-image-crop/dist/ReactCrop.css';
 import FirmarConCertificadoModal from './FirmarConCertificadoModal';
+import { prepararImagenParaSubir } from '../../../utils/imageResize';
+import { DocsAdminModal } from '../../calculator/components/DocsAdminModal';
 
 const Spinner = () => (
     <svg className="animate-spin h-4 w-4 text-current inline-block" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -79,6 +81,7 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
     const [oppUuid, setOppUuid] = useState(null);
     const [addableConcepts, setAddableConcepts] = useState([]);
     const [uploadingSlot, setUploadingSlot] = useState(null);
+    const [uploadInfo, setUploadInfo] = useState(null); // { hechas, total, pct }
 
     const oppRef = expediente?.id_oportunidad_ref
         || expediente?.oportunidades?.id_oportunidad
@@ -125,14 +128,14 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
                         // el persistido en BD pudo quedar corrupto (normalizeData subía
                         // el base64 a MAYÚSCULAS → imagen rota) o simplemente obsoleto.
                         // slotKey/fase alimentan la agrupación por actuación del documento.
-                        rows.push({ ...(existing || {}), id, label, groupLabel: g.label, slotKey: g.key, fase: g.fase, file: { name: ph.name, data: ph.data }, required: false });
+                        rows.push({ ...(existing || {}), id, label, groupLabel: g.label, slotKey: g.key, fase: g.fase, fullRes: !!g.fullRes, file: { name: ph.name, data: ph.data }, required: false });
                     });
                 }
                 // Huecos de los conceptos esperados que aún no tienen ninguna foto.
                 // `file: null` → groupRowsIntoActuaciones los ignora, así que no
                 // ensucian el documento: solo son un destino de subida en el gestor.
                 for (const p of pendientes) {
-                    rows.push({ id: `slot_${p.key}`, label: p.label, groupLabel: p.label, slotKey: p.key, fase: p.fase, file: null, required: false, pendiente: true });
+                    rows.push({ id: `slot_${p.key}`, label: p.label, groupLabel: p.label, slotKey: p.key, fase: p.fase, fullRes: !!p.fullRes, file: null, required: false, pendiente: true });
                 }
                 // Mantener las filas añadidas a mano (no provienen de Drive).
                 for (const p of prev || []) {
@@ -185,6 +188,21 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
     };
 
     const [isPhotosManagerOpen, setIsPhotosManagerOpen] = useState(false);
+
+    // Subida de fotos: SIEMPRE por el popup canónico de documentación (DocsManager),
+    // el mismo que usan el botón "Fotos" del expediente y el enlace del cliente. Así
+    // subir una foto se hace y se ve igual desde cualquier sitio, y lo que entra por
+    // ahí aparece aquí sin más (Drive + reforma_uploads son el almacén común).
+    // Este gestor conserva lo que SÍ es del documento: orden, excluir, comentarios.
+    // El gestor se cierra al abrirlo porque DocsAdminModal es z-[200] y este z-[300];
+    // al volver se recargan las fotos para ver lo recién subido.
+    const [subirFotosOpen, setSubirFotosOpen] = useState(false);
+    const abrirSubidaFotos = () => { setIsPhotosManagerOpen(false); setSubirFotosOpen(true); };
+    const cerrarSubidaFotos = async () => {
+        setSubirFotosOpen(false);
+        await loadDynamic();
+        setIsPhotosManagerOpen(true);
+    };
 
     // ─── Ajustes del anexo que NO son ficheros ──────────────────────────────
     // `comentarios` { SLOT: texto } y `excluidas` [nombre de fichero]. Viven en
@@ -310,23 +328,40 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
     const handleFilesAdd = async (slotKey, fileList) => {
         const files = Array.from(fileList || []);
         if (!files.length || !slotKey || !oppUuid) return;
+        // Las fotos de PLACA suben intactas (de ahí se lee el nº de serie); el resto
+        // se reducen si son grandes. Ver utils/imageResize.
+        const fullRes = photos.some(p => p.slotKey === slotKey && p.fullRes);
         setUploadingSlot(slotKey);
+        setUploadInfo({ hechas: 0, total: files.length, pct: 0 });
         try {
             // En SERIE: el nombre del fichero depende de cuántos haya ya en el slot,
             // así que dos subidas en paralelo se asignarían el mismo índice.
-            for (const file of files) {
+            for (let i = 0; i < files.length; i++) {
+                const file = await prepararImagenParaSubir(files[i], { fullRes });
                 const fd = new FormData();
                 fd.append('file', file);
                 await axios.post(`/api/public/reforma-docs/${oppUuid}/${slotKey}`, fd, {
-                    headers: { 'Content-Type': 'multipart/form-data' }
+                    headers: { 'Content-Type': 'multipart/form-data' },
+                    // Sin esto el spinner no distingue "subiendo despacio" de "colgado",
+                    // que es justo lo que confundía con las fotos grandes.
+                    onUploadProgress: (e) => {
+                        if (!e.total) return;
+                        setUploadInfo({ hechas: i, total: files.length, pct: Math.round((e.loaded / e.total) * 100) });
+                    },
+                    timeout: 5 * 60 * 1000, // una foto grande por una línea lenta puede tardar
                 });
+                setUploadInfo({ hechas: i + 1, total: files.length, pct: 100 });
             }
             await loadDynamic();
         } catch (err) {
             console.error('[AnexoFotografico] Error subiendo a Drive:', err);
-            showAlert('Error', err.response?.data?.error || 'No se pudieron subir las fotos a Drive.', 'error');
+            const msg = err.code === 'ECONNABORTED'
+                ? 'La subida ha tardado demasiado y se ha cancelado. Comprueba tu conexión e inténtalo de nuevo.'
+                : (err.response?.data?.error || 'No se pudieron subir las fotos a Drive.');
+            showAlert('Error', msg, 'error');
         } finally {
             setUploadingSlot(null);
+            setUploadInfo(null);
         }
     };
 
@@ -760,7 +795,18 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
                     <div className="bg-[#16181D] border border-white/10 rounded-3xl w-full max-w-2xl overflow-hidden shadow-2xl" onClick={e => e.stopPropagation()}>
                         <div className="px-8 py-5 border-b border-white/10 flex justify-between items-center bg-white/[0.02]">
                             <h3 className="text-white font-bold uppercase tracking-[0.2em] text-xs">Gestión de Fotos</h3>
-                            <button onClick={() => setIsPhotosManagerOpen(false)} className="text-white/20 hover:text-white transition-colors"><svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg></button>
+                            <div className="flex items-center gap-3">
+                                {/* Misma superficie de subida que el botón "Fotos" del expediente
+                                    y que el enlace del cliente: una sola forma de subir fotos. */}
+                                <button
+                                    onClick={abrirSubidaFotos}
+                                    title="Abre el popup de documentación de siempre para subir fotos"
+                                    className="px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider whitespace-nowrap bg-brand/10 border border-brand/30 text-brand hover:bg-brand hover:text-black transition-all"
+                                >
+                                    + Subir fotos
+                                </button>
+                                <button onClick={() => setIsPhotosManagerOpen(false)} className="text-white/20 hover:text-white transition-colors"><svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg></button>
+                            </div>
                         </div>
                         {/* Una tarjeta por CONCEPTO (no por foto): un concepto admite tantas
                             fotos como haga falta (7 ventanas, 5 vistas de la caldera…), y el
@@ -817,7 +863,11 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
                                                     {uploadingSlot === group.slotKey
                                                         ? <Spinner />
                                                         : <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M12 4v16m8-8H4"/></svg>}
-                                                    {uploadingSlot === group.slotKey ? 'Subiendo…' : 'Añadir fotos'}
+                                                    {uploadingSlot === group.slotKey
+                                                        ? (uploadInfo
+                                                            ? `${uploadInfo.pct}%${uploadInfo.total > 1 ? ` (${uploadInfo.hechas + 1}/${uploadInfo.total})` : ''}`
+                                                            : 'Subiendo…')
+                                                        : 'Añadir fotos'}
                                                     <input type="file" className="hidden" accept={ACCEPT_FOTOS} multiple disabled={!!uploadingSlot}
                                                            onChange={(e) => { handleFilesAdd(group.slotKey, e.target.files); e.target.value = ''; }} />
                                                 </label>
@@ -1025,6 +1075,17 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
                         </div>
                     </div>
                 </div>
+            )}
+
+            {/* Popup canónico de documentación: la ÚNICA forma de subir fotos, igual
+                aquí que desde el botón "Fotos" del expediente o el enlace del cliente.
+                Al cerrarlo se recargan las fotos y se vuelve al gestor del anexo. */}
+            {subirFotosOpen && oppUuid && (
+                <DocsAdminModal
+                    isOpen={subirFotosOpen}
+                    onClose={cerrarSubidaFotos}
+                    idOportunidad={oppUuid}
+                />
             )}
         </div>
     );

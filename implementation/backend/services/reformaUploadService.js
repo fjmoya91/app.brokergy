@@ -112,6 +112,21 @@ function getSlotDef(funnel, slotKey, origen = 'aerotermia') {
 
 const PHASE = { ANTES: 'ANTES', DESPUES: 'DESPUES' };
 
+// Slots cuya foto se sube SIEMPRE a resolución original: son primeros planos de la
+// PLACA DE CARACTERÍSTICAS, y de ahí se leen marca, modelo, potencia y nº de serie
+// (van al CIFO y al Anexo I). Reducirlas aunque sea un poco puede dejar el serial
+// ilegible, así que el redimensionado del navegador las respeta.
+//
+// ⚠️ NO incluye FOTO_PLACAS_SOLARES: ahí "placas" son los paneles solares, no una
+// etiqueta de datos — un `includes('PLACA')` la metería aquí por error.
+// FOTO_ACS_DEPOSITO sí entra: su ayuda pide expresamente que se vea la etiqueta.
+const FULL_RES_SLOTS = new Set([
+    'FOTO_PLACA_CALDERA_ANTES',
+    'FOTO_UNIDAD_EXTERIOR_PLACA',
+    'FOTO_UNIDAD_INTERIOR_PLACA',
+    'FOTO_ACS_DEPOSITO',
+]);
+
 // Apartados de foto que el ADMIN puede AÑADIR a un expediente cuando el alcance
 // cambia a posteriori (p.ej. añadir ventanas a un RES060 de aerotermia). Cada
 // concepto habilita uno o varios slots (antes/después) vía docs_overrides[slot].enabled.
@@ -344,6 +359,13 @@ function buildDocChecklist(datosCalculo = {}) {
         }
     }
 
+    // El navegador reduce las fotos grandes antes de subirlas (una foto de móvil
+    // ronda los 5-12 MB y por una línea normal tarda una eternidad). Los slots de
+    // PLACA se marcan para que suban intactas: de ahí se lee el nº de serie.
+    for (const s of slots) {
+        if (FULL_RES_SLOTS.has(s.key)) s.fullRes = true;
+    }
+
     return slots;
 }
 
@@ -517,6 +539,38 @@ function buildNamedFileBase(slotKey, label, prevEntries = []) {
  * en BD se perdiera, la foto sigue apareciendo). El estado por foto vive en la
  * BD; el estado del slot es un resumen derivado.
  */
+/**
+ * Slots que TIENEN fichero en Drive, mirando "12. DOCUMENTOS PARA CEE".
+ *
+ * Drive es la fuente de verdad (regla 20). `reforma_uploads` solo se rellena
+ * cuando la foto entra por `POST /api/public/reforma-docs/:uuid/:slot`; una foto
+ * puede estar en Drive SIN estar en la BD: expedientes migrados, o la skill del
+ * Anexo Fotográfico, que clasifica y copia ficheros con el MCP de Drive. En esos
+ * casos el anexo y el popup SÍ las veían (ambos reconcilian) pero el barrido no,
+ * y seguía pidiendo fotos que ya estaban. Este helper es lo que los iguala.
+ *
+ * Devuelve un Set de claves de slot. Nunca lanza: sin Drive, Set vacío y el
+ * barrido cae al comportamiento anterior (solo BD).
+ */
+async function driveSlotsPresentes(datosCalculo) {
+    const presentes = new Set();
+    try {
+        const dc = datosCalculo || {};
+        const folderId = dc.drive_folder_id || dc.inputs?.drive_folder_id;
+        if (!folderId) return presentes;
+        const subId = await driveService.findSubfolderByName(folderId, SUBCARPETA_DOCS);
+        if (!subId) return presentes;
+        const files = await driveService.listFiles(subId);
+        if (!files?.length) return presentes;
+        for (const s of buildDocChecklist(dc)) {
+            if (files.some(f => fileBelongsToSlot(f.name, s.key))) presentes.add(s.key);
+        }
+    } catch (e) {
+        console.warn('[Docs] driveSlotsPresentes:', e.message);
+    }
+    return presentes;
+}
+
 async function buildDocsView(opp, opts = {}) {
     const dc = opp.datos_calculo || {};
     const checklist = buildDocChecklist(dc);
@@ -889,6 +943,7 @@ module.exports = {
     getSlotDef,
     isValidSlot,
     fileBelongsToSlot,
+    driveSlotsPresentes,
     sanitizeOtrosLabel,
     parseOtrosLabel,
     buildNamedFileBase,

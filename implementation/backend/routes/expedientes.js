@@ -798,15 +798,27 @@ async function buildChecklistData(exp, cli, op) {
     // ── CUALQUIERA (fotos) — slots REALES de la app, excluyendo RITE/Facturas (ya en Instalador).
     let slots = [];
     try { slots = reformaUploadService.buildDocChecklist(datos) || []; } catch (e) { console.warn('[checklist] buildDocChecklist:', e.message); }
+    // Reconciliación con Drive, IGUAL que hacen el popup de fotos (buildDocsView) y
+    // el Anexo Fotográfico (collectPhotoGroups). Sin esto el barrido solo miraba
+    // `reforma_uploads`, así que una foto que llegó a Drive por otra vía —expediente
+    // migrado, o la skill del anexo copiando con el MCP de Drive— seguía saliendo
+    // como pendiente aunque el anexo ya la estuviera usando. Drive manda (regla 20).
+    const enDrive = await reformaUploadService.driveSlotsPresentes(datos);
     const grupoFotos = slots
         .filter(s => s.key !== 'DOC_RITE' && s.key !== 'DOC_FACTURAS')
         .map(s => {
             const waived = !!overrides[s.key]?.waived;
             const arr = uploads[s.key] || [];
-            const subida = Array.isArray(arr) && arr.length > 0;
+            const subida = (Array.isArray(arr) && arr.length > 0) || enDrive.has(s.key);
             const requerida = !waived && !!s.required;
             const obj = requerida ? ['final'] : [];
-            const detalle = waived ? 'No necesario' : (subida ? `${arr.length} archivo(s)` : (requerida ? 'Requerida — sin subir' : 'Opcional'));
+            // El recuento sale de la BD; si la foto solo está en Drive (arr vacío) no
+            // sabemos cuántas son sin volver a listar, así que se dice de dónde viene.
+            const detalle = waived
+                ? 'No necesario'
+                : (subida
+                    ? (arr.length > 0 ? `${arr.length} archivo(s)` : 'Aportada (en Drive)')
+                    : (requerida ? 'Requerida — sin subir' : 'Opcional'));
             // `fase`, `required` y `subida` se exponen para "solicitar lo que falta"
             // (presente mezcla subida||waived y no basta para saber si hay fichero).
             return mk(s.key, s.label || s.key, 'CUALQUIERA', subida || waived, obj, detalle, null, { waived, fase: s.fase, required: !!s.required, subida });
