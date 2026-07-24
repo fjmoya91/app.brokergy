@@ -5,6 +5,7 @@ import { useAuth } from '../../../context/AuthContext';
 import AppConfirm from '../../../components/AppConfirm';
 import { EnviarPropuestaModal } from './EnviarPropuestaModal';
 import { computeCeeComparison } from '../logic/ceeComparison';
+import { postEmail } from '../../../utils/emailFallback';
 
 const APP_URL = import.meta.env.VITE_APP_URL || window.location.origin;
 
@@ -1688,7 +1689,7 @@ info@brokergy.es · 623 926 179`;
                     f80: isReforma ? { caeBonus: `${formatNumber(Math.round(f80.caeBonus || 0))} €`, irpfDeduction: `${formatNumber(Math.round(f80.irpfDeduction || 0))} €`, totalAyuda: `${formatNumber(Math.round(f80.totalAyuda || 0))} €` } : null,
                     htmlTable: ''
                 };
-                const r = await axios.post('/api/pdf/send-proposal', { html: fullHtml, to: email, userName: name, summaryData }, { timeout: 90000 });
+                const r = await postEmail('/api/pdf/send-proposal', { html: fullHtml, to: email, userName: name, summaryData }, { timeout: 90000 });
                 results.push({ name, ok: r.data?.success === true });
             } catch (e) {
                 results.push({ name, ok: false, error: e.response?.data?.message || e.message });

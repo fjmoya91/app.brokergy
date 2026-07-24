@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import { fireSuccessConfetti } from '../../expedientes/utils/successConfetti';
+import { postEmail } from '../../../utils/emailFallback';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Envío unificado de la PROPUESTA al cliente — homogéneo con EnviarAnexosModal /
@@ -222,7 +223,7 @@ export function EnviarPropuestaModal({
             // EMAIL
             if (doEmail && c.email) {
                 try {
-                    await axios.post('/api/pdf/send-proposal', {
+                    await postEmail('/api/pdf/send-proposal', {
                         html: emailHtml,
                         to: c.email,
                         userName: c.label,

@@ -3,6 +3,7 @@ import axios from 'axios';
 import { useAuth } from '../../../context/AuthContext';
 import { BOILER_EFFICIENCIES, calculateHybridization, resolveHybridInputs } from '../../calculator/logic/calculation';
 import { calcCifo } from '../logic/calcCifo';
+import { postEmail } from '../../../utils/emailFallback';
 
 // ─── Márgenes exactos Word: Sup 2,47cm Inf 0,49cm Izq 3cm Der 2,5cm ──────────
 // Conversión cm→px (96dpi): 1cm = 37.795px
@@ -404,7 +405,7 @@ export function FichaRes093Modal({ isOpen, onClose, expediente, results, onSaveD
                 userName: [cli.nombre_razon_social, cli.apellidos].filter(Boolean).join(' ')
             };
 
-            const response = await axios.post('/api/pdf/send-proposal', {
+            const response = await postEmail('/api/pdf/send-proposal', {
                 html: buildStaticHtml(),
                 to: toEmail,
                 userName: summaryData.userName,

@@ -4,6 +4,7 @@ import { buildAnexoCesionHtml, buildAnexoIHtml, getDualMessage, getClientCaeRate
 import { useAuth } from '../../../context/AuthContext';
 import AppConfirm from '../../../components/AppConfirm';
 import FirmarConCertificadoModal from './FirmarConCertificadoModal';
+import { postEmail } from '../../../utils/emailFallback';
 
 const LOGO_URL  = '/logo_brokergy_dark.png';
 
@@ -188,7 +189,7 @@ export function AnexoCesionModal({ isOpen, onClose, expediente, results, onSaveD
                     docs.push({ html: htmlAnexoI, fileName: `${numexpte}_Anexo_I.pdf` });
                     customMessage = getDualMessage(firstName, beneficioStr, numexpte);
                 }
-                await axios.post('/api/pdf/send-annex', { to: toEmail, userName: summaryData.userName, customMessage, summaryData, docs });
+                await postEmail('/api/pdf/send-annex', { to: toEmail, userName: summaryData.userName, customMessage, summaryData, docs });
                 setConfirmConfig({ title: 'Éxito', message: `✅ ${sendDual ? 'Ambos anexos enviados' : 'Anexo de Cesión enviado'} correctamente a ${toEmail}`, confirmText: 'Entendido', onConfirm: () => setConfirmConfig(null) });
             } catch (error) {
                 setConfirmConfig({ title: 'Error', message: "❌ Error al enviar el correo: " + (error.response?.data?.message || error.message), confirmText: 'Entendido', onConfirm: () => setConfirmConfig(null) });

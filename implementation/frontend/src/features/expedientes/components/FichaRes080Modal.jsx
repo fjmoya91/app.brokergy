@@ -2,6 +2,7 @@ import React, { useRef, useState, useCallback } from 'react';
 import axios from 'axios';
 import { useAuth } from '../../../context/AuthContext';
 import { calcCifo } from '../logic/calcCifo';
+import { postEmail } from '../../../utils/emailFallback';
 
 // ─── Márgenes exactos Word: Sup 2,47cm Inf 0,49cm Izq 3cm Der 2,5cm ──────────
 const PAGE_PADDING = '93px 95px 19px 113px';
@@ -330,7 +331,7 @@ export function FichaRes080Modal({ isOpen, onClose, expediente, results, onSaveD
         if (!toEmail) { alert("❌ El cliente no tiene un email registrado."); return; }
         setSendingEmail(true);
         try {
-            const response = await axios.post('/api/pdf/send-proposal', {
+            const response = await postEmail('/api/pdf/send-proposal', {
                 html: buildStaticHtml(),
                 to: toEmail,
                 userName: [cli.nombre_razon_social, cli.apellidos].filter(Boolean).join(' '),

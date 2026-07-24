@@ -3,6 +3,7 @@ import axios from 'axios';
 import { buildAnexoIHtml, buildAnexoCesionHtml, getDualMessage, getClientCaeRate, DOC_WIDTH, ANEXO_I_CSS } from '../utils/docGenerators';
 import { useAuth } from '../../../context/AuthContext';
 import AppConfirm from '../../../components/AppConfirm';
+import { postEmail } from '../../../utils/emailFallback';
 
 /**
  * ────────────────────────────────────────────────────────────────────────────────────────────────
@@ -175,7 +176,7 @@ export function AnexoIModal({ isOpen, onClose, expediente, results, onSaveDrive,
                     docs.push({ html: htmlCesion, fileName: `${numexpte}_Anexo_Cesion.pdf` });
                     customMessage = getDualMessage(firstName, beneficioStr, numexpte);
                 }
-                await axios.post('/api/pdf/send-annex', { to: toEmail, userName: summaryData.userName, customMessage, summaryData, docs });
+                await postEmail('/api/pdf/send-annex', { to: toEmail, userName: summaryData.userName, customMessage, summaryData, docs });
                 setConfirmConfig({ title: 'Éxito', message: `✅ ${sendDual ? 'Ambos anexos enviados' : 'Anexo I enviado'} correctamente a ${toEmail}`, confirmText: 'Entendido', onConfirm: () => setConfirmConfig(null) });
             } catch (error) {
                 setConfirmConfig({ title: 'Error', message: "❌ Error al enviar el correo: " + (error.response?.data?.message || error.message), confirmText: 'Entendido', onConfirm: () => setConfirmConfig(null) });

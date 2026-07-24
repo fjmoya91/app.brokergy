@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import confetti from 'canvas-confetti';
+import { useModal } from '../../../context/ModalContext';
+import { postEmail } from '../../../utils/emailFallback';
 import { buildAnexoIHtml, buildAnexoCesionHtml, getDualMessage, getClientCaeRate, buildInstalacionAddress } from '../utils/docGenerators';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -55,6 +57,7 @@ const composeNote = (base, note) => {
 };
 
 export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results, initialDocs, overrides, onMarkSent, onEditCliente }) {
+    const { showConfirm } = useModal();
     const op       = expediente?.oportunidades || {};
     const cli      = expediente?.clientes || {};
     const inst     = expediente?.instalacion || {};
@@ -386,13 +389,15 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
             // EMAIL — una llamada con todos los adjuntos
             if (doEmail && c.email) {
                 try {
-                    await axios.post('/api/pdf/send-annex', {
+                    // Si el buzón principal ha agotado su cuota diaria, postEmail
+                    // pregunta si reenviar desde el alternativo (ver utils/emailFallback).
+                    await postEmail('/api/pdf/send-annex', {
                         to: c.email,
                         userName: target === 'cliente' ? (clienteNombre || c.label) : c.label,
                         customMessage: message,
                         summaryData: { id: numexpte, docType: docTypeLabel, userName: clienteNombre || c.label },
                         docs: docDefs.map(d => ({ html: d.html, fileName: d.fileName })),
-                    });
+                    }, showConfirm);
                     out.push({ channel: 'email', status: 'ok', text: `${c.label} → ${c.email}` });
                 } catch (err) {
                     out.push({ channel: 'email', status: 'fail', text: `${c.label}: ${err.response?.data?.message || err.response?.data?.error || err.message}` });

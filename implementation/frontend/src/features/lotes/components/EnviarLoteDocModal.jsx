@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import axios from 'axios';
 import confetti from 'canvas-confetti';
+import { postEmail } from '../../../utils/emailFallback';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Modal REUTILIZABLE de envío de documentos de un LOTE.
@@ -122,7 +123,7 @@ export function EnviarLoteDocModal({ onClose, title, subtitle, defaultEmail = ''
             // ── EMAIL — una sola llamada con todos los adjuntos ──────────────────
             if (doEmail) {
                 try {
-                    await axios.post('/api/pdf/send-annex', {
+                    await postEmail('/api/pdf/send-annex', {
                         to: email.trim(),
                         cc: ccArr,
                         customMessage: message,
