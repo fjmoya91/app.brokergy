@@ -59,7 +59,7 @@ function UploadItem({
     isMultiple = false,
     editMode,
     onDirectDrop,   // (files) => void  — se llama al soltar ficheros sobre el slot
-    validated = false, // solo se usa en los slots validables (CEE Inicial: pdf/registro)
+    validated = false, // solo se usa en los slots validables (xml/pdf/registro/etiqueta)
 }) {
     const [isDragOver, setIsDragOver] = useState(false);
     const dragCounter = useRef(0);
@@ -221,16 +221,19 @@ export function CeeDocumentsGrid({
     
     const numExp = expediente?.numero_expediente || 'S-EXP';
 
-    // ── Validación del CEE Inicial (PDF firmado + Registro) ──────────────────────
+    // ── Validación de los documentos del CEE (inicial y final) ───────────────────
     // Mismo concepto que docs_validados en Documentación: ámbar=subido sin revisar,
     // verde=validado. Al validar, el backend copia el fichero a "10. EXPEDIENTE CAE"
-    // para auditoría. El Registro NO lleva firma digital — solo hace falta que exista.
+    // para auditoría. Salvo el PDF, ninguno lleva firma digital — solo hace falta
+    // que exista y sea correcto. Los `field` deben coincidir con CEE_VALIDABLE del
+    // backend (routes/expedientes.js).
+    const CEE_VALIDABLE_SLOTS = ['xml', 'pdf', 'registro', 'etiqueta'];
     const [validatingCee, setValidatingCee] = useState(null); // field en curso, o null
     const ceeDocsValidados = expediente?.cee?.docs_validados || {};
     const ceeValidKeyFor = (section, slotId) => (
-        section === 'inicial' && slotId === 'pdf' ? 'inicial_pdf'
-        : section === 'inicial' && slotId === 'registro' ? 'inicial_registro'
-        : null
+        (section === 'inicial' || section === 'final') && CEE_VALIDABLE_SLOTS.includes(slotId)
+            ? `${section}_${slotId}`
+            : null
     );
     const isCeeSlotValidated = (section, slotId) => {
         const key = ceeValidKeyFor(section, slotId);
@@ -585,7 +588,7 @@ export function CeeDocumentsGrid({
                 onFilesChange(prev => {
                     const next = { ...prev };
                     if (!next[section]) next[section] = {};
-                    
+
                     if (slot.isMultiple) {
                         const current = next[section][slot.id] || [];
                         next[section][slot.id] = [...current, data.drive_link];
@@ -593,6 +596,15 @@ export function CeeDocumentsGrid({
                         next[section][slot.id] = data.drive_link;
                     }
                     return next;
+                }, (currentCee) => {
+                    // Fichero nuevo ⇒ la validación anterior ya no vale: el slot vuelve a
+                    // ámbar y hay que revisarlo otra vez. (Al re-validar, el backend archiva
+                    // la copia previa de "10. EXPEDIENTE CAE" en su subcarpeta OLD.)
+                    const validKey = ceeValidKeyFor(section, slot.id);
+                    if (!validKey || !currentCee?.docs_validados?.[validKey]) return null;
+                    const dv = { ...currentCee.docs_validados };
+                    delete dv[validKey];
+                    return { docs_validados: dv };
                 });
 
                 console.log(`[Upload OK] section=${section} slot=${slot.id}`);
@@ -1191,7 +1203,7 @@ export function CeeDocumentsGrid({
                                     </>
                                 ) : (
                                     <>
-                                        {/* Validar (solo CEE Inicial · pdf/registro): copia a "10. EXPEDIENTE CAE" para auditoría. */}
+                                        {/* Validar (xml/pdf/registro/etiqueta, inicial y final): copia a "10. EXPEDIENTE CAE" para auditoría. */}
                                         {ceeValidKeyFor(managing.section, managing.slot.id) && (
                                             isCeeSlotValidated(managing.section, managing.slot.id) ? (
                                                 <div className="px-6 py-3.5 rounded-2xl bg-emerald-500/[0.07] border border-emerald-500/20 text-emerald-400/80 text-[11px] font-black uppercase tracking-[0.2em] flex items-center gap-2">

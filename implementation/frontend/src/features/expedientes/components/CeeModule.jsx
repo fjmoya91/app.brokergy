@@ -860,10 +860,15 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                 onEditCliente={onEditCliente}
                 certName={selectedCertName}
                 ceeFiles={local.cee_files}
-                onFilesChange={(newFiles) => {
+                onFilesChange={(newFiles, extraPatch) => {
                     setLocal(current => {
                         const nextFiles = typeof newFiles === 'function' ? newFiles(current.cee_files) : newFiles;
-                        const nextLocal = { ...current, cee_files: nextFiles };
+                        // extraPatch: cambios en el resto de `cee` que deben viajar en el
+                        // MISMO guardado que los ficheros (p. ej. limpiar docs_validados al
+                        // re-subir). Por onManualUpdate se perderían: ese usa el `local` del
+                        // render, que aún no tiene los cee_files nuevos.
+                        const patch = typeof extraPatch === 'function' ? extraPatch(current) : extraPatch;
+                        const nextLocal = { ...current, ...(patch || {}), cee_files: nextFiles };
                         onSave({ cee: nextLocal });
                         return nextLocal;
                     });
@@ -970,10 +975,15 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                 onEditCliente={onEditCliente}
                 certName={selectedCertName}
                 ceeFiles={local.cee_files}
-                onFilesChange={(newFiles) => {
+                onFilesChange={(newFiles, extraPatch) => {
                     setLocal(current => {
                         const nextFiles = typeof newFiles === 'function' ? newFiles(current.cee_files) : newFiles;
-                        const nextLocal = { ...current, cee_files: nextFiles };
+                        // extraPatch: cambios en el resto de `cee` que deben viajar en el
+                        // MISMO guardado que los ficheros (p. ej. limpiar docs_validados al
+                        // re-subir). Por onManualUpdate se perderían: ese usa el `local` del
+                        // render, que aún no tiene los cee_files nuevos.
+                        const patch = typeof extraPatch === 'function' ? extraPatch(current) : extraPatch;
+                        const nextLocal = { ...current, ...(patch || {}), cee_files: nextFiles };
                         onSave({ cee: nextLocal });
                         return nextLocal;
                     });

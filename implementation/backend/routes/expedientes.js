@@ -1366,14 +1366,25 @@ router.post('/:id/documentos/validar', enforceAuth, async (req, res) => {
 });
 
 // ─── POST /api/expedientes/:id/documentos/validar-cee ─────────────────────────
-// Igual que /documentos/validar pero para los documentos del CEE INICIAL (viven en
-// la columna `cee` del expediente, no en `documentacion`): el PDF firmado del CEE
-// (slot "pdf", suffix _fdo.pdf) y el Registro (slot "registro", sin firma digital
-// — solo hace falta que exista). Copia a "10. EXPEDIENTE CAE" igual que el resto.
-// Body: { field: 'inicial_pdf' | 'inicial_registro' }
+// Igual que /documentos/validar pero para los documentos del CEE (viven en la
+// columna `cee` del expediente, no en `documentacion`): el .XML, el PDF firmado
+// (slot "pdf", suffix _fdo.pdf), el Registro (slot "registro") y la Etiqueta
+// (slot "etiqueta"), tanto de la fase INICIAL como de la FINAL. Ninguno de ellos
+// salvo el PDF lleva firma digital — solo hace falta que exista y sea correcto.
+// Copia a "10. EXPEDIENTE CAE" igual que el resto.
+// Body: { field: '{inicial|final}_{xml|pdf|registro|etiqueta}' }
+// OJO: las etiquetas de inicial_pdf/inicial_registro NO se cambian: son el nombre
+// del fichero en la carpeta de auditoría y renombrarlas duplicaría las copias ya
+// hechas en expedientes antiguos.
 const CEE_VALIDABLE = {
-    inicial_pdf: { slot: 'pdf', label: 'CEE Inicial Firmado' },
-    inicial_registro: { slot: 'registro', label: 'CEE Inicial Registro' },
+    inicial_xml: { section: 'inicial', slot: 'xml', label: 'CEE Inicial XML', ext: '.xml' },
+    inicial_pdf: { section: 'inicial', slot: 'pdf', label: 'CEE Inicial Firmado', ext: '.pdf' },
+    inicial_registro: { section: 'inicial', slot: 'registro', label: 'CEE Inicial Registro', ext: '.pdf' },
+    inicial_etiqueta: { section: 'inicial', slot: 'etiqueta', label: 'CEE Inicial Etiqueta', ext: '.pdf' },
+    final_xml: { section: 'final', slot: 'xml', label: 'CEE Final XML', ext: '.xml' },
+    final_pdf: { section: 'final', slot: 'pdf', label: 'CEE Final Firmado', ext: '.pdf' },
+    final_registro: { section: 'final', slot: 'registro', label: 'CEE Final Registro', ext: '.pdf' },
+    final_etiqueta: { section: 'final', slot: 'etiqueta', label: 'CEE Final Etiqueta', ext: '.pdf' },
 };
 
 router.post('/:id/documentos/validar-cee', enforceAuth, async (req, res) => {
@@ -1386,7 +1397,7 @@ router.post('/:id/documentos/validar-cee', enforceAuth, async (req, res) => {
         if (error || !exp) return res.status(404).json({ error: 'Expediente no encontrado' });
 
         const ceeObj = exp.cee || {};
-        const link = ceeObj.cee_files?.inicial?.[spec.slot];
+        const link = ceeObj.cee_files?.[spec.section]?.[spec.slot];
         if (!link) return res.status(400).json({ error: 'El documento aún no tiene un fichero que copiar' });
 
         let auditLink = null;
@@ -1400,9 +1411,23 @@ router.post('/:id/documentos/validar-cee', enforceAuth, async (req, res) => {
             if (driveFolderId && fileId) {
                 const driveService = require('../services/driveService');
                 const auditFolderId = await driveService.getOrCreateSubfolderNormalized(driveFolderId, '10. EXPEDIENTE CAE');
-                const copyName = `${exp.numero_expediente || ''} - ${spec.label}.pdf`.trim();
+                // La extensión real manda (un .xml copiado como .pdf sería ilegible);
+                // si Drive no responde, caemos a la esperada por el slot.
+                let ext = spec.ext;
+                try {
+                    const meta = await driveService.getFileMetadata(fileId);
+                    const dotIdx = (meta?.name || '').lastIndexOf('.');
+                    if (dotIdx > 0) ext = meta.name.substring(dotIdx);
+                } catch { /* nos quedamos con spec.ext */ }
+                const copyName = `${exp.numero_expediente || ''} - ${spec.label}${ext}`.trim();
+                // Re-validación: la copia anterior NO se borra, se archiva en "OLD"
+                // como {nombre}_OLD, _OLD1, _OLD2… (trazabilidad de qué se validó antes).
+                // Si el archivado falla, borramos para no dejar dos ficheros homónimos.
                 const prevId = await driveService.findFileByName(auditFolderId, copyName);
-                if (prevId) await driveService.deleteFile(prevId);
+                if (prevId) {
+                    const archived = await driveService.archiveExistingToOld(auditFolderId, prevId, copyName);
+                    if (!archived) await driveService.deleteFile(prevId);
+                }
                 const copied = await driveService.copyFile(fileId, auditFolderId, copyName);
                 if (copied?.link) auditLink = copied.link;
             }
