@@ -148,6 +148,28 @@ function recordOtherError(errorMessage) {
 }
 
 // ─── Alertas al admin ────────────────────────────────────────────────────
+// Tope DURO entre avisos, igual que en el watchdog de WhatsApp: el Catastro
+// puede "parpadear" (bloqueo → ping OK → bloqueo…) y cada ciclo mandaba dos
+// correos. Con varios backends corriendo a la vez eso agota la cuota del buzón
+// (100/24 h en Hostinger) y deja a TODA la app sin poder enviar nada.
+const ALERT_COOLDOWN_MS = parseInt(process.env.CATASTRO_ALERT_COOLDOWN_MS || String(6 * 60 * 60 * 1000), 10);
+const ALERT_EMAIL_ENABLED = String(process.env.CATASTRO_ALERT_EMAIL ?? 'true').toLowerCase() !== 'false';
+let lastAlertAt = 0;
+
+function puedeAvisar(tipo) {
+    if (!ALERT_EMAIL_ENABLED) {
+        console.log(`[catastroMonitor] Aviso "${tipo}" desactivado por CATASTRO_ALERT_EMAIL=false.`);
+        return false;
+    }
+    const desde = Date.now() - lastAlertAt;
+    if (desde < ALERT_COOLDOWN_MS) {
+        console.log(`[catastroMonitor] Aviso "${tipo}" omitido (último hace ${Math.round(desde / 60000)} min).`);
+        return false;
+    }
+    lastAlertAt = Date.now();
+    return true;
+}
+
 async function notifyBlocked(blockedMessage) {
     const fechaHora = new Date().toLocaleString('es-ES', { timeZone: 'Europe/Madrid' });
     const subject = '⛔ Catastro rate-limited en app.brokergy.es';
@@ -182,9 +204,10 @@ async function notifyBlocked(blockedMessage) {
     // Email al admin
     try {
         const adminEmail = process.env.ADMIN_EMAIL || 'info@brokergy.es';
-        if (emailService.sendMail) {
+        if (emailService.sendMail && puedeAvisar('bloqueo')) {
             await emailService.sendMail({
                 to: adminEmail,
+                from: process.env.ALERT_EMAIL_FROM || emailService.getFallbackSender() || undefined,
                 subject,
                 text: bodyText,
                 html: `<pre style="font-family: monospace; white-space: pre-wrap;">${bodyText}</pre>`
@@ -214,9 +237,10 @@ async function notifyUnblocked(durationMs) {
 
     try {
         const adminEmail = process.env.ADMIN_EMAIL || 'info@brokergy.es';
-        if (emailService.sendMail) {
+        if (emailService.sendMail && puedeAvisar('recuperación')) {
             await emailService.sendMail({
                 to: adminEmail,
+                from: process.env.ALERT_EMAIL_FROM || emailService.getFallbackSender() || undefined,
                 subject: '✅ Catastro recuperado en app.brokergy.es',
                 text: `Catastro vuelve a responder OK.\n\nHora: ${fechaHora}\nDuración del bloqueo: ${minutes} min\n\nNo se requiere acción.\n\n— BROKERGY Monitor`
             });

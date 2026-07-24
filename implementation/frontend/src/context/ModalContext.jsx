@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useState, useCallback } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import { registrarConfirm } from '../utils/emailFallback';
 
 const ModalContext = createContext();
 
@@ -61,6 +62,11 @@ export const ModalProvider = ({ children }) => {
             });
         });
     }, []);
+
+    // Los envíos de email necesitan poder preguntar "¿lo mando desde el otro
+    // buzón?" cuando el principal agota su cuota, y ocurren dentro de helpers sin
+    // acceso al contexto. Se registra aquí el showConfirm real de la app.
+    useEffect(() => { registrarConfirm(showConfirm); }, [showConfirm]);
 
     return (
         <ModalContext.Provider value={{ showAlert, showConfirm }}>

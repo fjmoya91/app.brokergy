@@ -58,6 +58,13 @@ let initInFlight = false;  // hay un init() en curso: evita dos Chrome sobre el 
 let autoFailures = 0;      // intentos fallidos consecutivos → backoff
 let nextAttemptAt = 0;     // timestamp del próximo reintento permitido
 let qrAlertSent = false;   // email de "hace falta QR" ya enviado en este episodio
+let qrAlertAt = 0;         // cuándo salió el último aviso (tope duro entre avisos)
+// Nunca más de un aviso cada 6 h, aunque el episodio se reinicie mil veces. Y un
+// interruptor para silenciarlo en local: el portátil no tiene la sesión de
+// WhatsApp (vive en el VPS), así que ahí el aviso es puro ruido — y gasta cuota
+// del MISMO buzón que usa producción.
+const QR_ALERT_COOLDOWN_MS = parseInt(process.env.WWA_ALERT_COOLDOWN_MS || String(6 * 60 * 60 * 1000), 10);
+const QR_ALERT_ENABLED = String(process.env.WWA_ALERT_EMAIL ?? 'true').toLowerCase() !== 'false';
 
 // Timestamp del arranque del módulo: sirve para detectar fácilmente si el
 // backend está ejecutando código stale (no reiniciado tras un edit).
@@ -410,8 +417,14 @@ async function init() {
     }
     // Cualquier init (manual desde el panel o del supervisor) re-arma la
     // auto-reconexión: si el admin había parado el servicio, vuelve a vigilarse.
+    //
+    // OJO: aquí NO se rearma el aviso de "hace falta QR". El watchdog llama a
+    // init() en cada reintento, así que resetear el guard aquí lo dejaba inútil:
+    // avisar → reintentar → borrar el guard → volver a avisar, un correo cada
+    // pocos minutos. Se agotó la cuota diaria de Hostinger (100/24h) el
+    // 24/07/2026 con ~95 avisos a info@brokergy.es. El guard solo se rearma
+    // cuando la conexión llega de verdad a READY (ver watchdogTick).
     manualStop = false;
-    qrAlertSent = false;
     if (client) {
         return { ok: true, state, already: true };
     }
@@ -969,7 +982,21 @@ async function hardReset(motivo) {
  */
 async function alertQrNeeded(motivo) {
     if (qrAlertSent) return;
+    // Tope DURO, independiente del guard por episodio: pase lo que pase, este
+    // aviso no puede salir más de una vez cada QR_ALERT_COOLDOWN_MS. Un canal de
+    // alertas que puede repetirse agota la cuota del buzón y deja a la app sin
+    // poder enviar nada (incidente del 24/07/2026).
+    const desdeElUltimo = Date.now() - qrAlertAt;
+    if (desdeElUltimo < QR_ALERT_COOLDOWN_MS) {
+        console.log(`[wwa-watchdog] Aviso de QR omitido (ya se avisó hace ${Math.round(desdeElUltimo / 60000)} min).`);
+        return;
+    }
+    if (!QR_ALERT_ENABLED) {
+        console.log('[wwa-watchdog] Aviso de QR desactivado por WWA_ALERT_EMAIL=false.');
+        return;
+    }
     qrAlertSent = true;
+    qrAlertAt = Date.now();
     const cuando = new Date().toLocaleString('es-ES', { timeZone: 'Europe/Madrid' });
     const body = [
         'El servicio de WhatsApp de Brokergy no puede reconectarse solo.',
@@ -993,6 +1020,10 @@ async function alertQrNeeded(motivo) {
         if (emailService.sendMail) {
             await emailService.sendMail({
                 to: process.env.ADMIN_EMAIL || 'info@brokergy.es',
+                // Los avisos internos salen por el buzón SECUNDARIO: así nunca
+                // gastan la cuota del buzón con el que se escribe a clientes e
+                // instaladores, que es la que deja la app inservible al agotarse.
+                from: process.env.ALERT_EMAIL_FROM || emailService.getFallbackSender() || undefined,
                 subject: '⚠️ WhatsApp de Brokergy necesita que escanees el QR',
                 text: body,
                 html: `<pre style="font-family: monospace; white-space: pre-wrap;">${body}</pre>`,
@@ -1082,7 +1113,19 @@ function startWatchdog() {
 
 // Auto-inicializar si hay sesión previa guardada en el volumen.
 // Permite que WhatsApp se reconecte solo tras cada deploy sin intervención manual.
-if (CONFIG.enabled) {
+//
+// SOLO cuando el proceso ES el servidor. Requerir este módulo levanta un
+// setInterval que mantiene vivo el event loop PARA SIEMPRE: un
+// `node -e "require('./routes/expedientes')"` de diagnóstico se convertía en un
+// demonio inmortal que seguía reconectando y avisando por email con el código
+// que tenía cargado en memoria. Así se quedó uno el 24/07/2026 desde las 10:24
+// mandando un aviso cada 10 min. Los scripts sueltos ya no arrancan nada.
+const ES_SERVIDOR = /server\.js$/i.test(process.argv[1] || '')
+    || String(process.env.WWA_AUTOSTART || '').toLowerCase() === 'always';
+if (!ES_SERVIDOR && CONFIG.enabled) {
+    console.log('[wwa] Módulo cargado fuera del servidor: no se auto-conecta ni se arranca el supervisor.');
+}
+if (CONFIG.enabled && ES_SERVIDOR) {
     if (hasStoredSession()) {
         console.log('[wwa] Sesión previa detectada — auto-reconectando en 5s...');
         setTimeout(() => {

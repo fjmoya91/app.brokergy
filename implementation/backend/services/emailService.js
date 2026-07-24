@@ -119,6 +119,50 @@ if (process.env.LOTE_SO_SMTP_USER && process.env.LOTE_SO_SMTP_PASS) {
     console.log(`[Email] Transporter dedicado activo para ${process.env.LOTE_SO_SMTP_USER}`);
 }
 
+// ─── Errores del SMTP: cuota, temporales y mensaje para el usuario ───────────
+// Hostinger limita el buzón a 100 correos/día y responde al DATA con
+// `451 4.7.1 Ratelimit "hostinger_out_ratelimit" exceeded`. Es un 4xx (temporal)
+// pero la ventana es DIARIA: reintentar no arregla nada y cada intento consume
+// otro envío del contador, así que la cuota se distingue del resto de rechazos
+// temporales (450/452/421, cortes de red), que sí se reintentan.
+const MAX_SEND_ATTEMPTS = 3;
+const RETRY_DELAYS_MS = [4000, 12000];
+const TRANSIENT_CODES = new Set([421, 450, 451, 452]);
+const TRANSIENT_NET_CODES = new Set(['ETIMEDOUT', 'ECONNRESET', 'ECONNECTION', 'ESOCKET', 'EDNS']);
+
+const errText = (err) => `${err?.response || ''} ${err?.message || ''}`.toLowerCase();
+
+function isQuotaError(err) {
+    return /ratelimit|sending limit|quota exceeded|too many messages|daily limit/.test(errText(err));
+}
+
+function isTransientError(err) {
+    return TRANSIENT_CODES.has(err?.responseCode) || TRANSIENT_NET_CODES.has(err?.code);
+}
+
+/**
+ * Traduce el error del SMTP a algo que el usuario pueda entender en la app,
+ * conservando el detalle técnico para los logs (`smtpResponse`, `responseCode`).
+ */
+function mailError(err) {
+    if (!err) return new Error('No se pudo enviar el correo.');
+    let texto;
+    if (isQuotaError(err)) {
+        texto = 'Límite diario de envíos del buzón alcanzado (Hostinger permite 100 correos/día). El correo NO se ha enviado: vuelve a intentarlo cuando se restablezca la cuota.';
+    } else if (isTransientError(err)) {
+        texto = `El servidor de correo rechazó el envío temporalmente (${err.responseCode || err.code}). Se ha reintentado sin éxito; prueba de nuevo en unos minutos.`;
+    } else {
+        return err;
+    }
+    const out = new Error(texto);
+    out.code = err.code;
+    out.responseCode = err.responseCode;
+    out.smtpResponse = err.response;
+    out.isQuotaError = isQuotaError(err);
+    out.cause = err;
+    return out;
+}
+
 /**
  * Envía un email genérico
  */
@@ -165,27 +209,71 @@ const sendMail = async ({ to, cc, subject, html, text, attachments, replyTo, fro
         .map(e => String(e).trim())
         .filter(e => !toList.includes(e.toLowerCase()));
 
-    try {
-        const info = await activeTransporter.sendMail({
-            from,
-            to,
-            cc: ccList.length ? ccList : undefined,
-            replyTo: replyTo || undefined,
-            subject,
-            html,
-            text: text || subject,
-            attachments
-        });
-        console.log(`[Email] Enviado a ${to}${ccList.length ? ` (cc: ${ccList.join(', ')})` : ''}: ${info.messageId}`);
-        return { success: true, messageId: info.messageId };
-    } catch (error) {
-        console.error(`[Email] Error enviando a ${to}: [${error.code}] ${error.message}`);
-        if (error.response) console.error(`[Email] SMTP response: ${error.response}`);
-        throw error;
+    const payload = {
+        from,
+        to,
+        cc: ccList.length ? ccList : undefined,
+        replyTo: replyTo || undefined,
+        subject,
+        html,
+        text: text || subject,
+        attachments
+    };
+
+    let lastError = null;
+    for (let intento = 1; intento <= MAX_SEND_ATTEMPTS; intento++) {
+        try {
+            const info = await activeTransporter.sendMail(payload);
+            console.log(`[Email] Enviado a ${to}${ccList.length ? ` (cc: ${ccList.join(', ')})` : ''}: ${info.messageId}`);
+            return { success: true, messageId: info.messageId };
+        } catch (error) {
+            lastError = error;
+            console.error(`[Email] Error enviando a ${to} (intento ${intento}/${MAX_SEND_ATTEMPTS}): [${error.code}] ${error.message}`);
+            if (error.response) console.error(`[Email] SMTP response: ${error.response}`);
+
+            // Cuota agotada: reintentar es inútil (la ventana es diaria) y cada
+            // intento gasta otro envío del contador. Se corta en seco.
+            if (isQuotaError(error) || !isTransientError(error) || intento === MAX_SEND_ATTEMPTS) break;
+
+            const espera = RETRY_DELAYS_MS[intento - 1] || 5000;
+            console.warn(`[Email] Rechazo temporal; reintentando en ${Math.round(espera / 1000)}s…`);
+            await new Promise(r => setTimeout(r, espera));
+        }
     }
+    throw mailError(lastError);
 };
 
 const verifySmtp = () => transporter.verify();
+
+/**
+ * Buzón ALTERNATIVO desde el que se puede reenviar cuando el principal agota su
+ * cuota diaria. Solo existe si hay credenciales propias de esa cuenta
+ * (LOTE_SO_SMTP_USER/PASS): sin transporter dedicado, Hostinger rechaza el
+ * "enviar-como" y sendMail revertiría al remitente principal — o sea, no
+ * serviría de nada. Devuelve null si no hay ninguno configurado.
+ */
+function getFallbackSender() {
+    const alt = Object.keys(altTransporters)[0] || null;
+    if (!alt) return null;
+    const principal = (process.env.SMTP_USER || DEFAULT_FROM_ADDRESS).toLowerCase();
+    return alt === principal ? null : alt;
+}
+
+/**
+ * Respuesta HTTP homogénea cuando falla un envío. Si el fallo es por CUOTA y hay
+ * buzón alternativo, se marca `quotaExceeded` + `fallbackFrom` para que el
+ * frontend pueda ofrecer el reenvío desde el otro buzón.
+ */
+function emailErrorResponse(res, err, mensajeBase = 'No se pudo enviar el correo.') {
+    const quotaExceeded = !!err?.isQuotaError;
+    const fallbackFrom = quotaExceeded ? getFallbackSender() : null;
+    return res.status(500).json({
+        error: mensajeBase,
+        message: err?.message || mensajeBase,
+        quotaExceeded,
+        fallbackFrom,
+    });
+}
 
 /**
  * Envía email de recuperación de contraseña con plantilla HTML Brokergy
@@ -429,7 +517,7 @@ const sendProposalEmail = async ({ to, userName, pdfBuffer, tableImageBase64, su
         ? `¡Hola, ${userName}!\n\nAdjuntamos la propuesta para vuestro cliente ${summaryData.clienteName || ''} (Exp. ${summaryData.id}).\n\nEnlace de firma para el cliente: ${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/firma/${summaryData.urlId || summaryData.id}\n\nBROKERGY · Ingeniería Energética`
         : `¡Hola, ${userName}!\n\nYa hemos calculado las ayudas para tu instalación de aerotermia.\n\n🔹 Bono Energético CAE: ${summaryData.caeBonus}\n🔹 Deducciones IRPF: ${summaryData.irpfDeduction}\n\nResumen total ayudas: Hasta ${summaryData.totalAyuda}\n\nPasos a seguir:\n1. Aceptar presupuesto al instalador.\n2. Aceptar propuesta adjunta.\n\n📄 Ver propuesta online:\n${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/api/public/propuesta/${summaryData.urlId || summaryData.id}\n\nPuedes firmar directamente aquí: ${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/firma/${summaryData.urlId || summaryData.id}\n\nQuedo a tu disposición.\n\nBROKERGY · Ingeniería Energética`;
 
-    return sendMail({ to, subject, html, text, attachments });
+    return sendMail({ to, subject, html, text, attachments, from });
 };
 
 /**
@@ -1342,9 +1430,9 @@ function buildDocumentEmailHtml({ subject, title, message, primaryLink, primaryL
     return { html, text: cleaned };
 }
 
-const sendDocumentEmail = async ({ to, subject, title, message, primaryLink, primaryLabel, secondaryNote, attachments, pill }) => {
+const sendDocumentEmail = async ({ to, subject, title, message, primaryLink, primaryLabel, secondaryNote, attachments, pill, from }) => {
     const { html, text } = buildDocumentEmailHtml({ subject, title, message, primaryLink, primaryLabel, secondaryNote, pill });
-    return sendMail({ to, subject, html, text, attachments });
+    return sendMail({ to, subject, html, text, attachments, from });
 };
 
 module.exports = {
@@ -1352,6 +1440,8 @@ module.exports = {
     buildDocumentEmailHtml,
     sendMail,
     getSender,
+    getFallbackSender,
+    emailErrorResponse,
     invalidateSenderCache,
     verifySmtp,
     sendPasswordResetEmail,

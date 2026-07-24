@@ -143,7 +143,7 @@ router.post('/save-to-drive', async (req, res) => {
  * Body: { html: string, to: string, userName: string, summaryData: object }
  */
 router.post('/send-proposal', async (req, res) => {
-    const { html, to, userName, summaryData, customMessage } = req.body;
+    const { html, to, userName, summaryData, customMessage, from } = req.body;
     const emailService = require('../services/emailService');
 
     if (!html || !to) {
@@ -182,7 +182,8 @@ router.post('/send-proposal', async (req, res) => {
             pdfBuffer,
             tableImageBase64,
             summaryData,
-            customMessage: customMessage || null
+            customMessage: customMessage || null,
+            from
         });
 
         // 4. Guardar HTML en base de datos para la vista web online
@@ -232,10 +233,7 @@ router.post('/send-proposal', async (req, res) => {
         res.json({ success: true });
     } catch (error) {
         console.error('Error enviando propuesta por email:', error);
-        res.status(500).json({ 
-            error: 'Error al enviar la propuesta por email.', 
-            message: error.message 
-        });
+        emailService.emailErrorResponse(res, error, 'Error al enviar la propuesta por email.');
     } finally {
         if (page) { try { await page.close(); } catch (_) { } }
         if (browser) { try { await browser.close(); } catch (_) { } }
@@ -253,7 +251,9 @@ router.post('/send-proposal', async (req, res) => {
  * }
  */
 router.post('/send-annex', async (req, res) => {
-    const { to, userName, customMessage, summaryData, docs } = req.body;
+    // `from` (opcional): buzón alternativo elegido por el usuario cuando el
+    // principal ha agotado su cuota diaria. Ver emailService.getFallbackSender().
+    const { to, userName, customMessage, summaryData, docs, from } = req.body;
     const emailService = require('../services/emailService');
 
     if (!to || !docs || !Array.isArray(docs)) {
@@ -289,13 +289,14 @@ router.post('/send-annex', async (req, res) => {
             userName,
             attachments,
             customMessage,
-            summaryData
+            summaryData,
+            from
         });
 
         res.json({ success: true });
     } catch (error) {
         console.error('Error enviando anexos por email:', error);
-        res.status(500).json({ error: 'Error al enviar los anexos por email.', message: error.message });
+        emailService.emailErrorResponse(res, error, 'Error al enviar los anexos por email.');
     } finally {
         if (browser) { try { await browser.close(); } catch (_) { } }
     }
@@ -307,7 +308,7 @@ router.post('/send-annex', async (req, res) => {
  * Body: { html, to, instaladorNombre, numExpediente }
  */
 router.post('/send-cifo', async (req, res) => {
-    const { html, to, instaladorNombre, numExpediente, clienteNombre, direccionInstalacion, uploadLink, subject, message } = req.body;
+    const { html, to, instaladorNombre, numExpediente, clienteNombre, direccionInstalacion, uploadLink, subject, message, from } = req.body;
     const annexes = annexSpecs(req.body);
     const emailService = require('../services/emailService');
 
@@ -353,6 +354,7 @@ router.post('/send-cifo', async (req, res) => {
         // (brandEmailShell). El enlace de firma se renderiza como botón destacado.
         await emailService.sendDocumentEmail({
             to,
+            from,
             subject: emailSubject,
             title: link ? 'Firma tu Certificado CIFO' : 'Documentación de tu expediente',
             message: message || defaultMessage,
@@ -371,7 +373,7 @@ router.post('/send-cifo', async (req, res) => {
         res.json({ success: true });
     } catch (error) {
         console.error('Error enviando CIFO por email:', error);
-        res.status(500).json({ error: 'Error al enviar el CIFO por email.', message: error.message });
+        emailService.emailErrorResponse(res, error, 'Error al enviar el CIFO por email.');
     } finally {
         if (browser) { try { await browser.close(); } catch (_) { } }
         if (page)    { try { await page.close();    } catch (_) { } }
