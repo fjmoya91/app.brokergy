@@ -104,14 +104,21 @@ def construir_relleno(datos: dict, nombres_campos: list):
         # en la plantilla: se identifica rellenando el material del emisor.
         text[153] = "POLIETILENO RETICULADO PEX"
 
-    checks = [2]  # Persona física (siempre en estos expedientes residenciales)
-    # Sexo: no hay dato en BD. Solo se marca si viene explícito; si no, se deja
-    # SIN marcar (ni Hombre ni Mujer) en vez de asumir.
-    sexo = (t.get("sexo") or "").lower()
-    if sexo.startswith("muj"):
-        checks.append(5)   # Mujer
-    elif sexo.startswith("h"):
-        checks.append(3)   # Hombre
+    # TIPO DE PERSONA — casillas 2=Física, 3=Hombre, 4=Jurídica, 5=Mujer
+    # (verificado sobre la plantilla; van intercaladas por el orden de la tabla).
+    # Una sociedad es persona JURÍDICA y NO tiene sexo: marcar Hombre/Mujer en una
+    # empresa es un error del documento.
+    if t.get("es_empresa"):
+        checks = [4]       # Persona jurídica — sin sexo
+    else:
+        checks = [2]       # Persona física
+        # Sexo: solo se marca si viene explícito; si no, se deja SIN marcar
+        # (ni Hombre ni Mujer) en vez de asumir.
+        sexo = (t.get("sexo") or "").lower()
+        if sexo.startswith("muj"):
+            checks.append(5)   # Mujer
+        elif sexo.startswith("h"):
+            checks.append(3)   # Hombre
     checks.append(20)      # VIVIENDA
     if obj.get("calefaccion", True):
         checks.append(26)

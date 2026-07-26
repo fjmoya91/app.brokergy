@@ -19,10 +19,23 @@ Arranque local:
 """
 import os
 import io
+import sys
 import base64
 import zipfile
 import tempfile
 import json
+
+# Las trazas de los generadores llevan acentos y símbolos ("✓ PDF generado…"). Si la
+# consola no es UTF-8 (Windows: cp1252 por defecto), ese `print` lanza
+# UnicodeEncodeError DENTRO de la generación y tumba la petición entera con un 500
+# —el documento estaba bien, solo fallaba la traza—. En Docker/Linux no se nota
+# porque la consola ya es UTF-8; en desarrollo local sí. Se fuerza aquí, una vez,
+# en lugar de ir persiguiendo cada print.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass  # stream ya redirigido o sin reconfigure: no es motivo para no arrancar
 
 from fastapi import FastAPI, HTTPException, Query, Body
 from fastapi.responses import JSONResponse, StreamingResponse

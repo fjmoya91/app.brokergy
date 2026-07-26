@@ -40,11 +40,31 @@ ESQUEMA_CON_ACS = os.path.join(ASSETS, "esquema_con_acs.png")
 ESQUEMA_SIN_ACS = os.path.join(ASSETS, "esquema_sin_acs.png")
 
 
+# Rutas donde el instalador de LibreOffice para Windows deja soffice.exe. No lo
+# añade al PATH, así que `shutil.which` no lo encuentra aunque esté instalado y
+# el PDF de la memoria faltaría en local sin motivo aparente.
+_SOFFICE_WIN = (
+    r"C:\Program Files\LibreOffice\program\soffice.exe",
+    r"C:\Program Files (x86)\LibreOffice\program\soffice.exe",
+)
+
+
+def _buscar_soffice():
+    """Ejecutable de LibreOffice, o None si no está instalado."""
+    encontrado = shutil.which("soffice") or shutil.which("libreoffice")
+    if encontrado:
+        return encontrado
+    for ruta in _SOFFICE_WIN:
+        if os.path.exists(ruta):
+            return ruta
+    return None
+
+
 def _docx_to_pdf(docx_path, salida_dir):
     """Convierte la Memoria .docx a .pdf con LibreOffice headless (si está
     disponible). Devuelve la ruta del PDF o None si no se pudo (degrada con
     elegancia: en local sin LibreOffice simplemente no hay PDF de la memoria)."""
-    soffice = shutil.which("soffice") or shutil.which("libreoffice")
+    soffice = _buscar_soffice()
     if not soffice:
         print("[WARN] LibreOffice no disponible: no se genera el PDF de la memoria")
         return None

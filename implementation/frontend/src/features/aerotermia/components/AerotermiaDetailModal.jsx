@@ -64,7 +64,7 @@ function NumRow({ label, value }) {
 // ── Componente principal ────────────────────────────────────────────────────
 const EMPTY = {
     marca: '', modelo_comercial: '', tipo: 'BIBLOCK',
-    potencia_calefaccion: '', modelo_conjunto: '', modelo_ud_exterior: '',
+    potencia_calefaccion: '', potencia_frigorifica: '', modelo_conjunto: '', modelo_ud_exterior: '',
     modelo_ud_interior: '', deposito_acs_incluido: false, litros_acs: '',
     scop_cal_calido_35: '', scop_cal_calido_55: '',
     scop_cal_medio_35: '', scop_cal_medio_55: '',
@@ -112,6 +112,7 @@ export function AerotermiaDetailModal({ isOpen, equipo: equipoProp, isNew = fals
             modelo_comercial:      s(e.modelo_comercial),
             tipo:                  s(e.tipo) || 'BIBLOCK',
             potencia_calefaccion:  s(e.potencia_calefaccion),
+            potencia_frigorifica:  s(e.potencia_frigorifica),
             modelo_conjunto:       s(e.modelo_conjunto),
             modelo_ud_exterior:    s(e.modelo_ud_exterior),
             modelo_ud_interior:    s(e.modelo_ud_interior),
@@ -191,6 +192,7 @@ export function AerotermiaDetailModal({ isOpen, equipo: equipoProp, isNew = fals
             modelo_comercial:      s(f.modelo_comercial),
             tipo:                  s(f.tipo),
             potencia_calefaccion:  n(f.potencia_calefaccion),
+            potencia_frigorifica:  n(f.potencia_frigorifica),
             modelo_conjunto:       s(f.modelo_conjunto),
             modelo_ud_exterior:    s(f.modelo_ud_exterior),
             modelo_ud_interior:    s(f.modelo_ud_interior),
@@ -354,6 +356,7 @@ export function AerotermiaDetailModal({ isOpen, equipo: equipoProp, isNew = fals
                                     <DataRow label="Modelo Comercial"  value={equipo.modelo_comercial || '—'} />
                                     <DataRow label="Tipo"              value={equipo.tipo || '—'} />
                                     <DataRow label="Potencia (kW)"     value={fmt(equipo.potencia_calefaccion)} highlight />
+                                    <DataRow label="P. Frigorífica (kW)" value={fmt(equipo.potencia_frigorifica)} />
                                     <DataRow label="Depósito ACS"      value={equipo.deposito_acs_incluido ? 'Sí' : 'No'} />
                                     {equipo.deposito_acs_incluido && (
                                         <DataRow label="Acumulación ACS (L)" value={fmt(equipo.litros_acs)} />
@@ -476,6 +479,13 @@ export function AerotermiaDetailModal({ isOpen, equipo: equipoProp, isNew = fals
                                     </div>
                                     <FI label="Potencia Calefacción (kW)">
                                         <Inp type="number" step="0.5" value={form.potencia_calefaccion} onChange={e => upd({ potencia_calefaccion: e.target.value })} placeholder="12" />
+                                    </FI>
+                                    {/* Capacidad frigorífica: se declara en la casilla FRÍO del RITE
+                                        cuando hay climatización (suelo radiante refrescante). Ojo: las
+                                        fichas ErP solo traen calefacción; este dato sale de la tabla de
+                                        capacidades de la ficha comercial. */}
+                                    <FI label="Potencia Frigorífica (kW)">
+                                        <Inp type="number" step="0.1" value={form.potencia_frigorifica} onChange={e => upd({ potencia_frigorifica: e.target.value })} placeholder="11,5" />
                                     </FI>
                                     <FI label="Depósito ACS Incluido">
                                         <div className="flex items-center h-[42px]">

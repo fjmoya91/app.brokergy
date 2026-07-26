@@ -98,6 +98,12 @@ def normalizar(raw: dict, fecha_firma: str = None) -> dict:
         "conductos": "CONDUCTOS",
     }
     emisor = _EMISOR_LABELS.get((emisor_raw or "").strip().lower(), "RADIADORES")
+    # Emisores que dan FRÍO: el suelo radiante refresca en verano y las unidades
+    # aire-aire climatizan por definición. Con radiadores no hay modo frío en la
+    # instalación aunque el equipo sea reversible.
+    # ESPEJO de `EMISORES_CON_FRIO` en backend/utils/riteValidation.js.
+    _EMISORES_FRIO = ("suelo_radiante", "splits", "conductos")
+    lleva_frio = (emisor_raw or "").strip().lower() in _EMISORES_FRIO
 
     # ── Instalación EN CASCADA (varias bombas de calor) ──────────────────────
     # `aerotermia_cal.equipos_extra` lleva las unidades 2..N. La plantilla oficial
@@ -108,6 +114,10 @@ def normalizar(raw: dict, fecha_firma: str = None) -> dict:
     acs_uds = _unidades(acs)
 
     pot_cal = sum(_f(u.get("potencia")) for u in cal_uds) or _f(cal.get("potencia"))
+    # FRÍO: solo se declara cuando la instalación incluye CLIMATIZACIÓN. El valor lo
+    # inyecta el backend desde `aerotermia.potencia_frigorifica` (no se guarda en el
+    # expediente); si el modelo no lo tiene en el catálogo, queda 0.
+    pot_frio = sum(_f(u.get("potencia_frio")) for u in cal_uds) if lleva_frio else 0.0
     # El ACS solo cuenta como equipo propio (potencia + acumulación aparte) si el
     # equipo de ACS es DISTINTO al de calefacción. Si es el mismo modelo, es una
     # única bomba de calor que da calor+ACS → no se rellena potencia/volumen ACS.
@@ -161,6 +171,9 @@ def normalizar(raw: dict, fecha_firma: str = None) -> dict:
             # usuario al crear el cliente o en el popup al generar la Memoria RITE).
             # mapeo.py marca la casilla 3=Hombre / 5=Mujer; vacío → sin marcar.
             "sexo": exp.get("sexo", "") or "",
+            # Persona jurídica (clientes.es_empresa): marca la casilla "Jurídica"
+            # en vez de "Física" y anula el sexo (una sociedad no tiene sexo).
+            "es_empresa": bool(exp.get("es_empresa")),
             "calle": exp.get("cli_dir", ""),
             "numero": "",
             "localidad": exp.get("cli_muni", ""),
@@ -182,7 +195,7 @@ def normalizar(raw: dict, fecha_firma: str = None) -> dict:
         # Climatización: el suelo radiante puede dar refrescamiento en verano, así
         # que cuando el emisor es suelo radiante se marca CLIMATIZACIÓN.
         "objeto": {"calefaccion": True, "acs": bool(inst.get("cambio_acs")),
-                   "climatizacion": es_suelo},
+                   "climatizacion": lleva_frio},
         "tipo": {"nueva": not exp.get("is_reforma"), "reforma": bool(exp.get("is_reforma")) or bool(inst.get("caldera_antigua_cal"))},
         "generador_calor": {
             "marca": _marcas(cal_uds) or cal.get("marca", ""),
@@ -208,7 +221,9 @@ def normalizar(raw: dict, fecha_firma: str = None) -> dict:
             "localidad": instalador.get("municipio", ""),
             "fecha_firma": _fmt(fecha_firma) if fecha_firma else _fmt(fecha_pruebas),
         },
-        "potencia": {"calor": pot_cal, "frio": 0, "acs": pot_acs,
+        # El TOTAL es calor + ACS: el frío NO suma (criterio de los certificados ya
+        # presentados; la casilla de frío se declara aparte).
+        "potencia": {"calor": pot_cal, "frio": pot_frio, "acs": pot_acs,
                      "total": round(pot_cal + pot_acs, 2)},
         "pruebas_fecha": fecha_pruebas,
         "_meta": {"emisor": emisor},

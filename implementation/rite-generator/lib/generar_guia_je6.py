@@ -148,6 +148,6 @@ def build(datos, output):
     print(f"✓ PDF guiaburros generado: {output}")
 
 if __name__=="__main__":
-    with open(sys.argv[1]) as f:
+    with open(sys.argv[1], encoding="utf-8") as f:
         datos=json.load(f)
     build(datos, sys.argv[2])

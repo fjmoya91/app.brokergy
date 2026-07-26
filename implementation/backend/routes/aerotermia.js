@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const supabase = require('../services/supabaseClient');
-const { enforceAuth } = require('../middleware/auth');
+const { enforceAuth, staffOnly } = require('../middleware/auth');
 
 // Solo ADMIN puede acceder a este módulo
 function requireAdmin(req, res, next) {
@@ -224,6 +224,39 @@ router.put('/:id', enforceAuth, requireAdmin, async (req, res) => {
     }
 });
 
+// PATCH /api/aerotermia/:id/potencia-frigorifica — completar SOLO ese campo.
+//
+// Lo usa el popup que salta al generar la Memoria RITE cuando el emisor da frío
+// (suelo radiante / splits / conductos) y el modelo no tiene el dato: se teclea
+// una vez y queda en el catálogo para todos los expedientes futuros.
+//
+// NO se reutiliza el PUT /:id porque ese pasa por `buildPayload`, que reconstruye
+// la fila ENTERA: enviarle solo este campo pondría a null todo lo demás (SCOPs,
+// modelo, ficha técnica…). Aquí se actualiza un único campo.
+//
+// `staffOnly` en vez de `requireAdmin`: es un dato técnico del catálogo y quien
+// genera el RITE puede ser un TRABAJADOR; no hay dinero ni borrado de por medio.
+router.patch('/:id/potencia-frigorifica', staffOnly, async (req, res) => {
+    try {
+        const valor = parseFloat(req.body?.potencia_frigorifica);
+        if (!(valor > 0)) {
+            return res.status(400).json({ error: 'La potencia frigorífica debe ser un número mayor que 0' });
+        }
+        const { data, error } = await supabase
+            .from('aerotermia')
+            .update({ potencia_frigorifica: valor })
+            .eq('id', req.params.id)
+            .select('id, marca, modelo_comercial, potencia_frigorifica')
+            .single();
+        if (error) throw error;
+        if (!data) return res.status(404).json({ error: 'Equipo no encontrado' });
+        res.json(data);
+    } catch (err) {
+        console.error('Error PATCH aerotermia/potencia-frigorifica:', err);
+        res.status(500).json({ error: 'Error al guardar la potencia frigorífica', details: err.message });
+    }
+});
+
 // DELETE /api/aerotermia/:id — Eliminar equipo
 router.delete('/:id', enforceAuth, requireAdmin, async (req, res) => {
     try {
@@ -247,6 +280,9 @@ function buildPayload(body) {
         modelo_comercial:      str(body.modelo_comercial),
         tipo:                  str(body.tipo)?.toUpperCase() || null,
         potencia_calefaccion:  num(body.potencia_calefaccion),
+        // Capacidad frigorífica: se declara en la casilla FRÍO del RITE cuando la
+        // instalación incluye climatización (suelo radiante refrescante).
+        potencia_frigorifica:  num(body.potencia_frigorifica),
         modelo_conjunto:       str(body.modelo_conjunto),
         modelo_ud_exterior:    str(body.modelo_ud_exterior),
         modelo_ud_interior:    str(body.modelo_ud_interior),

@@ -8,6 +8,7 @@ const { stripDatosCalculoMargin } = require('../utils/financialScrub');
 const { getCoordinatesByRC } = require('../services/catastroService');
 const { normalizeData } = require('../utils/normalization');
 const { unidadesSinSerie, countUnidades: countUnidadesAero } = require('../utils/aerotermiaUnits');
+const { validateMemoriaRite, resolvePotenciasCatalogo, potenciaFrioPendiente } = require('../utils/riteValidation');
 const emailService = require('../services/emailService');
 const whatsappService = require('../services/whatsappService');
 const reformaUploadService = require('../services/reformaUploadService');
@@ -717,7 +718,15 @@ async function buildChecklistData(exp, cli, op) {
         mk('justificante', 'Justificante titularidad bancaria', 'CLIENTE', justifOk, ['final'], null, justifLink),
         mk('anexo_i_firmado', 'Anexo I firmado', 'CLIENTE', anexoIFirmado, ['final'], cicloAnexoI.detalle, doc.anexo_i_signed_link, cicloAnexoI),
         mk('cesion_firmado', 'Anexo Cesión firmado', 'CLIENTE', cesionFirmado, ['final'], cicloCesion.detalle, doc.anexo_cesion_signed_link, cicloCesion),
-        mk('anexo_fotografico_firmado', 'Anexo Fotográfico firmado', 'CLIENTE', anexoFotoFirmado, ['final'], cicloFoto.detalle, doc.anexo_fotografico_signed_link, cicloFoto),
+    ];
+
+    // ── BROKERGY ──
+    // El Anexo Fotográfico lo montamos NOSOTROS con las fotos del expediente y
+    // después se manda a firmar. Mientras no exista, no hay nada que el cliente
+    // pueda aportar: colgarlo de su grupo hacía que un expediente con el Anexo I
+    // y la Cesión ya firmados siguiera diciendo "al cliente le falta algo".
+    const grupoBrokergy = [
+        mk('anexo_fotografico_firmado', 'Anexo Fotográfico firmado', 'BROKERGY', anexoFotoFirmado, ['final'], cicloFoto.detalle, doc.anexo_fotografico_signed_link, cicloFoto),
     ];
 
     // ── INSTALADOR ──
@@ -804,16 +813,21 @@ async function buildChecklistData(exp, cli, op) {
             return mk(s.key, s.label || s.key, 'CUALQUIERA', subida || waived, obj, detalle, null, { waived, fase: s.fase, required: !!s.required, subida });
         });
 
-    const todos = [...grupoCliente, ...grupoInstalador, ...grupoCertificador, ...grupoFotos];
+    const todos = [...grupoCliente, ...grupoBrokergy, ...grupoInstalador, ...grupoCertificador, ...grupoFotos];
     const faltanPara = (objetivo) => todos.filter(i => i.objetivos.includes(objetivo) && !i.presente).map(i => i.label);
 
     // ── PISTAS PARALELAS ─────────────────────────────────────────────────────
     // Las tres cosas que pueden estar en la calle A LA VEZ, cada una en manos de
     // alguien distinto. Esto es lo que responde "dime qué falta" sin tener que
     // exprimir un único `estado` lineal que no da para tanto.
-    const armarPista = (id, label, responsable, items) => {
+    // `enEspera` = de quién dependemos CUANDO el documento ya está en su tejado.
+    // Mientras no se ha generado ni enviado, el trabajo es NUESTRO: poner ahí al
+    // cliente/instalador ("CLIENTE · sin generar") se leía como si tuviera que
+    // generarlo él.
+    const armarPista = (id, label, enEspera, items) => {
         const pendientes = items.filter(i => !i.presente);
         const situacion = pendientes.length === 0 ? 'OK' : peorSituacion(pendientes.map(i => i.situacion || 'SIN_EMITIR'));
+        const responsable = (situacion === 'SIN_EMITIR' || situacion === 'SIN_ENVIAR') ? 'BROKERGY' : enEspera;
         const esperas = pendientes.map(i => i.dias_esperando).filter(d => typeof d === 'number');
         return {
             id, label, responsable, situacion,
@@ -829,8 +843,11 @@ async function buildChecklistData(exp, cli, op) {
 
     const pistas = [
         armarPista('cee_final', 'CEE final', 'CERTIFICADOR', grupoCertificador),
+        // Anexo I + Cesión: los dos que firma el cliente. El Anexo Fotográfico va
+        // en su propia pista porque lo montamos nosotros y no depende de él.
         armarPista('anexos_cliente', 'Anexos para firma', 'CLIENTE',
-            grupoCliente.filter(i => ['anexo_i_firmado', 'cesion_firmado', 'anexo_fotografico_firmado'].includes(i.key))),
+            grupoCliente.filter(i => ['anexo_i_firmado', 'cesion_firmado'].includes(i.key))),
+        armarPista('anexo_fotografico', 'Anexo fotográfico', 'CLIENTE', grupoBrokergy),
         armarPista('cifo_instalador', 'CIFO', 'INSTALADOR',
             grupoInstalador.filter(i => i.key === 'cifo')),
     ];
@@ -842,6 +859,7 @@ async function buildChecklistData(exp, cli, op) {
         oportunidad_id: exp.oportunidad_id,
         grupos: [
             { responsable: 'CLIENTE', label: 'Cliente', items: grupoCliente },
+            { responsable: 'BROKERGY', label: 'Brokergy', items: grupoBrokergy },
             { responsable: 'INSTALADOR', label: 'Instalador', items: grupoInstalador },
             { responsable: 'CERTIFICADOR', label: 'Certificador', items: grupoCertificador },
             { responsable: 'CUALQUIERA', label: 'Cualquiera (fotos)', items: grupoFotos },
@@ -980,8 +998,9 @@ function buildSolicitudPendientes(checklist, { hayInstalador }) {
     // no se incluye por defecto (el admin puede forzarla desde el checklist).
     const datosFaltan = cliPend.some(i => i.key === 'numero_cuenta' || i.key === 'justificante');
     for (const i of cliPend) {
-        if (i.key === 'datos_personales') continue;          // los completa Brokergy (adminPendiente)
-        if (i.key === 'anexo_fotografico_firmado') continue; // sin flujo público de firma todavía
+        if (i.key === 'datos_personales') continue; // los completa Brokergy (adminPendiente)
+        // El Anexo Fotográfico ya no está en este grupo: es del grupo BROKERGY
+        // (lo generamos nosotros), y BROKERGY no se "solicita" a nadie.
         const tipo = (i.key === 'numero_cuenta' || i.key === 'justificante') ? 'dato' : 'firma';
         const espera = tipo === 'firma' && datosFaltan;
         out.push({ key: i.key, label: i.label, tipo, fase: null, required: true, waived: false, ownerDefault: 'CLIENTE', flujo: 'firmar-anexos', defaultIncluido: !espera, nota: espera ? 'Los anexos se generan con el IBAN y el justificante; la firma se pedirá cuando estén.' : (i.detalle || null) });
@@ -2931,88 +2950,6 @@ router.post('/:id/documents/upload', enforceAuth, async (req, res) => {
 // El microservicio es un generador puro (sin BD ni Drive): este backend le pasa
 // los datos ya resueltos (expediente + cliente + oportunidad + instalador) en la
 // misma forma que espera lib/supabase_client.normalizar.
-const RITE_PRESENCE = (val) => {
-    if (val === 0 || val === false) return true; // 0 / false son valores válidos
-    if (!val) return false;
-    if (typeof val === 'string' && (val.trim() === '' || val.includes('_____') || val === '—')) return false;
-    return true;
-};
-
-function validateMemoriaRite({ exp, cli, op, pres }) {
-    const missing = [];
-    const inst = exp.instalacion || {};
-    const doc = exp.documentacion || {};
-    const inputs = (op?.datos_calculo?.inputs) || {};
-    const cal = inst.aerotermia_cal || {};
-    const acs = inst.aerotermia_acs || {};
-    const P = RITE_PRESENCE;
-
-    // Titular
-    if (!P(exp.numero_expediente)) missing.push('Número de Expediente');
-    if (!P(cli?.nombre_razon_social)) missing.push('Nombre / Razón Social Cliente');
-    if (!P(cli?.apellidos)) missing.push('Apellidos Cliente');
-    if (!P(cli?.dni || cli?.dni_nie)) missing.push('DNI / NIE Cliente');
-    if (!P(cli?.direccion)) missing.push('Dirección Cliente');
-    if (!P(cli?.municipio)) missing.push('Municipio Cliente');
-    if (!P(cli?.provincia)) missing.push('Provincia Cliente');
-    if (!P(cli?.codigo_postal)) missing.push('Código Postal Cliente');
-
-    // Ubicación / cálculo
-    if (!P(inputs.superficie)) missing.push('Superficie (Cálculo / Toma de datos)');
-    if (!P(inputs.zona)) missing.push('Zona Climática (Cálculo)');
-    if (!P(inputs.plantas)) missing.push('Nº de Plantas (Cálculo)');
-    if (!P(inst.ref_catastral || op?.ref_catastral || inputs.rc)) missing.push('Referencia Catastral (Instalación)');
-
-    // Equipo calefacción
-    if (!P(cal.marca)) missing.push('Marca Aerotermia Calefacción (Instalación)');
-    if (!P(cal.modelo)) missing.push('Modelo Aerotermia Calefacción (Instalación)');
-    // En cascada, TODAS las unidades deben tener nº de serie: la memoria RITE los
-    // concatena en una única casilla y ninguno puede faltar.
-    for (const n of unidadesSinSerie(cal)) {
-        missing.push(countUnidadesAero(cal) > 1
-            ? `Nº Serie Aerotermia Calefacción — equipo ${n} (Instalación)`
-            : 'Nº Serie Aerotermia Calefacción (Instalación)');
-    }
-    if (!P(cal.potencia)) missing.push('Potencia Aerotermia Calefacción (Instalación)');
-
-    // Equipo ACS (solo si hay cambio de ACS)
-    const hasAcs = inst.cambio_acs === true || inst.cambio_acs === 'si';
-    if (hasAcs) {
-        if (!P(acs.marca)) missing.push('Marca Aerotermia ACS (Instalación)');
-        if (!P(acs.modelo)) missing.push('Modelo Aerotermia ACS (Instalación)');
-        for (const n of unidadesSinSerie(acs)) {
-            missing.push(countUnidadesAero(acs) > 1
-                ? `Nº Serie Aerotermia ACS — equipo ${n} (Instalación)`
-                : 'Nº Serie Aerotermia ACS (Instalación)');
-        }
-        if (!P(acs.potencia)) missing.push('Potencia Aerotermia ACS (Instalación)');
-    }
-
-    // Emisor
-    if (!P(inst.tipo_emisor)) missing.push('Tipo de Emisor (Instalación)');
-
-    // Instalador (prescriptor)
-    if (!pres) {
-        missing.push('Instalador asignado (Instalación)');
-    } else {
-        if (!P(pres.razon_social)) missing.push('Razón Social Instalador (ficha Partner)');
-        if (!P(pres.cif)) missing.push('CIF Instalador (ficha Partner)');
-        if (!P(pres.nombre_responsable)) missing.push('Nombre Responsable Técnico (ficha Partner)');
-        if (!P(pres.apellidos_responsable)) missing.push('Apellidos Responsable Técnico (ficha Partner)');
-        if (!P(pres.nif_responsable || pres.tecnico_firmante_dni)) missing.push('NIF Responsable Técnico (ficha Partner)');
-        if (!P(pres.numero_carnet_rite)) missing.push('Nº Empresa RITE (ficha Partner)');
-        if (!P(pres.municipio)) missing.push('Municipio Instalador (ficha Partner)');
-    }
-
-    // Fecha de pruebas: se toma de la factura; si no hay factura, vale la fecha
-    // de pruebas introducida a mano (documentacion.fecha_pruebas_cert_instalacion).
-    const tieneFechaFactura = Array.isArray(doc.facturas) && doc.facturas.length && P(doc.facturas[0]?.fecha_factura);
-    if (!tieneFechaFactura && !P(doc.fecha_pruebas_cert_instalacion)) {
-        missing.push('Fecha de Factura o Fecha de Pruebas (Documentación)');
-    }
-
-    return missing;
-}
 
 // Construye el payload (exp + instalador) que espera el microservicio RITE.
 // Centralizado para que /generate, /send y /files no se desincronicen.
@@ -3031,6 +2968,8 @@ function buildRitePayloads({ exp, cli, op, normalizedDatos, pres }) {
         tlf: cli?.tlf || cli?.telefono || '',
         // Sexo del titular → marca la casilla Hombre/Mujer en la Memoria RITE.
         sexo: cli?.sexo || '',
+        // Persona jurídica → casilla "Jurídica" en vez de "Física", y sin sexo.
+        es_empresa: !!cli?.es_empresa,
         cli_prov: cli?.provincia || '',
         cli_muni: cli?.municipio || '',
         cli_dir: cli?.direccion || '',
@@ -3075,8 +3014,32 @@ async function loadRiteContext(idOrNum) {
         const { data: p } = await supabase.from('prescriptores').select('*').eq('id_empresa', targetInstId).maybeSingle();
         pres = p;
     }
+    // Potencias que no se guardaron en el expediente pero constan en el catálogo del
+    // modelo. Se resuelven ANTES de validar y de construir el payload para que el
+    // barrido y el documento vean exactamente el mismo dato.
+    exp.instalacion = await resolvePotenciasCatalogo(exp.instalacion, supabase);
     return { exp, cli, op, normalizedDatos, pres };
 }
+
+// ─── GET /api/expedientes/:id/memoria-rite/check ───────────────────────────────
+// Barrido de datos faltantes para la Memoria RITE. Es la MISMA función que usa
+// /generate, así que el popup del frontend y el 422 del backend nunca divergen:
+// el frontend no reimplementa las reglas, las pregunta.
+router.get('/:id/memoria-rite/check', enforceAuth, async (req, res) => {
+    try {
+        const ctx = await loadRiteContext(req.params.id);
+        if (!ctx) return res.status(404).json({ error: 'Expediente no encontrado' });
+        const { exp, cli, op, normalizedDatos, pres } = ctx;
+        const missing = validateMemoriaRite({ exp, cli, op: { ...op, datos_calculo: normalizedDatos }, pres });
+        // Modelos sin potencia frigorífica: el frontend los pide en un popup y los
+        // guarda en el catálogo antes de generar.
+        const potenciaFrio = await potenciaFrioPendiente(exp.instalacion, supabase);
+        res.json({ missing, potenciaFrio });
+    } catch (err) {
+        console.error('Error GET expedientes/:id/memoria-rite/check:', err);
+        res.status(500).json({ error: 'Error al validar la Memoria RITE', details: err.message });
+    }
+});
 
 // Llama al microservicio y devuelve los ficheros [{name,mimetype,base64}].
 async function generarRiteFiles(expPayload, instaladorPayload) {

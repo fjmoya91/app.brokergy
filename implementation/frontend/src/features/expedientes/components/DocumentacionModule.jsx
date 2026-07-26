@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import axios from 'axios';
 import { useAuth } from '../../../context/AuthContext';
 import { toTitleCase } from '../logic/certMessages';
@@ -705,66 +705,40 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
             if (!isPresent(doc.fecha_fin_cifo)) missing.push('Fecha Fin Actuación');
         }
 
-        if (docType === 'memoria_rite') {
-            const pres = expediente.prescriptores || {};
-            const inputs = op.datos_calculo?.inputs || {};
-            const cal = inst.aerotermia_cal || {};
-            const acs = inst.aerotermia_acs || {};
-
-            // Titular (base ya cubre nombre/dni/dirección/cp/municipio/provincia)
-            if (!isPresent(cli.apellidos)) missing.push('Apellidos Cliente');
-
-            // Ubicación / cálculo
-            if (!isPresent(inputs.superficie)) missing.push('Superficie (Cálculo / Toma de datos)');
-            if (!isPresent(inputs.zona)) missing.push('Zona Climática (Cálculo)');
-            if (!isPresent(inputs.plantas)) missing.push('Nº de Plantas (Cálculo)');
-            if (!isPresent(inst.ref_catastral || op.ref_catastral || inputs.rc)) missing.push('Referencia Catastral (Instalación)');
-
-            // Equipo calefacción
-            if (!isPresent(cal.marca)) missing.push('Marca Aerotermia Calefacción (Instalación)');
-            if (!isPresent(cal.modelo)) missing.push('Modelo Aerotermia Calefacción (Instalación)');
-            for (const n of unidadesSinSerie(cal)) {
-                missing.push(countUnidades(cal) > 1
-                    ? `Nº Serie Aerotermia Calefacción — equipo ${n} (Instalación)`
-                    : 'Nº Serie Aerotermia Calefacción (Instalación)');
-            }
-            if (!isPresent(cal.potencia)) missing.push('Potencia Aerotermia Calefacción (Instalación)');
-
-            // Equipo ACS (solo si hay cambio de ACS)
-            const hasAcs = inst.cambio_acs === true || inst.cambio_acs === 'si';
-            if (hasAcs) {
-                if (!isPresent(acs.marca)) missing.push('Marca Aerotermia ACS (Instalación)');
-                if (!isPresent(acs.modelo)) missing.push('Modelo Aerotermia ACS (Instalación)');
-                for (const n of unidadesSinSerie(acs)) {
-                    missing.push(countUnidades(acs) > 1
-                        ? `Nº Serie Aerotermia ACS — equipo ${n} (Instalación)`
-                        : 'Nº Serie Aerotermia ACS (Instalación)');
-                }
-                if (!isPresent(acs.potencia)) missing.push('Potencia Aerotermia ACS (Instalación)');
-            }
-
-            // Emisor
-            if (!isPresent(inst.tipo_emisor)) missing.push('Tipo de Emisor (Instalación)');
-
-            // Instalador (ficha del Partner)
-            if (!isPresent(pres.razon_social)) missing.push('Razón Social Instalador (ficha Partner)');
-            if (!isPresent(pres.cif)) missing.push('CIF Instalador (ficha Partner)');
-            if (!isPresent(pres.nombre_responsable)) missing.push('Nombre Responsable Técnico (ficha Partner)');
-            if (!isPresent(pres.apellidos_responsable)) missing.push('Apellidos Responsable Técnico (ficha Partner)');
-            if (!isPresent(pres.nif_responsable || pres.tecnico_firmante_dni)) missing.push('NIF Responsable Técnico (ficha Partner)');
-            if (!isPresent(pres.numero_carnet_rite)) missing.push('Nº Empresa RITE (ficha Partner)');
-            if (!isPresent(pres.municipio)) missing.push('Municipio Instalador (ficha Partner)');
-
-            // Fecha de pruebas: de la factura o, si no hay factura, la introducida a
-            // mano. NO se lista aquí como "campo faltante": si no hay ninguna, al
-            // generar se pide en un popup dedicado (fecha_pruebas_cert_instalacion).
-        }
+        // OJO: `memoria_rite` NO se valida aquí. Sus reglas dependen de datos que
+        // este componente no tiene (el catálogo de aerotermia, del que sale la
+        // potencia del modelo) y de matices que ya resuelve el generador (cliente
+        // empresa sin apellidos, técnico firmante distinto del representante legal).
+        // El barrido lo hace el backend en GET /:id/memoria-rite/check con la MISMA
+        // función que usa /generate → una sola fuente de verdad, sin divergencias.
 
         return missing;
     };
 
-    const handleGenerateClick = (docType, docName, openFn) => {
-        const missing = validateExpediente(docType);
+    // Barrido de la Memoria RITE: lo resuelve el backend (ver comentario arriba).
+    // Si la llamada falla no se bloquea al usuario: se sigue al modal y, si de
+    // verdad falta algo, /generate responde 422 con la misma lista.
+    const validateMemoriaRiteRemoto = async () => {
+        try {
+            const { data } = await axios.get(`/api/expedientes/${expediente.id}/memoria-rite/check`);
+            // Modelos sin potencia frigorífica: se piden en su propio popup (no se
+            // listan como "dato faltante"). Se guarda aquí para la cadena de popups.
+            const pend = Array.isArray(data?.potenciaFrio) ? data.potenciaFrio : [];
+            potFrioRef.current = pend;
+            setPotFrioPendiente(pend);
+            return Array.isArray(data?.missing) ? data.missing : [];
+        } catch (e) {
+            console.warn('[memoria-rite] No se pudo validar en el servidor:', e?.message);
+            potFrioRef.current = [];
+            setPotFrioPendiente([]);
+            return [];
+        }
+    };
+
+    const handleGenerateClick = async (docType, docName, openFn) => {
+        const missing = docType === 'memoria_rite'
+            ? await validateMemoriaRiteRemoto()
+            : validateExpediente(docType);
         if (missing.length > 0) {
             setValidation({
                 isOpen: true,
@@ -903,17 +877,68 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
     // fallback → no salta el error de "Subir a Drive").
     const [fechaPruebasPopup, setFechaPruebasPopup] = useState({ isOpen: false, value: null, saving: false, error: null });
 
+    // ── Potencia frigorífica del modelo (cuando el emisor da frío) ────────────
+    // El dato vive en el CATÁLOGO, no en el expediente: se teclea una vez aquí,
+    // se guarda en la ficha del modelo y ya sirve para todos los expedientes
+    // futuros que lleven ese equipo. La lista la resuelve el backend en /check.
+    const [potFrioPendiente, setPotFrioPendiente] = useState([]);
+    const [potFrioPopup, setPotFrioPopup] = useState({ isOpen: false, values: {}, saving: false, error: null });
+    // La lista se consulta en el MISMO tick en que se recibe del backend (el click
+    // de "Generar" valida y encadena los popups seguido), y para entonces el
+    // `useState` todavía devuelve el valor del render anterior. La ref da la
+    // lectura síncrona; el estado solo alimenta el render del popup.
+    const potFrioRef = useRef([]);
+
     const tieneFechaPruebas = () =>
         (!!local.facturas?.length && !!local.facturas[0]?.fecha_factura) || !!local.fecha_pruebas_cert_instalacion;
 
     // Llamado tras pasar la validación: si falta la fecha de pruebas (sin factura),
     // la pide antes; en cuanto la tiene, sigue al popup de sexo.
+    // Cadena de popups previos a generar: fecha de pruebas → potencia frigorífica
+    // → titular (sexo / jurídica) → modal de generación. Cada paso se salta solo
+    // si su dato ya está resuelto.
     const abrirSexoThenBorrador = () => {
         if (!tieneFechaPruebas()) {
             setFechaPruebasPopup({ isOpen: true, value: null, saving: false, error: null });
             return;
         }
+        if (potFrioRef.current.length) {
+            setPotFrioPopup({ isOpen: true, values: {}, saving: false, error: null });
+            return;
+        }
+        // Si el cliente ya consta como persona jurídica no hay nada que preguntar:
+        // la memoria marca "Jurídica" y una sociedad no tiene sexo.
+        if (expediente?.clientes?.es_empresa) {
+            setShowEnviarBorrador(true);
+            return;
+        }
         setSexoPopup({ isOpen: true, saving: null, error: null });
+    };
+
+    // Guarda la potencia frigorífica tecleada en el CATÁLOGO de cada modelo y
+    // continúa la cadena. No toca el expediente: el generador la relee del
+    // catálogo, así que el borrador ya sale con el frío relleno.
+    const confirmarPotenciaFrio = async () => {
+        const modelos = potFrioRef.current;
+        const pendientes = modelos.filter(m => !(parseFloat(potFrioPopup.values[m.id]) > 0));
+        if (pendientes.length) {
+            setPotFrioPopup(p => ({ ...p, error: 'Indica la potencia frigorífica (kW) de cada modelo.' }));
+            return;
+        }
+        setPotFrioPopup(p => ({ ...p, saving: true, error: null }));
+        try {
+            for (const m of modelos) {
+                await axios.patch(`/api/aerotermia/${m.id}/potencia-frigorifica`,
+                    { potencia_frigorifica: parseFloat(potFrioPopup.values[m.id]) });
+            }
+            potFrioRef.current = [];
+            setPotFrioPendiente([]);
+            setPotFrioPopup({ isOpen: false, values: {}, saving: false, error: null });
+            if (expediente?.clientes?.es_empresa) setShowEnviarBorrador(true);
+            else setSexoPopup({ isOpen: true, saving: null, error: null });
+        } catch (e) {
+            setPotFrioPopup(p => ({ ...p, saving: false, error: e.response?.data?.error || 'No se pudo guardar la potencia frigorífica' }));
+        }
     };
 
     // Confirma la fecha de pruebas elegida, la persiste y continúa al popup de sexo.
@@ -927,17 +952,29 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
             setLocal(merged);
             await onSave({ documentacion: merged });
             setFechaPruebasPopup({ isOpen: false, value: null, saving: false, error: null });
-            setSexoPopup({ isOpen: true, saving: null, error: null });
+            // Siguiente eslabón de la cadena (potencia frigorífica → titular).
+            if (potFrioRef.current.length) setPotFrioPopup({ isOpen: true, values: {}, saving: false, error: null });
+            else if (expediente?.clientes?.es_empresa) setShowEnviarBorrador(true);
+            else setSexoPopup({ isOpen: true, saving: null, error: null });
         } catch (e) {
             setFechaPruebasPopup(p => ({ ...p, saving: false, error: e.response?.data?.error || 'No se pudo guardar la fecha de pruebas' }));
         }
     };
 
     // Elige sexo (o lo omite), lo persiste en el cliente y abre el modal de generación.
+    // `value === 'JURIDICA'` no es un sexo: marca el cliente como persona jurídica
+    // (clientes.es_empresa) y borra el sexo — una sociedad no lo tiene, y en la
+    // memoria se marca la casilla "Jurídica" en lugar de "Física".
     const elegirSexoYGenerar = async (value) => {
         setSexoPopup(p => ({ ...p, saving: value || 'omitir', error: null }));
         try {
-            if (value && cliId) {
+            if (value === 'JURIDICA' && cliId) {
+                await axios.put(`/api/clientes/${cliId}`, { es_empresa: true, sexo: null });
+                if (expediente?.clientes) {
+                    expediente.clientes.es_empresa = true;
+                    expediente.clientes.sexo = null;
+                }
+            } else if (value && cliId) {
                 await axios.put(`/api/clientes/${cliId}`, { sexo: value });
                 // Reflejo local para coherencia si se reabre el modal en esta sesión.
                 if (expediente?.clientes) expediente.clientes.sexo = value;
@@ -1494,12 +1531,79 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                 );
             })()}
 
+            {/* Potencia frigorífica del modelo — solo si el emisor da frío (suelo
+                radiante / splits / conductos) y el catálogo no la tiene. Se guarda
+                en la ficha del MODELO, así que solo se pide una vez por equipo. */}
+            {potFrioPopup.isOpen && (
+                <div className="fixed inset-0 z-[320] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
+                    onClick={() => !potFrioPopup.saving && setPotFrioPopup({ isOpen: false, values: {}, saving: false, error: null })}>
+                    <div className="bg-[#0F1013] border border-white/[0.07] rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in duration-200" onClick={e => e.stopPropagation()}>
+                        <div className="px-6 py-5 border-b border-white/[0.07] bg-brand/5">
+                            <h2 className="text-lg font-black uppercase tracking-tight text-white">Potencia frigorífica</h2>
+                            <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest mt-0.5">
+                                Casilla FRÍO de la Memoria RITE
+                            </p>
+                        </div>
+                        <div className="px-6 py-6 space-y-4">
+                            <p className="text-sm text-white/60 leading-relaxed">
+                                La instalación lleva climatización, así que el documento declara potencia de frío.
+                                Este modelo aún no la tiene en el catálogo: al guardarla quedará para todos los
+                                expedientes futuros que lo usen.
+                            </p>
+                            {potFrioPendiente.map(m => (
+                                <div key={m.id} className="bg-white/[0.02] border border-white/10 rounded-2xl p-4 space-y-3">
+                                    <div>
+                                        <p className="text-sm font-black text-white">{[m.marca, m.modelo_comercial].filter(Boolean).join(' · ')}</p>
+                                        {m.modelo_ud_exterior && <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest mt-0.5">Ud. ext: {m.modelo_ud_exterior}</p>}
+                                        {m.potencia_calefaccion && <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest mt-0.5">Calefacción: {m.potencia_calefaccion} kW</p>}
+                                    </div>
+                                    <div className="flex items-center gap-3">
+                                        <input type="number" step="0.1" min="0" autoFocus placeholder="11,5"
+                                            disabled={potFrioPopup.saving}
+                                            value={potFrioPopup.values[m.id] ?? ''}
+                                            onChange={e => setPotFrioPopup(p => ({ ...p, values: { ...p.values, [m.id]: e.target.value } }))}
+                                            className="w-32 bg-white/[0.03] border border-white/10 rounded-xl px-3 py-2.5 text-white font-black tabular-nums focus:outline-none focus:border-brand/50 disabled:opacity-50" />
+                                        <span className="text-[11px] font-black uppercase tracking-widest text-white/40">kW</span>
+                                        {(m.ficha_tecnica || m.eprel) && (
+                                            <a href={m.ficha_tecnica || m.eprel} target="_blank" rel="noopener noreferrer"
+                                                className="ml-auto px-3 py-2 rounded-xl border border-brand/40 text-brand text-[10px] font-black uppercase tracking-widest hover:bg-brand/10 transition-all">
+                                                Ver ficha técnica ↗
+                                            </a>
+                                        )}
+                                    </div>
+                                    {!(m.ficha_tecnica || m.eprel) && (
+                                        <p className="text-[10px] text-white/30">Este modelo no tiene ficha técnica enlazada en el catálogo.</p>
+                                    )}
+                                </div>
+                            ))}
+                            <p className="text-[11px] text-white/30 leading-relaxed">
+                                Ojo: las fichas ErP solo traen calefacción. La capacidad de refrigeración está en
+                                la tabla de capacidades de la ficha comercial (fila "Refrigeración").
+                            </p>
+                            {potFrioPopup.error && <p className="text-[11px] text-red-400">❌ {potFrioPopup.error}</p>}
+                        </div>
+                        <div className="px-6 py-4 bg-white/[0.02] border-t border-white/[0.07] flex items-center justify-between gap-3">
+                            <button type="button" disabled={potFrioPopup.saving}
+                                onClick={() => setPotFrioPopup({ isOpen: false, values: {}, saving: false, error: null })}
+                                className="px-4 py-2.5 rounded-xl border border-white/10 text-white/50 text-[10px] font-black uppercase tracking-widest hover:text-white hover:border-white/30 transition-all disabled:opacity-40">
+                                Cancelar
+                            </button>
+                            <button type="button" disabled={potFrioPopup.saving} onClick={confirmarPotenciaFrio}
+                                className="px-5 py-2.5 rounded-xl bg-brand text-black text-[10px] font-black uppercase tracking-widest hover:brightness-110 transition-all disabled:opacity-40">
+                                {potFrioPopup.saving ? 'Guardando…' : 'Guardar y continuar →'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {sexoPopup.isOpen && (() => {
                 const current = (expediente?.clientes?.sexo || '').toUpperCase();
                 const cliNombre = [expediente?.clientes?.nombre_razon_social, expediente?.clientes?.apellidos].filter(Boolean).join(' ').trim();
                 const busy = !!sexoPopup.saving;
+                const esEmpresa = !!expediente?.clientes?.es_empresa;
                 const SexBtn = ({ value, label, path }) => {
-                    const active = current === value;
+                    const active = value === 'JURIDICA' ? esEmpresa : current === value;
                     const loading = sexoPopup.saving === value;
                     return (
                         <button type="button" disabled={busy} onClick={() => elegirSexoYGenerar(value)}
@@ -1518,16 +1622,21 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                     <div className="fixed inset-0 z-[320] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4" onClick={() => !busy && setSexoPopup({ isOpen: false, saving: null, error: null })}>
                         <div className="bg-[#0F1013] border border-white/[0.07] rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-200" onClick={e => e.stopPropagation()}>
                             <div className="px-6 py-5 border-b border-white/[0.07] bg-brand/5">
-                                <h2 className="text-lg font-black uppercase tracking-tight text-white">Sexo del titular</h2>
+                                <h2 className="text-lg font-black uppercase tracking-tight text-white">Titular de la instalación</h2>
                                 <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest mt-0.5">
                                     Se marcará en la Memoria RITE{cliNombre ? ` · ${cliNombre}` : ''}
                                 </p>
                             </div>
                             <div className="px-6 py-6 space-y-4">
-                                <p className="text-sm text-white/60 leading-relaxed">Indica el sexo del titular para marcar la casilla correspondiente del documento. Se guardará en la ficha del cliente.</p>
+                                <p className="text-sm text-white/60 leading-relaxed">Indica quién es el titular para marcar la casilla correspondiente del documento. Se guardará en la ficha del cliente.</p>
                                 <div className="flex gap-3">
                                     <SexBtn value="HOMBRE" label="Hombre" path="M10 14a5 5 0 105-5m0 0V4m0 5h-4m4-5h5" />
                                     <SexBtn value="MUJER" label="Mujer" path="M12 14a5 5 0 100-10 5 5 0 000 10zm0 0v6m-3-3h6" />
+                                </div>
+                                {/* Persona jurídica: no es un sexo, es el tipo de titular. En la
+                                    memoria marca "Jurídica" en vez de "Física" y deja el sexo vacío. */}
+                                <div className="flex gap-3">
+                                    <SexBtn value="JURIDICA" label="Jurídica (empresa)" path="M3 21h18M5 21V7l7-4 7 4v14M9 9h1m4 0h1M9 13h1m4 0h1M9 17h1m4 0h1" />
                                 </div>
                                 {sexoPopup.error && (
                                     <p className="text-[11px] text-red-400">❌ {sexoPopup.error}</p>
