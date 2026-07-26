@@ -487,8 +487,8 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
     const sending = busy && sendPhase === 'sending';
 
     return (
-        <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4" onClick={onClose}>
-            <div className="bg-[#0F1013] border border-white/[0.07] rounded-2xl shadow-2xl w-full max-w-lg md:max-w-2xl overflow-hidden animate-in fade-in zoom-in duration-200" onClick={e => e.stopPropagation()}>
+        <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+            <div className="bg-[#0F1013] border border-white/[0.07] rounded-2xl shadow-2xl w-full max-w-lg md:max-w-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
                 <div className="px-6 py-5 border-b border-white/[0.07] bg-brand/5 flex items-center justify-between">
                     <div>
                         <h2 className="text-lg font-black uppercase tracking-tight text-white">Enviar anexos</h2>
