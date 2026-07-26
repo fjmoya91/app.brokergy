@@ -24,17 +24,42 @@ import { buildInstalacionAddress } from '../utils/docGenerators.js';
 import { calcCifo } from './calcCifo.js';
 import { formatMarcas, formatModelos, formatSeries, countUnidades, tipoEquipoNuevo, tipoEquipoNuevoLabel, esTermoElectrico, EQUIPO_NUEVO } from './aerotermiaUnits.js';
 
+// Unidades terminales. Las tres primeras son de AGUA: la temperatura de impulsión
+// es la que decide qué SCOP de la ficha se aplica (35/45/55 °C).
+// SPLITS y CONDUCTOS son AIRE-AIRE (expedientes RES080, donde la actuación puede
+// ser una bomba de calor aire-aire): no hay temperatura de impulsión de agua, la
+// ficha da un único SCOP y no se interpola. Por eso `temp: null` + `aire: true`.
 export const EMITTER_OPTIONS = [
     { value: 'suelo_radiante',          label: 'Suelo Radiante (35°C)',           temp: 35 },
     { value: 'radiadores_baja_temp',    label: 'Radiadores Baja Temperatura (45°C)', temp: 45 },
     { value: 'radiadores_convencionales', label: 'Radiadores Convencionales (55°C)', temp: 55 },
+    { value: 'splits',                  label: 'Splits (aire-aire)',              temp: null, aire: true },
+    { value: 'conductos',               label: 'Conductos (aire-aire)',           temp: null, aire: true },
 ];
+
+// Emisores que NO son de agua: el SCOP de la ficha es único (no hay 35/55).
+export function esEmisorAire(val) {
+    return !!EMITTER_OPTIONS.find(o => o.value === val)?.aire;
+}
 
 export function getEmitterTemp(val) {
     if (val === 'suelo_radiante') return 35;
     if (val === 'radiadores_baja_temp') return 45;
     if (val === 'radiadores_convencionales') return 55;
+    // Aire-aire: no aplica temperatura de impulsión. Se devuelve 35 para que el
+    // lookup del SCOP no rompa (en aire-aire la ficha lleva el mismo SCOP en
+    // ambas columnas), pero el texto del certificado usa `emitterScopContext`.
     return 35;
+}
+
+// Coletilla que acompaña al η_s en la justificación del SCOP de calefacción:
+// en emisores de agua es la temperatura de impulsión; en aire-aire, la unidad terminal.
+export function emitterScopContext(val) {
+    if (esEmisorAire(val)) {
+        const label = EMITTER_OPTIONS.find(o => o.value === val)?.label || 'aire-aire';
+        return `, unidad terminal ${label.toLowerCase()}`;
+    }
+    return `, impulsión ${getEmitterTemp(val)}°C`;
 }
 
 export function formatDateSpanish(isoStr) {
@@ -683,7 +708,7 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
             `Justificación del SCOP en ${label} — ${anexoRef}`,
             `SCOP = CC · (${etaVar} + F(1) + F(2))`,
             `${svRow('CC', 'Coeficiente de conversión', '2,5')}
-             ${svRow(etaVar, `Eficiencia energética estacional de ${label.toLowerCase()} (obtenida de la ${fichaEprel} — clima ${zoneLabel.toLowerCase()}${isAcs ? ' y perfil ACS' : `, impulsión ${getEmitterTemp(inst.tipo_emisor)}°C`})`, `${etaValue}%`)}
+             ${svRow(etaVar, `Eficiencia energética estacional de ${label.toLowerCase()} (obtenida de la ${fichaEprel} — clima ${zoneLabel.toLowerCase()}${isAcs ? ' y perfil ACS' : emitterScopContext(inst.tipo_emisor)})`, `${etaValue}%`)}
              ${svRow('F(1)', 'Factor de corrección por tecnología (bombas de calor aerotérmicas)', '3%')}
              ${svRow('F(2)', 'Factor de corrección por clima (bombas de calor aerotérmicas)', '0%')}
              ${scopResult(`Cálculo: SCOP = 2,5 · (${etaValue}% + 3% + 0%) = ${totalPercentage}% &nbsp;→&nbsp; SCOP en ${label}`, scopStr)}`

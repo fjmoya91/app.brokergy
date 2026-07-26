@@ -5,6 +5,7 @@ import { useAuth } from '../../../context/AuthContext';
 import { BOILER_EFFICIENCIES } from '../../calculator/logic/calculation';
 import { buildInstalacionAddress } from '../utils/docGenerators';
 import { calcCifo } from '../logic/calcCifo';
+import { EMITTER_OPTIONS, emitterScopContext } from '../logic/cifoDoc';
 import { formatMarcas, formatModelos, formatSeries, countUnidades, tipoEquipoNuevoLabel, esTermoElectrico } from '../logic/aerotermiaUnits';
 import FirmarConCertificadoModal from './FirmarConCertificadoModal';
 // Orden de los anexos + páginas excluidas de cada uno (documentacion.cifo_annex_prefs).
@@ -123,18 +124,7 @@ const PDF_CSS = `
 `;
 
 // Emisores de calefacción (para la justificación del SCOP, igual que RES060).
-const EMITTER_OPTIONS = [
-    { value: 'suelo_radiante',            label: 'Suelo Radiante (35°C)',              temp: 35 },
-    { value: 'radiadores_baja_temp',      label: 'Radiadores Baja Temperatura (45°C)', temp: 45 },
-    { value: 'radiadores_convencionales', label: 'Radiadores Convencionales (55°C)',   temp: 55 },
-];
-
-function getEmitterTemp(val) {
-    if (val === 'suelo_radiante') return 35;
-    if (val === 'radiadores_baja_temp') return 45;
-    if (val === 'radiadores_convencionales') return 55;
-    return 35;
-}
+// La lista vive en cifoDoc.js — fuente única, incluye las unidades aire-aire.
 
 export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, attachments: externalAttachments, onAttachmentsChange, onSaveDrive, onSaveFichaLink, onSaveExtraAnnexes, onSaveAnnexPrefs, onMarkSent, onSaveSignedLink }) {
     const { user } = useAuth();
@@ -1248,7 +1238,7 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, a
                 `Justificación del SCOP en ${label} — Anexo IV ficha RES060`,
                 `SCOP = CC · (${etaVar} + F(1) + F(2))`,
                 `${svRow('CC', 'Coeficiente de conversión', '2,5')}
-                 ${svRow(etaVar, `Eficiencia energética estacional de ${label.toLowerCase()} (obtenida de la ${fichaEprel} — clima ${zoneLabel.toLowerCase()}${isAcs ? ' y perfil ACS' : `, impulsión ${getEmitterTemp(inst.tipo_emisor)}°C`})`, `${etaValue}%`)}
+                 ${svRow(etaVar, `Eficiencia energética estacional de ${label.toLowerCase()} (obtenida de la ${fichaEprel} — clima ${zoneLabel.toLowerCase()}${isAcs ? ' y perfil ACS' : emitterScopContext(inst.tipo_emisor)})`, `${etaValue}%`)}
                  ${svRow('F(1)', 'Factor de corrección por tecnología (bombas de calor aerotérmicas)', '3%')}
                  ${svRow('F(2)', 'Factor de corrección por clima (bombas de calor aerotérmicas)', '0%')}
                  ${scopResult(`Cálculo: SCOP = 2,5 · (${etaValue}% + 3% + 0%) = ${totalPercentage}% &nbsp;→&nbsp; SCOP en ${label}`, scopStr)}`

@@ -3,15 +3,14 @@ import axios from 'axios';
 import { BOILER_EFFICIENCIES, getScopFromModel, getScopAcsFromModel, calculateHybridization, resolveHybridInputs, HYBRID_METHODS } from '../../calculator/logic/calculation';
 import { PROVINCE_CODE_TO_CCAA, PROVINCE_CODE_TO_NAME } from '../utils/docGenerators';
 import { withScopAplicado, cloneAero, potenciaTotal, countUnidades, scopPropioUnidad1, scopAplicado, tipoEquipoNuevo, EQUIPO_NUEVO, RENDIMIENTO_JOULE } from '../logic/aerotermiaUnits';
+import { EMITTER_OPTIONS, getEmitterTemp } from '../logic/cifoDoc';
 
-const EMITTER_OPTIONS = [
-    { value: 'suelo_radiante',          label: 'Suelo Radiante (35°C)',           temp: 35 },
-    { value: 'radiadores_baja_temp',    label: 'Radiadores Baja Temperatura (45°C)', temp: 45 },
-    { value: 'radiadores_convencionales', label: 'Radiadores Convencionales (55°C)', temp: 55 },
-];
-
-function getEmitterTemp(tipo_emisor) {
-    return EMITTER_OPTIONS.find(o => o.value === tipo_emisor)?.temp ?? 35;
+// Lista de emisores: fuente única en logic/cifoDoc.js (la misma que imprimen el
+// CIFO y el RES080). Las unidades AIRE-AIRE (splits / conductos) solo se ofrecen
+// en expedientes RES080 — ver `emitterOptionsFor`.
+function emitterOptionsFor(numeroExpediente) {
+    const esRes080 = String(numeroExpediente || '').includes('RES080');
+    return EMITTER_OPTIONS.filter(o => !o.aire || esRes080);
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -1632,7 +1631,7 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
                         label="Tipo de emisor (calefacción)"
                         value={local.tipo_emisor}
                         onChange={handleTipoEmisorChange}
-                        options={EMITTER_OPTIONS}
+                        options={emitterOptionsFor(expediente?.numero_expediente)}
                         readOnly={readOnly}
                     />
                 </div>

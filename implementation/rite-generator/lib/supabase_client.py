@@ -91,7 +91,13 @@ def normalizar(raw: dict, fecha_firma: str = None) -> dict:
     emisor_raw = inst.get("tipo_emisor", "radiadores_convencionales")
     es_suelo = "suelo" in (emisor_raw or "")
     # Etiqueta del emisor (lo marcado en la app) para la tabla de cargas térmicas.
-    emisor = "SUELO RADIANTE" if es_suelo else "RADIADORES"
+    # Las unidades terminales aire-aire (RES080) tienen etiqueta propia.
+    _EMISOR_LABELS = {
+        "suelo_radiante": "SUELO RADIANTE",
+        "splits": "SPLITS",
+        "conductos": "CONDUCTOS",
+    }
+    emisor = _EMISOR_LABELS.get((emisor_raw or "").strip().lower(), "RADIADORES")
 
     # ── Instalación EN CASCADA (varias bombas de calor) ──────────────────────
     # `aerotermia_cal.equipos_extra` lleva las unidades 2..N. La plantilla oficial

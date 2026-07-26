@@ -20,7 +20,7 @@
 import { BOILER_EFFICIENCIES } from '../../calculator/logic/calculation.js';
 import { buildInstalacionAddress } from '../utils/docGenerators.js';
 import { calcCifo } from './calcCifo.js';
-import { EMITTER_OPTIONS, getEmitterTemp } from './cifoDoc.js';
+import { EMITTER_OPTIONS, emitterScopContext } from './cifoDoc.js';
 import { formatMarcas, formatModelos, formatSeries, countUnidades, tipoEquipoNuevoLabel, esTermoElectrico } from './aerotermiaUnits.js';
 
 const DOC_WIDTH = '794px';
@@ -773,7 +773,7 @@ export function buildRes080Html({ data, appUrl, attachments = [], isForPdf = tru
             `Justificación del SCOP en ${label} — Anexo IV ficha RES060`,
             `SCOP = CC · (${etaVar} + F(1) + F(2))`,
             `${svRow('CC', 'Coeficiente de conversión', '2,5')}
-             ${svRow(etaVar, `Eficiencia energética estacional de ${label.toLowerCase()} (obtenida de la ${fichaEprel} — clima ${zoneLabel.toLowerCase()}${isAcs ? ' y perfil ACS' : `, impulsión ${getEmitterTemp(inst.tipo_emisor)}°C`})`, `${etaValue}%`)}
+             ${svRow(etaVar, `Eficiencia energética estacional de ${label.toLowerCase()} (obtenida de la ${fichaEprel} — clima ${zoneLabel.toLowerCase()}${isAcs ? ' y perfil ACS' : emitterScopContext(inst.tipo_emisor)})`, `${etaValue}%`)}
              ${svRow('F(1)', 'Factor de corrección por tecnología (bombas de calor aerotérmicas)', '3%')}
              ${svRow('F(2)', 'Factor de corrección por clima (bombas de calor aerotérmicas)', '0%')}
              ${scopResult(`Cálculo: SCOP = 2,5 · (${etaValue}% + 3% + 0%) = ${totalPercentage}% &nbsp;→&nbsp; SCOP en ${label}`, scopStr)}`
