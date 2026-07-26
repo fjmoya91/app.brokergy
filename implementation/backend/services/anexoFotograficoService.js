@@ -429,7 +429,11 @@ async function generateAndSaveAnexo(expedienteId, opts = {}) {
     return {
         ok: true,
         link,
-        ...(devolverPdf ? { pdf: pdfBuffer.toString('base64') } : {}),
+        // `page.pdf()` devuelve un Uint8Array (Puppeteer 24), NO un Buffer de Node:
+        // llamar a .toString('base64') sobre él ignora el argumento y devuelve los
+        // bytes separados por comas ("37,80,68,70,…"), que el navegador no puede
+        // decodificar. De ahí el "Failed to execute 'atob'". Igual que en routes/pdf.js.
+        ...(devolverPdf ? { pdfBuffer: Buffer.from(pdfBuffer) } : {}),
         numPhotos: rows.length,
         numActuaciones: groupRowsIntoActuaciones(rows).length,
         groups: groups.map(g => ({ key: g.key, label: g.label, fase: g.fase, count: g.photos.length })),

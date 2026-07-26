@@ -328,7 +328,7 @@ function buildCoverPage(actuaciones, meta) {
                             <div><div class="lbl">Comunidad Autónoma</div><div class="val">${esc(dash(meta.ca))}</div></div>
                             <div><div class="lbl">Referencia Catastral</div><div class="val mono">${esc(dash(meta.refCatastral))}</div></div>
                             <div><div class="lbl">Dirección Postal</div><div class="val">${esc(dash(meta.direccion))}</div></div>
-                            <div><div class="lbl">Coordenadas UTM</div><div class="val mono">X ${esc(dash(meta.utmX))} · Y ${esc(dash(meta.utmY))}</div></div>
+                            <div><div class="lbl">Coordenadas UTM (huso 30 ETRS89)</div><div class="val mono">X ${esc(dash(meta.utmX))} · Y ${esc(dash(meta.utmY))}</div></div>
                         </div>
                     </div>
                 </div>

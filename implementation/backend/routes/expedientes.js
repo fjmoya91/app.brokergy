@@ -1569,6 +1569,23 @@ router.post('/:id/anexo-fotografico/generar', internalKeyOrAuth, async (req, res
             recortes: recortes || {},
         });
         if (!result.ok) return res.status(422).json(result);
+
+        // El PDF se devuelve BINARIO, no en base64 dentro del JSON: un anexo de 67
+        // fotos son 20 MB, que en base64 se convierten en 27 MB de texto y obligan al
+        // navegador a parsear ese JSON y decodificarlo entero en memoria. Los datos
+        // que acompañan al documento viajan en cabeceras.
+        if (result.pdfBuffer) {
+            res.set({
+                'Content-Type': 'application/pdf',
+                'Content-Length': result.pdfBuffer.length,
+                'X-Num-Photos': String(result.numPhotos ?? ''),
+                'X-Num-Actuaciones': String(result.numActuaciones ?? ''),
+                'X-Drive-Link': result.link || '',
+                // Sin esto el navegador no ve las X-* (petición de distinto origen en dev).
+                'Access-Control-Expose-Headers': 'X-Num-Photos, X-Num-Actuaciones, X-Drive-Link',
+            });
+            return res.send(result.pdfBuffer);
+        }
         res.json(result);
     } catch (e) {
         console.error('[anexo-fotografico/generar]', e);

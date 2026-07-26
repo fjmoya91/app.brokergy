@@ -562,38 +562,94 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
     // de MB. Antes se subía el HTML entero con las fotos en base64 y un expediente
     // con muchas fotos (64 MB) superaba el límite del servidor → 413 y no se podía
     // ni descargar, ni firmar, ni archivar.
+    // Cuando se pide el PDF, el backend responde con el fichero BINARIO (no un JSON
+    // con base64): un anexo de 67 fotos son 20 MB, que en base64 serían 27 MB de
+    // texto a parsear y decodificar en memoria.
     const generarEnServidor = async ({ devolverPdf = false, guardarEnDrive = false } = {}) => {
         // Solo las fotos retocadas a mano viajan; el resto ya están en Drive.
         const recortes = {};
         for (const p of photosDoc) {
             if (p.recortada && p.file?.name && p.file?.data) recortes[p.file.name] = p.file.data;
         }
-        const { data } = await axios.post(
-            `/api/expedientes/${expediente.id}/anexo-fotografico/generar`,
-            { devolverPdf, guardarEnDrive, photoSizes, recortes },
-            { timeout: 10 * 60 * 1000 } // Puppeteer con muchas fotos tarda
-        );
-        if (!data?.ok) throw new Error(data?.message || 'No se pudo generar el anexo');
-        return data;
+        try {
+            const resp = await axios.post(
+                `/api/expedientes/${expediente.id}/anexo-fotografico/generar`,
+                { devolverPdf, guardarEnDrive, photoSizes, recortes },
+                {
+                    timeout: 15 * 60 * 1000, // con muchas fotos, componer el PDF tarda
+                    responseType: devolverPdf ? 'blob' : 'json',
+                }
+            );
+            if (devolverPdf) {
+                return { blob: resp.data, link: resp.headers['x-drive-link'] || null };
+            }
+            if (!resp.data?.ok) throw new Error(resp.data?.message || 'No se pudo generar el anexo');
+            return resp.data;
+        } catch (err) {
+            // Con responseType 'blob', el cuerpo de un error tambien llega como Blob:
+            // hay que leerlo para poder enseñar el motivo real en vez de "Error".
+            const cuerpo = err?.response?.data;
+            if (cuerpo instanceof Blob) {
+                try {
+                    const j = JSON.parse(await cuerpo.text());
+                    throw new Error(j.message || j.error || 'No se pudo generar el anexo');
+                } catch (e) { if (e instanceof Error && e.message) throw e; }
+            }
+            throw err;
+        }
     };
 
-    const descargarPdfB64 = (b64, nombre) => {
-        const bin = atob(b64);
-        const bytes = new Uint8Array(bin.length);
-        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-        const blob = new Blob([bytes], { type: 'application/pdf' });
+    const descargarBlob = (blob, nombre) => {
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url; a.download = nombre; a.click();
         setTimeout(() => URL.revokeObjectURL(url), 10000);
     };
 
+    // Para firmar / enviar hace falta el PDF en base64. FileReader lo convierte sin
+    // cargar el fichero entero como cadena intermedia.
+    const blobABase64 = (blob) => new Promise((resolve, reject) => {
+        const fr = new FileReader();
+        fr.onload = () => resolve(String(fr.result).split(',')[1] || '');
+        fr.onerror = () => reject(new Error('No se pudo leer el PDF generado'));
+        fr.readAsDataURL(blob);
+    });
+
+    // ── AVISO DE ESPERA ───────────────────────────────────────────────────────
+    // Componer el anexo tarda: con 67 fotos hay que bajarlas de Drive, reducirlas y
+    // maquetarlas (~1 min). Un botón en gris no lo explica y parece que se ha
+    // colgado, así que se muestra un aviso a pantalla completa que dice qué está
+    // pasando y avisa cuando el expediente es de los pesados.
+    const nFotos = photosDoc.filter(p => p.file).length;
+    const ocupado = scanningDrive || generating || savingDrive || signBusy || sendingEmail || sendingWhatsapp;
+    const avisoEspera = (() => {
+        if (scanningDrive) return {
+            titulo: 'Buscando las fotos en Drive',
+            texto: 'Estamos recopilando la documentación fotográfica del expediente.',
+            nota: 'Si el expediente tiene muchas fotos, esto puede tardar algo menos de un minuto.',
+        };
+        if (!ocupado) return null;
+        const accion = savingDrive ? 'Guardando el anexo en Drive'
+            : signBusy ? 'Preparando el anexo para firmar'
+            : sendingEmail ? 'Preparando el envío por email'
+            : sendingWhatsapp ? 'Preparando el envío por WhatsApp'
+            : 'Generando el anexo fotográfico';
+        const pesado = nFotos >= 30;
+        return {
+            titulo: accion,
+            texto: `El documento se está componiendo en el servidor con ${nFotos} fotografía${nFotos === 1 ? '' : 's'}.`,
+            nota: pesado
+                ? 'Este anexo es de los pesados: puede tardar cerca de un minuto. No cierres esta ventana.'
+                : 'Tardará unos segundos. No cierres esta ventana.',
+        };
+    })();
+
     const handleDownloadPdf = async () => {
         setGenerating(true);
         try {
             // Descargar NO archiva en Drive: no debe pisar el anexo ya enlazado.
-            const data = await generarEnServidor({ devolverPdf: true, guardarEnDrive: false });
-            descargarPdfB64(data.pdf, `${numexpte || 'DRAFT'} - Anexo_Fotografico.pdf`);
+            const { blob } = await generarEnServidor({ devolverPdf: true, guardarEnDrive: false });
+            descargarBlob(blob, `${numexpte || 'DRAFT'} - Anexo_Fotografico.pdf`);
         } catch (err) {
             showAlert(err.response?.data?.message || err.message || 'No se pudo generar el documento PDF. Por favor, inténtalo de nuevo.', 'Error de Generación', 'error');
         }
@@ -604,9 +660,8 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
     const handleFirmar = async () => {
         setSignBusy(true);
         try {
-            const data = await generarEnServidor({ devolverPdf: true, guardarEnDrive: false });
-            if (!data?.pdf) throw new Error('No se pudo generar el PDF');
-            setSignPdfB64(data.pdf);
+            const { blob } = await generarEnServidor({ devolverPdf: true, guardarEnDrive: false });
+            setSignPdfB64(await blobABase64(blob));
             setSignOpen(true);
         } catch (err) {
             showAlert(err.response?.data?.message || err.message || 'No se pudo preparar el Anexo Fotográfico para firmar.', 'Error', 'error');
@@ -665,7 +720,8 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
 
             // El PDF se genera en el servidor y se manda ya hecho: enviar el HTML
             // con las fotos en base64 supera el límite de tamaño de la petición.
-            const { pdf } = await generarEnServidor({ devolverPdf: true, guardarEnDrive: false });
+            const { blob } = await generarEnServidor({ devolverPdf: true, guardarEnDrive: false });
+            const pdf = await blobABase64(blob);
             const response = await postEmail('/api/pdf/send-proposal', {
                 pdfBase64: pdf,
                 to: toEmail,
@@ -700,7 +756,8 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
             }
 
             // 2. Generar PDF en el servidor (desde las fotos de Drive)
-            const { pdf: pdfBase64 } = await generarEnServidor({ devolverPdf: true, guardarEnDrive: false });
+            const { blob } = await generarEnServidor({ devolverPdf: true, guardarEnDrive: false });
+            const pdfBase64 = await blobABase64(blob);
 
             // 3. Construir mensaje
             const firstName = (cli.nombre_razon_social || '').split(/\s+/)[0];
@@ -761,12 +818,8 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
                             </div>
                         </div>
 
-                        {scanningDrive && (
-                            <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-brand/5 border border-brand/20 text-brand text-[10px] font-black uppercase tracking-widest animate-pulse">
-                                <div className="w-3 h-3 border-2 border-brand/20 border-t-brand rounded-full animate-spin" />
-                                Buscando fotos en Drive...
-                            </div>
-                        )}
+                        {/* El estado de espera se enseña en el aviso central (avisoEspera),
+                            no aquí arriba: en la cabecera pasaba desapercibido. */}
                         <button onClick={() => setIsPhotosManagerOpen(true)} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white/[0.03] border border-white/10 text-white/50 text-xs font-bold hover:text-brand hover:border-brand/30 transition-all">
                             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>
                             Gestionar Fotos
@@ -1083,6 +1136,41 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
                             <button onClick={cerrarGestor} className="px-10 py-3 bg-brand text-black text-[11px] font-black rounded-2xl uppercase tracking-widest hover:scale-105 active:scale-95 transition-all">Cerrar</button>
                         </div>
                     </div>
+                </div>
+            )}
+
+            {/* ── AVISO DE ESPERA ──
+                Se muestra mientras se buscan las fotos en Drive o se compone el PDF.
+                Bloquea la ventana a propósito: si el usuario la cierra a media
+                generación, el trabajo se pierde y vuelve a empezar. */}
+            {avisoEspera && (
+                <div className="fixed inset-0 z-[700] flex items-center justify-center bg-black/85 backdrop-blur-xl px-6">
+                    <div className="bg-[#16181D] border border-white/10 rounded-3xl w-full max-w-md overflow-hidden shadow-2xl">
+                        <div className="h-1 bg-gradient-to-r from-[#F39200] via-[#F4B81C] to-[#A6CE39]" />
+                        <div className="p-8 flex flex-col items-center text-center gap-4">
+                            <div className="relative w-16 h-16 flex items-center justify-center">
+                                <div className="absolute inset-0 rounded-full border-2 border-brand/15" />
+                                <div className="absolute inset-0 rounded-full border-2 border-transparent border-t-brand animate-spin" />
+                                <svg className="w-7 h-7 text-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M3 9a2 2 0 012-2h.93a2 2 0 001.66-.9l.82-1.2A2 2 0 0110.07 4h3.86a2 2 0 011.66.9l.82 1.2a2 2 0 001.66.9H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                                    <circle cx="12" cy="13" r="3" strokeWidth={1.6} />
+                                </svg>
+                            </div>
+                            <div>
+                                <h3 className="text-white font-black text-base tracking-tight">{avisoEspera.titulo}</h3>
+                                <p className="text-white/45 text-xs mt-2 leading-relaxed">{avisoEspera.texto}</p>
+                            </div>
+                            <div className="w-full rounded-xl bg-brand/[0.06] border border-brand/20 px-4 py-3">
+                                <p className="text-brand/80 text-[11px] leading-relaxed">{avisoEspera.nota}</p>
+                            </div>
+                            {/* Barra indeterminada: no sabemos el porcentaje real (depende de
+                                Drive y de Puppeteer), pero deja claro que sigue trabajando. */}
+                            <div className="w-full h-1 rounded-full bg-white/[0.06] overflow-hidden">
+                                <div className="h-full w-1/3 bg-gradient-to-r from-transparent via-brand to-transparent animate-[shimmer_1.4s_ease-in-out_infinite]" />
+                            </div>
+                        </div>
+                    </div>
+                    <style>{`@keyframes shimmer { 0% { transform: translateX(-120%); } 100% { transform: translateX(420%); } }`}</style>
                 </div>
             )}
 
