@@ -11,6 +11,9 @@ import { useAuth } from '../../../context/AuthContext';
 
 const RESP = {
     CLIENTE:      { label: 'Cliente',      dot: 'bg-brand',       text: 'text-brand' },
+    // Lo que depende de NOSOTROS (generar/enviar un documento). No se puede
+    // "solicitar" a nadie: sale para saber que la pelota está en nuestro tejado.
+    BROKERGY:     { label: 'Brokergy',     dot: 'bg-amber-400',   text: 'text-amber-400' },
     INSTALADOR:   { label: 'Instalador',   dot: 'bg-sky-400',     text: 'text-sky-400' },
     CERTIFICADOR: { label: 'Certificador', dot: 'bg-teal-400',    text: 'text-teal-400' },
     CUALQUIERA:   { label: 'Fotos',        dot: 'bg-violet-400',  text: 'text-violet-400' },
@@ -189,7 +192,8 @@ export function ChecklistModule({ expediente, onChanged }) {
                         <span className="text-[10px] font-black uppercase tracking-[0.2em] text-white/35">En marcha ahora</span>
                         <div className="flex-1 h-px bg-white/5" />
                     </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    {/* 4 pistas caben en 2×2 en tablet y en fila en escritorio. */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                         {data.pistas.map(p => <PistaCard key={p.id} pista={p} />)}
                     </div>
                 </div>

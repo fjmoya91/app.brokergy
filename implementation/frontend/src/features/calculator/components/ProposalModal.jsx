@@ -2428,7 +2428,7 @@ info@brokergy.es · 623 926 179`;
                 const activeMsg = waMessages[waActiveTab] ?? '';
 
                 return (
-                    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-6 bg-black/80 backdrop-blur-sm" onClick={() => setRecipientChoice(false)}>
+                    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-6 bg-black/80 backdrop-blur-sm">
                         <div className="w-full max-w-sm sm:max-w-xl bg-[#1c1e26] border border-white/15 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh]" onClick={e => e.stopPropagation()}>
                             {/* Header */}
                             <div className="flex items-center gap-3 px-5 py-4 border-b border-white/10 shrink-0">

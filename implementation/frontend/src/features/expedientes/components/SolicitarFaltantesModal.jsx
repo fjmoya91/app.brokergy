@@ -328,7 +328,7 @@ export function SolicitarFaltantesModal({ isOpen, onClose, expedienteId, numeroE
     };
 
     return (
-        <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/70 backdrop-blur-sm animate-fade-in p-4" onClick={() => { if (!sendPhase) onClose(); }}>
+        <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/70 backdrop-blur-sm animate-fade-in p-4">
             <div className="bg-bkg-deep border border-white/10 rounded-2xl w-full max-w-lg shadow-2xl flex flex-col max-h-[90vh]" onClick={e => e.stopPropagation()}>
                 {/* Header */}
                 <div className="p-5 border-b border-white/10 flex items-center justify-between">

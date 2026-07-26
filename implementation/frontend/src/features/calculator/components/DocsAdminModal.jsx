@@ -163,7 +163,7 @@ ${pendientes.length ? `\nNos falta:\n${pendientes.map(p => `• ${p}`).join('\n'
 
             {/* Modal de envío del enlace */}
             {send && (
-                <div className="fixed inset-0 z-[250] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm" onClick={() => !sending && setSend(null)}>
+                <div className="fixed inset-0 z-[250] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
                     <div className="bg-[#16181D] border border-white/10 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl flex flex-col max-h-[92vh]" onClick={e => e.stopPropagation()}>
                         <div className="px-5 py-4 border-b border-white/10 flex items-center gap-3">
                             <span className={send.channel === 'whatsapp' ? 'text-[#25D366]' : 'text-amber-400'}>

@@ -2017,7 +2017,7 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, a
 
                 {/* ── MODAL ENVÍO AL CLIENTE (contacto + mensaje + canal) ── */}
                 {sendOpen && (
-                    <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4" onClick={() => setSendOpen(false)}>
+                    <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
                         <div className="bg-[#0F1013] border border-white/[0.07] rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden" onClick={e => e.stopPropagation()}>
                             {/* Header */}
                             <div className="px-6 py-5 border-b border-white/[0.07] bg-brand/5 flex items-center justify-between">
