@@ -21,6 +21,7 @@ const supabase = require('./supabaseClient');
 const driveService = require('./driveService');
 const pdfService = require('./pdfService');
 const { getUnidades: getUnidadesAero, unidadesSinSerie, esTermoElectrico: esTermoAero } = require('../utils/aerotermiaUnits');
+const { resolveInstaladorFirmante } = require('../utils/instaladorFirmante');
 
 const SUBCARPETA_ANEXOS = '6. ANEXOS CAE';
 const SUBCARPETA_FT = '3. FICHAS TÉCNICAS Y CERTIFICACIONES';
@@ -180,14 +181,21 @@ async function loadExpedientePayload(numeroOrId) {
         supabase.from('oportunidades').select('id, id_oportunidad, referencia_cliente, ficha, ref_catastral, datos_calculo, prescriptor_id, instalador_asociado_id').eq('id', simple.oportunidad_id).maybeSingle(),
     ]);
 
-    let assignedPrescriptor = null;
+    let assignedPrescriptor = null, firmantePrescriptor = null;
     const targetInstId = simple.instalacion?.instalador_id || simple.instalador_asociado_id || op?.instalador_asociado_id || op?.prescriptor_id;
     if (targetInstId) {
         const { data: presInfo } = await supabase.from('prescriptores').select('*').eq('id_empresa', targetInstId).maybeSingle();
         if (presInfo) assignedPrescriptor = presInfo;
+        // Instalador no habilitado en Industria → la empresa instaladora que consta
+        // en el certificado es la habilitada que firma por él.
+        const r = await resolveInstaladorFirmante(assignedPrescriptor, supabase);
+        if (r.delegado) firmantePrescriptor = r.firmante;
     }
 
-    const payload = { ...simple, clientes: cli || null, oportunidades: op || null, prescriptores: assignedPrescriptor };
+    const payload = {
+        ...simple, clientes: cli || null, oportunidades: op || null,
+        prescriptores: assignedPrescriptor, prescriptores_firmante: firmantePrescriptor,
+    };
     return { exp: payload, op: op || {}, simple };
 }
 

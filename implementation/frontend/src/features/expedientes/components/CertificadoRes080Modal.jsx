@@ -3,7 +3,7 @@ import axios from 'axios';
 import confetti from 'canvas-confetti';
 import { useAuth } from '../../../context/AuthContext';
 import { BOILER_EFFICIENCIES } from '../../calculator/logic/calculation';
-import { buildInstalacionAddress } from '../utils/docGenerators';
+import { buildInstalacionAddress, empresaInstaladora } from '../utils/docGenerators';
 import { calcCifo } from '../logic/calcCifo';
 import { EMITTER_OPTIONS, emitterScopContext } from '../logic/cifoDoc';
 import { formatMarcas, formatModelos, formatSeries, countUnidades, tipoEquipoNuevoLabel, esTermoElectrico } from '../logic/aerotermiaUnits';
@@ -234,8 +234,9 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, a
             const inst = expediente.instalacion || {};
             const op = expediente.oportunidades || {};
             
-            // Búsqueda robusta de empresa instaladora
-            const pres = expediente.prescriptores || {};
+            // Búsqueda robusta de empresa instaladora. Si el instalador asignado no
+            // está habilitado en Industria, la que firma es la habilitada delegada.
+            const pres = empresaInstaladora(expediente);
             const empName = pres.razon_social || 
                            pres.nombre || 
                            op.datos_calculo?.inputs?.partner_name ||

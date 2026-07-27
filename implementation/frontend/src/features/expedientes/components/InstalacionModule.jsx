@@ -1814,6 +1814,29 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
                             disabled={readOnly}
                         />
                     </div>
+                    {/* Si el instalador no está habilitado en Industria, la Memoria RITE,
+                        el Certificado y el CIFO salen a nombre del instalador habilitado
+                        que firma por él (se configura en su ficha de la Red de
+                        Prescriptores). Se avisa aquí para que no sorprenda en el PDF. */}
+                    {(() => {
+                        const sel = prescriptores.find(i => i.id_empresa === local.instalador_id);
+                        if (!sel || sel.tiene_carnet_rite) return null;
+                        const firmante = prescriptores.find(i => i.id_empresa === sel.instalador_rite_id);
+                        return (
+                            <div className={`rounded-lg px-3 py-2 border text-[11px] leading-relaxed ${firmante
+                                ? 'bg-amber-500/5 border-amber-500/20 text-amber-300/80'
+                                : 'bg-red-500/5 border-red-500/20 text-red-300/80'}`}>
+                                {firmante ? (
+                                    <>No habilitado en Industria. La Memoria RITE, el Certificado y el CIFO
+                                    saldrán a nombre de <b>{firmante.razon_social || firmante.acronimo}</b>.</>
+                                ) : (
+                                    <>⚠️ No habilitado en Industria y <b>sin instalador firmante asignado</b>.
+                                    Asígnalo en su ficha de la Red de Prescriptores o no se podrán generar
+                                    la Memoria RITE ni el certificado.</>
+                                )}
+                            </div>
+                        );
+                    })()}
                 </div>
             </div>
         </div>

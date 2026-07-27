@@ -8,7 +8,11 @@ const { stripDatosCalculoMargin } = require('../utils/financialScrub');
 const { getCoordinatesByRC } = require('../services/catastroService');
 const { normalizeData } = require('../utils/normalization');
 const { unidadesSinSerie, countUnidades: countUnidadesAero } = require('../utils/aerotermiaUnits');
-const { validateMemoriaRite, resolvePotenciasCatalogo, potenciaFrioPendiente } = require('../utils/riteValidation');
+const {
+    validateMemoriaRite, resolvePotenciasCatalogo,
+    potenciaFrioPendiente, situadoEnPendiente, SITUADO_EN_OPCIONES
+} = require('../utils/riteValidation');
+const { resolveInstaladorFirmante } = require('../utils/instaladorFirmante');
 const emailService = require('../services/emailService');
 const whatsappService = require('../services/whatsappService');
 const reformaUploadService = require('../services/reformaUploadService');
@@ -533,8 +537,13 @@ router.get('/:id', enforceAuth, async (req, res) => {
 
         // Recuperamos el instalador asignado (desde Instalacion o el genérico de Oportunidades)
         let assignedPrescriptor = null;
+        // Instalador que FIRMA los documentos técnicos. Solo se rellena cuando el
+        // asignado no está habilitado en Industria y delega en otro: los
+        // generadores (CIFO, RES080, RITE) usan este; los envíos y la atribución
+        // comercial siguen usando `prescriptores`. Ver utils/instaladorFirmante.js.
+        let firmantePrescriptor = null;
         const targetInstId = simple.instalacion?.instalador_id || op?.prescriptor_id;
-        
+
         if (targetInstId) {
             const { data: presInfo } = await supabase
                 .from('prescriptores')
@@ -542,6 +551,8 @@ router.get('/:id', enforceAuth, async (req, res) => {
                 .eq('id_empresa', targetInstId)
                 .single();
             if (presInfo) assignedPrescriptor = presInfo;
+            const r = await resolveInstaladorFirmante(assignedPrescriptor, supabase);
+            if (r.delegado) firmantePrescriptor = r.firmante;
         }
 
         // Lote al que pertenece el expediente (solo-lectura en la ficha): SO y Verificador.
@@ -571,6 +582,7 @@ router.get('/:id', enforceAuth, async (req, res) => {
             clientes: cli || null,
             oportunidades: op || null,
             prescriptores: assignedPrescriptor,
+            prescriptores_firmante: firmantePrescriptor,
             lote
         };
         // Capado de cifras por rol: ADMIN completo; TRABAJADOR sin margen
@@ -3008,17 +3020,23 @@ async function loadRiteContext(idOrNum) {
     ]);
     let normalizedDatos = op?.datos_calculo || {};
     if (typeof normalizedDatos === 'string') { try { normalizedDatos = JSON.parse(normalizedDatos); } catch (e) { normalizedDatos = {}; } }
-    let pres = null;
+    let pres = null, presReal = null, firmanteDelegado = false;
     const targetInstId = exp.instalacion?.instalador_id || op?.prescriptor_id || exp.instalador_asociado_id;
     if (targetInstId) {
         const { data: p } = await supabase.from('prescriptores').select('*').eq('id_empresa', targetInstId).maybeSingle();
-        pres = p;
+        // Si el instalador asignado no está habilitado en Industria, la memoria y
+        // el certificado van a nombre del instalador habilitado que firma por él.
+        // `presReal` conserva el asignado: es a QUIEN se avisa (ver /send).
+        const r = await resolveInstaladorFirmante(p, supabase);
+        pres = r.firmante;
+        presReal = r.real;
+        firmanteDelegado = r.delegado;
     }
     // Potencias que no se guardaron en el expediente pero constan en el catálogo del
     // modelo. Se resuelven ANTES de validar y de construir el payload para que el
     // barrido y el documento vean exactamente el mismo dato.
     exp.instalacion = await resolvePotenciasCatalogo(exp.instalacion, supabase);
-    return { exp, cli, op, normalizedDatos, pres };
+    return { exp, cli, op, normalizedDatos, pres, presReal, firmanteDelegado };
 }
 
 // ─── GET /api/expedientes/:id/memoria-rite/check ───────────────────────────────
@@ -3029,12 +3047,15 @@ router.get('/:id/memoria-rite/check', enforceAuth, async (req, res) => {
     try {
         const ctx = await loadRiteContext(req.params.id);
         if (!ctx) return res.status(404).json({ error: 'Expediente no encontrado' });
-        const { exp, cli, op, normalizedDatos, pres } = ctx;
-        const missing = validateMemoriaRite({ exp, cli, op: { ...op, datos_calculo: normalizedDatos }, pres });
-        // Modelos sin potencia frigorífica: el frontend los pide en un popup y los
-        // guarda en el catálogo antes de generar.
+        const { exp, cli, op, normalizedDatos, pres, presReal } = ctx;
+        const missing = validateMemoriaRite({ exp, cli, op: { ...op, datos_calculo: normalizedDatos }, pres, presReal });
+        // Datos del GENERADOR DE FRÍO que el frontend pide en un popup antes de
+        // generar: los del MODELO van al catálogo, el emplazamiento al expediente.
         const potenciaFrio = await potenciaFrioPendiente(exp.instalacion, supabase);
-        res.json({ missing, potenciaFrio });
+        res.json({
+            missing, potenciaFrio,
+            situadoEn: situadoEnPendiente(exp) ? { opciones: SITUADO_EN_OPCIONES } : null
+        });
     } catch (err) {
         console.error('Error GET expedientes/:id/memoria-rite/check:', err);
         res.status(500).json({ error: 'Error al validar la Memoria RITE', details: err.message });
@@ -3056,10 +3077,10 @@ router.post('/:id/memoria-rite/generate', enforceAuth, async (req, res) => {
         // 1) Cargar contexto (exp + cliente + oportunidad + instalador)
         const ctx = await loadRiteContext(req.params.id);
         if (!ctx) return res.status(404).json({ error: 'Expediente no encontrado' });
-        const { exp, cli, op, normalizedDatos, pres } = ctx;
+        const { exp, cli, op, normalizedDatos, pres, presReal } = ctx;
 
         // 2) Validación (defensa en profundidad; el frontend ya valida y abre el popup)
-        const missing = validateMemoriaRite({ exp, cli, op: { ...op, datos_calculo: normalizedDatos }, pres });
+        const missing = validateMemoriaRite({ exp, cli, op: { ...op, datos_calculo: normalizedDatos }, pres, presReal });
         if (missing.length > 0) {
             return res.status(422).json({ error: 'Faltan datos para generar la Memoria RITE', missing });
         }
@@ -3144,13 +3165,17 @@ router.post('/:id/memoria-rite/send', enforceAuth, async (req, res) => {
 
         const ctx = await loadRiteContext(req.params.id);
         if (!ctx) return res.status(404).json({ error: 'Expediente no encontrado' });
-        const { exp, cli, op, normalizedDatos, pres } = ctx;
+        const { exp, cli, op, normalizedDatos, pres, presReal } = ctx;
         if (!pres) return res.status(400).json({ error: 'El expediente no tiene instalador asignado' });
 
         // Destinatarios. Si el frontend manda `recipients` (varios contactos elegidos
         // en el popup), se envía a todos. Compatibilidad: `to`/`phone` = un solo
         // destinatario; si no llega nada, fallback al contacto del prescriptor.
-        const useContact = pres.contacto_notificaciones_activas === true || pres.contacto_notificaciones_activas === 'true';
+        // OJO: el fallback usa el instalador REAL asignado (el que factura y con el
+        // que hablamos), no el que firma los documentos por él. Los DATOS del
+        // documento sí salen del firmante — ver utils/instaladorFirmante.js.
+        const dest0 = presReal || pres;
+        const useContact = dest0.contacto_notificaciones_activas === true || dest0.contacto_notificaciones_activas === 'true';
         let destinatarios;
         if (Array.isArray(recipients) && recipients.length) {
             destinatarios = recipients.map(r => ({
@@ -3159,10 +3184,10 @@ router.post('/:id/memoria-rite/send', enforceAuth, async (req, res) => {
                 tlf: (r?.phone || r?.tlf || '').toString().trim(),
             }));
         } else {
-            const instEmail = ((to || (useContact ? (pres.email_contacto || pres.email) : pres.email)) || '').trim();
-            const instTlf = ((phone || (useContact ? (pres.tlf_contacto || pres.tlf || pres.telefono) : (pres.tlf || pres.telefono))) || '').trim();
+            const instEmail = ((to || (useContact ? (dest0.email_contacto || dest0.email) : dest0.email)) || '').trim();
+            const instTlf = ((phone || (useContact ? (dest0.tlf_contacto || dest0.tlf || dest0.telefono) : (dest0.tlf || dest0.telefono))) || '').trim();
             destinatarios = [{
-                nombre: useContact ? (pres.nombre_contacto || pres.razon_social || '') : (pres.nombre_responsable || pres.razon_social || ''),
+                nombre: useContact ? (dest0.nombre_contacto || dest0.razon_social || '') : (dest0.nombre_responsable || dest0.razon_social || ''),
                 email: instEmail, tlf: instTlf,
             }];
         }

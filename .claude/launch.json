@@ -28,9 +28,9 @@
     {
       "name": "rite-generator",
       "runtimeExecutable": "python",
-      "runtimeArgs": ["-m", "uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8080"],
+      "runtimeArgs": ["-m", "uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8090"],
       "cwd": "implementation/rite-generator",
-      "port": 8080,
+      "port": 8090,
       "autoPort": false
     },
     {

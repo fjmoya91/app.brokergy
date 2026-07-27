@@ -4,7 +4,7 @@ import confetti from 'canvas-confetti';
 import { useAuth } from '../../../context/AuthContext';
 import { useModal } from '../../../context/ModalContext';
 import { BOILER_EFFICIENCIES } from '../../calculator/logic/calculation';
-import { buildInstalacionAddress } from '../utils/docGenerators';
+import { buildInstalacionAddress, empresaInstaladora } from '../utils/docGenerators';
 import { calcCifo } from '../logic/calcCifo';
 import { esTermoElectrico } from '../logic/aerotermiaUnits';
 import { postEmail } from '../../../utils/emailFallback';
@@ -405,7 +405,9 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
     const cee = expediente.cee || {};
     const loc = expediente.ubicacion || {};
     const cli = expediente.clientes || expediente.cliente || {}; 
-    const pres = expediente.prescriptores || {};
+    // Empresa instaladora del certificado: el instalador habilitado que firma si
+    // el asignado no lo está (ver `empresaInstaladora`).
+    const pres = empresaInstaladora(expediente);
 
     const zoneStr = (op.datos_calculo?.zona || 'D3').toUpperCase();
     const zoneLabel = [

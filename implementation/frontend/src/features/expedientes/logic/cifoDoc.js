@@ -20,7 +20,7 @@
 // about:blank, las rutas relativas no cargan).
 // ============================================================================
 import { BOILER_EFFICIENCIES, calculateHybridization, resolveHybridInputs, HYBRID_METHODS } from '../../calculator/logic/calculation.js';
-import { buildInstalacionAddress } from '../utils/docGenerators.js';
+import { buildInstalacionAddress, empresaInstaladora } from '../utils/docGenerators.js';
 import { calcCifo } from './calcCifo.js';
 import { formatMarcas, formatModelos, formatSeries, countUnidades, tipoEquipoNuevo, tipoEquipoNuevoLabel, esTermoElectrico, EQUIPO_NUEVO } from './aerotermiaUnits.js';
 
@@ -176,7 +176,9 @@ export function deriveCifoData({ expediente, results }) {
     const cee = exp.cee || {};
     const loc = exp.ubicacion || {};
     const cli = exp.clientes || exp.cliente || {};
-    const pres = exp.prescriptores || {};
+    // Empresa instaladora del certificado: el instalador habilitado que firma si
+    // el asignado no lo está (ver `empresaInstaladora`).
+    const pres = empresaInstaladora(exp);
 
     const zoneStr = (op.datos_calculo?.zona || 'D3').toUpperCase();
     const zoneLabel = [

@@ -18,7 +18,7 @@
 // huecos/opacos, no hace falta.
 // ============================================================================
 import { BOILER_EFFICIENCIES } from '../../calculator/logic/calculation.js';
-import { buildInstalacionAddress } from '../utils/docGenerators.js';
+import { buildInstalacionAddress, empresaInstaladora } from '../utils/docGenerators.js';
 import { calcCifo } from './calcCifo.js';
 import { EMITTER_OPTIONS, emitterScopContext } from './cifoDoc.js';
 import { formatMarcas, formatModelos, formatSeries, countUnidades, tipoEquipoNuevoLabel, esTermoElectrico } from './aerotermiaUnits.js';
@@ -167,7 +167,9 @@ export function deriveRes080Data({ expediente, results, parseHuecosFromXml }) {
     const env = doc.envolvente || {};
     const cli = exp.clientes || exp.cliente || {};
     const loc = exp.ubicacion || {};
-    const pres = exp.prescriptores || {};
+    // Empresa instaladora del certificado: el instalador habilitado que firma si
+    // el asignado no lo está (ver `empresaInstaladora`).
+    const pres = empresaInstaladora(exp);
     const tieneAcs = inst.cambio_acs !== false;
 
     // ── fields (línea base: defaults + initialFields sembrados de env) ──

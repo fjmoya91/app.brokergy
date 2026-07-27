@@ -224,36 +224,41 @@ router.put('/:id', enforceAuth, requireAdmin, async (req, res) => {
     }
 });
 
-// PATCH /api/aerotermia/:id/potencia-frigorifica — completar SOLO ese campo.
+// PATCH /api/aerotermia/:id/potencia-frigorifica — completar SOLO los datos del
+// GENERADOR DE FRÍO (potencia frigorífica y potencia de compresores).
 //
 // Lo usa el popup que salta al generar la Memoria RITE cuando el emisor da frío
-// (suelo radiante / splits / conductos) y el modelo no tiene el dato: se teclea
-// una vez y queda en el catálogo para todos los expedientes futuros.
+// (suelo radiante / splits / conductos) y el modelo no tiene los datos: se
+// teclean una vez y quedan en el catálogo para todos los expedientes futuros.
 //
 // NO se reutiliza el PUT /:id porque ese pasa por `buildPayload`, que reconstruye
-// la fila ENTERA: enviarle solo este campo pondría a null todo lo demás (SCOPs,
-// modelo, ficha técnica…). Aquí se actualiza un único campo.
+// la fila ENTERA: enviarle solo estos campos pondría a null todo lo demás (SCOPs,
+// modelo, ficha técnica…). Aquí se actualiza solo lo recibido.
 //
 // `staffOnly` en vez de `requireAdmin`: es un dato técnico del catálogo y quien
 // genera el RITE puede ser un TRABAJADOR; no hay dinero ni borrado de por medio.
 router.patch('/:id/potencia-frigorifica', staffOnly, async (req, res) => {
     try {
-        const valor = parseFloat(req.body?.potencia_frigorifica);
-        if (!(valor > 0)) {
-            return res.status(400).json({ error: 'La potencia frigorífica debe ser un número mayor que 0' });
+        const updates = {};
+        const frig = parseFloat(req.body?.potencia_frigorifica);
+        const comp = parseFloat(req.body?.potencia_compresores);
+        if (frig > 0) updates.potencia_frigorifica = frig;
+        if (comp > 0) updates.potencia_compresores = comp;
+        if (!Object.keys(updates).length) {
+            return res.status(400).json({ error: 'Indica la potencia frigorífica y/o la de compresores (kW, mayor que 0)' });
         }
         const { data, error } = await supabase
             .from('aerotermia')
-            .update({ potencia_frigorifica: valor })
+            .update(updates)
             .eq('id', req.params.id)
-            .select('id, marca, modelo_comercial, potencia_frigorifica')
+            .select('id, marca, modelo_comercial, potencia_frigorifica, potencia_compresores')
             .single();
         if (error) throw error;
         if (!data) return res.status(404).json({ error: 'Equipo no encontrado' });
         res.json(data);
     } catch (err) {
         console.error('Error PATCH aerotermia/potencia-frigorifica:', err);
-        res.status(500).json({ error: 'Error al guardar la potencia frigorífica', details: err.message });
+        res.status(500).json({ error: 'Error al guardar los datos del generador de frío', details: err.message });
     }
 });
 

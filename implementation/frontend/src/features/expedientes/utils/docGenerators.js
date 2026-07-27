@@ -71,6 +71,23 @@ export const PROVINCE_CODE_TO_CCAA = {
  * Devuelve partes sueltas (calle, cp, municipio, provincia, ccaa, refCatastral)
  * y la cadena completa `full` ya formateada para los campos de una sola línea.
  */
+/**
+ * EMPRESA INSTALADORA que debe constar en la documentación técnica (Memoria
+ * RITE, Certificado de Instalación Térmica, CIFO / Certificado Final de Obra).
+ *
+ * No siempre es el instalador asignado al expediente: si ese no está habilitado
+ * en Industria (`tiene_carnet_rite` en OFF), quien responde ante Industria —y
+ * por tanto quien figura en los documentos con su razón social, CIF, dirección,
+ * Nº de Empresa RITE y firmante— es la empresa habilitada que firma por él. El
+ * backend ya resuelve esa delegación y la entrega en `prescriptores_firmante`
+ * (ver backend/utils/instaladorFirmante.js); aquí solo se elige la ficha.
+ *
+ * ⚠️ Para AVISOS (WhatsApp/email), atribución comercial o portal hay que seguir
+ * usando `expediente.prescriptores`: el interlocutor es el instalador real.
+ */
+export const empresaInstaladora = (expediente) =>
+    (expediente && (expediente.prescriptores_firmante || expediente.prescriptores)) || {};
+
 export const buildInstalacionAddress = (expediente) => {
     const exp = expediente || {};
     const op = exp.oportunidades || {};

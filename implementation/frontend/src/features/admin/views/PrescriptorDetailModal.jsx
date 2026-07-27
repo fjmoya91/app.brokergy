@@ -155,6 +155,80 @@ function Sel({ children, ...props }) {
     );
 }
 
+/**
+ * Interruptor uniforme del formulario. La etiqueta va a la izquierda y el switch
+ * a la derecha, para que un bloque condicional se lea siempre igual: primero la
+ * pregunta, debajo lo que esa respuesta despliega.
+ */
+function SwitchRow({ checked, onChange, label, hint, tone = 'orange' }) {
+    // Clases LITERALES: Tailwind purga por coincidencia de texto, así que
+    // `bg-${tone}-500` no llegaría al CSS compilado.
+    const t = tone === 'amber'
+        ? { border: 'border-amber-500', on: 'bg-amber-500', knobOff: 'bg-amber-500' }
+        : { border: 'border-orange-500', on: 'bg-orange-500', knobOff: 'bg-orange-500' };
+    return (
+        <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+                <p className="text-[10px] uppercase tracking-[0.18em] font-black text-white/45">{label}</p>
+                {hint && <p className="text-[11px] text-white/20 mt-0.5">{hint}</p>}
+            </div>
+            <button
+                type="button"
+                onClick={() => onChange(!checked)}
+                role="switch"
+                aria-checked={checked}
+                aria-label={label}
+                style={{ width: '40px', height: '22px' }}
+                className="relative shrink-0 rounded-full transition-all"
+            >
+                <div className={`w-full h-full rounded-full transition-all duration-300 border ${t.border} ${checked ? t.on : 'bg-transparent'}`}>
+                    <div className={`absolute top-[2px] rounded-full shadow transition-transform duration-300 ${checked ? 'bg-white translate-x-[20px]' : `${t.knobOff} translate-x-[2px]`}`}
+                        style={{ width: '16px', height: '16px' }}></div>
+                </div>
+            </button>
+        </div>
+    );
+}
+
+/**
+ * Sección PLEGABLE del formulario de edición. Mantiene el formulario corto: a la
+ * vista solo lo que casi siempre se toca (identidad, habilitación RITE) y el
+ * resto —dirección, landing, escaparate, notas— se abre bajo demanda.
+ *
+ * `summary` se pinta cuando está plegada para poder LEER el dato sin desplegar:
+ * plegar no debe obligar a hacer clic para saber si un campo está relleno.
+ */
+function Collapse({ title, subtitle, summary, defaultOpen = false, children }) {
+    const [open, setOpen] = useState(defaultOpen);
+    return (
+        <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] overflow-hidden">
+            <button
+                type="button"
+                onClick={() => setOpen(o => !o)}
+                aria-expanded={open}
+                className="w-full flex items-center gap-3 px-4 py-3.5 text-left hover:bg-white/[0.03] transition-colors"
+            >
+                <div className="flex-1 min-w-0">
+                    <p className="text-[10px] uppercase tracking-[0.18em] font-black text-white/45">{title}</p>
+                    {!open && (
+                        <p className="text-[11px] text-white/25 mt-0.5 truncate">{summary || subtitle}</p>
+                    )}
+                </div>
+                <svg className={`w-4 h-4 shrink-0 text-white/30 transition-transform duration-300 ${open ? 'rotate-180' : ''}`}
+                    fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                </svg>
+            </button>
+            {open && (
+                <div className="px-4 pb-4 pt-1 space-y-4 animate-fade-in-up">
+                    {subtitle && <p className="text-[11px] text-white/20">{subtitle}</p>}
+                    {children}
+                </div>
+            )}
+        </div>
+    );
+}
+
 // ─── Sección dirección editable ──────────────────────────────────────────────
 function DireccionEdit({ values, onChange }) {
     const [provincias, setProvincias] = useState([]);
@@ -274,7 +348,7 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
     const emptyForm = {
         razon_social: '', acronimo: '', cif: '', email: '', tlf: '', sitio_web: '',
         tipo_empresa: 'DISTRIBUIDOR', marca_referencia: '', marca_secundaria: '',
-        tiene_carnet_rite: false, numero_carnet_rite: '', cargo: '',
+        tiene_carnet_rite: false, numero_carnet_rite: '', instalador_rite_id: '', cargo: '',
         nombre_responsable: '', apellidos_responsable: '', nif_responsable: '', precio_referencia: '', codigo_identificacion: '',
         ccaa: '', provincia: '', provincia_cod: '', municipio: '',
         codigo_postal: '', direccion: '', es_autonomo: false, logo_empresa: '',
@@ -493,6 +567,7 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                 tecnico_firmante_apellidos:   p.tecnico_firmante_apellidos || '',
                 tecnico_firmante_dni:         p.tecnico_firmante_dni || '',
                 tecnico_firmante_carnet_rite: p.tecnico_firmante_carnet_rite || '',
+                instalador_rite_id:           p.instalador_rite_id || '',
                 landing_slug:                 p.landing_slug || '',
                 landing_activa:               p.landing_activa || false,
                 landing_color_primary:        p.landing_color_primary || '',
@@ -615,6 +690,8 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                 marca_secundaria:      null,
                 tiene_carnet_rite:     form.tiene_carnet_rite,
                 numero_carnet_rite:    form.numero_carnet_rite.trim() || null,
+                // Solo tiene sentido si NO está habilitado: si lo está, firma él.
+                instalador_rite_id:    form.tiene_carnet_rite ? null : (form.instalador_rite_id || null),
                 cargo:                 form.cargo.trim() || null,
                 nombre_responsable:    form.nombre_responsable.trim() || null,
                 apellidos_responsable: form.apellidos_responsable.trim() || null,
@@ -764,7 +841,9 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
 
     return (
         <div className="fixed inset-0 z-[300] flex items-start justify-center p-4 bg-black/75 backdrop-blur-md animate-fade-in overflow-y-auto">
-            <div className="bg-bkg-deep border border-white/[0.08] rounded-2xl w-full max-w-2xl my-8 shadow-2xl">
+            {/* En PC el formulario es de 2 columnas: con 42rem los campos quedaban
+                estrechos y la ficha muy larga. En lg se ensancha a 64rem. */}
+            <div className="bg-bkg-deep border border-white/[0.08] rounded-2xl w-full max-w-2xl lg:max-w-5xl my-8 shadow-2xl">
 
                 {/* Header. El botón de cerrar va SIEMPRE arriba a la derecha: antes vivía
                     en la fila de acciones y, al no caber, bajaba junto a «Editar». */}
@@ -956,8 +1035,33 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                                 </Section>
                             )}
 
-                            {/* Técnico Firmante de Memorias (Vista) */}
-                            {p.tecnico_firmante_distinto && (
+                            {/* Instalador habilitado que firma por él (Vista) */}
+                            {p.tipo_empresa === 'INSTALADOR' && !p.tiene_carnet_rite && (() => {
+                                const firmante = allInstaladores.find(x => x.id_empresa === p.instalador_rite_id);
+                                return (
+                                    <Section title="Instalador Habilitado que Firma" iconPath="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z">
+                                        <p className="text-[11px] text-white/25 mb-3">
+                                            No habilitado en Industria. La Memoria RITE, el Certificado y el CIFO salen a nombre de:
+                                        </p>
+                                        {firmante ? (
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
+                                                <FV label="Empresa" value={firmante.razon_social || firmante.acronimo} />
+                                                <FV label="CIF" value={firmante.cif} mono />
+                                                <FV label="N.º Empresa RITE" value={firmante.numero_carnet_rite} mono />
+                                            </div>
+                                        ) : (
+                                            <p className="text-[11px] text-amber-400/70">
+                                                ⚠️ Sin firmante asignado — no se pueden generar la Memoria RITE ni el certificado.
+                                            </p>
+                                        )}
+                                    </Section>
+                                );
+                            })()}
+
+                            {/* Técnico Firmante de Memorias (Vista). Solo tiene sentido si la
+                                empresa está habilitada: si no lo está, quien firma es la
+                                empresa delegada (bloque de arriba), no su técnico. */}
+                            {p.tecnico_firmante_distinto && p.tiene_carnet_rite && (
                                 <Section title="Técnico Firmante de Memorias" iconPath="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z">
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
                                         <FV label="Nombre" value={[p.tecnico_firmante_nombre, p.tecnico_firmante_apellidos].filter(Boolean).join(' ') || null} />
@@ -1210,6 +1314,13 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                                             <FI label="Nombre Profesional / Acrónimo">
                                                 <Inp value={form.acronimo} uppercase onChange={e => upd({ acronimo: e.target.value })} placeholder="NOMBRE COMERCIAL" />
                                             </FI>
+                                            {/* El autónomo no tiene bloque "Persona de Contacto":
+                                                su cargo va aquí, con el resto de su identidad. */}
+                                            {!isEntidadCae && (
+                                                <FI label="Cargo / Especialidad">
+                                                    <Inp value={form.cargo} uppercase onChange={e => upd({ cargo: e.target.value })} placeholder="INSTALADOR / TÉCNICO" />
+                                                </FI>
+                                            )}
                                         </>
                                     ) : (
                                         <>
@@ -1389,119 +1500,116 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                                             <Inp value={form.nif_responsable} uppercase onChange={e => upd({ nif_responsable: e.target.value })} placeholder="00000000X" />
                                         </FI>
                                     )}
-                                    {!isEntidadCae && (<>
-                                    <FI label="Cargo">
-                                        <Inp value={form.cargo} uppercase onChange={e => upd({ cargo: e.target.value })} placeholder="GERENTE / PROPIETARIO" />
-                                    </FI>
-                                    <FI label="N.º Empresa RITE">
-                                        <Inp value={form.numero_carnet_rite} uppercase onChange={e => upd({ numero_carnet_rite: e.target.value })}
-                                            disabled={!form.tiene_carnet_rite} placeholder="RITE-XXXXX" />
-                                    </FI>
-                                    <div className="sm:col-span-2 flex items-center gap-3">
-                                        <label className="flex items-center gap-2 cursor-pointer">
-                                            <div className="relative h-5 w-9 shrink-0">
-                                                <input type="checkbox" checked={form.tiene_carnet_rite}
-                                                    onChange={e => upd({ tiene_carnet_rite: e.target.checked })}
-                                                    className="sr-only peer" />
-                                                <div className="w-full h-full bg-transparent border border-orange-500 rounded-full peer peer-checked:bg-orange-500 peer-checked:after:translate-x-[16px] peer-checked:after:bg-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-orange-500 after:rounded-full after:h-4 after:w-4 after:transition-all"></div>
-                                            </div>
-                                            <span className="text-[10px] font-black uppercase tracking-widest text-white/40">Habilitada en Industria (RITE)</span>
-                                        </label>
-                                    </div>
-                                    </>)}
+                                    {/* El Nº de Empresa RITE y la habilitación viven en su propio
+                                        bloque (abajo): el toggle debe ir ANTES de lo que despliega. */}
+                                    {!isEntidadCae && (
+                                        <FI label="Cargo">
+                                            <Inp value={form.cargo} uppercase onChange={e => upd({ cargo: e.target.value })} placeholder="GERENTE / PROPIETARIO" />
+                                        </FI>
+                                    )}
                                 </div>
                             </div>
                             )}
 
-                            {/* Técnico firmante de memorias — cualquier INSTALADOR (autónomo o empresa) */}
-                            {form.tipo_empresa === 'INSTALADOR' && (
-                            <div className="pt-4 border-t border-white/5 space-y-4">
-                                <div className="flex items-center justify-between gap-3">
-                                    <div>
-                                        <p className="text-[10px] uppercase tracking-[0.2em] font-black text-white/30">Técnico Firmante de Memorias</p>
-                                        <p className="text-[11px] text-white/20 mt-0.5">¿El técnico que firma las memorias es distinto del representante legal?</p>
-                                    </div>
-                                    <button
-                                        type="button"
-                                        onClick={() => upd({ tecnico_firmante_distinto: !form.tecnico_firmante_distinto })}
-                                        style={{ width: '40px', height: '22px' }}
-                                        className="relative shrink-0 rounded-full transition-all"
-                                    >
-                                        <div className={`w-full h-full rounded-full transition-all duration-300 border border-orange-500 ${form.tecnico_firmante_distinto ? 'bg-orange-500' : 'bg-transparent'}`}>
-                                            <div className={`absolute top-[2px] rounded-full shadow transition-transform duration-300 ${form.tecnico_firmante_distinto ? 'bg-white translate-x-[20px]' : 'bg-orange-500 translate-x-[2px]'}`}
-                                                style={{ width: '16px', height: '16px' }}></div>
-                                        </div>
-                                    </button>
-                                </div>
+                            {/* ── HABILITACIÓN RITE ──────────────────────────────────
+                                Un solo bloque, y el toggle SIEMPRE arriba: lo que se
+                                despliega depende de él, así que no puede ir debajo.
+                                  · Habilitada  → Nº de Empresa RITE + quién firma las memorias.
+                                  · No habilitada → empresa habilitada que firma por ella.
+                                Los datos del firmante son los que salen en la Memoria RITE,
+                                el Certificado y el CIFO; los avisos siguen yendo a este
+                                partner, que es el que factura. */}
+                            {!isEntidadCae && (
+                            <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] px-4 py-4 space-y-4">
+                                <SwitchRow
+                                    checked={form.tiene_carnet_rite}
+                                    onChange={v => upd({ tiene_carnet_rite: v })}
+                                    label="Habilitada en Industria (RITE)"
+                                    hint="¿Está inscrita en el Registro Integrado Industrial?"
+                                />
 
-                                {form.tecnico_firmante_distinto && (
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-4 bg-white/[0.02] border border-white/[0.05] rounded-2xl animate-fade-in-up">
-                                        <FI label="Nombre" required>
-                                            <Inp value={form.tecnico_firmante_nombre} uppercase placeholder="NOMBRE DEL TÉCNICO"
-                                                onChange={e => upd({ tecnico_firmante_nombre: e.target.value })} />
+                                {form.tiene_carnet_rite ? (
+                                    <div className="space-y-4 animate-fade-in-up">
+                                        <FI label="N.º Empresa RITE" required>
+                                            <Inp value={form.numero_carnet_rite} uppercase
+                                                onChange={e => upd({ numero_carnet_rite: e.target.value })}
+                                                placeholder="08-B-D20-13018993" />
                                         </FI>
-                                        <FI label="Apellidos" required>
-                                            <Inp value={form.tecnico_firmante_apellidos} uppercase placeholder="APELLIDOS"
-                                                onChange={e => upd({ tecnico_firmante_apellidos: e.target.value })} />
-                                        </FI>
-                                        <FI label="DNI" required>
-                                            <Inp value={form.tecnico_firmante_dni} uppercase placeholder="00000000X"
-                                                onChange={e => upd({ tecnico_firmante_dni: e.target.value })} />
-                                        </FI>
-                                        <FI label="N.º Carnet RITE" required>
-                                            <Inp value={form.tecnico_firmante_carnet_rite} uppercase placeholder="RITE-XXXXX"
-                                                onChange={e => upd({ tecnico_firmante_carnet_rite: e.target.value })} />
-                                        </FI>
-                                    </div>
-                                )}
-                            </div>
-                            )}
 
-                            {/* RITE para autónomos */}
-                            {form.es_autonomo && (
-                            <div className="space-y-3">
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                    <FI label="Cargo / Especialidad">
-                                        <Inp value={form.cargo} uppercase onChange={e => upd({ cargo: e.target.value })} placeholder="INSTALADOR / TÉCNICO" />
-                                    </FI>
-                                    <FI label="N.º Empresa RITE">
-                                        <Inp value={form.numero_carnet_rite} uppercase onChange={e => upd({ numero_carnet_rite: e.target.value })}
-                                            disabled={!form.tiene_carnet_rite} placeholder="RITE-XXXXX" />
-                                    </FI>
-                                    <div className="sm:col-span-2 flex items-center gap-3">
-                                        <label className="flex items-center gap-2 cursor-pointer">
-                                            <div className="relative h-5 w-9 shrink-0">
-                                                <input type="checkbox" checked={form.tiene_carnet_rite}
-                                                    onChange={e => upd({ tiene_carnet_rite: e.target.checked })}
-                                                    className="sr-only peer" />
-                                                <div className="w-full h-full bg-transparent border border-orange-500 rounded-full peer peer-checked:bg-orange-500 peer-checked:after:translate-x-[16px] peer-checked:after:bg-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-orange-500 after:rounded-full after:h-4 after:w-4 after:transition-all"></div>
+                                        {form.tipo_empresa === 'INSTALADOR' && (
+                                            <div className="pt-3 border-t border-white/5 space-y-4">
+                                                <SwitchRow
+                                                    checked={form.tecnico_firmante_distinto}
+                                                    onChange={v => upd({ tecnico_firmante_distinto: v })}
+                                                    label="Técnico Firmante de Memorias"
+                                                    hint={form.es_autonomo
+                                                        ? '¿Las memorias las firma un técnico distinto?'
+                                                        : '¿El técnico que firma es distinto del representante legal?'}
+                                                />
+                                                {form.tecnico_firmante_distinto && (
+                                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-4 bg-white/[0.02] border border-white/[0.05] rounded-2xl animate-fade-in-up">
+                                                        <FI label="Nombre" required>
+                                                            <Inp value={form.tecnico_firmante_nombre} uppercase placeholder="NOMBRE DEL TÉCNICO"
+                                                                onChange={e => upd({ tecnico_firmante_nombre: e.target.value })} />
+                                                        </FI>
+                                                        <FI label="Apellidos" required>
+                                                            <Inp value={form.tecnico_firmante_apellidos} uppercase placeholder="APELLIDOS"
+                                                                onChange={e => upd({ tecnico_firmante_apellidos: e.target.value })} />
+                                                        </FI>
+                                                        <FI label="DNI" required>
+                                                            <Inp value={form.tecnico_firmante_dni} uppercase placeholder="00000000X"
+                                                                onChange={e => upd({ tecnico_firmante_dni: e.target.value })} />
+                                                        </FI>
+                                                        <FI label="N.º Carnet RITE" required>
+                                                            <Inp value={form.tecnico_firmante_carnet_rite} uppercase placeholder="RITE-XXXXX"
+                                                                onChange={e => upd({ tecnico_firmante_carnet_rite: e.target.value })} />
+                                                        </FI>
+                                                    </div>
+                                                )}
                                             </div>
-                                            <span className="text-[10px] font-black uppercase tracking-widest text-white/40">Habilitada en Industria (RITE)</span>
-                                        </label>
+                                        )}
                                     </div>
-                                </div>
+                                ) : form.tipo_empresa === 'INSTALADOR' ? (
+                                    <div className="space-y-3 animate-fade-in-up">
+                                        <FI label="Empresa habilitada que firma" required>
+                                            <Sel
+                                                value={form.instalador_rite_id || ''}
+                                                disabled={loadingInst}
+                                                onChange={e => upd({ instalador_rite_id: e.target.value || '' })}
+                                            >
+                                                <option value="">{loadingInst ? 'CARGANDO...' : '— SIN ASIGNAR —'}</option>
+                                                {allInstaladores
+                                                    .filter(i => i.tiene_carnet_rite && i.id_empresa !== p?.id_empresa)
+                                                    .map(i => (
+                                                        <option key={i.id_empresa} value={i.id_empresa}>
+                                                            {i.razon_social || i.acronimo} ({i.numero_carnet_rite || 'SIN Nº RITE'})
+                                                        </option>
+                                                    ))}
+                                            </Sel>
+                                        </FI>
+                                        <p className={`text-[11px] ${form.instalador_rite_id ? 'text-white/25' : 'text-amber-400/70'}`}>
+                                            {form.instalador_rite_id
+                                                ? 'La Memoria RITE, el Certificado y el CIFO saldrán a nombre de esta empresa.'
+                                                : '⚠️ Sin firmante asignado no se podrán generar la Memoria RITE ni el certificado.'}
+                                        </p>
+                                    </div>
+                                ) : null}
                             </div>
                             )}
 
                             {/* --- SECCIÓN CONTACTO ALTERNATIVO (EDICIÓN) --- */}
-                            <div className="pt-4 border-t border-white/5 space-y-4">
-                                <div className="flex items-center justify-between">
-                                    <div>
-                                        <p className="text-[10px] uppercase tracking-[0.2em] font-black text-white/30">Configuración de Notificaciones</p>
-                                        <p className="text-[11px] text-white/20 mt-0.5">¿Deseas asignar una persona de contacto diferente?</p>
-                                    </div>
-                                    <button
-                                        type="button"
-                                        onClick={() => upd({ contacto_alternativo_activo: !form.contacto_alternativo_activo })}
-                                        style={{ width: '40px', height: '22px' }}
-                                        className="relative shrink-0 rounded-full transition-all"
-                                    >
-                                        <div className={`w-full h-full rounded-full transition-all duration-300 border border-orange-500 ${form.contacto_alternativo_activo ? 'bg-orange-500' : 'bg-transparent'}`}>
-                                            <div className={`absolute top-[2px] rounded-full shadow transition-transform duration-300 ${form.contacto_alternativo_activo ? 'bg-white translate-x-[20px]' : 'bg-orange-500 translate-x-[2px]'}`}
-                                                style={{ width: '16px', height: '16px' }}></div>
-                                        </div>
-                                    </button>
-                                </div>
+                            <Collapse
+                                title="Configuración de Notificaciones"
+                                summary={form.contacto_alternativo_activo
+                                    ? `${(form.contactos_notificacion || []).filter(c => c.nombre || c.email || c.tlf).length} contacto(s)${form.contacto_notificaciones_activas ? ' · reciben los avisos' : ''}`
+                                    : 'Se avisa al contacto principal'}
+                            >
+                                <SwitchRow
+                                    checked={form.contacto_alternativo_activo}
+                                    onChange={v => upd({ contacto_alternativo_activo: v })}
+                                    label="Contacto diferente"
+                                    hint="¿Deseas asignar una persona de contacto distinta?"
+                                />
 
                                 {form.contacto_alternativo_activo && (
                                     <div className="space-y-3 animate-fade-in-up">
@@ -1558,22 +1666,25 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                                         </div>
                                     </div>
                                 )}
-                            </div>
+                            </Collapse>
 
-                            <div className="space-y-3">
-                                <p className="text-[10px] uppercase tracking-[0.2em] font-black text-white/30">Dirección</p>
+                            {/* ── 2. DIRECCIÓN → plegable */}
+                            <Collapse
+                                title="Dirección"
+                                summary={[form.direccion, form.codigo_postal, form.municipio].filter(Boolean).join(' · ') || 'Sin dirección'}
+                            >
                                 <DireccionEdit values={form} onChange={upd} />
-                            </div>
+                            </Collapse>
 
                             {/* Landing de captación de leads (white-label) — INSTALADOR / DISTRIBUIDOR */}
                             {(form.tipo_empresa === 'INSTALADOR' || form.tipo_empresa === 'DISTRIBUIDOR') && (
-                            <div className="pt-4 border-t border-white/5 space-y-4">
-                                <div>
-                                    <p className="text-[10px] uppercase tracking-[0.2em] font-black text-white/30">Landing de Captación de Leads</p>
-                                    <p className="text-[11px] text-white/20 mt-0.5">
-                                        Enlace propio para redes sociales. Los leads que entren por aquí se registran automáticamente atribuidos a este partner.
-                                    </p>
-                                </div>
+                            <Collapse
+                                title="Landing de Captación de Leads"
+                                subtitle="Enlace propio para redes sociales. Los leads que entren por aquí se registran automáticamente atribuidos a este partner."
+                                summary={form.landing_slug
+                                    ? `/p/${form.landing_slug}${form.landing_activa ? '' : ' (inactiva)'}`
+                                    : 'Sin enlace asignado'}
+                            >
 
                                 {/* Enlace (slug) + activación: SOLO ADMIN */}
                                 {isAdmin ? (
@@ -1640,18 +1751,18 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                                     </FI>
                                 </div>
                                 <p className="text-[10px] text-white/20">El logotipo de la landing es el mismo logo del partner (arriba). Si dejas un campo vacío, se usa el branding por defecto de Brokergy.</p>
-                            </div>
+                            </Collapse>
                             )}
 
                             {/* Escaparate público de instaladores — SOLO ADMIN (consentimiento + curación manual) */}
                             {isAdmin && form.tipo_empresa === 'INSTALADOR' && (
-                            <div className="pt-4 border-t border-white/5 space-y-4">
-                                <div>
-                                    <p className="text-[10px] uppercase tracking-[0.2em] font-black text-white/30">Escaparate de Instaladores</p>
-                                    <p className="text-[11px] text-white/20 mt-0.5">
-                                        Ficha pública en instaladores.brokergy.es. Al publicar se geolocaliza solo (si falta) y aparece en el mapa. Nunca se muestran datos personales de clientes.
-                                    </p>
-                                </div>
+                            <Collapse
+                                title="Escaparate de Instaladores"
+                                subtitle="Ficha pública en instaladores.brokergy.es. Al publicar se geolocaliza solo (si falta) y aparece en el mapa. Nunca se muestran datos personales de clientes."
+                                summary={form.visible_marketplace
+                                    ? `Publicado · /${form.marketplace_slug || 'sin enlace'}`
+                                    : 'No publicado'}
+                            >
 
                                 <FI label="Enlace (slug)">
                                     <div className="flex items-stretch rounded-xl border border-white/[0.08] overflow-hidden focus-within:ring-2 focus-within:ring-brand/40 focus-within:border-brand/40 transition-all">
@@ -1707,17 +1818,17 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                                     <Inp value={form.google_place_id} onChange={e => upd({ google_place_id: e.target.value.trim() })} placeholder="ChIJ…" className="font-mono" />
                                     <p className="text-[9px] text-white/20 mt-1">Habilita el botón «Escribe una reseña en Google» en la ficha pública.</p>
                                 </FI>
-                            </div>
+                            </Collapse>
                             )}
 
                             {/* Notas internas — para cualquier tipo de partner (instalador,
                                 certificador, S.O., verificador). El partner no las ve. */}
                             {isStaff && (
-                            <div className="pt-4 border-t border-white/5 space-y-3">
-                                <div>
-                                    <p className="text-[10px] uppercase tracking-[0.2em] font-black text-white/30">Notas internas</p>
-                                    <p className="text-[11px] text-white/20 mt-0.5">Solo para el equipo de Brokergy: acuerdos, incidencias, avisos. El partner no las ve.</p>
-                                </div>
+                            <Collapse
+                                title="Notas internas"
+                                subtitle="Solo para el equipo de Brokergy: acuerdos, incidencias, avisos. El partner no las ve."
+                                summary={form.notas ? form.notas.slice(0, 80) : 'Sin notas'}
+                            >
                                 <textarea
                                     value={form.notas}
                                     onChange={e => upd({ notas: e.target.value })}
@@ -1725,13 +1836,12 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                                     placeholder="Ej.: factura siempre a fin de mes. Contactar con Jesús, no con el técnico."
                                     className="w-full bg-bkg-surface px-3 py-2.5 text-white text-sm rounded-xl border border-white/[0.08] placeholder:text-white/20 focus:outline-none focus:ring-2 focus:ring-brand/40 resize-none normal-case"
                                 />
-                            </div>
+                            </Collapse>
                             )}
 
                             {/* Contraseña — solo si tiene acceso activo */}
                             {accesoActivo && (
-                                <div className="space-y-3">
-                                    <p className="text-[10px] uppercase tracking-[0.2em] font-black text-white/30">Cambiar Contraseña</p>
+                                <Collapse title="Cambiar Contraseña" summary="Déjalo plegado para no tocarla">
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-4 bg-emerald-500/[0.03] border border-emerald-500/10 rounded-xl">
                                         <FI label="Nueva contraseña (opcional)">
                                             <div className="relative">
@@ -1775,7 +1885,7 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                                             )}
                                         </FI>
                                     </div>
-                                </div>
+                                </Collapse>
                             )}
 
                             <div className="flex gap-3 pt-2">

@@ -569,6 +569,8 @@ router.post('/avanzado', enforceAuth, async (req, res) => {
             marca_secundaria: payload.marca_secundaria,
             tiene_carnet_rite: payload.tiene_carnet_rite || false,
             numero_carnet_rite: payload.numero_carnet_rite,
+            // Instalador habilitado que firma por él si no está habilitado en Industria.
+            instalador_rite_id: payload.instalador_rite_id || null,
             cargo: payload.cargo,
             nombre_responsable: payload.nombre_responsable,
             apellidos_responsable: payload.apellidos_responsable,
@@ -766,6 +768,10 @@ router.patch('/:id', enforceAuth, async (req, res) => {
             marca_secundaria: payload.marca_secundaria,
             tiene_carnet_rite: payload.tiene_carnet_rite,
             numero_carnet_rite: payload.numero_carnet_rite,
+            // Instalador habilitado que firma por él si no está habilitado en Industria.
+            // Si está habilitado, firma él: la delegación se limpia para no dejar un
+            // puntero fantasma que reaparezca al desactivar el toggle.
+            instalador_rite_id: payload.tiene_carnet_rite ? null : (payload.instalador_rite_id || null),
             cargo: payload.cargo,
             nombre_responsable: payload.nombre_responsable,
             apellidos_responsable: payload.apellidos_responsable,

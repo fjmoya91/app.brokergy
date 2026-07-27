@@ -61,16 +61,32 @@ async function potenciaFrioPendiente(instalacion, supabase) {
     const inst = instalacion || {};
     if (!emisorLlevaFrio(inst.tipo_emisor)) return [];
     const cal = inst.aerotermia_cal || {};
-    if (potenciaFrioBloque(cal) > 0) return [];
 
     const ids = [...new Set(getUnidades(cal).map(u => u && u.aerotermia_db_id).filter(Boolean))];
     if (!ids.length) return [];   // equipo escrito a mano: no hay ficha que completar
 
     const { data } = await supabase
         .from('aerotermia')
-        .select('id, marca, modelo_comercial, modelo_ud_exterior, potencia_calefaccion, potencia_frigorifica, ficha_tecnica, eprel')
+        .select('id, marca, modelo_comercial, modelo_ud_exterior, potencia_calefaccion, potencia_frigorifica, potencia_compresores, ficha_tecnica, eprel')
         .in('id', ids);
-    return (data || []).filter(m => !(parseFloat(m.potencia_frigorifica) > 0));
+    // Falta algo si no tiene potencia frigorífica O potencia de compresores: las
+    // dos van en el bloque GENERADOR DE FRÍO y las dos salen de la ficha técnica.
+    return (data || []).filter(m =>
+        !(parseFloat(m.potencia_frigorifica) > 0) || !(parseFloat(m.potencia_compresores) > 0));
+}
+
+/** Opciones de "SITUADO EN" del generador de frío (casilla del RITE). */
+const SITUADO_EN_OPCIONES = ['CUBIERTA', 'FACHADA', 'SUELO'];
+
+/**
+ * ¿Hay que preguntar dónde está situado el generador de frío? Solo si la
+ * instalación da frío y aún no se ha elegido. Se guarda por EXPEDIENTE
+ * (documentacion.frio_situado_en), no en el catálogo: depende de la obra.
+ */
+function situadoEnPendiente(exp) {
+    const inst = exp.instalacion || {};
+    if (!emisorLlevaFrio(inst.tipo_emisor)) return false;
+    return !isPresent((exp.documentacion || {}).frio_situado_en);
 }
 
 /**
@@ -129,7 +145,9 @@ async function resolvePotenciasCatalogo(instalacion, supabase) {
 
     const ids = [...new Set(unidades.map(u => u.aerotermia_db_id))];
     const { data: modelos } = await supabase
-        .from('aerotermia').select('id, potencia_calefaccion, potencia_frigorifica').in('id', ids);
+        .from('aerotermia')
+        .select('id, potencia_calefaccion, potencia_frigorifica, potencia_compresores, seer, tipo')
+        .in('id', ids);
     if (!modelos || !modelos.length) return inst;
 
     const porId = new Map(modelos.map(m => [String(m.id), m]));
@@ -138,14 +156,25 @@ async function resolvePotenciasCatalogo(instalacion, supabase) {
         if (!m) continue;
         const cal = parseFloat(m.potencia_calefaccion);
         if (cal > 0 && !(parseFloat(u.potencia) > 0)) u.potencia = cal;
+        // Datos del GENERADOR DE FRÍO: siempre del catálogo (no se guardan en el
+        // expediente). `tipo_catalogo` decide compacto (monoblock) vs partido.
         const frio = parseFloat(m.potencia_frigorifica);
         if (frio > 0) u.potencia_frio = frio;
+        const compresores = parseFloat(m.potencia_compresores);
+        if (compresores > 0) u.potencia_compresores = compresores;
+        if (parseFloat(m.seer) > 0) u.seer = parseFloat(m.seer);
+        if (m.tipo) u.tipo_catalogo = m.tipo;
     }
     return inst;
 }
 
-/** Lista de campos que faltan para generar la Memoria RITE. Vacía = se puede generar. */
-function validateMemoriaRite({ exp, cli, op, pres }) {
+/**
+ * Lista de campos que faltan para generar la Memoria RITE. Vacía = se puede generar.
+ *
+ * `pres` es SIEMPRE la ficha que firma (ya resuelta por `resolveInstaladorFirmante`);
+ * `presReal` es el instalador asignado al expediente. Coinciden salvo delegación.
+ */
+function validateMemoriaRite({ exp, cli, op, pres, presReal }) {
     const missing = [];
     const inst = exp.instalacion || {};
     const doc = exp.documentacion || {};
@@ -223,6 +252,16 @@ function validateMemoriaRite({ exp, cli, op, pres }) {
     if (!pres) {
         missing.push('Instalador asignado (Instalación)');
     } else {
+        // Un instalador no habilitado en Industria no puede constar como empresa
+        // instaladora: tiene que delegar la firma en uno habilitado. Si la ficha no
+        // lo tiene asignado (o el asignado tampoco está habilitado), el documento
+        // saldría a nombre de quien no puede firmarlo.
+        if (!pres.tiene_carnet_rite) {
+            const quien = (presReal && presReal.id_empresa !== pres.id_empresa)
+                ? `"${pres.razon_social || 'el instalador firmante'}"`
+                : `"${pres.razon_social || 'el instalador asignado'}"`;
+            missing.push(`Instalador habilitado que firma — ${quien} no está habilitado en Industria (asígnale uno en su ficha de la Red de Prescriptores)`);
+        }
         if (!P(pres.razon_social)) missing.push('Razón Social Instalador (ficha Partner)');
         if (!P(pres.cif)) missing.push('CIF Instalador (ficha Partner)');
         if (pres.tecnico_firmante_distinto) {
@@ -252,5 +291,6 @@ function validateMemoriaRite({ exp, cli, op, pres }) {
 
 module.exports = {
     isPresent, potenciaBloque, potenciaFrioBloque, emisorLlevaFrio,
-    potenciaFrioPendiente, acsEsEquipoPropio, resolvePotenciasCatalogo, validateMemoriaRite
+    potenciaFrioPendiente, situadoEnPendiente, SITUADO_EN_OPCIONES,
+    acsEsEquipoPropio, resolvePotenciasCatalogo, validateMemoriaRite
 };

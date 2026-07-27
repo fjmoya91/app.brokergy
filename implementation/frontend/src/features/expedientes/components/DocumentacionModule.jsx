@@ -726,11 +726,15 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
             const pend = Array.isArray(data?.potenciaFrio) ? data.potenciaFrio : [];
             potFrioRef.current = pend;
             setPotFrioPendiente(pend);
+            situadoEnRef.current = data?.situadoEn || null;
+            setSituadoEnOpciones(data?.situadoEn?.opciones || []);
             return Array.isArray(data?.missing) ? data.missing : [];
         } catch (e) {
             console.warn('[memoria-rite] No se pudo validar en el servidor:', e?.message);
             potFrioRef.current = [];
             setPotFrioPendiente([]);
+            situadoEnRef.current = null;
+            setSituadoEnOpciones([]);
             return [];
         }
     };
@@ -888,6 +892,11 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
     // `useState` todavía devuelve el valor del render anterior. La ref da la
     // lectura síncrona; el estado solo alimenta el render del popup.
     const potFrioRef = useRef([]);
+    // "Situado en" del generador de frío: depende de la OBRA, no del modelo, así
+    // que se guarda en el expediente (documentacion.frio_situado_en).
+    const [situadoEnOpciones, setSituadoEnOpciones] = useState([]);
+    const [situadoEnValue, setSituadoEnValue] = useState('');
+    const situadoEnRef = useRef(null);
 
     const tieneFechaPruebas = () =>
         (!!local.facturas?.length && !!local.facturas[0]?.fecha_factura) || !!local.fecha_pruebas_cert_instalacion;
@@ -902,7 +911,7 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
             setFechaPruebasPopup({ isOpen: true, value: null, saving: false, error: null });
             return;
         }
-        if (potFrioRef.current.length) {
+        if (potFrioRef.current.length || situadoEnRef.current) {
             setPotFrioPopup({ isOpen: true, values: {}, saving: false, error: null });
             return;
         }
@@ -920,24 +929,44 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
     // catálogo, así que el borrador ya sale con el frío relleno.
     const confirmarPotenciaFrio = async () => {
         const modelos = potFrioRef.current;
-        const pendientes = modelos.filter(m => !(parseFloat(potFrioPopup.values[m.id]) > 0));
-        if (pendientes.length) {
-            setPotFrioPopup(p => ({ ...p, error: 'Indica la potencia frigorífica (kW) de cada modelo.' }));
+        const v = potFrioPopup.values;
+        // Solo se exige lo que de verdad falta en el catálogo de cada modelo.
+        const incompleto = modelos.some(m =>
+            (!(parseFloat(m.potencia_frigorifica) > 0) && !(parseFloat(v[`f${m.id}`]) > 0)) ||
+            (!(parseFloat(m.potencia_compresores) > 0) && !(parseFloat(v[`c${m.id}`]) > 0)));
+        if (incompleto) {
+            setPotFrioPopup(p => ({ ...p, error: 'Completa la potencia frigorífica y la de compresores (kW).' }));
+            return;
+        }
+        if (situadoEnRef.current && !situadoEnValue) {
+            setPotFrioPopup(p => ({ ...p, error: 'Indica dónde está situado el generador de frío.' }));
             return;
         }
         setPotFrioPopup(p => ({ ...p, saving: true, error: null }));
         try {
+            // Datos del MODELO → catálogo (sirven para todos los expedientes).
             for (const m of modelos) {
-                await axios.patch(`/api/aerotermia/${m.id}/potencia-frigorifica`,
-                    { potencia_frigorifica: parseFloat(potFrioPopup.values[m.id]) });
+                const payload = {};
+                if (parseFloat(v[`f${m.id}`]) > 0) payload.potencia_frigorifica = parseFloat(v[`f${m.id}`]);
+                if (parseFloat(v[`c${m.id}`]) > 0) payload.potencia_compresores = parseFloat(v[`c${m.id}`]);
+                if (Object.keys(payload).length) {
+                    await axios.patch(`/api/aerotermia/${m.id}/potencia-frigorifica`, payload);
+                }
+            }
+            // Emplazamiento → EXPEDIENTE (depende de la obra, no del equipo).
+            if (situadoEnRef.current && situadoEnValue) {
+                const merged = { ...local, frio_situado_en: situadoEnValue };
+                setLocal(merged);
+                await onSave({ documentacion: merged });
             }
             potFrioRef.current = [];
+            situadoEnRef.current = null;
             setPotFrioPendiente([]);
             setPotFrioPopup({ isOpen: false, values: {}, saving: false, error: null });
             if (expediente?.clientes?.es_empresa) setShowEnviarBorrador(true);
             else setSexoPopup({ isOpen: true, saving: null, error: null });
         } catch (e) {
-            setPotFrioPopup(p => ({ ...p, saving: false, error: e.response?.data?.error || 'No se pudo guardar la potencia frigorífica' }));
+            setPotFrioPopup(p => ({ ...p, saving: false, error: e.response?.data?.error || 'No se pudieron guardar los datos del generador de frío' }));
         }
     };
 
@@ -953,7 +982,7 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
             await onSave({ documentacion: merged });
             setFechaPruebasPopup({ isOpen: false, value: null, saving: false, error: null });
             // Siguiente eslabón de la cadena (potencia frigorífica → titular).
-            if (potFrioRef.current.length) setPotFrioPopup({ isOpen: true, values: {}, saving: false, error: null });
+            if (potFrioRef.current.length || situadoEnRef.current) setPotFrioPopup({ isOpen: true, values: {}, saving: false, error: null });
             else if (expediente?.clientes?.es_empresa) setShowEnviarBorrador(true);
             else setSexoPopup({ isOpen: true, saving: null, error: null });
         } catch (e) {
@@ -1539,46 +1568,74 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                     onClick={() => !potFrioPopup.saving && setPotFrioPopup({ isOpen: false, values: {}, saving: false, error: null })}>
                     <div className="bg-[#0F1013] border border-white/[0.07] rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in duration-200" onClick={e => e.stopPropagation()}>
                         <div className="px-6 py-5 border-b border-white/[0.07] bg-brand/5">
-                            <h2 className="text-lg font-black uppercase tracking-tight text-white">Potencia frigorífica</h2>
+                            <h2 className="text-lg font-black uppercase tracking-tight text-white">Generador de frío</h2>
                             <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest mt-0.5">
-                                Casilla FRÍO de la Memoria RITE
+                                Bloque GENERADOR DE FRÍO de la Memoria RITE
                             </p>
                         </div>
-                        <div className="px-6 py-6 space-y-4">
+                        <div className="px-6 py-6 space-y-4 max-h-[60vh] overflow-y-auto">
                             <p className="text-sm text-white/60 leading-relaxed">
-                                La instalación lleva climatización, así que el documento declara potencia de frío.
-                                Este modelo aún no la tiene en el catálogo: al guardarla quedará para todos los
-                                expedientes futuros que lo usen.
+                                La instalación climatiza, así que el documento declara el generador de frío.
+                                Los datos del equipo se guardan en el catálogo del modelo: solo se piden una vez.
                             </p>
                             {potFrioPendiente.map(m => (
                                 <div key={m.id} className="bg-white/[0.02] border border-white/10 rounded-2xl p-4 space-y-3">
-                                    <div>
-                                        <p className="text-sm font-black text-white">{[m.marca, m.modelo_comercial].filter(Boolean).join(' · ')}</p>
-                                        {m.modelo_ud_exterior && <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest mt-0.5">Ud. ext: {m.modelo_ud_exterior}</p>}
-                                        {m.potencia_calefaccion && <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest mt-0.5">Calefacción: {m.potencia_calefaccion} kW</p>}
-                                    </div>
-                                    <div className="flex items-center gap-3">
-                                        <input type="number" step="0.1" min="0" autoFocus placeholder="11,5"
-                                            disabled={potFrioPopup.saving}
-                                            value={potFrioPopup.values[m.id] ?? ''}
-                                            onChange={e => setPotFrioPopup(p => ({ ...p, values: { ...p.values, [m.id]: e.target.value } }))}
-                                            className="w-32 bg-white/[0.03] border border-white/10 rounded-xl px-3 py-2.5 text-white font-black tabular-nums focus:outline-none focus:border-brand/50 disabled:opacity-50" />
-                                        <span className="text-[11px] font-black uppercase tracking-widest text-white/40">kW</span>
+                                    <div className="flex items-start justify-between gap-3">
+                                        <div>
+                                            <p className="text-sm font-black text-white">{[m.marca, m.modelo_comercial].filter(Boolean).join(' · ')}</p>
+                                            {m.modelo_ud_exterior && <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest mt-0.5">Ud. ext: {m.modelo_ud_exterior}</p>}
+                                            {m.potencia_calefaccion && <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest mt-0.5">Calefacción: {m.potencia_calefaccion} kW</p>}
+                                        </div>
                                         {(m.ficha_tecnica || m.eprel) && (
                                             <a href={m.ficha_tecnica || m.eprel} target="_blank" rel="noopener noreferrer"
-                                                className="ml-auto px-3 py-2 rounded-xl border border-brand/40 text-brand text-[10px] font-black uppercase tracking-widest hover:bg-brand/10 transition-all">
+                                                className="shrink-0 px-3 py-2 rounded-xl border border-brand/40 text-brand text-[10px] font-black uppercase tracking-widest hover:bg-brand/10 transition-all">
                                                 Ver ficha técnica ↗
                                             </a>
                                         )}
                                     </div>
+                                    {!(parseFloat(m.potencia_frigorifica) > 0) && (
+                                        <div className="flex items-center gap-3">
+                                            <span className="text-[10px] font-black uppercase tracking-widest text-white/50 w-40">P. frigorífica</span>
+                                            <input type="number" step="0.1" min="0" autoFocus disabled={potFrioPopup.saving}
+                                                placeholder="13,6" value={potFrioPopup.values[`f${m.id}`] ?? ''}
+                                                onChange={e => setPotFrioPopup(p => ({ ...p, values: { ...p.values, [`f${m.id}`]: e.target.value } }))}
+                                                className="w-28 bg-white/[0.03] border border-white/10 rounded-xl px-3 py-2.5 text-white font-black tabular-nums focus:outline-none focus:border-brand/50 disabled:opacity-50" />
+                                            <span className="text-[11px] font-black uppercase tracking-widest text-white/40">kW</span>
+                                        </div>
+                                    )}
+                                    {!(parseFloat(m.potencia_compresores) > 0) && (
+                                        <div className="flex items-center gap-3">
+                                            <span className="text-[10px] font-black uppercase tracking-widest text-white/50 w-40">P. compresores</span>
+                                            <input type="number" step="0.01" min="0" disabled={potFrioPopup.saving}
+                                                placeholder="2,14" value={potFrioPopup.values[`c${m.id}`] ?? ''}
+                                                onChange={e => setPotFrioPopup(p => ({ ...p, values: { ...p.values, [`c${m.id}`]: e.target.value } }))}
+                                                className="w-28 bg-white/[0.03] border border-white/10 rounded-xl px-3 py-2.5 text-white font-black tabular-nums focus:outline-none focus:border-brand/50 disabled:opacity-50" />
+                                            <span className="text-[11px] font-black uppercase tracking-widest text-white/40">kW (absorbida)</span>
+                                        </div>
+                                    )}
                                     {!(m.ficha_tecnica || m.eprel) && (
                                         <p className="text-[10px] text-white/30">Este modelo no tiene ficha técnica enlazada en el catálogo.</p>
                                     )}
                                 </div>
                             ))}
+                            {/* Emplazamiento: depende de la obra, se guarda en el expediente. */}
+                            {!!situadoEnOpciones.length && (
+                                <div className="bg-white/[0.02] border border-white/10 rounded-2xl p-4 space-y-3">
+                                    <p className="text-[10px] font-black uppercase tracking-widest text-white/50">Situado en</p>
+                                    <div className="flex gap-2">
+                                        {situadoEnOpciones.map(op => (
+                                            <button key={op} type="button" disabled={potFrioPopup.saving}
+                                                onClick={() => setSituadoEnValue(op)}
+                                                className={`flex-1 py-2.5 rounded-xl border text-[10px] font-black uppercase tracking-widest transition-all disabled:opacity-40 ${situadoEnValue === op ? 'bg-brand/15 border-brand/50 text-brand' : 'bg-white/[0.02] border-white/10 text-white/60 hover:border-brand/40'}`}>
+                                                {op}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
                             <p className="text-[11px] text-white/30 leading-relaxed">
-                                Ojo: las fichas ErP solo traen calefacción. La capacidad de refrigeración está en
-                                la tabla de capacidades de la ficha comercial (fila "Refrigeración").
+                                Ojo: las fichas ErP solo traen calefacción. La capacidad de refrigeración y la
+                                potencia absorbida están en la tabla de capacidades de la ficha comercial.
                             </p>
                             {potFrioPopup.error && <p className="text-[11px] text-red-400">❌ {potFrioPopup.error}</p>}
                         </div>

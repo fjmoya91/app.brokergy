@@ -41,14 +41,27 @@ LEFT JOIN clientes c ON e.cliente_id = c.id_cliente
 WHERE e.numero_expediente = %s;
 """
 
+# Devuelve la ficha del instalador que FIRMA, no siempre la del asignado: si el
+# asignado no está habilitado en Industria (`tiene_carnet_rite` false) y delega en
+# otro (`instalador_rite_id`), la memoria sale a nombre del habilitado.
+# ESPEJO de backend/utils/instaladorFirmante.js — si cambia allí, cambia aquí.
+# (Este camino solo lo usa el CLI / `/generar-rite/{numero}`: la app llama a
+# `/generar-rite-json` con el instalador ya resuelto por el backend.)
 SQL_INSTALADOR = """
-SELECT razon_social, cif, numero_carnet_rite,
-       nombre_responsable, apellidos_responsable, nif_responsable,
-       es_autonomo, tecnico_firmante_distinto,
-       tecnico_firmante_nombre, tecnico_firmante_apellidos,
-       tecnico_firmante_dni, tecnico_firmante_carnet_rite,
-       cargo, municipio
-FROM prescriptores WHERE id_empresa = %s;
+WITH asignado AS (
+    SELECT * FROM prescriptores WHERE id_empresa = %s
+)
+SELECT f.razon_social, f.cif, f.numero_carnet_rite,
+       f.nombre_responsable, f.apellidos_responsable, f.nif_responsable,
+       f.es_autonomo, f.tecnico_firmante_distinto,
+       f.tecnico_firmante_nombre, f.tecnico_firmante_apellidos,
+       f.tecnico_firmante_dni, f.tecnico_firmante_carnet_rite,
+       f.cargo, f.municipio
+FROM asignado a
+JOIN prescriptores f ON f.id_empresa = CASE
+        WHEN COALESCE(a.tiene_carnet_rite, false) THEN a.id_empresa
+        ELSE COALESCE(a.instalador_rite_id, a.id_empresa)
+    END;
 """
 
 
@@ -225,6 +238,31 @@ def normalizar(raw: dict, fecha_firma: str = None) -> dict:
         # presentados; la casilla de frío se declara aparte).
         "potencia": {"calor": pot_cal, "frio": pot_frio, "acs": pot_acs,
                      "total": round(pot_cal + pot_acs, 2)},
+        # GENERADOR DE FRÍO — solo si la instalación climatiza. El equipo es la
+        # propia bomba de calor (aerotermia), así que marca/modelo/refrigerante
+        # salen de ahí. La potencia frigorífica y la de compresores las inyecta el
+        # backend desde el catálogo del modelo; `situado_en` viene del expediente
+        # (lo elige el usuario en el popup previo a generar).
+        "generador_frio": {
+            "aplica": lleva_frio,
+            "marca": _marcas(cal_uds) or cal.get("marca", ""),
+            "modelo": _modelos(cal_uds) or cal.get("modelo", ""),
+            "potencia_frigorifica": pot_frio,
+            "potencia_compresores": sum(_f(u.get("potencia_compresores")) for u in cal_uds),
+            "refrigerante": _refrigerante(cal.get("modelo", "")),
+            # Clase de prestación energética: siempre A (criterio de Brokergy).
+            "clase": "A",
+            # EER: se declara el SEER del catálogo del equipo.
+            "eer": _f(cal.get("seer")) or sum(_f(u.get("seer")) for u in cal_uds[:1]),
+            "situado_en": (doc.get("frio_situado_en") or "").upper(),
+            # Aerotermia monobloc = equipo COMPACTO; bibloc/split = PARTIDO.
+            "partido": "MONOBLOCK" not in (cal.get("tipo_catalogo") or "").upper(),
+        },
+        # Aislamiento de la red de CONDUCTOS (lana mineral tipo CLIMAVER).
+        "aislamiento_conductos": {
+            "material": "FIBRA DE VIDRIO", "conductividad": "0,032",
+            "espesor": "25", "acabado": "METÁLICO",
+        },
         "pruebas_fecha": fecha_pruebas,
         "_meta": {"emisor": emisor},
     }

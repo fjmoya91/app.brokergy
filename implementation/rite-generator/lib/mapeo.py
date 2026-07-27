@@ -44,11 +44,17 @@ def construir_relleno(datos: dict, nombres_campos: list):
     cond = datos.get("condiciones", {})
     instal = datos.get("instalador", {})
 
-    # ¿El emisor es suelo radiante? Cambia varias casillas de la memoria:
-    # climatización ON, refrigeración en regulación/control, emisor "suelo
-    # radiante" con material PEX (en vez de radiadores de aluminio) y Ø máx 32.
-    _emisor = (datos.get("_meta", {}) or {}).get("emisor", "")
-    es_suelo = "SUELO" in (_emisor or "").upper() or bool(obj.get("climatizacion"))
+    # Tipo de emisor. Cada uno cambia varias casillas de la memoria.
+    # OJO: `es_suelo` se decide SOLO por la etiqueta del emisor. Antes admitía
+    # también `obj.climatizacion`, pero ese flag ya no es exclusivo del suelo
+    # radiante (splits y conductos también climatizan) y una instalación por
+    # conductos habría acabado declarando emisor de suelo radiante con PEX.
+    _emisor = ((datos.get("_meta", {}) or {}).get("emisor", "") or "").upper()
+    es_suelo = "SUELO" in _emisor
+    es_conductos = "CONDUCTO" in _emisor
+    es_splits = "SPLIT" in _emisor
+    # Instalaciones que dan frío: refrescan en verano o son aire-aire.
+    da_frio = es_suelo or es_conductos or es_splits
 
     text = {
         # TITULAR
@@ -74,7 +80,7 @@ def construir_relleno(datos: dict, nombres_campos: list):
         74: _num(gc.get("potencia_acs")),
         75: _num(gc.get("acumulacion_l")),
         76: _num(gc.get("potencia_cal")),
-        # AISLAMIENTO
+        # AISLAMIENTO — EN TUBERÍAS Y ACCESORIOS (119-122)
         119: ais.get("material", "ESPUMA ELASTOMÉRICA"),
         120: ais.get("conductividad", "0,040"),
         121: ais.get("espesor", "25"),
@@ -95,14 +101,46 @@ def construir_relleno(datos: dict, nombres_campos: list):
         451: instal.get("fecha_firma", ""),
     }
 
-    if es_suelo:
-        # REGULACIÓN Y CONTROL — columna REFRIGERACIÓN (= calefacción): el suelo
-        # radiante también refresca. Cada fila tiene 3 campos consecutivos
+    if da_frio:
+        # REGULACIÓN Y CONTROL — columna REFRIGERACIÓN (= calefacción): la
+        # instalación refresca. Cada fila tiene 3 campos consecutivos
         # (calefacción, ACS, refrigeración) → refrigeración = calefacción + 2.
         text[160] = text[166] = text[172] = text[175] = "SI"
+    if es_suelo:
         # TERMINALES — SUELO RADIANTE (indicar el material). No hay casilla propia
         # en la plantilla: se identifica rellenando el material del emisor.
         text[153] = "POLIETILENO RETICULADO PEX"
+
+    # ── GENERADOR DE FRÍO (94-102) ───────────────────────────────────────────
+    # Se rellena siempre que la instalación dé frío: suelo radiante (refresca en
+    # verano) y unidades aire-aire (splits / conductos). Posiciones verificadas
+    # renderizando la plantilla, NO deducidas del XML: en esta plantilla el orden
+    # de los campos no sigue el de las etiquetas (ver 74/75/76 más arriba).
+    # OJO: la fila MARCA/MODELO solo tiene UN campo, el de MODELO → la marca se
+    # concatena ahí para no perderla.
+    gf = datos.get("generador_frio") or {}
+    if gf.get("aplica"):
+        text[94] = " ".join(x for x in [gf.get("marca", ""), gf.get("modelo", "")] if x).strip()
+        text[95] = _num(gf.get("potencia_frigorifica"))
+        text[96] = _num(gf.get("potencia_compresores"))
+        text[99] = gf.get("refrigerante", "")
+        text[100] = gf.get("clase", "A")          # prestación energética
+        text[101] = gf.get("situado_en", "")      # CUBIERTA / FACHADA / SUELO
+        text[102] = _num(gf.get("eer"))           # se declara el SEER del catálogo
+
+    # ── CONDUCTOS (aire-aire por conductos) ──────────────────────────────────
+    # La red es de conductos autoportantes de lana mineral, no tuberías de agua:
+    # cambian el aislamiento (fila EN CONDUCTOS), la distribución y los terminales.
+    if es_conductos:
+        cond_ais = datos.get("aislamiento_conductos") or {}
+        text[123] = cond_ais.get("material", "FIBRA DE VIDRIO")
+        text[124] = cond_ais.get("conductividad", "0,032")
+        text[125] = cond_ais.get("espesor", "25")
+        text[126] = cond_ais.get("acabado", "METÁLICO")
+        # No hay red de tuberías de agua: se vacían la fila de aislamiento EN
+        # TUBERÍAS y los diámetros, que solo aplican a tubería.
+        for pos in (119, 120, 121, 122, 140, 141, 142):
+            text[pos] = ""
 
     # TIPO DE PERSONA — casillas 2=Física, 3=Hombre, 4=Jurídica, 5=Mujer
     # (verificado sobre la plantilla; van intercaladas por el orden de la tabla).
@@ -138,18 +176,35 @@ def construir_relleno(datos: dict, nombres_campos: list):
     # (antes se marcaba TERRAZA por error en la posición 48).
     checks.append(69)      # CALEFACCION-ACS
     checks.append(70)      # BOMBA DE CALOR
-    # Distribución por defecto para radiadores: bitubo + cobre
-    sistema = (dis.get("sistema") or "bitubo").lower()
-    if "mono" in sistema:
-        checks.append(131)
+    # ── GENERADOR DE FRÍO — casillas (90=COMPACTO, 91=PARTIDO, 92=MULTI-SPLIT,
+    # 93=AUTÓNOMO; 97=condensado por AIRE, 98=AGUA). Verificadas renderizando.
+    if gf.get("aplica"):
+        checks.append(91 if gf.get("partido") else 90)   # partido (bibloc) o compacto
+        checks.append(97)                                 # condensado por AIRE
+
+    # ── DISTRIBUCIÓN Y TERMINALES ────────────────────────────────────────────
+    # Casillas verificadas: 131=MONOTUBO, 132=BITUBO, 133=CONDUCTOS |
+    # 134=ACERO, 135=ACERO INOX, 136=COBRE, 137=POLIETILENO RETICULADO, 138=OTROS |
+    # 143=FIBRA MINERAL, 144=CHAPA, 145=OTROS | 154=REJILLAS, 155=DIFUSORES.
+    if es_conductos:
+        # Red de conductos de aire: no hay tuberías de agua ni radiadores.
+        checks.append(133)      # SISTEMAS DE DISTRIBUCIÓN → CONDUCTOS
+        checks.append(138)      # TUBERÍAS → OTROS (no aplica ninguna de agua)
+        checks.append(143)      # CONDUCTOS → FIBRA MINERAL
+        checks.append(154)      # TERMINALES → REJILLAS
     else:
-        checks.append(132)  # BITUBO
-    checks.append(137)      # COBRE
-    # TERMINALES: radiadores de aluminio SOLO si NO es suelo radiante. Con suelo
-    # radiante no se marca radiador; el emisor se indica con su material (PEX) en
-    # el campo de texto 153 (ver arriba).
-    if not es_suelo:
-        checks.append(151)  # RADIADORES ALUMINIO
+        # Distribución por defecto para radiadores: bitubo + cobre
+        sistema = (dis.get("sistema") or "bitubo").lower()
+        if "mono" in sistema:
+            checks.append(131)
+        else:
+            checks.append(132)  # BITUBO
+        checks.append(137)      # (posición histórica; ver nota de COBRE/PEX)
+        # TERMINALES: radiadores de aluminio SOLO si NO es suelo radiante. Con
+        # suelo radiante no se marca radiador; el emisor se indica con su material
+        # (PEX) en el campo de texto 153 (ver arriba).
+        if not es_suelo:
+            checks.append(151)  # RADIADORES ALUMINIO
 
     # TABLA DE CARGAS TÉRMICAS (filas que empiezan en Texto147).
     # OJO: la 1ª fila tiene un campo extra (Texto145) que descuadra el offset por
