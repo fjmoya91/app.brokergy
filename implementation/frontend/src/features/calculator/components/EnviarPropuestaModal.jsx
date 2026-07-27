@@ -229,7 +229,7 @@ export function EnviarPropuestaModal({
                         userName: c.label,
                         summaryData: buildSummaryData ? buildSummaryData(c.mode, c.label) : { id: numexpte },
                         customMessage: msg,
-                    }, { timeout: 90000 });
+                    }, undefined, { timeout: 90000 });   // 3º arg = showConfirm; el config va en el 4º
                     out.push({ channel: 'email', status: 'ok', text: `${c.label} → ${c.email}` });
                     if (c.mode === 'CLIENTE') clienteOk = true;
                 } catch (err) {
@@ -281,7 +281,7 @@ export function EnviarPropuestaModal({
 
     return (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-            <div className="bg-[#0F1013] border border-white/[0.07] rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in duration-200">
+            <div className="bg-[#0F1013] border border-white/[0.07] rounded-2xl shadow-2xl w-full max-w-lg md:max-w-3xl overflow-hidden animate-in fade-in zoom-in duration-200">
                 <div className="px-6 py-5 border-b border-white/[0.07] bg-brand/5 flex items-center justify-between">
                     <div>
                         <h2 className="text-lg font-black uppercase tracking-tight text-white">Enviar propuesta</h2>
@@ -311,6 +311,10 @@ export function EnviarPropuestaModal({
                                                 <span className="text-sm font-bold text-white truncate">{c.label}</span>
                                                 <span className="text-[9px] uppercase tracking-wider text-white/30 font-bold shrink-0">{c.sublabel}</span>
                                             </div>
+                                            {/* La empresa, cuando el destinatario es una persona dentro de ella */}
+                                            {c.org && c.org !== c.label && (
+                                                <div className="text-[11px] text-white/50 truncate">{c.org}</div>
+                                            )}
                                             <div className="text-[11px] text-white/40 truncate">{c.phone || 'sin teléfono'}{c.email ? ` · ${c.email}` : ''}</div>
                                         </div>
                                     </button>

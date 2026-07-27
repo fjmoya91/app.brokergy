@@ -417,18 +417,12 @@ const sendLeadSummaryEmail = async ({
 /**
  * Envía la propuesta en PDF al cliente por correo
  */
-const sendProposalEmail = async ({ to, userName, pdfBuffer, tableImageBase64, summaryData, customMessage = null }) => {
+const sendProposalEmail = async ({ to, userName, pdfBuffer, tableImageBase64, summaryData, customMessage = null, from = null }) => {
     const isB2B = summaryData.mode === 'PARTNER' || summaryData.mode === 'INSTALADOR';
-    // Mensaje editado en el popup de envío (homogéneo con anexos). Si viene, se muestra
-    // como intro antes del resumen, con *negritas* estilo WhatsApp.
-    const customMessageHtml = customMessage
-        ? emailP(escapeHtml(customMessage).replace(/\*(.*?)\*/g, '<b>$1</b>'), { pre: true, mb: 22 })
-        : '';
-    // Saludo/intro por defecto (cuando no hay mensaje editado). Si hay customMessage, ese texto lo sustituye.
-    const greetingHtml = customMessage ? customMessageHtml : (
+    // Saludo/intro por defecto (cuando no hay mensaje editado en el popup de envío).
+    const greetingHtml =
         emailP(`¡Hola, ${escapeHtml(userName || (isB2B ? 'equipo' : 'cliente'))}!`, { size: 20, bold: true, mb: 20 }) +
-        (isB2B ? emailP(`Te adjuntamos la propuesta de ayudas para el expediente de vuestro cliente <strong>${escapeHtml(summaryData.clienteName || '')}</strong> (Exp. ${escapeHtml(summaryData.id)}).`, { color: BRAND.muted }) : '')
-    );
+        (isB2B ? emailP(`Te adjuntamos la propuesta de ayudas para el expediente de vuestro cliente <strong>${escapeHtml(summaryData.clienteName || '')}</strong> (Exp. ${escapeHtml(summaryData.id)}).`, { color: BRAND.muted }) : '');
     const subject = isB2B
         ? `Propuesta cliente ${summaryData.clienteName || ''} [Exp. ${summaryData.id}] — Brokergy`
         : `Propuesta Bono Energético CAE — Brokergy (${summaryData.id})`;
@@ -503,17 +497,46 @@ const sendProposalEmail = async ({ to, userName, pdfBuffer, tableImageBase64, su
 
     const botonesHtml = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:22px;"><tr><td align="center" style="padding-bottom:12px;">${emailButton(proposalUrl, '📄 Ver propuesta online', BRAND.orange)}</td></tr><tr><td align="center">${emailButton(firmaUrl, `✍️ ${isB2B ? 'Enlace de firma para el cliente' : 'Aceptar y firmar'}`)}</td></tr></table>`;
 
+    // Caja destacada con el total. Cuando hay mensaje personalizado, es lo ÚNICO
+    // que se conserva de los bloques automáticos: el resto (casos, recordatorio
+    // de IRPF, pasos a seguir) ya lo cuenta el propio mensaje, y repetirlo era lo
+    // que hacía que el correo se leyera como dos emails pegados.
+    const totalDestacado = (summaryData.isBoth || summaryData.isOnlyReforma)
+        ? summaryData.f80?.totalAyuda
+        : summaryData.totalAyuda;
+    const resumenBox = totalDestacado ? emailBox(
+        emailP('Resumen total de ayudas', { size: 13, bold: true, color: BRAND.orangeDark, center: true, mb: 5 }) +
+        emailP(`Hasta ${totalDestacado}`, { size: 30, bold: true, center: true, mb: 0 }),
+        { bg: BRAND.orangeTint, border: BRAND.orange, mb: 22 }
+    ) : '';
+
+    // Mensaje editado en el popup de envío: es un texto pensado para WhatsApp, así
+    // que se MAQUETA (epígrafes, viñetas, negritas, enlaces reales) y la caja del
+    // total se cuela detrás del epígrafe "Resumen total de las ayudas". Antes se
+    // volcaba en un <p white-space:pre-wrap> y encima se repetían debajo todos los
+    // bloques automáticos: el correo se leía como dos emails pegados.
+    const customMessageHtml = customMessage
+        ? waTextToEmailHtml(customMessage, { insertHtml: resumenBox, afterHeading: /resumen total/i })
+        : '';
+
+    const cuerpoHtml = customMessage
+        ? customMessageHtml + tableHtml + botonesHtml
+        : greetingHtml + casosHtml + irpfNote + tableHtml + pasosHtml + botonesHtml +
+          emailP(`Quedo a ${isB2B ? 'vuestra' : 'tu'} disposición para cualquier duda o aclaración.`, { size: 14, color: BRAND.muted, center: true, mb: 0 });
+
     const html = brandEmailShell({
         preheader: isB2B ? `Propuesta para ${summaryData.clienteName || 'vuestro cliente'} (Exp. ${summaryData.id}).` : 'Aquí tienes tu propuesta de ayudas energéticas.',
         title: 'Tu propuesta',
         pill: PILL.info('Propuesta de ayudas'),
-        contentHtml:
-            greetingHtml + casosHtml + irpfNote + tableHtml + pasosHtml + botonesHtml +
-            emailP(`Quedo a ${isB2B ? 'vuestra' : 'tu'} disposición para cualquier duda o aclaración.`, { size: 14, color: BRAND.muted, center: true, mb: 0 }),
+        contentHtml: cuerpoHtml,
         footerNote: `<a href="https://brokergy.es" style="color:${BRAND.greenDark};text-decoration:none;">brokergy.es</a>`,
     });
 
-    const text = isB2B
+    // Versión texto plano: si hay mensaje personalizado, ese mismo texto (sin los
+    // asteriscos de WhatsApp) para que ambas versiones digan lo mismo.
+    const text = customMessage
+        ? String(customMessage).replace(/\*([^*\n]+)\*/g, '$1')
+        : isB2B
         ? `¡Hola, ${userName}!\n\nAdjuntamos la propuesta para vuestro cliente ${summaryData.clienteName || ''} (Exp. ${summaryData.id}).\n\nEnlace de firma para el cliente: ${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/firma/${summaryData.urlId || summaryData.id}\n\nBROKERGY · Ingeniería Energética`
         : `¡Hola, ${userName}!\n\nYa hemos calculado las ayudas para tu instalación de aerotermia.\n\n🔹 Bono Energético CAE: ${summaryData.caeBonus}\n🔹 Deducciones IRPF: ${summaryData.irpfDeduction}\n\nResumen total ayudas: Hasta ${summaryData.totalAyuda}\n\nPasos a seguir:\n1. Aceptar presupuesto al instalador.\n2. Aceptar propuesta adjunta.\n\n📄 Ver propuesta online:\n${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/api/public/propuesta/${summaryData.urlId || summaryData.id}\n\nPuedes firmar directamente aquí: ${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/firma/${summaryData.urlId || summaryData.id}\n\nQuedo a tu disposición.\n\nBROKERGY · Ingeniería Energética`;
 
@@ -1097,6 +1120,80 @@ function emailBox(innerHtml, opts = {}) {
     const mb = opts.mb != null ? opts.mb : 22;
     return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${bg};border:1px solid ${border};border-radius:10px;margin-bottom:${mb}px;"><tr><td style="padding:${opts.pad || '20px 22px'};">${innerHtml}</td></tr></table>`;
 }
+// ── Texto estilo WhatsApp → HTML de email ────────────────────────────────────
+// Los mensajes que se editan en los popups de envío se escriben para WhatsApp
+// (*negritas*, viñetas "•", epígrafes con 🔹/💡, URLs sueltas). Volcarlos en un
+// <p white-space:pre-wrap> daba un muro de texto con enlaces sin enlazar. Esto
+// los maqueta: saludo destacado, epígrafes, listas, negritas y <a> reales.
+function waInlineToHtml(txt) {
+    return escapeHtml(txt)
+        .replace(/\*([^*\n]+)\*/g, '<strong>$1</strong>')
+        .replace(/(https?:\/\/[^\s<]+)/g, u =>
+            `<a href="${u}" style="color:${BRAND.greenDark};text-decoration:underline;word-break:break-all;">${u}</a>`);
+}
+
+// opts.insertHtml / opts.afterHeading: bloque que se cuela justo detrás del
+// epígrafe que casa con la regex (p. ej. la caja naranja del total detrás de
+// "💡 *Resumen total de las ayudas:*"). Si no hay epígrafe que case, va al final.
+function waTextToEmailHtml(text, opts = {}) {
+    const lines = String(text || '').replace(/\r/g, '').split('\n');
+    const out = [];
+    let para = [];
+    let list = [];
+    let greeted = false;
+    let insertAt = -1;      // posición en `out` donde va opts.insertHtml
+    let pendingInsert = false;
+    const flushPara = () => {
+        if (!para.length) return;
+        out.push(emailP(para.join('<br>'), { color: BRAND.muted, mb: 14 }));
+        para = [];
+        // El epígrafe marcado ya tiene su párrafo: aquí es donde entra el bloque.
+        if (pendingInsert) { insertAt = out.length; pendingInsert = false; }
+    };
+    const flushList = () => {
+        if (!list.length) return;
+        out.push(`<ul style="margin:0 0 16px;padding:0 0 0 20px;font-size:15px;line-height:1.7;color:${BRAND.muted};">${list.map(i => `<li style="margin-bottom:6px;">${i}</li>`).join('')}</ul>`);
+        list = [];
+    };
+    for (const raw of lines) {
+        const line = raw.trim();
+        if (!line) { flushList(); flushPara(); continue; }
+
+        // Viñetas: "• texto" / "- texto"
+        const bullet = line.match(/^[•·\-–—]\s+(.+)$/);
+        if (bullet) { flushPara(); list.push(waInlineToHtml(bullet[1])); continue; }
+        flushList();
+
+        // Saludo inicial → destacado
+        if (!greeted && /^[¡!]?\s*hola\b/i.test(line)) {
+            greeted = true;
+            out.push(emailP(waInlineToHtml(line), { size: 20, bold: true, mb: 18 }));
+            continue;
+        }
+        greeted = true;
+
+        // Epígrafe: "🔹 *Título*" / "💡 *Título:* resto de la frase"
+        const head = line.match(/^(?:🔹|💡|✅|⚠️)\s*\*([^*\n]+)\*\s*(.*)$/);
+        if (head) {
+            flushPara();
+            out.push(`<p style="margin:20px 0 8px;font-size:15px;line-height:1.5;font-weight:700;color:${BRAND.orangeDark};">${escapeHtml(head[1])}</p>`);
+            if (head[2]) para.push(waInlineToHtml(head[2]));
+            if (opts.afterHeading && insertAt < 0 && opts.afterHeading.test(head[1])) {
+                if (para.length) pendingInsert = true;   // espera a que salga su párrafo
+                else insertAt = out.length;              // epígrafe suelto: justo detrás
+            }
+            continue;
+        }
+        para.push(waInlineToHtml(line));
+    }
+    flushList();
+    flushPara();
+    // Si no hay epígrafe donde anclarlo, no se inserta: mejor sin caja que con la
+    // caja colgando detrás de la firma.
+    if (opts.insertHtml && insertAt >= 0) out.splice(insertAt, 0, opts.insertHtml);
+    return out.join('');
+}
+
 // Tabla de datos (label/valor) para resúmenes de expediente.
 function emailDataTable(rows) {
     const body = rows.filter(Boolean).map(([k, v]) =>

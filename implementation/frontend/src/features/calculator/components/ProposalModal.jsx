@@ -362,6 +362,18 @@ export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }
     const [manualContact, setManualContact] = useState({ name: '', phone: '', email: '' });
 
 
+    // ── A QUIÉN nos dirigimos dentro de un partner/instalador ────────────────
+    // La empresa no se saluda por su razón social ("¡Hola REFRIGERACIÓN RUIZ, SL!"):
+    // se saluda al interlocutor dado de alta en `contactos_notificacion` (o al
+    // contacto principal espejado en `nombre_contacto`). Es independiente del
+    // toggle `contacto_notificaciones_activas`, que solo decide a qué email/tlf
+    // se DIRIGEN los envíos, no cómo se llama a la persona.
+    const contactoNotificacion = (p) => {
+        const arr = Array.isArray(p?.contactos_notificacion) ? p.contactos_notificacion : [];
+        const first = arr.find(c => (c?.nombre || '').trim());
+        return (first?.nombre || p?.nombre_contacto || '').trim() || null;
+    };
+
     // Cargar datos del partner cuando el modal se abre y hay prescriptor_id
     useEffect(() => {
         if (!isOpen) { setPartnerInfo(null); return; }
@@ -372,8 +384,11 @@ export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }
             .then(res => {
                 const p = res.data;
                 const useContact = p.contacto_notificaciones_activas === true || p.contacto_notificaciones_activas === 'true';
+                const org = p.acronimo || p.razon_social || 'Partner';
                 const info = {
-                    name: useContact ? (p.nombre_contacto || p.acronimo || p.razon_social) : (p.acronimo || p.razon_social || 'Partner'),
+                    // `name` = a quién se saluda: el interlocutor si lo hay, si no la empresa.
+                    name: contactoNotificacion(p) || org,
+                    org,
                     phone: useContact ? (p.tlf_contacto || p.tlf) : (p.tlf || p.telefono || (Array.isArray(p.usuarios) ? p.usuarios[0]?.tlf : p.usuarios?.tlf) || null),
                     email: useContact ? (p.email_contacto || p.email) : (p.email || (Array.isArray(p.usuarios) ? p.usuarios[0]?.email : p.usuarios?.email) || null),
                     redirectionActive: useContact,
@@ -396,7 +411,8 @@ export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }
                         if (found) {
                             const useContact = found.contacto_notificaciones_activas === true || found.contacto_notificaciones_activas === 'true';
                             setPartnerInfo({
-                                name: useContact ? (found.nombre_contacto || found.acronimo || found.razon_social) : (found.acronimo || found.razon_social || 'Partner'),
+                                name: contactoNotificacion(found) || found.acronimo || found.razon_social || 'Partner',
+                                org: found.acronimo || found.razon_social || 'Partner',
                                 phone: useContact ? (found.tlf_contacto || found.tlf) : (found.tlf || found.telefono || (Array.isArray(found.usuarios) ? found.usuarios[0]?.tlf : found.usuarios?.tlf) || null),
                                 email: useContact ? (found.email_contacto || found.email) : (found.email || (Array.isArray(found.usuarios) ? found.usuarios[0]?.email : found.usuarios?.email) || null),
                                 redirectionActive: useContact,
@@ -422,7 +438,8 @@ export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }
                 const p = res.data;
                 const uc = p.contacto_notificaciones_activas === true || p.contacto_notificaciones_activas === 'true';
                 setInstaladorInfo({
-                    name: uc ? (p.nombre_contacto || p.acronimo || p.razon_social || 'Instalador') : (p.acronimo || p.razon_social || 'Instalador'),
+                    name: contactoNotificacion(p) || p.acronimo || p.razon_social || 'Instalador',
+                    org: p.acronimo || p.razon_social || 'Instalador',
                     phone: uc ? (p.tlf_contacto || p.tlf || p.telefono || null) : (p.tlf || p.telefono || null),
                     email: uc ? (p.email_contacto || p.email || null) : (p.email || null),
                     brand: p.acronimo || p.razon_social || null,
@@ -1439,8 +1456,10 @@ info@brokergy.es · 623 926 179`;
             email: clienteInfo?.email || inputs?.email_contacto || inputs?.email || '',
             phone: clienteInfo?.phone || inputs?.tlf_contacto || inputs?.tlf || inputs?.telefono || '',
         }];
-        if (partnerInfo) list.push({ mode: 'PARTNER', label: partnerInfo.name || 'Distribuidor', sublabel: 'Distribuidor', email: partnerInfo.email || '', phone: partnerInfo.phone || '' });
-        if (instaladorInfo) list.push({ mode: 'INSTALADOR', label: instaladorInfo.name || 'Instalador', sublabel: 'Instalador', email: instaladorInfo.email || '', phone: instaladorInfo.phone || '' });
+        // `label` = la persona a la que se escribe (interlocutor de notificaciones);
+        // `org` = la empresa, que se muestra debajo para no perder de vista quién es.
+        if (partnerInfo) list.push({ mode: 'PARTNER', label: partnerInfo.name || 'Distribuidor', sublabel: 'Distribuidor', org: partnerInfo.org || '', email: partnerInfo.email || '', phone: partnerInfo.phone || '' });
+        if (instaladorInfo) list.push({ mode: 'INSTALADOR', label: instaladorInfo.name || 'Instalador', sublabel: 'Instalador', org: instaladorInfo.org || '', email: instaladorInfo.email || '', phone: instaladorInfo.phone || '' });
         return list;
     })();
 
@@ -1689,7 +1708,7 @@ info@brokergy.es · 623 926 179`;
                     f80: isReforma ? { caeBonus: `${formatNumber(Math.round(f80.caeBonus || 0))} €`, irpfDeduction: `${formatNumber(Math.round(f80.irpfDeduction || 0))} €`, totalAyuda: `${formatNumber(Math.round(f80.totalAyuda || 0))} €` } : null,
                     htmlTable: ''
                 };
-                const r = await postEmail('/api/pdf/send-proposal', { html: fullHtml, to: email, userName: name, summaryData }, { timeout: 90000 });
+                const r = await postEmail('/api/pdf/send-proposal', { html: fullHtml, to: email, userName: name, summaryData }, undefined, { timeout: 90000 });
                 results.push({ name, ok: r.data?.success === true });
             } catch (e) {
                 results.push({ name, ok: false, error: e.response?.data?.message || e.message });
@@ -1780,8 +1799,12 @@ info@brokergy.es · 623 926 179`;
 
 
     return (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-bkg-deep/60 backdrop-blur-md animate-fade-in" onClick={onClose}>
-            <div className="bg-bkg-surface/95 backdrop-blur-2xl rounded-2xl max-w-6xl w-full h-[92vh] flex flex-col overflow-hidden border border-white/10 shadow-3xl relative" onClick={e => e.stopPropagation()}>
+        // Sin cierre al clicar fuera: los popups hijos (envío, anexos, WhatsApp) se
+        // montan DENTRO de este backdrop, así que cualquier clic dentro de ellos
+        // burbujeaba hasta aquí y cerraba la vista previa entera. Solo cierran la X
+        // y el botón Cerrar (mismo criterio que clientes/partners y los modales de envío).
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-bkg-deep/60 backdrop-blur-md animate-fade-in">
+            <div className="bg-bkg-surface/95 backdrop-blur-2xl rounded-2xl max-w-6xl w-full h-[92vh] flex flex-col overflow-hidden border border-white/10 shadow-3xl relative">
 
                 <div className="flex flex-wrap justify-between items-center gap-3 p-5 max-md:p-4 bg-white/[0.03] border-b border-white/[0.08] backdrop-blur-md">
                     <h3 className="text-white font-black text-base sm:text-xl flex items-center gap-3 tracking-tight">
