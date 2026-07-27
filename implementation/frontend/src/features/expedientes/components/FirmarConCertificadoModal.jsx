@@ -23,7 +23,16 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 const AUTOSCRIPT_SRC = '/autofirma/autoscript.js';
 // Trazo de firma para la animación "Firmando…" (el ✍️ recorre esta misma ruta).
 const SIG_PATH = 'M18,58 C34,22 48,74 64,48 C78,26 92,72 108,48 C122,28 138,70 156,44 C168,30 180,52 186,42';
-const DEFAULT_RUBRIC_IMAGE_URL = '/logo-brokergy-circular-transparent.png';
+// Sello de Brokergy para los documentos que firma la propia Brokergy (el cliente, el
+// instalador y el Sujeto Obligado firman con `rubricImageUrl={null}`, solo el texto de
+// su certificado). Es el logo CALADO sobre la firma manuscrita de Francisco Javier Moya.
+//
+// Va incrustada la firma manuscrita a propósito: Autofirma reconvierte la rúbrica a JPEG
+// y descarta el canal alfa (comprobado — acaba en el PDF como /DCTDecode sin /SMask), de
+// modo que el recuadro SIEMPRE queda opaco. Como no se puede ver a través de él, el sello
+// reproduce lo que tapa. En el Anexo de Cesión cae justo encima de la firma que la
+// plantilla ya imprime, y el resultado se ve como si el logo fuese transparente.
+const DEFAULT_RUBRIC_IMAGE_URL = '/firma-brokergy-sello.png';
 const INSTALL_URL = 'https://firmaelectronica.gob.es/Home/Descargas.html';
 
 // Carga autoscript.js una sola vez y resuelve cuando window.AutoScript existe.
@@ -106,15 +115,32 @@ async function findSignatureAnchor(doc, anchors) {
     return null;
 }
 
-async function fetchImageAsBase64(url) {
-    const resp = await fetch(url);
-    const blob = await resp.blob();
+function loadImage(url) {
     return new Promise((resolve, reject) => {
-        const fr = new FileReader();
-        fr.onload = () => resolve(String(fr.result).split(',')[1] || '');
-        fr.onerror = reject;
-        fr.readAsDataURL(blob);
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = () => reject(new Error('No se pudo cargar la rúbrica: ' + url));
+        img.src = url;
     });
+}
+
+// Autofirma ESTIRA la rúbrica hasta llenar el recuadro de firma. Si el recuadro es
+// apaisado (el del Anexo de Cesión mide 251×110 pt) un logo cuadrado saldría como una
+// elipse deformada que además taparía la firma manuscrita ya impresa en la plantilla.
+// Aquí se centra la imagen SIN deformar sobre un lienzo transparente con el mismo
+// ratio que el recuadro, de modo que al estirarla vuelva a sus proporciones.
+function fitRubricToBox(img, wPt, hPt) {
+    const PX_PER_PT = 4;                       // resolución de la rúbrica dentro del PDF
+    const cw = Math.max(1, Math.round(wPt * PX_PER_PT));
+    const ch = Math.max(1, Math.round(hPt * PX_PER_PT));
+    const canvas = document.createElement('canvas');
+    canvas.width = cw;
+    canvas.height = ch;
+    const scale = Math.min(cw / img.naturalWidth, ch / img.naturalHeight);
+    const dw = img.naturalWidth * scale;
+    const dh = img.naturalHeight * scale;
+    canvas.getContext('2d').drawImage(img, (cw - dw) / 2, (ch - dh) / 2, dw, dh);
+    return canvas.toDataURL('image/png').split(',')[1] || '';
 }
 
 export default function FirmarConCertificadoModal({
@@ -136,7 +162,7 @@ export default function FirmarConCertificadoModal({
     const bodyRef = useRef(null);           // contenedor scrollable: mide el ancho disponible
     const pdfDocRef = useRef(null);
     const viewportRef = useRef(null);       // viewport de la página actualmente pintada
-    const rubricB64Ref = useRef(null);
+    const rubricImgRef = useRef(null);      // imagen de la rúbrica ya cargada (se encaja al firmar)
     const anchorRef = useRef(null);         // { page, pdf:{llx,lly,urx,ury} } zona de firma detectada
     const userDrewRef = useRef(false);      // el usuario ha dibujado su propio recuadro
 
@@ -160,8 +186,8 @@ export default function FirmarConCertificadoModal({
         (async () => {
             try {
                 setLoading(true);
-                rubricB64Ref.current = rubricImageUrl
-                    ? await fetchImageAsBase64(rubricImageUrl).catch(() => null)
+                rubricImgRef.current = rubricImageUrl
+                    ? await loadImage(rubricImageUrl).catch(() => null)
                     : null;
                 const bytes = Uint8Array.from(atob(pdfBase64), c => c.charCodeAt(0));
                 const doc = await pdfjsLib.getDocument({ data: bytes }).promise;
@@ -321,7 +347,18 @@ export default function FirmarConCertificadoModal({
     const buildExtraParams = (coords) => {
         // Coordenadas PDF ya calculadas (arrastre o caja fija): no dependen del
         // viewport de la página visible actualmente.
-        const { page, llx, lly, urx, ury } = coords;
+        //
+        // OJO: Autofirma lee estas cuatro coordenadas con `Integer.parseInt` y, si
+        // alguna no es un entero, registra "Se ha indicado una posicion invalida para
+        // el elemento grafico", DESCARTA la posición y firma en INVISIBLE (sin recuadro,
+        // sin rúbrica y sin el texto del certificado). Ver PdfUtil.getPositionOnPage en
+        // ctt-gob-es/clienteafirma. Las cajas de signBoxes.js llevan decimales, así que
+        // se redondean SIEMPRE aquí — hacia fuera, para no encoger el recuadro.
+        const page = coords.page;
+        const llx = Math.floor(coords.llx);
+        const lly = Math.floor(coords.lly);
+        const urx = Math.ceil(coords.urx);
+        const ury = Math.ceil(coords.ury);
 
         const lines = [
             'signatureFormat=PAdES',
@@ -335,8 +372,8 @@ export default function FirmarConCertificadoModal({
             'layer2Text=Firmado por $$SUBJECTCN$$\\nFecha: $$SIGNDATE=dd/MM/yyyy HH:mm:ss$$',
             'layer2FontSize=8',
         ];
-        if (rubricB64Ref.current) {
-            lines.push(`signatureRubricImage=${rubricB64Ref.current}`);
+        if (rubricImgRef.current) {
+            lines.push(`signatureRubricImage=${fitRubricToBox(rubricImgRef.current, urx - llx, ury - lly)}`);
         }
         return lines.join('\n');
     };

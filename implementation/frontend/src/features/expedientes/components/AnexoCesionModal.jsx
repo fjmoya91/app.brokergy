@@ -4,6 +4,7 @@ import { buildAnexoCesionHtml, buildAnexoIHtml, getDualMessage, getClientCaeRate
 import { useAuth } from '../../../context/AuthContext';
 import AppConfirm from '../../../components/AppConfirm';
 import FirmarConCertificadoModal from './FirmarConCertificadoModal';
+import { SIGN_BOXES } from '../logic/signBoxes';
 import { postEmail } from '../../../utils/emailFallback';
 
 const LOGO_URL  = '/logo_brokergy_dark.png';
@@ -372,7 +373,12 @@ export function AnexoCesionModal({ isOpen, onClose, expediente, results, onSaveD
                             pdfBase64={signPdfB64}
                             title={`Firmar Anexo de Cesión (Cesionario) · ${numexpte}`}
                             initialPage={2}
-                            signatureAnchor={['el cesionario@2', 'cesionario@2', 'el cesionario', 'cesionario']}
+                            // Caja EXACTA de la columna del Cesionario. Sin ella se caía al
+                            // ancla de texto, que además NO puede acertar: el rótulo "EL
+                            // CESIONARIO" lleva letter-spacing y pdf.js lo lee "C E S I O N A
+                            // R I O", así que la única coincidencia era el "Cesionario" del
+                            // cuerpo del convenio y el recuadro salía en mitad de la página.
+                            fixedBox={SIGN_BOXES.anexo_cesion_cesionario}
                             onClose={() => { setSignOpen(false); setSignPdfB64(null); }}
                             onSigned={handleSigned}
                         />

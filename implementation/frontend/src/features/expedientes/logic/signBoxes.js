@@ -14,6 +14,10 @@
 // coordenadas hay que re-derivarlas (ver plantillas/CUADRO FIRMA).
 //
 // `page` es 1-based (misma convención que initialPage/signatureAnchor).
+//
+// Los decimales de aquí son informativos: Autofirma exige ENTEROS en las coordenadas
+// (las lee con Integer.parseInt y, si falla, firma en invisible), así que
+// FirmarConCertificadoModal las redondea hacia fuera antes de mandarlas.
 // ============================================================
 
 export const SIGN_BOXES = {
@@ -23,17 +27,15 @@ export const SIGN_BOXES = {
     // Anexo I (individual, cliente) — FirmarAnexosView.jsx.
     anexo_i: { page: 3, llx: 57.10, lly: 80.20, urx: 284.57, ury: 155.74 },
 
-    // Anexo de Cesión de Ahorros (individual, cliente) — FirmarAnexosView.jsx.
-    anexo_cesion: { page: 2, llx: 25.68, lly: 55.99, urx: 276.72, ury: 166.24 },
-
-    // Anexo de Cesión — columna derecha (EL CESIONARIO / BROKERGY): la contrafirma
-    // que hace Brokergy cuando el cliente ha firmado electrónicamente.
-    // DERIVADA de la caja del Cedente: el bloque de firmas es un grid de 2 columnas
-    // iguales (`.conv-sign-grid`, gap 32px sobre 794px de ancho y 36px de padding),
-    // así que la columna 2 está desplazada 377px = 282.6 pt a la derecha.
-    // Si el recuadro no cae fino, se puede arrastrar en el modal (o re-derivar con
-    // un PDF de referencia marcado, como el resto de cajas).
-    anexo_cesion_cesionario: { page: 2, llx: 308.28, lly: 55.99, urx: 559.32, ury: 166.24 },
+    // Anexo de Cesión de Ahorros — las DOS columnas de `.conv-sign-grid` (docGenerators.js).
+    // Coordenadas medidas sobre un PDF generado real (25RES080_25, 2026-07-27) con PyMuPDF:
+    // el `.conv-sign-box` de cada columna ocupa y[51.4, 175.2] pt, y las columnas van de
+    // x[27.0, 285.8] y x[309.8, 568.5] (2 columnas iguales, gap 32px, padding 36px sobre
+    // 794px de ancho → 0.75 pt/px). Aquí se recortan hacia dentro para no pisar los bordes.
+    //   _cesion            = columna izquierda, EL CEDENTE  → la firma el cliente.
+    //   _cesion_cesionario = columna derecha,   EL CESIONARIO → la contrafirma de Brokergy.
+    anexo_cesion: { page: 2, llx: 27, lly: 52, urx: 285, ury: 175 },
+    anexo_cesion_cesionario: { page: 2, llx: 310, lly: 52, urx: 568, ury: 175 },
 
     // Anexo I · Listado Cesión (LOTE) — página 1, apaisada. DOS firmas:
     //   _proveedor = columna izquierda (EL PROVEEDOR / BROKERGY), la firma Brokergy antes de enviar.

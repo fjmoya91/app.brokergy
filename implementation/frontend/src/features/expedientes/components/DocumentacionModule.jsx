@@ -1091,10 +1091,9 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                     : `${expediente.numero_expediente || ''} - ${label}_fdo`,
                 // Columna del CESIONARIO (Brokergy); la izquierda es la del cliente.
                 box: field === 'anexo_cesion_signed_link' ? SIGN_BOXES.anexo_cesion_cesionario : null,
-                // Esa columna ya lleva impresa la rúbrica manuscrita de Brokergy: la
-                // firma digital va sin logo (solo el texto del certificado) para no
-                // tapar la firma con el sello estirado.
-                sinRubrica: field === 'anexo_cesion_signed_link',
+                // La rúbrica es la de por defecto del modal (el sello de Brokergy con la
+                // firma manuscrita incrustada), igual que en el resto de documentos que
+                // firma Brokergy. Ver DEFAULT_RUBRIC_IMAGE_URL en FirmarConCertificadoModal.
             });
             setManagingSigned(null);
         } catch (err) {
@@ -2364,7 +2363,6 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                     title={`Firmar ${signCtx.label} · ${expediente?.numero_expediente || ''}`}
                     fixedBox={signCtx.box}
                     signatureAnchor={signCtx.box ? null : ['fdo', 'firma', 'cesionario']}
-                    {...(signCtx.sinRubrica ? { rubricImageUrl: null } : {})}
                     onClose={() => { setSignCtx(null); setSignPdfB64(null); }}
                     onSigned={handleDocumentoFirmado}
                 />

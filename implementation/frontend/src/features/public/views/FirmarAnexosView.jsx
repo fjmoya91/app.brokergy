@@ -534,7 +534,11 @@ export function FirmarAnexosView({ expedienteId }) {
                 <p className="text-center mt-8 text-[10px] uppercase font-black tracking-[0.2em] text-white/20">Sistema de Gestión Brokergy &copy; {new Date().getFullYear()}</p>
             </div>
 
-            {/* Modal de firma con Autofirma (destello en la zona de firma) */}
+            {/* Modal de firma con Autofirma (destello en la zona de firma).
+                Firma el CLIENTE con su certificado: sin rúbrica (el logo de Brokergy no
+                pinta nada en la columna del Cedente y no tenemos imagen suya), así que el
+                recuadro lo rellena el texto del propio certificado — "Firmado por <titular>"
+                y la fecha, que es lo que compone `layer2Text` en el modal. */}
             {signOpen && signPdfB64 && (
                 <FirmarConCertificadoModal
                     pdfBase64={signPdfB64}
