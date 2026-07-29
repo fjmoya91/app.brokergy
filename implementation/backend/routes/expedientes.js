@@ -12,6 +12,7 @@ const {
     validateMemoriaRite, resolvePotenciasCatalogo,
     potenciaFrioPendiente, situadoEnPendiente, SITUADO_EN_OPCIONES
 } = require('../utils/riteValidation');
+const { resolveFincaInputs } = require('../utils/fincaInputs');
 const { resolveInstaladorFirmante } = require('../utils/instaladorFirmante');
 const emailService = require('../services/emailService');
 const whatsappService = require('../services/whatsappService');
@@ -3036,6 +3037,12 @@ async function loadRiteContext(idOrNum) {
     // modelo. Se resuelven ANTES de validar y de construir el payload para que el
     // barrido y el documento vean exactamente el mismo dato.
     exp.instalacion = await resolvePotenciasCatalogo(exp.instalacion, supabase);
+    // Superficie / zona climática / nº de plantas: los expedientes MIGRADOS no
+    // pasan por la calculadora, así que sus `inputs` vienen vacíos. Se rescatan
+    // del CEE del propio expediente y del Catastro (con la RC que ya tenemos) y
+    // se persisten, en vez de pedírselos al usuario en "DATOS FALTANTES".
+    ({ datosCalculo: normalizedDatos } = await resolveFincaInputs(
+        { exp, op, datosCalculo: normalizedDatos }, supabase));
     return { exp, cli, op, normalizedDatos, pres, presReal, firmanteDelegado };
 }
 

@@ -313,15 +313,58 @@ async function createExpediente(uuid_oportunidad, id_cliente, manualNumber = nul
 
         if (insertErr) throw insertErr;
 
-        // 5. Automatización de Drive y Sincronización
+        // 5. Sincronización de la oportunidad y automatización de Drive
         const dc = op.datos_calculo || {};
         const driveFolderId = dc.drive_folder_id || dc.inputs?.drive_folder_id;
-        
+        const clientFullName = `${cliente.nombre_razon_social} ${cliente.apellidos || ''}`.trim().toUpperCase().replace(/\s+/g, ' ');
+
+        // 5a. Sincronizar la OPORTUNIDAD → ACEPTADA.
+        //     Va FUERA del bloque de Drive a propósito: si existe expediente, la
+        //     oportunidad está aceptada, punto. Antes esto vivía dentro del
+        //     `if (driveFolderId)` y del try/catch de Drive, así que una
+        //     oportunidad sin carpeta (las sintéticas de las migraciones) o un
+        //     fallo de Drive dejaban `datos_calculo.estado` sin escribir — y el
+        //     listado, que hace `datos_calculo.estado || 'PTE ENVIAR'`, mostraba
+        //     el expediente como "propuesta por enviar".
+        try {
+            const newHistorialEntry = {
+                id: Date.now().toString() + '_expediente_auto',
+                tipo: 'cambio_estado',
+                estado: 'ACEPTADA',
+                fecha: new Date().toISOString(),
+                usuario: 'Sistema',
+                texto: `Oportunidad aceptada. Expediente creado: ${numeroExpediente}`
+            };
+
+            const updatePayload = {
+                datos_calculo: {
+                    ...dc,
+                    estado: 'ACEPTADA',
+                    historial: [...(dc.historial || []), newHistorialEntry]
+                },
+                cliente_id: id_cliente
+            };
+
+            // Solo sobreescribimos la referencia si está vacía o es nula
+            if (!op.referencia_cliente || op.referencia_cliente.trim() === '') {
+                updatePayload.referencia_cliente = clientFullName;
+            }
+
+            await supabase
+                .from('oportunidades')
+                .update(updatePayload)
+                .eq('id', uuid_oportunidad);
+
+            console.log(`[ExpedienteService] Oportunidad ${op.id_oportunidad || uuid_oportunidad} → ACEPTADA (${numeroExpediente})`);
+        } catch (syncErr) {
+            console.error('[ExpedienteService] Sync de la oportunidad falló:', syncErr.message);
+        }
+
+        // 5b. Drive (no bloqueante: si falla, el expediente ya está creado y aceptado)
         if (driveFolderId) {
             try {
-                const clientFullName = `${cliente.nombre_razon_social} ${cliente.apellidos || ''}`.trim().toUpperCase().replace(/\s+/g, ' ');
                 const newFolderName = `${numeroExpediente} - ${clientFullName}`;
-                
+
                 console.log(`[ExpedienteService] Procesando Drive para ${numeroExpediente}. FolderID: ${driveFolderId}`);
 
                 // 1. Renombrar en Drive
@@ -332,45 +375,8 @@ async function createExpediente(uuid_oportunidad, id_cliente, manualNumber = nul
                 //    "03. ACEPTADO"; uno migrado (PENDIENTE REVISAR EXPTE) ya nace
                 //    en "04. EN CURSO". Ver services/driveFolders.js.
                 await syncExpedienteFolder(newExp, { motivo: 'expediente creado' });
-
-
-                // 3. Sincronizar oportunidad
-                const currentHistorial = dc.historial || [];
-                
-                const newHistorialEntry = {
-                    id: Date.now().toString() + '_expediente_auto',
-                    tipo: 'cambio_estado',
-                    estado: 'ACEPTADA',
-                    fecha: new Date().toISOString(),
-                    usuario: 'Sistema',
-                    texto: `Oportunidad aceptada. Expediente creado: ${numeroExpediente}`
-                };
-
-                const updatedDatosCalculo = {
-                    ...dc,
-                    estado: 'ACEPTADA',
-                    historial: [...currentHistorial, newHistorialEntry]
-                };
-
-                // Actualizamos la referencia visual y los datos de cálculo, pero MANTENEMOS la referencia original si ya existe
-                const updatePayload = {
-                    datos_calculo: updatedDatosCalculo,
-                    cliente_id: id_cliente
-                };
-
-                // Solo sobreescribimos la referencia si está vacía o es nula
-                if (!op.referencia_cliente || op.referencia_cliente.trim() === '') {
-                    updatePayload.referencia_cliente = clientFullName;
-                }
-
-                await supabase
-                    .from('oportunidades')
-                    .update(updatePayload)
-                    .eq('id', uuid_oportunidad);
-
-                console.log(`[ExpedienteService] Sincronización (Preservando ID) completa para ${numeroExpediente}`);
             } catch (driveErr) {
-                console.error('[ExpedienteService] Drive/Sync failed:', driveErr.message);
+                console.error('[ExpedienteService] Drive failed:', driveErr.message);
             }
         }
 
