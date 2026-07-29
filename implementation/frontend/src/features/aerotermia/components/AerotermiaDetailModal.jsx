@@ -64,7 +64,7 @@ function NumRow({ label, value }) {
 // ── Componente principal ────────────────────────────────────────────────────
 const EMPTY = {
     marca: '', modelo_comercial: '', tipo: 'BIBLOCK',
-    potencia_calefaccion: '', potencia_frigorifica: '', modelo_conjunto: '', modelo_ud_exterior: '',
+    potencia_calefaccion: '', potencia_frigorifica: '', potencia_compresores: '', refrigerante: '', modelo_conjunto: '', modelo_ud_exterior: '',
     modelo_ud_interior: '', deposito_acs_incluido: false, litros_acs: '',
     scop_cal_calido_35: '', scop_cal_calido_55: '',
     scop_cal_medio_35: '', scop_cal_medio_55: '',
@@ -113,6 +113,8 @@ export function AerotermiaDetailModal({ isOpen, equipo: equipoProp, isNew = fals
             tipo:                  s(e.tipo) || 'BIBLOCK',
             potencia_calefaccion:  s(e.potencia_calefaccion),
             potencia_frigorifica:  s(e.potencia_frigorifica),
+            potencia_compresores:  s(e.potencia_compresores),
+            refrigerante:          e.refrigerante || '',
             modelo_conjunto:       s(e.modelo_conjunto),
             modelo_ud_exterior:    s(e.modelo_ud_exterior),
             modelo_ud_interior:    s(e.modelo_ud_interior),
@@ -193,6 +195,8 @@ export function AerotermiaDetailModal({ isOpen, equipo: equipoProp, isNew = fals
             tipo:                  s(f.tipo),
             potencia_calefaccion:  n(f.potencia_calefaccion),
             potencia_frigorifica:  n(f.potencia_frigorifica),
+            potencia_compresores:  n(f.potencia_compresores),
+            refrigerante:          f.refrigerante || null,
             modelo_conjunto:       s(f.modelo_conjunto),
             modelo_ud_exterior:    s(f.modelo_ud_exterior),
             modelo_ud_interior:    s(f.modelo_ud_interior),
@@ -357,6 +361,8 @@ export function AerotermiaDetailModal({ isOpen, equipo: equipoProp, isNew = fals
                                     <DataRow label="Tipo"              value={equipo.tipo || '—'} />
                                     <DataRow label="Potencia (kW)"     value={fmt(equipo.potencia_calefaccion)} highlight />
                                     <DataRow label="P. Frigorífica (kW)" value={fmt(equipo.potencia_frigorifica)} />
+                                    <DataRow label="P. Compresores (kW)" value={fmt(equipo.potencia_compresores)} />
+                                    <DataRow label="Refrigerante"      value={equipo.refrigerante || '—'} />
                                     <DataRow label="Depósito ACS"      value={equipo.deposito_acs_incluido ? 'Sí' : 'No'} />
                                     {equipo.deposito_acs_incluido && (
                                         <DataRow label="Acumulación ACS (L)" value={fmt(equipo.litros_acs)} />
@@ -486,6 +492,14 @@ export function AerotermiaDetailModal({ isOpen, equipo: equipoProp, isNew = fals
                                         capacidades de la ficha comercial. */}
                                     <FI label="Potencia Frigorífica (kW)">
                                         <Inp type="number" step="0.1" value={form.potencia_frigorifica} onChange={e => upd({ potencia_frigorifica: e.target.value })} placeholder="11,5" />
+                                    </FI>
+                                    {/* Potencia absorbida por los compresores y gas refrigerante: los
+                                        pide el bloque GENERADOR DE FRÍO del RITE. */}
+                                    <FI label="Potencia Compresores (kW)">
+                                        <Inp type="number" step="0.01" value={form.potencia_compresores} onChange={e => upd({ potencia_compresores: e.target.value })} placeholder="2,14" />
+                                    </FI>
+                                    <FI label="Refrigerante">
+                                        <Inp uppercase value={form.refrigerante} onChange={e => upd({ refrigerante: e.target.value })} placeholder="R32" />
                                     </FI>
                                     <FI label="Depósito ACS Incluido">
                                         <div className="flex items-center h-[42px]">

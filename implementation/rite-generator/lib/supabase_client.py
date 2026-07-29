@@ -217,7 +217,9 @@ def normalizar(raw: dict, fecha_firma: str = None) -> dict:
             "potencia_cal": pot_cal,
             "potencia_acs": (pot_acs if acs_distinto else ""),
             "acumulacion_l": (_acumulacion(acs) if acs_distinto else ""),
-            "refrigerante": _refrigerante(cal.get("modelo", "")),
+            # Del catálogo del modelo; si no está, se intenta deducir del nombre
+            # (casi nunca lo lleva, por eso ahora es un campo propio).
+            "refrigerante": cal.get("refrigerante") or _refrigerante(cal.get("modelo", "")),
         },
         "aislamiento": {},  # usa valores por defecto del mapeo
         # Suelo radiante usa tubería de mayor diámetro (colectores PEX) → 32 mm.
@@ -249,7 +251,9 @@ def normalizar(raw: dict, fecha_firma: str = None) -> dict:
             "modelo": _modelos(cal_uds) or cal.get("modelo", ""),
             "potencia_frigorifica": pot_frio,
             "potencia_compresores": sum(_f(u.get("potencia_compresores")) for u in cal_uds),
-            "refrigerante": _refrigerante(cal.get("modelo", "")),
+            # Del catálogo del modelo; si no está, se intenta deducir del nombre
+            # (casi nunca lo lleva, por eso ahora es un campo propio).
+            "refrigerante": cal.get("refrigerante") or _refrigerante(cal.get("modelo", "")),
             # Clase de prestación energética: siempre A (criterio de Brokergy).
             "clase": "A",
             # EER: se declara el SEER del catálogo del equipo.

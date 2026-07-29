@@ -10,7 +10,7 @@ const { normalizeData } = require('../utils/normalization');
 const { unidadesSinSerie, countUnidades: countUnidadesAero } = require('../utils/aerotermiaUnits');
 const {
     validateMemoriaRite, resolvePotenciasCatalogo,
-    potenciaFrioPendiente, situadoEnPendiente, SITUADO_EN_OPCIONES
+    potenciasCatalogoPendientes, situadoEnPendiente, SITUADO_EN_OPCIONES
 } = require('../utils/riteValidation');
 const { resolveFincaInputs } = require('../utils/fincaInputs');
 const { resolveInstaladorFirmante } = require('../utils/instaladorFirmante');
@@ -3056,11 +3056,11 @@ router.get('/:id/memoria-rite/check', enforceAuth, async (req, res) => {
         if (!ctx) return res.status(404).json({ error: 'Expediente no encontrado' });
         const { exp, cli, op, normalizedDatos, pres, presReal } = ctx;
         const missing = validateMemoriaRite({ exp, cli, op: { ...op, datos_calculo: normalizedDatos }, pres, presReal });
-        // Datos del GENERADOR DE FRÍO que el frontend pide en un popup antes de
-        // generar: los del MODELO van al catálogo, el emplazamiento al expediente.
-        const potenciaFrio = await potenciaFrioPendiente(exp.instalacion, supabase);
+        // Datos que el frontend pide en un popup antes de generar: las potencias
+        // son del MODELO y van al catálogo; el emplazamiento va al expediente.
+        const potencias = await potenciasCatalogoPendientes(exp.instalacion, supabase);
         res.json({
-            missing, potenciaFrio,
+            missing, potencias,
             situadoEn: situadoEnPendiente(exp) ? { opciones: SITUADO_EN_OPCIONES } : null
         });
     } catch (err) {

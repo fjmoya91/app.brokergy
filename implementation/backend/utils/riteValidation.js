@@ -49,30 +49,62 @@ function potenciaFrioBloque(aero) {
 }
 
 /**
- * Modelos del catálogo a los que les falta la POTENCIA FRIGORÍFICA y que hacen
- * falta para este expediente (emisor con frío). Devuelve [] si no aplica.
+ * Modelos del catálogo a los que les falta alguna POTENCIA necesaria para este
+ * expediente. Devuelve [] si no falta nada.
  *
- * Alimenta el popup que la pide al generar: se teclea una vez, se guarda en el
- * catálogo del modelo (PATCH /api/aerotermia/:id/potencia-frigorifica) y ya queda
- * para todos los expedientes futuros que usen ese equipo. Incluye `ficha_tecnica`
- * para poder abrirla y buscar el dato sin salir del flujo.
+ * TODAS las potencias del RITE son datos del MODELO, no del expediente, y todas
+ * salen de la ficha técnica del fabricante: térmica (calefacción o ACS),
+ * frigorífica y absorbida por los compresores. Por eso se piden igual —en el
+ * popup previo a generar, con enlace a la ficha— y se guardan igual —en el
+ * catálogo, una sola vez por equipo—. Antes solo se pedían así las del frío y
+ * las térmicas se listaban como "dato faltante", que no era accionable: el
+ * usuario veía el aviso pero no tenía dónde escribir el valor.
+ *
+ * Qué se exige de cada bloque:
+ *   · calefacción → potencia térmica siempre; frigorífica y compresores solo si
+ *     el emisor da frío (suelo radiante, splits, conductos).
+ *   · ACS → potencia térmica solo si es un equipo propio (modelo distinto al de
+ *     calefacción y no un termo eléctrico).
  */
-async function potenciaFrioPendiente(instalacion, supabase) {
+async function potenciasCatalogoPendientes(instalacion, supabase) {
     const inst = instalacion || {};
-    if (!emisorLlevaFrio(inst.tipo_emisor)) return [];
     const cal = inst.aerotermia_cal || {};
+    const acs = inst.aerotermia_acs || {};
+    const conFrio = emisorLlevaFrio(inst.tipo_emisor);
 
-    const ids = [...new Set(getUnidades(cal).map(u => u && u.aerotermia_db_id).filter(Boolean))];
-    if (!ids.length) return [];   // equipo escrito a mano: no hay ficha que completar
+    // Qué campos hace falta conocer de los modelos de cada bloque.
+    const necesidades = new Map();   // id modelo → { bloque, campos:Set }
+    const anotar = (aero, bloque, campos) => {
+        for (const u of getUnidades(aero)) {
+            if (!u || !u.aerotermia_db_id) continue;   // escrito a mano: sin ficha que completar
+            const prev = necesidades.get(u.aerotermia_db_id) || { bloque, campos: new Set() };
+            campos.forEach(c => prev.campos.add(c));
+            necesidades.set(u.aerotermia_db_id, prev);
+        }
+    };
+    // Con frío se declara además el refrigerante, que es texto (R32, R290…).
+    anotar(cal, 'calefaccion', conFrio
+        ? ['potencia_calefaccion', 'potencia_frigorifica', 'potencia_compresores', 'refrigerante']
+        : ['potencia_calefaccion']);
+    if (acsEsEquipoPropio(inst)) anotar(acs, 'acs', ['potencia_calefaccion']);
 
+    if (!necesidades.size) return [];
     const { data } = await supabase
         .from('aerotermia')
-        .select('id, marca, modelo_comercial, modelo_ud_exterior, potencia_calefaccion, potencia_frigorifica, potencia_compresores, ficha_tecnica, eprel')
-        .in('id', ids);
-    // Falta algo si no tiene potencia frigorífica O potencia de compresores: las
-    // dos van en el bloque GENERADOR DE FRÍO y las dos salen de la ficha técnica.
-    return (data || []).filter(m =>
-        !(parseFloat(m.potencia_frigorifica) > 0) || !(parseFloat(m.potencia_compresores) > 0));
+        .select('id, marca, modelo_comercial, modelo_ud_exterior, potencia_calefaccion, potencia_frigorifica, potencia_compresores, refrigerante, ficha_tecnica, eprel')
+        .in('id', [...necesidades.keys()]);
+
+    const pendientes = [];
+    for (const m of (data || [])) {
+        const need = necesidades.get(m.id) || necesidades.get(Number(m.id));
+        if (!need) continue;
+        // El refrigerante es texto; el resto, números que deben ser > 0.
+        const faltan = [...need.campos].filter(c => c === 'refrigerante'
+            ? !isPresent(m.refrigerante)
+            : !(parseFloat(m[c]) > 0));
+        if (faltan.length) pendientes.push({ ...m, bloque: need.bloque, faltan });
+    }
+    return pendientes;
 }
 
 /** Opciones de "SITUADO EN" del generador de frío (casilla del RITE). */
@@ -146,7 +178,7 @@ async function resolvePotenciasCatalogo(instalacion, supabase) {
     const ids = [...new Set(unidades.map(u => u.aerotermia_db_id))];
     const { data: modelos } = await supabase
         .from('aerotermia')
-        .select('id, potencia_calefaccion, potencia_frigorifica, potencia_compresores, seer, tipo')
+        .select('id, potencia_calefaccion, potencia_frigorifica, potencia_compresores, refrigerante, seer, tipo')
         .in('id', ids);
     if (!modelos || !modelos.length) return inst;
 
@@ -164,6 +196,7 @@ async function resolvePotenciasCatalogo(instalacion, supabase) {
         if (compresores > 0) u.potencia_compresores = compresores;
         if (parseFloat(m.seer) > 0) u.seer = parseFloat(m.seer);
         if (m.tipo) u.tipo_catalogo = m.tipo;
+        if (m.refrigerante) u.refrigerante = m.refrigerante;
     }
     return inst;
 }
@@ -213,12 +246,9 @@ function validateMemoriaRite({ exp, cli, op, pres, presReal }) {
     }
     // Potencia TOTAL del bloque (suma de la cascada), ya con el valor del catálogo.
     // 0 kW no vale como potencia declarada.
-    // La potencia no se teclea en el expediente: la hereda del modelo. Si falta, se
-    // arregla completando la ficha del modelo en el catálogo de aerotermia. Sin
-    // modelo elegido no se avisa: ya se está pidiendo el modelo justo encima.
-    if (P(cal.modelo) && !(potenciaBloque(cal) > 0)) {
-        missing.push(`Potencia Aerotermia Calefacción — el modelo "${cal.modelo}" no tiene potencia en el catálogo de aerotermia`);
-    }
+    // La POTENCIA no se lista aquí: es un dato del MODELO y la pide el popup
+    // previo a generar (`potenciasCatalogoPendientes`), que además la guarda en el
+    // catálogo. Listarla como "falta" no era accionable — no hay dónde escribirla.
 
     // ── Equipo de ACS ────────────────────────────────────────────────────────
     // Solo se valida si aporta potencia propia al RITE; si no, el documento ni
@@ -232,9 +262,7 @@ function validateMemoriaRite({ exp, cli, op, pres, presReal }) {
                 ? `Nº Serie Aerotermia ACS — equipo ${n} (Instalación)`
                 : 'Nº Serie Aerotermia ACS (Instalación)');
         }
-        if (P(acs.modelo) && !(potenciaBloque(acs) > 0)) {
-            missing.push(`Potencia Aerotermia ACS — el modelo "${acs.modelo}" no tiene potencia en el catálogo de aerotermia`);
-        }
+        // Igual que en calefacción: la potencia del equipo de ACS la pide el popup.
     }
 
     // ── Emisor ───────────────────────────────────────────────────────────────
@@ -242,7 +270,7 @@ function validateMemoriaRite({ exp, cli, op, pres, presReal }) {
 
     // La POTENCIA FRIGORÍFICA no se lista aquí: cuando el emisor da frío y el
     // modelo no la tiene, al generar salta un popup dedicado que la pide y la
-    // guarda en el catálogo (ver `potenciaFrioPendiente`). Mismo criterio que la
+    // guarda en el catálogo (ver `potenciasCatalogoPendientes`). Mismo criterio que la
     // fecha de pruebas: lo que tiene popup propio no se repite como "falta".
 
     // ── Instalador ───────────────────────────────────────────────────────────
@@ -291,6 +319,6 @@ function validateMemoriaRite({ exp, cli, op, pres, presReal }) {
 
 module.exports = {
     isPresent, potenciaBloque, potenciaFrioBloque, emisorLlevaFrio,
-    potenciaFrioPendiente, situadoEnPendiente, SITUADO_EN_OPCIONES,
+    potenciasCatalogoPendientes, situadoEnPendiente, SITUADO_EN_OPCIONES,
     acsEsEquipoPropio, resolvePotenciasCatalogo, validateMemoriaRite
 };

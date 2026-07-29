@@ -224,12 +224,13 @@ router.put('/:id', enforceAuth, requireAdmin, async (req, res) => {
     }
 });
 
-// PATCH /api/aerotermia/:id/potencia-frigorifica — completar SOLO los datos del
-// GENERADOR DE FRÍO (potencia frigorífica y potencia de compresores).
+// PATCH /api/aerotermia/:id/datos-rite — completar SOLO los datos del modelo que
+// pide el RITE: potencia térmica (`potencia_calefaccion`), frigorífica, absorbida
+// por los compresores y gas refrigerante.
 //
-// Lo usa el popup que salta al generar la Memoria RITE cuando el emisor da frío
-// (suelo radiante / splits / conductos) y el modelo no tiene los datos: se
-// teclean una vez y quedan en el catálogo para todos los expedientes futuros.
+// Lo usa el popup que salta al generar la Memoria RITE cuando el modelo no tiene
+// alguna de ellas: se teclean una vez, con la ficha técnica a mano, y quedan en el
+// catálogo para todos los expedientes futuros que usen ese equipo.
 //
 // NO se reutiliza el PUT /:id porque ese pasa por `buildPayload`, que reconstruye
 // la fila ENTERA: enviarle solo estos campos pondría a null todo lo demás (SCOPs,
@@ -237,28 +238,30 @@ router.put('/:id', enforceAuth, requireAdmin, async (req, res) => {
 //
 // `staffOnly` en vez de `requireAdmin`: es un dato técnico del catálogo y quien
 // genera el RITE puede ser un TRABAJADOR; no hay dinero ni borrado de por medio.
-router.patch('/:id/potencia-frigorifica', staffOnly, async (req, res) => {
+router.patch('/:id/datos-rite', staffOnly, async (req, res) => {
     try {
         const updates = {};
-        const frig = parseFloat(req.body?.potencia_frigorifica);
-        const comp = parseFloat(req.body?.potencia_compresores);
-        if (frig > 0) updates.potencia_frigorifica = frig;
-        if (comp > 0) updates.potencia_compresores = comp;
+        for (const campo of ['potencia_calefaccion', 'potencia_frigorifica', 'potencia_compresores']) {
+            const v = parseFloat(req.body?.[campo]);
+            if (v > 0) updates[campo] = v;
+        }
+        const refri = String(req.body?.refrigerante || '').trim().toUpperCase();
+        if (refri) updates.refrigerante = refri;
         if (!Object.keys(updates).length) {
-            return res.status(400).json({ error: 'Indica la potencia frigorífica y/o la de compresores (kW, mayor que 0)' });
+            return res.status(400).json({ error: 'Indica al menos un dato (potencias en kW mayores que 0, o el refrigerante)' });
         }
         const { data, error } = await supabase
             .from('aerotermia')
             .update(updates)
             .eq('id', req.params.id)
-            .select('id, marca, modelo_comercial, potencia_frigorifica, potencia_compresores')
+            .select('id, marca, modelo_comercial, potencia_calefaccion, potencia_frigorifica, potencia_compresores, refrigerante')
             .single();
         if (error) throw error;
         if (!data) return res.status(404).json({ error: 'Equipo no encontrado' });
         res.json(data);
     } catch (err) {
-        console.error('Error PATCH aerotermia/potencia-frigorifica:', err);
-        res.status(500).json({ error: 'Error al guardar los datos del generador de frío', details: err.message });
+        console.error('Error PATCH aerotermia/datos-rite:', err);
+        res.status(500).json({ error: 'Error al guardar los datos del modelo', details: err.message });
     }
 });
 
@@ -285,6 +288,7 @@ function buildPayload(body) {
         modelo_comercial:      str(body.modelo_comercial),
         tipo:                  str(body.tipo)?.toUpperCase() || null,
         potencia_calefaccion:  num(body.potencia_calefaccion),
+        refrigerante:          str(body.refrigerante)?.toUpperCase() || null,
         // Capacidad frigorífica: se declara en la casilla FRÍO del RITE cuando la
         // instalación incluye climatización (suelo radiante refrescante).
         potencia_frigorifica:  num(body.potencia_frigorifica),

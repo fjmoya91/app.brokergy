@@ -199,7 +199,12 @@ def construir_relleno(datos: dict, nombres_campos: list):
             checks.append(131)
         else:
             checks.append(132)  # BITUBO
-        checks.append(137)      # (posición histórica; ver nota de COBRE/PEX)
+        # Material de la tubería: 136=COBRE, 137=POLIETILENO RETICULADO (posiciones
+        # verificadas renderizando). El circuito del suelo radiante es PEX; con
+        # radiadores la distribución es de cobre. Antes se marcaba siempre el 137
+        # con el comentario "COBRE", así que los expedientes de radiadores
+        # declaraban PEX.
+        checks.append(137 if es_suelo else 136)
         # TERMINALES: radiadores de aluminio SOLO si NO es suelo radiante. Con
         # suelo radiante no se marca radiador; el emisor se indica con su material
         # (PEX) en el campo de texto 153 (ver arriba).

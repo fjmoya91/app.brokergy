@@ -742,7 +742,7 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
             const { data } = await axios.get(`/api/expedientes/${expediente.id}/memoria-rite/check`);
             // Modelos sin potencia frigorífica: se piden en su propio popup (no se
             // listan como "dato faltante"). Se guarda aquí para la cadena de popups.
-            const pend = Array.isArray(data?.potenciaFrio) ? data.potenciaFrio : [];
+            const pend = Array.isArray(data?.potencias) ? data.potencias : [];
             potFrioRef.current = pend;
             setPotFrioPendiente(pend);
             situadoEnRef.current = data?.situadoEn || null;
@@ -949,12 +949,15 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
     const confirmarPotenciaFrio = async () => {
         const modelos = potFrioRef.current;
         const v = potFrioPopup.values;
-        // Solo se exige lo que de verdad falta en el catálogo de cada modelo.
+        // `faltan` viene del backend: solo se exige lo que de verdad falta. El
+        // refrigerante es texto (R32, R290…); el resto, números en kW.
+        const relleno = (c, key) => c === 'refrigerante'
+            ? !!String(v[key] || '').trim()
+            : parseFloat(v[key]) > 0;
         const incompleto = modelos.some(m =>
-            (!(parseFloat(m.potencia_frigorifica) > 0) && !(parseFloat(v[`f${m.id}`]) > 0)) ||
-            (!(parseFloat(m.potencia_compresores) > 0) && !(parseFloat(v[`c${m.id}`]) > 0)));
+            (m.faltan || []).some(c => !relleno(c, `${c}|${m.id}`)));
         if (incompleto) {
-            setPotFrioPopup(p => ({ ...p, error: 'Completa la potencia frigorífica y la de compresores (kW).' }));
+            setPotFrioPopup(p => ({ ...p, error: 'Completa los datos que faltan del equipo.' }));
             return;
         }
         if (situadoEnRef.current && !situadoEnValue) {
@@ -963,13 +966,19 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
         }
         setPotFrioPopup(p => ({ ...p, saving: true, error: null }));
         try {
-            // Datos del MODELO → catálogo (sirven para todos los expedientes).
+            // Potencias del MODELO → catálogo (sirven para todos los expedientes).
             for (const m of modelos) {
                 const payload = {};
-                if (parseFloat(v[`f${m.id}`]) > 0) payload.potencia_frigorifica = parseFloat(v[`f${m.id}`]);
-                if (parseFloat(v[`c${m.id}`]) > 0) payload.potencia_compresores = parseFloat(v[`c${m.id}`]);
+                for (const c of (m.faltan || [])) {
+                    const raw = v[`${c}|${m.id}`];
+                    if (c === 'refrigerante') {
+                        if (String(raw || '').trim()) payload[c] = String(raw).trim();
+                    } else if (parseFloat(raw) > 0) {
+                        payload[c] = parseFloat(raw);
+                    }
+                }
                 if (Object.keys(payload).length) {
-                    await axios.patch(`/api/aerotermia/${m.id}/potencia-frigorifica`, payload);
+                    await axios.patch(`/api/aerotermia/${m.id}/datos-rite`, payload);
                 }
             }
             // Emplazamiento → EXPEDIENTE (depende de la obra, no del equipo).
@@ -1587,15 +1596,15 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                     onClick={() => !potFrioPopup.saving && setPotFrioPopup({ isOpen: false, values: {}, saving: false, error: null })}>
                     <div className="bg-[#0F1013] border border-white/[0.07] rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in duration-200" onClick={e => e.stopPropagation()}>
                         <div className="px-6 py-5 border-b border-white/[0.07] bg-brand/5">
-                            <h2 className="text-lg font-black uppercase tracking-tight text-white">Generador de frío</h2>
+                            <h2 className="text-lg font-black uppercase tracking-tight text-white">Potencias del equipo</h2>
                             <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest mt-0.5">
-                                Bloque GENERADOR DE FRÍO de la Memoria RITE
+                                Faltan en el catálogo · Memoria RITE
                             </p>
                         </div>
                         <div className="px-6 py-6 space-y-4 max-h-[60vh] overflow-y-auto">
                             <p className="text-sm text-white/60 leading-relaxed">
-                                La instalación climatiza, así que el documento declara el generador de frío.
-                                Los datos del equipo se guardan en el catálogo del modelo: solo se piden una vez.
+                                Estas potencias son del MODELO y salen de su ficha técnica. Al guardarlas quedan
+                                en el catálogo: solo se piden una vez por equipo.
                             </p>
                             {potFrioPendiente.map(m => (
                                 <div key={m.id} className="bg-white/[0.02] border border-white/10 rounded-2xl p-4 space-y-3">
@@ -1612,26 +1621,34 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                                             </a>
                                         )}
                                     </div>
-                                    {!(parseFloat(m.potencia_frigorifica) > 0) && (
-                                        <div className="flex items-center gap-3">
-                                            <span className="text-[10px] font-black uppercase tracking-widest text-white/50 w-40">P. frigorífica</span>
-                                            <input type="number" step="0.1" min="0" autoFocus disabled={potFrioPopup.saving}
-                                                placeholder="13,6" value={potFrioPopup.values[`f${m.id}`] ?? ''}
-                                                onChange={e => setPotFrioPopup(p => ({ ...p, values: { ...p.values, [`f${m.id}`]: e.target.value } }))}
-                                                className="w-28 bg-white/[0.03] border border-white/10 rounded-xl px-3 py-2.5 text-white font-black tabular-nums focus:outline-none focus:border-brand/50 disabled:opacity-50" />
-                                            <span className="text-[11px] font-black uppercase tracking-widest text-white/40">kW</span>
-                                        </div>
-                                    )}
-                                    {!(parseFloat(m.potencia_compresores) > 0) && (
-                                        <div className="flex items-center gap-3">
-                                            <span className="text-[10px] font-black uppercase tracking-widest text-white/50 w-40">P. compresores</span>
-                                            <input type="number" step="0.01" min="0" disabled={potFrioPopup.saving}
-                                                placeholder="2,14" value={potFrioPopup.values[`c${m.id}`] ?? ''}
-                                                onChange={e => setPotFrioPopup(p => ({ ...p, values: { ...p.values, [`c${m.id}`]: e.target.value } }))}
-                                                className="w-28 bg-white/[0.03] border border-white/10 rounded-xl px-3 py-2.5 text-white font-black tabular-nums focus:outline-none focus:border-brand/50 disabled:opacity-50" />
-                                            <span className="text-[11px] font-black uppercase tracking-widest text-white/40">kW (absorbida)</span>
-                                        </div>
-                                    )}
+                                    {(m.faltan || []).map((campo, ci) => {
+                                        // La potencia térmica se guarda en la misma columna para
+                                        // calefacción y para ACS: la etiqueta la da el bloque.
+                                        const ETIQ = {
+                                            potencia_calefaccion: m.bloque === 'acs' ? 'P. térmica (ACS)' : 'P. térmica (calefacción)',
+                                            potencia_frigorifica: 'P. frigorífica',
+                                            potencia_compresores: 'P. compresores',
+                                            refrigerante: 'Refrigerante',
+                                        };
+                                        const HINT = { potencia_calefaccion: '12', potencia_frigorifica: '13,6', potencia_compresores: '2,14', refrigerante: 'R32' };
+                                        const k = `${campo}|${m.id}`;
+                                        const esTexto = campo === 'refrigerante';
+                                        return (
+                                            <div key={campo} className="flex items-center gap-3">
+                                                <span className="text-[10px] font-black uppercase tracking-widest text-white/50 w-44">{ETIQ[campo]}</span>
+                                                <input type={esTexto ? 'text' : 'number'}
+                                                    {...(esTexto ? {} : { step: '0.01', min: '0' })}
+                                                    autoFocus={ci === 0}
+                                                    disabled={potFrioPopup.saving} placeholder={HINT[campo]}
+                                                    value={potFrioPopup.values[k] ?? ''}
+                                                    onChange={e => setPotFrioPopup(p => ({ ...p, values: { ...p.values, [k]: e.target.value } }))}
+                                                    className="w-28 bg-white/[0.03] border border-white/10 rounded-xl px-3 py-2.5 text-white font-black tabular-nums uppercase focus:outline-none focus:border-brand/50 disabled:opacity-50" />
+                                                <span className="text-[11px] font-black uppercase tracking-widest text-white/40">
+                                                    {esTexto ? 'gas' : campo === 'potencia_compresores' ? 'kW (absorbida)' : 'kW'}
+                                                </span>
+                                            </div>
+                                        );
+                                    })}
                                     {!(m.ficha_tecnica || m.eprel) && (
                                         <p className="text-[10px] text-white/30">Este modelo no tiene ficha técnica enlazada en el catálogo.</p>
                                     )}
