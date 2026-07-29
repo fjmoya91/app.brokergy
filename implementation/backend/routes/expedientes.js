@@ -3136,7 +3136,13 @@ router.post('/:id/memoria-rite/generate', enforceAuth, async (req, res) => {
         let memoriaPdfLink = null;
         let guiaLink = null;
         let borradorLink = null;
-        for (const f of files) {
+        // A Drive van los MISMOS 3 documentos que se envían al instalador: memoria
+        // (.docx), memoria (.pdf) y borrador del certificado. La GUÍA JE6 es una
+        // chuleta para copiar los datos en la plataforma de la JCCM, no un
+        // documento del expediente: se genera y se puede descargar, pero no se
+        // archiva (antes quedaban 4 ficheros en la carpeta).
+        const esGuiaJE6 = (f) => (f.name || '').toUpperCase().includes('GUIA_JE6');
+        for (const f of files.filter(f => !esGuiaJE6(f))) {
             const buffer = Buffer.from(f.base64, 'base64');
 
             // Versionado: si ya existe un fichero con ese nombre, moverlo a OLD
@@ -3148,11 +3154,10 @@ router.post('/:id/memoria-rite/generate', enforceAuth, async (req, res) => {
             if (!result) return res.status(500).json({ error: `Error al subir '${f.name}' a Drive` });
             try { await setFolderPublic(result.id, 'reader'); } catch (e) { /* no bloqueante */ }
 
-            // Distinguir por nombre: memoria .docx, memoria .pdf, guía JE6, borrador.
+            // Distinguir por nombre: memoria .docx, memoria .pdf, borrador.
             const name = (f.name || '').toUpperCase();
             if (name.endsWith('.DOCX')) memoriaLink = result.link;
             else if (name.includes('BORRADOR_CERTIFICADO')) borradorLink = result.link;
-            else if (name.includes('GUIA_JE6')) guiaLink = result.link;
             else if (name.includes('MEMORIA_RITE') && name.endsWith('.PDF')) memoriaPdfLink = result.link;
         }
 
@@ -3161,6 +3166,8 @@ router.post('/:id/memoria-rite/generate', enforceAuth, async (req, res) => {
         return res.json({
             cert_rite_drive_link: memoriaLink,
             memoria_rite_pdf_link: memoriaPdfLink,
+            // La guía JE6 ya no se archiva; se devuelve null y el frontend conserva
+            // el enlace anterior si el expediente lo tenía de antes.
             memoria_rite_guia_link: guiaLink,
             borrador_cert_rite_link: borradorLink
         });
