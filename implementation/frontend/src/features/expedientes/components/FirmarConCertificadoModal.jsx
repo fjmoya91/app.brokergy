@@ -23,16 +23,15 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 const AUTOSCRIPT_SRC = '/autofirma/autoscript.js';
 // Trazo de firma para la animación "Firmando…" (el ✍️ recorre esta misma ruta).
 const SIG_PATH = 'M18,58 C34,22 48,74 64,48 C78,26 92,72 108,48 C122,28 138,70 156,44 C168,30 180,52 186,42';
-// Sello de Brokergy para los documentos que firma la propia Brokergy (el cliente, el
-// instalador y el Sujeto Obligado firman con `rubricImageUrl={null}`, solo el texto de
-// su certificado). Es el logo CALADO sobre la firma manuscrita de Francisco Javier Moya.
+// Sello de Brokergy para los documentos que firma la propia Brokergy: SOLO el logo (el
+// cliente, el instalador y el Sujeto Obligado firman con `rubricImageUrl={null}`, es
+// decir, únicamente el texto de su certificado).
 //
-// Va incrustada la firma manuscrita a propósito: Autofirma reconvierte la rúbrica a JPEG
-// y descarta el canal alfa (comprobado — acaba en el PDF como /DCTDecode sin /SMask), de
-// modo que el recuadro SIEMPRE queda opaco. Como no se puede ver a través de él, el sello
-// reproduce lo que tapa. En el Anexo de Cesión cae justo encima de la firma que la
-// plantilla ya imprime, y el resultado se ve como si el logo fuese transparente.
-const DEFAULT_RUBRIC_IMAGE_URL = '/firma-brokergy-sello.png';
+// NO metas aquí la firma manuscrita: se probó y queda un garabato a boli detrás del
+// logo, porque Autofirma reconvierte la rúbrica a JPEG y descarta el canal alfa
+// (acaba en el PDF como /DCTDecode sin /SMask), así que el recuadro siempre es opaco
+// y no hay forma de que se vea la firma impresa de la plantilla a través de él.
+const DEFAULT_RUBRIC_IMAGE_URL = '/logo-brokergy-circular-transparent.png';
 const INSTALL_URL = 'https://firmaelectronica.gob.es/Home/Descargas.html';
 
 // Carga autoscript.js una sola vez y resuelve cuando window.AutoScript existe.
