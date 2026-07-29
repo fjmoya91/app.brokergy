@@ -1303,12 +1303,12 @@ const DOCUMENTO_VALIDABLE_LABELS = {
     facturas_combined_link: 'FACTURAS',
 };
 
-// Documentos que, al firmarse con certificado, quedan VALIDADOS automáticamente
-// (verde) y se copian a la carpeta de auditoría "10. EXPEDIENTE CAE" en el mismo
-// paso — no necesitan un click de validación aparte. El Anexo Fotográfico lo firma
-// internamente Brokergy/instalador, así que la firma ya es su validación final.
-// El Anexo de Cesión entra aquí porque la contrafirma de Brokergy es el último
-// paso del documento: si lo firmamos nosotros es que ya lo hemos dado por bueno.
+
+// Los dos únicos documentos que firma Brokergy con su certificado. Al firmarlos
+// quedan VALIDADOS automáticamente (verde) y se copian a "10. EXPEDIENTE CAE" — no
+// necesitan un click de validación aparte, porque si los firmamos nosotros es que ya
+// los hemos dado por buenos. Del resto no somos firmantes: se revisan y se validan a
+// mano. Mismo conjunto que FIRMABLES_CON_CERTIFICADO en el DocumentacionModule.
 const AUTO_VALIDATE_ON_SIGN = new Set(['anexo_fotografico_signed_link', 'anexo_cesion_signed_link']);
 
 function extractDriveFileId(link) {
@@ -1519,8 +1519,8 @@ router.post('/:id/documentos/firmar-subir', enforceAuth, async (req, res) => {
         // la firma de Brokergy como completada.
         if (field === 'anexo_cesion_signed_link') newDoc.cesion_firmado_brokergy = true;
 
-        // Auto-validación (verde) + copia a auditoría "10. EXPEDIENTE CAE" para los
-        // documentos que la firma da por validados directamente (Anexo Fotográfico).
+        // Auto-validación (verde) + copia a auditoría "10. EXPEDIENTE CAE" en el mismo
+        // paso, igual que /documentos/validar.
         let auditLink = null;
         const autoValidated = AUTO_VALIDATE_ON_SIGN.has(field);
         if (autoValidated) {

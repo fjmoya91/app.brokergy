@@ -18,6 +18,25 @@ import { SIGN_BOXES } from '../logic/signBoxes';
 import { calcCifo } from '../logic/calcCifo';
 import { readAnnexPrefs, orderAttachments } from '../logic/annexPrefs';
 
+// Cada documento firmado vive en su subcarpeta de Drive: el RITE en
+// "7. LEGALIZACION RITE", las facturas en "5. FACTURAS" y el resto en "6. ANEXOS CAE".
+// Lo usan tanto la subida manual como la firma con certificado, para que un documento
+// firmado desde la app no acabe en otra carpeta distinta de la suya.
+const SIGNED_SUBFOLDER_DEFAULT = '6. ANEXOS CAE';
+const SIGNED_SUBFOLDER = {
+    cert_rite_signed_link: '7. LEGALIZACION RITE',
+    facturas_combined_link: '5. FACTURAS',
+};
+
+// Los ÚNICOS dos documentos que firma Brokergy con su certificado: el Acuerdo de
+// Cesión (como Cesionario) y el Anexo Fotográfico. Al firmarlos quedan validados
+// automáticamente — ver AUTO_VALIDATE_ON_SIGN en backend/routes/expedientes.js.
+// Del resto no somos firmantes: se revisan y se validan a mano, sin firma nuestra.
+const FIRMABLES_CON_CERTIFICADO = new Set([
+    'anexo_cesion_signed_link',
+    'anexo_fotografico_signed_link',
+]);
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 // Convierte un ArrayBuffer a base64 POR TROZOS. Evita el "Maximum call stack size
 // exceeded" de `String.fromCharCode(...array)` con ficheros grandes (PDFs).
@@ -1049,6 +1068,13 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
     // a "10. EXPEDIENTE CAE").
     const isValidated = (field) => !!local.docs_validados?.[field];
 
+    // Cesión firmada por el cliente a la que aún le falta nuestra contrafirma: el visor
+    // ofrece ahí la firma como acción PRINCIPAL en el pie (no se puede validar hasta
+    // firmarla), así que en ese caso el botón de la cabecera se oculta para no repetirlo.
+    const cesionPendienteContrafirma = !!managingSigned
+        && managingSigned.field === 'anexo_cesion_signed_link'
+        && !local.cesion_firmado_brokergy;
+
     // Validar un documento firmado NO es solo marcarlo verde: el backend copia el
     // fichero a la carpeta de auditoría "10. EXPEDIENTE CAE" (dejando el original en
     // su carpeta habitual) para que toda la documentación validada del CAE quede
@@ -1071,12 +1097,13 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
         }
     };
 
-    // ── Contrafirma de Brokergy con certificado (Autofirma) ───────────────────
-    // Cuando el cliente firma electrónicamente el Anexo de Cesión falta nuestra
-    // firma. En vez de descargar → firmar con Adobe → volver a subir, se descarga
-    // el PDF que hay en Drive, se firma con el certificado desde el navegador y el
-    // backend lo sube (archivando el anterior en OLD), marca la firma de Brokergy
-    // y lo deja validado (verde).
+    // ── Firma de Brokergy con certificado (Autofirma) ─────────────────────────
+    // Vale para CUALQUIER documento firmado que haya en Drive, no solo para la
+    // contrafirma del Anexo de Cesión: es habitual que el cliente suba el documento
+    // desde su enlace, o que se arrastre aquí, y aún falte nuestra firma. En vez de
+    // descargar → firmar con Adobe → volver a subir, se descarga el PDF que hay en
+    // Drive, se firma con el certificado desde el navegador y el backend lo sube
+    // (archivando el anterior en OLD) y lo deja validado (verde).
     const openFirmarConCertificado = async (field, label) => {
         setSignBusy(true);
         try {
@@ -1109,7 +1136,7 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                 field: signCtx.field,
                 signedPdfBase64: signedB64,
                 fileName: signCtx.fileName,
-                subfolderName: '6. ANEXOS CAE',
+                subfolderName: SIGNED_SUBFOLDER[signCtx.field] || SIGNED_SUBFOLDER_DEFAULT,
             });
             setSignCtx(null); setSignPdfB64(null);
             // El backend ya persistió enlace + firma de Brokergy + validado: aquí solo
@@ -1229,13 +1256,6 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
             facturas_combined_link: 'Facturas'
         };
 
-        // Cada documento firmado va a su subcarpeta de Drive. El RITE vive en
-        // "7. LEGALIZACION RITE"; las facturas en "5. FACTURAS"; el resto en "6. ANEXOS CAE".
-        const signedSubfolders = {
-            cert_rite_signed_link: ["7. LEGALIZACION RITE"],
-            facturas_combined_link: ["5. FACTURAS"]
-        };
-
         const baseName = displayNames[field] || field.replace(/_/g, ' ').toUpperCase();
         const fileName = `${expediente.numero_expediente} - ${baseName}_fdo.pdf`;
 
@@ -1248,7 +1268,7 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                     base64,
                     fileName,
                     mimeType: file.type,
-                    subfolders: signedSubfolders[field] || ["6. ANEXOS CAE"]
+                    subfolders: [SIGNED_SUBFOLDER[field] || SIGNED_SUBFOLDER_DEFAULT]
                 });
                 if (data.drive_link) {
                     setLocal(prev => {
@@ -2260,11 +2280,28 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                                 <h3 className="text-lg font-black text-white uppercase tracking-[0.2em]">{managingSigned.label}</h3>
                                 <p className="text-[10px] text-brand font-black uppercase tracking-[0.3em] mt-1.5 opacity-60">Gestión de Documento Firmado</p>
                             </div>
-                            <button onClick={() => setManagingSigned(null)} className="w-10 h-10 flex items-center justify-center hover:bg-white/5 rounded-2xl transition-all border border-transparent hover:border-white/10">
-                                <svg className="w-6 h-6 text-white/40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                </svg>
-                            </button>
+                            <div className="flex items-center gap-2">
+                                {/* Firmar con certificado: disponible para cualquier documento
+                                    firmado, porque es habitual que el cliente lo suba desde su
+                                    enlace (o que se arrastre aquí) y falte todavía la firma de
+                                    Brokergy. Firma, sube y valida en un paso. */}
+                                {FIRMABLES_CON_CERTIFICADO.has(managingSigned.field) && !cesionPendienteContrafirma && (
+                                    <button
+                                        onClick={() => openFirmarConCertificado(managingSigned.field, managingSigned.label)}
+                                        disabled={signBusy}
+                                        title={`Firmar ${managingSigned.label} con certificado`}
+                                        className="inline-flex items-center gap-2 px-4 h-10 rounded-2xl bg-brand/15 border border-brand/40 text-brand text-[10px] font-black uppercase tracking-[0.15em] hover:bg-brand hover:text-bkg-deep transition-all active:scale-[0.98] shadow-lg shadow-brand/10 disabled:opacity-40"
+                                    >
+                                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                                        {signBusy ? 'Preparando…' : 'Firmar'}
+                                    </button>
+                                )}
+                                <button onClick={() => setManagingSigned(null)} className="w-10 h-10 flex items-center justify-center hover:bg-white/5 rounded-2xl transition-all border border-transparent hover:border-white/10">
+                                    <svg className="w-6 h-6 text-white/40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                    </svg>
+                                </button>
+                            </div>
                         </div>
                         
                         {/* Visor */}
