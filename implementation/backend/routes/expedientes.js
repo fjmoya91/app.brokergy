@@ -2322,6 +2322,17 @@ router.put('/:id', enforceAuth, async (req, res) => {
             });
         }
 
+        // ── Instalación → apartados de foto (emisor) ─────────────────────────
+        // Mismo mecanismo: marcar SUELO RADIANTE en Instalación habilita el
+        // apartado del armario de colectores en el gestor de fotos. Solo añade.
+        if (instalacion !== undefined && existing.oportunidad_id) {
+            setImmediate(() => {
+                reformaUploadService
+                    .syncInstalacionConcepts(existing.oportunidad_id, data.instalacion)
+                    .catch(e => console.warn('[Instalacion] sync apartados:', e.message));
+            });
+        }
+
         // ── Notificaciones admin con enlace one-tap (fire-and-forget post-save) ──
         if (_notifyAdminCeeInicial) {
             const { token, expId, exp: capturedExp } = _notifyAdminCeeInicial;

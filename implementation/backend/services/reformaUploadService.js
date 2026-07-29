@@ -139,6 +139,7 @@ const ADDABLE_CONCEPTS = [
     { id: 'suelo',    label: 'Suelo (antes y después)', slots: ['FOTO_SUELO_ANTES', 'FOTO_SUELO_DESPUES'] },
     { id: 'acs',      label: 'ACS: sistema actual + depósito', slots: ['FOTO_ACS_ANTES', 'FOTO_ACS_DEPOSITO'] },
     { id: 'placas',   label: 'Placas solares (después)', slots: ['FOTO_PLACAS_SOLARES'] },
+    { id: 'suelo_radiante', label: 'Armario del suelo radiante (después)', slots: ['FOTO_ARMARIO_SUELO_RADIANTE'] },
 ];
 const ADDABLE_SLOT_KEYS = new Set(ADDABLE_CONCEPTS.flatMap(c => c.slots));
 
@@ -174,6 +175,19 @@ function conceptsFromEnvolvente(envolvente) {
 }
 
 /**
+ * Ids de ADDABLE_CONCEPTS que declara la pestaña INSTALACIÓN del expediente.
+ * Hoy solo el emisor: con suelo radiante hay armario de colectores, y esa foto
+ * (circuitos + conexión con la bomba de calor) no la cubre ningún otro apartado.
+ * El tipo de emisor lo fija el admin en Instalación, así que un expediente puede
+ * pasar a suelo radiante después de la simulación.
+ */
+function conceptsFromInstalacion(instalacion) {
+    const inst = instalacion || {};
+    const emisor = String(inst.tipo_emisor || '').toLowerCase();
+    return emisor === 'suelo_radiante' ? ['suelo_radiante'] : [];
+}
+
+/**
  * Habilita en `datos_calculo.docs_overrides` los apartados de foto que declara
  * la Envolvente del expediente. Idempotente y seguro de llamar en cada guardado
  * o antes de generar el anexo (auto-reparación de expedientes migrados).
@@ -181,11 +195,24 @@ function conceptsFromEnvolvente(envolvente) {
  * @returns {Promise<string[]>} slots recién habilitados (vacío si no había nada que hacer)
  */
 async function syncEnvolventeConcepts(oportunidadUuid, envolvente, datosCalculo = null) {
+    return enableConcepts(oportunidadUuid, conceptsFromEnvolvente(envolvente), datosCalculo);
+}
+
+/**
+ * Igual que `syncEnvolventeConcepts` pero para lo que declara la pestaña
+ * Instalación (emisor). Solo añade: cambiar el emisor a radiadores no borra un
+ * apartado que ya tenga fotos — para quitarlo está "Añadir apartado de obra".
+ */
+async function syncInstalacionConcepts(oportunidadUuid, instalacion, datosCalculo = null) {
+    return enableConcepts(oportunidadUuid, conceptsFromInstalacion(instalacion), datosCalculo);
+}
+
+/** Núcleo común: habilita los slots de esos conceptos que el checklist aún no ofrece. */
+async function enableConcepts(oportunidadUuid, conceptIds, datosCalculo = null) {
     if (!oportunidadUuid) return [];
-    const conceptIds = conceptsFromEnvolvente(envolvente);
     if (!conceptIds.length) return [];
 
-    // Slots que la envolvente pide y que el checklist actual NO ofrece todavía.
+    // Slots que el concepto pide y que el checklist actual NO ofrece todavía.
     let dc = datosCalculo;
     if (!dc) {
         const { data } = await supabase.from('oportunidades').select('datos_calculo').eq('id', oportunidadUuid).maybeSingle();
@@ -201,10 +228,10 @@ async function syncEnvolventeConcepts(oportunidadUuid, envolvente, datosCalculo 
     const hechos = [];
     for (const slot of pendientes) {
         const { error } = await supabase.rpc('set_doc_concept_enabled', { p_id: oportunidadUuid, p_slot: slot, p_enabled: true });
-        if (error) { console.warn('[Docs] syncEnvolventeConcepts:', slot, error.message); continue; }
+        if (error) { console.warn('[Docs] enableConcepts:', slot, error.message); continue; }
         hechos.push(slot);
     }
-    if (hechos.length) console.log(`[Docs] Envolvente → apartados habilitados: ${hechos.join(', ')}`);
+    if (hechos.length) console.log(`[Docs] Apartados habilitados (${conceptIds.join(', ')}): ${hechos.join(', ')}`);
     return hechos;
 }
 
@@ -243,6 +270,14 @@ function deriveSelectors(datosCalculo = {}) {
     };
     const changeAcs = inputs.changeAcs !== undefined ? !!inputs.changeAcs : !!funnel.incluir_acs;
 
+    // Emisor: el suelo radiante tiene ARMARIO DE COLECTORES, y esa foto (circuitos,
+    // válvulas y conexión con la bomba de calor) no la cubre ningún otro apartado.
+    // Si el expediente lo declara más tarde en la pestaña Instalación, llega por
+    // docs_overrides (syncInstalacionConcepts), no por aquí.
+    const sueloRadiante = inputs.emitterType !== undefined
+        ? inputs.emitterType === 'suelo_radiante'
+        : funnel.emisor_tipo === 'suelo_radiante';
+
     // ¿Hay caldera de combustión que se va a sustituir?
     const fuel = String(inputs.fuelType || '').toLowerCase();
     const heating = String(inputs.boilerHeatingType || '');
@@ -262,7 +297,7 @@ function deriveSelectors(datosCalculo = {}) {
     // desmontada" del DESPUÉS por "depósito de ACS junto a la caldera antigua".
     const hibridacion = inputs.hibridacion === true || datosCalculo.hibridacion === true;
 
-    return { reforma, changeAcs, hayCaldera, hibridacion };
+    return { reforma, changeAcs, hayCaldera, hibridacion, sueloRadiante };
 }
 
 /**
@@ -330,6 +365,8 @@ function buildDocChecklist(datosCalculo = {}) {
            label: 'Unidad interior / ACS', help: 'La unidad de dentro (split, hidrokit o depósito) ya instalada.' });
     push({ key: 'FOTO_UNIDAD_INTERIOR_PLACA', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO,
            label: 'Placa de la unidad interior / DEPOSITO ACS', help: 'La etiqueta de datos de la unidad de dentro o del depósito de agua caliente. Que se lean marca, modelo y número de serie.' });
+    if (want('FOTO_ARMARIO_SUELO_RADIANTE', sel.sueloRadiante)) push({ key: 'FOTO_ARMARIO_SUELO_RADIANTE', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO,
+           label: 'Armario del suelo radiante (colectores)', help: 'El armario de colectores abierto: que se vean los circuitos, las válvulas y la conexión con el equipo nuevo.' });
     if (want('FOTO_ACS_DEPOSITO', sel.changeAcs)) push({ key: 'FOTO_ACS_DEPOSITO', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO,
            label: 'Depósito de ACS / inercia', help: 'El depósito del agua caliente ya instalado. Incluye una foto donde se vea su etiqueta de datos.' });
     push({ key: 'FOTO_CALDERA_DESMONTADA', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO,
@@ -952,6 +989,8 @@ module.exports = {
     buildDocsView,
     conceptsFromEnvolvente,
     syncEnvolventeConcepts,
+    conceptsFromInstalacion,
+    syncInstalacionConcepts,
     syncRiteToExpediente,
     addFacturaToExpediente,
     removeFacturaFromExpediente,
