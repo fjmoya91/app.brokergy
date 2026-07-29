@@ -1293,15 +1293,9 @@ router.post('/:id/documentos/rechazar', enforceAuth, async (req, res) => {
 // 7. LEGALIZACION RITE). Así toda la documentación validada del CAE queda reunida
 // en un único sitio listo para auditoría posterior.
 // Body: { field }
-const DOCUMENTO_VALIDABLE_LABELS = {
-    anexo_i_signed_link: 'Anexo I',
-    anexo_cesion_signed_link: 'Anexo Cesión de Ahorro',
-    cert_cifo_signed_link: 'Certificado CIFO',
-    ficha_res060_signed_link: 'Ficha RES',
-    anexo_fotografico_signed_link: 'Anexo Fotográfico',
-    cert_rite_signed_link: 'Certificado RITE',
-    facturas_combined_link: 'FACTURAS',
-};
+// Etiquetas (nombre del fichero en "10. EXPEDIENTE CAE") y helpers de invalidación:
+// fuente única en utils/docValidacion.js, compartida con las subidas públicas.
+const { DOCUMENTO_VALIDABLE_LABELS, invalidarValidacionDocs } = require('../utils/docValidacion');
 
 
 // Los dos únicos documentos que firma Brokergy con su certificado. Al firmarlos
@@ -1352,8 +1346,15 @@ router.post('/:id/documentos/validar', enforceAuth, async (req, res) => {
                 const auditFolderId = await driveService.getOrCreateSubfolderNormalized(driveFolderId, '10. EXPEDIENTE CAE');
                 const baseName = DOCUMENTO_VALIDABLE_LABELS[field] || field.replace(/_/g, ' ');
                 const copyName = `${exp.numero_expediente || ''} - ${baseName}.pdf`.trim();
+                // Re-validación (versión nueva del documento): la copia anterior NO se
+                // borra, se archiva en "OLD" como {nombre}_OLD, _OLD1… — igual que
+                // /documentos/validar-cee. Si el archivado falla, se borra para no dejar
+                // dos ficheros homónimos en la carpeta de auditoría.
                 const prevId = await driveService.findFileByName(auditFolderId, copyName);
-                if (prevId) await driveService.deleteFile(prevId);
+                if (prevId) {
+                    const archived = await driveService.archiveExistingToOld(auditFolderId, prevId, copyName);
+                    if (!archived) await driveService.deleteFile(prevId);
+                }
                 const copied = await driveService.copyFile(fileId, auditFolderId, copyName);
                 if (copied?.link) auditLink = copied.link;
             }
@@ -1510,11 +1511,15 @@ router.post('/:id/documentos/firmar-subir', enforceAuth, async (req, res) => {
         const saved = await driveService.saveFileToFolder(targetFolderId, safeName, 'application/pdf', pdfBuffer);
         if (!saved?.link) throw new Error('No se pudo guardar el PDF firmado en Drive');
 
-        // Marca el campo firmado y limpia un posible rechazo previo del mismo doc.
+        // Marca el campo firmado y anula la validación/rechazo previos: el fichero es
+        // otro, así que el slot vuelve a ámbar (pendiente de revisar) salvo que lo
+        // firmemos nosotros (AUTO_VALIDATE_ON_SIGN, más abajo).
         const docObj = exp.documentacion || {};
-        const docsRechazados = { ...(docObj.docs_rechazados || {}) };
-        delete docsRechazados[field];
-        const newDoc = { ...docObj, [field]: saved.link, docs_rechazados: docsRechazados };
+        const newDoc = invalidarValidacionDocs(
+            { ...docObj, [field]: saved.link },
+            field,
+            { usuario: req.user?.rol_nombre === 'ADMIN' ? 'ADMINISTRADOR' : (req.user?.acronimo || req.user?.razon_social || 'SISTEMA'), origen: 'firmada con certificado' }
+        );
         // Si Brokergy firma el Anexo de Cesión (contrafirma tras el cliente), marcar
         // la firma de Brokergy como completada.
         if (field === 'anexo_cesion_signed_link') newDoc.cesion_firmado_brokergy = true;
@@ -1524,13 +1529,20 @@ router.post('/:id/documentos/firmar-subir', enforceAuth, async (req, res) => {
         let auditLink = null;
         const autoValidated = AUTO_VALIDATE_ON_SIGN.has(field);
         if (autoValidated) {
-            newDoc.docs_validados = { ...(docObj.docs_validados || {}), [field]: new Date().toISOString() };
+            newDoc.docs_validados = { ...(newDoc.docs_validados || {}), [field]: new Date().toISOString() };
             try {
                 const auditFolderId = await driveService.getOrCreateSubfolderNormalized(driveFolderId, '10. EXPEDIENTE CAE');
                 const baseLabel = DOCUMENTO_VALIDABLE_LABELS[field] || field.replace(/_/g, ' ');
                 const copyName = `${exp.numero_expediente || ''} - ${baseLabel}.pdf`.trim();
+                // La copia anterior se archiva en OLD (no se pierde la versión validada
+                // previa), y la nueva la sustituye — igual que /documentos/validar.
                 const prevAudit = await driveService.findFileByName(auditFolderId, copyName);
-                if (prevAudit) { try { await driveService.deleteFile(prevAudit); } catch (_) {} }
+                if (prevAudit) {
+                    try {
+                        const archived = await driveService.archiveExistingToOld(auditFolderId, prevAudit, copyName);
+                        if (!archived) await driveService.deleteFile(prevAudit);
+                    } catch (_) { try { await driveService.deleteFile(prevAudit); } catch (__) {} }
+                }
                 const copied = await driveService.copyFile(saved.id, auditFolderId, copyName);
                 if (copied?.link) auditLink = copied.link;
             } catch (copyErr) {

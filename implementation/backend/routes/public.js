@@ -9,6 +9,8 @@ const reformaUploadService = require('../services/reformaUploadService');
 const ceeUploadService = require('../services/ceeUploadService');
 const anexoFotograficoService = require('../services/anexoFotograficoService');
 const { buildCertClienteData } = require('../services/certClienteData');
+// Una versión NUEVA de un documento ya validado lo devuelve a "pendiente de revisar".
+const { invalidarValidacionDocs, invalidarValidacionCee } = require('../utils/docValidacion');
 const { requireAuth, isStaff } = require('../middleware/auth');
 const axios = require('axios');
 const multer = require('multer');
@@ -1088,7 +1090,10 @@ router.post('/cee-upload/:expedienteId/:slot', uploadDocsSingle, async (req, res
         const ceeFiles = cee.cee_files || {};
         ceeFiles[sectionK] = { ...(ceeFiles[sectionK] || {}), [slot]: uploaded.link };
         cee.cee_files = ceeFiles;
-        await supabase.from('expedientes').update({ cee, updated_at: new Date().toISOString() }).eq('id', expedienteId);
+        // Fichero nuevo ⇒ la validación anterior del slot ya no vale (igual que al
+        // subirlo desde la app en CeeDocumentsGrid): vuelve a ámbar.
+        const ceeActualizado = invalidarValidacionCee(cee, sectionK, slot);
+        await supabase.from('expedientes').update({ cee: ceeActualizado, updated_at: new Date().toISOString() }).eq('id', expedienteId);
 
         // Al subir el REGISTRO → misma notificación/transición que la app.
         let registrado = false;
@@ -1495,10 +1500,15 @@ router.post('/cifo-upload/:expedienteId', upload.single('cifo'), async (req, res
         const driveFile = await driveService.saveFileToFolder(subfolderId, fileName, req.file.mimetype, req.file.buffer);
         const fileLink = driveFile?.link || null;
 
-        // Guardar link + versión (mismo campo cert_cifo_signed_link que usa DocumentacionModule)
-        await supabase.from('expedientes').update({
-            documentacion: { ...currentDoc, cert_cifo_signed_link: fileLink, cert_cifo_rev: rev }
-        }).eq('id', expedienteId);
+        // Guardar link + versión (mismo campo cert_cifo_signed_link que usa DocumentacionModule).
+        // Si el CIFO anterior ya estaba validado (verde), esta versión nueva lo devuelve
+        // a ámbar: hay que revisarla y validarla para que sustituya a la de auditoría.
+        const docActualizado = invalidarValidacionDocs(
+            { ...currentDoc, cert_cifo_signed_link: fileLink, cert_cifo_rev: rev },
+            'cert_cifo_signed_link',
+            { usuario: instaladorNombre !== '—' ? instaladorNombre : 'INSTALADOR', origen: 'subida por el instalador' }
+        );
+        await supabase.from('expedientes').update({ documentacion: docActualizado }).eq('id', expedienteId);
 
         res.json({ success: true, fileLink, rev });
 
@@ -1604,21 +1614,30 @@ router.post('/rite-upload/:expedienteId',
                 return driveService.saveFileToFolder(subfolderId, name, mime, buffer);
             };
 
-            const docUpdate = { ...(exp.documentacion || {}) };
+            let docUpdate = { ...(exp.documentacion || {}) };
+            const camposSubidos = [];
             let memoriaLink = null;
             let certLink = null;
             if (memFile) {
                 const r = await saveReplacing(`${numexpte} - Memoria RITE_fdo.pdf`, memFile.mimetype, memFile.buffer);
                 memoriaLink = r?.link || null;
                 docUpdate.cert_rite_signed_link = memoriaLink;
+                camposSubidos.push('cert_rite_signed_link');
                 if (r?.id) try { await driveService.setFolderPublic(r.id, 'reader'); } catch (e) {}
             }
             if (certFile) {
                 const r = await saveReplacing(`${numexpte} - Certificado RITE.pdf`, certFile.mimetype, certFile.buffer);
                 certLink = r?.link || null;
                 docUpdate.cert_rite_drive_link = certLink;   // → slot "Certificado RITE" (validación del agente)
+                camposSubidos.push('cert_rite_drive_link');
                 if (r?.id) try { await driveService.setFolderPublic(r.id, 'reader'); } catch (e) {}
             }
+
+            // Versión nueva ⇒ el slot vuelve a ámbar aunque ya estuviera validado.
+            docUpdate = invalidarValidacionDocs(docUpdate, camposSubidos, {
+                usuario: instaladorNombre !== '—' ? instaladorNombre : 'INSTALADOR',
+                origen: 'subida por el instalador',
+            });
 
             await supabase.from('expedientes').update({ documentacion: docUpdate }).eq('id', expedienteId);
 
@@ -1899,14 +1918,15 @@ router.post('/anexos-upload/:expedienteId',
                 return r;
             };
 
-            const docUpdate = { ...(exp.documentacion || {}) };
+            let docUpdate = { ...(exp.documentacion || {}) };
             const recibido = [];
+            const camposSubidos = [];
 
             // Anexo I firmado
             if (anexoIFile) {
                 const buf = await toPdfBuffer(anexoIFile);
                 const r = await saveReplacing(`${numexpte} - Anexo I_fdo.pdf`, buf);
-                if (r?.link) { docUpdate.anexo_i_signed_link = r.link; recibido.push('Anexo I firmado'); }
+                if (r?.link) { docUpdate.anexo_i_signed_link = r.link; camposSubidos.push('anexo_i_signed_link'); recibido.push('Anexo I firmado'); }
             }
 
             // DNI (delantera + trasera) → UNA sola página (delante arriba, detrás abajo).
@@ -1952,6 +1972,7 @@ router.post('/anexos-upload/:expedienteId',
                 const r = await saveReplacing(`${numexpte} - Anexo Cesión ahorro_fdo.pdf`, cesionPdf);
                 if (r?.link) {
                     docUpdate.anexo_cesion_signed_link = r.link;
+                    camposSubidos.push('anexo_cesion_signed_link');
                     // Firma electrónica: el cliente firma primero, falta la contrafirma de
                     // Brokergy (segunda firma digital) antes de poder validar/auditar.
                     // Firma manuscrita: el PDF escaneado ya lleva ambas firmas físicas (más el
@@ -1960,6 +1981,13 @@ router.post('/anexos-upload/:expedienteId',
                     recibido.push(cesionFirma === 'manuscrita' ? 'Anexo de Cesión firmado (con DNI anexado)' : 'Anexo de Cesión firmado (firma electrónica)');
                 }
             }
+
+            // Re-firma (p. ej. tras un requerimiento): el slot vuelve a ámbar aunque el
+            // anexo anterior estuviera validado, para que se revise la versión nueva.
+            docUpdate = invalidarValidacionDocs(docUpdate, camposSubidos, {
+                usuario: 'CLIENTE',
+                origen: 'firmado por el cliente',
+            });
 
             await supabase.from('expedientes').update({ documentacion: docUpdate }).eq('id', expedienteId);
 

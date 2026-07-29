@@ -22,6 +22,8 @@ const CLAVES_PROTEGIDAS = [
     'anexo_orden',
 ];
 
+const { DOCUMENTO_VALIDABLE_LABELS, invalidarValidacionDocs } = require('./docValidacion');
+
 function mergeDocumentacion(existingDoc, payloadDoc) {
     const existing = existingDoc || {};
     if (payloadDoc === undefined) return existing;
@@ -30,7 +32,16 @@ function mergeDocumentacion(existingDoc, payloadDoc) {
     for (const k of CLAVES_PROTEGIDAS) {
         if (k in existing) merged[k] = existing[k];
     }
-    return merged;
+
+    // Red de seguridad: si el enlace de un documento validable CAMBIA en este
+    // guardado (fichero nuevo) pero el payload sigue trayendo su validación previa,
+    // el slot volvería a verde con un PDF que nadie ha revisado. Se invalida aquí,
+    // pase por donde pase la escritura (app, MCP, skills).
+    const cambiados = Object.keys(DOCUMENTO_VALIDABLE_LABELS)
+        .filter(campo => merged[campo] && existing[campo] && merged[campo] !== existing[campo]);
+    return cambiados.length
+        ? invalidarValidacionDocs(merged, cambiados, { origen: 'versión nueva del documento' })
+        : merged;
 }
 
 module.exports = { mergeDocumentacion, CLAVES_PROTEGIDAS };

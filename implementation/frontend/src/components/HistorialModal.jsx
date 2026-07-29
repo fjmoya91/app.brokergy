@@ -18,6 +18,8 @@ const COMM_TIPO_LABELS = {
     notificacion_tecnica: '← Revisión solicitada (técnico)',
     aprobacion_tecnica: '→ Visto bueno de Brokergy',
     solicitud_docs: '→ Solicitud de documentación',
+    rechazo_doc: '✕ Documento rechazado',
+    doc_nueva_version: '↺ Versión nueva de un documento',
     informativo: 'Informativo',
 };
 const normTipo = (t) => (typeof t === 'string' ? t.toLowerCase() : t);
