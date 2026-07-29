@@ -884,7 +884,6 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
 
     // El modal hace todo (descargar / Drive / email / WhatsApp). El botón de la
     // fila solo valida y abre el modal.
-    const abrirBorradorModal = () => setShowEnviarBorrador(true);
 
     // ── Sexo del titular (Hombre/Mujer) para la Memoria RITE ──────────────────
     // Antes de abrir el modal de generación se pregunta el sexo del titular. La
@@ -2252,10 +2251,13 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                                             </button>
                                         </div>
 
-                                        {/* 2. ENVIADO (abre modal de envío) */}
+                                        {/* 2. ENVIADO (abre modal de envío). Pasa por la MISMA cadena que
+                                            "Generar": el modal regenera los documentos al vuelo, así que
+                                            entrar por aquí sin validar producía RITEs con huecos (p. ej.
+                                            sin la potencia de ACS) sin avisar de nada. */}
                                         <div className="w-11 flex justify-center">
                                             <button
-                                                onClick={() => setShowEnviarBorrador(true)}
+                                                onClick={() => handleGenerateClick('memoria_rite', 'Memoria + Borrador RITE', abrirSexoThenBorrador)}
                                                 title={local.borrador_cert_sent_at ? `Enviado el ${new Date(local.borrador_cert_sent_at).toLocaleDateString()}` : 'Enviar al instalador'}
                                                 className={`w-11 h-11 rounded-2xl border flex items-center justify-center transition-all ${
                                                     local.borrador_cert_sent_at
