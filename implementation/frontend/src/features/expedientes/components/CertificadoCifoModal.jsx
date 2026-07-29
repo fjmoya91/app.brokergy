@@ -75,6 +75,7 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
     const [loadingFichas, setLoadingFichas] = useState({ cal: false, acs: false });
     const [resyncingType, setResyncingType] = useState(null);
     const [uploadingExtra, setUploadingExtra] = useState(false);
+    const [extraProgress, setExtraProgress] = useState({ done: 0, total: 0 });
     const [draggedId, setDraggedId] = useState(null);
     const [isGlobalDragging, setIsGlobalDragging] = useState(false);
 
@@ -296,6 +297,46 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
         } finally {
             setUploadingExtra(false);
         }
+    };
+
+    // Sube VARIOS anexos extra de una tacada (arrastre múltiple o selección
+    // múltiple en el explorador). En SERIE: cada subida persiste la lista de
+    // anexos del expediente, dos a la vez se pisarían.
+    const handleManualExtraUploads = async (fileList) => {
+        const files = Array.from(fileList || []);
+        if (files.length === 0) return;
+        for (let i = 0; i < files.length; i++) {
+            setExtraProgress({ done: i, total: files.length });
+            await handleManualExtraUpload(files[i]);
+        }
+        setExtraProgress({ done: 0, total: 0 });
+    };
+
+    const openExtraFilePicker = () => {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.pdf';
+        input.multiple = true;
+        input.onchange = (e) => handleManualExtraUploads(e.target.files);
+        input.click();
+    };
+
+    // Con varios ficheros en cola, `uploadingExtra` baja a false entre uno y otro:
+    // esto mantiene el estado "subiendo" durante toda la tanda.
+    const bulkUploading = uploadingExtra || extraProgress.total > 0;
+
+    // ¿El arrastre trae ficheros del sistema? Si no, es un reordenado interno
+    // de la lista y el cuadro no debe reaccionar como zona de subida.
+    const dragHasFiles = (e) => Array.from(e.dataTransfer?.types || []).includes('Files');
+
+    // Soltar en CUALQUIER punto del cuadro de anexos = anexar los ficheros.
+    const handleBoxDragOver = (e) => { if (!dragHasFiles(e)) return; e.preventDefault(); setIsGlobalDragging(true); };
+    const handleBoxDragLeave = (e) => { if (e.currentTarget.contains(e.relatedTarget)) return; setIsGlobalDragging(false); };
+    const handleBoxDrop = (e) => {
+        if (!dragHasFiles(e)) return;
+        e.preventDefault();
+        setIsGlobalDragging(false);
+        handleManualExtraUploads(e.dataTransfer.files);
     };
 
     const arrayBufferToBase64 = (arrayBuffer) => {
@@ -636,9 +677,25 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
     };
 
     const AnexosModal = () => (
-        <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/95 backdrop-blur-xl" onClick={() => setIsAnexosOpen(false)}>
-            <div className="bg-[#16181D] border border-white/10 rounded-3xl w-full max-w-2xl overflow-hidden shadow-[0_30px_60px_-15px_rgba(0,0,0,0.5)]"
-                 onClick={e => e.stopPropagation()}>
+        <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/95 backdrop-blur-xl"
+             onClick={() => setIsAnexosOpen(false)}
+             /* Soltar FUERA del cuadro no debe hacer que el navegador abra el PDF */
+             onDragOver={e => e.preventDefault()}
+             onDrop={e => e.preventDefault()}>
+            <div className={`relative bg-[#16181D] border rounded-3xl w-full max-w-2xl overflow-hidden shadow-[0_30px_60px_-15px_rgba(0,0,0,0.5)] transition-colors ${isGlobalDragging ? 'border-brand' : 'border-white/10'}`}
+                 onClick={e => e.stopPropagation()}
+                 onDragOver={handleBoxDragOver}
+                 onDragLeave={handleBoxDragLeave}
+                 onDrop={handleBoxDrop}>
+                {/* Soltar en cualquier punto del cuadro anexa: el overlay es solo
+                    visual (pointer-events-none) para no robar el drop a las filas. */}
+                {isGlobalDragging && (
+                    <div className="pointer-events-none absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-black/80 backdrop-blur-sm">
+                        <svg className="w-12 h-12 text-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
+                        <p className="text-[11px] font-black uppercase tracking-[0.2em] text-brand">Suelta aquí los PDFs</p>
+                        <p className="text-[10px] text-white/40">Puedes soltar varios a la vez</p>
+                    </div>
+                )}
                 <div className="px-8 py-5 border-b border-white/10 flex justify-between items-center bg-white/[0.02]">
                     <div className="flex items-center gap-3">
                         <div className="w-8 h-8 rounded-lg bg-brand/20 flex items-center justify-center">
@@ -651,7 +708,7 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
 
                 <div className="p-8 grid gap-4 max-h-[65vh] overflow-y-auto custom-scrollbar bg-gradient-to-b from-transparent to-black/20">
                     <p className="text-white/30 text-[10px] uppercase font-bold tracking-widest mb-2">Las fichas técnicas se concatenan al PDF automáticamente desde Drive</p>
-                    <p className="text-white/20 text-[10px] -mt-2 mb-2">Con ↑ ↓ (o arrastrando) cambias el orden en el que salen. Con el botón de páginas eliges cuáles de ese PDF se anexan. Todo queda guardado en el expediente.</p>
+                    <p className="text-white/20 text-[10px] -mt-2 mb-2">Con ↑ ↓ (o arrastrando) cambias el orden en el que salen. Con el botón de páginas eliges cuáles de ese PDF se anexan. Puedes soltar PDFs —varios a la vez— en cualquier punto de este cuadro. Todo queda guardado en el expediente.</p>
 
                     {visibleAttachments.map((item, idx) => {
                         const type = item.id === 'aerotermia_cal' ? 'cal' : item.id === 'aerotermia_acs' ? 'acs' : null;
@@ -664,15 +721,28 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
                                  draggable={!isLoading && !isResyncing}
                                  onDragStart={() => setDraggedId(item.id)}
                                  onDragEnd={() => setDraggedId(null)}
-                                 onDragOver={(e) => { e.preventDefault(); e.currentTarget.style.backgroundColor = 'rgba(242, 166, 64, 0.1)'; }}
+                                 onDragOver={(e) => {
+                                     // La fila manda sobre el cuadro: soltar sobre un slot
+                                     // fijo lo rellena a él, no lo anexa como extra.
+                                     e.preventDefault();
+                                     e.stopPropagation();
+                                     setIsGlobalDragging(false);
+                                     e.currentTarget.style.backgroundColor = 'rgba(242, 166, 64, 0.1)';
+                                 }}
                                  onDragLeave={(e) => { e.currentTarget.style.backgroundColor = ''; }}
                                  onDrop={(e) => {
                                      e.preventDefault();
+                                     e.stopPropagation();
                                      e.currentTarget.style.backgroundColor = '';
-                                     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-                                         const f = e.dataTransfer.files[0];
-                                         if (item.required) handleManualFixedUpload(item.id, f);
-                                         else handleManualExtraUpload(f);
+                                     const files = Array.from(e.dataTransfer.files || []);
+                                     if (files.length > 0) {
+                                         // En un slot fijo el primero va al slot y el resto se anexan.
+                                         if (item.required) {
+                                             handleManualFixedUpload(item.id, files[0]);
+                                             handleManualExtraUploads(files.slice(1));
+                                         } else {
+                                             handleManualExtraUploads(files);
+                                         }
                                      } else {
                                          dropAttachment(item.id);
                                      }
@@ -767,32 +837,23 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
 
                     <div className="mt-4 flex flex-col items-center gap-4">
                         <div
-                            onDragOver={e => { e.preventDefault(); setIsGlobalDragging(true); }}
-                            onDragLeave={() => setIsGlobalDragging(false)}
-                            onDrop={e => {
-                                e.preventDefault();
-                                setIsGlobalDragging(false);
-                                if (e.dataTransfer.files.length > 0) handleManualExtraUpload(e.dataTransfer.files[0]);
-                            }}
                             className={`w-full py-8 border-2 border-dashed rounded-2xl flex flex-col items-center justify-center gap-2 transition-all ${isGlobalDragging ? 'border-brand bg-brand/5 scale-[1.02]' : 'border-white/5 bg-white/[0.01]'}`}
                         >
-                            {uploadingExtra ? (
+                            {bulkUploading ? (
                                 <svg className="w-8 h-8 text-brand animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
                             ) : (
                                 <svg className={`w-8 h-8 transition-transform ${isGlobalDragging ? 'scale-110 text-brand' : 'text-white/10'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
                             )}
-                            <p className="text-[10px] font-black uppercase tracking-widest text-white/20">{uploadingExtra ? 'Subiendo…' : 'Suelta un PDF aquí para anexarlo'}</p>
+                            <p className="text-[10px] font-black uppercase tracking-widest text-white/20">
+                                {bulkUploading
+                                    ? (extraProgress.total > 1 ? `Subiendo ${extraProgress.done + 1} de ${extraProgress.total}…` : 'Subiendo…')
+                                    : 'Suelta aquí uno o varios PDFs para anexarlos'}
+                            </p>
                         </div>
 
                         <button
-                            onClick={() => {
-                                const input = document.createElement('input');
-                                input.type = 'file';
-                                input.accept = '.pdf';
-                                input.onchange = (e) => { if (e.target.files[0]) handleManualExtraUpload(e.target.files[0]); };
-                                input.click();
-                            }}
-                            disabled={uploadingExtra}
+                            onClick={openExtraFilePicker}
+                            disabled={bulkUploading}
                             className="flex items-center gap-2 px-6 py-3 bg-white/5 hover:bg-brand hover:text-black border border-white/10 hover:border-brand text-white/50 text-[10px] font-black rounded-2xl transition-all uppercase tracking-[0.2em] shadow-xl disabled:opacity-30"
                         >
                             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M12 4v16m8-8H4"/></svg>
