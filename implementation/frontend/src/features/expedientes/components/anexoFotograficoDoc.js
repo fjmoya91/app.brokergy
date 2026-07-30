@@ -79,6 +79,17 @@ export const ANEXO_ACTUACIONES = [
         antes: [],
         despues: ['FOTO_PLACAS_SOLARES'],
     },
+    {
+        // AE_CAP de la ficha TER100 (terciario). Es una actuación propia: el circuito
+        // de calentamiento de piscina se justifica aparte del de calefacción y ACS.
+        id: 'piscina',
+        titulo: 'Calentamiento de agua de piscina',
+        desc: 'Sustitución del sistema de calentamiento del agua de la piscina por una bomba de calor de accionamiento eléctrico.',
+        bandAntes: 'Antes · Sistema de calentamiento existente',
+        bandDespues: 'Después · Bomba de calor instalada',
+        antes: ['FOTO_PISCINA_ANTES'],
+        despues: ['FOTO_PISCINA_BDC'],
+    },
 ];
 
 const OTROS_ACTUACION = {

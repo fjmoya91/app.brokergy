@@ -1,6 +1,6 @@
 // ============================================================================
 // cifoService.js — Generación AUTOMÁTICA (server-side) del Certificado CIFO
-// (RES060 / RES093), para que un agente (skill de Cowork / tool MCP) o la propia
+// (RES060 / RES093 / TER100), para que un agente (skill de Cowork / tool MCP) o la propia
 // app dejen el documento en "6. ANEXOS CAE" y enlazado en su slot
 // (documentacion.cert_cifo_drive_link), listo para revisar/firmar — el MISMO
 // resultado que "Guardar en Drive" desde el modal del expediente.
@@ -22,6 +22,7 @@ const driveService = require('./driveService');
 const pdfService = require('./pdfService');
 const { getUnidades: getUnidadesAero, unidadesSinSerie, esTermoElectrico: esTermoAero } = require('../utils/aerotermiaUnits');
 const { resolveInstaladorFirmante } = require('../utils/instaladorFirmante');
+const { detectPrograma } = require('../utils/fichas');
 
 const SUBCARPETA_ANEXOS = '6. ANEXOS CAE';
 const SUBCARPETA_FT = '3. FICHAS TÉCNICAS Y CERTIFICACIONES';
@@ -62,6 +63,22 @@ function loadAnnexPrefs() {
         _annexPrefsPromise = import(url);
     }
     return _annexPrefsPromise;
+}
+let _ter100Promise = null;
+function loadTer100() {
+    if (!_ter100Promise) {
+        const url = pathToFileURL(path.join(__dirname, '../../frontend/src/features/expedientes/logic/ter100.js')).href;
+        _ter100Promise = import(url);
+    }
+    return _ter100Promise;
+}
+let _dacsPromise = null;
+function loadDacs() {
+    if (!_dacsPromise) {
+        const url = pathToFileURL(path.join(__dirname, '../../frontend/src/features/expedientes/logic/demandaAcs.js')).href;
+        _dacsPromise = import(url);
+    }
+    return _dacsPromise;
 }
 
 // Parser de huecos/opacos del XML del CEE (equivalente Node de getHuecosFromXml,
@@ -200,11 +217,9 @@ async function loadExpedientePayload(numeroOrId) {
 }
 
 function resolveTipologia(exp, op) {
-    let ficha = op?.ficha || 'RES060';
-    if (exp.numero_expediente?.includes('RES080')) ficha = 'RES080';
-    else if (exp.numero_expediente?.includes('RES093')) ficha = 'RES093';
-    else if (exp.numero_expediente?.includes('RES060')) ficha = 'RES060';
-    return ficha;
+    // El número de expediente manda (es la ficha ya emitida); si no lo hay, la de la
+    // oportunidad. Ver utils/fichas.js — misma detección que la numeración.
+    return detectPrograma(exp, op || {});
 }
 
 // ─── Ahorro AE_TOTAL (savingsKwh) — espejo EXACTO de calcResults (final-first) ──
@@ -216,19 +231,21 @@ async function computeSavingsKwh(exp, op) {
     const calcInputs = op?.datos_calculo?.inputs || {};
     let savings = null;
 
+    // TER100 (terciario): AE_C + AE_ACS + AE_CAP. Toda la derivación vive en el módulo
+    // compartido logic/ter100.js, así que no hay que replicar el mapeo aquí.
+    if (ficha === 'TER100') {
+        const { deriveTer100Vars } = await loadTer100();
+        return deriveTer100Vars({ ...exp, oportunidades: op }).savingsKwh || 0;
+    }
+
     if (ficha === 'RES060' || ficha === 'RES093') {
         const ceeFinalValido = cee.cee_final && parseFloat(cee.cee_final.demandaCalefaccion) > 0;
         const ceeBase = ceeFinalValido ? cee.cee_final : (cee.cee_inicial || cee.cee_final || {});
         const superficie = parseFloat(ceeBase.superficieHabitable) || parseFloat(op?.datos_calculo?.surface) || 0;
         const q_net_heating = (parseFloat(ceeBase.demandaCalefaccion) || 0) * superficie || parseFloat(op?.datos_calculo?.Q_net) || 0;
 
-        let dacs = 0;
-        if (cee.acs_method === 'cte') {
-            const numPeople = (parseInt(cee.num_rooms) || 4) + 1;
-            dacs = 28 * numPeople * 0.001162 * 365 * 46;
-        } else {
-            dacs = (parseFloat(ceeBase.demandaACS) || 0) * superficie || parseFloat(op?.datos_calculo?.demand_acs) || 0;
-        }
+        const { resolveDacs } = await loadDacs();
+        const dacs = resolveDacs(cee, ceeBase, { demandAcsFallback: op?.datos_calculo?.demand_acs }).value;
 
         if (superficie > 0 && q_net_heating > 0) {
             const boilerEffId = inst.caldera_antigua_cal?.rendimiento_id || 'default';
@@ -411,11 +428,30 @@ function buildValidation(exp, data, savingsKwh, folderId) {
     const warnings = [];
 
     // Bloqueantes (GRAVE): sin ellos el CIFO es inválido.
-    if (!(parseFloat(data.sRaw) > 0) || !(parseFloat(data.dcalRaw) > 0)) {
-        blocking.push('No se puede generar el CIFO: falta la demanda de calefacción (D_CAL) y/o la superficie (S). Aporta el CEE con esos datos.');
+    // En TER100 la calefacción es alcance OPCIONAL (puede ser solo ACS y/o piscina),
+    // así que la demanda/superficie/SCOP de calefacción solo se exigen si se actúa
+    // sobre ella; a cambio se exige que el ahorro total no sea cero.
+    if (data.tieneCalefaccion) {
+        if (!(parseFloat(data.sRaw) > 0) || !(parseFloat(data.dcalRaw) > 0)) {
+            blocking.push('No se puede generar el CIFO: falta la demanda de calefacción (D_CAL) y/o la superficie (S). Aporta el CEE con esos datos.');
+        }
+        if (!(data.scopCalRaw > 0)) {
+            blocking.push('No se puede generar el CIFO: falta el SCOP de la bomba de calor de calefacción.');
+        }
     }
-    if (!(data.scopCalRaw > 0)) {
-        blocking.push('No se puede generar el CIFO: falta el SCOP de la bomba de calor de calefacción.');
+    if (data.isTer100) {
+        if (!data.tieneCalefaccion && !data.tieneAcs && !data.tienePiscina) {
+            blocking.push('No se puede generar el CIFO: la actuación no alcanza ningún servicio (calefacción, ACS ni piscina). Marca el alcance en la pestaña Instalación.');
+        }
+        if (data.tieneAcs && !(data.scopAcsRaw > 0)) {
+            blocking.push('No se puede generar el CIFO: la actuación incluye ACS pero falta el SCOP_dhw de la bomba de calor de ACS.');
+        }
+        if (data.tienePiscina && !(data.scopPoolRaw > 0 && parseFloat(data.dcapRaw) > 0)) {
+            blocking.push('No se puede generar el CIFO: la actuación incluye calentamiento de piscina pero falta la demanda D_CAP y/o el SCOP_pwh.');
+        }
+        if (!(parseFloat(savingsKwh) > 0)) {
+            blocking.push('No se puede generar el CIFO: el ahorro de energía calculado es cero. Revisa las demandas y los SCOP de los servicios dentro del alcance.');
+        }
     }
     if (!data.empNombre || data.empNombre === '—') {
         blocking.push('No se puede generar el CIFO: falta la empresa instaladora asociada al expediente.');
@@ -425,11 +461,22 @@ function buildValidation(exp, data, savingsKwh, folderId) {
     }
 
     // Leves: se genera igual, pero conviene revisarlas.
-    if (data.metodoCal === 'eprel' && !inst.aerotermia_cal?.url_eprel) {
+    if (data.tieneCalefaccion && data.metodoCal === 'eprel' && !inst.aerotermia_cal?.url_eprel) {
         warnings.push('El método de SCOP en calefacción es EPREL pero falta la URL EPREL de la unidad exterior.');
     }
-    if (!(doc.ft_aerotermia_cal_id || doc.ft_aerotermia_cal_link)) {
+    if (data.tieneCalefaccion && !(doc.ft_aerotermia_cal_id || doc.ft_aerotermia_cal_link)) {
         warnings.push('Falta la ficha técnica de la aerotermia de calefacción: el CIFO se genera sin ese anexo.');
+    }
+    // Piscina (TER100): el SCOP_pwh se justifica con la ficha técnica del equipo, que
+    // se adjunta como anexo extra del CIFO (no tiene slot propio en el catálogo).
+    if (data.tienePiscina) {
+        const extras = Array.isArray(doc.cifo_extra_annexes) ? doc.cifo_extra_annexes : [];
+        if (extras.length === 0) {
+            warnings.push('La actuación incluye calentamiento de piscina: adjunta la ficha técnica del equipo de piscina como anexo del CIFO para justificar el SCOP_pwh.');
+        }
+        if (!inst.piscina?.equipo?.numero_serie) {
+            warnings.push('Falta el nº de serie del equipo de calentamiento de piscina.');
+        }
     }
     // Instalaciones EN CASCADA: cada equipo tiene que ir identificado con su nº de
     // serie en la tabla del CIFO, y dos equipos distintos no pueden compartirlo.

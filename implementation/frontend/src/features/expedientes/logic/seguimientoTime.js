@@ -10,6 +10,7 @@ const MS_DAY = 24 * 60 * 60 * 1000;
 // Etiquetas humanas de los subestados CEE (debe coincidir con STATUS_CONFIG de SeguimientoModule).
 export const SUBESTADO_LABELS = {
     PTE_EMITIR: 'Pendiente de emitir',
+    PTE_ENVIO_CERT: 'Pendiente de encargar',
     ASIGNADO: 'Asignado a técnico',
     EN_TRABAJO: 'Técnico trabajando',
     PTE_PRESENTACION: 'Pendiente presentación',

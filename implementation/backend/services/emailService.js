@@ -659,7 +659,7 @@ const sendCertificadorNotificationEmail = async ({
     to, certName, expedienteNum, clienteName, clienteData,
     ficha, tipoActuacion,
     ceeFolderLink, portalLink, ackLink,
-    // RES060/RES093
+    // RES060/RES093/TER100
     demandaPerM2,       // kWh/m²·año (q_net)
     superficieRef,      // m²
     // RES080
@@ -671,7 +671,7 @@ const sendCertificadorNotificationEmail = async ({
     customMessage = null,
 }) => {
     const isReforma = ficha === 'RES080';
-    const tipoLabel = tipoActuacion || (isReforma ? 'REFORMA' : ficha === 'RES093' ? 'HIBRIDACIÓN' : 'AEROTERMIA');
+    const tipoLabel = tipoActuacion || (isReforma ? 'REFORMA' : ficha === 'RES093' ? 'HIBRIDACIÓN' : ficha === 'TER100' ? 'AEROTERMIA TERCIARIO' : 'AEROTERMIA');
     const clienteUpper = (clienteName || '').toUpperCase().trim();
     const isUrgent = priority === 'urgent';
     const subject = `${isUrgent ? '🚨 URGENTE — ' : ''}“${expedienteNum} ENCARGO CEE (${tipoLabel}) – “${clienteUpper}”`;
@@ -704,7 +704,7 @@ const sendCertificadorNotificationEmail = async ({
          </tr></table>`,
         { bg: BRAND.orangeTint, border: BRAND.orange, mb: 22 }
     ) : emailBox(
-        emailP(`⚡ Directriz Técnica — ${escapeHtml(ficha || 'RES060/RES093')}`, { size: 11, bold: true, color: BRAND.orangeDark, mb: 6 }) +
+        emailP(`⚡ Directriz Técnica — ${escapeHtml(ficha || 'RES060')}`, { size: 11, bold: true, color: BRAND.orangeDark, mb: 6 }) +
         emailP(`Para garantizar el éxito del expediente, la demanda específica de calefacción certificada debe situarse, como <strong>objetivo de seguridad</strong>, <strong>por encima</strong> del valor estimado en la propuesta comercial${superficieRef ? `, y la <strong>superficie útil habitable</strong> del certificado no debe ser <strong>inferior</strong> a la indicada` : ''}.`, { size: 14, color: BRAND.muted, mb: 12 }) +
         `<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
            <td width="${superficieRef ? '48%' : '100%'}" valign="top" style="background:${BRAND.card};border:1px solid ${BRAND.border};border-radius:8px;padding:16px;text-align:center;">
@@ -767,7 +767,7 @@ const sendCertificadorFinalNotificationEmail = async ({
     customMessage = null,
 }) => {
     const isReforma = ficha === 'RES080';
-    const tipoLabel = tipoActuacion || (isReforma ? 'REFORMA' : ficha === 'RES093' ? 'HIBRIDACIÓN' : 'AEROTERMIA');
+    const tipoLabel = tipoActuacion || (isReforma ? 'REFORMA' : ficha === 'RES093' ? 'HIBRIDACIÓN' : ficha === 'TER100' ? 'AEROTERMIA TERCIARIO' : 'AEROTERMIA');
     const clienteUpper = (clienteName || '').toUpperCase().trim();
     const isUrgent = priority === 'urgent';
     const subject = `${isUrgent ? '🚨 URGENTE — ' : ''}“${expedienteNum} ENCARGO CEE FINAL (${tipoLabel}) – “${clienteUpper}”`;
@@ -828,10 +828,16 @@ const sendCertificadorReminderEmail = async ({
     ficha, tipoActuacion, ceeFolderLink, portalLink, ackLink,
     adminMessage = null,
     customMessage = null,
+    // 'emision' (falta emitir el CEE) | 'registro' (visto bueno dado, falta registrar).
+    espera = 'emision',
+    ceeUploadLink = null,
 }) => {
     const tipoLabel = tipoActuacion || 'CEE';
     const clienteUpper = (clienteName || '').toUpperCase().trim();
-    const subject = `Recordatorio: ${expedienteNum} (${tipoLabel}) – ${clienteUpper}`;
+    const esRegistro = espera === 'registro';
+    const subject = esRegistro
+        ? `Pendiente de registro en Industria: ${expedienteNum} (${tipoLabel}) – ${clienteUpper}`
+        : `Recordatorio: ${expedienteNum} (${tipoLabel}) – ${clienteUpper}`;
 
     const adminMessageHtml = (adminMessage && !customMessage) ? emailBox(
         emailP('💬 Mensaje de Brokergy', { size: 11, bold: true, color: BRAND.muted, mb: 8 }) +
@@ -841,21 +847,31 @@ const sendCertificadorReminderEmail = async ({
 
     const introBlockHtml = customMessage
         ? emailP(escapeHtml(customMessage), { pre: true, mb: 16 })
-        : (
-            emailP(`¡Hola ${escapeHtml(certName || 'técnico')}! 👋`, { size: 19, bold: true, mb: 6 }) +
-            emailP(`Te escribimos para recordarte que tienes pendiente el encargo del expediente <strong>${escapeHtml(expedienteNum)}</strong>${clienteName ? ` de <strong>${escapeHtml(clienteName)}</strong>` : ''}.`, { color: BRAND.muted, mb: 16 }) +
-            emailP('¿Podrías darnos una estimación de fecha de entrega? Nos ayudaría mucho para la planificación.', { color: BRAND.muted, mb: 22 })
-        );
+        : esRegistro
+            ? (
+                emailP(`¡Hola ${escapeHtml(certName || 'técnico')}! 👋`, { size: 19, bold: true, mb: 6 }) +
+                emailP(`El certificado del expediente <strong>${escapeHtml(expedienteNum)}</strong>${clienteName ? ` de <strong>${escapeHtml(clienteName)}</strong>` : ''} tiene nuestro <strong>visto bueno</strong> y sigue pendiente de <strong>registrar en Industria</strong>.`, { color: BRAND.muted, mb: 16 }) +
+                emailP('En cuanto lo presentes, súbenos la etiqueta energética y el justificante de registro para poder continuar con el expediente.', { color: BRAND.muted, mb: 22 })
+            )
+            : (
+                emailP(`¡Hola ${escapeHtml(certName || 'técnico')}! 👋`, { size: 19, bold: true, mb: 6 }) +
+                emailP(`Te escribimos para recordarte que tienes pendiente el encargo del expediente <strong>${escapeHtml(expedienteNum)}</strong>${clienteName ? ` de <strong>${escapeHtml(clienteName)}</strong>` : ''}.`, { color: BRAND.muted, mb: 16 }) +
+                emailP('¿Podrías darnos una estimación de fecha de entrega? Nos ayudaría mucho para la planificación.', { color: BRAND.muted, mb: 22 })
+            );
 
+    // En fase de registro el botón útil es el de subir el CEE registrado, no la carpeta.
     const botonesHtml = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0">` +
+        (esRegistro && ceeUploadLink ? `<tr><td align="center" style="padding-bottom:12px;">${emailButton(ceeUploadLink, '📤 Subir CEE registrado')}</td></tr>` : '') +
         (portalLink ? `<tr><td align="center" style="padding-bottom:12px;">${emailButton(portalLink, '🔗 Acceder al Portal', BRAND.orange)}</td></tr>` : '') +
         (ceeFolderLink ? `<tr><td align="center">${emailOutlineButton(ceeFolderLink, '📁 Carpeta CEE')}</td></tr>` : '') +
         `</table>`;
 
     const html = brandEmailShell({
-        preheader: `Recordatorio del encargo pendiente ${expedienteNum}.`,
-        title: 'Recordatorio de CEE',
-        pill: PILL.warning('Recordatorio', '⏰'),
+        preheader: esRegistro
+            ? `Pendiente de registrar en Industria el certificado del expediente ${expedienteNum}.`
+            : `Recordatorio del encargo pendiente ${expedienteNum}.`,
+        title: esRegistro ? 'Pendiente de registro' : 'Recordatorio de CEE',
+        pill: PILL.warning(esRegistro ? 'Pendiente de registro' : 'Recordatorio', '⏰'),
         contentHtml:
             introBlockHtml + adminMessageHtml + botonesHtml +
             `<div style="height:20px;line-height:20px;font-size:0;">&nbsp;</div>` +
@@ -866,7 +882,9 @@ const sendCertificadorReminderEmail = async ({
     const linksText = `${portalLink ? 'Portal: ' + portalLink + '\n' : ''}${ceeFolderLink ? 'Carpeta CEE: ' + ceeFolderLink : ''}`;
     const text = customMessage
         ? `${customMessage}\n\n${linksText}\n\nBROKERGY · Ingeniería Energética`
-        : `¡Hola ${certName}!\n\nTe recordamos que tienes pendiente el expediente ${expedienteNum}${clienteName ? ` (${clienteName})` : ''}.\n\n${adminMsgText}¿Podrías darnos una estimación de fecha?\n\nBROKERGY · Ingeniería Energética`;
+        : esRegistro
+            ? `¡Hola ${certName}!\n\nEl certificado del expediente ${expedienteNum}${clienteName ? ` (${clienteName})` : ''} tiene nuestro visto bueno y sigue pendiente de registrar en Industria.\n\n${adminMsgText}Cuando lo presentes, súbenos la etiqueta y el justificante de registro.${ceeUploadLink ? `\nSubir el CEE registrado: ${ceeUploadLink}` : ''}\n\nBROKERGY · Ingeniería Energética`
+            : `¡Hola ${certName}!\n\nTe recordamos que tienes pendiente el expediente ${expedienteNum}${clienteName ? ` (${clienteName})` : ''}.\n\n${adminMsgText}¿Podrías darnos una estimación de fecha?\n\nBROKERGY · Ingeniería Energética`;
 
     return sendMail({ to, subject, html, text });
 };
@@ -879,10 +897,15 @@ const sendCertificadorUrgentEmail = async ({
     ficha, tipoActuacion, ceeFolderLink, portalLink, ackLink,
     adminMessage = null,
     customMessage = null,
+    espera = 'emision',
+    ceeUploadLink = null,
 }) => {
     const tipoLabel = tipoActuacion || 'CEE';
     const clienteUpper = (clienteName || '').toUpperCase().trim();
-    const subject = `⚠️ URGENTE: ${expedienteNum} (${tipoLabel}) – ${clienteUpper}`;
+    const esRegistro = espera === 'registro';
+    const subject = esRegistro
+        ? `🚨 URGENTE — Registro en Industria pendiente: ${expedienteNum} (${tipoLabel}) – ${clienteUpper}`
+        : `⚠️ URGENTE: ${expedienteNum} (${tipoLabel}) – ${clienteUpper}`;
 
     const adminMessageHtml = (adminMessage && !customMessage) ? emailBox(
         emailP('💬 Mensaje de Brokergy', { size: 11, bold: true, color: BRAND.orangeDark, mb: 8 }) +
@@ -892,23 +915,32 @@ const sendCertificadorUrgentEmail = async ({
 
     const introBlockHtml = customMessage
         ? emailP(escapeHtml(customMessage), { pre: true, mb: 16 })
-        : (
-            emailP(`Hola ${escapeHtml(certName || 'técnico')},`, { size: 19, bold: true, mb: 6 }) +
-            emailP(`Necesitamos con <strong style="color:${BRAND.orangeDark};">carácter urgente</strong> la documentación del expediente <strong>${escapeHtml(expedienteNum)}</strong>${clienteName ? ` de <strong>${escapeHtml(clienteName)}</strong>` : ''}.`, { color: BRAND.muted, mb: 16 }) +
-            emailP('Es importante que lo priorices para poder cumplir con los plazos establecidos en el programa de ayudas. Por favor, contacta con nosotros lo antes posible si hay algún impedimento.', { color: BRAND.muted, mb: 22 })
-        );
+        : esRegistro
+            ? (
+                emailP(`Hola ${escapeHtml(certName || 'técnico')},`, { size: 19, bold: true, mb: 6 }) +
+                emailP(`El certificado del expediente <strong>${escapeHtml(expedienteNum)}</strong>${clienteName ? ` de <strong>${escapeHtml(clienteName)}</strong>` : ''} tiene nuestro visto bueno y <strong style="color:${BRAND.orangeDark};">todavía no consta registrado</strong> en Industria.`, { color: BRAND.muted, mb: 16 }) +
+                emailP('Necesitamos el registro con carácter urgente: el expediente está bloqueado hasta que nos subas la etiqueta energética y el justificante de registro.', { color: BRAND.muted, mb: 22 })
+            )
+            : (
+                emailP(`Hola ${escapeHtml(certName || 'técnico')},`, { size: 19, bold: true, mb: 6 }) +
+                emailP(`Necesitamos con <strong style="color:${BRAND.orangeDark};">carácter urgente</strong> la documentación del expediente <strong>${escapeHtml(expedienteNum)}</strong>${clienteName ? ` de <strong>${escapeHtml(clienteName)}</strong>` : ''}.`, { color: BRAND.muted, mb: 16 }) +
+                emailP('Es importante que lo priorices para poder cumplir con los plazos establecidos en el programa de ayudas. Por favor, contacta con nosotros lo antes posible si hay algún impedimento.', { color: BRAND.muted, mb: 22 })
+            );
 
     const botonesHtml = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0">` +
+        (esRegistro && ceeUploadLink ? `<tr><td align="center" style="padding-bottom:12px;">${emailButton(ceeUploadLink, '📤 Subir CEE registrado')}</td></tr>` : '') +
         (portalLink ? `<tr><td align="center" style="padding-bottom:12px;">${emailButton(portalLink, '🔗 Acceder al Portal', BRAND.orange)}</td></tr>` : '') +
         (ceeFolderLink ? `<tr><td align="center">${emailOutlineButton(ceeFolderLink, '📁 Carpeta CEE')}</td></tr>` : '') +
         `</table>`;
 
     const html = brandEmailShell({
-        preheader: `Aviso urgente sobre el expediente ${expedienteNum}.`,
+        preheader: esRegistro
+            ? `Aviso urgente: registro en Industria pendiente del expediente ${expedienteNum}.`
+            : `Aviso urgente sobre el expediente ${expedienteNum}.`,
         title: 'Aviso urgente',
         pill: PILL.warning('Aviso urgente', '🚨'),
         contentHtml:
-            emailBox(emailP('⚠️ Aviso Urgente', { bold: true, color: BRAND.orangeDark, center: true, mb: 0 }), { bg: BRAND.orangeTint, border: BRAND.orange, mb: 22 }) +
+            emailBox(emailP(esRegistro ? '🚨 Registro urgente — Expediente bloqueado' : '⚠️ Aviso Urgente', { bold: true, color: BRAND.orangeDark, center: true, mb: 0 }), { bg: BRAND.orangeTint, border: BRAND.orange, mb: 22 }) +
             introBlockHtml + adminMessageHtml + botonesHtml +
             `<div style="height:20px;line-height:20px;font-size:0;">&nbsp;</div>` +
             emailP('Quedamos a la espera de tu respuesta.', { size: 13, color: BRAND.muted, center: true, mb: 0 }),
@@ -918,7 +950,9 @@ const sendCertificadorUrgentEmail = async ({
     const linksText = `${portalLink ? 'Portal: ' + portalLink + '\n' : ''}${ceeFolderLink ? 'Carpeta CEE: ' + ceeFolderLink : ''}`;
     const text = customMessage
         ? `⚠️ URGENTE\n\n${customMessage}\n\n${linksText}\n\nBROKERGY · Ingeniería Energética`
-        : `⚠️ URGENTE\n\nHola ${certName},\n\nNecesitamos con carácter urgente la documentación del expediente ${expedienteNum}${clienteName ? ` (${clienteName})` : ''}.\n\n${adminMsgText}Por favor, priorízalo para cumplir plazos.\n\nBROKERGY · Ingeniería Energética`;
+        : esRegistro
+            ? `🚨 URGENTE\n\nHola ${certName},\n\nEl certificado del expediente ${expedienteNum}${clienteName ? ` (${clienteName})` : ''} tiene nuestro visto bueno y todavía no consta registrado en Industria.\n\n${adminMsgText}El expediente está bloqueado hasta que nos subas la etiqueta y el justificante de registro.${ceeUploadLink ? `\nSubir el CEE registrado: ${ceeUploadLink}` : ''}\n\nBROKERGY · Ingeniería Energética`
+            : `⚠️ URGENTE\n\nHola ${certName},\n\nNecesitamos con carácter urgente la documentación del expediente ${expedienteNum}${clienteName ? ` (${clienteName})` : ''}.\n\n${adminMsgText}Por favor, priorízalo para cumplir plazos.\n\nBROKERGY · Ingeniería Energética`;
 
     return sendMail({ to, subject, html, text });
 };
@@ -1266,8 +1300,10 @@ function certEmailShell({ preheader, title, pillEmoji, pillText, pillBg, pillCol
 }
 
 const sendCertificadorApproveNotification = async (to, certName, numExp, phaseLabel, portalLink, folderLink, adminMessage = null, customMessage = null, extra = {}) => {
-    // El asunto SIEMPRE empieza por el nº de expediente.
-    const subject = `${numExp} · Visto Bueno ${phaseLabel}`;
+    // El asunto SIEMPRE empieza por el nº de expediente. Si el visto bueno se envía
+    // como urgente, se marca con la alarma para que destaque en la bandeja.
+    const isUrgent = extra.urgent === true;
+    const subject = `${numExp} · ${isUrgent ? '🚨 URGENTE — ' : ''}Visto Bueno ${phaseLabel}`;
     const presentFolderLink = extra.presentFolderLink || null; // carpeta CEE INICIAL/FINAL (descarga)
     const ceeUploadLink = extra.ceeUploadLink || null;         // popup de subida del CEE registrado
     const attachments = Array.isArray(extra.attachments) ? extra.attachments : undefined;
@@ -1277,10 +1313,21 @@ const sendCertificadorApproveNotification = async (to, certName, numExp, phaseLa
     const bodyText = stripCertLinkLines(customMessage || adminMessage || '');
     const firstName = (certName || '').trim().split(/\s+/)[0] || 'técnico';
     const bodyParagraphs = bodyText
-        ? `<p style="margin:0 0 22px 0;font-size:15px;line-height:1.6;color:#1A1A1A;white-space:pre-wrap;">${escapeHtml(bodyText)}</p>`
-        : `<p style="margin:0 0 18px 0;font-size:15px;line-height:1.6;color:#1A1A1A;">¡Hola ${escapeHtml(firstName)}! 👋</p>
+        // El *negrita* de WhatsApp se convierte a <b> para que no salgan asteriscos sueltos.
+        ? `<p style="margin:0 0 22px 0;font-size:15px;line-height:1.6;color:#1A1A1A;white-space:pre-wrap;">${escapeHtml(bodyText).replace(/\*([^*\n]+)\*/g, '<b>$1</b>')}</p>`
+        : `<p style="margin:0 0 18px 0;font-size:15px;line-height:1.6;color:#1A1A1A;">${isUrgent ? `🚨<strong>¡Urgente ${escapeHtml(firstName)}!</strong> 🚨` : `¡Hola ${escapeHtml(firstName)}! 👋`}</p>
            <p style="margin:0 0 18px 0;font-size:15px;line-height:1.6;color:#1A1A1A;">Hemos revisado el <strong>${phaseLabel}</strong> del expediente <strong>${numExp}</strong> y tiene nuestro visto bueno. Ya puedes proceder a registrarlo en Industria.</p>
+           ${isUrgent ? `<p style="margin:0 0 18px 0;font-size:15px;line-height:1.6;color:#1A1A1A;">🚨 Te pedimos que lo <strong>priorices</strong>: necesitamos el registro con carácter <strong>URGENTE</strong> para poder cumplir con los plazos del programa de ayudas.</p>` : ''}
            <p style="margin:0 0 22px 0;font-size:15px;line-height:1.6;color:#1A1A1A;">¡Gracias!</p>`;
+
+    // Aviso destacado de urgencia (va sobre el cuerpo, tanto si el mensaje es editado
+    // como si es el de por defecto).
+    const urgentBanner = isUrgent ? `
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#FDECEC;border:1px solid #F0B4B4;border-radius:10px;margin-bottom:22px;">
+        <tr><td style="padding:14px 18px;text-align:center;">
+          <p style="margin:0;font-size:14px;font-weight:700;color:#B42318;">🚨 REGISTRO URGENTE — Por favor, prioriza este expediente</p>
+        </td></tr>
+      </table>` : '';
 
     const stepsBox = (presentFolderLink || ceeUploadLink) ? `
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F8F9F6;border:1px solid #E8E9E4;border-radius:10px;margin-bottom:22px;">
@@ -1319,14 +1366,20 @@ const sendCertificadorApproveNotification = async (to, certName, numExp, phaseLa
       </table>` : '';
 
     const html = certEmailShell({
-        preheader: `Tu ${phaseLabel} ha sido validado — ya puedes registrarlo en Industria.`,
-        title: 'Certificado Validado',
-        pillEmoji: '✅', pillText: 'Visto Bueno', pillBg: '#EEF6E1', pillColor: '#5C9A1B',
-        contentHtml: bodyParagraphs + clienteBox + stepsBox + attachNote,
+        preheader: isUrgent
+            ? `🚨 URGENTE — Tu ${phaseLabel} ha sido validado, priorízalo: ya puedes registrarlo en Industria.`
+            : `Tu ${phaseLabel} ha sido validado — ya puedes registrarlo en Industria.`,
+        title: isUrgent ? 'Certificado Validado — Urgente' : 'Certificado Validado',
+        pillEmoji: isUrgent ? '🚨' : '✅',
+        pillText: isUrgent ? 'Visto Bueno · Urgente' : 'Visto Bueno',
+        pillBg: isUrgent ? '#FDECEC' : '#EEF6E1',
+        pillColor: isUrgent ? '#B42318' : '#5C9A1B',
+        contentHtml: urgentBanner + bodyParagraphs + clienteBox + stepsBox + attachNote,
         portalLink,
     });
 
-    const text = customMessage || `Hola ${certName}, el ${phaseLabel} ha sido validado. Puedes proceder a registrarlo.`;
+    const text = customMessage
+        || `${isUrgent ? '🚨 URGENTE 🚨\n\n' : ''}Hola ${certName}, el ${phaseLabel} ha sido validado. Puedes proceder a registrarlo.${isUrgent ? ' Te pedimos que lo priorices: necesitamos el registro con carácter URGENTE.' : ''}`;
     return sendMail({ to, subject, html, text, attachments });
 };
 

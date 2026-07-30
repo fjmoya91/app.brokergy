@@ -5,6 +5,7 @@ import { buildAnexoListadoHtml, CONVENIO_FECHA_DEFAULT, fichaDe } from '../logic
 import { buildFichaRes060Html } from '../../expedientes/logic/fichaRes060Html';
 import { buildFichaRes080Html } from '../../expedientes/logic/fichaRes080Html';
 import { buildFichaRes093Html } from '../../expedientes/logic/fichaRes093Html';
+import { buildFichaTer100Html } from '../../expedientes/logic/fichaTer100Html';
 import { computeExpedienteFinancials } from '../../expedientes/logic/expedienteFinancials';
 import { SIGN_BOXES, fichaSignBox } from '../../expedientes/logic/signBoxes';
 import { EnviarLoteDocModal } from './EnviarLoteDocModal';
@@ -90,7 +91,8 @@ export function RequerimientoModal({ lote, onClose, onSent }) {
             const f = fichaDe(e.numero_expediente);
             const html = f === 'RES080' ? buildFichaRes080Html(e, rep)
                 : f === 'RES093' ? buildFichaRes093Html(e, rep)
-                    : buildFichaRes060Html(e, computeExpedienteFinancials(e), rep);
+                    : f === 'TER100' ? buildFichaTer100Html(e, rep)
+                        : buildFichaRes060Html(e, computeExpedienteFinancials(e), rep);
             docs.push({
                 html, fileName: `${e.numero_expediente} - Ficha ${f}`, label: `Ficha ${f} · ${e.numero_expediente}`,
                 tipo: 'ficha_res', expediente_id: e.id, anchor: FICHA_ANCHOR, fixedBox: fichaSignBox(f),

@@ -27,6 +27,17 @@ const googleService = require('../services/googleService');
 // Empresas propias que nunca aparecen en el escaparate (no son instaladores terceros).
 const BLOCKLIST_NOMBRE = new Set(['BROKERGY']);
 
+// Factor de paso a emisiones de CO2 del CTE DB-HE (Documento de Apoyo DA DB-HE/1)
+// para GAS NATURAL: 0,252 kgCO2 por kWh de energia final.
+// Se usa un factor UNICO y el del gas natural porque:
+//   - el combustible sustituido solo esta informado en un punado de expedientes
+//     (datos_calculo.inputs.combustibleCalefaccionInicial), asi que no se puede
+//     calcular expediente a expediente sin inventarselo;
+//   - la practica totalidad de nuestras aerotermias sustituyen caldera de gas, y
+//     es el factor mas facil de defender ante un verificador (norma publicada).
+// Si algun dia se rellena el combustible de origen, esto pasa a ser un mapa.
+const KG_CO2_POR_KWH = 0.252;
+
 // Claves que JAMÁS pueden aparecer en un DTO público (defensa en profundidad).
 const FORBIDDEN_KEYS = [
   'dni', 'nif', 'cif', 'email', 'tlf_cliente', 'telefono_cliente', 'cliente_id',
@@ -375,7 +386,7 @@ router.get('/stats', async (req, res) => {
       .from('prescriptores').select('id_empresa, acronimo, razon_social, provincia')
       .eq('visible_marketplace', true).eq('tipo_empresa', 'INSTALADOR');
     const vis = (visibles || []).filter((p) => !isBlocked(p));
-    if (!vis.length) return res.json({ instaladores: 0, instalaciones: 0, ayuda_cae: 0, ayuda_irpf: 0, ayuda_total: 0, dinero_movilizado: 0, provincias: 0 });
+    if (!vis.length) return res.json({ instaladores: 0, instalaciones: 0, ayuda_cae: 0, ayuda_irpf: 0, ayuda_total: 0, dinero_movilizado: 0, provincias: 0, ahorro_kwh: 0, instalaciones_con_ahorro: 0, co2_evitado_kg: 0 });
     const visIds = vis.map((p) => p.id_empresa);
 
     const { data: exps } = await supabase
@@ -392,12 +403,20 @@ router.get('/stats', async (req, res) => {
     // "Dinero movilizado" = suma del coste de obra (presupuesto) de TODAS las instalaciones
     // verificadas. Es un agregado del ecosistema, no el precio de ningún instalador
     // concreto — no choca con la regla de no publicar precios individuales.
-    let cae = 0, irpf = 0, movilizado = 0;
+    //
+    // AHORRO ENERGETICO: `ahorroKwh` es el ahorro de energia final que sostiene el
+    // certificado CAE del expediente. Solo se suman los expedientes que LO TIENEN
+    // (hoy ~2 de cada 3): es una cifra infravalorada a proposito, en la misma linea
+    // que floorMoney/floorCount del front. `instalaciones_con_ahorro` se publica
+    // para poder decir de cuantas obras sale la cifra.
+    let cae = 0, irpf = 0, movilizado = 0, ahorroKwh = 0, conAhorro = 0;
     for (const e of vlist) {
       const f = opBy.get(e.oportunidad_id)?.datos_calculo?.result?.financials || {};
       cae += num(f.caeBonus) || 0;
       irpf += num(f.irpfDeduction) || 0;
       movilizado += num(f.presupuesto) || 0;
+      const kwh = num(f.ahorroKwh);
+      if (kwh > 0) { ahorroKwh += kwh; conAhorro += 1; }
     }
     const provincias = new Set(vis.map((p) => (p.provincia || '').toLowerCase()).filter(Boolean)).size;
     res.set('Cache-Control', 'public, max-age=300');
@@ -409,6 +428,9 @@ router.get('/stats', async (req, res) => {
       ayuda_total: Math.round(cae + irpf),
       dinero_movilizado: Math.round(movilizado),
       provincias,
+      ahorro_kwh: Math.round(ahorroKwh),                              // energia final ahorrada (CAE)
+      instalaciones_con_ahorro: conAhorro,                            // de cuantas obras sale
+      co2_evitado_kg: Math.round(ahorroKwh * KG_CO2_POR_KWH),         // factor CTE DB-HE gas natural
     });
   } catch (e) {
     console.error('[marketplace/stats]', e.message);

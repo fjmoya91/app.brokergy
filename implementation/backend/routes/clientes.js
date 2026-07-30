@@ -103,31 +103,49 @@ router.get('/:id', enforceAuth, async (req, res) => {
         }
 
         // Buscar oportunidades vinculadas
-        const { data: ops } = await supabase
+        const CAMPOS_OP = 'id, id_oportunidad, referencia_cliente, ref_catastral, datos_calculo, created_at';
+        const { data: opsDirectas } = await supabase
             .from('oportunidades')
-            .select('id_oportunidad, referencia_cliente, ref_catastral, datos_calculo, created_at')
+            .select(CAMPOS_OP)
             .eq('cliente_id', req.params.id)
             .order('created_at', { ascending: false });
+        const ops = opsDirectas || [];
 
-        // Buscar expedientes vinculados (vía oportunidades).
+        // Buscar expedientes vinculados. Se buscan por LOS DOS caminos y se fusionan:
+        // por la oportunidad (`oportunidades.cliente_id`) y por el propio expediente
+        // (`expedientes.cliente_id`). No siempre coinciden — un expediente migrado puede
+        // tener ya el cliente real mientras su oportunidad sigue apuntando al cliente
+        // placeholder que creó la migración, y entonces la ficha del cliente real se
+        // quedaba vacía (caso 25RES060_78).
         // Los expedientes son INTERNOS de Brokergy: solo se exponen al ADMIN.
         // Un partner no debe ver ni poder acceder a los expedientes de sus clientes.
         let exps = [];
         if (isStaff(req)) {
-            const { data } = await supabase
-                .from('expedientes')
-                .select(`
-                    id,
-                    numero_expediente,
-                    created_at,
-                    oportunidades!inner (
-                        id_oportunidad,
-                        cliente_id
-                    )
-                `)
-                .eq('oportunidades.cliente_id', req.params.id)
-                .order('created_at', { ascending: false });
-            exps = data || [];
+            const CAMPOS = 'id, numero_expediente, created_at, cliente_id, oportunidad_id';
+            const [porOportunidad, porExpediente] = await Promise.all([
+                supabase.from('expedientes')
+                    .select(`${CAMPOS}, oportunidades!inner (id_oportunidad, cliente_id)`)
+                    .eq('oportunidades.cliente_id', req.params.id),
+                supabase.from('expedientes')
+                    .select(`${CAMPOS}, oportunidades (id_oportunidad, cliente_id)`)
+                    .eq('cliente_id', req.params.id),
+            ]);
+            const porId = new Map();
+            for (const e of [...(porOportunidad.data || []), ...(porExpediente.data || [])]) {
+                if (e?.id && !porId.has(e.id)) porId.set(e.id, e);
+            }
+            exps = [...porId.values()].sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+
+            // Y su oportunidad, si por el desajuste de arriba no venía en la lista.
+            const faltan = exps
+                .map(e => e.oportunidad_id)
+                .filter(id => id && !ops.some(o => o.id === id));
+            if (faltan.length) {
+                const { data: opsExtra } = await supabase
+                    .from('oportunidades').select(CAMPOS_OP).in('id', [...new Set(faltan)]);
+                for (const o of opsExtra || []) ops.push(o);
+                ops.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+            }
         }
 
         // Máscara de seguridad para no-staff (partners)

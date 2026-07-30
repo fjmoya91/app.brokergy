@@ -20,7 +20,7 @@ import {
     BOILER_EFFICIENCIES
 } from '../../calculator/logic/calculation';
 import { computeExpedienteFinancials } from '../logic/expedienteFinancials';
-import { CCAA_MAP, pad2, getFicha, getCifoYear, getCCAA } from '../logic/expedienteTaxonomia';
+import { CCAA_MAP, pad2, getFicha, getCifoYear, getCCAA, FICHAS } from '../logic/expedienteTaxonomia';
 
 // ─── Dropzone de XML (migración de expedientes desde CE3X) ────────────────────
 function XmlDrop({ label, slot, error, onFile }) {
@@ -330,7 +330,10 @@ function NuevoExpedienteModal({ onClose, onCreated, existingOportunidadIds = [] 
                                             const op = oportunidades.find(o => o.id === selectedOp);
                                             const isReforma = op?.datos_calculo?.isReforma || op?.ficha === 'RES080';
                                             const isHybrid = !isReforma && (op?.datos_calculo?.hibridacion || op?.ficha === 'RES093');
-                                            const programa = isReforma ? 'RES080' : (isHybrid ? 'RES093' : 'RES060');
+                                            // TER100 (terciario) solo llega declarada en la oportunidad: la
+                                            // calculadora es residencial y nunca la deduce de los inputs.
+                                            const programa = op?.ficha === 'TER100' ? 'TER100'
+                                                : isReforma ? 'RES080' : (isHybrid ? 'RES093' : 'RES060');
                                             return `Se asignará el correlativo oficial ${new Date().getFullYear().toString().slice(-2)}${programa}_...`;
                                         })()}
                                     </p>
@@ -371,7 +374,7 @@ function NuevoExpedienteModal({ onClose, onCreated, existingOportunidadIds = [] 
                             <div>
                                 <label className="block text-xs text-white/50 uppercase tracking-wider mb-1.5 font-bold">Programa</label>
                                 <div className="flex gap-2">
-                                    {['RES060', 'RES080', 'RES093'].map(f => (
+                                    {FICHAS.map(f => (
                                         <button key={f} type="button" onClick={() => setXmlFicha(f)}
                                             className={`flex-1 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest border transition-all ${xmlFicha === f ? 'bg-brand text-bkg-deep border-brand shadow-lg' : 'border-white/10 text-white/40 hover:text-white hover:border-white/20'}`}>
                                             {f}
@@ -1599,9 +1602,7 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
                             <select value={fichaFilter} onChange={e => setFichaFilter(e.target.value)}
                                 className="w-full bg-bkg-deep border border-white/[0.08] rounded-lg px-2.5 py-2.5 text-xs text-white focus:outline-none focus:border-brand/40 transition-all uppercase">
                                 <option value="ALL" className="bg-bkg-deep">Todas</option>
-                                <option value="RES060" className="bg-bkg-deep">RES060</option>
-                                <option value="RES080" className="bg-bkg-deep">RES080</option>
-                                <option value="RES093" className="bg-bkg-deep">RES093</option>
+                                {FICHAS.map(f => <option key={f} value={f} className="bg-bkg-deep">{f}</option>)}
                             </select>
                         </div>
                         {/* CCAA */}
@@ -1791,13 +1792,12 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
                                                 fichaFilter === 'RES060' ? 'text-brand' :
                                                 fichaFilter === 'RES080' ? 'text-emerald-400' :
                                                 fichaFilter === 'RES093' ? 'text-indigo-400' :
+                                                fichaFilter === 'TER100' ? 'text-cyan-400' :
                                                 'text-white/40 hover:text-brand'
                                             }`}
                                         >
                                             <option value="ALL" className="bg-bkg-deep text-white">TODAS</option>
-                                            <option value="RES060" className="bg-bkg-deep text-white">RES060</option>
-                                            <option value="RES080" className="bg-bkg-deep text-white">RES080</option>
-                                            <option value="RES093" className="bg-bkg-deep text-white">RES093</option>
+                                            {FICHAS.map(f => <option key={f} value={f} className="bg-bkg-deep text-white">{f}</option>)}
                                         </select>
                                     </td>
                                     {user?.rol?.toUpperCase() === 'ADMIN' && (
@@ -1934,6 +1934,7 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
                                             <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider border ${
                                                 fin.ficha === 'RES080' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
                                                 fin.ficha === 'RES093' ? 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20' :
+                                                fin.ficha === 'TER100' ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20' :
                                                 'bg-brand/10 text-brand border-brand/20'
                                             }`}>
                                                 {fin.ficha}
@@ -1952,6 +1953,7 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
                                                             <div className={`w-6 h-6 rounded-md flex items-center justify-center text-[9px] font-black shrink-0 ${
                                                                 fin.ficha === 'RES080' ? 'bg-emerald-500/15 text-emerald-400' :
                                                                 fin.ficha === 'RES093' ? 'bg-indigo-500/15 text-indigo-400' :
+                                                                fin.ficha === 'TER100' ? 'bg-cyan-500/15 text-cyan-400' :
                                                                 'bg-brand/15 text-brand'
                                                             }`}>{initials}</div>
                                                             <span className="text-[10px] font-medium text-white/60 truncate max-w-[110px] leading-tight">
@@ -2136,6 +2138,7 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
                                 <span className={`shrink-0 inline-flex items-center px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider border ${
                                     fin.ficha === 'RES080' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
                                         : fin.ficha === 'RES093' ? 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20'
+                                        : fin.ficha === 'TER100' ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20'
                                             : 'bg-brand/10 text-brand border-brand/20'
                                 }`}>{fin.ficha}</span>
                             </div>

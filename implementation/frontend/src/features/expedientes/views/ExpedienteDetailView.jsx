@@ -21,6 +21,8 @@ import {
 } from '../../calculator/logic/calculation';
 import { calculateRes060FC } from '../../calculator/logic/res060fc';
 import { esTermoElectrico } from '../logic/aerotermiaUnits';
+import { resolveDacs } from '../logic/demandaAcs';
+import { deriveTer100Vars, TER100_PRECIOS } from '../logic/ter100';
 import { SeguimientoModule } from '../components/SeguimientoModule';
 import { ComunicacionesCertificador } from '../components/ComunicacionesCertificador';
 import { HistorialModal } from '../../../components/HistorialModal';
@@ -29,6 +31,36 @@ import { AnexoFotograficoModal } from '../components/AnexoFotograficoModal';
 import { ClienteDetailModal } from '../../clientes/components/ClienteDetailModal';
 import { LoteDetailModal } from '../../lotes/components/LoteDetailModal';
 import { FechasPrevistasEjecucion } from '../components/FechasPrevistasEjecucion';
+
+// Pausa de inactividad antes de persistir los cambios de "Instalación". Los
+// campos de texto emiten en cada pulsación: sin este margen saldría un PUT
+// (con su recarga del expediente) por letra tecleada.
+const INST_AUTOSAVE_MS = 900;
+
+// Indicador discreto que sustituye al botón "Guardar Datos" en los módulos que
+// autoguardan. Ver el modelo C en DocumentacionModule.
+function AutoSaveHint({ saving }) {
+    return (
+        <span className={`flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest transition-colors ${saving ? 'text-orange-400' : 'text-white/25'}`}>
+            {saving ? (
+                <>
+                    <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                    Guardando…
+                </>
+            ) : (
+                <>
+                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                    </svg>
+                    Guardado automático
+                </>
+            )}
+        </span>
+    );
+}
 
 // ⚠️ Esta lista TIENE que contener todos los estados que escribe el backend.
 // El <select> del detalle y el de la lista muestran `expediente.estado`: si el
@@ -146,6 +178,18 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
     const [openLoteId, setOpenLoteId] = useState(null);
     const [localPrioridad, setLocalPrioridad] = useState('NORMAL');
 
+    // ─── Autoguardado de "Instalación" (modelo C) ─────────────────────────────
+    // El módulo no tiene botón "Guardar": se persiste solo tras una pausa de
+    // edición. La referencia de comparación es SIEMPRE el último payload ENVIADO,
+    // nunca `expediente.instalacion`: el backend normaliza los strings a MAYÚSCULAS
+    // (utils/normalization.js) y el módulo revierte `ccaa`/`tipo_emisor` al leerlos,
+    // así que un diff contra lo que devuelve el servidor no se vaciaría jamás y el
+    // autoguardado se quedaría en bucle.
+    const instSavedRef = useRef(null);      // último `instalacion` dado por persistido
+    const instTimerRef = useRef(null);      // temporizador del debounce
+    const instHydratingRef = useRef(false); // la siguiente emisión viene de un fetch
+    const instReadyRef = useRef(false);     // el módulo ya emitió su línea base
+
     // Carga de certificadores (utilizado en Header CEE y CeeModule)
     useEffect(() => {
         axios.get('/api/prescriptores')
@@ -163,7 +207,9 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
             const { data } = await axios.get(`/api/expedientes/${expedienteId}`);
             setExpediente(data);
             setLocalPrioridad(data.prioridad || 'NORMAL');
-            // Inicializar datos live
+            // Inicializar datos live. La bandera avisa al autoguardado de que la
+            // próxima emisión de `liveInst` es una recarga, no una edición.
+            instHydratingRef.current = true;
             setLiveCee(data.cee || {});
             setLiveInst(data.instalacion || {});
             setLiveDoc(data.documentacion || {});
@@ -188,15 +234,18 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
         }
     }, [expedienteId, loading, expediente]);
 
-    const handleSave = useCallback(async (patch) => {
+    // `opts.silentOk` omite SOLO el aviso verde de éxito (los errores siempre se
+    // ven). Lo usa el autoguardado: ese aviso es un bloque en flujo, y aparecer y
+    // desaparecer en cada pausa de tecleo movía el formulario bajo el cursor.
+    const handleSave = useCallback(async (patch, opts = {}) => {
         setSaving(true);
         setSaveMsg(null);
         try {
             await axios.put(`/api/expedientes/${expedienteId}`, patch);
-            
+
             await fetchExpediente(true); // Re-fetch silencioso para no desmontar componentes
 
-            setSaveMsg({ type: 'ok', text: 'Guardado correctamente.' });
+            if (!opts.silentOk) setSaveMsg({ type: 'ok', text: 'Guardado correctamente.' });
         } catch (err) {
             setSaveMsg({ type: 'error', text: err.response?.data?.error || 'Error al guardar.' });
         } finally {
@@ -206,6 +255,54 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
             }, 2000);
         }
     }, [expedienteId, fetchExpediente]);
+
+    // Al cambiar de expediente se descarta cualquier guardado en vuelo y se pierde
+    // la línea base: el módulo volverá a emitirla al montarse con el nuevo.
+    useEffect(() => {
+        clearTimeout(instTimerRef.current);
+        instSavedRef.current = null;
+        instHydratingRef.current = false;
+        instReadyRef.current = false;
+    }, [expedienteId]);
+    useEffect(() => () => clearTimeout(instTimerRef.current), []);
+
+    // Persiste `instalacion` YA, sin esperar al debounce. Para las acciones
+    // explícitas (confirmar precio CAE, ahorro verificado): sincroniza la
+    // referencia para que el autoguardado no repita el mismo PUT un segundo después.
+    const commitInst = useCallback((newInst) => {
+        clearTimeout(instTimerRef.current);
+        instSavedRef.current = newInst;
+        setLiveInst(newInst);
+        return handleSave({ instalacion: newInst });
+    }, [handleSave]);
+
+    // Autoguardado propiamente dicho. Solo reacciona a ediciones del usuario:
+    // las recargas y la primera emisión del módulo únicamente fijan la referencia.
+    useEffect(() => {
+        if (isCertificador || !expedienteId || !liveInst) return;
+
+        if (instHydratingRef.current) {
+            instHydratingRef.current = false;
+            instSavedRef.current = liveInst;
+            return;
+        }
+        // Primera emisión del módulo: trae sus valores por defecto y normalizados
+        // (`tipo_emisor` en minúsculas, `ccaa` con el casing del <select>…). Es la
+        // línea base, no una edición — guardarla escribiría en CADA apertura.
+        if (!instReadyRef.current) {
+            instReadyRef.current = true;
+            instSavedRef.current = liveInst;
+            return;
+        }
+        if (JSON.stringify(liveInst) === JSON.stringify(instSavedRef.current)) return;
+
+        const snapshot = liveInst;
+        clearTimeout(instTimerRef.current);
+        instTimerRef.current = setTimeout(() => {
+            instSavedRef.current = snapshot;
+            handleSave({ instalacion: snapshot }, { silentOk: true });
+        }, INST_AUTOSAVE_MS);
+    }, [liveInst, isCertificador, expedienteId, handleSave]);
 
     // ─── Abrir la carpeta LOCAL de Windows (solo ADMIN) ───────────────────────
     // Los navegadores bloquean abrir rutas file:// directamente desde una web, así
@@ -382,6 +479,8 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
             ficha = 'RES080';
         } else if (expediente.numero_expediente && expediente.numero_expediente.includes('RES093')) {
             ficha = 'RES093';
+        } else if (expediente.numero_expediente && expediente.numero_expediente.includes('TER100')) {
+            ficha = 'TER100';
         }
         
         // PRIORIZAR ESTADO LIVE SOBRE EL DEL OBJETO EXPEDIENTE PERSISTIDO
@@ -405,15 +504,9 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
             const superficie = parseFloat(ceeBase.superficieHabitable) || parseFloat(op.datos_calculo?.surface) || 0;
             const q_net_heating = (parseFloat(ceeBase.demandaCalefaccion) || 0) * superficie || parseFloat(op.datos_calculo?.Q_net) || 0;
 
-            // Lógica Dual de ACS
-            let dacs = 0;
-            if (cee.acs_method === 'cte') {
-                const numPeople = (parseInt(cee.num_rooms) || 4) + 1;
-                // Fórmula CTE: 28 l/p·día * NP * 0.001162 kWh/kg·ºC * 365 días * 46 ºC ΔT
-                dacs = 28 * numPeople * 0.001162 * 365 * 46;
-            } else {
-                dacs = (parseFloat(ceeBase.demandaACS) || 0) * superficie || parseFloat(op.datos_calculo?.demand_acs) || 0;
-            }
+            // Demanda de ACS según el modo elegido (xml del CEE / CTE / manual).
+            // Fuente única: logic/demandaAcs.js — la comparten los documentos y el backend.
+            const dacs = resolveDacs(cee, ceeBase, { demandAcsFallback: op.datos_calculo?.demand_acs }).value;
 
             if (superficie > 0 && q_net_heating > 0) {
                 const boilerEffId = inst.caldera_antigua_cal?.rendimiento_id || 'default';
@@ -466,6 +559,15 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
                 // Contexto para el popup de desglose (mismas unidades que la calculadora).
                 res060fcCtx = { scopHeating, scopAcs, changeAcs: changeAcsFlag, dacs };
             }
+        } else if (ficha === 'TER100') {
+            // Caso TER100 (terciario): el ahorro se desglosa en AE_C (calefacción),
+            // AE_ACS y AE_CAP (piscina), y la actuación puede alcanzar solo uno de
+            // los tres. Toda la derivación vive en logic/ter100.js, la misma que usan
+            // el CIFO, la Ficha TER100 y el backend.
+            const ter = deriveTer100Vars({ ...expediente, cee, instalacion: inst });
+            if (ter.savingsKwh > 0) {
+                savings = { ...ter.savings, ter100: ter };
+            }
         } else if (ficha === 'RES080') {
             // Caso RES080: emisiones manuales (sin .xml) o XML Inicial vs Final.
             // El backend puede guardar cee_source en MAYÚSCULAS → comparar en minúsculas.
@@ -511,9 +613,13 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
         if (!savings) return null;
 
         // 4. Ejecutar Cálculo Financiero (Bono CAE, IRPF, etc.)
+        // TER100 es sector TERCIARIO: el titular es una empresa o un autónomo, así que
+        // no aplica ni la deducción de IRPF por obras en vivienda ni la tributación del
+        // bono CAE como ganancia patrimonial (ambas son de personas físicas).
+        const esTerciario = ficha === 'TER100';
         const overrides = inst.economico_override || {};
-        const caePriceClientBase = overrides.cae_client_rate ?? (parseFloat(opInputs.cae_client_rate) || 95);
-        const caePriceSOBase = overrides.cae_so_rate ?? (parseFloat(opInputs.cae_so_rate) || 160);
+        const caePriceClientBase = overrides.cae_client_rate ?? (parseFloat(opInputs.cae_client_rate) || TER100_PRECIOS.cliente);
+        const caePriceSOBase = overrides.cae_so_rate ?? (parseFloat(opInputs.cae_so_rate) || TER100_PRECIOS.sujetoObligado);
         const includeCommission = overrides.include_commission ?? !!opInputs.include_commission;
         const discountCertificates = overrides.discount_certificates ?? !!opInputs.discount_certificates;
         const includeLegalization = overrides.include_legalization ?? !!opInputs.include_legalization;
@@ -536,7 +642,9 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
             certificatesCost,
             includeLegalization,
             legalizationMode,
-            includeIrpf: true
+            includeIrpf: !esTerciario,
+            aplicarIrpfCae: !esTerciario,
+            ...(esTerciario ? { titularType: 'empresa' } : {})
         };
 
         // Economía ESTIMADA (dinámica): se calcula con el ahorro del CEE, exactamente
@@ -661,6 +769,9 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
     const numero = expediente.numero_expediente || '';
     const isHybrid = numero.includes('RES093');
     const isReforma = numero.includes('RES080');
+    // TER100: misma actuación que RES060 pero en el sector TERCIARIO (hoteles,
+    // residencias, gimnasios…), con el ahorro desglosado en calefacción/ACS/piscina.
+    const isTerciario = numero.includes('TER100');
     const isSustitucion = numero.includes('RES060');
     
     const opInputs = op.datos_calculo?.inputs || {};
@@ -706,15 +817,13 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
                         onUpdatePrice={(newPrice) => {
                             // Confirmar = persistir en el expediente.
                             const base = liveInst || expediente.instalacion || {};
-                            const newInst = {
+                            commitInst({
                                 ...base,
                                 economico_override: {
                                     ...(base.economico_override || {}),
                                     cae_client_rate: newPrice
                                 }
-                            };
-                            setLiveInst(newInst);
-                            handleSave({ instalacion: newInst });
+                            });
                         }}
                         onLiveVerified={(val) => {
                             // Reflejo en vivo (sin persistir) del ahorro verificado mientras
@@ -735,7 +844,7 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
                             const base = liveInst || expediente.instalacion || {};
                             const prevVerif = base.verificacion || {};
                             const kwh = (val === null || val === '' || isNaN(val)) ? null : Math.round(parseFloat(val));
-                            const newInst = {
+                            commitInst({
                                 ...base,
                                 verificacion: {
                                     ...prevVerif,
@@ -744,9 +853,7 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
                                     fecha: new Date().toISOString(),
                                     registrado_por: user?.email || user?.nombre || null
                                 }
-                            };
-                            setLiveInst(newInst);
-                            handleSave({ instalacion: newInst });
+                            });
                         }}
                     />
                 </div>
@@ -907,6 +1014,8 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
                                     <span className="text-[10px] font-black text-indigo-400 bg-indigo-400/10 px-2.5 py-1 rounded uppercase tracking-wider border border-indigo-400/20 group-hover:border-indigo-400/40">RES093 — Hibridación</span>
                                 ) : isReforma ? (
                                     <span className="text-[10px] font-black text-emerald-400 bg-emerald-400/10 px-2.5 py-1 rounded uppercase tracking-wider border border-emerald-500/20 group-hover:border-emerald-500/40">RES080 — Reforma</span>
+                                ) : isTerciario ? (
+                                    <span className="text-[10px] font-black text-cyan-400 bg-cyan-400/10 px-2.5 py-1 rounded uppercase tracking-wider border border-cyan-400/20 group-hover:border-cyan-400/40">TER100 — Terciario</span>
                                 ) : (
                                     <span className="text-[10px] font-black text-brand/80 bg-brand/10 px-2.5 py-1 rounded uppercase tracking-wider border border-brand/20 group-hover:border-brand/40">RES060 — Sustitución</span>
                                 )}
@@ -933,7 +1042,7 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
                                                 <span className="text-xs font-bold text-brand uppercase tracking-wider">RES060</span>
                                                 <span className="text-[10px] text-white/40 uppercase font-black">Sustitución Estándar</span>
                                             </div>
-                                            {!isHybrid && !isReforma && <div className="w-1.5 h-1.5 bg-brand rounded-full" />}
+                                            {!isHybrid && !isReforma && !isTerciario && <div className="w-1.5 h-1.5 bg-brand rounded-full" />}
                                         </button>
                                         <button 
                                             onClick={() => handleMigrateProgram('RES080')}
@@ -954,6 +1063,16 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
                                                 <span className="text-[10px] text-white/40 uppercase font-black">Hibridación</span>
                                             </div>
                                             {isHybrid && <div className="w-1.5 h-1.5 bg-indigo-400 rounded-full" />}
+                                        </button>
+                                        <button
+                                            onClick={() => handleMigrateProgram('TER100')}
+                                            className="w-full flex items-center justify-between px-4 py-3 hover:bg-white/5 text-left border-t border-white/5 transition-colors"
+                                        >
+                                            <div className="flex flex-col">
+                                                <span className="text-xs font-bold text-cyan-400 uppercase tracking-wider">TER100</span>
+                                                <span className="text-[10px] text-white/40 uppercase font-black">Terciario (Calefacción · ACS · Piscina)</span>
+                                            </div>
+                                            {isTerciario && <div className="w-1.5 h-1.5 bg-cyan-400 rounded-full" />}
                                         </button>
                                     </div>
                                 </>
@@ -1255,25 +1374,7 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
                     }
                     activeSection={activeSection}
                     onToggle={setActiveSection}
-                    headerAction={
-                        (JSON.stringify(liveInst || {}) !== JSON.stringify(expediente.instalacion || {})) && (
-                            <button
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleSave({ instalacion: liveInst });
-                                }}
-                                disabled={saving}
-                                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${
-                                    saving ? 'bg-orange-500/10 text-orange-500/50' : 'bg-orange-500 text-white hover:bg-orange-600 shadow-lg shadow-orange-500/20 active:scale-95 animate-in fade-in zoom-in duration-300'
-                                }`}
-                            >
-                                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                                </svg>
-                                {saving ? 'Guardando...' : 'Guardar Datos'}
-                            </button>
-                        )
-                    }
+                    headerAction={!isCertificador && <AutoSaveHint saving={saving} />}
                 >
                     <InstalacionModule
                         expediente={expediente}
@@ -1380,25 +1481,7 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
                         activeSection={activeSection}
                         onToggle={setActiveSection}
                         badge="CAE"
-                        headerAction={
-                            (JSON.stringify(liveInst?.economico_override || {}) !== JSON.stringify(expediente.instalacion?.economico_override || {})) && (
-                                <button
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleSave({ instalacion: liveInst });
-                                    }}
-                                    disabled={saving}
-                                    className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${
-                                        saving ? 'bg-orange-500/10 text-orange-500/50' : 'bg-orange-500 text-white hover:bg-orange-600 shadow-lg shadow-orange-500/20 active:scale-95 animate-in fade-in zoom-in duration-300'
-                                    }`}
-                                >
-                                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                                    </svg>
-                                    {saving ? 'Guardando...' : 'Guardar Datos'}
-                                </button>
-                            )
-                        }
+                        headerAction={<AutoSaveHint saving={saving} />}
                     >
                         <EconomicoModule
                             expediente={expediente}

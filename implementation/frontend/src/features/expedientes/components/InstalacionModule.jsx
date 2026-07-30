@@ -4,6 +4,7 @@ import { BOILER_EFFICIENCIES, getScopFromModel, getScopAcsFromModel, calculateHy
 import { PROVINCE_CODE_TO_CCAA, PROVINCE_CODE_TO_NAME } from '../utils/docGenerators';
 import { withScopAplicado, cloneAero, potenciaTotal, countUnidades, scopPropioUnidad1, scopAplicado, tipoEquipoNuevo, EQUIPO_NUEVO, RENDIMIENTO_JOULE } from '../logic/aerotermiaUnits';
 import { EMITTER_OPTIONS, getEmitterTemp } from '../logic/cifoDoc';
+import { esTer100 } from '../logic/ter100';
 
 // Lista de emisores: fuente única en logic/cifoDoc.js (la misma que imprimen el
 // CIFO y el RES080). Las unidades AIRE-AIRE (splits / conductos) solo se ofrecen
@@ -291,6 +292,82 @@ function AcsFueraAlcanceSection({ data, onChange, readOnly }) {
                         />
                     </div>
                 </>
+            )}
+        </div>
+    );
+}
+
+// ─── Calentamiento de agua de piscina (AE_CAP · ficha TER100) ─────────────────
+// Tercer sumando del ahorro en TER100, y el que casi nunca aplica: nace SIEMPRE
+// desactivado y se habilita a mano. Mientras `activa` sea false no entra en la
+// fórmula (D_CAP no suma) ni se imprime en el certificado.
+//
+// El SCOP_pwh se introduce A MANO desde la ficha técnica del equipo: no sale del
+// catálogo `aerotermia` (que trae SCOP de calefacción y η de ACS, no de piscina)
+// ni se interpola por temperatura de impulsión — el Anexo VII de la ficha da un
+// coeficiente estacional propio para el calentamiento de piscinas.
+function PiscinaSection({ data, onChange, readOnly }) {
+    const piscina = data || {};
+    const equipo = piscina.equipo || {};
+    const set = (patch) => onChange({ ...piscina, ...patch });
+    const setEquipo = (patch) => onChange({ ...piscina, equipo: { ...equipo, ...patch } });
+
+    return (
+        <div className="bg-slate-950/80 border border-cyan-500/20 p-5 rounded-2xl space-y-4 relative overflow-hidden">
+            <div className="absolute top-0 right-0 p-8 bg-cyan-500/5 rounded-full blur-3xl -mr-10 -mt-10" />
+            <div className="flex flex-wrap items-center justify-between gap-4 relative z-10">
+                <div className="flex flex-col gap-1">
+                    <span className="text-[10px] font-black text-cyan-400 uppercase tracking-widest">Calentamiento de agua de piscina · AE_CAP</span>
+                    <span className="text-[10px] text-white/35">Tercer sumando del ahorro en TER100. Casi nunca aplica: actívalo solo si la actuación calienta el agua de una piscina.</span>
+                </div>
+                <button
+                    type="button"
+                    disabled={readOnly}
+                    onClick={() => !readOnly && set({ activa: !piscina.activa })}
+                    className={`flex items-center gap-2 px-6 py-2 rounded-xl transition-all duration-300 border text-xs font-black uppercase tracking-tight ${
+                        piscina.activa
+                            ? 'bg-cyan-500 text-bkg-deep border-cyan-400 shadow-[0_0_20px_rgba(6,182,212,0.25)]'
+                            : 'text-slate-500 border-white/10 hover:text-white'
+                    } disabled:cursor-default`}
+                >
+                    {piscina.activa ? 'Piscina incluida' : 'Incluir piscina'}
+                </button>
+            </div>
+
+            {piscina.activa && (
+                <div className="space-y-3 relative z-10">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <Field
+                            label="D_CAP — Demanda anual de piscina (kWh/año)"
+                            type="number"
+                            value={piscina.demanda_kwh ?? ''}
+                            onChange={v => set({ demanda_kwh: v })}
+                            readOnly={readOnly}
+                            placeholder="Según la instalación existente o el Anexo III del Pliego IDAE"
+                        />
+                        <Field
+                            label="SCOP_pwh — Rendimiento estacional en piscina (W/W)"
+                            type="number"
+                            value={piscina.scop ?? ''}
+                            onChange={v => set({ scop: v })}
+                            readOnly={readOnly}
+                            placeholder="De la ficha técnica del equipo"
+                        />
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <Field label="Marca del equipo" value={equipo.marca ?? ''} onChange={v => setEquipo({ marca: v })} readOnly={readOnly} />
+                        <Field label="Modelo" value={equipo.modelo ?? ''} onChange={v => setEquipo({ modelo: v })} readOnly={readOnly} />
+                        <Field label="Número de serie" value={equipo.numero_serie ?? ''} onChange={v => setEquipo({ numero_serie: v })} readOnly={readOnly} />
+                    </div>
+                    {!(parseFloat(piscina.demanda_kwh) > 0 && parseFloat(piscina.scop) > 0) && (
+                        <div className="flex items-start gap-2 bg-amber-500/[0.07] border border-amber-500/25 rounded-lg px-3 py-2">
+                            <span className="text-[10px] font-black text-amber-400 uppercase tracking-widest flex-shrink-0">Falta dato</span>
+                            <span className="text-[10px] text-white/45 leading-relaxed">
+                                Sin D_CAP y SCOP_pwh el sumando de piscina vale 0: no aporta ahorro al expediente ni se puede justificar en el certificado.
+                            </span>
+                        </div>
+                    )}
+                </div>
             )}
         </div>
     );
@@ -1191,9 +1268,15 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
         // (potencia nominal de la caldera existente, que se introduce a mano).
         hibridacion_metodo: HYBRID_METHODS.DEMANDA,
         potencia_caldera: '',
+        // Alcance sobre la CALEFACCIÓN. En RES060/RES093 es siempre sí (la actuación
+        // ES el cambio de la caldera de calefacción); en TER100 puede haber una
+        // sustitución que solo alcance el ACS o la piscina.
+        cambio_calefaccion: true,
         cambio_acs: true,
         misma_aerotermia_acs: true,
         aerotermia_acs: { aerotermia_db_id: null, marca: '', modelo: '', numero_serie: '', scop: null, metodo_scop: 'ficha' },
+        // AE_CAP de la ficha TER100. Siempre desactivada por defecto.
+        piscina: { activa: false, demanda_kwh: null, scop: null, equipo: { marca: '', modelo: '', numero_serie: '' } },
         instalador_id: null,
         ...(expediente?.instalacion || {}),
         // Normalizar a minúsculas por retrocompatibilidad con datos guardados en mayúsculas por normalizeData
@@ -1216,12 +1299,14 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
             const inst = expediente?.instalacion || {};
             setLocal({
                 misma_direccion: true,
+                cambio_calefaccion: true,
                 cambio_acs: true,
                 misma_aerotermia_acs: true,
                 hibridacion: false,
                 potencia_bomba: 0,
                 hibridacion_metodo: HYBRID_METHODS.DEMANDA,
                 potencia_caldera: '',
+                piscina: { activa: false, demanda_kwh: null, scop: null, equipo: { marca: '', modelo: '', numero_serie: '' } },
                 ...inst,
                 // Normalizar a minúsculas por retrocompatibilidad con datos guardados en mayúsculas
                 tipo_emisor: (inst.tipo_emisor || 'suelo_radiante').toLowerCase(),
@@ -1442,6 +1527,19 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
         }
     };
 
+    // TER100 (terciario) admite que la actuación NO alcance la calefacción (solo ACS
+    // y/o piscina). En RES060/RES093 la actuación ES el cambio de la caldera de
+    // calefacción, así que ahí el toggle no se ofrece y `cambio_calefaccion` es true.
+    const esTerciario = esTer100(expediente);
+
+    const handleCambioCalefaccionChange = (val) => {
+        // Si se saca la calefacción del alcance, el ACS pasa a tener sus propios
+        // equipos: copiar los de calefacción dejaría de tener sentido.
+        setLocal(p => val
+            ? { ...p, cambio_calefaccion: true }
+            : { ...p, cambio_calefaccion: false, cambio_acs: true, misma_aerotermia_acs: false });
+    };
+
     const prescriptorOptions = prescriptores
         .filter(i => i.tipo_empresa === 'INSTALADOR')
         .map(i => ({
@@ -1543,6 +1641,42 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
                         )}
                     </div>
                 </div>
+
+                {/* ── PREGUNTA CALEFACCIÓN (solo TER100) ──
+                    En el terciario la sustitución puede alcanzar solo el ACS o solo la
+                    piscina, así que el alcance sobre calefacción es una pregunta real. */}
+                {esTerciario && (
+                    <div className={`bg-slate-900 border p-4 rounded-xl ${readOnly ? 'border-white/5 opacity-80' : 'border-brand/20'}`}>
+                        <div className="flex items-center justify-between">
+                            <span className="text-xs font-black text-white uppercase tracking-widest">¿Se va a actuar sobre la calefacción?</span>
+                            <div className="flex items-center gap-2 p-1 bg-slate-950/50 rounded-xl border border-slate-700/50">
+                                <button
+                                    onClick={() => !readOnly && handleCambioCalefaccionChange(true)}
+                                    disabled={readOnly}
+                                    className={`px-4 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all border ${
+                                        local.cambio_calefaccion !== false
+                                            ? (readOnly ? 'bg-brand/40 text-bkg-deep border-brand/40' : 'bg-brand text-bkg-deep border-brand')
+                                            : 'text-white/20 border-transparent hover:text-white'
+                                    }`}
+                                >SÍ</button>
+                                <button
+                                    onClick={() => !readOnly && handleCambioCalefaccionChange(false)}
+                                    disabled={readOnly}
+                                    className={`px-4 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all border ${
+                                        local.cambio_calefaccion === false
+                                            ? (readOnly ? 'bg-amber-900 text-amber-300 border-amber-800' : 'bg-amber-500 text-bkg-deep border-amber-400')
+                                            : 'text-white/20 border-transparent hover:text-white'
+                                    }`}
+                                >NO</button>
+                            </div>
+                        </div>
+                        {local.cambio_calefaccion === false && (
+                            <p className="text-[10px] text-amber-400/70 mt-2">
+                                AE_C queda fuera de la fórmula: el ahorro saldrá solo del ACS y/o del calentamiento de piscina.
+                            </p>
+                        )}
+                    </div>
+                )}
 
                 {/* ── PREGUNTA ACS ── */}
                 <div className={`bg-slate-900 border p-4 rounded-xl ${readOnly ? 'border-white/5 opacity-80' : 'border-brand/20'}`}>
@@ -1674,8 +1808,20 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
                     )}
                 </div>
 
-                {/* ── HIBRIDACIÓN ── */}
-                <div className="bg-slate-950/80 border border-brand/20 p-5 rounded-2xl space-y-4 shadow-2xl relative overflow-hidden group">
+                {/* ── PISCINA (AE_CAP · solo TER100) ── */}
+                {esTerciario && (
+                    <PiscinaSection
+                        data={local.piscina}
+                        onChange={v => setLocal(p => ({ ...p, piscina: v }))}
+                        readOnly={readOnly}
+                    />
+                )}
+
+                {/* ── HIBRIDACIÓN ──
+                    No aplica en TER100: la ficha del terciario no contempla el
+                    coeficiente de cobertura por bivalencia (Cb), así que el bloque se
+                    oculta para no ofrecer un dato que su fórmula ignora. */}
+                <div className={`bg-slate-950/80 border border-brand/20 p-5 rounded-2xl space-y-4 shadow-2xl relative overflow-hidden group ${esTerciario ? 'hidden' : ''}`}>
                     <div className="absolute top-0 right-0 p-8 bg-brand/5 rounded-full blur-3xl -mr-10 -mt-10" />
 
                     <div className="flex flex-wrap items-center justify-between gap-4 relative z-10">

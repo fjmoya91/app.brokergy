@@ -327,6 +327,8 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
             cee_final: null,
             acs_method: 'xml',
             num_rooms: 4,
+            // D_ACS en kWh/año introducida a mano (solo modo 'manual', ficha TER100).
+            dacs_manual: null,
             certificador_id: null,
             // Los comb_* (acs/cal/ref · inicial/final) se inicializan más abajo, en el
             // bloque de normalización (tras ...saved), con su mismo valor por defecto.
@@ -385,6 +387,9 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
     const [approvePendingPhase, setApprovePendingPhase] = useState(null);
     const [approveChannels, setApproveChannels] = useState(['email']);
     const [approveAttachFiles, setApproveAttachFiles] = useState(false);
+    // Prioridad del visto bueno: 'normal' | 'urgent'. En urgente el mensaje lleva 🚨
+    // y el email sale marcado como urgente (mismo criterio que el popup de notificar).
+    const [approvePriority, setApprovePriority] = useState('normal');
     // Nota adicional: texto libre que se añade al final del mensaje (WhatsApp y email)
     // sin tocar la plantilla, para poder restaurarla sin perder la nota.
     const [approveNota, setApproveNota] = useState('');
@@ -651,7 +656,8 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
         setApproveChannels(['email']);
         setApproveAttachFiles(false);
         setApproveNota('');
-        setApproveMessage(buildCertApproveMessage(section, selectedCertName, clienteNombre, numExp, ceeFolderLink, expedienteId));
+        setApprovePriority('normal');
+        setApproveMessage(buildCertApproveMessage(section, selectedCertName, clienteNombre, numExp, ceeFolderLink, expedienteId, 'normal'));
         setApproveResult(null);
         setApproveLinks(null);
         // Cargar los enlaces reales (descarga + subida) para mostrarlos en el preview.
@@ -661,6 +667,21 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                 .catch(() => setApproveLinks(null));
         }
         setShowApprovePopup(true);
+    };
+
+    // Plantilla de visto bueno para la prioridad indicada (normal / urgente).
+    const approveTemplateFor = (prio) => buildCertApproveMessage(
+        approvePendingPhase === 'final' ? 'final' : 'inicial',
+        selectedCertName, clienteNombre, numExp, ceeFolderLink, expedienteId, prio
+    );
+
+    // Cambio de prioridad: regenera SIEMPRE la plantilla de esa prioridad (mismo
+    // criterio que el selector de tipo de mensaje del grid). Intentar "preservar la
+    // edición" dejaba el texto en la plantilla anterior, que es justo lo que no
+    // queremos al pulsar "Urgente". Lo escrito en "Nota adicional" no se toca.
+    const changeApprovePriority = (prio) => {
+        setApprovePriority(prio);
+        setApproveMessage(approveTemplateFor(prio));
     };
 
     // Visto bueno enviado DIRECTAMENTE desde el popup de la campana (sin abrir el popup
@@ -690,7 +711,8 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                 sendWhatsApp: approveChannels.includes('whatsapp'),
                 customMessage: approveMessage.trim() || null,
                 notaAdicional: approveNota.trim() || null,
-                attachFiles: approveAttachFiles && approveChannels.includes('email')
+                attachFiles: approveAttachFiles && approveChannels.includes('email'),
+                priority: approvePriority
             });
             const phaseLabel = approvePendingPhase === 'final' ? 'CEE Final' : 'CEE Inicial';
             // Feedback real por canal (el backend devuelve el estado de cada envío).
@@ -881,13 +903,14 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                 }}
                 acsMethod={local.acs_method}
                 numRooms={local.num_rooms}
+                dacsManual={local.dacs_manual}
                 onManualUpdate={(patch) => {
                     const nextLocal = { ...local, ...patch };
                     setLocal(nextLocal);
                     onSave({ cee: nextLocal });
                 }}
                 onAutoStatus={onAutoStatus}
-                onForceNotify={async (phase, channels, template, customMessage) => {
+                onForceNotify={async (phase, channels, template, customMessage, extra = {}) => {
                     if (!local.certificador_id) {
                         alert('Asigna primero un certificador');
                         return;
@@ -899,8 +922,12 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                             sendWhatsApp: channels.includes('whatsapp'),
                             phase,
                             template,
+                            // Dos ejes: qué esperamos (emisión/registro) y con qué tono.
+                            espera: extra.espera || null,
+                            tono: extra.tono || null,
+                            dias: extra.dias ?? null,
                             customMessage: (customMessage || '').trim() || null,
-                            priority: template === 'urgent' ? 'urgent' : 'normal'
+                            priority: (extra.tono === 'urgent' || template === 'urgent') ? 'urgent' : 'normal'
                         });
                         // Éxito = confeti de papeles (efecto homogéneo con el envío de anexos).
                         fireSuccessConfetti();
@@ -996,13 +1023,14 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                 }}
                 acsMethod={local.acs_method}
                 numRooms={local.num_rooms}
+                dacsManual={local.dacs_manual}
                 onManualUpdate={(patch) => {
                     const nextLocal = { ...local, ...patch };
                     setLocal(nextLocal);
                     onSave({ cee: nextLocal });
                 }}
                 onAutoStatus={onAutoStatus}
-                onForceNotify={async (phase, channels, template, customMessage) => {
+                onForceNotify={async (phase, channels, template, customMessage, extra = {}) => {
                     if (!local.certificador_id) {
                         alert('Asigna primero un certificador');
                         return;
@@ -1014,8 +1042,12 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                             sendWhatsApp: channels.includes('whatsapp'),
                             phase,
                             template,
+                            // Dos ejes: qué esperamos (emisión/registro) y con qué tono.
+                            espera: extra.espera || null,
+                            tono: extra.tono || null,
+                            dias: extra.dias ?? null,
                             customMessage: (customMessage || '').trim() || null,
-                            priority: template === 'urgent' ? 'urgent' : 'normal'
+                            priority: (extra.tono === 'urgent' || template === 'urgent') ? 'urgent' : 'normal'
                         });
                         // Éxito = confeti de papeles (efecto homogéneo con el envío de anexos).
                         fireSuccessConfetti();
@@ -1155,13 +1187,45 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                         ) : (
                             <>
                                 <div className="flex items-center gap-3 mb-5">
-                                    <div className="w-10 h-10 rounded-full bg-emerald-500/20 flex items-center justify-center">
-                                        <svg className="w-5 h-5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                    <div className={`w-10 h-10 rounded-full flex items-center justify-center ${approvePriority === 'urgent' ? 'bg-red-500/20' : 'bg-emerald-500/20'}`}>
+                                        <svg className={`w-5 h-5 ${approvePriority === 'urgent' ? 'text-red-400' : 'text-emerald-400'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                                     </div>
                                     <div>
-                                        <h4 className="text-sm font-black text-white uppercase tracking-widest">Validar {approvePendingPhase === 'final' ? 'CEE Final' : 'CEE Inicial'}</h4>
-                                        <p className="text-[10px] text-white/40">El certificador recibirá luz verde para registrar en Industria</p>
+                                        <h4 className="text-sm font-black text-white uppercase tracking-widest">
+                                            Validar {approvePendingPhase === 'final' ? 'CEE Final' : 'CEE Inicial'}
+                                            {approvePriority === 'urgent' && <span className="text-red-400"> · 🚨 Urgente</span>}
+                                        </h4>
+                                        <p className="text-[10px] text-white/40">
+                                            {approvePriority === 'urgent'
+                                                ? 'Luz verde con petición de registro URGENTE en Industria'
+                                                : 'El certificador recibirá luz verde para registrar en Industria'}
+                                        </p>
                                     </div>
+                                </div>
+
+                                {/* Prioridad: en urgente el mensaje lleva 🚨 y el email sale marcado. */}
+                                <p className="text-[9px] font-black text-white/30 uppercase tracking-widest mb-2">Prioridad</p>
+                                <div className="flex gap-2 mb-5">
+                                    <button
+                                        type="button"
+                                        onClick={() => changeApprovePriority('normal')}
+                                        disabled={approveLoading}
+                                        className={`flex-1 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all border ${
+                                            approvePriority === 'normal'
+                                                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                                                : 'border-white/5 text-white/20 hover:text-white/40'
+                                        }`}
+                                    >✅ Normal</button>
+                                    <button
+                                        type="button"
+                                        onClick={() => changeApprovePriority('urgent')}
+                                        disabled={approveLoading}
+                                        className={`flex-1 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all border ${
+                                            approvePriority === 'urgent'
+                                                ? 'bg-red-500/10 border-red-500/40 text-red-400'
+                                                : 'border-white/5 text-white/20 hover:text-white/40'
+                                        }`}
+                                    >🚨 Urgente</button>
                                 </div>
 
                                 {/* Canales */}
@@ -1210,7 +1274,7 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                                     <p className="text-[9px] font-black text-white/30 uppercase tracking-widest">Mensaje al certificador</p>
                                     <button
                                         type="button"
-                                        onClick={() => setApproveMessage(buildCertApproveMessage(approvePendingPhase === 'final' ? 'final' : 'inicial', selectedCertName, clienteNombre, numExp, ceeFolderLink, expedienteId))}
+                                        onClick={() => setApproveMessage(approveTemplateFor(approvePriority))}
                                         disabled={approveLoading}
                                         className="text-[9px] font-black uppercase tracking-widest text-white/30 hover:text-emerald-400 transition-colors disabled:opacity-40"
                                         title="Restaurar el texto por defecto"
@@ -1282,11 +1346,17 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                                     <button
                                         onClick={handleApproveConfirm}
                                         disabled={approveLoading || approveChannels.length === 0}
-                                        className="flex-1 py-2.5 bg-emerald-500 text-black text-[11px] font-black uppercase tracking-widest rounded-xl shadow-lg shadow-emerald-500/20 transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2"
+                                        className={`flex-1 py-2.5 text-[11px] font-black uppercase tracking-widest rounded-xl shadow-lg transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2 ${
+                                            approvePriority === 'urgent'
+                                                ? 'bg-red-500 text-white shadow-red-500/30'
+                                                : 'bg-emerald-500 text-black shadow-emerald-500/20'
+                                        }`}
                                     >
                                         {approveLoading ? (
                                             <><div className="w-4 h-4 border-2 border-black/20 border-t-black rounded-full animate-spin" />Validando...</>
-                                        ) : (approveChannels.length === 0 ? 'Selecciona un canal' : `✅ Validar y enviar ${approveChannels.map(c => c === 'email' ? 'Email' : 'WhatsApp').join(' + ')}`)}
+                                        ) : (approveChannels.length === 0
+                                            ? 'Selecciona un canal'
+                                            : `${approvePriority === 'urgent' ? '🚨 Validar URGENTE y enviar ' : '✅ Validar y enviar '}${approveChannels.map(c => c === 'email' ? 'Email' : 'WhatsApp').join(' + ')}`)}
                                     </button>
                                 </div>
                             </>

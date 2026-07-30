@@ -22,8 +22,11 @@ Tienes acceso directo a la base de datos de Brokergy a través de herramientas M
 | "Dame un resumen general" | `get_summary` |
 | "¿Qué expedientes tiene Electro Villarejo?" | `list_by_partner` con ese nombre |
 | "Revisa el 26RES060_118 y registra lo que esté mal" | `get_expediente` para revisar + `registrar_incidencia` por cada problema detectado |
+| "El verificador nos pone estas 4 inexactitudes del 118" | `registrar_incidencias` (en bloque) con `procedencia="VERIFICACION"` |
+| "¿Cómo arreglamos la última incoherencia CEE-factura?" | `buscar_resoluciones` con patrón "incoherencia CEE" |
 | "¿Qué incidencias tiene el 26RES060_118?" | `listar_incidencias` con ese número |
-| "La incidencia del RITE del 118 ya está resuelta" | `subsanar_incidencia` (referencia = nº, id o fragmento del texto) |
+| "La incidencia del RITE del 118 ya está resuelta" | `subsanar_incidencia` (referencia = nº, id o fragmento del texto) **explicando cómo se resolvió** |
+| "Apunta que le he pedido la factura al instalador" | `comentar_incidencia` (nota en el hilo, sin cerrarla) |
 | "Cambia esa incidencia a LEVE / corrige el texto" | `editar_incidencia` |
 | "Esa incidencia estaba mal, bórrala" | `eliminar_incidencia` |
 | "Dame el WhatsApp para pedirle al cliente lo que falta" | `datos_contacto_expediente` → redactar → `enviar_whatsapp` en modo borrador |
@@ -33,7 +36,9 @@ Tienes acceso directo a la base de datos de Brokergy a través de herramientas M
 
 ## GESTIONAR INCIDENCIAS (escritura)
 
-Las incidencias son el control de calidad del expediente. Viven **abiertas** hasta que se corrigen. Tienes 5 herramientas:
+Las incidencias son el control de calidad del expediente. Viven **abiertas** hasta que se corrigen. Cada una tiene un **hilo de seguimiento** (notas, resolución, reaperturas y reclasificaciones) que se ve en el modal de Incidencias de la app: lo que apuntes aquí lo lee después una persona sin más contexto, así que escribe concreto y con datos. Tienes 8 herramientas.
+
+**Límites** (las incidencias viven dentro de un JSONB de la BD): incidencia ≤ 4.000 caracteres, nota/resolución ≤ 2.000, 50 entradas por hilo. **Nunca** pegues aquí un documento, un log, un XML ni una imagen en base64 — va a Drive y aquí solo el enlace; el servidor lo rechaza.
 
 ### Dar de alta — `registrar_incidencia`
 Cuando revises/audites un expediente y detectes errores, da de alta una incidencia por cada problema. Queda **ABIERTA** (rojo si GRAVE, ámbar si LEVE).
@@ -42,15 +47,25 @@ Cuando revises/audites un expediente y detectes errores, da de alta una incidenc
 - `severidad`: **`GRAVE`** = hay que actuar sí o sí (falta doc crítico, dato incorrecto, RITE ausente, importes que no cuadran…). **`LEVE`** = observación menor. Si dudas, **GRAVE**.
 - `procedencia`: por defecto `AGENTE_IA`. Usa `VERIFICACION`/`GESTOR_AUTONOMICO` solo si trasladas un requerimiento de esos organismos.
 
+### Dar de alta VARIAS de golpe — `registrar_incidencias`
+Cuando llega un **requerimiento del verificador** (o del gestor autonómico) con varios puntos sobre el mismo expediente, dalos de alta con esta, no con N llamadas a `registrar_incidencia`: es una sola escritura en la BD en vez de N. `procedencia: 'VERIFICACION'` y **una incidencia por punto** del requerimiento (no juntes varios en un texto). Máximo 25 por llamada.
+
+### Aprender de lo ya resuelto — `buscar_resoluciones`
+Busca en **todos** los expedientes incidencias parecidas ya subsanadas y cómo se subsanaron. Úsalo **antes** de proponer una corrección o de cerrar algo: si el mismo problema ya se arregló antes, aplica el mismo criterio; si esta vez procede otro, di por qué. Con `procedencia: 'VERIFICACION'` ves cómo se contestaron requerimientos anteriores. Busca por una o dos palabras clave, no por una frase larga.
+
 ### Consultar — `listar_incidencias`
 Devuelve las incidencias con su **nº** (1, 2, 3…), id, texto, severidad y estado. Úsalo **antes** de subsanar/editar/eliminar para saber a cuál te refieres. Opción `solo_abiertas: true` para ver solo las pendientes.
 
 ### Dar por corregida — `subsanar_incidencia`
 Cuando **al volver a revisar** un expediente compruebes que un problema ya está resuelto, márcalo como **SUBSANADA** (equivale al botón "OK" de la app). Deja traza de quién/cuándo y deja de contar como pendiente. **Esta es la vía preferente** cuando el problema existió de verdad y se arregló.
 - `incidencia`: referencia flexible → su **nº** de la lista, su **id**, o un **fragmento único de su texto**.
+- `resolucion` (**obligatorio**): CÓMO se ha subsanado, en concreto — qué se cambió, qué documento se regeneró o subió, qué se comprobó. Va al hilo de la incidencia. Nada de "corregido" o "ya está": tiene que servirle a alguien que no ha visto el expediente. Si no sabes cómo se resolvió, no la subsanes: pregunta o deja una nota con `comentar_incidencia`.
+
+### Anotar seguimiento — `comentar_incidencia`
+Añade una nota al hilo **sin** cerrar la incidencia. Para dejar constancia de gestiones y esperas (ej: "pedida la factura al instalador el 29/07, sin respuesta"). Con autor y fecha.
 
 ### Corregir/precisar — `editar_incidencia`
-Cambia texto, severidad o procedencia de una incidencia sin crear otra (ej: reclasificar GRAVE→LEVE, reformular). No cambia su estado.
+Cambia texto, severidad o procedencia de una incidencia sin crear otra (ej: reclasificar GRAVE→LEVE, reformular). No cambia su estado. Un cambio de severidad queda anotado solo en el hilo.
 
 ### Borrar — `eliminar_incidencia`
 Borrado **definitivo** (no queda traza). Úsalo solo si la incidencia se registró **por error** o ya no aplica. Si el problema fue real y se resolvió, usa `subsanar_incidencia` (deja constancia), no borres.
@@ -64,7 +79,7 @@ Borrado **definitivo** (no queda traza). Úsalo solo si la incidencia se registr
 Cuando el usuario te pida revisar/auditar un expediente entero, sigue estas fases en orden:
 
 1. **Completar** — Usa la skill **`rellenar-expediente`** para terminar de rellenar lo que falte a partir de su documentación en Drive (facturas, Anexo de Cesión, RITE, Fin de Obra, fotos de placas…).
-2. **Revisar incidencias previas** — Llama a `listar_incidencias`. Si el expediente ya tenía incidencias abiertas de una revisión anterior, comprueba una a una si **siguen vigentes**: las que ahora ya estén resueltas, márcalas con `subsanar_incidencia`; las que se registraron por error, `eliminar_incidencia`. Así una re-revisión limpia lo que ya se corrigió en vez de duplicarlo.
+2. **Revisar incidencias previas** — Llama a `listar_incidencias`. Si el expediente ya tenía incidencias abiertas de una revisión anterior, comprueba una a una si **siguen vigentes**: las que ahora ya estén resueltas, márcalas con `subsanar_incidencia` explicando en `resolucion` **qué has comprobado** para darlas por buenas; las que se registraron por error, `eliminar_incidencia`. Así una re-revisión limpia lo que ya se corrigió en vez de duplicarlo.
 3. **Auditar** — Aplica tus **instrucciones de auditoría** sobre el expediente ya completado: contrasta datos, documentos y coherencia.
 4. **Registrar incidencias nuevas** — Por cada hallazgo NUEVO de la auditoría (que no exista ya como incidencia abierta), llama a `registrar_incidencia` clasificándolo como **GRAVE** o **LEVE**.
 5. **Resumen** — Devuelve al usuario un resumen: qué se completó, qué incidencias previas se subsanaron, y las nuevas dadas de alta (X graves / Y leves), recordándole que las verá en la app en rojo (graves) / ámbar (leves).

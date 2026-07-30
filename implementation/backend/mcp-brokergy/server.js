@@ -174,6 +174,49 @@ function maskPhone(tlf) {
     return `${s[0]}····${s.slice(-3)}`;
 }
 
+// ── Topes de tamaño (protección de la BD) ─────────────────────────────────────
+// Mismos valores que routes/expedientes.js. Las incidencias viven dentro de
+// `expedientes.documentacion` (JSONB): un texto desmedido no solo engorda la fila
+// (trigger de 2 MB), es que obliga a Postgres a descomprimir esa columna entera en
+// cada consulta que la toque. Reglas 21 y 22 de CLAUDE.md.
+const MAX_TEXTO_INCIDENCIA = 4000;
+const MAX_TEXTO_COMENTARIO = 2000;
+const MAX_COMENTARIOS      = 50;
+
+// Devuelve un mensaje de error si el texto no es apto para el JSONB, o null.
+function validarTextoIncidencia(texto, max, que = 'texto') {
+    if (texto.length > max) {
+        return `El ${que} es demasiado largo (${texto.length} caracteres, máximo ${max}). Resume: los documentos y capturas van a Drive, no dentro de la incidencia.`;
+    }
+    if (/;base64,|^data:[a-z]+\//i.test(texto)) {
+        return `No se pueden guardar ficheros ni imágenes dentro de una incidencia. Súbelo a Drive y pon aquí el enlace.`;
+    }
+    return null;
+}
+
+// Añade una entrada al HILO de seguimiento de una incidencia (incidencia.comentarios[]).
+// Mismo formato exacto que escribe la app (routes/expedientes.js): lo que el agente
+// apunta por chat sale en el modal de la app y al revés.
+// tipo: NOTA (la escribe alguien) | RESOLUCION | REAPERTURA | SEVERIDAD (las genera el sistema).
+function pushComentario(inc, texto, autor, tipo = 'NOTA') {
+    const entrada = {
+        id: `${Date.now()}_c${Math.random().toString(36).slice(2, 7)}`,
+        texto: (texto || '').trim(),
+        autor: autor || 'AGENTE IA',
+        tipo,
+        fecha: new Date().toISOString(),
+    };
+    // Al llegar al tope se descarta la NOTA más antigua; las entradas de sistema
+    // (RESOLUCION/REAPERTURA/SEVERIDAD) no se pierden nunca: son la traza.
+    let hilo = [...(inc.comentarios || []), entrada];
+    while (hilo.length > MAX_COMENTARIOS) {
+        const i = hilo.findIndex(c => c.tipo === 'NOTA');
+        hilo.splice(i === -1 ? 0 : i, 1);
+    }
+    inc.comentarios = hilo;
+    return entrada;
+}
+
 // Serializa una incidencia para respuesta (añade índice legible 1-based).
 function incView(inc, index) {
     return {
@@ -185,7 +228,11 @@ function incView(inc, index) {
         procedencia: inc.procedencia,
         fecha: inc.fecha,
         resuelta_at: inc.resuelta_at || null,
-        resuelta_por: inc.resuelta_por || null
+        resuelta_por: inc.resuelta_por || null,
+        resolucion: inc.resolucion || null,
+        comentarios: (inc.comentarios || []).map(c => ({
+            tipo: c.tipo, autor: c.autor, fecha: c.fecha, texto: c.texto
+        }))
     };
 }
 
@@ -362,6 +409,8 @@ function createMcpServer() {
         async ({ numero, texto, severidad = 'GRAVE', procedencia = 'AGENTE_IA' }) => {
             const clean = (texto || '').trim();
             if (!clean) return err('El texto de la incidencia es obligatorio.');
+            const mal = validarTextoIncidencia(clean, MAX_TEXTO_INCIDENCIA, 'texto de la incidencia');
+            if (mal) return err(mal);
             const sev = ['LEVE', 'GRAVE'].includes(severidad) ? severidad : 'GRAVE';
 
             // Buscar en la TABLA base (no en la vista) para poder leer/escribir documentacion.
@@ -409,6 +458,77 @@ function createMcpServer() {
         }
     );
 
+    // ── Tool 6a-bis: Alta EN BLOQUE (ESCRITURA) ───────────────────────────────
+    // El caso real: llega un requerimiento del verificador (o del gestor autonómico)
+    // con varias inexactitudes de un mismo expediente y hay que darlas todas de alta.
+    // Existe como herramienta aparte por SALUD DE LA BD: `registrar_incidencia` hace
+    // un read-modify-write completo de `documentacion`, así que N llamadas = N
+    // reescrituras de la fila (y N versiones muertas que luego hay que vacuumear),
+    // además del riesgo de que dos escrituras concurrentes se pisen. Aquí es
+    // 1 lectura + 1 escritura pase lo que pase.
+    mcp.tool(
+        'registrar_incidencias',
+        'Da de alta VARIAS incidencias de golpe en un mismo expediente, en una sola escritura. Úsalo siempre que tengas más de un hallazgo para el mismo expediente — típicamente al trasladar un requerimiento del verificador o del gestor autonómico con varias inexactitudes. Para un único hallazgo suelto usa registrar_incidencia.',
+        {
+            numero: z.string().describe('Número del expediente, ej: 26RES060_118'),
+            procedencia: z.enum(['REVISION_INTERNA', 'VERIFICACION', 'GESTOR_AUTONOMICO', 'AGENTE_IA'])
+                .optional()
+                .describe('Origen común de todas ellas. Usa VERIFICACION si trasladas un requerimiento del verificador y GESTOR_AUTONOMICO si viene del organismo autonómico. Por defecto AGENTE_IA.'),
+            items: z.array(z.object({
+                texto: z.string().describe('Qué está mal y qué hay que corregir. Una incidencia por punto del requerimiento: no juntes varios en un solo texto.'),
+                severidad: z.enum(['LEVE', 'GRAVE']).optional().describe('Por defecto GRAVE.')
+            })).min(1).max(25).describe('Lista de incidencias a registrar (máximo 25 por llamada).')
+        },
+        async ({ numero, items, procedencia = 'AGENTE_IA' }) => {
+            const limpios = [];
+            for (const [k, it] of (items || []).entries()) {
+                const clean = (it?.texto || '').trim();
+                if (!clean) return err(`El punto ${k + 1} no tiene texto.`);
+                const mal = validarTextoIncidencia(clean, MAX_TEXTO_INCIDENCIA, `texto del punto ${k + 1}`);
+                if (mal) return err(mal);
+                limpios.push({ texto: clean, severidad: it?.severidad === 'LEVE' ? 'LEVE' : 'GRAVE' });
+            }
+
+            const found = await findExpediente(numero);
+            if (found.error) return err(found.error);
+            if (found.notFound) return ok({ ok: false, message: found.notFound });
+            if (found.ambiguous) return ok({ ok: false, message: found.message, coincidencias: found.ambiguous });
+
+            const exp = found.exp;
+            const docObj = exp.documentacion || {};
+            const incidencias = docObj.incidencias || [];
+            const base = Date.now();
+            const nuevas = limpios.map((it, k) => ({
+                id: `${base + k}_inc`,
+                texto: it.texto,
+                procedencia,
+                severidad: it.severidad,
+                estado: 'ABIERTA',
+                fecha: new Date().toISOString(),
+                usuario: 'AGENTE IA',
+                resuelta_at: null,
+                resuelta_por: null,
+                comentarios: []
+            }));
+            nuevas.forEach(n => incidencias.push(n));
+
+            const upErr = await persistIncidencias(exp.id, docObj, incidencias);
+            if (upErr) return err(upErr);
+
+            const abiertas = incidencias.filter(i => i.estado !== 'SUBSANADA');
+            const graves = nuevas.filter(i => i.severidad === 'GRAVE').length;
+            return ok({
+                ok: true,
+                expediente: exp.numero_expediente,
+                registradas: nuevas.length,
+                graves,
+                leves: nuevas.length - graves,
+                total_incidencias_abiertas: abiertas.length,
+                message: `${nuevas.length} incidencia(s) registradas en ${exp.numero_expediente} (${graves} graves / ${nuevas.length - graves} leves), procedencia ${procedencia}. Quedan ${abiertas.length} abiertas en total.`
+            });
+        }
+    );
+
     // ── Tool 6b: Listar incidencias de un expediente (LECTURA) ────────────────
     // Necesario para poder subsanar/editar/eliminar: devuelve cada incidencia con
     // su nº (índice 1-based) y su id, que se usan como referencia en los tools de
@@ -447,12 +567,18 @@ function createMcpServer() {
     // ── Tool 6c: Subsanar (dar por corregida) una incidencia (ESCRITURA) ──────
     mcp.tool(
         'subsanar_incidencia',
-        'Marca una incidencia como SUBSANADA (corregida) — equivale al botón "OK" de la app. Úsalo cuando, al volver a revisar un expediente, compruebes que un problema registrado antes ya está resuelto. Deja constancia de quién y cuándo. La incidencia deja de contar como pendiente (ya no sale en rojo/ámbar).',
+        'Marca una incidencia como SUBSANADA (corregida) — equivale al botón "OK" de la app. Úsalo cuando, al volver a revisar un expediente, compruebes que un problema registrado antes ya está resuelto. Hay que explicar CÓMO se ha subsanado: esa explicación queda en el hilo de la incidencia y es lo que leerá un tercero (otro compañero, el verificador) para entenderlo sin preguntar a nadie. La incidencia deja de contar como pendiente (ya no sale en rojo/ámbar).',
         {
             numero: z.string().describe('Número del expediente, ej: 26RES060_118'),
-            incidencia: z.string().describe('Referencia a la incidencia: su nº en la lista (1, 2, ...), su id, o un fragmento único de su texto. Usa listar_incidencias si no lo tienes.')
+            incidencia: z.string().describe('Referencia a la incidencia: su nº en la lista (1, 2, ...), su id, o un fragmento único de su texto. Usa listar_incidencias si no lo tienes.'),
+            resolucion: z.string().describe('CÓMO se ha subsanado, en concreto y con datos: qué se ha cambiado, qué documento se ha regenerado o subido, qué se ha comprobado. Escríbelo para que lo entienda alguien que no ha visto el expediente. Ej: "Se ha regenerado el CEE final como SOLO CALEFACCIÓN y se ha subido el .xml nuevo; comprobado que cuadra con la factura y con el RITE."')
         },
-        async ({ numero, incidencia }) => {
+        async ({ numero, incidencia, resolucion }) => {
+            const detalle = (resolucion || '').trim();
+            if (!detalle) return err('Indica cómo se ha subsanado la incidencia (parámetro `resolucion`): es lo que queda registrado para que un tercero lo entienda.');
+            const malDetalle = validarTextoIncidencia(detalle, MAX_TEXTO_COMENTARIO, 'texto de la resolución');
+            if (malDetalle) return err(malDetalle);
+
             const found = await findExpediente(numero);
             if (found.error) return err(found.error);
             if (found.notFound) return ok({ ok: false, message: found.notFound });
@@ -470,6 +596,8 @@ function createMcpServer() {
             r.inc.estado = 'SUBSANADA';
             r.inc.resuelta_at = new Date().toISOString();
             r.inc.resuelta_por = 'AGENTE IA';
+            r.inc.resolucion = detalle;
+            pushComentario(r.inc, detalle, 'AGENTE IA', 'RESOLUCION');
 
             const upErr = await persistIncidencias(exp.id, docObj, incidencias);
             if (upErr) return err(upErr);
@@ -480,7 +608,7 @@ function createMcpServer() {
                 expediente: exp.numero_expediente,
                 incidencia: incView(r.inc, r.index),
                 total_incidencias_abiertas: abiertas.length,
-                message: `Incidencia marcada como SUBSANADA en ${exp.numero_expediente}. Quedan ${abiertas.length} abierta(s).`
+                message: `Incidencia marcada como SUBSANADA en ${exp.numero_expediente}, con el detalle de cómo se resolvió en su hilo. Quedan ${abiertas.length} abierta(s).`
             });
         }
     );
@@ -515,9 +643,19 @@ function createMcpServer() {
             if (texto !== undefined) {
                 const clean = (texto || '').trim();
                 if (!clean) return err('El texto no puede quedar vacío.');
+                const malTexto = validarTextoIncidencia(clean, MAX_TEXTO_INCIDENCIA, 'texto de la incidencia');
+                if (malTexto) return err(malTexto);
                 r.inc.texto = clean;
             }
-            if (severidad !== undefined) r.inc.severidad = severidad;
+            if (severidad !== undefined) {
+                // Reclasificar deja traza en el hilo: bajar una GRAVE a LEVE es una
+                // decisión que alguien tiene que poder justificar después.
+                const anterior = r.inc.severidad || 'GRAVE';
+                r.inc.severidad = severidad;
+                if (severidad !== anterior) {
+                    pushComentario(r.inc, `Reclasificada de ${anterior} a ${severidad}.`, 'AGENTE IA', 'SEVERIDAD');
+                }
+            }
             if (procedencia !== undefined) r.inc.procedencia = procedencia;
             r.inc.updated_at = new Date().toISOString();
 
@@ -529,6 +667,91 @@ function createMcpServer() {
                 expediente: exp.numero_expediente,
                 incidencia: incView(r.inc, r.index),
                 message: `Incidencia actualizada en ${exp.numero_expediente}.`
+            });
+        }
+    );
+
+    // ── Tool 6d-bis: Comentar el hilo de una incidencia (ESCRITURA) ───────────
+    // Nota de seguimiento SIN cambiar el estado. Sirve para dejar constancia de lo
+    // que se ha ido haciendo (gestiones, esperas, datos pedidos) antes de poder
+    // darla por subsanada. Sale en el modal de Incidencias de la app, en el hilo.
+    mcp.tool(
+        'comentar_incidencia',
+        'Añade una nota de seguimiento al hilo de una incidencia, SIN marcarla como subsanada ni cambiar nada más. Úsalo para dejar constancia de lo que se ha hecho o se está esperando (ej: "pedida la factura al instalador el 29/07, sin respuesta todavía"). La nota aparece en el hilo de la incidencia en la app, con autor y fecha. Si el problema ya está resuelto, usa subsanar_incidencia en su lugar.',
+        {
+            numero: z.string().describe('Número del expediente, ej: 26RES060_118'),
+            incidencia: z.string().describe('Referencia a la incidencia: su nº en la lista, su id, o un fragmento único de su texto.'),
+            texto: z.string().describe('Nota de seguimiento, concreta y con fechas/datos si los hay. La leerá otra persona sin más contexto.')
+        },
+        async ({ numero, incidencia, texto }) => {
+            const clean = (texto || '').trim();
+            if (!clean) return err('El texto de la nota es obligatorio.');
+            const malNota = validarTextoIncidencia(clean, MAX_TEXTO_COMENTARIO, 'texto de la nota');
+            if (malNota) return err(malNota);
+
+            const found = await findExpediente(numero);
+            if (found.error) return err(found.error);
+            if (found.notFound) return ok({ ok: false, message: found.notFound });
+            if (found.ambiguous) return ok({ ok: false, message: found.message, coincidencias: found.ambiguous });
+
+            const exp = found.exp;
+            const docObj = exp.documentacion || {};
+            const incidencias = docObj.incidencias || [];
+            const r = resolveIncidencia(incidencias, incidencia);
+            if (r.error) return ok({ ok: false, message: r.error });
+
+            pushComentario(r.inc, clean, 'AGENTE IA', 'NOTA');
+
+            const upErr = await persistIncidencias(exp.id, docObj, incidencias);
+            if (upErr) return err(upErr);
+
+            return ok({
+                ok: true,
+                expediente: exp.numero_expediente,
+                incidencia: incView(r.inc, r.index),
+                message: `Nota añadida al hilo de la incidencia en ${exp.numero_expediente}. La incidencia sigue ${r.inc.estado}.`
+            });
+        }
+    );
+
+    // ── Tool 6d-ter: Aprender de resoluciones anteriores (LECTURA) ────────────
+    // Busca en TODOS los expedientes incidencias ya subsanadas parecidas a la que
+    // se tiene delante, con la explicación de cómo se resolvieron. Va contra la RPC
+    // `buscar_resoluciones_incidencias` (scripts/buscar_resoluciones_incidencias.sql)
+    // y NO contra un select de `documentacion`: leer ese JSONB de todas las filas
+    // desde aquí es justo el patrón que tumbó la BD el 21/07/2026 (regla 22).
+    mcp.tool(
+        'buscar_resoluciones',
+        'Busca cómo se resolvieron ANTES incidencias parecidas, en cualquier expediente. Úsalo antes de proponer una corrección o de subsanar algo: si el mismo problema ya se ha arreglado otras veces, hazlo igual en vez de improvisar. Devuelve la incidencia original, cómo se subsanó, quién y cuándo. Sin patrón devuelve las últimas resoluciones registradas.',
+        {
+            patron: z.string().optional()
+                .describe('Texto a buscar en la incidencia o en su resolución. Usa una o dos palabras clave del problema (ej: "RITE", "incoherencia CEE", "número de serie"), no una frase larga.'),
+            procedencia: z.enum(['REVISION_INTERNA', 'VERIFICACION', 'GESTOR_AUTONOMICO', 'AGENTE_IA']).optional()
+                .describe('Filtra por origen. VERIFICACION = requerimientos del verificador: útil para ver cómo se contestaron requerimientos anteriores.'),
+            limite: z.number().optional().describe('Máximo de resultados (por defecto 20, tope 50).')
+        },
+        async ({ patron, procedencia, limite = 20 }) => {
+            const { data, error } = await supabase.rpc('buscar_resoluciones_incidencias', {
+                p_patron: patron || null,
+                p_procedencia: procedencia || null,
+                p_limite: limite
+            });
+            if (error) {
+                // La RPC puede no estar desplegada todavía en este entorno.
+                if (/function .*buscar_resoluciones_incidencias.* does not exist|PGRST202|schema cache/i.test(error.message || '')) {
+                    return err('Falta desplegar en Supabase la función `buscar_resoluciones_incidencias` (implementation/backend/scripts/buscar_resoluciones_incidencias.sql). Hasta entonces, usa listar_incidencias sobre un expediente concreto.');
+                }
+                return err(error.message);
+            }
+            const filas = data || [];
+            return ok({
+                ok: true,
+                total: filas.length,
+                criterio: { patron: patron || null, procedencia: procedencia || null },
+                resoluciones: filas,
+                message: filas.length === 0
+                    ? 'No hay resoluciones registradas que encajen. Puede ser un caso nuevo, o que se subsanara sin explicar cómo.'
+                    : `${filas.length} precedente(s). Reutiliza el criterio que ya se aplicó antes; si esta vez procede otra cosa, di por qué.`
             });
         }
     );
@@ -681,10 +904,10 @@ function createMcpServer() {
     // Delega en el backend (mismo builder que el modal de la app → PDF idéntico).
     // El backend valida, genera, fusiona las fichas técnicas, guarda en Drive y
     // enlaza el slot. Registra incidencias LEVE por lo que falte (GRAVE si es
-    // imposible generar). Cubre RES060 y RES093 (el RES080 es otro documento).
+    // imposible generar). Cubre RES060, RES093 y TER100 (el RES080 es otro documento).
     mcp.tool(
         'generar_cifo',
-        'Genera el CIFO (Certificado de Instalación, RES060/RES093) o el Certificado Final de Obra (RES080) de un expediente con el MISMO formato que la app, lo guarda como PDF en "6. ANEXOS CAE" y lo deja enlazado, listo para revisar/firmar. Úsalo cuando el usuario pida "genera/crea el CIFO del expediente NNN", "prepara el certificado de instalación" o "genera el RES080". El backend detecta la tipología por el número. AUTOMÁTICAMENTE adjunta y fusiona TODO lo que justifica el SCOP: la ficha técnica de la aerotermia (copiándola del catálogo si falta en el expediente) y, si el método de SCOP es EPREL, descarga y adjunta el Fiche y el Label de EPREL; además ENRIQUECE el catálogo `aerotermia` (rellena eprel/ficha_tecnica del modelo si le faltaban, para la próxima vez). Validación: si falta algo no crítico lo registra como incidencia LEVE y genera igual; si es imposible (sin demanda/superficie/SCOP/empresa/carpeta en RES060/093, o sin comparativa energética en RES080) NO genera y lo registra como GRAVE. Para regenerar sobre un certificado ya FIRMADO hay que pasar force:true.',
+        'Genera el CIFO (Certificado de Instalación, RES060/RES093/TER100) o el Certificado Final de Obra (RES080) de un expediente con el MISMO formato que la app, lo guarda como PDF en "6. ANEXOS CAE" y lo deja enlazado, listo para revisar/firmar. Úsalo cuando el usuario pida "genera/crea el CIFO del expediente NNN", "prepara el certificado de instalación" o "genera el RES080". El backend detecta la tipología por el número. AUTOMÁTICAMENTE adjunta y fusiona TODO lo que justifica el SCOP: la ficha técnica de la aerotermia (copiándola del catálogo si falta en el expediente) y, si el método de SCOP es EPREL, descarga y adjunta el Fiche y el Label de EPREL; además ENRIQUECE el catálogo `aerotermia` (rellena eprel/ficha_tecnica del modelo si le faltaban, para la próxima vez). Validación: si falta algo no crítico lo registra como incidencia LEVE y genera igual; si es imposible (sin demanda/superficie/SCOP/empresa/carpeta en RES060/093, o sin comparativa energética en RES080) NO genera y lo registra como GRAVE. Para regenerar sobre un certificado ya FIRMADO hay que pasar force:true.',
         {
             numero: z.string().describe('Número del expediente, ej: 26RES060_165'),
             force: z.boolean().optional().describe('Regenerar aunque ya exista un CIFO firmado (invalida la firma anterior).'),
@@ -725,7 +948,7 @@ function createMcpServer() {
     // ── Tool 8c: Estado del CIFO (LECTURA) ────────────────────────────────────
     mcp.tool(
         'estado_cifo',
-        'Consulta si se puede generar el CIFO de un expediente ANTES de generarlo: tipología (RES060/RES093/RES080), si puede generarse, qué falta que lo BLOQUEA (datos_faltan) y qué avisos LEVES hay, y si ya está generado/firmado. Úsalo para saber si conviene generar o primero completar datos.',
+        'Consulta si se puede generar el CIFO de un expediente ANTES de generarlo: tipología (RES060/RES093/TER100/RES080), si puede generarse, qué falta que lo BLOQUEA (datos_faltan) y qué avisos LEVES hay, y si ya está generado/firmado. Úsalo para saber si conviene generar o primero completar datos.',
         { numero: z.string().describe('Número del expediente, ej: 26RES060_165') },
         async ({ numero }) => {
             const found = await findExpediente(numero);

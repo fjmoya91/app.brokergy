@@ -48,13 +48,20 @@ export const SIGN_BOXES = {
     ficha_res060: { page: 3, llx: 254.12, lly: 709.20, urx: 518.90, ury: 729.20 },
     ficha_res080: { page: 2, llx: 254.12, lly: 523.20, urx: 518.90, ury: 543.20 }, // derivada
     ficha_res093: { page: 3, llx: 254.12, lly: 709.20, urx: 518.90, ury: 729.20 }, // idéntica a RES060
+    // TER100: la ficha del terciario tiene tres apartados de cálculo (uno por
+    // servicio) y ocupa 5 páginas, con la tabla del representante en la PÁGINA 4.
+    // Coordenadas medidas con PyMuPDF sobre el PDF que genera fichaTer100Html.js
+    // (localizando "Firma electrónica" y las verticales de su fila): la celda del
+    // valor va de x=230 a x=520 y la fila ocupa y[276..297] en coordenadas PDF.
+    // Se recorta un punto hacia dentro para no pisar los bordes.
+    ficha_ter100: { page: 4, llx: 232, lly: 278, urx: 518, ury: 295 },
 
     // Solicitud de Verificación (LOTE, PDF subido) — plantilla externa, página fija
     // en la referencia dada; puede variar si cambia el formato del verificador.
     solicitud_verificacion: { page: 12, llx: 145.46, lly: 450.00, urx: 348.72, ury: 528.20 },
 };
 
-// Devuelve la caja de una ficha RES por código ('RES060'|'RES080'|'RES093').
+// Devuelve la caja de una ficha por código ('RES060'|'RES080'|'RES093'|'TER100').
 export function fichaSignBox(fichaCode) {
     return SIGN_BOXES[`ficha_${String(fichaCode || '').toLowerCase()}`] || null;
 }

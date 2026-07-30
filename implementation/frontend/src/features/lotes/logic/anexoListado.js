@@ -16,12 +16,14 @@ export const FICHA_TITULO = {
     RES060: 'Sustitución de caldera de combustión por una bomba de calor de accionamiento eléctrico.',
     RES080: 'Rehabilitación profunda de edificios de viviendas',
     RES093: 'Hibridación en modo paralelo de caldera/s de combustión con bomba de calor de accionamiento eléctrico en edificios residenciales ubicados en la zona climática D1, D2 o D3',
+    TER100: 'Sustitución de caldera de combustión existente por bomba de calor de accionamiento eléctrico.',
 };
 
 export const fichaDe = (numero) =>
     String(numero || '').includes('RES080') ? 'RES080'
         : String(numero || '').includes('RES093') ? 'RES093'
-            : 'RES060';
+            : String(numero || '').includes('TER100') ? 'TER100'
+                : 'RES060';
 
 const vidaUtilDe = (ficha) => (ficha === 'RES080' ? 25 : 15);
 

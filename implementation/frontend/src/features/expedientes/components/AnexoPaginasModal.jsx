@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { parsePageSelection, formatPageRanges } from '../logic/annexPrefs';
 
 /**
- * Selector de páginas de un anexo (CIFO RES060/RES093 y Certificado RES080).
+ * Selector de páginas de un anexo (CIFO RES060/RES093/TER100 y Certificado RES080).
  *
  * Enseña las páginas ya rasterizadas del PDF (`previewPages`, las mismas que usa
  * la previsualización del certificado) y permite quitar las que no se quieren

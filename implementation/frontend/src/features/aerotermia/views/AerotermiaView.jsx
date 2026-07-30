@@ -284,7 +284,13 @@ export function AerotermiaView() {
                 {/* ── Vista de Modelos (Lista) ── */}
                 {viewMode === 'models' && !loading && paginated.length > 0 && (
                     <div className="space-y-2">
-                        {paginated.map(equipo => (
+                        {paginated.map(equipo => {
+                            const hasCalefaccion = [
+                                equipo.scop_cal_calido_35, equipo.scop_cal_medio_35,
+                                equipo.scop_cal_calido_55, equipo.scop_cal_medio_55,
+                            ].some(v => v !== null && v !== undefined && v !== '');
+                            const hasAcs = !!equipo.deposito_acs_incluido;
+                            return (
                             <div
                                 key={equipo.id}
                                 onClick={() => setEquipoDetail(equipo)}
@@ -328,41 +334,68 @@ export function AerotermiaView() {
                                     </div>
 
                                     {/* SCOPs clave */}
-                                    <div className="hidden sm:flex items-center gap-8 flex-shrink-0 text-right">
-                                        {/* SCOP 35 */}
-                                        <div className="flex flex-col gap-0.5 min-w-[100px]">
-                                            <p className="text-[9px] text-white/20 uppercase tracking-widest font-black mb-1">SCOP 35°</p>
-                                            <div className="flex items-center gap-4 justify-end">
-                                                <div className="flex flex-col leading-none">
-                                                    <span className="text-[7px] text-emerald-400/40 uppercase font-black tracking-tighter mb-0.5">Cal.</span>
-                                                    <span className="text-white font-black text-xs">{fmt(equipo.scop_cal_calido_35) || '—'}</span>
+                                    <div className="hidden sm:flex items-center gap-8 flex-shrink-0 text-right flex-wrap justify-end">
+                                        {hasCalefaccion && (
+                                            <>
+                                                {/* SCOP 35 */}
+                                                <div className="flex flex-col gap-0.5 min-w-[100px]">
+                                                    <p className="text-[9px] text-white/20 uppercase tracking-widest font-black mb-1">SCOP 35°</p>
+                                                    <div className="flex items-center gap-4 justify-end">
+                                                        <div className="flex flex-col leading-none">
+                                                            <span className="text-[7px] text-emerald-400/40 uppercase font-black tracking-tighter mb-0.5">Cal.</span>
+                                                            <span className="text-white font-black text-xs">{fmt(equipo.scop_cal_calido_35)}</span>
+                                                        </div>
+                                                        <div className="flex flex-col leading-none border-l border-white/5 pl-4">
+                                                            <span className="text-[7px] text-sky-400/40 uppercase font-black tracking-tighter mb-0.5">Med.</span>
+                                                            <span className="text-white/60 font-black text-xs">{fmt(equipo.scop_cal_medio_35)}</span>
+                                                        </div>
+                                                    </div>
                                                 </div>
-                                                <div className="flex flex-col leading-none border-l border-white/5 pl-4">
-                                                    <span className="text-[7px] text-sky-400/40 uppercase font-black tracking-tighter mb-0.5">Med.</span>
-                                                    <span className="text-white/60 font-black text-xs">{fmt(equipo.scop_cal_medio_35) || '—'}</span>
+
+                                                {/* SCOP 55 */}
+                                                <div className="flex flex-col gap-0.5 min-w-[100px]">
+                                                    <p className="text-[9px] text-white/20 uppercase tracking-widest font-black mb-1">SCOP 55°</p>
+                                                    <div className="flex items-center gap-4 justify-end">
+                                                        <div className="flex flex-col leading-none">
+                                                            <span className="text-[7px] text-emerald-400/40 uppercase font-black tracking-tighter mb-0.5">Cal.</span>
+                                                            <span className="text-white font-black text-xs">{fmt(equipo.scop_cal_calido_55)}</span>
+                                                        </div>
+                                                        <div className="flex flex-col leading-none border-l border-white/5 pl-4">
+                                                            <span className="text-[7px] text-sky-400/40 uppercase font-black tracking-tighter mb-0.5">Med.</span>
+                                                            <span className="text-white/60 font-black text-xs">{fmt(equipo.scop_cal_medio_55)}</span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </>
+                                        )}
+
+                                        {/* SCOP ACS */}
+                                        {hasAcs && (
+                                            <div className="flex flex-col gap-0.5 min-w-[100px]">
+                                                <p className="text-[9px] text-white/20 uppercase tracking-widest font-black mb-1">SCOP ACS</p>
+                                                <div className="flex items-center gap-4 justify-end">
+                                                    <div className="flex flex-col leading-none">
+                                                        <span className="text-[7px] text-emerald-400/40 uppercase font-black tracking-tighter mb-0.5">Cal.</span>
+                                                        <span className="text-white font-black text-xs">{fmt(equipo.scop_dhw_calido)}</span>
+                                                    </div>
+                                                    <div className="flex flex-col leading-none border-l border-white/5 pl-4">
+                                                        <span className="text-[7px] text-sky-400/40 uppercase font-black tracking-tighter mb-0.5">Med.</span>
+                                                        <span className="text-white/60 font-black text-xs">{fmt(equipo.scop_dhw_medio)}</span>
+                                                    </div>
                                                 </div>
                                             </div>
-                                        </div>
-                                        
-                                        {/* SCOP 55 */}
-                                        <div className="flex flex-col gap-0.5 min-w-[100px]">
-                                            <p className="text-[9px] text-white/20 uppercase tracking-widest font-black mb-1">SCOP 55°</p>
-                                            <div className="flex items-center gap-4 justify-end">
-                                                <div className="flex flex-col leading-none">
-                                                    <span className="text-[7px] text-emerald-400/40 uppercase font-black tracking-tighter mb-0.5">Cal.</span>
-                                                    <span className="text-white font-black text-xs">{fmt(equipo.scop_cal_calido_55) || '—'}</span>
-                                                </div>
-                                                <div className="flex flex-col leading-none border-l border-white/5 pl-4">
-                                                    <span className="text-[7px] text-sky-400/40 uppercase font-black tracking-tighter mb-0.5">Med.</span>
-                                                    <span className="text-white/60 font-black text-xs">{fmt(equipo.scop_cal_medio_55) || '—'}</span>
-                                                </div>
-                                            </div>
-                                        </div>
+                                        )}
 
                                         {/* SEER */}
                                         <div className="flex flex-col min-w-[40px] pt-1">
                                             <p className="text-[9px] text-white/20 uppercase tracking-widest font-black mb-1">SEER</p>
-                                            <p className="text-white font-black text-xs">{fmt(equipo.seer) || '—'}</p>
+                                            <p className="text-white font-black text-xs">{fmt(equipo.seer)}</p>
+                                        </div>
+
+                                        {/* COP A7/55 */}
+                                        <div className="flex flex-col min-w-[60px] pt-1">
+                                            <p className="text-[9px] text-white/20 uppercase tracking-widest font-black mb-1">COP A7/55</p>
+                                            <p className="text-white font-black text-xs">{fmt(equipo.cop_a7_55)}</p>
                                         </div>
                                     </div>
 
@@ -378,7 +411,8 @@ export function AerotermiaView() {
                                     </button>
                                 </div>
                             </div>
-                        ))}
+                            );
+                        })}
                     </div>
                 )}
 

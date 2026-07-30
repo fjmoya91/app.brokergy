@@ -3,6 +3,7 @@ const { getCoordinatesByRC } = require('./catastroService');
 const driveService = require('./driveService');
 const { syncExpedienteFolder } = require('./expedienteFolderSync');
 const { ALLOWED_PROVINCES } = require('../data/allowedProvinces');
+const { FICHAS, correlativoInicial, detectPrograma } = require('../utils/fichas');
 
 // Mapa inverso "nombre de provincia normalizado" -> código (para migración desde XML).
 // El CEE trae la provincia como texto ("CIUDAD REAL"); la app espera el CÓDIGO de
@@ -160,9 +161,22 @@ async function createExpediente(uuid_oportunidad, id_cliente, manualNumber = nul
             misma_caldera_acs: true,
             caldera_antigua_acs: { marca: '', modelo: '', numero_serie: '', rendimiento_id: opInputs.boilerId || 'default' },
             aerotermia_cal: aerotermiaCal,
+            // Alcance de la actuación sobre la CALEFACCIÓN. En RES060/RES093 siempre
+            // es sí (la actuación ES el cambio de caldera de calefacción); en TER100
+            // puede darse una sustitución que solo alcance el ACS o la piscina.
+            cambio_calefaccion: true,
             cambio_acs: cambioAcs,
             misma_aerotermia_acs: !cambioAcs,
             aerotermia_acs: aerotermiaAcs,
+            // Calentamiento de agua de piscina (AE_CAP de la ficha TER100). Es el
+            // caso raro: nace SIEMPRE desactivado y se habilita a mano en el
+            // expediente. Con `activa: false` no entra en la fórmula del ahorro.
+            piscina: {
+                activa: false,
+                demanda_kwh: null,
+                scop: null,
+                equipo: { marca: '', modelo: '', numero_serie: '' }
+            },
             hibridacion: opInputs.hibridacion === true,
             potencia_bomba: opInputs.potenciaBomba != null && opInputs.potenciaBomba !== '' ? Number(opInputs.potenciaBomba) : 0,
             // Base del % de cobertura del Cb ('demanda' | 'caldera') y, si es por
@@ -184,23 +198,9 @@ async function createExpediente(uuid_oportunidad, id_cliente, manualNumber = nul
             `hibridacion=${instalacion.hibridacion} potencia=${instalacion.potencia_bomba} ` +
             `cb_base=${instalacion.hibridacion_metodo}${instalacion.hibridacion_metodo === 'caldera' ? `/${instalacion.potencia_caldera}kW` : ''}`);
 
-        const opCalculationResult = op.datos_calculo?.result || {};
-
-        // Detección de HIBRIDACIÓN (RES093)
-        const isReformaInternal = 
-            opInputs.isReforma || 
-            ['onlyReforma', 'both'].includes(opInputs.reformaType) || 
-            op.ficha === 'RES080' ||
-            !!opCalculationResult.res080;
-
-        const isHybridInternal = 
-            !isReformaInternal && (
-                opInputs.hibridacion === true || 
-                op.ficha === 'RES093' ||
-                !!opCalculationResult.res093
-            );
-
-        const programa = isReformaInternal ? 'RES080' : (isHybridInternal ? 'RES093' : 'RES060');
+        // Programa/ficha del expediente (RES060 · RES080 · RES093 · TER100).
+        // El expediente aún no tiene número, así que se deduce de la oportunidad.
+        const programa = detectPrograma({}, op);
 
         // Decisión del cliente en la firma sobre el CEE inicial (si aportó uno):
         // 'usar_cee_aportado' → NO se pide un CEE nuevo al certificador; queda para revisión interna.
@@ -249,8 +249,9 @@ async function createExpediente(uuid_oportunidad, id_cliente, manualNumber = nul
             }
             console.log(`[ExpedienteService] Máximo correlativo detectado para ${programa}: ${maxNum} (sobre ${rows?.length || 0} registros)`);
 
-            // Para RES080 el contador empieza en 36 si no hay registros previos
-            const startOffset = programa === 'RES080' ? 36 : 1;
+            // Correlativo inicial por ficha (RES080 arranca en 36, TER100 en 3 por
+            // los expedientes heredados del sistema anterior). Ver utils/fichas.js.
+            const startOffset = correlativoInicial(programa);
             nextCorrelativo = Math.max(maxNum + 1, startOffset);
             numeroExpediente = `${prefix}${nextCorrelativo}`;
             console.log(`[ExpedienteService] Asignado Número de Expediente: ${numeroExpediente}`);
@@ -412,25 +413,22 @@ async function migrateExpedienteProgram(expedienteId, usuarioName = 'Sistema', t
         let newPrograma = targetProgram;
         
         if (!newPrograma) {
-            // Detección automática si no se especifica
-            const opInputs = op.datos_calculo?.inputs || {};
-            const opCalculationResult = op.datos_calculo?.result || {};
-            const isReforma = opInputs.isReforma || ['onlyReforma', 'both'].includes(opInputs.reformaType) || op.ficha === 'RES080' || !!opCalculationResult.res080 || exp.numero_expediente?.includes('RES080');
-            const isHybrid = !isReforma && (opInputs.hibridacion === true || op.ficha === 'RES093' || !!opCalculationResult.res093 || exp.numero_expediente?.includes('RES093'));
-            newPrograma = isReforma ? 'RES080' : (isHybrid ? 'RES093' : 'RES060');
+            // Detección automática si no se especifica (el número de expediente manda)
+            newPrograma = detectPrograma(exp, op);
+        }
+        if (!FICHAS.includes(newPrograma)) {
+            throw new Error(`Ficha inválida (debe ser una de: ${FICHAS.join(', ')})`);
         }
 
         // Limpiar referencia de cliente (quitar etiquetas antiguas de programas si existen)
-        let cleanRef = (exp.referencia_cliente || op.referencia_cliente || '').toUpperCase();
-        if (newPrograma === 'RES060') {
-            cleanRef = cleanRef.replace(/RES080|REFORMA|RES093|HIBRIDACIÓN|HIBRIDACION/g, '').trim().replace(/\s+/g, ' ');
-        } else if (newPrograma === 'RES080') {
-            cleanRef = cleanRef.replace(/RES060|SUSTITUCION|SUSTITUCIÓN|RES093|HIBRIDACIÓN|HIBRIDACION/g, '').trim().replace(/\s+/g, ' ');
-            if (!cleanRef.includes('REFORMA')) cleanRef = `REFORMA ${cleanRef}`.trim();
-        } else if (newPrograma === 'RES093') {
-            cleanRef = cleanRef.replace(/RES060|SUSTITUCION|SUSTITUCIÓN|RES080|REFORMA/g, '').trim().replace(/\s+/g, ' ');
-            if (!cleanRef.includes('HIBRIDACION')) cleanRef = `HIBRIDACION ${cleanRef}`.trim();
-        }
+        // y poner la del programa de destino. Se quitan TODAS las etiquetas conocidas y
+        // luego se añade la que toca: así cambiar de ficha dos veces no las acumula.
+        const ETIQUETAS = /RES060|RES080|RES093|TER100|SUSTITUCION|SUSTITUCIÓN|REFORMA|HIBRIDACIÓN|HIBRIDACION|TERCIARIO/g;
+        const PREFIJO_REF = { RES080: 'REFORMA', RES093: 'HIBRIDACION', TER100: 'TERCIARIO' };
+        let cleanRef = (exp.referencia_cliente || op.referencia_cliente || '')
+            .toUpperCase().replace(ETIQUETAS, '').trim().replace(/\s+/g, ' ');
+        const prefijo = PREFIJO_REF[newPrograma];
+        if (prefijo) cleanRef = `${prefijo} ${cleanRef}`.trim();
 
         // 3. Generar nuevo número
         const currentYear = new Date().getFullYear().toString().slice(-2);
@@ -457,7 +455,7 @@ async function migrateExpedienteProgram(expedienteId, usuarioName = 'Sistema', t
         }
         console.log(`[ExpedienteService] Máximo correlativo detectado para ${newPrograma}: ${maxNumberFound} (sobre ${rows?.length || 0} registros)`);
 
-        const startOffset = newPrograma === 'RES080' ? 36 : 1;
+        const startOffset = correlativoInicial(newPrograma);
         const nextCorrelativo = Math.max(maxNumberFound + 1, startOffset);
         const newNumeroExpediente = `${newPrefix}${nextCorrelativo}`;
 
@@ -525,6 +523,9 @@ async function migrateExpedienteProgram(expedienteId, usuarioName = 'Sistema', t
             inputs.isReforma = true;
             if (!inputs.reformaType || inputs.reformaType === 'none') inputs.reformaType = 'onlyReforma';
         } else {
+            // RES060 y TER100 comparten la actuación (sustitución de caldera por bomba
+            // de calor): ni reforma ni hibridación. Lo que las distingue es el sector
+            // (residencial vs terciario), que va en `ficha`, no en los inputs.
             inputs.hibridacion = false;
             inputs.isReforma = false;
         }
@@ -559,7 +560,7 @@ async function migrateExpedienteProgram(expedienteId, usuarioName = 'Sistema', t
  * vida, módulos del detalle) sigue funcionando sin tocar el esquema.
  *
  * @param {Object} params
- * @param {('RES060'|'RES080'|'RES093')} params.ficha
+ * @param {('RES060'|'RES080'|'RES093'|'TER100')} params.ficha
  * @param {string} params.cliente_id
  * @param {string|null} [params.manualNumber]
  * @param {Object|null} params.ceeInicial  - resultado de parseCeeXml (front)
@@ -584,8 +585,8 @@ async function migrateExpedienteFromXml({
     xmlFinalBase64 = null,
     usuario = null
 }) {
-    if (!['RES060', 'RES080', 'RES093'].includes(ficha)) {
-        throw new Error('Ficha inválida (debe ser RES060, RES080 o RES093)');
+    if (!FICHAS.includes(ficha)) {
+        throw new Error(`Ficha inválida (debe ser una de: ${FICHAS.join(', ')})`);
     }
     if (!cliente_id) throw new Error('cliente_id es obligatorio');
     if (!ceeInicial && !ceeFinal) throw new Error('Se requiere al menos un XML (inicial o final)');

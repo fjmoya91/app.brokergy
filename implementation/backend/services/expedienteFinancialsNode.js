@@ -20,6 +20,24 @@ function loadCalc() {
     }
     return _calcPromise;
 }
+// Derivación de la ficha TER100 (terciario) — mismo módulo puro que usan el panel
+// económico, el CIFO y la Ficha TER100 en el frontend.
+let _ter100Promise = null;
+function loadTer100() {
+    if (!_ter100Promise) {
+        const url = pathToFileURL(path.join(__dirname, '../../frontend/src/features/expedientes/logic/ter100.js')).href;
+        _ter100Promise = import(url);
+    }
+    return _ter100Promise;
+}
+let _dacsPromise = null;
+function loadDacs() {
+    if (!_dacsPromise) {
+        const url = pathToFileURL(path.join(__dirname, '../../frontend/src/features/expedientes/logic/demandaAcs.js')).href;
+        _dacsPromise = import(url);
+    }
+    return _dacsPromise;
+}
 
 // Espejo de computeExpedienteFinancials(exp) del frontend, con `op` explícito.
 async function computeExpedienteFinancialsNode(exp, op) {
@@ -29,6 +47,7 @@ async function computeExpedienteFinancialsNode(exp, op) {
     let ficha = op.ficha || 'RES060';
     if (exp.numero_expediente?.includes('RES080')) ficha = 'RES080';
     else if (exp.numero_expediente?.includes('RES093')) ficha = 'RES093';
+    else if (exp.numero_expediente?.includes('TER100')) ficha = 'TER100';
 
     const cee = exp.cee || {};
     const inst = exp.instalacion || {};
@@ -43,13 +62,8 @@ async function computeExpedienteFinancialsNode(exp, op) {
             const superficie = parseFloat(ceeBase.superficieHabitable) || 0;
             const q_net_heating = (parseFloat(ceeBase.demandaCalefaccion) || 0) * superficie;
 
-            let dacs = 0;
-            if (cee.acs_method === 'cte') {
-                const numPeople = (parseInt(cee.num_rooms) || 4) + 1;
-                dacs = 28 * numPeople * 0.001162 * 365 * 46;
-            } else {
-                dacs = (parseFloat(ceeBase.demandaACS) || 0) * superficie;
-            }
+            const { resolveDacs } = await loadDacs();
+            const dacs = resolveDacs(cee, ceeBase).value;
 
             if (superficie > 0 && q_net_heating > 0) {
                 const boilerEffId = inst.caldera_antigua_cal?.rendimiento_id || 'default';
@@ -96,6 +110,25 @@ async function computeExpedienteFinancialsNode(exp, op) {
                 profit = fin.profitBrokergy;
                 savingsKwh = sv.savingsKwh;
             }
+        }
+    } else if (ficha === 'TER100') {
+        // TER100 (terciario): AE_C + AE_ACS + AE_CAP, sin IRPF (el titular es empresa).
+        const { deriveTer100Vars, TER100_PRECIOS } = await loadTer100();
+        const ter = deriveTer100Vars({ ...exp, oportunidades: op });
+        if (ter.savingsKwh > 0) {
+            const overrides = inst.economico_override || {};
+            const finArgs = {
+                presupuesto: overrides.presupuesto ?? (parseFloat(inst.presupuesto_final) || parseFloat(opInputs.presupuesto || opInputs.importe_total) || 0),
+                caePriceClient: overrides.cae_client_rate ?? (parseFloat(opInputs.cae_client_rate) || TER100_PRECIOS.cliente),
+                caePriceSO: overrides.cae_so_rate ?? (parseFloat(opInputs.cae_so_rate) || TER100_PRECIOS.sujetoObligado),
+                includeIrpf: false,
+                aplicarIrpfCae: false,
+                titularType: 'empresa',
+            };
+            const fin = calculateFinancials({ ...finArgs, savingsKwh: ter.savingsKwh });
+            cae = fin.caeBonus;
+            profit = fin.profitBrokergy;
+            savingsKwh = ter.savingsKwh;
         }
     } else if (ficha === 'RES080') {
         if (cee.cee_inicial && cee.cee_final) {

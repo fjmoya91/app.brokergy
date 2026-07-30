@@ -20,6 +20,7 @@ import {
     esCaptacionViva, agregar, agregarPorFase, agregarPorFaseCaptacion, agregarPor,
     eur, num, energiaCorta, PRECIO_SO_DEFAULT
 } from '../logic/dashboardAgg';
+import { FICHAS } from '../../expedientes/logic/expedienteTaxonomia';
 import { KpiCard, EmbudoFases, Ranking, Panel, TONOS, FiltroBuscable, BandejaAccion } from '../components/DashboardWidgets';
 
 const PRECIO_STORAGE_KEY = 'brokergy-dashboard-precio-so';
@@ -171,7 +172,7 @@ export function DashboardView() {
         const cuenta = (fn, id) => rows.filter(r => fn(r) === id).length;
         return {
             anios: anios.map(a => ({ value: String(a), label: String(a), count: cuenta(r => String(r.anio), String(a)) })),
-            fichas: ['RES060', 'RES080', 'RES093'].map(f => ({ value: f, label: f, count: cuenta(r => r.ficha, f) })),
+            fichas: FICHAS.map(f => ({ value: f, label: f, count: cuenta(r => r.ficha, f) })),
             ccaas: ccaas.map(c => ({ value: c, label: c, count: cuenta(r => r.ccaa, c) })),
             certs: [{ value: SIN_CERT, label: 'Sin certificador', logo: null, count: rows.filter(r => !r.certificadorId).length },
                     ...certs.sort(porNombre).map(c => ({ value: c, label: nombrePartner(c), logo: logoPartner(c), count: cuenta(r => r.certificadorId, c) }))],

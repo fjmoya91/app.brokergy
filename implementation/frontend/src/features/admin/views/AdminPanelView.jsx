@@ -191,7 +191,10 @@ export function AdminPanelView({
                          : (calcInputs.hibridacion === true || op.datos_calculo?.hibridacion === true ||
                             (op.referencia_cliente?.toUpperCase().includes('RES093')) ||
                             (op.id_oportunidad?.toUpperCase().includes('RES093')));
-        const currentFicha = isReforma ? 'RES080' : (isHybrid ? 'RES093' : 'RES060');
+        // TER100 (terciario) solo llega DECLARADA en `op.ficha`: la calculadora es
+        // residencial y nunca la deduce de los inputs ni de la referencia.
+        const currentFicha = fichaExplicita === 'TER100' ? 'TER100'
+            : isReforma ? 'RES080' : (isHybrid ? 'RES093' : 'RES060');
         const financials = (isReforma && op.datos_calculo?.result?.financialsRes080)
             ? op.datos_calculo.result.financialsRes080
             : op.datos_calculo?.result?.financials;
@@ -679,7 +682,8 @@ export function AdminPanelView({
                                     (op.referencia_cliente?.includes('RES080')) ||
                                     (op.id_oportunidad?.includes('RES080')));
                 const isHybrid = !isReforma && (_fe === 'RES093' || (op.datos_calculo?.hibridacion === true));
-                const fichaValue = isReforma ? 'RES080' : (isHybrid ? 'RES093' : 'RES060');
+                const fichaValue = _fe === 'TER100' ? 'TER100'
+                    : isReforma ? 'RES080' : (isHybrid ? 'RES093' : 'RES060');
                 return fichaValue === filters.ficha;
             })()) &&
             (filters.ccaa === '' || getCCAA(op) === filters.ccaa) &&
@@ -1085,6 +1089,7 @@ export function AdminPanelView({
                                 <option value="RES060" className="bg-slate-800">RES060</option>
                                 <option value="RES080" className="bg-slate-800">RES080</option>
                                 <option value="RES093" className="bg-slate-800">RES093</option>
+                                <option value="TER100" className="bg-slate-800">TER100</option>
                             </select>
                         </div>
                         {/* CCAA */}
@@ -1232,6 +1237,7 @@ export function AdminPanelView({
                                         <option value="RES060" className="bg-slate-800 text-brand">RES060</option>
                                         <option value="RES080" className="bg-slate-800 text-emerald-400">RES080</option>
                                         <option value="RES093" className="bg-slate-800 text-indigo-400">RES093</option>
+                                        <option value="TER100" className="bg-slate-800 text-cyan-400">TER100</option>
                                     </select>
                                 </td>
                                 <td className="p-2.5 border-b border-white/[0.06]"></td>
@@ -1289,7 +1295,8 @@ export function AdminPanelView({
                                                         (op.referencia_cliente?.toUpperCase().includes('RES093')) ||
                                                         (op.id_oportunidad?.toUpperCase().includes('RES093')));
                                     
-                                    const currentFicha = isReforma ? 'RES080' : (isHybrid ? 'RES093' : 'RES060');
+                                    const currentFicha = fichaExplicita === 'TER100' ? 'TER100'
+                                        : isReforma ? 'RES080' : (isHybrid ? 'RES093' : 'RES060');
                                     
                                     // Seleccionar financieros correctos según ficha
                                     // Solo RES080 (Reforma) usa financialsRes080 si existe. RES093 y RES060 usan financials estándar.
@@ -1374,7 +1381,9 @@ export function AdminPanelView({
                                                         ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
                                                         : currentFicha === 'RES093'
                                                             ? 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30'
-                                                            : 'bg-brand/10 text-brand border-brand/20'
+                                                            : currentFicha === 'TER100'
+                                                                ? 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30'
+                                                                : 'bg-brand/10 text-brand border-brand/20'
                                                 }`}>
                                                     {currentFicha}
                                                 </span>
@@ -1588,7 +1597,8 @@ export function AdminPanelView({
                                     <span className={`shrink-0 px-2 py-0.5 rounded text-[9px] font-black tracking-wider border ${
                                         meta.currentFicha === 'RES080' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
                                             : meta.currentFicha === 'RES093' ? 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30'
-                                                : 'bg-brand/10 text-brand border-brand/20'
+                                                : meta.currentFicha === 'TER100' ? 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30'
+                                                    : 'bg-brand/10 text-brand border-brand/20'
                                     }`}>{meta.currentFicha}</span>
                                 </div>
 

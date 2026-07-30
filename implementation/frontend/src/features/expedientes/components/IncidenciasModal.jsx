@@ -16,9 +16,50 @@ const SEVERIDADES = [
     { value: 'LEVE',  label: 'Leve' },
 ];
 
+// Mismos topes que el backend (routes/expedientes.js). Las incidencias viven dentro
+// de un JSONB: aquí se corta antes de escribir para que nadie pegue un documento
+// entero — eso va a Drive, aquí solo el enlace.
+const MAX_TEXTO_INCIDENCIA = 4000;
+const MAX_TEXTO_COMENTARIO = 2000;
+
+// Mensaje de error del backend si lo hay, o el genérico.
+const msgError = (e, fallback) => e?.response?.data?.error || fallback;
+
+// Estilo de cada tipo de entrada del hilo de seguimiento de una incidencia.
+// Los `tipo` los pone el backend (routes/expedientes.js) y el MCP.
+const COMENTARIO_ESTILO = {
+    RESOLUCION: {
+        label: 'Subsanada',
+        color: 'text-emerald-400',
+        dot:   'bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)]',
+        box:   'border-emerald-500/25 bg-emerald-500/[0.06]',
+    },
+    REAPERTURA: {
+        label: 'Reabierta',
+        color: 'text-amber-400',
+        dot:   'bg-amber-400',
+        box:   'border-amber-500/25 bg-amber-500/[0.05]',
+    },
+    SEVERIDAD: {
+        label: 'Reclasificada',
+        color: 'text-indigo-300',
+        dot:   'bg-indigo-400',
+        box:   'border-indigo-500/20 bg-indigo-500/[0.05]',
+    },
+    NOTA: {
+        label: 'Nota',
+        color: 'text-slate-300',
+        dot:   'bg-slate-500',
+        box:   'border-white/10 bg-white/[0.03]',
+    },
+};
+
 // Modal de Incidencias del expediente (control de calidad — SOLO ADMIN).
-// Permite registrar incidencias detectadas (texto libre) y marcarlas OK (subsanadas).
-// Las incidencias viven en documentacion.incidencias[] del expediente.
+// Permite registrar incidencias detectadas (texto libre), comentarlas en un hilo,
+// reclasificar su severidad y marcarlas OK (subsanadas) explicando CÓMO se subsanaron.
+// Las incidencias viven en documentacion.incidencias[] del expediente; el hilo, en
+// incidencia.comentarios[] — lo mismo que escribe el MCP, así que lo que hace el
+// agente por chat y lo que se hace aquí a mano acaban en el mismo sitio.
 //
 // Props:
 //   isOpen, onClose
@@ -39,6 +80,13 @@ export function IncidenciasModal({ isOpen, onClose, expedienteId, onChanged }) {
     const [editingText, setEditingText] = useState('');
     const [editingProcedencia, setEditingProcedencia] = useState('REVISION_INTERNA');
     const [editingSeveridad, setEditingSeveridad] = useState('GRAVE');
+
+    // Popup "¿cómo se ha subsanado?" (se abre al pulsar OK) y caja de nota del hilo.
+    const [resolveTarget, setResolveTarget] = useState(null);
+    const [resolveText, setResolveText]     = useState('');
+    const [resolving, setResolving]         = useState(false);
+    const [noteFor, setNoteFor]             = useState(null);
+    const [noteText, setNoteText]           = useState('');
 
     const fetchIncidencias = useCallback(async () => {
         if (!expedienteId) return;
@@ -61,6 +109,8 @@ export function IncidenciasModal({ isOpen, onClose, expedienteId, onChanged }) {
             setNewProcedencia('REVISION_INTERNA');
             setNewSeveridad('GRAVE');
             setEditingId(null);
+            setResolveTarget(null);
+            setNoteFor(null);
             setError(null);
         }
     }, [isOpen, fetchIncidencias]);
@@ -81,22 +131,28 @@ export function IncidenciasModal({ isOpen, onClose, expedienteId, onChanged }) {
             setNewText('');
             setNewProcedencia('REVISION_INTERNA');
             setNewSeveridad('GRAVE');
-        } catch {
-            setError('Error al registrar la incidencia.');
+        } catch (e) {
+            setError(msgError(e, 'Error al registrar la incidencia.'));
         } finally {
             setAdding(false);
         }
     };
 
-    const handleResolve = async (incId) => {
+    // Marcar subsanada. `resolucion` es opcional pero es lo que permite que un
+    // tercero sepa CÓMO se arregló sin preguntar a nadie.
+    const handleResolve = async (incId, resolucion) => {
+        setResolving(true);
         setBusyId(incId);
         setError(null);
         try {
-            const res = await axios.patch(`/api/expedientes/${expedienteId}/incidencias/${incId}/resolver`);
+            const res = await axios.patch(`/api/expedientes/${expedienteId}/incidencias/${incId}/resolver`, { resolucion: resolucion || '' });
             applyResult(res.data);
-        } catch {
-            setError('Error al marcar la incidencia.');
+            setResolveTarget(null);
+            setResolveText('');
+        } catch (e) {
+            setError(msgError(e, 'Error al marcar la incidencia.'));
         } finally {
+            setResolving(false);
             setBusyId(null);
         }
     };
@@ -114,6 +170,38 @@ export function IncidenciasModal({ isOpen, onClose, expedienteId, onChanged }) {
         }
     };
 
+    // Reclasificar GRAVE ⇄ LEVE pulsando la propia etiqueta. Queda traza en el hilo.
+    const handleToggleSeveridad = async (inc) => {
+        const destino = inc.severidad === 'GRAVE' ? 'LEVE' : 'GRAVE';
+        setBusyId(inc.id);
+        setError(null);
+        try {
+            const res = await axios.patch(`/api/expedientes/${expedienteId}/incidencias/${inc.id}/severidad`, { severidad: destino });
+            applyResult(res.data);
+        } catch {
+            setError('Error al cambiar la severidad.');
+        } finally {
+            setBusyId(null);
+        }
+    };
+
+    const handleAddNota = async (incId) => {
+        const texto = noteText.trim();
+        if (!texto) return;
+        setBusyId(incId);
+        setError(null);
+        try {
+            const res = await axios.post(`/api/expedientes/${expedienteId}/incidencias/${incId}/comentarios`, { texto });
+            applyResult(res.data);
+            setNoteFor(null);
+            setNoteText('');
+        } catch (e) {
+            setError(msgError(e, 'Error al añadir la nota.'));
+        } finally {
+            setBusyId(null);
+        }
+    };
+
     const handleEdit = async (incId) => {
         const texto = editingText.trim();
         if (!texto) return;
@@ -123,8 +211,8 @@ export function IncidenciasModal({ isOpen, onClose, expedienteId, onChanged }) {
             const res = await axios.put(`/api/expedientes/${expedienteId}/incidencias/${incId}`, { texto, procedencia: editingProcedencia, severidad: editingSeveridad });
             applyResult(res.data);
             setEditingId(null);
-        } catch {
-            setError('Error al editar la incidencia.');
+        } catch (e) {
+            setError(msgError(e, 'Error al editar la incidencia.'));
         } finally {
             setBusyId(null);
         }
@@ -160,13 +248,33 @@ export function IncidenciasModal({ isOpen, onClose, expedienteId, onChanged }) {
         day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'
     }) : '';
 
+    // Hilo de una incidencia. Las subsanadas ANTIGUAS (anteriores al hilo) no tienen
+    // entrada de RESOLUCION: se sintetiza una para que la traza no tenga huecos.
+    const hiloDe = (inc) => {
+        const reales = Array.isArray(inc.comentarios) ? inc.comentarios : [];
+        if (inc.estado === 'SUBSANADA' && !reales.some(c => c.tipo === 'RESOLUCION')) {
+            return [
+                ...reales,
+                {
+                    id: `${inc.id}_legacy_ok`,
+                    tipo: 'RESOLUCION',
+                    texto: '',
+                    autor: inc.resuelta_por || 'Sistema',
+                    fecha: inc.resuelta_at || null,
+                    _sinDetalle: true,
+                },
+            ];
+        }
+        return reales;
+    };
+
     return (
         <div
             className="fixed inset-0 z-[320] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in"
             onClick={onClose}
         >
             <div
-                className="bg-bkg-surface border border-white/[0.1] p-6 rounded-2xl w-full max-w-lg shadow-2xl relative"
+                className="bg-bkg-surface border border-white/[0.1] p-6 rounded-2xl w-full max-w-lg md:max-w-3xl shadow-2xl relative"
                 onClick={e => e.stopPropagation()}
             >
                 {/* Close */}
@@ -243,6 +351,7 @@ export function IncidenciasModal({ isOpen, onClose, expedienteId, onChanged }) {
                     <div className="flex gap-3">
                         <textarea
                             value={newText}
+                            maxLength={MAX_TEXTO_INCIDENCIA}
                             onChange={e => setNewText(e.target.value)}
                             placeholder="Describe la incidencia detectada en el expediente..."
                             className="flex-1 bg-black/30 border border-white/5 rounded-xl p-3 text-sm text-white focus:outline-none focus:border-red-500/40 min-h-[70px] resize-none"
@@ -267,7 +376,7 @@ export function IncidenciasModal({ isOpen, onClose, expedienteId, onChanged }) {
                 )}
 
                 {/* Lista */}
-                <div className="space-y-3 max-h-[50vh] overflow-y-auto pr-2 custom-scrollbar">
+                <div className="space-y-3 max-h-[50vh] md:max-h-[58vh] overflow-y-auto pr-2 custom-scrollbar">
                     {loading ? (
                         <div className="flex justify-center py-10">
                             <svg className="w-8 h-8 text-red-500 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor">
@@ -290,6 +399,7 @@ export function IncidenciasModal({ isOpen, onClose, expedienteId, onChanged }) {
                             const isEditing = editingId === inc.id;
                             const busy = busyId === inc.id;
                             const isGrave = inc.severidad === 'GRAVE';
+                            const hilo = hiloDe(inc);
                             return (
                                 <div
                                     key={inc.id}
@@ -304,13 +414,23 @@ export function IncidenciasModal({ isOpen, onClose, expedienteId, onChanged }) {
                                     <div className="flex justify-between items-start mb-2 gap-3">
                                         <div className="flex items-center gap-2 flex-wrap">
                                             {isOpen ? (
-                                                <span className={`text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded border ${
-                                                    isGrave
-                                                        ? 'text-red-400 bg-red-500/10 border-red-500/40'
-                                                        : 'text-amber-400 bg-amber-500/10 border-amber-500/40'
-                                                }`}>
+                                                // La etiqueta de severidad es un TOGGLE: un clic la pasa de GRAVE a LEVE y al revés.
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleToggleSeveridad(inc)}
+                                                    disabled={busy}
+                                                    title={`Pulsa para reclasificar como ${isGrave ? 'LEVE' : 'GRAVE'}`}
+                                                    className={`group text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded border transition-all active:scale-95 disabled:opacity-40 flex items-center gap-1 ${
+                                                        isGrave
+                                                            ? 'text-red-400 bg-red-500/10 border-red-500/40 hover:bg-red-500/20'
+                                                            : 'text-amber-400 bg-amber-500/10 border-amber-500/40 hover:bg-amber-500/20'
+                                                    }`}
+                                                >
                                                     {isGrave ? '⚠ Grave' : 'Leve'}
-                                                </span>
+                                                    <svg className="w-2.5 h-2.5 opacity-40 group-hover:opacity-100 transition-opacity" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
+                                                    </svg>
+                                                </button>
                                             ) : (
                                                 <>
                                                     <span className="text-[10px] font-black uppercase tracking-widest text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/30 flex items-center gap-1.5">
@@ -319,9 +439,15 @@ export function IncidenciasModal({ isOpen, onClose, expedienteId, onChanged }) {
                                                         </svg>
                                                         Subsanada
                                                     </span>
-                                                    <span className="text-[9px] font-black uppercase tracking-wider text-white/40 bg-white/5 px-1.5 py-0.5 rounded border border-white/10">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleToggleSeveridad(inc)}
+                                                        disabled={busy}
+                                                        title={`Pulsa para reclasificar como ${isGrave ? 'LEVE' : 'GRAVE'}`}
+                                                        className="text-[9px] font-black uppercase tracking-wider text-white/40 bg-white/5 px-1.5 py-0.5 rounded border border-white/10 hover:text-white/80 hover:border-white/25 transition-all active:scale-95 disabled:opacity-40"
+                                                    >
                                                         {isGrave ? 'Grave' : 'Leve'}
-                                                    </span>
+                                                    </button>
                                                 </>
                                             )}
                                             {inc.procedencia && (
@@ -361,6 +487,7 @@ export function IncidenciasModal({ isOpen, onClose, expedienteId, onChanged }) {
                                             <textarea
                                                 autoFocus
                                                 value={editingText}
+                                                maxLength={MAX_TEXTO_INCIDENCIA}
                                                 onChange={e => setEditingText(e.target.value)}
                                                 className="w-full bg-black/40 border border-red-500/30 rounded-lg p-2 text-xs text-white focus:outline-none min-h-[60px] resize-none"
                                             />
@@ -381,13 +508,70 @@ export function IncidenciasModal({ isOpen, onClose, expedienteId, onChanged }) {
                                             </div>
                                         </div>
                                     ) : (
-                                        <p className={`text-sm whitespace-pre-line ${isOpen ? 'text-white/90' : 'text-slate-400 line-through decoration-emerald-500/30'}`}>
+                                        <p className={`text-sm whitespace-pre-line ${isOpen ? 'text-white/90' : 'text-slate-400'}`}>
                                             {inc.texto}
                                         </p>
                                     )}
 
+                                    {/* Hilo de seguimiento: notas, resolución, reaperturas y reclasificaciones */}
+                                    {!isEditing && hilo.length > 0 && (
+                                        <div className="mt-3 pl-3 border-l-2 border-white/10 space-y-2">
+                                            {hilo.map(c => {
+                                                const st = COMENTARIO_ESTILO[c.tipo] || COMENTARIO_ESTILO.NOTA;
+                                                return (
+                                                    <div key={c.id} className={`rounded-lg border px-3 py-2 ${st.box}`}>
+                                                        <div className="flex items-center gap-2 mb-1 flex-wrap">
+                                                            <span className={`w-1.5 h-1.5 rounded-full ${st.dot}`} />
+                                                            <span className={`text-[9px] font-black uppercase tracking-widest ${st.color}`}>{st.label}</span>
+                                                            <span className="text-[9px] text-slate-500 uppercase tracking-wider">
+                                                                · {c.autor || 'Sistema'}
+                                                            </span>
+                                                            <span className="text-[9px] text-slate-600 font-mono ml-auto">{fmt(c.fecha)}</span>
+                                                        </div>
+                                                        {c.texto ? (
+                                                            <p className="text-xs text-white/80 whitespace-pre-line">{c.texto}</p>
+                                                        ) : (
+                                                            <p className="text-xs text-slate-500 italic">
+                                                                Sin detalle registrado — añade una nota si sabes cómo se resolvió.
+                                                            </p>
+                                                        )}
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+
+                                    {/* Caja para añadir una nota al hilo */}
+                                    {!isEditing && noteFor === inc.id && (
+                                        <div className="mt-3 flex flex-col gap-2">
+                                            <textarea
+                                                autoFocus
+                                                value={noteText}
+                                                maxLength={MAX_TEXTO_COMENTARIO}
+                                                onChange={e => setNoteText(e.target.value)}
+                                                placeholder="Nota de seguimiento (qué se ha hecho, qué falta, con quién se ha hablado...)"
+                                                className="w-full bg-black/40 border border-white/10 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-white/25 min-h-[56px] resize-none"
+                                            />
+                                            <div className="flex justify-end gap-2">
+                                                <button
+                                                    onClick={() => { setNoteFor(null); setNoteText(''); }}
+                                                    className="px-2 py-1 bg-white/5 hover:bg-white/10 text-white/60 rounded text-[9px] font-black uppercase tracking-widest"
+                                                >
+                                                    Cancelar
+                                                </button>
+                                                <button
+                                                    onClick={() => handleAddNota(inc.id)}
+                                                    disabled={busy || !noteText.trim()}
+                                                    className="px-2 py-1 bg-white/10 hover:bg-white/20 text-white rounded text-[9px] font-black uppercase tracking-widest disabled:opacity-40"
+                                                >
+                                                    {busy ? 'Guardando...' : 'Añadir nota'}
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
+
                                     {!isEditing && (
-                                        <div className="flex justify-between items-center mt-3 pt-2 border-t border-white/5">
+                                        <div className="flex justify-between items-center mt-3 pt-2 border-t border-white/5 gap-3">
                                             <div className="text-[10px] text-slate-500 uppercase tracking-tighter">
                                                 Por: <span className="text-slate-400 font-bold">{inc.usuario || 'Sistema'}</span>
                                                 {!isOpen && inc.resuelta_por && (
@@ -395,9 +579,18 @@ export function IncidenciasModal({ isOpen, onClose, expedienteId, onChanged }) {
                                                 )}
                                             </div>
                                             <div className="flex items-center gap-1">
+                                                {noteFor !== inc.id && (
+                                                    <button
+                                                        onClick={() => { setNoteFor(inc.id); setNoteText(''); }}
+                                                        className="px-2 py-1 text-slate-500 hover:text-white border border-transparent hover:border-white/15 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all"
+                                                        title="Añadir una nota al hilo"
+                                                    >
+                                                        + Nota
+                                                    </button>
+                                                )}
                                                 {isOpen ? (
                                                     <button
-                                                        onClick={() => handleResolve(inc.id)}
+                                                        onClick={() => { setResolveTarget(inc); setResolveText(''); }}
                                                         disabled={busy}
                                                         className="px-2.5 py-1 bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/40 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all active:scale-95 disabled:opacity-40 flex items-center gap-1.5"
                                                         title="Marcar como subsanada"
@@ -445,6 +638,73 @@ export function IncidenciasModal({ isOpen, onClose, expedienteId, onChanged }) {
                     )}
                 </div>
             </div>
+
+            {/* Popup "¿cómo se ha subsanado?" — no se cierra al clicar fuera para no perder el texto */}
+            {resolveTarget && (
+                <div
+                    className="fixed inset-0 z-[330] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fade-in"
+                    onClick={e => e.stopPropagation()}
+                >
+                    <div className="bg-[#0F1013] border border-emerald-500/25 rounded-2xl w-full max-w-lg shadow-2xl p-6">
+                        <div className="flex items-center gap-3 mb-4">
+                            <div className="w-9 h-9 rounded-xl bg-emerald-500/15 border border-emerald-500/40 flex items-center justify-center shrink-0">
+                                <svg className="w-5 h-5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                                </svg>
+                            </div>
+                            <div>
+                                <h4 className="text-base font-bold text-white leading-tight">¿Cómo se ha subsanado?</h4>
+                                <p className="text-[11px] text-slate-500">
+                                    Queda en el hilo de la incidencia para que cualquiera lo entienda sin preguntar.
+                                </p>
+                            </div>
+                        </div>
+
+                        <div className="mb-4 p-3 rounded-xl bg-white/[0.03] border border-white/10 max-h-24 overflow-y-auto custom-scrollbar">
+                            <p className="text-xs text-slate-400 whitespace-pre-line">{resolveTarget.texto}</p>
+                        </div>
+
+                        <textarea
+                            autoFocus
+                            value={resolveText}
+                            maxLength={MAX_TEXTO_COMENTARIO}
+                            onChange={e => setResolveText(e.target.value)}
+                            placeholder="Ej.: Se ha regenerado el CEE final como SOLO CALEFACCIÓN y se ha vuelto a subir el .xml. Verificado que cuadra con factura y RITE."
+                            className="w-full bg-black/40 border border-white/10 rounded-xl p-3 text-sm text-white focus:outline-none focus:border-emerald-500/40 min-h-[110px] resize-none"
+                        />
+                        <div className="flex justify-end mb-4 mt-1">
+                            <span className={`text-[10px] font-mono ${resolveText.length > MAX_TEXTO_COMENTARIO - 200 ? 'text-amber-400' : 'text-slate-600'}`}>
+                                {resolveText.length}/{MAX_TEXTO_COMENTARIO}
+                            </span>
+                        </div>
+
+                        <div className="flex items-center justify-end gap-2">
+                            <button
+                                onClick={() => { setResolveTarget(null); setResolveText(''); }}
+                                disabled={resolving}
+                                className="px-3 py-2 bg-white/5 hover:bg-white/10 text-white/60 rounded-xl text-[10px] font-black uppercase tracking-widest disabled:opacity-40"
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                onClick={() => handleResolve(resolveTarget.id, '')}
+                                disabled={resolving}
+                                className="px-3 py-2 bg-white/5 hover:bg-white/10 text-white/50 border border-white/10 rounded-xl text-[10px] font-black uppercase tracking-widest disabled:opacity-40"
+                                title="Marcar OK sin explicar cómo (no recomendado)"
+                            >
+                                Sin detalle
+                            </button>
+                            <button
+                                onClick={() => handleResolve(resolveTarget.id, resolveText)}
+                                disabled={resolving || !resolveText.trim()}
+                                className="px-4 py-2 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/50 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all active:scale-95 disabled:opacity-30"
+                            >
+                                {resolving ? 'Guardando...' : 'Guardar y marcar OK'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

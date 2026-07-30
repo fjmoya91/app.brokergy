@@ -1,4 +1,4 @@
-import React, { useState, useEffect, lazy, Suspense } from 'react';
+import React, { useState, useEffect, useRef, Suspense } from 'react';
 import axios from 'axios';
 import { CatastroSearchBox } from './components/CatastroSearchBox';
 import { ConfirmationCard } from './components/ConfirmationCard';
@@ -31,11 +31,31 @@ import { MiExpedienteView } from './features/public/views/MiExpedienteView';
 import { WhatsappSettingsView } from './features/whatsapp/views/WhatsappSettingsView';
 import { UsuariosView } from './features/admin/views/UsuariosView';
 import { getRoleFlags } from './utils/roleFlags';
+import { lazyWithReload } from './utils/lazyWithReload';
+
+// Si la pestaña lleva abierta desde antes de un deploy, el chunk que pide React
+// ya no existe en el servidor. lazyWithReload recarga sola la página (una vez
+// por chunk) en lugar de enseñar "Algo ha fallado"; este flag hace que, al
+// volver, se reabra "Nueva simulación" donde estaba el usuario.
+const RESUME_NEW_SIM = 'brokergy:resume-new-sim';
+// Espejo de `showSearchModal` a nivel de módulo: los factories lazy viven fuera
+// del componente y no pueden leer su estado.
+let newSimulationOpen = false;
+const markResumeNewSimulation = () => {
+  if (!newSimulationOpen) return;
+  try { sessionStorage.setItem(RESUME_NEW_SIM, '1'); } catch { /* modo privado */ }
+};
 
 // Landing pública — chunk separado (lazy) para que admin/partners no lo descarguen
-const LandingFunnelView = lazy(() => import('./features/landing/views/LandingFunnelView'));
+const LandingFunnelView = lazyWithReload(() => import('./features/landing/views/LandingFunnelView'), {
+  name: 'LandingFunnelView',
+  beforeReload: markResumeNewSimulation,
+});
 // Puerta "¿Tienes el CEE anterior?" previa a Nueva simulación (SOLO ADMIN) — chunk lazy
-const CeePrevioGate = lazy(() => import('./features/cee/CeePrevioGate'));
+const CeePrevioGate = lazyWithReload(() => import('./features/cee/CeePrevioGate'), {
+  name: 'CeePrevioGate',
+  beforeReload: markResumeNewSimulation,
+});
 
 const API_URL = '/api/catastro'; // Vercel force redeploy v3
 
@@ -223,8 +243,24 @@ function App() {
   // ceeResolved=false → mostramos la puerta; true → pasamos al funnel normal.
   const [ceeResolved, setCeeResolved] = useState(false);
   const [ceePrevioData, setCeePrevioData] = useState(null);
-  const openNewSimulation = () => { setCeeResolved(false); setCeePrevioData(null); setShowSearchModal(true); };
-  const closeNewSimulation = () => { setShowSearchModal(false); setCeeResolved(false); setCeePrevioData(null); };
+  const openNewSimulation = () => { newSimulationOpen = true; setCeeResolved(false); setCeePrevioData(null); setShowSearchModal(true); };
+  const closeNewSimulation = () => { newSimulationOpen = false; setShowSearchModal(false); setCeeResolved(false); setCeePrevioData(null); };
+
+  // Si la recarga vino de un chunk obsoleto mientras el usuario abría "Nueva
+  // simulación", la reabrimos por él: se consume una sola vez por sesión.
+  const [resumeNewSim] = useState(() => {
+    try {
+      const pending = sessionStorage.getItem(RESUME_NEW_SIM) === '1';
+      sessionStorage.removeItem(RESUME_NEW_SIM);
+      return pending;
+    } catch { return false; }
+  });
+  const resumedNewSimRef = useRef(false);
+  useEffect(() => {
+    if (!resumeNewSim || resumedNewSimRef.current || !user) return;
+    resumedNewSimRef.current = true;
+    openNewSimulation();
+  }, [resumeNewSim, user?.id]);
 
   // El deep link ?exp ya NO se borra de la URL: es lo que permite que al recargar
   // sigamos en el mismo expediente. La sincronización vive más abajo, junto a
@@ -1103,6 +1139,7 @@ function App() {
               initialCeeData={ceePrevioData}
               onCancel={closeNewSimulation}
               onCreated={async (opResult) => {
+                newSimulationOpen = false;
                 setShowSearchModal(false);
                 if (!opResult?.id_oportunidad) return;
                 // Obtener el objeto completo de la oportunidad recién creada

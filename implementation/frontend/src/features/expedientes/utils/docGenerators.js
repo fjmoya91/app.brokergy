@@ -314,19 +314,24 @@ export const buildAnexoIHtml = (expediente, results, states = {}, isForPdf = tru
 
     const fichaType = numexpte.includes('RES080') ? 'RES080'
                     : numexpte.includes('RES093') ? 'RES093'
+                    : numexpte.includes('TER100') ? 'TER100'
                     : (op.ficha || 'RES060');
 
     const nombreActuacion = fichaType === 'RES080'
         ? 'Rehabilitación profunda de edificios de viviendas'
         : fichaType === 'RES093'
             ? 'Hibridación de combustión con bomba de calor de accionamiento eléctrico'
-            : ANEXO_I_TEXTS.NOMBRE_ACTUACION_FIXED;
+            : fichaType === 'TER100'
+                ? 'Sustitución de caldera de combustión por bomba de calor de accionamiento eléctrico (sector terciario)'
+                : ANEXO_I_TEXTS.NOMBRE_ACTUACION_FIXED;
 
     const codigoFicha = fichaType === 'RES080'
         ? 'RES080: Mejora de la eficiencia energética de instalaciones térmicas'
         : fichaType === 'RES093'
             ? 'RES093: Hibridación en modo paralelo de caldera/s de combustión con bomba de calor de accionamiento eléctrico en edificios residenciales ubicados en la zona climática D1, D2 o D3'
-            : 'RES060: Sustitución de caldera de combustión por una bomba de calor tipo aire-aire, aire-agua, agua-agua o combinadas';
+            : fichaType === 'TER100'
+                ? 'TER100: Sustitución de caldera de combustión existente por bomba de calor de accionamiento eléctrico'
+                : 'RES060: Sustitución de caldera de combustión por una bomba de calor tipo aire-aire, aire-agua, agua-agua o combinadas';
     // Dirección de la INSTALACIÓN (vivienda del Catastro), NUNCA la del cliente.
     const instAddr = buildInstalacionAddress(expediente);
     const ccaa = (instAddr.ccaa || 'CASTILLA-LA MANCHA').toUpperCase();
@@ -507,13 +512,16 @@ export const buildAnexoCesionHtml = (expediente, results) => {
     const numexp = expediente.numero_expediente || '';
     const fichaType = numexp.includes('RES080') ? 'RES080'
                     : numexp.includes('RES093') ? 'RES093'
+                    : numexp.includes('TER100') ? 'TER100'
                     : (op.ficha || 'RES060');
 
     const descripcionActuacion = fichaType === 'RES080'
         ? 'Rehabilitación profunda de edificios de viviendas'
         : fichaType === 'RES093'
             ? 'Hibridación de combustión con bomba de calor de accionamiento eléctrico'
-            : 'Sustitución de caldera de combustión por una bomba de calor aire-agua (aerotermia)';
+            : fichaType === 'TER100'
+                ? 'Sustitución de caldera de combustión por bomba de calor de accionamiento eléctrico (sector terciario)'
+                : 'Sustitución de caldera de combustión por una bomba de calor aire-agua (aerotermia)';
 
     const vidaUtilTexto = fichaType === 'RES080'
         ? 'La vida útil de la actuación de eficiencia energética recogida en la cláusula 1 de este convenio es de 15 años para bombas de calor aire-agua y de 25 años para la sustitución de ventanas e instalación de aislamiento térmico.'

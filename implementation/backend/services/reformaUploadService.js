@@ -140,6 +140,10 @@ const ADDABLE_CONCEPTS = [
     { id: 'acs',      label: 'ACS: sistema actual + depósito', slots: ['FOTO_ACS_ANTES', 'FOTO_ACS_DEPOSITO'] },
     { id: 'placas',   label: 'Placas solares (después)', slots: ['FOTO_PLACAS_SOLARES'] },
     { id: 'suelo_radiante', label: 'Armario del suelo radiante (después)', slots: ['FOTO_ARMARIO_SUELO_RADIANTE'] },
+    // Calentamiento de agua de piscina (AE_CAP de la ficha TER100). La ficha exige
+    // informe fotográfico "antes y después de la instalación de la bomba de calor",
+    // y el circuito de piscina es una actuación aparte de la de calefacción/ACS.
+    { id: 'piscina', label: 'Piscina: instalación actual + bomba de calor nueva', slots: ['FOTO_PISCINA_ANTES', 'FOTO_PISCINA_BDC'] },
 ];
 const ADDABLE_SLOT_KEYS = new Set(ADDABLE_CONCEPTS.flatMap(c => c.slots));
 
@@ -175,16 +179,20 @@ function conceptsFromEnvolvente(envolvente) {
 }
 
 /**
- * Ids de ADDABLE_CONCEPTS que declara la pestaña INSTALACIÓN del expediente.
- * Hoy solo el emisor: con suelo radiante hay armario de colectores, y esa foto
- * (circuitos + conexión con la bomba de calor) no la cubre ningún otro apartado.
- * El tipo de emisor lo fija el admin en Instalación, así que un expediente puede
- * pasar a suelo radiante después de la simulación.
+ * Ids de ADDABLE_CONCEPTS que declara la pestaña INSTALACIÓN del expediente:
+ *   · emisor: con suelo radiante hay armario de colectores, y esa foto (circuitos
+ *     + conexión con la bomba de calor) no la cubre ningún otro apartado.
+ *   · piscina: si el expediente TER100 incluye calentamiento de agua de piscina,
+ *     ese circuito es una actuación aparte que hay que documentar antes/después.
+ * Ambos los fija el admin en Instalación, después de la simulación.
  */
 function conceptsFromInstalacion(instalacion) {
     const inst = instalacion || {};
     const emisor = String(inst.tipo_emisor || '').toLowerCase();
-    return emisor === 'suelo_radiante' ? ['suelo_radiante'] : [];
+    const ids = [];
+    if (emisor === 'suelo_radiante') ids.push('suelo_radiante');
+    if (inst.piscina?.activa === true) ids.push('piscina');
+    return ids;
 }
 
 /**
@@ -347,6 +355,9 @@ function buildDocChecklist(datosCalculo = {}) {
     if (want('FOTO_FACHADA_ANTES', sel.reforma.paredes))  push({ key: 'FOTO_FACHADA_ANTES', fase: PHASE.ANTES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Fachada a aislar (antes)' });
     if (want('FOTO_SUELO_ANTES', sel.reforma.suelo))    push({ key: 'FOTO_SUELO_ANTES', fase: PHASE.ANTES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Suelo (antes)' });
     if (want('FOTO_ACS_ANTES', sel.changeAcs))        push({ key: 'FOTO_ACS_ANTES', fase: PHASE.ANTES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Sistema de ACS actual', help: 'Termo eléctrico o conexión de ACS de la caldera.' });
+    // Piscina (TER100): el circuito se habilita desde la pestaña Instalación, nunca
+    // desde la simulación — de ahí que solo entre por docs_overrides.
+    if (want('FOTO_PISCINA_ANTES', false)) push({ key: 'FOTO_PISCINA_ANTES', fase: PHASE.ANTES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Calentamiento de piscina actual', help: 'El equipo que calienta hoy el agua de la piscina y su conexión con el circuito.' });
     push({ key: 'OTROS_ANTES', fase: PHASE.ANTES, required: false, multiple: true, named: true, accept: ACCEPT_CUALQUIERA,
            label: 'Otros (antes de la obra)', help: 'PDF, fotos, vídeos u otros archivos que no encajen en las categorías anteriores. Al subirlos se te pedirá un nombre para guardarlos identificados.' });
 
@@ -369,6 +380,8 @@ function buildDocChecklist(datosCalculo = {}) {
            label: 'Armario del suelo radiante (colectores)', help: 'El armario de colectores abierto: que se vean los circuitos, las válvulas y la conexión con el equipo nuevo.' });
     if (want('FOTO_ACS_DEPOSITO', sel.changeAcs)) push({ key: 'FOTO_ACS_DEPOSITO', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO,
            label: 'Depósito de ACS / inercia', help: 'El depósito del agua caliente ya instalado. Incluye una foto donde se vea su etiqueta de datos.' });
+    if (want('FOTO_PISCINA_BDC', false)) push({ key: 'FOTO_PISCINA_BDC', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO,
+           label: 'Bomba de calor de piscina instalada', help: 'El equipo nuevo de piscina ya montado y conectado. Incluye una foto de su placa de características (marca, modelo y nº de serie).' });
     push({ key: 'FOTO_CALDERA_DESMONTADA', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO,
            label: sel.hibridacion ? 'Depósito de ACS junto a la caldera antigua' : 'Caldera antigua desmontada / hueco',
            help: sel.hibridacion

@@ -3,7 +3,11 @@ import axios from 'axios';
 import { useAuth } from '../../../context/AuthContext';
 import { useModal } from '../../../context/ModalContext';
 import { readPhaseTime, SUBESTADO_LABELS, STALE_CLASSES, fmtDate, humanDays, daysSince } from '../logic/seguimientoTime';
-import { buildCertDefaultMessage } from '../logic/certMessages';
+import {
+    buildCertMessage, buildCertEncargoMessage, buildCertApproveMessage,
+    resolveCertEspera, suggestCertTono, CERT_ESPERA, ESPERA_LABELS, CERT_TONO_LABELS,
+} from '../logic/certMessages';
+import { esTer100 } from '../logic/ter100';
 import { SolicitarFaltantesModal } from './SolicitarFaltantesModal';
 import { SendActionOverlay } from '../../../components/SendActionOverlay';
 import { WhatsappConnectModal } from '../../whatsapp/components/WhatsappConnectModal';
@@ -177,6 +181,7 @@ export function CeeDocumentsGrid({
     demands, // { inicial: parsedXml, final: parsedXml }
     acsMethod,
     numRooms,
+    dacsManual, // D_ACS en kWh/año introducida a mano (modo 'manual', ficha TER100)
     onManualUpdate,
     onAutoStatus,
     onForceNotify,
@@ -198,7 +203,10 @@ export function CeeDocumentsGrid({
     const [selectedTargets, setSelectedTargets] = useState(['CLIENTE']);
     // ── Estado del modal de notificación al certificador ──
     const [certNotifyModal, setCertNotifyModal] = useState(null); // { section: 'inicial'|'final' }
-    const [certTemplate, setCertTemplate] = useState('standard');
+    const [certTemplate, setCertTemplate] = useState('standard'); // 'standard' | 'seguimiento' | 'approve'
+    // Eje 1: qué esperamos del certificador ('emision' | 'registro'). Eje 2: tono.
+    const [certEspera, setCertEspera] = useState(CERT_ESPERA.EMISION);
+    const [certTono, setCertTono] = useState('reminder');
     const [certChannels, setCertChannels] = useState(['email']);
     const [certNotifyMessage, setCertNotifyMessage] = useState('');
     const [sendingCertNotify, setSendingCertNotify] = useState(false);
@@ -276,10 +284,37 @@ export function CeeDocumentsGrid({
     // Deep-link al expediente para incrustarlo en los mensajes al certificador.
     const expedienteId = expediente?.id || null;
 
+    // ─── Dos ejes del mensaje de seguimiento ────────────────────────────────────
+    // El subestado de la fase dice QUÉ esperamos (emitir vs registrar) y los días
+    // parado sugieren el TONO. Ambos son preselecciones: el admin puede cambiarlas.
+    const certPhaseInfo = (section) => {
+        const key = section === 'final' ? 'cee_final' : 'cee_inicial';
+        const subestado = expediente?.seguimiento?.[key] || null;
+        const pt = readPhaseTime(expediente?.seguimiento, key);
+        return {
+            subestado,
+            espera: resolveCertEspera(subestado),
+            dias: pt.diasEnEstado,
+            nivel: pt.nivel,
+            lastContacto: pt.lastContacto,
+        };
+    };
+
+    // Texto por defecto según el tipo de mensaje y los dos ejes activos.
+    const certTemplateText = (template, section, espera, tono, dias) => {
+        if (template === 'approve') {
+            return buildCertApproveMessage(section, certName, clienteNombre, numExp, ceeFolderLink, expedienteId, tono === 'urgent' ? 'urgent' : 'normal');
+        }
+        if (template === 'standard') {
+            return buildCertEncargoMessage(section, certName, clienteNombre, numExp, ceeFolderLink, expedienteId);
+        }
+        return buildCertMessage({ espera, tono, fase: section, certName, clienteNombre, numExp, expedienteId, dias });
+    };
+
     // Al abrir el modal, sembramos el cuadro con la plantilla por defecto del tipo activo.
     useEffect(() => {
         if (!certNotifyModal) return;
-        const def = buildCertDefaultMessage(certTemplate, certNotifyModal.section, certName, clienteNombre, numExp, ceeFolderLink, expedienteId);
+        const def = certTemplateText(certTemplate, certNotifyModal.section, certEspera, certTono, certPhaseInfo(certNotifyModal.section).dias);
         setCertNotifyMessage(def);
         lastCertDefaultRef.current = def;
         setCertAttachFiles(false);
@@ -300,14 +335,115 @@ export function CeeDocumentsGrid({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [certNotifyModal]);
 
-    // Cambio de tipo de mensaje: regenera la plantilla, pero respeta el texto si el admin lo editó a mano.
+    // El nombre del certificador llega por fetch: si el admin abre el popup antes de
+    // que cargue, la plantilla se sembró con "¡Hola técnico!". Cuando llega el nombre
+    // re-sembramos, salvo que el texto ya esté editado a mano.
+    useEffect(() => {
+        if (!certNotifyModal || !certName) return;
+        if (certNotifyMessage !== lastCertDefaultRef.current) return;
+        const def = certTemplateText(certTemplate, certNotifyModal.section, certEspera, certTono, certPhaseInfo(certNotifyModal.section).dias);
+        if (def === certNotifyMessage) return;
+        setCertNotifyMessage(def);
+        lastCertDefaultRef.current = def;
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [certName, certNotifyModal]);
+
+    // Cambio de tipo de mensaje: regenera SIEMPRE el texto de esa plantilla.
+    // (La lógica anterior de "preservar la edición" hacía que al pulsar "Visto bueno"
+    //  el texto se quedara en el de "Encargo").
     const handleCertTemplateChange = (id) => {
         setCertTemplate(id);
         if (!certNotifyModal) return;
-        // Al elegir un tipo de mensaje regeneramos SIEMPRE el texto de esa plantilla.
-        // (La lógica anterior de "preservar la edición" hacía que al pulsar "Visto bueno"
-        //  el texto se quedara en el de "Encargo").
-        const def = buildCertDefaultMessage(id, certNotifyModal.section, certName, clienteNombre, numExp, ceeFolderLink, expedienteId);
+        const def = certTemplateText(id, certNotifyModal.section, certEspera, certTono, certPhaseInfo(certNotifyModal.section).dias);
+        setCertNotifyMessage(def);
+        lastCertDefaultRef.current = def;
+    };
+
+    // Envío del popup de notificación. Vive aquí (y no en el onClick) porque hay dos
+    // botones que disparan lo mismo: el de la cabecera fija y el del final del popup.
+    const handleCertSend = async () => {
+        if (!certNotifyModal) return;
+        // Validación pre-vuelo para CEE Final
+        if (certNotifyModal.section === 'final' && certTemplate === 'standard') {
+            const missingDocs = [];
+            if (!ceeFiles?.inicial?.registro) missingDocs.push('Registro CEE Inicial');
+            if (!ceeFiles?.inicial?.pdf) missingDocs.push('PDF Firmado CEE Inicial');
+
+            if (missingDocs.length > 0) {
+                const proceed = await showConfirm(
+                    `No se han detectado los siguientes documentos:\n\n• ${missingDocs.join('\n• ')}\n\n¿Deseas notificar al certificador de todas formas?`,
+                    'Documentación Incompleta',
+                    'warning'
+                );
+                if (!proceed) return;
+            }
+        }
+
+        setSendingCertNotify(true);
+        try {
+            const phase = certNotifyModal.section === 'final' ? 'final' : 'initial';
+            // La nota se envía al final del cuerpo, sea cual sea la plantilla.
+            const nota = certNota.trim();
+            const mensajeFinal = nota ? `${certNotifyMessage}\n\n${nota}` : certNotifyMessage;
+            if (certTemplate === 'approve') {
+                // Visto bueno: avanza el estado a REVISADO y avisa al certificador.
+                const data = onApproveSend
+                    ? await onApproveSend(phase, certChannels, mensajeFinal, certAttachFiles)
+                    : null;
+                // Avisar solo si algún canal no salió limpio (mismo criterio que onForceNotify).
+                const issues = [];
+                if (data) {
+                    if (certChannels.includes('email') && !data.emailSent) issues.push('✉️ Email NO enviado');
+                    if (certChannels.includes('whatsapp') && !data.whatsAppSent) {
+                        issues.push(data.waReason === 'sin_telefono'
+                            ? '💬 WhatsApp NO enviado (certificador sin teléfono)'
+                            : '💬 WhatsApp NO enviado');
+                    }
+                }
+                if (issues.length) setTimeout(() => showAlert(issues.join('\n'), 'Aviso de envío', 'warning'), 400);
+            } else {
+                // 'seguimiento' se traduce a la plantilla de email que toca según el
+                // tono; espera/tono viajan aparte para que el email hable de emitir o
+                // de registrar, no siempre de emitir.
+                const info = certPhaseInfo(certNotifyModal.section);
+                const tpl = certTemplate === 'seguimiento'
+                    ? (certTono === 'urgent' ? 'urgent' : 'reminder')
+                    : certTemplate;
+                await onForceNotify(phase, certChannels, tpl, mensajeFinal, {
+                    espera: certTemplate === 'seguimiento' ? certEspera : null,
+                    tono: certTemplate === 'seguimiento' ? certTono : null,
+                    dias: info.dias,
+                });
+            }
+            setCertNotifyModal(null);
+        } catch (err) {
+            console.error('Error notifying cert:', err);
+        } finally {
+            setSendingCertNotify(false);
+        }
+    };
+
+    // Etiqueta y color del botón de envío (se usa en la cabecera y al final del popup).
+    const certSendLabel = certTemplate === 'approve'
+        ? '✅ Validar y enviar'
+        : (certTemplate === 'seguimiento' && certTono === 'urgent') ? '🚨 Enviar urgente' : 'Enviar';
+    const certSendClass = certChannels.length === 0
+        ? 'bg-white/5 text-white/20 cursor-not-allowed'
+        : (certTemplate === 'seguimiento' && certTono === 'urgent')
+            ? 'bg-red-500 text-white shadow-red-500/20'
+            : certTemplate === 'approve'
+                ? 'bg-emerald-500 text-black shadow-emerald-500/20'
+                : 'bg-brand text-bkg-deep shadow-brand/20';
+
+    // Cambio de cualquiera de los dos ejes del seguimiento: mismo criterio, se
+    // regenera el texto (lo escrito en "Nota adicional" no se toca).
+    const handleCertEjeChange = ({ espera, tono }) => {
+        const nextEspera = espera || certEspera;
+        const nextTono = tono || certTono;
+        if (espera) setCertEspera(espera);
+        if (tono) setCertTono(tono);
+        if (!certNotifyModal) return;
+        const def = certTemplateText(certTemplate, certNotifyModal.section, nextEspera, nextTono, certPhaseInfo(certNotifyModal.section).dias);
         setCertNotifyMessage(def);
         lastCertDefaultRef.current = def;
     };
@@ -716,6 +852,11 @@ export function CeeDocumentsGrid({
         return (28 * numPeople * 0.001162 * 365 * 46).toFixed(2);
     };
 
+    // El modo MANUAL de D_ACS solo se ofrece en TER100 (terciario): en un hotel, una
+    // residencia o un gimnasio la demanda de ACS va por plaza/servicio (Anexo V de la
+    // ficha) o la da el proyecto, no la fórmula del CTE por dormitorios de vivienda.
+    const permiteDacsManual = esTer100(expediente);
+
     const handleNotifyAction = async () => {
         if (!notifyModal) return;
         if (selectedChannels.length === 0) {
@@ -807,7 +948,10 @@ export function CeeDocumentsGrid({
 
                     const sectionDemand = demands?.[section] || {};
                     const isHab = acsMethod === 'cte';
-                    const acsValue = isHab ? calcAcsHab(numRooms) : (parseFloat(sectionDemand.demandaACS) || 0).toFixed(2);
+                    const isDacsManual = acsMethod === 'manual';
+                    const acsValue = isHab ? calcAcsHab(numRooms)
+                        : isDacsManual ? (parseFloat(dacsManual) || 0).toFixed(2)
+                        : (parseFloat(sectionDemand.demandaACS) || 0).toFixed(2);
 
                     return (
                         <div key={section} className="flex flex-wrap items-center gap-x-5 gap-y-6 border-b border-white/[0.04] pb-12 last:border-0 last:pb-0">
@@ -865,25 +1009,51 @@ export function CeeDocumentsGrid({
                                                                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>
                                                             </button>
                                                         )}
+                                                        {(() => {
+                                                            // Semáforo de la campana: si la pelota está en el certificador y
+                                                            // lleva días parado, el botón avisa (ámbar ≥7 d, rojo ≥15 d).
+                                                            const info = certPhaseInfo(section);
+                                                            const bolaEnCert = info.subestado
+                                                                && !['REGISTRADO', 'PTE_REVISION', 'PRESENTADO'].includes(info.subestado);
+                                                            const tonoSugerido = bolaEnCert ? suggestCertTono(info.dias) : 'status';
+                                                            const bellClass = tonoSugerido === 'urgent'
+                                                                ? 'bg-red-500/15 border-red-500/40 text-red-400 hover:bg-red-500/25'
+                                                                : tonoSugerido === 'reminder'
+                                                                    ? 'bg-amber-500/15 border-amber-500/40 text-amber-400 hover:bg-amber-500/25'
+                                                                    : 'bg-white/5 border-white/10 text-white/40 hover:bg-brand/20 hover:text-brand hover:border-brand/40';
+                                                            const esperaTxt = ESPERA_LABELS[info.espera];
+                                                            const title = bolaEnCert && info.dias != null
+                                                                ? `Comunicar con el certificador · ${esperaTxt} · ${info.dias} días en este estado`
+                                                                : `Comunicar con el certificador (${section === 'inicial' ? 'CEE Inicial' : 'CEE Final'})`;
+                                                            return (
                                                         <button
-                                                            title={`Comunicar con el certificador (${section === 'inicial' ? 'CEE Inicial' : 'CEE Final'})`}
+                                                            title={title}
                                                             onClick={() => {
-                                                                // Si está pendiente de revisión, el popup abre ya en "Visto bueno".
-                                                                const tpl = isPendingReview ? 'approve' : 'standard';
+                                                                // Preselección: pendiente de revisión → "Visto bueno"; sin encargar
+                                                                // todavía → "Encargo"; ya encargado → "Seguimiento" con la espera
+                                                                // que toca (emitir o registrar) y el tono que sugieren los días.
+                                                                const tpl = isPendingReview
+                                                                    ? 'approve'
+                                                                    : (!info.subestado || info.subestado === 'PTE_ENVIO_CERT') ? 'standard' : 'seguimiento';
+                                                                const tono = suggestCertTono(info.dias);
                                                                 setCertTemplate(tpl);
+                                                                setCertEspera(info.espera);
+                                                                setCertTono(tono);
                                                                 setCertChannels(['email']);
                                                                 // Sembramos el texto correcto YA (no dependemos solo del efecto de apertura).
-                                                                const def = buildCertDefaultMessage(tpl, section, certName, clienteNombre, numExp, ceeFolderLink, expedienteId);
+                                                                const def = certTemplateText(tpl, section, info.espera, tono, info.dias);
                                                                 setCertNotifyMessage(def);
                                                                 lastCertDefaultRef.current = def;
                                                                 setCertNotifyModal({ section });
                                                             }}
-                                                            className="w-7 h-7 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center text-white/40 hover:bg-brand/20 hover:text-brand hover:border-brand/40 transition-all active:scale-95"
+                                                            className={`w-7 h-7 rounded-lg border flex items-center justify-center transition-all active:scale-95 ${bellClass}`}
                                                         >
                                                             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
                                                             </svg>
                                                         </button>
+                                                            );
+                                                        })()}
                                                         {resendBtn}
                                                     </>
                                                 );
@@ -951,21 +1121,43 @@ export function CeeDocumentsGrid({
                                             >
                                                 XML
                                             </button>
-                                            <button 
+                                            <button
                                                 onClick={() => onManualUpdate({ acs_method: 'cte' })}
                                                 className={`px-3 py-1 rounded-md text-[8px] font-black uppercase tracking-widest transition-all ${acsMethod === 'cte' ? 'bg-brand text-black' : 'text-white/30 hover:text-white'}`}
                                             >
                                                 HAB
                                             </button>
+                                            {permiteDacsManual && (
+                                                <button
+                                                    onClick={() => onManualUpdate({ acs_method: 'manual' })}
+                                                    title="Demanda anual de ACS en kWh/año, según proyecto o el Anexo V de la ficha TER100"
+                                                    className={`px-3 py-1 rounded-md text-[8px] font-black uppercase tracking-widest transition-all ${isDacsManual ? 'bg-brand text-black' : 'text-white/30 hover:text-white'}`}
+                                                >
+                                                    MAN
+                                                </button>
+                                            )}
                                         </div>
                                         {isHab && (
                                             <div className="flex items-center gap-1.5 bg-black/40 px-2 py-1 rounded-lg border border-white/5">
                                                 <span className="text-[8px] font-black text-white/20 uppercase tracking-widest">Dorm:</span>
-                                                <input 
-                                                    type="number" 
-                                                    value={numRooms} 
+                                                <input
+                                                    type="number"
+                                                    value={numRooms}
                                                     onChange={e => onManualUpdate({ num_rooms: parseInt(e.target.value) || 0 })}
                                                     className="w-8 bg-transparent text-[10px] text-brand font-mono font-bold focus:outline-none border-0 p-0 text-center"
+                                                />
+                                            </div>
+                                        )}
+                                        {isDacsManual && (
+                                            <div className="flex items-center gap-1.5 bg-black/40 px-2 py-1 rounded-lg border border-white/5">
+                                                <span className="text-[8px] font-black text-white/20 uppercase tracking-widest">kWh/año:</span>
+                                                <input
+                                                    type="number"
+                                                    step="any"
+                                                    value={dacsManual ?? ''}
+                                                    placeholder="0"
+                                                    onChange={e => onManualUpdate({ dacs_manual: e.target.value })}
+                                                    className="w-16 bg-transparent text-[10px] text-brand font-mono font-bold focus:outline-none border-0 p-0 text-center"
                                                 />
                                             </div>
                                         )}
@@ -973,7 +1165,7 @@ export function CeeDocumentsGrid({
                                     {/* Valor */}
                                     <div className="flex flex-col items-start gap-0.5">
                                         <div className="bg-white/[0.03] border border-white/5 px-4 py-2.5 rounded-2xl shadow-inner min-w-[92px] text-center">
-                                            <span className={`text-sm font-mono font-bold ${isHab ? 'text-brand shadow-[0_0_15px_rgba(238,143,31,0.2)]' : 'text-white/80'}`}>
+                                            <span className={`text-sm font-mono font-bold ${isHab || isDacsManual ? 'text-brand shadow-[0_0_15px_rgba(238,143,31,0.2)]' : 'text-white/80'}`}>
                                                 {acsValue}
                                             </span>
                                         </div>
@@ -1349,49 +1541,171 @@ export function CeeDocumentsGrid({
             {certNotifyModal && (
                 <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/70 backdrop-blur-sm animate-fade-in" onClick={() => { if (!sendingCertNotify) setCertNotifyModal(null); }}>
                     <div className="bg-bkg-deep border border-white/10 rounded-2xl p-6 max-w-md md:max-w-2xl w-full mx-4 shadow-2xl max-h-[90vh] overflow-y-auto custom-scrollbar" onClick={e => e.stopPropagation()}>
-                        <div className="flex items-center gap-3 mb-5">
-                            <div className="w-10 h-10 rounded-full bg-brand/20 flex items-center justify-center">
-                                <svg className="w-5 h-5 text-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-                                </svg>
-                            </div>
-                            <div>
-                                <h4 className="text-sm font-black text-white uppercase tracking-widest">Notificar Certificador</h4>
-                                <p className="text-[10px] text-white/40">
-                                    CEE {certNotifyModal.section === 'inicial' ? 'Inicial' : 'Final'} · Expediente <span className="text-brand font-bold">{numExp}</span>
-                                </p>
+                        {/* Cabecera FIJA: enviar y cerrar siempre a mano, sin bajar al final. */}
+                        <div className="sticky -top-6 z-20 -mx-6 px-6 pt-6 pb-3 mb-4 bg-bkg-deep border-b border-white/5">
+                            <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-full bg-brand/20 flex items-center justify-center shrink-0">
+                                    <svg className="w-5 h-5 text-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                                    </svg>
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                    <h4 className="text-sm font-black text-white uppercase tracking-widest truncate">Notificar Certificador</h4>
+                                    <p className="text-[10px] text-white/40 truncate">
+                                        CEE {certNotifyModal.section === 'inicial' ? 'Inicial' : 'Final'} · Expediente <span className="text-brand font-bold">{numExp}</span>
+                                    </p>
+                                </div>
+                                <button
+                                    disabled={sendingCertNotify || certChannels.length === 0}
+                                    onClick={handleCertSend}
+                                    title={certChannels.length === 0
+                                        ? 'Selecciona un canal'
+                                        : `${certSendLabel} · ${certChannels.map(c => c === 'email' ? 'Email' : 'WhatsApp').join(' + ')}`}
+                                    className={`shrink-0 flex items-center gap-2 px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg transition-all active:scale-95 disabled:cursor-not-allowed ${certSendClass}`}
+                                >
+                                    {sendingCertNotify ? (
+                                        <div className="w-3.5 h-3.5 border-2 border-current/20 border-t-current rounded-full animate-spin" />
+                                    ) : (
+                                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                                        </svg>
+                                    )}
+                                    {certSendLabel}
+                                </button>
+                                <button
+                                    onClick={() => setCertNotifyModal(null)}
+                                    disabled={sendingCertNotify}
+                                    title="Cancelar"
+                                    className="shrink-0 w-9 h-9 rounded-xl border border-white/10 flex items-center justify-center text-white/40 hover:text-white hover:border-white/25 transition-all active:scale-95"
+                                >
+                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" /></svg>
+                                </button>
                             </div>
                         </div>
 
-                        {/* Selector de Plantilla */}
-                        <p className="text-[9px] font-black text-white/30 uppercase tracking-widest mb-2">Tipo de mensaje</p>
-                        <div className="grid grid-cols-4 gap-2 mb-5">
+                        {/* Contexto: en qué subestado está, cuántos días lleva y cuándo fue el
+                            último aviso. Es lo que evita mandar tres urgentes en dos días. */}
+                        {(() => {
+                            const info = certPhaseInfo(certNotifyModal.section);
+                            if (!info.subestado) return null;
+                            const lastDays = info.lastContacto != null ? daysSince(info.lastContacto) : null;
+                            const alerta = suggestCertTono(info.dias);
+                            return (
+                                <div className={`flex flex-wrap items-center gap-x-3 gap-y-1 mb-5 px-3 py-2.5 rounded-xl border ${
+                                    alerta === 'urgent' ? 'bg-red-500/[0.06] border-red-500/30'
+                                        : alerta === 'reminder' ? 'bg-amber-500/[0.06] border-amber-500/30'
+                                            : 'bg-white/[0.03] border-white/10'
+                                }`}>
+                                    <span className="text-[9px] font-black uppercase tracking-widest text-white/50">
+                                        {SUBESTADO_LABELS[info.subestado] || info.subestado}
+                                    </span>
+                                    {info.dias != null && (
+                                        <span className={`text-[9px] font-black uppercase tracking-widest ${
+                                            alerta === 'urgent' ? 'text-red-400' : alerta === 'reminder' ? 'text-amber-400' : 'text-white/30'
+                                        }`}>
+                                            · {info.dias === 0 ? 'entró hoy' : `${info.dias} días en este estado`}
+                                        </span>
+                                    )}
+                                    {lastDays != null && (
+                                        <span className="text-[9px] font-black uppercase tracking-widest text-white/30" title={`Último aviso: ${fmtDate(info.lastContacto)}`}>
+                                            · último aviso {humanDays(lastDays)}
+                                        </span>
+                                    )}
+                                </div>
+                            );
+                        })()}
+
+                        {/* Selector de Plantilla — chips de una línea para no comerse el alto
+                            del popup: lo importante es ver el mensaje sin hacer scroll. */}
+                        <p className="text-[9px] font-black text-white/30 uppercase tracking-widest mb-1.5">Tipo de mensaje</p>
+                        <div className="grid grid-cols-3 gap-1.5 mb-4">
                             {[
-                                { id: 'standard', icon: '📋', label: 'Encargo', color: 'brand' },
-                                { id: 'reminder', icon: '⏰', label: 'Recordatorio', color: 'blue-400' },
-                                { id: 'urgent', icon: '⚠️', label: 'Urgente', color: 'red-400' },
-                                { id: 'approve', icon: '✅', label: 'Visto bueno', color: 'emerald-400' },
+                                { id: 'standard', icon: '📋', label: 'Encargo', hint: 'Asignar el trabajo al certificador' },
+                                { id: 'seguimiento', icon: '⏰', label: 'Seguimiento', hint: 'Reclamar algo que sigue pendiente' },
+                                { id: 'approve', icon: '✅', label: 'Visto bueno', hint: 'Autorizar el registro en Industria' },
                             ].map(t => (
                                 <button
                                     key={t.id}
                                     onClick={() => handleCertTemplateChange(t.id)}
-                                    className={`flex flex-col items-center justify-center gap-1.5 py-3 px-1 rounded-xl text-[8px] font-black uppercase tracking-wide text-center leading-tight transition-all border ${
+                                    title={t.hint}
+                                    className={`flex items-center justify-center gap-1.5 py-2.5 px-1 rounded-xl text-[8px] font-black uppercase tracking-wide leading-none transition-all border ${
                                         certTemplate === t.id
-                                            ? t.id === 'urgent'
-                                                ? 'bg-red-500/10 border-red-500/30 text-red-400'
-                                                : t.id === 'reminder'
-                                                    ? 'bg-blue-500/10 border-blue-500/30 text-blue-400'
-                                                    : t.id === 'approve'
-                                                        ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
-                                                        : 'bg-brand/10 border-brand/30 text-brand'
+                                            ? t.id === 'seguimiento'
+                                                ? 'bg-blue-500/10 border-blue-500/30 text-blue-400'
+                                                : t.id === 'approve'
+                                                    ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                                                    : 'bg-brand/10 border-brand/30 text-brand'
                                             : 'border-white/5 text-white/20 hover:text-white/40'
                                     }`}
                                 >
-                                    <span className="text-base">{t.icon}</span>
+                                    <span className="text-[13px] leading-none">{t.icon}</span>
                                     {t.label}
                                 </button>
                             ))}
                         </div>
+
+                        {/* Seguimiento = dos ejes en UNA fila: QUÉ esperamos | con qué TONO. */}
+                        {certTemplate === 'seguimiento' && (
+                            <div className="grid grid-cols-1 sm:grid-cols-5 gap-3 mb-4">
+                                <div className="sm:col-span-2">
+                                    <p className="text-[9px] font-black text-white/30 uppercase tracking-widest mb-1.5">Esperamos</p>
+                                    <div className="grid grid-cols-2 gap-1.5">
+                                        {[
+                                            { id: CERT_ESPERA.EMISION, icon: '📐', short: 'Emisión', hint: 'Falta que visite, firme y suba el .cex' },
+                                            { id: CERT_ESPERA.REGISTRO, icon: '🏛️', short: 'Registro', hint: 'Falta que registre y suba etiqueta + justificante' },
+                                        ].map(e => (
+                                            <button
+                                                key={e.id}
+                                                onClick={() => handleCertEjeChange({ espera: e.id })}
+                                                disabled={sendingCertNotify}
+                                                title={`${ESPERA_LABELS[e.id]} — ${e.hint}`}
+                                                className={`flex items-center justify-center gap-1 py-2.5 px-1 rounded-xl text-[8px] font-black uppercase tracking-wide leading-none transition-all border ${
+                                                    certEspera === e.id
+                                                        ? 'bg-brand/10 border-brand/30 text-brand'
+                                                        : 'border-white/5 text-white/20 hover:text-white/40'
+                                                }`}
+                                            >
+                                                <span className="text-[13px] leading-none">{e.icon}</span>
+                                                {e.short}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                                <div className="sm:col-span-3">
+                                    <p className="text-[9px] font-black text-white/30 uppercase tracking-widest mb-1.5">
+                                        Tono
+                                        {(() => {
+                                            // Se explica de dónde sale la preselección: si no, parece arbitraria.
+                                            const info = certPhaseInfo(certNotifyModal.section);
+                                            const sug = suggestCertTono(info.dias);
+                                            if (info.dias == null || sug === 'status') return null;
+                                            return <span className={`ml-1.5 normal-case tracking-normal font-bold ${sug === 'urgent' ? 'text-red-400/70' : 'text-amber-400/70'}`}>
+                                                · sugerido por {info.dias} días de espera
+                                            </span>;
+                                        })()}
+                                    </p>
+                                    <div className="grid grid-cols-3 gap-1.5">
+                                        {[
+                                            { id: 'status', icon: '💬', label: CERT_TONO_LABELS.status, cls: 'bg-brand/10 border-brand/30 text-brand' },
+                                            { id: 'reminder', icon: '⏰', label: CERT_TONO_LABELS.reminder, cls: 'bg-amber-500/10 border-amber-500/30 text-amber-400' },
+                                            { id: 'urgent', icon: '🚨', label: CERT_TONO_LABELS.urgent, cls: 'bg-red-500/10 border-red-500/40 text-red-400' },
+                                        ].map(t => (
+                                            <button
+                                                key={t.id}
+                                                onClick={() => handleCertEjeChange({ tono: t.id })}
+                                                disabled={sendingCertNotify}
+                                                className={`flex items-center justify-center gap-1.5 py-2.5 px-1 rounded-xl text-[8px] font-black uppercase tracking-wide leading-none transition-all border ${
+                                                    certTono === t.id ? t.cls : 'border-white/5 text-white/20 hover:text-white/40'
+                                                }`}
+                                            >
+                                                <span className="text-[13px] leading-none">{t.icon}</span>
+                                                {t.label}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+                        )}
 
                         {/* Aviso cuando se elige "Visto bueno": no es un simple aviso, avanza el estado. */}
                         {certTemplate === 'approve' && (
@@ -1404,8 +1718,8 @@ export function CeeDocumentsGrid({
                         )}
 
                         {/* Selector de Canal */}
-                        <p className="text-[9px] font-black text-white/30 uppercase tracking-widest mb-2">Canales</p>
-                        <div className="flex gap-2 mb-5">
+                        <p className="text-[9px] font-black text-white/30 uppercase tracking-widest mb-1.5">Canales</p>
+                        <div className="flex gap-1.5 mb-4">
                             {[
                                 { id: 'email', label: 'Email', icon: '✉️' },
                                 { id: 'whatsapp', label: 'WhatsApp', icon: '💬' }
@@ -1413,13 +1727,13 @@ export function CeeDocumentsGrid({
                                 <button
                                     key={ch.id}
                                     onClick={() => {
-                                        setCertChannels(prev => 
+                                        setCertChannels(prev =>
                                             prev.includes(ch.id)
                                                 ? prev.filter(c => c !== ch.id)
                                                 : [...prev, ch.id]
                                         );
                                     }}
-                                    className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all border ${
+                                    className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all border ${
                                         certChannels.includes(ch.id)
                                             ? ch.id === 'whatsapp'
                                                 ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
@@ -1481,7 +1795,7 @@ export function CeeDocumentsGrid({
                             <button
                                 type="button"
                                 onClick={() => {
-                                    const def = buildCertDefaultMessage(certTemplate, certNotifyModal.section, certName, clienteNombre, numExp, ceeFolderLink, expedienteId);
+                                    const def = certTemplateText(certTemplate, certNotifyModal.section, certEspera, certTono, certPhaseInfo(certNotifyModal.section).dias);
                                     setCertNotifyMessage(def);
                                     lastCertDefaultRef.current = def;
                                 }}
@@ -1540,62 +1854,14 @@ export function CeeDocumentsGrid({
                             </div>
                         )}
 
-                        {/* Botón Enviar */}
+                        {/* Botón Enviar (duplicado del de la cabecera para quien llega al final) */}
                         <button
                             disabled={sendingCertNotify || certChannels.length === 0}
-                            onClick={async () => {
-                                // Validación pre-vuelo para CEE Final
-                                if (certNotifyModal.section === 'final' && certTemplate === 'standard') {
-                                    const missingDocs = [];
-                                    if (!ceeFiles?.inicial?.registro) missingDocs.push('Registro CEE Inicial');
-                                    if (!ceeFiles?.inicial?.pdf) missingDocs.push('PDF Firmado CEE Inicial');
-                                    
-                                    if (missingDocs.length > 0) {
-                                        const proceed = await showConfirm(
-                                            `No se han detectado los siguientes documentos:\n\n• ${missingDocs.join('\n• ')}\n\n¿Deseas notificar al certificador de todas formas?`,
-                                            'Documentación Incompleta',
-                                            'warning'
-                                        );
-                                        if (!proceed) return;
-                                    }
-                                }
-
-                                setSendingCertNotify(true);
-                                try {
-                                    const phase = certNotifyModal.section === 'final' ? 'final' : 'initial';
-                                    // La nota se envía al final del cuerpo, sea cual sea la plantilla.
-                                    const nota = certNota.trim();
-                                    const mensajeFinal = nota ? `${certNotifyMessage}\n\n${nota}` : certNotifyMessage;
-                                    if (certTemplate === 'approve') {
-                                        // Visto bueno: avanza el estado a REVISADO y avisa al certificador.
-                                        const data = onApproveSend
-                                            ? await onApproveSend(phase, certChannels, mensajeFinal, certAttachFiles)
-                                            : null;
-                                        // Avisar solo si algún canal no salió limpio (mismo criterio que onForceNotify).
-                                        const issues = [];
-                                        if (data) {
-                                            if (certChannels.includes('email') && !data.emailSent) issues.push('✉️ Email NO enviado');
-                                            if (certChannels.includes('whatsapp') && !data.whatsAppSent) {
-                                                issues.push(data.waReason === 'sin_telefono'
-                                                    ? '💬 WhatsApp NO enviado (certificador sin teléfono)'
-                                                    : '💬 WhatsApp NO enviado');
-                                            }
-                                        }
-                                        if (issues.length) setTimeout(() => showAlert(issues.join('\n'), 'Aviso de envío', 'warning'), 400);
-                                    } else {
-                                        await onForceNotify(phase, certChannels, certTemplate, mensajeFinal);
-                                    }
-                                    setCertNotifyModal(null);
-                                } catch (err) {
-                                    console.error('Error notifying cert:', err);
-                                } finally {
-                                    setSendingCertNotify(false);
-                                }
-                            }}
+                            onClick={handleCertSend}
                             className={`w-full py-4 rounded-2xl text-[11px] font-black uppercase tracking-[0.2em] transition-all shadow-xl flex items-center justify-center gap-3 ${
                                 certChannels.length === 0
                                     ? 'bg-white/5 text-white/20 cursor-not-allowed'
-                                    : certTemplate === 'urgent'
+                                    : (certTemplate === 'seguimiento' && certTono === 'urgent')
                                         ? 'bg-red-500 text-white hover:scale-[1.02] shadow-red-500/20'
                                         : certTemplate === 'approve'
                                             ? 'bg-emerald-500 text-black hover:scale-[1.02] shadow-emerald-500/20'
@@ -1611,16 +1877,11 @@ export function CeeDocumentsGrid({
                                     </svg>
                                     {certChannels.length === 0
                                         ? 'Selecciona un canal'
-                                        : `${certTemplate === 'approve' ? '✅ Validar y enviar ' : 'Enviar '}${certChannels.map(c => c === 'email' ? 'Email' : 'WhatsApp').join(' + ')}`}
+                                        : `${certTemplate === 'approve'
+                                            ? '✅ Validar y enviar '
+                                            : (certTemplate === 'seguimiento' && certTono === 'urgent') ? '🚨 Enviar URGENTE ' : 'Enviar '}${certChannels.map(c => c === 'email' ? 'Email' : 'WhatsApp').join(' + ')}`}
                                 </>
                             )}
-                        </button>
-                        <button
-                            onClick={() => setCertNotifyModal(null)}
-                            disabled={sendingCertNotify}
-                            className="w-full py-3 text-white/30 text-[10px] font-black uppercase tracking-[0.2em] hover:text-white transition-all mt-2"
-                        >
-                            Cancelar
                         </button>
                     </div>
                 </div>

@@ -153,6 +153,13 @@ router.post('/', requireAuth, async (req, res) => {
             fichaType = 'RES080';
         } else if (isHybrid) {
             fichaType = 'RES093';
+        } else if (existingData?.ficha === 'TER100' || existingData?.id_oportunidad?.includes('TER100')) {
+            // TER100 (terciario) NO se deduce de los inputs: la calculadora es
+            // residencial y nunca la produce. Si la oportunidad ya está marcada como
+            // terciaria (se cambió el tipo de actuación del expediente), un reguardado
+            // desde la calculadora no debe devolverla a RES060 y desincronizar el
+            // expediente, que sí lleva TER100 en su número.
+            fichaType = 'TER100';
         }
 
         // LÓGICA DE ID: Prioridad absoluta al ID que ya tenemos en DB o el que viene de la sesión previa

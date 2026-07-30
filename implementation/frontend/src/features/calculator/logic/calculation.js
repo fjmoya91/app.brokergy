@@ -701,6 +701,76 @@ export function calculateSavings({
 }
 
 // ============================================================================
+// CÁLCULO DE AHORROS TER100 (SECTOR TERCIARIO)
+// ----------------------------------------------------------------------------
+// Ficha TER100 V1.1: "Sustitución de caldera de combustión existente por bomba
+// de calor de accionamiento eléctrico" en el sector TERCIARIO (hoteles,
+// restaurantes, residencias, gimnasios, centros educativos, oficinas…).
+//
+// A diferencia de RES060 —que agrupa todo en un único AE_TOTAL— la ficha TER100
+// desglosa el ahorro en TRES sumandos independientes, cada uno con su propio
+// SCOP, y el resultado es la suma de los que apliquen (apartado 4 de la ficha):
+//
+//   AE_C   = (1/η_i − 1/SCOP)      · D_C   · S · F_P      [calefacción]
+//   AE_ACS = (1/η_i − 1/SCOP_dhw)  · D_ACS     · F_P      [agua caliente sanitaria]
+//   AE_CAP = (1/η_i − 1/SCOP_pwh)  · D_CAP     · F_P      [calentamiento de piscina]
+//   AE_TOTAL = AE_C + AE_ACS + AE_CAP
+//
+// Ojo con las UNIDADES, que no son homogéneas en la ficha: D_C va en kWh/año·m²
+// (por eso se multiplica por S) mientras D_ACS y D_CAP ya son kWh/año absolutos.
+// Aquí se recibe `q_net_heating` = D_C · S ya multiplicado, igual que en
+// calculateSavings, para que el mapeo desde el CEE sea el mismo en toda la app.
+//
+// En TER100 la actuación puede alcanzar SOLO calefacción, SOLO ACS o AMBAS (y
+// opcionalmente piscina): cada sumando se activa con su propio flag y el que no
+// aplica no entra en la fórmula (no suma 0 "por dentro", queda fuera).
+// ============================================================================
+export function calculateTer100({
+    q_net_heating = 0,   // D_C · S — demanda anual de calefacción (kWh/año)
+    dacs = 0,            // D_ACS — demanda anual de ACS (kWh/año, absoluta)
+    dcap = 0,            // D_CAP — demanda anual de calentamiento de piscina (kWh/año)
+    boilerEff = 0.92,    // η_i — rendimiento de la caldera sustituida
+    scopHeating = 0,     // SCOP en calefacción
+    scopAcs = 0,         // SCOP_dhw en ACS
+    scopPool = 0,        // SCOP_pwh en calentamiento de piscina
+    changeHeating = true,// ¿la actuación alcanza la calefacción?
+    changeAcs = false,   // ¿la actuación alcanza el ACS?
+    changePool = false,  // ¿la actuación alcanza el calentamiento de piscina?
+    fp = 1               // F_P — factor de ponderación (la ficha lo fija en 1)
+}) {
+    const eff = parseFloat(boilerEff) || 0;
+    // Un sumando solo cuenta si está en el alcance Y tiene demanda y SCOP válidos:
+    // sin SCOP la resta 1/η − 1/SCOP no está definida (dividiría por cero).
+    const term = (activo, demanda, scop) => {
+        const d = parseFloat(demanda) || 0;
+        const s = parseFloat(scop) || 0;
+        if (!activo || d <= 0 || s <= 0 || eff <= 0) return 0;
+        return (1 / eff - 1 / s) * d * fp;
+    };
+
+    const aeCal = term(changeHeating, q_net_heating, scopHeating);
+    const aeAcs = term(changeAcs, dacs, scopAcs);
+    const aeCap = term(changePool, dcap, scopPool);
+    const savingsKwh = aeCal + aeAcs + aeCap;
+
+    // Energía final antes/después, solo sobre los servicios dentro del alcance —
+    // es lo que alimenta el % de ahorro y los paneles de resumen.
+    const dCal = changeHeating ? (parseFloat(q_net_heating) || 0) : 0;
+    const dAcs = changeAcs ? (parseFloat(dacs) || 0) : 0;
+    const dCap = changePool ? (parseFloat(dcap) || 0) : 0;
+    const finalEnergyOld = eff > 0 ? (dCal + dAcs + dCap) / eff : 0;
+    const finalEnergyNew = finalEnergyOld - savingsKwh;
+
+    return {
+        aeCal, aeAcs, aeCap,
+        savingsKwh,
+        finalEnergyOld,
+        finalEnergyNew,
+        savingsPercent: finalEnergyOld > 0 ? (savingsKwh / finalEnergyOld) * 100 : 0
+    };
+}
+
+// ============================================================================
 // CÁLCULO DE AHORROS RES080 (ENERGÍA FINAL REAL DESDE CEE)
 // ============================================================================
 export function calculateRes080({

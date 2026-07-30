@@ -19,6 +19,8 @@ import {
     BOILER_EFFICIENCIES,
 } from '../../calculator/logic/calculation';
 import { esTermoElectrico } from './aerotermiaUnits';
+import { resolveDacs } from './demandaAcs';
+import { deriveTer100Vars, TER100_PRECIOS } from './ter100';
 
 export function computeExpedienteFinancials(exp) {
     const op = exp.oportunidades;
@@ -27,6 +29,7 @@ export function computeExpedienteFinancials(exp) {
     let ficha = op.ficha || 'RES060';
     if (exp.numero_expediente?.includes('RES080')) ficha = 'RES080';
     else if (exp.numero_expediente?.includes('RES093')) ficha = 'RES093';
+    else if (exp.numero_expediente?.includes('TER100')) ficha = 'TER100';
 
     const cee = exp.cee || {};
     const inst = exp.instalacion || {};
@@ -52,13 +55,7 @@ export function computeExpedienteFinancials(exp) {
             const superficie = parseFloat(ceeBase.superficieHabitable) || 0;
             const q_net_heating = (parseFloat(ceeBase.demandaCalefaccion) || 0) * superficie;
 
-            let dacs = 0;
-            if (cee.acs_method === 'cte') {
-                const numPeople = (parseInt(cee.num_rooms) || 4) + 1;
-                dacs = 28 * numPeople * 0.001162 * 365 * 46;
-            } else {
-                dacs = (parseFloat(ceeBase.demandaACS) || 0) * superficie;
-            }
+            const dacs = resolveDacs(cee, ceeBase).value;
 
             if (superficie > 0 && q_net_heating > 0) {
                 const boilerEffId = inst.caldera_antigua_cal?.rendimiento_id || 'default';
@@ -119,6 +116,46 @@ export function computeExpedienteFinancials(exp) {
                     caeVerificado = finV.caeBonus;
                     profitVerificado = finV.profitBrokergy;
                 }
+            }
+        }
+    } else if (ficha === 'TER100') {
+        // TER100 (terciario): el ahorro es la suma de AE_C + AE_ACS + AE_CAP, y la
+        // actuación puede alcanzar solo uno de los tres servicios. Toda la
+        // derivación vive en logic/ter100.js (fuente única con el CIFO y la ficha).
+        const ter = deriveTer100Vars(exp);
+        if (ter.savingsKwh > 0) {
+            const overrides = inst.economico_override || {};
+            const includeCommission = overrides.include_commission ?? !!opInputs.include_commission;
+
+            const finArgs = {
+                presupuesto: overrides.presupuesto ?? (parseFloat(inst.presupuesto_final) || parseFloat(opInputs.presupuesto || opInputs.importe_total) || 0),
+                caePriceClient: overrides.cae_client_rate ?? (parseFloat(opInputs.cae_client_rate) || TER100_PRECIOS.cliente),
+                caePriceSO: overrides.cae_so_rate ?? (parseFloat(opInputs.cae_so_rate) || TER100_PRECIOS.sujetoObligado),
+                caePricePrescriptor: includeCommission ? (parseFloat(overrides.cae_prescriptor_rate ?? opInputs.cae_prescriptor_rate) || 0) : 0,
+                prescriptorMode: overrides.cae_prescriptor_mode ?? opInputs.cae_prescriptor_mode ?? 'brokergy',
+                discountCertificates: overrides.discount_certificates ?? !!opInputs.discount_certificates,
+                certificatesCost: overrides.certificates_cost ?? opInputs.certificates_cost ?? 250,
+                includeLegalization: overrides.include_legalization ?? !!opInputs.include_legalization,
+                legalizationMode: overrides.legalization_mode ?? opInputs.legalization_mode ?? 'client',
+                // SIN IRPF: en el terciario el titular es una empresa o un autónomo, no
+                // un particular. Ni la deducción por obras de mejora energética en
+                // vivienda ni la ganancia patrimonial del bono CAE le aplican.
+                includeIrpf: false,
+                aplicarIrpfCae: false,
+                titularType: 'empresa',
+            };
+
+            const fin = calculateFinancials({ ...finArgs, savingsKwh: ter.savingsKwh });
+            cae = fin.caeBonus;
+            profit = fin.profitBrokergy;
+            savingsKwh = ter.savingsKwh;
+
+            const vRaw = inst.verificacion?.ahorro_verificado_kwh;
+            if (vRaw !== null && vRaw !== undefined && vRaw !== '') {
+                savingsKwhVerificado = parseFloat(vRaw) || 0;
+                const finV = calculateFinancials({ ...finArgs, savingsKwh: savingsKwhVerificado });
+                caeVerificado = finV.caeBonus;
+                profitVerificado = finV.profitBrokergy;
             }
         }
     } else if (ficha === 'RES080') {

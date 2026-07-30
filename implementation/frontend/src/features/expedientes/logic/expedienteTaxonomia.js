@@ -26,9 +26,15 @@ export const CCAA_MAP = {
 // Código de provincia INE a 2 dígitos ('9' → '09'), o null.
 export const pad2 = (v) => { const s = String(v ?? '').trim(); return s ? s.padStart(2, '0') : null; };
 
+// Tipologías de ficha que maneja la app. FUENTE ÚNICA de la lista: los filtros,
+// el selector de "cambiar tipo de actuación" y el cuadro de mando la recorren,
+// así que añadir una ficha nueva aquí la propaga a todas esas pantallas.
+export const FICHAS = ['RES060', 'RES080', 'RES093', 'TER100'];
+
 export const getFicha = (exp) => {
     if (exp.numero_expediente?.includes('RES080')) return 'RES080';
     if (exp.numero_expediente?.includes('RES093')) return 'RES093';
+    if (exp.numero_expediente?.includes('TER100')) return 'TER100';
     return 'RES060';
 };
 
@@ -93,7 +99,8 @@ export const normalizeCcaa = (valor) => {
 export const getAnioPrevision = (exp) => {
     const cifo = getCifoYear(exp);
     if (cifo) return cifo;
-    const m = /^(\d{2})RES/.exec(exp.numero_expediente || '');
+    // El prefijo de la ficha no es solo "RES": TER100 (terciario) usa "TER".
+    const m = /^(\d{2})(?:RES|TER|IND)/.exec(exp.numero_expediente || '');
     if (m) return 2000 + parseInt(m[1], 10);
     const created = exp.created_at ? new Date(exp.created_at).getFullYear() : null;
     return created && !isNaN(created) ? created : null;

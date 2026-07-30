@@ -25,6 +25,7 @@ const { partnerNotifyTargets, normalizeContactos } = require('../services/notify
 const { buildCertClienteData } = require('../services/certClienteData');
 const { getCertificadorNombre } = require('../services/certificadorLookup');
 const { avanzarEstado } = require('../utils/expedienteEstados');
+const { FICHAS } = require('../utils/fichas');
 const { syncExpedienteFolderAsync } = require('../services/expedienteFolderSync');
 
 // ─── Guard global del módulo Expedientes (INTERNO de Brokergy) ────────────────
@@ -1750,7 +1751,7 @@ router.get('/:id/anexo-fotografico/estado', internalKeyOrAuth, async (req, res) 
 });
 
 // ─── POST /api/expedientes/:id/cifo/generar ──────────────────────────────────
-// Genera el Certificado CIFO (RES060/RES093) con el MISMO builder que el modal
+// Genera el Certificado CIFO (RES060/RES093/TER100) con el MISMO builder que el modal
 // (features/expedientes/logic/cifoDoc.js), fusiona las fichas técnicas, lo guarda
 // en "6. ANEXOS CAE" y enlaza documentacion.cert_cifo_drive_link. Registra
 // incidencias LEVE por lo que falte (y GRAVE, sin generar, si es imposible).
@@ -2101,8 +2102,8 @@ router.post('/migrate-from-xml', enforceAuth, async (req, res) => {
             xml_final_base64 = null
         } = req.body || {};
 
-        if (!['RES060', 'RES080', 'RES093'].includes(ficha)) {
-            return res.status(400).json({ error: 'ficha inválida (debe ser RES060, RES080 o RES093)' });
+        if (!FICHAS.includes(ficha)) {
+            return res.status(400).json({ error: `ficha inválida (debe ser una de: ${FICHAS.join(', ')})` });
         }
         if (!cliente_id) return res.status(400).json({ error: 'cliente_id es obligatorio' });
         if (!cee_inicial && !cee_final) {
@@ -2589,7 +2590,13 @@ router.put('/:id/historial/:entryId', adminOnly, async (req, res) => {
 // ─── Incidencias del expediente (control de calidad — SOLO ADMIN) ─────────────
 // Viven en documentacion.incidencias[] (mismo patrón JSONB read-modify-write que
 // el historial). Cada incidencia:
-//   { id, texto, estado:'ABIERTA'|'SUBSANADA', fecha, usuario, resuelta_at, resuelta_por }
+//   { id, texto, estado:'ABIERTA'|'SUBSANADA', fecha, usuario, resuelta_at, resuelta_por,
+//     resolucion, comentarios[] }
+// `comentarios[]` es el HILO de seguimiento de la incidencia — lo que permite que un
+// tercero entienda cómo se resolvió sin preguntarle a nadie. Cada entrada:
+//   { id, texto, autor, tipo:'NOTA'|'RESOLUCION'|'REAPERTURA'|'SEVERIDAD', fecha }
+// Lo escriben tanto la app como el MCP (mcp-brokergy/server.js), así que lo que hace
+// el agente por chat y lo que se hace a mano acaban en el mismo sitio.
 
 const incidenciaUsuario = (req) =>
     req.user?.rol_nombre === 'ADMIN'
@@ -2604,6 +2611,53 @@ const normProcedencia = (p) => PROCEDENCIAS_VALIDAS.includes(p) ? p : 'REVISION_
 // Valor desconocido → GRAVE (más seguro: no dejar pasar algo como leve por error).
 const SEVERIDADES_VALIDAS = ['LEVE', 'GRAVE'];
 const normSeveridad = (s) => SEVERIDADES_VALIDAS.includes(s) ? s : 'GRAVE';
+
+// Tipos válidos de entrada del hilo. NOTA la escribe una persona; el resto las
+// genera el sistema al subsanar / reabrir / reclasificar.
+const TIPOS_COMENTARIO = ['NOTA', 'RESOLUCION', 'REAPERTURA', 'SEVERIDAD'];
+
+// ── Topes de tamaño del hilo (protección de la BD) ────────────────────────────
+// Las incidencias viven dentro de `expedientes.documentacion` (JSONB). Hoy son 720
+// bytes de media y toda la columna suma 756 kB en 230 expedientes, así que el hilo
+// no es un problema de volumen. El riesgo es OTRO: que alguien (o un agente) pegue
+// ahí un log, un XML o un base64 y dispare el trigger de 2 MB por fila — y, sobre
+// todo, que Postgres tenga que descomprimir esa columna entera en cada consulta que
+// la toque (fue una de las causas de las caídas del 21/07/2026; ver reglas 21 y 22).
+// Por eso: texto acotado, número de entradas acotado y nada que huela a fichero.
+const MAX_TEXTO_INCIDENCIA = 4000;
+const MAX_TEXTO_COMENTARIO = 2000;
+const MAX_COMENTARIOS      = 50;
+
+// Devuelve un mensaje de error si el texto no es apto para guardar en el JSONB, o null.
+function validarTextoIncidencia(texto, max, que = 'texto') {
+    if (texto.length > max) {
+        return `El ${que} es demasiado largo (${texto.length} caracteres, máximo ${max}). Resume; los documentos y capturas van a Drive, no a la incidencia.`;
+    }
+    if (/;base64,|^data:[a-z]+\//i.test(texto)) {
+        return `No se pueden guardar ficheros ni imágenes dentro de una incidencia. Súbelo a Drive y pon aquí el enlace.`;
+    }
+    return null;
+}
+
+// Crea una entrada del hilo y la añade a la incidencia (siempre al final: orden
+// cronológico). Si se llega al tope, se descarta la NOTA más antigua — las entradas
+// de sistema (RESOLUCION/REAPERTURA/SEVERIDAD) no se pierden nunca: son la traza.
+function pushComentario(inc, texto, autor, tipo = 'NOTA') {
+    const entrada = {
+        id: `${Date.now()}_c${Math.random().toString(36).slice(2, 7)}`,
+        texto: (texto || '').trim(),
+        autor: autor || 'Sistema',
+        tipo: TIPOS_COMENTARIO.includes(tipo) ? tipo : 'NOTA',
+        fecha: new Date().toISOString(),
+    };
+    let hilo = [...(inc.comentarios || []), entrada];
+    while (hilo.length > MAX_COMENTARIOS) {
+        const i = hilo.findIndex(c => c.tipo === 'NOTA');
+        hilo.splice(i === -1 ? 0 : i, 1);
+    }
+    inc.comentarios = hilo;
+    return entrada;
+}
 
 // Lee documentacion + array de incidencias de un expediente (o null si no existe).
 async function loadIncidencias(id) {
@@ -2645,6 +2699,8 @@ router.post('/:id/incidencias', staffOnly, async (req, res) => {
         const body = req.body || {};
         const texto = (body.texto || '').trim();
         if (!texto) return res.status(400).json({ error: 'El texto de la incidencia es obligatorio.' });
+        const malTexto = validarTextoIncidencia(texto, MAX_TEXTO_INCIDENCIA, 'texto de la incidencia');
+        if (malTexto) return res.status(400).json({ error: malTexto });
 
         const loaded = await loadIncidencias(req.params.id);
         if (!loaded) return res.status(404).json({ error: 'No encontrado.' });
@@ -2669,17 +2725,27 @@ router.post('/:id/incidencias', staffOnly, async (req, res) => {
     }
 });
 
-// Marcar como SUBSANADA (botón OK)
+// Marcar como SUBSANADA (botón OK).
+// Body opcional { resolucion } → CÓMO se ha subsanado. Se guarda en inc.resolucion y
+// además se apunta en el hilo, que es lo que lee un tercero para entenderlo.
 router.patch('/:id/incidencias/:incId/resolver', staffOnly, async (req, res) => {
     try {
+        // Sin normalizeData: el texto de la resolución se conserva tal cual se escribe.
+        const resolucion = (req.body?.resolucion || '').trim();
+        const malResolucion = validarTextoIncidencia(resolucion, MAX_TEXTO_COMENTARIO, 'texto de la resolución');
+        if (malResolucion) return res.status(400).json({ error: malResolucion });
+
         const loaded = await loadIncidencias(req.params.id);
         if (!loaded) return res.status(404).json({ error: 'No encontrado.' });
         const inc = loaded.incidencias.find(i => i.id === req.params.incId);
         if (!inc) return res.status(404).json({ error: 'Incidencia no encontrada.' });
 
+        const usuario = incidenciaUsuario(req);
         inc.estado = 'SUBSANADA';
         inc.resuelta_at = new Date().toISOString();
-        inc.resuelta_por = incidenciaUsuario(req);
+        inc.resuelta_por = usuario;
+        inc.resolucion = resolucion || null;
+        pushComentario(inc, resolucion, usuario, 'RESOLUCION');
 
         const saved = await saveIncidencias(req.params.id, loaded.docObj, loaded.incidencias);
         if (!saved) return res.status(500).json({ error: 'Error al actualizar la incidencia.' });
@@ -2689,20 +2755,88 @@ router.patch('/:id/incidencias/:incId/resolver', staffOnly, async (req, res) => 
     }
 });
 
-// Reabrir (volver a ABIERTA)
+// Reabrir (volver a ABIERTA). Body opcional { motivo } → por qué se reabre.
+// La resolución anterior NO se borra del hilo: la traza tiene que quedar completa.
 router.patch('/:id/incidencias/:incId/reabrir', staffOnly, async (req, res) => {
+    try {
+        const motivo = (req.body?.motivo || '').trim();
+        const malMotivo = validarTextoIncidencia(motivo, MAX_TEXTO_COMENTARIO, 'motivo');
+        if (malMotivo) return res.status(400).json({ error: malMotivo });
+
+        const loaded = await loadIncidencias(req.params.id);
+        if (!loaded) return res.status(404).json({ error: 'No encontrado.' });
+        const inc = loaded.incidencias.find(i => i.id === req.params.incId);
+        if (!inc) return res.status(404).json({ error: 'Incidencia no encontrada.' });
+
+        const usuario = incidenciaUsuario(req);
+        inc.estado = 'ABIERTA';
+        inc.resuelta_at = null;
+        inc.resuelta_por = null;
+        inc.resolucion = null;
+        pushComentario(inc, motivo || 'Se reabre: la incidencia sigue sin estar resuelta.', usuario, 'REAPERTURA');
+
+        const saved = await saveIncidencias(req.params.id, loaded.docObj, loaded.incidencias);
+        if (!saved) return res.status(500).json({ error: 'Error al reabrir la incidencia.' });
+        res.status(200).json(saved);
+    } catch (error) {
+        res.status(500).json({ error: 'Error del servidor.' });
+    }
+});
+
+// Reclasificar severidad GRAVE ⇄ LEVE (clic en la propia etiqueta del modal).
+// Body { severidad } opcional; si no viene, alterna. Deja traza en el hilo porque
+// bajar una GRAVE a LEVE es una decisión que alguien tiene que poder justificar.
+router.patch('/:id/incidencias/:incId/severidad', staffOnly, async (req, res) => {
     try {
         const loaded = await loadIncidencias(req.params.id);
         if (!loaded) return res.status(404).json({ error: 'No encontrado.' });
         const inc = loaded.incidencias.find(i => i.id === req.params.incId);
         if (!inc) return res.status(404).json({ error: 'Incidencia no encontrada.' });
 
-        inc.estado = 'ABIERTA';
-        inc.resuelta_at = null;
-        inc.resuelta_por = null;
+        const anterior = normSeveridad(inc.severidad);
+        const destino = req.body?.severidad !== undefined
+            ? normSeveridad(req.body.severidad)
+            : (anterior === 'GRAVE' ? 'LEVE' : 'GRAVE');
+
+        if (destino !== anterior) {
+            const usuario = incidenciaUsuario(req);
+            inc.severidad = destino;
+            inc.updated_at = new Date().toISOString();
+            const motivo = (req.body?.motivo || '').trim();
+            pushComentario(
+                inc,
+                `Reclasificada de ${anterior} a ${destino}.${motivo ? ` ${motivo}` : ''}`,
+                usuario,
+                'SEVERIDAD'
+            );
+        }
 
         const saved = await saveIncidencias(req.params.id, loaded.docObj, loaded.incidencias);
-        if (!saved) return res.status(500).json({ error: 'Error al reabrir la incidencia.' });
+        if (!saved) return res.status(500).json({ error: 'Error al cambiar la severidad.' });
+        res.status(200).json(saved);
+    } catch (error) {
+        res.status(500).json({ error: 'Error del servidor.' });
+    }
+});
+
+// Añadir una nota al hilo de la incidencia (seguimiento, sin cambiar su estado).
+router.post('/:id/incidencias/:incId/comentarios', staffOnly, async (req, res) => {
+    try {
+        // Sin normalizeData: el texto del hilo se conserva tal cual se escribe.
+        const texto = (req.body?.texto || '').trim();
+        if (!texto) return res.status(400).json({ error: 'El texto de la nota es obligatorio.' });
+        const malNota = validarTextoIncidencia(texto, MAX_TEXTO_COMENTARIO, 'texto de la nota');
+        if (malNota) return res.status(400).json({ error: malNota });
+
+        const loaded = await loadIncidencias(req.params.id);
+        if (!loaded) return res.status(404).json({ error: 'No encontrado.' });
+        const inc = loaded.incidencias.find(i => i.id === req.params.incId);
+        if (!inc) return res.status(404).json({ error: 'Incidencia no encontrada.' });
+
+        pushComentario(inc, texto, incidenciaUsuario(req), 'NOTA');
+
+        const saved = await saveIncidencias(req.params.id, loaded.docObj, loaded.incidencias);
+        if (!saved) return res.status(500).json({ error: 'Error al añadir la nota.' });
         res.status(200).json(saved);
     } catch (error) {
         res.status(500).json({ error: 'Error del servidor.' });
@@ -2716,6 +2850,8 @@ router.put('/:id/incidencias/:incId', staffOnly, async (req, res) => {
         const body = req.body || {};
         const texto = (body.texto || '').trim();
         if (!texto) return res.status(400).json({ error: 'El texto es obligatorio.' });
+        const malEdicion = validarTextoIncidencia(texto, MAX_TEXTO_INCIDENCIA, 'texto de la incidencia');
+        if (malEdicion) return res.status(400).json({ error: malEdicion });
 
         const loaded = await loadIncidencias(req.params.id);
         if (!loaded) return res.status(404).json({ error: 'No encontrado.' });
@@ -2724,7 +2860,15 @@ router.put('/:id/incidencias/:incId', staffOnly, async (req, res) => {
 
         inc.texto = texto;
         if (body.procedencia !== undefined) inc.procedencia = normProcedencia(body.procedencia);
-        if (body.severidad !== undefined) inc.severidad = normSeveridad(body.severidad);
+        if (body.severidad !== undefined) {
+            // Mismo criterio que el toggle de la etiqueta: un cambio de severidad deja traza.
+            const anterior = normSeveridad(inc.severidad);
+            const destino = normSeveridad(body.severidad);
+            inc.severidad = destino;
+            if (destino !== anterior) {
+                pushComentario(inc, `Reclasificada de ${anterior} a ${destino}.`, incidenciaUsuario(req), 'SEVERIDAD');
+            }
+        }
         inc.updated_at = new Date().toISOString();
 
         const saved = await saveIncidencias(req.params.id, loaded.docObj, loaded.incidencias);
@@ -3917,6 +4061,16 @@ router.post('/:id/notify-certificador', enforceAuth, async (req, res) => {
         const phase = req.body?.phase || 'initial';
         const template = req.body?.template || 'standard';
         const priority = req.body?.priority === 'urgent' ? 'urgent' : 'normal';
+        // Dos ejes del mensaje de seguimiento: QUÉ esperamos del certificador
+        // ('emision' = falta emitir el .cex | 'registro' = ya tiene el visto bueno y
+        // falta registrar en Industria) y con qué tono. Si no viene, se deriva del
+        // subestado de seguimiento para que los avisos antiguos sigan funcionando.
+        const seguimientoActual = exp.seguimiento || {};
+        const subestadoFase = phase === 'final' ? seguimientoActual.cee_final : seguimientoActual.cee_inicial;
+        const espera = req.body?.espera === 'registro' || req.body?.espera === 'emision'
+            ? req.body.espera
+            : (String(subestadoFase || '').toUpperCase() === 'REVISADO' ? 'registro' : 'emision');
+        const esRegistro = espera === 'registro';
         const adminMessage = (req.body?.adminMessage || '').trim() || null;
         // Cuerpo del mensaje editado en el modal. Si viene, ES el texto que se envía
         // (sustituye al saludo+intro de la plantilla en email y al cuerpo en WhatsApp).
@@ -3991,6 +4145,7 @@ router.post('/:id/notify-certificador', enforceAuth, async (req, res) => {
         const tipoActuacion =
             ficha === 'RES080' ? 'REFORMA' :
             ficha === 'RES093' ? 'HIBRIDACIÓN' :
+            ficha === 'TER100' ? 'AEROTERMIA TERCIARIO' :
             'AEROTERMIA';
 
         // ── Drive: localizar subcarpeta CEE y dar permiso Editor al cert ────────
@@ -4069,6 +4224,22 @@ router.post('/:id/notify-certificador', enforceAuth, async (req, res) => {
         const phaseLabel = phase === 'final' ? 'CEE Final' : 'CEE Inicial';
         const templateLabels = { standard: 'Encargo', reminder: 'Recordatorio', urgent: 'Urgente' };
 
+        // Si lo que esperamos es el REGISTRO, el mensaje tiene que llevar el enlace
+        // para subir el CEE registrado (etiqueta + justificante) — es la acción que
+        // le estamos pidiendo. Mismo enlace firmado que usa el visto bueno.
+        let ceeUploadLink = null;
+        if (esRegistro) {
+            try {
+                const ceeUploadService = require('../services/ceeUploadService');
+                const normPhase = phase === 'final' ? 'final' : 'inicial';
+                const upTok = ceeUploadService.ceeUploadSignature(req.params.id, normPhase);
+                const appBase = process.env.FRONTEND_URL || 'https://app.brokergy.es';
+                ceeUploadLink = `${appBase}/subir-cee/${req.params.id}?token=${upTok}&phase=${normPhase}`;
+            } catch (upErr) {
+                console.warn('[notify-certificador] no se pudo preparar el enlace de subida del CEE:', upErr.message);
+            }
+        }
+
         // === EMAIL ===
         if (sendEmail) {
             const emailParams = {
@@ -4085,6 +4256,8 @@ router.post('/:id/notify-certificador', enforceAuth, async (req, res) => {
                 priority,
                 adminMessage,
                 customMessage,
+                espera,
+                ceeUploadLink,
             };
 
             if (template === 'reminder') {
@@ -4113,13 +4286,25 @@ router.post('/:id/notify-certificador', enforceAuth, async (req, res) => {
                 const urgentWaPrefix = priority === 'urgent' && template === 'standard' ? '🚨 *URGENTE* 🚨\n\n' : '';
                 const adminMsgWa = adminMessage ? `\n💬 *Mensaje:* ${adminMessage}\n` : '';
 
+                // Enlace de subida del CEE registrado: solo aplica en fase de registro.
+                const subirWa = (esRegistro && ceeUploadLink)
+                    ? `\n\n📤 Sube aquí el ${phaseLabel} registrado (etiqueta + justificante):\n${ceeUploadLink}`
+                    : '';
+
                 let waMsg = '';
                 if (customMessage) {
                     // El admin ha editado el texto (suele incluir ya el enlace de la carpeta). Solo
                     // añadimos el enlace de la carpeta si el cuerpo no trae ninguna URL, y la firma.
                     const hasUrl = /https?:\/\//i.test(customMessage);
                     const carpetaWa = (ceeFolderLink && !hasUrl) ? `\n\n📁 Carpeta de documentos:\n${ceeFolderLink}` : '';
-                    waMsg = `${customMessage}${carpetaWa}\n\n*BROKERGY · Ingeniería Energética*`;
+                    // El de subida sí se añade siempre en fase de registro (es la acción pedida),
+                    // salvo que el propio texto ya lo lleve.
+                    const subirExtra = (subirWa && !customMessage.includes('/subir-cee/')) ? subirWa : '';
+                    waMsg = `${customMessage}${carpetaWa}${subirExtra}\n\n*BROKERGY · Ingeniería Energética*`;
+                } else if (template === 'reminder' && esRegistro) {
+                    waMsg = `¡Hola *${certName}*! 👋\n\nEl *${phaseLabel}* del expediente *${expedienteNum}*${clienteName ? ` (${clienteName})` : ''} tiene nuestro visto bueno y sigue *pendiente de registrar* en Industria.\n\nEn cuanto lo presentes, súbenos la etiqueta y el justificante de registro.${adminMsgWa}${subirWa}\n\n¡Gracias!\n*BROKERGY · Ingeniería Energética*`;
+                } else if (template === 'urgent' && esRegistro) {
+                    waMsg = `🚨 *URGENTE* 🚨\n\nHola *${certName}*, el *${phaseLabel}* del expediente *${expedienteNum}*${clienteName ? ` (${clienteName})` : ''} tiene nuestro visto bueno y todavía *no consta registrado* en Industria.\n\nEl expediente está bloqueado hasta que nos subas la etiqueta y el justificante de registro.${adminMsgWa}${subirWa}\n\n*BROKERGY · Ingeniería Energética*`;
                 } else if (template === 'reminder') {
                     waMsg = `¡Hola *${certName}*! 👋\n\nTe recordamos que tienes pendiente el *${phaseLabel}* del expediente *${expedienteNum}*${clienteName ? ` (${clienteName})` : ''}.\n\n¿Podrías darnos una estimación de fecha de entrega?${adminMsgWa}\n\n${ceeFolderLink ? '📁 Carpeta: ' + ceeFolderLink + '\n' : ''}${portalLink ? '🔗 Portal: ' + portalLink + '\n' : ''}\n¡Gracias!\n*BROKERGY · Ingeniería Energética*`;
                 } else if (template === 'urgent') {
@@ -4151,15 +4336,21 @@ router.post('/:id/notify-certificador', enforceAuth, async (req, res) => {
                     : (req.user?.acronimo || req.user?.razon_social || 'SISTEMA');
 
                 const priorityTag = priority === 'urgent' ? ' · 🚨 URGENTE' : '';
+                // Qué se le estaba reclamando: sin esto el historial no distingue un
+                // recordatorio de emisión de uno de registro.
+                const esperaTag = template === 'standard'
+                    ? ''
+                    : ` · ${esRegistro ? 'Registro en Industria' : 'Emisión del CEE'}`;
                 const sentBody = customMessage || adminMessage;
                 const msgTag = sentBody ? `\n💬 Mensaje: "${sentBody}"` : '';
                 historial.push({
                     id: Date.now().toString() + '_certnotif',
                     tipo: 'notificacion_certificador',
-                    texto: `Notificación ${phaseLabel} (${templateLabels[template] || 'Estándar'}${priorityTag}) enviada a ${certName} vía ${channels.join(' + ')}${msgTag}`,
+                    texto: `Notificación ${phaseLabel} (${templateLabels[template] || 'Estándar'}${esperaTag}${priorityTag}) enviada a ${certName} vía ${channels.join(' + ')}${msgTag}`,
                     fecha: new Date().toISOString(),
                     usuario: userName,
                     priority,
+                    espera,
                     adminMessage,
                     customMessage
                 });
@@ -4589,6 +4780,9 @@ router.post('/:id/approve-cee', staffOnly, async (req, res) => {
         const sendWhatsApp = req.body?.sendWhatsApp === true;
         // Adjuntar los archivos del CEE directamente al email (opcional desde el popup).
         const attachFiles = req.body?.attachFiles === true;
+        // Prioridad del visto bueno: en 'urgent' el asunto del email y el WhatsApp
+        // salen marcados con la alarma 🚨 y queda reflejado en el historial.
+        const isUrgent = req.body?.priority === 'urgent';
         const ceeUploadService = require('../services/ceeUploadService');
         const { data: exp, error: expErr } = await supabase
             .from('expedientes')
@@ -4633,7 +4827,7 @@ router.post('/:id/approve-cee', staffOnly, async (req, res) => {
         historial.push({
             id: Date.now().toString() + '_revok',
             tipo: 'aprobacion_tecnica',
-            texto: `BROKERGY ha revisado y dado el VISTO BUENO al ${phaseLabel}. Se autoriza su registro en Industria.${bodyMsg ? ` Nota: ${bodyMsg}` : ''}`,
+            texto: `BROKERGY ha revisado y dado el VISTO BUENO al ${phaseLabel}${isUrgent ? ' (registro solicitado como 🚨 URGENTE)' : ''}. Se autoriza su registro en Industria.${bodyMsg ? ` Nota: ${bodyMsg}` : ''}`,
             fecha: new Date().toISOString(),
             usuario: 'ADMINISTRADOR'
         });
@@ -4707,7 +4901,7 @@ router.post('/:id/approve-cee', staffOnly, async (req, res) => {
                 await emailService.sendCertificadorApproveNotification(
                     certEmail, certName, exp.numero_expediente, phaseLabel, portalLink,
                     (cee.cee_folder_link || null), adminMessage, bodyMsg,
-                    { presentFolderLink, ceeUploadLink, attachments, clienteData: clienteDataAp }
+                    { presentFolderLink, ceeUploadLink, attachments, clienteData: clienteDataAp, urgent: isUrgent }
                 );
                 emailSent = true;
             } catch (mailErr) {
@@ -4726,7 +4920,10 @@ router.post('/:id/approve-cee', staffOnly, async (req, res) => {
                 const expedienteWa = bodyMsg ? '' : `\n\n🔗 Abre el expediente directamente en la app:\n${portalLink}`;
                 const waMsg = bodyMsg
                     ? `${bodyMsg}${ceeLinksBlock}\n\n*BROKERGY · Ingeniería Energética*`
-                    : `✅ *Visto bueno* — ${phaseLabel}\n\nHola ${certName}, ya tienes luz verde para registrar el ${phaseLabel} del expediente ${exp.numero_expediente} en Industria.${expedienteWa}${ceeLinksBlock}\n\n*BROKERGY · Ingeniería Energética*`;
+                    : `${isUrgent
+                        ? `🚨*¡Urgente ${(certName || '').trim().split(/\s+/)[0] || 'técnico'}!* 🚨\n\nYa tienes luz verde para registrar el ${phaseLabel} del expediente ${exp.numero_expediente} en Industria.\n\n🚨 Te pedimos que lo priorices: necesitamos el registro con carácter URGENTE.`
+                        : `✅ *Visto bueno* — ${phaseLabel}\n\nHola ${certName}, ya tienes luz verde para registrar el ${phaseLabel} del expediente ${exp.numero_expediente} en Industria.`
+                    }${expedienteWa}${ceeLinksBlock}\n\n*BROKERGY · Ingeniería Energética*`;
                 try {
                     const waRes = await whatsappService.sendText(certPhone, waMsg);
                     whatsAppSent = true; // se ha encolado/enviado correctamente
@@ -5152,7 +5349,7 @@ router.get('/:id/anexos-cifo/:driveId/content', async (req, res) => {
 
 // ─── PUT /api/expedientes/:id/anexos-cifo/prefs ──────────────────────────────
 // Guarda el ORDEN de los anexos y las PÁGINAS EXCLUIDAS de cada uno para el
-// CIFO (RES060/RES093) y el Certificado RES080.
+// CIFO (RES060/RES093/TER100) y el Certificado RES080.
 // Body: { order: ['aerotermia_cal', 'extra_<driveId>'], excluded: { '<driveId>': [1,2,9] } }
 // Escritura atómica vía RPC: no toca el resto de `documentacion` (ver
 // scripts/cifo_annex_prefs.sql y utils/mergeDocumentacion.js).

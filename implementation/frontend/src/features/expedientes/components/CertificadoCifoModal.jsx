@@ -701,7 +701,7 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
                         <div className="w-8 h-8 rounded-lg bg-brand/20 flex items-center justify-center">
                             <svg className="w-5 h-5 text-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
                         </div>
-                        <h3 className="text-white font-bold uppercase tracking-[0.2em] text-xs">Gestión de Anexos {numexpte.match(/RES\d+/)?.[0] || 'RES060'}</h3>
+                        <h3 className="text-white font-bold uppercase tracking-[0.2em] text-xs">Gestión de Anexos {numexpte.match(/(?:RES|TER|IND)\d+/)?.[0] || 'RES060'}</h3>
                     </div>
                     <button onClick={() => setIsAnexosOpen(false)} className="text-white/20 hover:text-white transition-colors"><svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg></button>
                 </div>
