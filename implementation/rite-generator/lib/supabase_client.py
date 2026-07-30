@@ -268,7 +268,16 @@ def normalizar(raw: dict, fecha_firma: str = None) -> dict:
             "espesor": "25", "acabado": "METÁLICO",
         },
         "pruebas_fecha": fecha_pruebas,
-        "_meta": {"emisor": emisor},
+        # `acs_modo` elige el esquema hidráulico de la pág. 4 junto con el emisor:
+        #   'sin_acs'         → no se actúa sobre el ACS
+        #   'interacumulador' → lo calienta la MISMA bomba de calor (depósito con
+        #                       serpentín y válvula de 3 vías)
+        #   'bdc_acs'         → bomba de calor de ACS INDEPENDIENTE (equipo aparte)
+        # Un termo eléctrico no es una bomba de calor y no aparece en el esquema
+        # de aerotermia: se dibuja el de "sin ACS".
+        "_meta": {"emisor": emisor,
+                  "acs_modo": ("sin_acs" if not inst.get("cambio_acs") or _acs_es_termo
+                               else "bdc_acs" if acs_distinto else "interacumulador")},
     }
 
     # OPCIÓN B: estimar cargas térmicas

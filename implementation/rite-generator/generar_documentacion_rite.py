@@ -35,9 +35,35 @@ from lib import supabase_client as sc
 
 ASSETS = os.path.join(os.path.dirname(__file__), "assets")
 PLANTILLA = os.path.join(ASSETS, "plantilla_rite_jccm.docx")
-# Esquema hidráulico de la página 4 — según se cambie o no el ACS.
+# Esquema hidráulico de la página 4. Genéricos históricos (solo por ACS):
 ESQUEMA_CON_ACS = os.path.join(ASSETS, "esquema_con_acs.png")
 ESQUEMA_SIN_ACS = os.path.join(ASSETS, "esquema_sin_acs.png")
+
+
+def _elegir_esquema(datos):
+    """Esquema hidráulico de la pág. 4 según EMISOR y configuración de ACS.
+
+    Hay 6 variantes = 2 emisores (radiadores / suelo radiante) × 3 modos de ACS
+    (sin ACS / interacumulador / bomba de calor de ACS independiente). Antes se
+    elegía SOLO por ACS sí-no y el dibujo "con ACS" era de suelo radiante, así
+    que los expedientes de radiadores salían con el emisor equivocado.
+
+    Los ficheros van en `assets/` con el nombre que compone esta función; basta
+    con dejarlos ahí para que se usen. Si falta el específico se cae al genérico
+    histórico para no romper la generación, avisando por log.
+    """
+    meta = datos.get("_meta", {}) or {}
+    familia = "suelo" if "SUELO" in (meta.get("emisor", "") or "").upper() else "radiadores"
+    modo = meta.get("acs_modo") or ("interacumulador" if datos.get("objeto", {}).get("acs") else "sin_acs")
+
+    especifico = os.path.join(ASSETS, f"esquema_{familia}_{modo}.png")
+    if os.path.exists(especifico):
+        return especifico
+
+    # Fallback: los dos genéricos de siempre (`esquema_sin_acs` dibuja radiador,
+    # fancoil y suelo; `esquema_con_acs`, solo suelo con interacumulador).
+    print(f"[WARN] Falta assets/esquema_{familia}_{modo}.png: se usa el esquema generico")
+    return ESQUEMA_SIN_ACS if modo == "sin_acs" else ESQUEMA_CON_ACS
 
 
 # Rutas donde el instalador de LibreOffice para Windows deja soffice.exe. No lo
@@ -95,7 +121,7 @@ def generar(datos: dict, salida_dir: str):
     text_by_pos, check_positions = construir_relleno(datos, nombres)
     out_docx = os.path.join(salida_dir, f"MEMORIA_RITE_{exp}.docx")
     # Esquema de la página 4 según se cambie o no el ACS (objeto.acs = cambio_acs).
-    esquema = ESQUEMA_CON_ACS if datos.get("objeto", {}).get("acs") else ESQUEMA_SIN_ACS
+    esquema = _elegir_esquema(datos)
     generar_memoria(PLANTILLA, text_by_pos, check_positions, out_docx, esquema_img_path=esquema)
     print(f"  [OK] Memoria: {out_docx}  ({len(text_by_pos)} campos, {len(check_positions)} casillas)")
 
