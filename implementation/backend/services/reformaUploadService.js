@@ -784,14 +784,16 @@ async function buildDocsView(opp, opts = {}) {
     // mostramos su número de expediente oficial (26RESxxx_NN) en vez del id de
     // oportunidad (..._OPxx). El nombre del cliente ya viaja en `cliente`.
     let numeroExpediente = null;
+    let finObra = null;
     if (dc.estado === 'ACEPTADA') {
         try {
             const { data: exp } = await supabase
                 .from('expedientes')
-                .select('numero_expediente')
+                .select('numero_expediente, fin:documentacion->>fecha_fin_obra_comunicada')
                 .eq('oportunidad_id', opp.id)
                 .maybeSingle();
             numeroExpediente = exp?.numero_expediente || null;
+            finObra = exp?.fin || null;
         } catch (e) { console.warn('[Docs] numero_expediente cabecera:', e.message); }
     }
 
@@ -800,6 +802,9 @@ async function buildDocsView(opp, opts = {}) {
         numero_expediente: numeroExpediente,
         cliente: opp.referencia_cliente || '',
         aceptada: dc.estado === 'ACEPTADA',
+        // Fecha en que el cliente/instalador comunicó el fin de obra desde el enlace
+        // (null = aún no lo ha hecho) → el botón "He terminado la obra".
+        fin_obra: finObra,
         slots,
         addableConcepts
     };

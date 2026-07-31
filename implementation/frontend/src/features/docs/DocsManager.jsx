@@ -136,6 +136,12 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
     const [rejectNotifyTarget, setRejectNotifyTarget] = useState('cliente'); // 'cliente'|'instalador'|'ninguno'
     const [waiving, setWaiving] = useState(null); // slot.key cuyo "no necesario" se está cambiando
     const [merging, setMerging] = useState(null); // slot.key cuyas fotos se están uniendo en un PDF
+    // Fin de obra comunicado desde el enlace público (el mensaje del CEE inicial se
+    // lo pide al cliente/instalador; aquí es donde puede pulsarlo).
+    const [finObra, setFinObra] = useState(null);       // fecha ISO tras comunicarlo
+    const [finConfirm, setFinConfirm] = useState(false); // confirmación en dos pasos
+    const [finBusy, setFinBusy] = useState(false);
+    const [finError, setFinError] = useState(null);
     const [dragOver, setDragOver] = useState(null); // slot.key sobre el que se arrastra
     const [namePrompt, setNamePrompt] = useState(null); // { slot, files } al subir a un slot "Otros"
     const [nameValue, setNameValue] = useState('');     // texto del nombre que escribe el usuario
@@ -547,6 +553,26 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
     const antesPending = canValidate ? pendingItemsOf(antes) : [];
     const despuesPending = canValidate ? pendingItemsOf(despues) : [];
 
+    // Comunicar el FIN DE OBRA: avisa a Brokergy (WhatsApp + email) y deja fecha en
+    // el expediente. El backend ignora las repeticiones dentro de 24 h.
+    const comunicarFinObra = async () => {
+        setFinBusy(true);
+        setFinError(null);
+        try {
+            const r = await axios.post(
+                `/api/public/reforma-docs/${uuidRef.current}/fin-obra`,
+                { rol: rol || (roleFase === 'DESPUES' ? 'instalador' : 'cliente') },
+                { params: { token: tokenRef.current } }
+            );
+            setFinObra(r.data?.at || new Date().toISOString());
+            setFinConfirm(false);
+        } catch (err) {
+            setFinError(err.response?.data?.error || 'No pudimos enviar el aviso. Inténtalo de nuevo.');
+        } finally {
+            setFinBusy(false);
+        }
+    };
+
     const renderSlot = (slot) => {
         const items = slot.items || [];
         // Cubierto por Documentación (RITE/facturas ya en el expediente): resuelto,
@@ -813,6 +839,39 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
                         </button>
                     )}
                     <div className="space-y-3">{despues.map(renderSlot)}</div>
+
+                    {/* Fin de obra: el aviso del CEE inicial pide que nos lo comuniquen,
+                        así que el botón vive aquí (solo en el enlace público). */}
+                    {mode === 'token' && (
+                        (finObra || info.fin_obra) ? (
+                            <div className="mt-6 p-4 bg-emerald-400/[0.08] border border-emerald-400/30 rounded-2xl text-sm text-emerald-300 text-center font-bold">
+                                🏁 Nos has comunicado el fin de obra. Ya estamos con el certificado final.
+                            </div>
+                        ) : !finConfirm ? (
+                            <button onClick={() => { setFinConfirm(true); setFinError(null); }}
+                                className="mt-6 w-full py-3.5 rounded-2xl border border-emerald-400/40 bg-emerald-500/10 text-emerald-300 font-black uppercase tracking-widest text-xs hover:bg-emerald-500/20 transition-all">
+                                🏁 He terminado la obra
+                            </button>
+                        ) : (
+                            <div className="mt-6 p-4 bg-white/[0.04] border border-emerald-400/30 rounded-2xl">
+                                <p className="text-sm text-white/70 leading-relaxed">
+                                    ¿Confirmas que la instalación está <strong className="text-white">terminada</strong>? Avisaremos a Brokergy para empezar con el certificado final.
+                                    Antes, asegúrate de haber subido <strong className="text-white">las fotos de la instalación acabada y la factura</strong>.
+                                </p>
+                                {finError && <p className="text-red-400 text-xs mt-2">{finError}</p>}
+                                <div className="mt-4 flex gap-2">
+                                    <button onClick={comunicarFinObra} disabled={finBusy}
+                                        className="flex-1 py-3 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-400 text-black font-black uppercase tracking-widest text-xs disabled:opacity-50">
+                                        {finBusy ? 'Enviando…' : 'Sí, avisar a Brokergy'}
+                                    </button>
+                                    <button onClick={() => setFinConfirm(false)} disabled={finBusy}
+                                        className="px-4 py-3 rounded-xl text-white/50 font-black uppercase tracking-widest text-xs hover:text-white/80 disabled:opacity-50">
+                                        Cancelar
+                                    </button>
+                                </div>
+                            </div>
+                        )
+                    )}
                 </section>
             )}
 

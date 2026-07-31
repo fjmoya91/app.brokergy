@@ -8,6 +8,7 @@ const driveService = require('../services/driveService');
 const reformaUploadService = require('../services/reformaUploadService');
 const ceeUploadService = require('../services/ceeUploadService');
 const anexoFotograficoService = require('../services/anexoFotograficoService');
+const uploadNotifier = require('../services/uploadNotifier');
 const { buildCertClienteData } = require('../services/certClienteData');
 // Una versión NUEVA de un documento ya validado lo devuelve a "pendiente de revisar".
 const { invalidarValidacionDocs, invalidarValidacionCee } = require('../utils/docValidacion');
@@ -680,7 +681,7 @@ router.post('/upload-docs/:id', upload.array('files', 50), async (req, res) => {
         // 1. Buscar la oportunidad para obtener la carpeta de Drive
         const { data: opp, error: oppErr } = await supabase
             .from('oportunidades')
-            .select('datos_calculo')
+            .select('id, datos_calculo')
             .eq('id_oportunidad', id)
             .maybeSingle();
 
@@ -758,6 +759,25 @@ router.post('/upload-docs/:id', upload.array('files', 50), async (req, res) => {
             count: successCount
         });
 
+        // Aviso al staff (agrupado). Esta pantalla sube TODO de golpe, así que la
+        // ventana solo sirve para fusionarlo con lo que llegue por /subir-docs.
+        // Se agrupa por nombre canónico (FOTO_CALDERA_ANTES_2 → FOTO_CALDERA_ANTES).
+        const porSlot = new Map();
+        finalNames.forEach((n, i) => {
+            if (!results[i]?.id) return; // solo lo que se subió de verdad
+            const base = String(n).replace(/\.[a-z0-9]{2,5}$/i, '').replace(/_\d+$/, '');
+            porSlot.set(base, (porSlot.get(base) || 0) + 1);
+        });
+        for (const [base, n] of porSlot) {
+            uploadNotifier.registrarSubida({
+                oportunidadUuid: opp.id,
+                slotKey: base,
+                slotLabel: /^FOTO_/i.test(base) ? base.replace(/^FOTO_/i, '').replace(/_/g, ' ').toLowerCase() : base,
+                subidoPor: 'cliente',
+                cantidad: n,
+            });
+        }
+
     } catch (e) {
         console.error('Error public upload docs:', e);
         res.status(500).json({ error: 'Error interno al procesar la subida' });
@@ -830,6 +850,49 @@ router.get('/reforma-docs/:uuid', async (req, res) => {
 // POST /api/public/reforma-docs/:uuid/:slot?token= → sube 1 fichero al slot
 // requireAuth es NO bloqueante: si hay sesión (admin/instalador) marca subido_por
 // en consecuencia; si solo hay token (cliente), subido_por = 'cliente'.
+// POST /api/public/reforma-docs/:uuid/fin-obra?token=
+// El cliente/instalador comunica que la obra está TERMINADA desde el enlace de
+// subida (el mensaje del CEE inicial se lo pide, pero hasta ahora no había dónde
+// pulsar). Avisa al staff y deja fecha en el expediente.
+// OJO: se declara ANTES de '/:uuid/:slot' o Express lo tomaría por un slot.
+router.post('/reforma-docs/:uuid/fin-obra', requireAuth, async (req, res) => {
+    try {
+        const { uuid } = req.params;
+        const { token } = req.query;
+        const { data: opp } = await supabase
+            .from('oportunidades')
+            .select('id, upload_token:datos_calculo->>upload_token')
+            .eq('id', uuid)
+            .maybeSingle();
+        if (!opp) return res.status(404).json({ error: 'Solicitud no encontrada' });
+        if (!isStaff(req) && (!token || opp.upload_token !== token)) {
+            return res.status(403).json({ error: 'Enlace inválido o caducado.' });
+        }
+
+        const quien = req.body?.rol === 'instalador' ? 'instalador' : 'cliente';
+        const comentario = String(req.body?.comentario || '').trim().slice(0, 300);
+
+        // Anti-doble-pulsación: si ya se comunicó en las últimas 24 h, no volvemos
+        // a molestar al grupo (el usuario ve el mismo acuse).
+        const { data: exp } = await supabase
+            .from('expedientes')
+            .select('fin:documentacion->>fecha_fin_obra_comunicada')
+            .eq('oportunidad_id', uuid)
+            .maybeSingle();
+        const yaAvisado = exp?.fin && (Date.now() - new Date(exp.fin).getTime()) < 24 * 60 * 60 * 1000;
+        if (yaAvisado) return res.json({ success: true, ya_comunicado: true, at: exp.fin });
+
+        res.json({ success: true, at: new Date().toISOString() });
+        setImmediate(() => {
+            uploadNotifier.notificarFinObra({ oportunidadUuid: uuid, quien, comentario })
+                .catch(e => console.error('[Fin obra] notificación:', e.message));
+        });
+    } catch (e) {
+        console.error('Error fin-obra:', e);
+        if (!res.headersSent) res.status(500).json({ error: 'No se pudo registrar el fin de obra' });
+    }
+});
+
 router.post('/reforma-docs/:uuid/:slot', requireAuth, uploadDocsSingle, async (req, res) => {
     try {
         const { uuid, slot } = req.params;
@@ -923,6 +986,18 @@ router.post('/reforma-docs/:uuid/:slot', requireAuth, uploadDocsSingle, async (r
             console.error('[Reforma] rpc reforma_append:', rpcErr.message);
             return res.status(500).json({ error: 'No se pudo registrar la foto. Inténtalo de nuevo.' });
         }
+
+        // Aviso al staff: se agrupa en una ventana de silencio (el enlace sube foto
+        // a foto) y sale UN resumen por tanda. No avisa si lo sube el propio staff.
+        uploadNotifier.registrarSubida({
+            oportunidadUuid: uuid,
+            slotKey: slot,
+            slotLabel: slotDef.named && rawLabel ? `${slotDef.label}: ${rawLabel}` : slotDef.label,
+            fase: slotDef.fase || null,
+            // Cualquier subida desde dentro (ADMIN o TRABAJADOR) no genera aviso:
+            // `subidoPor` marca 'instalador' a un TRABAJADOR y avisaría en falso.
+            subidoPor: isStaff(req) ? 'admin' : subidoPor,
+        });
 
         // RITE unificado: si es el Certificado RITE, refleja el enlace en el expediente
         // (cert_rite_drive_link) para que Documentación, CIFO y el agente lo vean.
