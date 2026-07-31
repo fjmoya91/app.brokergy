@@ -839,26 +839,25 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
     // Las marcas de aerotermia solo aplican a distribuidores/instaladores.
     const tieneMarcas = form.tipo_empresa === 'DISTRIBUIDOR' || form.tipo_empresa === 'INSTALADOR';
 
+    // Mínimos para poder guardar. Se calcula aquí porque el botón de guardar vive
+    // en la cabecera (fija) y no al final del formulario.
+    const camposMinimosOk = form.es_autonomo
+        ? !!(form.nombre_responsable?.trim() && form.cif?.trim())
+        : !!(form.razon_social?.trim() && form.cif?.trim());
+    const puedeGuardar = !loading && slugValido && camposMinimosOk;
+
     return (
         <div className="fixed inset-0 z-[300] flex items-start justify-center p-4 bg-black/75 backdrop-blur-md animate-fade-in overflow-y-auto">
             {/* En PC el formulario es de 2 columnas: con 42rem los campos quedaban
                 estrechos y la ficha muy larga. En lg se ensancha a 64rem. */}
             <div className="bg-bkg-deep border border-white/[0.08] rounded-2xl w-full max-w-2xl lg:max-w-5xl my-8 shadow-2xl">
 
-                {/* Header. El botón de cerrar va SIEMPRE arriba a la derecha: antes vivía
-                    en la fila de acciones y, al no caber, bajaba junto a «Editar». */}
-                <div className="relative p-6 border-b border-white/[0.06]">
-                    <button
-                        onClick={onClose}
-                        title="Cerrar"
-                        className="absolute top-4 right-4 p-2 text-white/30 hover:text-white transition-colors rounded-lg hover:bg-white/5"
-                    >
-                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                    </button>
-
-                    <div className="flex items-center gap-3 min-w-0 pr-12">
+                {/* Header PEGAJOSO: guardar/cancelar y cerrar van arriba a la derecha y
+                    siguen a la vista al bajar por el formulario (es largo). Por eso el
+                    formulario ya no lleva barra de botones al final. */}
+                <div className="sticky top-0 z-20 p-6 border-b border-white/[0.06] bg-bkg-deep rounded-t-2xl">
+                  <div className="flex items-start gap-3">
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
                         {/* Logo — clickeable en modo edición */}
                         <div
                             onClick={editing ? () => logoInputRef.current?.click() : undefined}
@@ -898,7 +897,7 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                         />
                         <div className="min-w-0">
                             <div className="flex items-center gap-2 flex-wrap">
-                                <h2 className="text-lg font-black text-white uppercase tracking-wide leading-tight">{displayName}</h2>
+                                <h2 className="text-lg font-black text-white uppercase tracking-wide leading-tight truncate">{displayName}</h2>
                                 {!isCreating && (
                                     <span className={`text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded border ${TIPO_BADGE[p.tipo_empresa] || TIPO_BADGE.OTRO}`}>
                                         {p.tipo_empresa}
@@ -910,6 +909,54 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                         </div>
                     </div>
 
+                    {/* Acciones principales: guardar / cancelar / cerrar */}
+                    <div className="flex items-center gap-2 shrink-0">
+                        {editing && (
+                            <>
+                                {/* Al CREAR no se ofrece: cerraría igual que la ✕ (misma acción,
+                                    dos botones). Al EDITAR sí, porque no es lo mismo: vuelve a
+                                    la vista de lectura sin cerrar la ficha. */}
+                                {!isCreating && (
+                                    <button type="button"
+                                        onClick={() => {
+                                            // Descartar de verdad: reconstruye el formulario desde `p`
+                                            // (el efecto de [p] lo repuebla). Antes solo salía del modo
+                                            // edición y los cambios seguían ahí al volver a "Editar".
+                                            setP(prev => (prev ? { ...prev } : prev));
+                                            setEditing(false);
+                                            setError(null);
+                                        }}
+                                        title="Descartar los cambios y volver a la ficha"
+                                        className="px-3 py-2 rounded-xl text-white/50 hover:text-white text-xs font-black uppercase tracking-widest transition-colors">
+                                        Descartar
+                                    </button>
+                                )}
+                                <button type="button" onClick={handleSave} disabled={!puedeGuardar}
+                                    title={puedeGuardar ? undefined : 'Faltan campos obligatorios'}
+                                    className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-brand to-brand-700 text-bkg-deep font-black text-xs uppercase tracking-widest shadow-lg shadow-brand/25 hover:shadow-brand/40 transition-all disabled:opacity-40 disabled:shadow-none">
+                                    {loading ? 'Guardando…' : (
+                                        <>
+                                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                                            </svg>
+                                            {isCreating ? 'Crear' : 'Guardar'}
+                                        </>
+                                    )}
+                                </button>
+                            </>
+                        )}
+                        <button
+                            onClick={onClose}
+                            title="Cerrar"
+                            className="p-2 text-white/30 hover:text-white transition-colors rounded-lg hover:bg-white/5"
+                        >
+                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        </button>
+                    </div>
+                  </div>
+
                     <div className="flex items-center gap-2 flex-wrap mt-4">
                         {saved && (
                             <span className="text-xs text-emerald-400 font-black uppercase tracking-widest animate-fade-in">
@@ -917,32 +964,47 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                             </span>
                         )}
 
-                        {/* Toggle acceso — en el header, solo ADMIN y solo para partners existentes.
-                            Un interruptor suelto no decía qué activaba: ahora lleva etiqueta. */}
+                        {/* Toggle acceso — en el header, solo ADMIN y solo para partners
+                            existentes. Verde/gris (encendido-apagado) en lugar de naranja:
+                            el texto naranja sobre el raíl naranja se comía la primera letra
+                            en tema claro. El candado dentro del pulsador dice qué hace. */}
                         {isAdmin && !isCreating && (
                             <button
                                 type="button"
                                 onClick={() => handleToggleAcceso(!accesoActivo)}
                                 disabled={togglingAcceso}
+                                aria-pressed={accesoActivo}
                                 title={accesoActivo
                                     ? 'Revocar el acceso: no podrá entrar en la app'
                                     : 'Dar acceso: podrá entrar en la app con su email'}
-                                className={`flex items-center gap-2 pl-2 pr-3 py-1.5 rounded-lg border disabled:opacity-50 transition-all ${
+                                className={`group inline-flex items-center gap-2.5 pl-1.5 pr-4 py-1.5 rounded-full border transition-all disabled:opacity-50 ${
                                     accesoActivo
-                                        ? 'bg-orange-500/10 border-orange-500/30 hover:bg-orange-500/20'
-                                        : 'bg-white/[0.02] border-white/10 hover:border-white/20'
+                                        ? 'bg-emerald-500/10 border-emerald-500/40 hover:bg-emerald-500/[0.18] hover:border-emerald-500/60'
+                                        : 'bg-white/[0.03] border-white/15 hover:border-white/30'
                                 }`}
                             >
-                                <span className="relative shrink-0 block" style={{ width: '36px', height: '20px' }}>
-                                    <span className={`block w-full h-full rounded-full transition-all duration-300 border border-orange-500 ${accesoActivo ? 'bg-orange-500' : 'bg-transparent'}`}>
-                                        <span className={`absolute top-[2px] rounded-full shadow transition-transform duration-300 ${accesoActivo ? 'bg-white translate-x-[18px]' : 'bg-orange-500 translate-x-[2px]'}`}
-                                            style={{ width: '16px', height: '16px' }}></span>
+                                <span className={`relative inline-flex items-center shrink-0 w-11 h-6 rounded-full transition-colors duration-300 ${accesoActivo ? 'bg-emerald-500' : 'bg-white/20'}`}>
+                                    <span className={`inline-flex items-center justify-center w-5 h-5 rounded-full bg-white shadow-md transition-transform duration-300 ${accesoActivo ? 'translate-x-[22px]' : 'translate-x-[2px]'}`}>
+                                        {togglingAcceso ? (
+                                            <span className="w-2.5 h-2.5 rounded-full border-2 border-emerald-500 border-t-transparent animate-spin" />
+                                        ) : (
+                                            <svg className={`w-3 h-3 ${accesoActivo ? 'text-emerald-600' : 'text-black/35'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                {accesoActivo
+                                                    ? <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M8 11V7a4 4 0 118 0M5 11h14v10H5z" />
+                                                    : <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M8 11V7a4 4 0 018 0v4M5 11h14v10H5z" />}
+                                            </svg>
+                                        )}
                                     </span>
                                 </span>
-                                <span className={`text-[10px] font-black uppercase tracking-widest whitespace-nowrap ${accesoActivo ? 'text-orange-400' : 'text-white/35'}`}>
-                                    {togglingAcceso
-                                        ? 'Guardando…'
-                                        : (accesoActivo ? 'Acceso a la app activo' : 'Sin acceso a la app')}
+                                <span className="text-left leading-none">
+                                    <span className={`block text-[10px] font-black uppercase tracking-widest whitespace-nowrap ${accesoActivo ? 'text-emerald-500' : 'text-white/40'}`}>
+                                        {togglingAcceso ? 'Guardando…' : (accesoActivo ? 'Acceso a la app' : 'Sin acceso a la app')}
+                                    </span>
+                                    {!togglingAcceso && (
+                                        <span className="block text-[9px] font-bold uppercase tracking-wider text-white/30 mt-0.5">
+                                            {accesoActivo ? 'Pulsa para revocar' : 'Pulsa para activar'}
+                                        </span>
+                                    )}
                                 </span>
                             </button>
                         )}
@@ -1888,17 +1950,12 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                                 </Collapse>
                             )}
 
-                            <div className="flex gap-3 pt-2">
-                                <button type="button"
-                                    onClick={() => { if (isCreating) { onClose(); } else { setEditing(false); setError(null); } }}
-                                    className="flex-1 py-3 rounded-xl border border-white/10 text-white/60 hover:text-white font-bold text-sm transition-all">
-                                    Cancelar
-                                </button>
-                                <button type="button" onClick={handleSave} disabled={loading || !slugValido || (!form.es_autonomo && (!form.razon_social?.trim() || !form.cif?.trim())) || (form.es_autonomo && (!form.nombre_responsable?.trim() || !form.cif?.trim()))}
-                                    className="flex-1 py-3 rounded-xl bg-gradient-to-r from-brand to-brand-700 text-bkg-deep font-black text-sm uppercase tracking-wider shadow-lg shadow-brand/20 transition-all disabled:opacity-50">
-                                    {loading ? 'Guardando...' : isCreating ? 'Crear Partner' : 'Guardar Cambios'}
-                                </button>
-                            </div>
+                            {/* Guardar y Cancelar viven ARRIBA, en la cabecera fija. */}
+                            {!puedeGuardar && (
+                                <p className="pt-2 text-[11px] font-bold uppercase tracking-wider text-white/30">
+                                    {slugValido ? 'Faltan campos obligatorios (*) para poder guardar' : 'Revisa la URL de la landing'}
+                                </p>
+                            )}
                         </div>
                     )}
                 </div>
