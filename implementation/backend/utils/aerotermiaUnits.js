@@ -64,9 +64,28 @@ function esTermoElectrico(aero) {
     return tipoEquipoNuevo(aero) === 'termo_electrico';
 }
 
+/** Acumulador de ACS: depósito calentado por la BdC de calefacción. */
+function esAcumuladorAcs(aero) {
+    return tipoEquipoNuevo(aero) === 'acumulador';
+}
+
 /** ¿El equipo necesita ficha técnica/EPREL para justificar un SCOP? Solo la BdC. */
 function justificaScop(aero) {
     return tipoEquipoNuevo(aero) === 'bdc';
 }
 
-module.exports = { getUnidades, countUnidades, unidadesSinSerie, seriesPlanas, tipoEquipoNuevo, esTermoElectrico, justificaScop };
+/**
+ * ¿El ACS computa en la fórmula del ahorro? Espejo de `acsComputaAhorro` en la
+ * fuente ESM: BdC (propia o la misma que calefacción) sí; ACUMULADOR sí si tiene
+ * SCOP_dhw (lo calienta la BdC, Anexo VI — no apunta a ningún modelo del
+ * catálogo porque sus datos son manuales); termo eléctrico no.
+ */
+function acsComputaAhorro(inst) {
+    if (!inst || inst.cambio_acs === false) return false;
+    if (esTermoElectrico(inst.aerotermia_acs)) return false;
+    if (inst.misma_aerotermia_acs) return true;
+    if (esAcumuladorAcs(inst.aerotermia_acs)) return parseFloat(inst.aerotermia_acs && inst.aerotermia_acs.scop) > 0;
+    return !!(inst.aerotermia_acs && inst.aerotermia_acs.aerotermia_db_id);
+}
+
+module.exports = { getUnidades, countUnidades, unidadesSinSerie, seriesPlanas, tipoEquipoNuevo, esTermoElectrico, esAcumuladorAcs, justificaScop, acsComputaAhorro };

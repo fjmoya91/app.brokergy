@@ -22,7 +22,7 @@
 import { BOILER_EFFICIENCIES, calculateHybridization, resolveHybridInputs, HYBRID_METHODS } from '../../calculator/logic/calculation.js';
 import { buildInstalacionAddress, empresaInstaladora } from '../utils/docGenerators.js';
 import { calcCifo } from './calcCifo.js';
-import { formatMarcas, formatModelos, formatSeries, countUnidades, tipoEquipoNuevo, tipoEquipoNuevoLabel, esTermoElectrico, EQUIPO_NUEVO } from './aerotermiaUnits.js';
+import { formatMarcas, formatModelos, formatSeries, countUnidades, tipoEquipoNuevo, tipoEquipoNuevoLabel, esTermoElectrico, datosAcumulador, EQUIPO_NUEVO } from './aerotermiaUnits.js';
 import { resolveDacs, ACS_METHOD } from './demandaAcs.js';
 import { deriveTer100Vars, esTer100, TER100_NOMBRE_ACTUACION, TER100_FICHA_COMPLETA } from './ter100.js';
 
@@ -288,14 +288,24 @@ export function deriveCifoData({ expediente, results }) {
     const acsExTipo = acsEffEntry?.label || calExTipo;
     const acsExComb = acsExTipo.split(',')[0] || '—';
 
-    const acsNuMarca = tieneAcs ? (inst.misma_aerotermia_acs ? calNuMarca : formatMarcas(inst.aerotermia_acs)) : '—';
-    const acsNuMod = tieneAcs ? (inst.misma_aerotermia_acs ? calNuMod : formatModelos(inst.aerotermia_acs)) : '—';
-    const acsNuSerieEx = tieneAcs ? (inst.misma_aerotermia_acs ? calNuSerieEx : formatSeries(inst.aerotermia_acs)) : '—';
-    const acsNuUds = tieneAcs ? (inst.misma_aerotermia_acs ? calNuUds : countUnidades(inst.aerotermia_acs)) : 0;
+    const acsEsAcumulador = tieneAcs && tipoEquipoNuevo(acsAero) === EQUIPO_NUEVO.ACUMULADOR;
+    // El acumulador no es un equipo del catálogo: marca, modelo y nº de serie son
+    // los del DEPÓSITO y se escriben a mano. Se imprimen si están; si no, el
+    // certificado no los inventa (nº de serie → "No aplica", que es la casilla
+    // oficial cuando el equipo no tiene serie propia). Ver aerotermiaUnits.js.
+    const acum = acsEsAcumulador ? datosAcumulador(acsAero) : null;
+
+    const acsNuMarca = acum ? (acum.marca || '—')
+        : tieneAcs ? (inst.misma_aerotermia_acs ? calNuMarca : formatMarcas(inst.aerotermia_acs)) : '—';
+    const acsNuMod = acum ? (acum.modelo || '—')
+        : tieneAcs ? (inst.misma_aerotermia_acs ? calNuMod : formatModelos(inst.aerotermia_acs)) : '—';
+    const acsNuSerieEx = acum ? (acum.serie || 'No aplica')
+        : tieneAcs ? (inst.misma_aerotermia_acs ? calNuSerieEx : formatSeries(inst.aerotermia_acs)) : '—';
+    const acsNuUds = acum ? 1
+        : tieneAcs ? (inst.misma_aerotermia_acs ? calNuUds : countUnidades(inst.aerotermia_acs)) : 0;
     const scopAcsRaw = tieneAcs ? parseFloat(inst.misma_aerotermia_acs ? inst.aerotermia_cal?.scop : inst.aerotermia_acs?.scop || 0) : 0;
     const scopAcsStr = tieneAcs ? (scopAcsRaw ? scopAcsRaw.toFixed(2).replace('.', ',') : '—') : 'no aplica';
 
-    const acsEsAcumulador = tieneAcs && tipoEquipoNuevo(acsAero) === EQUIPO_NUEVO.ACUMULADOR;
     // Nunca es true a la vez que `tieneAcs` (un termo saca el ACS de la fórmula);
     // se conserva por claridad en las plantillas.
     const acsEsTermo = tieneAcs && esTermoElectrico(acsAero);
@@ -721,7 +731,7 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
                     ${cmpRow('Modelo', acsExMod, acsNuMod)}
                     ${acsNuUds > 1 && !acsEsAcumulador && !acsEsTermo ? cmpRow('Nº de equipos instalados', '—', String(acsNuUds)) : ''}
                     ${cmpRow('Fuente de energía', acsExComb, 'Electricidad')}
-                    ${cmpRow(acsNuUds > 1 ? 'Nº serie equipos ACS' : 'Nº serie equipo ACS', acsExSerie, acsEsAcumulador ? 'No aplica' : acsNuSerieEx)}
+                    ${cmpRow(acsNuUds > 1 ? 'Nº serie equipos ACS' : 'Nº serie equipo ACS', acsExSerie, acsNuSerieEx)}
                     ${cmpRow(acsNuUds > 1 ? 'SCOP<sub>dhw</sub> aplicado (menor) / Rendimiento' : 'SCOP<sub>dhw</sub> / Rendimiento', etaStr, scopAcsStr)}
                 `)
                 : acsTermoFuera

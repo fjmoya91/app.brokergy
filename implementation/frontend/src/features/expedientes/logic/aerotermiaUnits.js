@@ -228,6 +228,49 @@ export function esTermoElectrico(aero) {
     return tipoEquipoNuevo(aero) === EQUIPO_NUEVO.TERMO;
 }
 
+/** true si el equipo nuevo de ACS es un mero acumulador (depósito). */
+export function esAcumuladorAcs(aero) {
+    return tipoEquipoNuevo(aero) === EQUIPO_NUEVO.ACUMULADOR;
+}
+
+/**
+ * Marca / modelo / nº de serie PROPIOS del acumulador de ACS.
+ *
+ * Un acumulador no está en el catálogo de aerotermia: es un depósito que calienta
+ * la BdC de calefacción, y sus tres datos se escriben A MANO (opcionales: muchas
+ * veces no se conocen). Si el nodo todavía apunta al catálogo (`aerotermia_db_id`)
+ * lo que arrastra son los datos HEREDADOS de la BdC de calefacción — así se
+ * guardaba antes de que fueran manuales —, que no identifican al depósito: se
+ * devuelven vacíos para que ningún documento imprima dos veces el mismo equipo.
+ */
+export function datosAcumulador(aero) {
+    if (aero?.aerotermia_db_id) return { marca: '', modelo: '', serie: '' };
+    return {
+        marca: String(aero?.marca || '').trim(),
+        modelo: String(aero?.modelo || '').trim(),
+        serie: String(aero?.numero_serie || aero?.n_serie_ext || '').trim(),
+    };
+}
+
+/**
+ * ¿El ACS computa en la fórmula del ahorro? Sí cuando se actúa sobre él con una
+ * bomba de calor (la misma que la de calefacción, una propia del catálogo) o con
+ * un ACUMULADOR con SCOP_dhw declarado (lo calienta la BdC, SCOP por Anexo VI:
+ * computa aunque el nodo no apunte a ningún modelo del catálogo). Un termo
+ * eléctrico NO: su rendimiento es 1 y no es actuación elegible.
+ *
+ * Fuente única de `changeAcs`: la usan el panel económico de la app y el backend
+ * (cifoService / expedienteFinancialsNode). Si divergen, el CIFO sale con un
+ * ahorro distinto al que ve el usuario en pantalla.
+ */
+export function acsComputaAhorro(inst) {
+    if (!inst || inst.cambio_acs === false) return false;
+    if (esTermoElectrico(inst.aerotermia_acs)) return false;
+    if (inst.misma_aerotermia_acs) return true;
+    if (esAcumuladorAcs(inst.aerotermia_acs)) return parseFloat(inst.aerotermia_acs?.scop) > 0;
+    return !!inst.aerotermia_acs?.aerotermia_db_id;
+}
+
 /** true si el equipo lleva ficha técnica/EPREL que justifique un SCOP. */
 export function justificaScop(aero) {
     return tipoEquipoNuevo(aero) === EQUIPO_NUEVO.BDC;

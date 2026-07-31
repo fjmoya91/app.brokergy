@@ -18,7 +18,7 @@ import {
     resolveHybridInputs,
     BOILER_EFFICIENCIES,
 } from '../../calculator/logic/calculation';
-import { esTermoElectrico } from './aerotermiaUnits';
+import { acsComputaAhorro } from './aerotermiaUnits';
 import { resolveDacs } from './demandaAcs';
 import { deriveTer100Vars, TER100_PRECIOS } from './ter100';
 
@@ -83,7 +83,10 @@ export function computeExpedienteFinancials(exp) {
                     scopHeating,
                     scopAcs,
                     cb,
-                    changeAcs: inst.cambio_acs !== false && !esTermoElectrico(inst.aerotermia_acs) && (!!inst.misma_aerotermia_acs || !!inst.aerotermia_acs?.aerotermia_db_id)
+                    // Fuente única (aerotermiaUnits.js): la misma que aplica el
+                    // backend al generar el CIFO. Un acumulador computa aunque no
+                    // apunte a ningún modelo del catálogo (sus datos son manuales).
+                    changeAcs: acsComputaAhorro(inst)
                 });
 
                 // Sincronizar parámetros financieros con ExpedienteDetailView

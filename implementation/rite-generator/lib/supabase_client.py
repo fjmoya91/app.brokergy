@@ -137,11 +137,15 @@ def normalizar(raw: dict, fecha_firma: str = None) -> dict:
     # Un TERMO ELÉCTRICO de ACS (efecto Joule) no es una bomba de calor: no forma
     # parte de la instalación de aerotermia que documenta el RITE, así que no
     # aporta potencia ni volumen de acumulación aquí.
+    # Un ACUMULADOR tampoco es un equipo aparte: ES el interacumulador que calienta
+    # la BdC de calefacción. Su marca/modelo son los del DEPÓSITO (se escriben a
+    # mano), así que "modelo distinto" no significa segunda bomba de calor.
     _acs_tipo = (acs.get("tipo_equipo_nuevo") or "").strip().lower()
     _acs_es_termo = _acs_tipo in ("termo_electrico", "termo")
+    _acs_es_acumulador = _acs_tipo == "acumulador" or bool(acs.get("es_acumulador"))
     _cal_mod = (cal.get("modelo") or "").strip().upper()
     _acs_mod = (acs.get("modelo") or "").strip().upper()
-    acs_distinto = bool(_acs_mod) and _acs_mod != _cal_mod and not _acs_es_termo
+    acs_distinto = bool(_acs_mod) and _acs_mod != _cal_mod and not _acs_es_termo and not _acs_es_acumulador
     pot_acs = (sum(_f(u.get("potencia")) for u in acs_uds) or _f(acs.get("potencia"))) if acs_distinto else 0.0
 
     # FIRMANTE del RITE (memoria + certificado). Si el instalador marca "técnico

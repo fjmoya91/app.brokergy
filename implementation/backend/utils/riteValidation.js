@@ -12,12 +12,12 @@
 //   1. Cliente EMPRESA → el titular es la sociedad, no tiene apellidos.
 //   2. Técnico firmante distinto → firma el TÉCNICO, no el representante legal.
 //   3. El ACS solo aporta potencia/acumulación si es un equipo DISTINTO al de
-//      calefacción y no un termo eléctrico.
+//      calefacción y no un termo eléctrico ni un acumulador.
 // Si cambia una de esas reglas en el generador, cambia también aquí.
 // ============================================================================
 
 const {
-    unidadesSinSerie, countUnidades, getUnidades, esTermoElectrico
+    unidadesSinSerie, countUnidades, getUnidades, esTermoElectrico, esAcumuladorAcs
 } = require('./aerotermiaUnits');
 
 /** ¿El valor está realmente relleno? 0 y false son valores válidos; '____' no. */
@@ -136,13 +136,15 @@ function potenciaBloque(aero) {
  * ¿El ACS es un equipo PROPIO que aporta potencia y acumulación al RITE?
  * Espeja `acs_distinto` del generador: solo si el modelo de ACS es distinto al
  * de calefacción y no es un termo eléctrico (efecto Joule, que no forma parte de
- * la instalación de aerotermia que documenta el RITE).
+ * la instalación de aerotermia que documenta el RITE) ni un ACUMULADOR (es
+ * precisamente el interacumulador que calienta la BdC de calefacción: su marca y
+ * modelo, escritos a mano, son los del depósito y no una segunda bomba de calor).
  */
 function acsEsEquipoPropio(inst) {
     const cal = (inst && inst.aerotermia_cal) || {};
     const acs = (inst && inst.aerotermia_acs) || {};
     if (inst && inst.misma_aerotermia_acs) return false;
-    if (esTermoElectrico(acs)) return false;
+    if (esTermoElectrico(acs) || esAcumuladorAcs(acs)) return false;
     const calMod = String(cal.modelo || '').trim().toUpperCase();
     const acsMod = String(acs.modelo || '').trim().toUpperCase();
     return !!acsMod && acsMod !== calMod;

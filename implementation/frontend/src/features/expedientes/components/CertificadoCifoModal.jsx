@@ -6,7 +6,7 @@ import { useModal } from '../../../context/ModalContext';
 import { BOILER_EFFICIENCIES } from '../../calculator/logic/calculation';
 import { buildInstalacionAddress, empresaInstaladora } from '../utils/docGenerators';
 import { calcCifo } from '../logic/calcCifo';
-import { esTermoElectrico } from '../logic/aerotermiaUnits';
+import { esTermoElectrico, esAcumuladorAcs } from '../logic/aerotermiaUnits';
 import { postEmail } from '../../../utils/emailFallback';
 // FUENTE ÚNICA del documento CIFO (derivación + HTML + CSS). El mismo módulo lo
 // consume el backend (cifoService.js) por import() dinámico, así que el PDF sale
@@ -407,7 +407,10 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
     useEffect(() => {
         if (!isOpen || !expediente?.id) return;
         const inst = expediente.instalacion || {};
-        const tieneAcs = inst.cambio_acs !== false;
+        const acsNode = inst.misma_aerotermia_acs ? inst.aerotermia_cal : inst.aerotermia_acs;
+        // Ni el termo ni el acumulador son aerotermia: no hay ficha de ACS que
+        // buscar (pedirla dejaría el slot en error permanente "sin modelo").
+        const tieneAcs = inst.cambio_acs !== false && !esTermoElectrico(acsNode) && !esAcumuladorAcs(acsNode);
         loadFichaSlot('cal');
         if (tieneAcs) loadFichaSlot('acs');
 
@@ -579,7 +582,7 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
     // el depósito lo calienta la BdC de calefacción, no hay equipo de ACS con
     // serie propia → el CIFO imprime "Acumulador ACS" y "no aplica" en el serie.
     const acsAero = inst.misma_aerotermia_acs ? inst.aerotermia_cal : inst.aerotermia_acs;
-    const acsEsAcumulador = tieneAcs && !!acsAero?.es_acumulador;
+    const acsEsAcumulador = tieneAcs && esAcumuladorAcs(acsAero);
     // Termo eléctrico (efecto Joule): no es aerotermia → no hay ficha técnica que
     // adjuntar como justificación del SCOP, así que su slot de anexo no se pide.
     const acsEsTermo = tieneAcs && esTermoElectrico(acsAero);
@@ -631,7 +634,11 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
     // Lista completa en el orden en que saldrá en el PDF, y la filtrada que se
     // pinta (el slot de ACS se oculta si no se actúa sobre ACS).
     const orderedAttachments = orderAttachments(attachments, annexPrefs);
-    const visibleAttachments = orderedAttachments.filter(a => a.id !== 'aerotermia_acs' || (tieneAcs && !acsEsTermo));
+    // El slot de ACS se oculta si no se actúa sobre ACS, y también cuando el equipo
+    // nuevo no es una aerotermia: ni el termo eléctrico ni el acumulador tienen
+    // ficha técnica propia que justifique un SCOP (la del acumulador es la de la
+    // BdC de calefacción, que ya va en su propio slot).
+    const visibleAttachments = orderedAttachments.filter(a => a.id !== 'aerotermia_acs' || (tieneAcs && !acsEsTermo && !acsEsAcumulador));
 
     // Reordena SOBRE LA LISTA COMPLETA (así las filas ocultas no se van al final)
     // colocando `fromId` en el sitio de `toId`, y guarda el orden resultante.

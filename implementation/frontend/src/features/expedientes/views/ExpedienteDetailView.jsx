@@ -20,7 +20,7 @@ import {
     BOILER_EFFICIENCIES
 } from '../../calculator/logic/calculation';
 import { calculateRes060FC } from '../../calculator/logic/res060fc';
-import { esTermoElectrico } from '../logic/aerotermiaUnits';
+import { acsComputaAhorro } from '../logic/aerotermiaUnits';
 import { resolveDacs } from '../logic/demandaAcs';
 import { deriveTer100Vars, TER100_PRECIOS } from '../logic/ter100';
 import { SeguimientoModule } from '../components/SeguimientoModule';
@@ -528,7 +528,9 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
                     cb = hybridRes.cb;
                 }
 
-                const changeAcsFlag = inst.cambio_acs !== false && !esTermoElectrico(inst.aerotermia_acs) && (!!inst.misma_aerotermia_acs || !!inst.aerotermia_acs?.aerotermia_db_id);
+                // Fuente única (aerotermiaUnits.js): el mismo criterio que aplica el
+                // backend al generar el CIFO, para que el ahorro no difiera.
+                const changeAcsFlag = acsComputaAhorro(inst);
 
                 savings = calculateSavings({
                     q_net_heating,

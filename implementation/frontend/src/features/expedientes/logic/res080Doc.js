@@ -21,7 +21,7 @@ import { BOILER_EFFICIENCIES } from '../../calculator/logic/calculation.js';
 import { buildInstalacionAddress, empresaInstaladora } from '../utils/docGenerators.js';
 import { calcCifo } from './calcCifo.js';
 import { EMITTER_OPTIONS, emitterScopContext } from './cifoDoc.js';
-import { formatMarcas, formatModelos, formatSeries, countUnidades, tipoEquipoNuevoLabel, esTermoElectrico } from './aerotermiaUnits.js';
+import { formatMarcas, formatModelos, formatSeries, countUnidades, tipoEquipoNuevoLabel, esTermoElectrico, esAcumuladorAcs, datosAcumulador } from './aerotermiaUnits.js';
 
 const DOC_WIDTH = '794px';
 
@@ -259,13 +259,19 @@ export function deriveRes080Data({ expediente, results, parseHuecosFromXml }) {
         : (inst.caldera_antigua_acs?.combustible || calExFuel);
     const acsSeActua = inst.cambio_acs !== false;
     const sameAero = !!inst.misma_aerotermia_acs;
-    const acsNuBrand = sameAero ? calNuBrand : formatMarcas(inst.aerotermia_acs);
-    const acsNuMod = sameAero ? calNuMod : formatModelos(inst.aerotermia_acs);
+    // Acumulador: marca, modelo y nº de serie son los del DEPÓSITO, escritos a mano
+    // (no está en el catálogo de aerotermia). Si no se han declarado no se imprimen
+    // los del equipo de calefacción. Ver logic/aerotermiaUnits.js.
+    const acumAcs = !sameAero && esAcumuladorAcs(inst.aerotermia_acs) ? datosAcumulador(inst.aerotermia_acs) : null;
+    const acsNuBrand = acumAcs ? (acumAcs.marca || '—') : sameAero ? calNuBrand : formatMarcas(inst.aerotermia_acs);
+    const acsNuMod = acumAcs ? (acumAcs.modelo || '—') : sameAero ? calNuMod : formatModelos(inst.aerotermia_acs);
     const acsNuScop = sameAero ? calNuScop : (inst.aerotermia_acs?.scop || '—');
-    const acsNuSerie = sameAero
-        ? (calNuUds > 1 ? 'Mismas unidades' : 'Misma unidad')
-        : formatSeries(inst.aerotermia_acs);
-    const acsNuUds = sameAero ? calNuUds : countUnidades(inst.aerotermia_acs);
+    const acsNuSerie = acumAcs
+        ? (acumAcs.serie || 'No aplica')
+        : sameAero
+            ? (calNuUds > 1 ? 'Mismas unidades' : 'Misma unidad')
+            : formatSeries(inst.aerotermia_acs);
+    const acsNuUds = acumAcs ? 1 : sameAero ? calNuUds : countUnidades(inst.aerotermia_acs);
     // El equipo nuevo de ACS no siempre es una BdC: puede ser un acumulador o un
     // TERMO ELÉCTRICO (efecto Joule, rendimiento 1). Ver logic/aerotermiaUnits.js.
     const acsAero = sameAero ? inst.aerotermia_cal : inst.aerotermia_acs;

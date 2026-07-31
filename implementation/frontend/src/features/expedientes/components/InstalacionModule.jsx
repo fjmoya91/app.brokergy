@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { BOILER_EFFICIENCIES, getScopFromModel, getScopAcsFromModel, calculateHybridization, resolveHybridInputs, HYBRID_METHODS } from '../../calculator/logic/calculation';
 import { PROVINCE_CODE_TO_CCAA, PROVINCE_CODE_TO_NAME } from '../utils/docGenerators';
-import { withScopAplicado, cloneAero, potenciaTotal, countUnidades, scopPropioUnidad1, scopAplicado, tipoEquipoNuevo, EQUIPO_NUEVO, RENDIMIENTO_JOULE } from '../logic/aerotermiaUnits';
+import { withScopAplicado, cloneAero, potenciaTotal, countUnidades, scopPropioUnidad1, scopAplicado, tipoEquipoNuevo, datosAcumulador, EQUIPO_NUEVO, RENDIMIENTO_JOULE } from '../logic/aerotermiaUnits';
 import { EMITTER_OPTIONS, getEmitterTemp } from '../logic/cifoDoc';
 import { esTer100 } from '../logic/ter100';
 
@@ -448,7 +448,7 @@ function EquipoRefLinks({ model, data, metodoScop = null }) {
 }
 
 // ─── Sección Aerotermia Nueva ─────────────────────────────────────────────────
-function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tipoEmisor, isAcs = false, readOnly = false }) {
+function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tipoEmisor, isAcs = false, readOnly = false, calData = null }) {
     const brandOptions = marcas.map(m => ({ value: m.nombre, label: m.nombre, logo: m.logo, acronimo: m.nombre }));
     const availableModels = data?.marca ? (modelosPorMarca[data.marca.toUpperCase()] || []) : [];
     // La etiqueta principal es el nombre comercial + potencia, pero muchos modelos
@@ -477,9 +477,20 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
 
     // El input de litros de acumulación ACS solo aplica si el modelo de ACS
     // seleccionado lleva depósito incluido (deposito_acs_incluido = true). El termo
-    // eléctrico SIEMPRE acumula, así que ahí el campo va suelto (opcional).
+    // eléctrico SIEMPRE acumula, y el acumulador ES un depósito: ahí el campo va
+    // suelto (opcional).
     const selectedModel = availableModels.find(m => String(m.id) === String(data?.aerotermia_db_id));
-    const showLitros = isAcs && (esTermo || !!selectedModel?.deposito_acs_incluido);
+    const showLitros = isAcs && (esTermo || esAcumulador || !!selectedModel?.deposito_acs_incluido);
+
+    // ── ACUMULADOR de ACS ─────────────────────────────────────────────────────
+    // El depósito NO está en el catálogo de aerotermia: marca, modelo y nº de serie
+    // son datos suyos y se escriben a mano (opcionales). Lo que sí sale del catálogo
+    // es el SCOP_dhw, porque quien calienta el depósito es la BOMBA DE CALOR DE
+    // CALEFACCIÓN: se calcula por Anexo VI sobre SU COP A7/55 y se justifica con SU
+    // ficha técnica. Por eso la sección de ACS recibe `calData`.
+    const calModel = (isAcs && calData?.marca)
+        ? ((modelosPorMarca[calData.marca.toUpperCase()] || []).find(m => String(m.id) === String(calData.aerotermia_db_id)) || null)
+        : null;
 
     // ── Instalación EN CASCADA ────────────────────────────────────────────────
     // `data.equipos_extra` guarda las unidades 2..N. Todo cambio pasa por emit(),
@@ -487,6 +498,21 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
     // `data.scop` — el campo que leen el CIFO, las fichas RES y el cálculo de
     // ahorro. Ver logic/aerotermiaUnits.js.
     const emit = (next) => onChange(withScopAplicado(next));
+
+    // Datos PROPIOS del depósito acumulador. Los nodos guardados antes de que fueran
+    // manuales arrastran los de la BdC de calefacción (aún apuntan al catálogo): se
+    // muestran vacíos, igual que hacen los documentos. Ver logic/aerotermiaUnits.js.
+    const acum = datosAcumulador(data);
+    // Escribir cualquiera de los tres datos convierte el nodo en manual: se sueltan
+    // las referencias al catálogo para que no reaparezcan en el CIFO.
+    const emitAcumulador = (patch) => emit({
+        ...data,
+        aerotermia_db_id: null,
+        modelo_ud_exterior: '', modelo_ud_interior: '', modelo_conjunto: '',
+        marca: acum.marca, modelo: acum.modelo, numero_serie: acum.serie,
+        ...patch,
+    });
+
     const extras = Array.isArray(data?.equipos_extra) ? data.equipos_extra : [];
     const nUnidades = countUnidades(data);
     const scopPropio = scopPropioUnidad1(data);
@@ -588,7 +614,9 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
     };
 
     const handleMethodChange = (method) => {
-        const found = availableModels.find(m => String(m.id) === String(data?.aerotermia_db_id));
+        // En un acumulador el SCOP_dhw sale del equipo de CALEFACCIÓN (es quien
+        // calienta el depósito); en el resto, del modelo elegido en esta columna.
+        const found = esAcumulador ? calModel : availableModels.find(m => String(m.id) === String(data?.aerotermia_db_id));
         if (found) {
             let scop;
             if (isAcs) {
@@ -648,9 +676,10 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
             return;
         }
 
-        // Al salir del termo, marca/modelo/serie eran texto libre → no valen para
-        // el catálogo. Se limpian para obligar a elegir el equipo real.
-        const base = prev === EQUIPO_NUEVO.TERMO
+        // Al salir del termo o del acumulador, marca/modelo/serie eran texto libre
+        // (del termo o del depósito) → no valen para el catálogo. Se limpian para
+        // obligar a elegir el equipo real.
+        const base = (prev === EQUIPO_NUEVO.TERMO || prev === EQUIPO_NUEVO.ACUMULADOR)
             ? {
                 ...data,
                 marca: '', modelo: '', numero_serie: '', litros: null,
@@ -659,21 +688,30 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
             : data;
 
         if (tipo === EQUIPO_NUEVO.ACUMULADOR) {
-            // Forzar método Anexo VI y recalcular SCOP si hay modelo elegido
-            const found = availableModels.find(m => String(m.id) === String(base?.aerotermia_db_id));
-            const scop = found
-                ? getScopAcsFromModel(found, found.zona_climatica || 'D3', 'independiente')
-                : base?.scop;
+            // El acumulador no es un equipo del catálogo: se sueltan TODAS las
+            // referencias (marca, modelo, unidades, nº de serie) porque a partir de
+            // aquí esos tres datos son los del DEPÓSITO y se escriben a mano.
+            // El SCOP_dhw sí se calcula: lo calienta la BdC de CALEFACCIÓN, así que
+            // sale de su COP A7/55 por el Anexo VI, y su ficha técnica es la que lo
+            // justifica en el CIFO.
+            const scop = calModel
+                ? getScopAcsFromModel(calModel, calModel.zona_climatica || 'D3', 'independiente')
+                : base?.scop ?? null;
             emit({
                 ...base,
                 tipo_equipo_nuevo: EQUIPO_NUEVO.ACUMULADOR,
                 es_acumulador: true,
                 metodo_scop: 'independiente',
                 scop,
-                ...(found ? {
-                    url_eprel: found.eprel ?? base?.url_eprel ?? null,
-                    url_keymark: found.url_keymark ?? base?.url_keymark ?? null,
-                    url_ficha: found.ficha_tecnica ?? base?.url_ficha ?? null,
+                scop_propio: null,
+                aerotermia_db_id: null,
+                marca: '', modelo: '', numero_serie: '',
+                modelo_ud_exterior: '', modelo_ud_interior: '', modelo_conjunto: '',
+                equipos_extra: [],
+                ...(calModel ? {
+                    url_eprel: calModel.eprel ?? null,
+                    url_keymark: calModel.url_keymark ?? null,
+                    url_ficha: calModel.ficha_tecnica ?? null,
                 } : {}),
             });
             return;
@@ -722,7 +760,7 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
                     </div>
                     {esAcumulador && (
                         <p className="text-[10px] text-white/30">
-                            El depósito lo calienta la BdC de calefacción. SCOP por Anexo VI. En el CIFO se imprime como «Acumulador ACS» con nº de serie «No aplica».
+                            El depósito lo calienta la BdC de calefacción y su SCOP<sub>dhw</sub> sale del Anexo VI sobre el COP de ese equipo. Marca, modelo y nº de serie son los del DEPÓSITO y se escriben a mano: si se rellenan salen en el CIFO y en el Anexo I; si se dejan en blanco, el CIFO imprime «No aplica» y el Anexo I no declara nº de serie de la ud. interior.
                         </p>
                     )}
                     {esTermo && (
@@ -736,7 +774,7 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
                 </div>
             )}
 
-            {!esTermo && (
+            {!esTermo && !esAcumulador && (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <SearchableSelect
                     label="Marca"
@@ -780,10 +818,32 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
                 </div>
             )}
 
+            {/* Acumulador ACS: el depósito tampoco está en el catálogo de aerotermia
+                → marca, modelo y nº de serie son SUYOS y se escriben a mano. Son
+                opcionales: si no se declaran, ni el CIFO ni el Anexo I los inventan. */}
+            {esAcumulador && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <Field
+                        label="Marca del depósito (opcional)"
+                        value={acum.marca}
+                        onChange={v => emitAcumulador({ marca: v })}
+                        readOnly={readOnly}
+                        placeholder="Si no se conoce, en blanco"
+                    />
+                    <Field
+                        label="Modelo del depósito (opcional)"
+                        value={acum.modelo}
+                        onChange={v => emitAcumulador({ modelo: v })}
+                        readOnly={readOnly}
+                        placeholder="Si no se conoce, en blanco"
+                    />
+                </div>
+            )}
+
             {/* Confirmación del equipo elegido: la ud. exterior es la referencia de la
                 placa que debe coincidir con las fotos y viaja al CIFO. Editable como
                 override por si el catálogo no la trae o es incorrecta. */}
-            {!esTermo && data?.aerotermia_db_id && (
+            {!esTermo && !esAcumulador && data?.aerotermia_db_id && (
                 <div className="bg-brand/[0.06] border border-brand/20 rounded-xl p-3 space-y-2">
                     <div className="flex items-center gap-1.5">
                         <svg className="w-3.5 h-3.5 text-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>
@@ -837,16 +897,18 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
                     <svg className="w-3 h-3 text-brand/50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
                     </svg>
-                    Número de serie{esTermo && <span className="text-white/25 normal-case tracking-normal"> · opcional</span>}
+                    Número de serie{(esTermo || esAcumulador) && <span className="text-white/25 normal-case tracking-normal"> · opcional</span>}
                 </label>
                 <input
                     type="text"
-                    value={esAcumulador ? '' : (data?.numero_serie ?? '')}
-                    onChange={v => emit({ ...data, numero_serie: v.target.value })}
-                    readOnly={readOnly || esAcumulador}
-                    placeholder={esAcumulador ? 'No aplica (acumulador ACS)' : (esTermo ? 'Si no se conoce, en blanco' : '')}
+                    value={esAcumulador ? acum.serie : (data?.numero_serie ?? '')}
+                    onChange={v => (esAcumulador
+                        ? emitAcumulador({ numero_serie: v.target.value })
+                        : emit({ ...data, numero_serie: v.target.value }))}
+                    readOnly={readOnly}
+                    placeholder={esAcumulador ? 'Del depósito. Si no lo tiene, en blanco' : (esTermo ? 'Si no se conoce, en blanco' : '')}
                     className={`w-full bg-bkg-elevated border rounded-lg px-3 py-2 text-white text-sm focus:outline-none ${
-                        readOnly || esAcumulador ? 'border-white/5 text-white/40 cursor-not-allowed' : 'border-white/10 focus:border-brand/50'
+                        readOnly ? 'border-white/5 text-white/40 cursor-not-allowed' : 'border-white/10 focus:border-brand/50'
                     }`}
                 />
             </div>
@@ -914,11 +976,17 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
                             ))}
                         </div>
                     )}
-                    {/* Aviso si faltan datos para el método ACS seleccionado */}
+                    {/* Aviso si faltan datos para el método ACS seleccionado. En un
+                        acumulador el dato hay que buscarlo en el modelo de la BdC de
+                        CALEFACCIÓN, que es la que calienta el depósito. */}
                     {isAcs && !esTermo && (() => {
                         const method = data?.metodo_scop || 'ficha';
-                        const found = availableModels.find(m => String(m.id) === String(data?.aerotermia_db_id));
-                        if (!found) return null;
+                        const found = esAcumulador ? calModel : availableModels.find(m => String(m.id) === String(data?.aerotermia_db_id));
+                        if (!found) {
+                            return esAcumulador
+                                ? <p className="text-[10px] text-amber-400/90 font-semibold">⚠ Elige primero el equipo de calefacción: el SCOP<sub>dhw</sub> del acumulador se calcula desde su COP. Mientras tanto, escribe el SCOP a mano.</p>
+                                : null;
+                        }
                         if (method === 'conjunto' && !found.eta_acs_calida && !found.eta_acs_media) {
                             return <p className="text-[10px] text-amber-400/90 font-semibold">⚠ El modelo no tiene η ACS (eta_acs_calida / eta_acs_media). Rellena esos campos en la base de datos de aerotermia.</p>;
                         }
@@ -937,7 +1005,7 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
                             className={`w-full bg-bkg-elevated border rounded-lg px-3 py-2 text-white text-sm focus:outline-none ${
                                 readOnly ? 'border-white/5 text-white/60 cursor-not-allowed' : 'border-white/10 focus:border-brand/50'
                             }`}
-                            placeholder="Se obtiene del modelo"
+                            placeholder={esAcumulador ? 'Anexo VI sobre el COP de la BdC de calefacción' : 'Se obtiene del modelo'}
                         />
                     )}
                     {/* En cascada el SCOP que entra en la fórmula de ahorro es el MENOR
@@ -1787,6 +1855,24 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
                                     potencia_bomba: total || v.potencia || p.potencia_bomba
                                 };
                                 if (p.misma_aerotermia_acs) next.aerotermia_acs = cloneAero(v);
+                                // Acumulador: su SCOP_dhw se calcula (Anexo VI) sobre el
+                                // COP de ESTA bomba, así que cambiar el equipo de
+                                // calefacción lo recalcula. Si no, quedaría el del
+                                // equipo anterior y el CIFO saldría con un SCOP que su
+                                // propia justificación no reproduce.
+                                else if (tipoEquipoNuevo(p.aerotermia_acs) === EQUIPO_NUEVO.ACUMULADOR) {
+                                    const model = (modelosPorMarca[(v.marca || '').toUpperCase()] || [])
+                                        .find(m => String(m.id) === String(v.aerotermia_db_id));
+                                    if (model) {
+                                        next.aerotermia_acs = {
+                                            ...p.aerotermia_acs,
+                                            scop: getScopAcsFromModel(model, model.zona_climatica || 'D3', p.aerotermia_acs?.metodo_scop || 'independiente'),
+                                            url_eprel: model.eprel ?? null,
+                                            url_keymark: model.url_keymark ?? null,
+                                            url_ficha: model.ficha_tecnica ?? null,
+                                        };
+                                    }
+                                }
                                 return next;
                             });
                         }}
@@ -1804,6 +1890,9 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
                             modelosPorMarca={modelosPorMarca}
                             tipoEmisor={local.tipo_emisor}
                             isAcs={true}
+                            // El acumulador lo calienta la BdC de calefacción: de ahí
+                            // sale su SCOP_dhw (Anexo VI) y su ficha justificante.
+                            calData={local.aerotermia_cal}
                         />
                     )}
                 </div>

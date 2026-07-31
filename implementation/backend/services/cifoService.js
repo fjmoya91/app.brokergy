@@ -20,7 +20,7 @@ const { pathToFileURL } = require('url');
 const supabase = require('./supabaseClient');
 const driveService = require('./driveService');
 const pdfService = require('./pdfService');
-const { getUnidades: getUnidadesAero, unidadesSinSerie, esTermoElectrico: esTermoAero } = require('../utils/aerotermiaUnits');
+const { getUnidades: getUnidadesAero, unidadesSinSerie, esTermoElectrico: esTermoAero, esAcumuladorAcs: esAcumuladorAero, acsComputaAhorro } = require('../utils/aerotermiaUnits');
 const { resolveInstaladorFirmante } = require('../utils/instaladorFirmante');
 const { detectPrograma } = require('../utils/fichas');
 
@@ -262,7 +262,9 @@ async function computeSavingsKwh(exp, op) {
                 });
                 cb = hybridRes.cb;
             }
-            const changeAcsFlag = inst.cambio_acs !== false && !esTermoAero(inst.aerotermia_acs) && (!!inst.misma_aerotermia_acs || !!inst.aerotermia_acs?.aerotermia_db_id);
+            // Fuente única con el panel económico de la app (aerotermiaUnits.js): un
+            // acumulador computa aunque no apunte a ningún modelo del catálogo.
+            const changeAcsFlag = acsComputaAhorro(inst);
             savings = calculateSavings({
                 q_net_heating,
                 dacs: inst.cambio_acs !== false ? dacs : 0,
@@ -498,12 +500,14 @@ function buildValidation(exp, data, savingsKwh, folderId) {
         // Un termo eléctrico (efecto Joule) o un mero acumulador no llevan ficha
         // técnica de aerotermia que justifique un SCOP: no se reclama.
         const acsAero = inst.misma_aerotermia_acs ? inst.aerotermia_cal : inst.aerotermia_acs;
-        if (!esTermoAero(acsAero) && !(doc.ft_aerotermia_acs_id || doc.ft_aerotermia_acs_link)) {
+        if (!esTermoAero(acsAero) && !esAcumuladorAero(acsAero) && !(doc.ft_aerotermia_acs_id || doc.ft_aerotermia_acs_link)) {
             warnings.push('La actuación incluye ACS pero falta la ficha técnica de la aerotermia de ACS: el CIFO se genera sin ese anexo.');
         }
         const serieCal = inst.aerotermia_cal?.numero_serie || inst.aerotermia_cal?.n_serie_ext;
         const serieAcs = inst.misma_aerotermia_acs ? serieCal : (inst.aerotermia_acs?.numero_serie || inst.aerotermia_acs?.n_serie_ext);
-        if (!inst.misma_aerotermia_acs && serieAcs && serieCal && serieAcs === serieCal) {
+        // El acumulador queda fuera: su serie es la del DEPÓSITO (dato distinto por
+        // naturaleza), y los nodos antiguos arrastran la de la BdC sin que se imprima.
+        if (!inst.misma_aerotermia_acs && !esAcumuladorAero(acsAero) && serieAcs && serieCal && serieAcs === serieCal) {
             warnings.push('El nº de serie del equipo de ACS coincide con el de calefacción: revisa que no sea una copia por error.');
         }
     }
@@ -592,7 +596,7 @@ function buildValidationRes080(exp, results, folderId) {
     // Igual que en el CIFO: un termo eléctrico o un acumulador no tienen ficha
     // técnica de aerotermia que justifique un SCOP.
     const acsAeroRes080 = inst.misma_aerotermia_acs ? inst.aerotermia_cal : inst.aerotermia_acs;
-    if (inst.cambio_acs !== false && !esTermoAero(acsAeroRes080)
+    if (inst.cambio_acs !== false && !esTermoAero(acsAeroRes080) && !esAcumuladorAero(acsAeroRes080)
         && !(doc.ft_aerotermia_acs_id || doc.ft_aerotermia_acs_link)) {
         warnings.push('La actuación incluye ACS pero falta la ficha técnica de la aerotermia de ACS: el RES080 se genera sin ese anexo.');
     }

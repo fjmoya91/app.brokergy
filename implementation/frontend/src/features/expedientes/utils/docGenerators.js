@@ -4,7 +4,7 @@
  * Generadores compartidos para Anexo I y Anexo de Cesión.
  */
 
-import { formatSeries, countUnidades } from '../logic/aerotermiaUnits.js';
+import { formatSeries, countUnidades, esAcumuladorAcs, datosAcumulador } from '../logic/aerotermiaUnits.js';
 
 // Node-safe: este módulo también se importa server-side (cifoService vía cifoDoc).
 // En Node no existen import.meta.env ni window, así que se accede con guardas.
@@ -348,9 +348,17 @@ export const buildAnexoIHtml = (expediente, results, states = {}, isForPdf = tru
     const nUdsCal = countUnidades(inst.aerotermia_cal);
     const nUdsAcs = inst.misma_aerotermia_acs ? nUdsCal : countUnidades(inst.aerotermia_acs);
     const snExt = formatSeries(inst.aerotermia_cal, { dash: '___________', prefijo: '' });
-    const snInt = inst.misma_aerotermia_acs
-        ? snExt
-        : formatSeries(inst.aerotermia_acs, { dash: '___________', prefijo: '' });
+    // ACS resuelto con un ACUMULADOR: el depósito solo tiene nº de serie si se ha
+    // declarado a mano (no es un equipo del catálogo). Si no lo tiene, NO se
+    // imprime la línea de la ud. interior: repetir ahí la serie de la exterior le
+    // dice al verificador que hay dos equipos donde solo hay uno.
+    const acsAero = inst.misma_aerotermia_acs ? inst.aerotermia_cal : inst.aerotermia_acs;
+    const acsEsAcumulador = esAcumuladorAcs(acsAero);
+    const snAcum = acsEsAcumulador ? datosAcumulador(acsAero).serie : '';
+    const snInt = acsEsAcumulador
+        ? snAcum
+        : (inst.misma_aerotermia_acs ? snExt : formatSeries(inst.aerotermia_acs, { dash: '___________', prefijo: '' }));
+    const mostrarInt = hasAcs && (!acsEsAcumulador || !!snAcum);
     const refCatastral = instAddr.refCatastral || '___________';
     // Con una sola unidad la línea queda igual que siempre ("Ud. exterior: XXX").
     // Con varias, el rótulo lleva el recuento y las series se listan numeradas debajo.
@@ -358,7 +366,7 @@ export const buildAnexoIHtml = (expediente, results, states = {}, isForPdf = tru
         n > 1 ? `${plural} (${n}):<br>${valor}` : `${label}: ${valor}`;
     const serialsHtml = [
         bloqueSeries('Ud. exterior', 'Uds. exteriores', nUdsCal, snExt),
-        ...(hasAcs ? [bloqueSeries('Ud. interior', 'Uds. interiores', nUdsAcs, snInt)] : []),
+        ...(mostrarInt ? [bloqueSeries('Ud. interior', 'Uds. interiores', acsEsAcumulador ? 1 : nUdsAcs, snInt)] : []),
     ].join('<br>');
     const nombrePropietario = [cliente.nombre_razon_social, cliente.apellidos].filter(Boolean).join(' ') || '___________';
     const nif = cliente.dni_nie || cliente.dni || '___________';
