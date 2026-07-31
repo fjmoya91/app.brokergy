@@ -101,17 +101,23 @@ function casaConLote(ctx, loteAnio, loteCcaa) {
 }
 
 // Genera el siguiente código LOTE-{anio}-NNN.
+// El correlativo NO se reinicia cada año: es CONTINUO sobre todos los lotes.
+// El primer lote de 2026 que sigue a LOTE-2025-003 es LOTE-2026-004. Así el
+// número identifica al lote de forma única y el año solo indica el ejercicio
+// de la actuación. Los códigos heredados que no siguen el patrón (p. ej.
+// "PAQUETE 1 - 2025 (PRE APP)") no cuentan para el correlativo.
 async function nextLoteCodigo(anio) {
-    const prefix = `LOTE-${anio}-`;
     const { data: rows, error } = await supabase
-        .from('lotes').select('codigo').like('codigo', `${prefix}%`);
+        .from('lotes').select('codigo').like('codigo', 'LOTE-%');
     if (error) throw new Error(error.message);
     let max = 0;
     for (const r of (rows || [])) {
-        const n = parseInt(String(r.codigo || '').slice(prefix.length), 10);
-        if (!Number.isNaN(n) && n > max) max = n;
+        const m = /^LOTE-\d{4}-(\d+)$/.exec(String(r.codigo || '').trim());
+        if (!m) continue;
+        const n = parseInt(m[1], 10);
+        if (n > max) max = n;
     }
-    return `${prefix}${String(max + 1).padStart(3, '0')}`;
+    return `LOTE-${anio}-${String(max + 1).padStart(3, '0')}`;
 }
 
 // Busca expedientes del MISMO instalador, elegibles (con CIFO del mismo año +
