@@ -504,6 +504,10 @@ export const buildAnexoCesionHtml = (expediente, results) => {
     const rateMWhStr = Math.round(rateMwh).toString();
     const beneficioRaw = results?.caeBonus ?? (aeRaw && rateMwh ? aeRaw / 1000 * rateMwh : null);
     const beneficioStr = beneficioRaw ? Math.round(beneficioRaw).toLocaleString('es-ES', { useGrouping: true }) : '___________';
+    // Coste de gestión del expediente CAE que asume el Cedente. Si es 0 (toggle
+    // "Descuento Certificados" activo), BROKERGY lo asume íntegramente.
+    const certCost = results?.caeMaintenanceCost ?? 0;
+    const certCostStr = Math.round(certCost).toLocaleString('es-ES', { useGrouping: true });
     // Localización de la INSTALACIÓN (Catastro), independiente del domicilio del
     // cliente (que arriba se usa en `dirCedente` como dato legal del cedente).
     const instAddr = buildInstalacionAddress(expediente);
@@ -593,7 +597,10 @@ export const buildAnexoCesionHtml = (expediente, results) => {
         <div class="conv-page">
           ${hdr}
           <div class="conv-body">
-            <p class="conv-p">El Cedente recibirá el importe final tras deducir del monto establecido en la cláusula cuarta los costes de 247 € correspondientes a la gestión de los certificados de eficiencia energética necesarios para obtener el expediente CAE.</p>
+            <p class="conv-p">${certCost > 0
+                ? `El Cedente recibirá el importe final tras deducir del monto establecido en la cláusula cuarta la cantidad de <strong>${certCostStr} €</strong>, en concepto de los costes de gestión técnica y administrativa necesarios para la tramitación del expediente CAE.`
+                : `El Cedente recibirá el importe íntegro establecido en la cláusula cuarta, sin ningún tipo de deducción. La gestión y tramitación del expediente CAE es <strong>completamente gratuita</strong> para el Cedente: BROKERGY corre con la totalidad de estos costes y el Cedente no tendrá que abonarle ninguna cantidad.`
+            }</p>
             <p class="conv-p">El CEDENTE recibirá el pago mediante transferencia bancaria a la siguiente cuenta de su titularidad:</p>
             <div class="conv-cuenta">${numCuenta}</div>
             <div class="conv-cl">
