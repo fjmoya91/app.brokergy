@@ -255,6 +255,27 @@ async function findFileByName(parentId, name) {
 }
 
 /**
+ * Como `findFileByName` pero devuelve TODOS los homónimos (ids), no solo el primero.
+ * Drive permite varios ficheros con el mismo nombre en la misma carpeta: cuando se
+ * regenera un documento "único" (p.ej. el PDF combinado de facturas) hay que borrar
+ * todas las copias previas, no una — si no, cada regeneración deja un duplicado más.
+ */
+async function findFilesByName(parentId, name) {
+    try {
+        const safeName = String(name || '').replace(/'/g, "\\'");
+        const response = await drive.files.list({
+            q: `'${parentId}' in parents and name = '${safeName}' and trashed = false`,
+            fields: 'files(id, name)',
+            pageSize: 100
+        });
+        return (response.data.files || []).map(f => f.id);
+    } catch (err) {
+        console.error(`[DriveService] Error buscando archivos '${name}':`, err.message);
+        return [];
+    }
+}
+
+/**
  * Busca una subcarpeta por nombre dentro de una carpeta padre
  * Devuelve el ID de la subcarpeta o null si no existe
  */
@@ -636,6 +657,7 @@ module.exports = {
     saveFileToFolder,
     findSubfolderByName,
     findFileByName,
+    findFilesByName,
     createSubfolder,
     getOrCreateSubfolder,
     normalizeFolderName,

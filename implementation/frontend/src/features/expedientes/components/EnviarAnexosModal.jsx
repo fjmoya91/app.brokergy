@@ -56,7 +56,7 @@ const composeNote = (base, note) => {
     return `${clean}\n\n${block}`;
 };
 
-export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results, initialDocs, overrides, onMarkSent, onEditCliente }) {
+export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results, initialDocs, overrides, initialNote, onMarkSent, onEditCliente }) {
     const { showConfirm } = useModal();
     const op       = expediente?.oportunidades || {};
     const cli      = expediente?.clientes || {};
@@ -217,10 +217,14 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
         setSelectedIds(defIds);
         setManualContact({ name: '', phone: '', email: '' });
         setChannels({ email: sel.some(c => c.email), whatsapp: sel.some(c => phoneValid(c.phone)) });
+        // `initialNote` llega cuando el envío es la CORRECCIÓN de un anexo rechazado:
+        // entra como observación para que el mensaje diga por qué se reenvía.
+        const nota = (initialNote || '').trim();
         setSelectedIncIds([]);
-        setExtraNote('');
+        setExtraNote(nota);
         setNoteInMessage(true);
-        setMessage(buildDefaultMessage(startTarget, startDocs));
+        const base = buildDefaultMessage(startTarget, startDocs);
+        setMessage(nota ? composeNote(base, nota) : base);
         setStatus(null);
         setSendPhase(null);
         setSendResults([]);
@@ -439,7 +443,9 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
                 for (const d of docDefs) {
                     try {
                         const fileName = d.key === 'anexo1' ? `${numexpte} - Anexo I` : `${numexpte} - Anexo Cesion ahorro`;
-                        const r = await axios.post('/api/pdf/save-to-drive', { html: d.html, folderId, fileName, subfolderName: '6. ANEXOS CAE' });
+                        // replaceExisting: el borrador anterior se archiva en OLD. Es el PDF que
+                        // sirve el enlace de firma del cliente — no puede haber dos en la carpeta.
+                        const r = await axios.post('/api/pdf/save-to-drive', { html: d.html, folderId, fileName, subfolderName: '6. ANEXOS CAE', replaceExisting: true });
                         if (r.data?.driveLink) driveLinks[d.key] = r.data.driveLink;
                     } catch (e) { /* no romper el envío si Drive falla */ }
                 }

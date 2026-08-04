@@ -1,6 +1,9 @@
 import { useEffect, useState, useMemo } from 'react';
 import axios from 'axios';
 import { estadoPlazoCeeInicial, PESO_PLAZO, COLOR_PLAZO, BORDE_PLAZO, fmtFechaCorta } from '../../expedientes/logic/fechasPrevistas';
+import { useAuth } from '../../../context/AuthContext';
+import { getRoleFlags } from '../../../utils/roleFlags';
+import CertificadorFacturacionPanel from './CertificadorFacturacionPanel';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Seguimiento de certificados de un CERTIFICADOR.
@@ -461,7 +464,17 @@ export function CertificadorResumenPanel({ prescriptorId, certificadorNombre, on
 }
 
 export function CertificadorResumenModal({ isOpen, onClose, prescriptorId, certificadorNombre }) {
+    const { user } = useAuth();
+    // La conciliación de su factura muestra importes: solo ADMIN (ver roleFlags).
+    // El backend vuelve a comprobarlo (rutas `adminOnly`).
+    const { isAdmin } = getRoleFlags(user);
+    const [tab, setTab] = useState('seguimiento');
+
     if (!isOpen) return null;
+
+    const tabCls = (activa) => `px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-colors ${
+        activa ? 'bg-brand/15 text-brand border border-brand/30' : 'text-white/30 hover:text-white border border-transparent'
+    }`;
 
     return (
         <div className="fixed inset-0 z-[600] flex items-center justify-center bg-black/70 backdrop-blur-sm animate-fade-in p-4">
@@ -471,18 +484,35 @@ export function CertificadorResumenModal({ isOpen, onClose, prescriptorId, certi
                         <h3 className="text-sm font-black text-white uppercase tracking-widest">Seguimiento de certificados</h3>
                         <p className="text-[11px] text-white/40 mt-0.5">{certificadorNombre || 'Certificador'}</p>
                     </div>
+
+                    {isAdmin && (
+                        <div className="flex items-center gap-1 ml-auto">
+                            <button onClick={() => setTab('seguimiento')} className={tabCls(tab === 'seguimiento')}>Seguimiento</button>
+                            <button onClick={() => setTab('facturacion')} className={tabCls(tab === 'facturacion')} title="Conciliar su factura mensual con los CEE registrados">
+                                Facturación
+                            </button>
+                        </div>
+                    )}
+
                     <button onClick={onClose} className="p-2 text-white/30 hover:text-white transition-colors shrink-0" title="Cerrar">
                         <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                     </button>
                 </div>
 
-                <CertificadorResumenPanel
-                    prescriptorId={prescriptorId}
-                    certificadorNombre={certificadorNombre}
-                    // Desde el modal (equipo interno) el expediente se abre en una pestaña
-                    // nueva del navegador, para no perder este listado de seguimiento.
-                    onOpenExpediente={(id) => window.open(`/?tab=expedientes&exp=${id}`, '_blank', 'noopener,noreferrer')}
-                />
+                {isAdmin && tab === 'facturacion' ? (
+                    <CertificadorFacturacionPanel
+                        prescriptorId={prescriptorId}
+                        certificadorNombre={certificadorNombre}
+                    />
+                ) : (
+                    <CertificadorResumenPanel
+                        prescriptorId={prescriptorId}
+                        certificadorNombre={certificadorNombre}
+                        // Desde el modal (equipo interno) el expediente se abre en una pestaña
+                        // nueva del navegador, para no perder este listado de seguimiento.
+                        onOpenExpediente={(id) => window.open(`/?tab=expedientes&exp=${id}`, '_blank', 'noopener,noreferrer')}
+                    />
+                )}
 
             </div>
         </div>

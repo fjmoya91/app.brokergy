@@ -135,6 +135,12 @@ if (require.main === module) {
     } catch (err) {
       console.warn('[marketplaceStats] no se pudo iniciar el refrescador:', err.message);
     }
+    // Recordatorio de CEE entregados por el certificador y sin revisar.
+    try {
+      require('./services/revisionPendienteNotifier').start();
+    } catch (err) {
+      console.warn('[RevisionPendiente] no se pudo iniciar la vigilancia:', err.message);
+    }
   });
 }
 

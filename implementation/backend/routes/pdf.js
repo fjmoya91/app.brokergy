@@ -75,11 +75,16 @@ router.post('/generate', async (req, res) => {
 
 /**
  * POST /api/pdf/save-to-drive
- * Body: { html: string, folderId: string, fileName: string, subfolderName?: string }
+ * Body: { html, folderId, fileName, subfolderName?, replaceExisting? }
  * Returns: { success: boolean, driveLink: string }
+ *
+ * `replaceExisting` archiva en OLD el fichero que ya hubiera con ese nombre. Drive
+ * admite nombres duplicados, así que sin esto cada regeneración dejaba una copia
+ * más del mismo documento en la carpeta — y con dos "Anexo I" en "6. ANEXOS CAE",
+ * uno con los datos viejos, es cuestión de tiempo enviar el que no toca.
  */
 router.post('/save-to-drive', async (req, res) => {
-    const { html, folderId, fileName, subfolderName } = req.body;
+    const { html, folderId, fileName, subfolderName, replaceExisting } = req.body;
     const annexes = annexSpecs(req.body);
     const driveService = require('../services/driveService');
 
@@ -122,6 +127,14 @@ router.post('/save-to-drive', async (req, res) => {
 
         // Guardar en Drive (Permitimos espacios y caracteres españoles)
         const safeFileName = (fileName || 'Propuesta_Brokergy').trim().replace(/[\\/<>:"|?*]/g, '_') + '.pdf';
+        if (replaceExisting) {
+            try {
+                const previos = await driveService.findFilesByName(targetFolderId, safeFileName);
+                for (const prevId of (previos || [])) {
+                    await driveService.archiveExistingToOld(targetFolderId, prevId, safeFileName);
+                }
+            } catch (e) { console.warn('[save-to-drive] no se pudo archivar el previo:', e.message); }
+        }
         const driveResult = await driveService.saveFileToFolder(targetFolderId, safeFileName, 'application/pdf', pdfBuffer);
 
         if (!driveResult) {

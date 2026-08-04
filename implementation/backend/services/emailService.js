@@ -592,7 +592,14 @@ const sendAcceptanceNotificationEmail = async ({ to, userName, numeroExpediente,
 /**
  * Envía anexos (Anexo I, Anexo Cesión, etc.) por correo
  */
-const sendAnnexEmail = async ({ to, cc, userName, attachments, customMessage, summaryData, from }) => {
+// `buttonLabel` — texto del botón del enlace que se extrae del mensaje. Por defecto
+// es el de los anexos del expediente; los envíos de lote lo cambian (p.ej. la oferta
+// de verificación manda "Firmar la oferta").
+// `pillLabel` — texto de la etiqueta de estado. Por defecto "Documentación"; los
+// envíos que piden una acción concreta dicen cuál ("Firmar Oferta de Verificación").
+// `preheader` — línea de vista previa en la bandeja (junto al asunto). Por defecto
+// habla de "tu expediente"; los envíos de LOTE no van de un expediente.
+const sendAnnexEmail = async ({ to, cc, userName, attachments, customMessage, summaryData, from, buttonLabel, pillLabel, preheader }) => {
     const docType = summaryData?.docType || 'Documentación';
     const subject = `${docType} — Brokergy (${summaryData.id})`;
     
@@ -603,13 +610,13 @@ const sendAnnexEmail = async ({ to, cc, userName, attachments, customMessage, su
     const formattedMessage = bodyMsg ? escapeHtml(bodyMsg).replace(/\*(.*?)\*/g, '<b>$1</b>') : null;
     const attachCount = Array.isArray(attachments) ? attachments.length : 0;
     const firmaButton = firmaUrl
-        ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:4px 0 22px 0;"><tr><td align="center">${emailButton(firmaUrl, '🖊️ Firmar / subir mis anexos', BRAND.orange)}</td></tr></table>`
+        ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:4px 0 22px 0;"><tr><td align="center">${emailButton(firmaUrl, buttonLabel || '🖊️ Firmar / subir mis anexos', BRAND.orange)}</td></tr></table>`
         : '';
 
     const html = brandEmailShell({
-        preheader: `${docType} de tu expediente ${summaryData.id}.`,
+        preheader: preheader || `${docType} de tu expediente ${summaryData.id}.`,
         title: docType,
-        pill: PILL.info('Documentación'),
+        pill: pillLabel ? PILL.warning(pillLabel, '🖊️') : PILL.info('Documentación'),
         contentHtml:
             emailP(formattedMessage || `Hola, ${escapeHtml(userName || 'cliente')}. Adjuntamos la documentación solicitada relativa a tu expediente ${escapeHtml(summaryData.id)}.`, { pre: true, mb: firmaButton ? 8 : 22 }) +
             firmaButton +
@@ -1491,7 +1498,7 @@ const sendDatosClienteCompletadosEmail = async ({ to, numExp, partes, clienteDat
  * público. Misma identidad y misma ficha de cliente que el aviso de datos
  * completados, más los enlaces a los firmados en Drive.
  */
-function buildAnexosFirmadosEmail({ numExp, partes, clienteData, cesionLink, anexoILink, portalLink, pendienteContrafirma = false }) {
+function buildAnexosFirmadosEmail({ numExp, partes, clienteData, cesionLink, anexoILink, portalLink, firmaLink, pendienteContrafirma = false }) {
     const subject = `${numExp} · ${pendienteContrafirma ? '✍️ Anexos firmados — falta tu firma' : '✅ Anexos firmados recibidos'}`;
     const nombre = clienteData?.nombre || 'El cliente';
 
@@ -1504,12 +1511,16 @@ function buildAnexosFirmadosEmail({ numExp, partes, clienteData, cesionLink, ane
         : '';
 
     // Firma electrónica del cliente: el Convenio de Cesión necesita todavía la
-    // contrafirma de Brokergy (con firma manuscrita no hace falta).
-    const contrafirmaHtml = pendienteContrafirma && portalLink
+    // contrafirma de Brokergy (con firma manuscrita no hace falta). El botón lleva
+    // el enlace de firma DIRECTA (?firmar=cesion): abre el expediente y lanza ya el
+    // popup de Autofirma sobre el PDF que subió el cliente — igual que la firma de
+    // las fichas del lote. `portalLink` queda solo como respaldo.
+    const contrafirmaUrl = firmaLink || portalLink;
+    const contrafirmaHtml = pendienteContrafirma && contrafirmaUrl
         ? emailBox(
             emailP('✍️ Falta tu firma en el Anexo de Cesión', { bold: true, color: BRAND.orangeDark, center: true, mb: 6 }) +
-            emailP('El cliente lo ha firmado electrónicamente. Abre el expediente, entra en el Anexo de Cesión firmado y pulsa "Firmar con certificado": se firma con Autofirma, se sube a Drive y queda validado.', { size: 13, color: BRAND.muted, center: true, mb: 16 }) +
-            `<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">${emailButton(portalLink, '🖊️ Abrir el expediente y firmar', BRAND.orange)}</td></tr></table>`,
+            emailP('El cliente lo ha firmado electrónicamente. Pulsa el botón: se abre el expediente y salta directamente el recuadro de firma con Autofirma. Al firmar se sube a Drive y queda validado.', { size: 13, color: BRAND.muted, center: true, mb: 16 }) +
+            `<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">${emailButton(String(contrafirmaUrl).replace(/&/g, '&amp;'), '🖊️ Firmar el Anexo de Cesión', BRAND.orange)}</td></tr></table>`,
             { bg: BRAND.orangeTint, border: BRAND.orange })
         : '';
 
@@ -1531,12 +1542,12 @@ function buildAnexosFirmadosEmail({ numExp, partes, clienteData, cesionLink, ane
                 : ''),
     });
 
-    const text = `Anexos firmados recibidos — ${numExp}\n\n${clienteDataText(clienteData)}Recibido: ${partes}\n${pendienteContrafirma ? '\nFALTA LA FIRMA DE BROKERGY en el Anexo de Cesión (el cliente firmó electrónicamente).\n' : ''}${cesionLink ? `\nAnexo de Cesión firmado: ${cesionLink}` : ''}${anexoILink ? `\nAnexo I firmado: ${anexoILink}` : ''}${portalLink ? `\n\n${portalLink}` : ''}`;
+    const text = `Anexos firmados recibidos — ${numExp}\n\n${clienteDataText(clienteData)}Recibido: ${partes}\n${pendienteContrafirma ? `\nFALTA LA FIRMA DE BROKERGY en el Anexo de Cesión (el cliente firmó electrónicamente).${contrafirmaUrl ? `\nFirmar ahora: ${contrafirmaUrl}` : ''}\n` : ''}${cesionLink ? `\nAnexo de Cesión firmado: ${cesionLink}` : ''}${anexoILink ? `\nAnexo I firmado: ${anexoILink}` : ''}${portalLink ? `\n\n${portalLink}` : ''}`;
     return { subject, html, text };
 }
 
-const sendAnexosFirmadosEmail = async ({ to, numExp, partes, clienteData, cesionLink, anexoILink, portalLink, pendienteContrafirma }) => {
-    const { subject, html, text } = buildAnexosFirmadosEmail({ numExp, partes, clienteData, cesionLink, anexoILink, portalLink, pendienteContrafirma });
+const sendAnexosFirmadosEmail = async ({ to, numExp, partes, clienteData, cesionLink, anexoILink, portalLink, firmaLink, pendienteContrafirma }) => {
+    const { subject, html, text } = buildAnexosFirmadosEmail({ numExp, partes, clienteData, cesionLink, anexoILink, portalLink, firmaLink, pendienteContrafirma });
     return sendMail({ to, subject, html, text });
 };
 

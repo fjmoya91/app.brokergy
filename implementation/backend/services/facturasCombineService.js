@@ -25,7 +25,17 @@ async function combineFilesToPdf(files) {
     const skipped = [];
     let pages = 0;
 
-    for (const f of files) {
+    // Dedupe por id de Drive: el MISMO fichero no puede entrar dos veces en el
+    // combinado. Pasaba cuando una factura estaba a la vez en la lista del
+    // expediente y suelta en la carpeta, y salía duplicada en el PDF final.
+    const vistos = new Set();
+    const unicos = (files || []).filter(f => {
+        if (!f?.id || vistos.has(f.id)) return false;
+        vistos.add(f.id);
+        return true;
+    });
+
+    for (const f of unicos) {
         try {
             const buf = await driveService.getFileContent(f.id);
             if (!buf || !buf.length) { skipped.push(f.name || f.id); continue; }

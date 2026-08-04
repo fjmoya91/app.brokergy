@@ -17,6 +17,7 @@ const { resolveInstaladorFirmante } = require('../utils/instaladorFirmante');
 const emailService = require('../services/emailService');
 const whatsappService = require('../services/whatsappService');
 const reformaUploadService = require('../services/reformaUploadService');
+const revisionPendienteNotifier = require('../services/revisionPendienteNotifier');
 const { mergeDocumentacion } = require('../utils/mergeDocumentacion');
 const anexoFotograficoService = require('../services/anexoFotograficoService');
 const cifoService = require('../services/cifoService');
@@ -458,6 +459,38 @@ async function notifyCeeFinalRegistrado(expediente, filters = {}) {
     }
 }
 
+
+// ─── Alertas: CEE entregados y sin revisar ───────────────────────────────────
+// El certificador factura al ENTREGAR, no al revisar. Estas dos rutas exponen lo
+// que el vigilante (`revisionPendienteNotifier`) manda cada día por WhatsApp y
+// email, para poder consultarlo en la app y para probar el aviso a demanda.
+
+// GET /api/expedientes/alertas/revision-pendiente?dias=2
+router.get('/alertas/revision-pendiente', staffOnly, async (req, res) => {
+    try {
+        const dias = req.query.dias !== undefined ? Number(req.query.dias) : undefined;
+        if (dias !== undefined && (!Number.isFinite(dias) || dias < 0)) {
+            return res.status(400).json({ error: 'El umbral de días no es válido.' });
+        }
+        const pendientes = await revisionPendienteNotifier.pendientesDeRevision(dias);
+        res.json({ umbral_dias: dias ?? revisionPendienteNotifier.DIAS_UMBRAL, total: pendientes.length, pendientes });
+    } catch (err) {
+        console.error('[GET alertas/revision-pendiente]', err);
+        res.status(500).json({ error: err.message || 'No se pudieron calcular los CEE pendientes de revisión' });
+    }
+});
+
+// POST /api/expedientes/alertas/revision-pendiente/enviar
+// Fuerza el aviso ahora (salta el guard de "una vez al día" y la franja horaria).
+router.post('/alertas/revision-pendiente/enviar', adminOnly, async (req, res) => {
+    try {
+        const out = await revisionPendienteNotifier.comprobarYAvisar({ force: true });
+        res.json(out);
+    } catch (err) {
+        console.error('[POST alertas/revision-pendiente/enviar]', err);
+        res.status(500).json({ error: err.message || 'No se pudo enviar el aviso' });
+    }
+});
 
 // ─── GET /api/expedientes ─────────────────────────────────────────────────────
 // Lista todos los expedientes usando RPC (1 sola query con JOIN en BD, sin documentacion)
@@ -2943,17 +2976,62 @@ router.post('/:id/facturas/upload', enforceAuth, async (req, res) => {
     }
 });
 
+// ─── Facturas — helpers comunes ───────────────────────────────────────────────
+// Id de Drive de una factura. Las facturas antiguas se guardaron solo con
+// `drive_link`, así que hay que saber sacarlo del enlace.
+function driveIdFromLink(link) {
+    const s = String(link || '');
+    const m = /\/file\/d\/([A-Za-z0-9_-]{10,})/.exec(s) || /[?&]id=([A-Za-z0-9_-]{10,})/.exec(s);
+    return m ? m[1] : null;
+}
+const facturaDriveId = (f) => (f && (f.drive_id || driveIdFromLink(f.drive_link))) || null;
+
+// Orden del PDF combinado: por fecha de factura y, a igualdad, por nº. Es el orden
+// en el que un verificador espera leerlas; no el alfabético del nombre del fichero.
+function ordenarFacturas(facturas) {
+    return [...facturas].sort((a, b) => {
+        const fa = String(a?.fecha_factura || '9999-12-31');
+        const fb = String(b?.fecha_factura || '9999-12-31');
+        if (fa !== fb) return fa.localeCompare(fb);
+        return String(a?.numero_factura || '').localeCompare(String(b?.numero_factura || ''), 'es', { numeric: true });
+    });
+}
+
+// Resuelve la carpeta "5. FACTURAS" del expediente (tolerante a "5.FACTURAS").
+async function carpetaFacturas(op) {
+    const driveService = require('../services/driveService');
+    const driveFolderId = op?.datos_calculo?.drive_folder_id || op?.datos_calculo?.inputs?.drive_folder_id;
+    if (!driveFolderId) return { driveFolderId: null, facturasFolderId: null };
+    const facturasFolderId = await driveService.getOrCreateSubfolderNormalized(
+        driveFolderId, reformaUploadService.SUBCARPETA_FACTURAS);
+    return { driveFolderId, facturasFolderId };
+}
+
 // ─── POST /api/expedientes/:id/facturas/generar-pdf ───────────────────────────
-// Combina TODAS las facturas de la carpeta "5. FACTURAS" en un único PDF
-// "{numero_expediente} - FACTURAS.pdf" (conservando los originales). Requiere que
-// haya al menos una factura y que TODAS estén validadas
-// (documentacion.facturas[].validada === true).
+// Combina las facturas REGISTRADAS Y VALIDADAS del expediente en un único PDF
+// "{numero_expediente} - FACTURAS.pdf" (conservando los originales).
+//
+// ⚠️ La fuente es `documentacion.facturas[]`, NO el contenido de la carpeta. Antes
+// se listaba "5. FACTURAS" entera y cualquier fichero suelto (una factura subida
+// dos veces por dos vías, o la versión vieja de un "Reemplazar") acababa dentro del
+// combinado: con UNA factura salían DOS copias, y esa inversión duplicada es la que
+// viaja al verificador. Lo que no está en la lista validada no entra en el PDF; los
+// ficheros sobrantes se devuelven en `huerfanos` para que la app los enseñe.
+const generandoCombinado = new Set(); // lock por expediente (evita el doble POST)
+
 router.post('/:id/facturas/generar-pdf', enforceAuth, async (req, res) => {
+    const expId = req.params.id;
+    // Sin este lock, dos peticiones solapadas listan Drive antes de que ninguna haya
+    // escrito y acaban creando DOS ficheros con el mismo nombre (Drive lo permite).
+    if (generandoCombinado.has(expId)) {
+        return res.status(409).json({ error: 'Ya se está generando el PDF único de este expediente.' });
+    }
+    generandoCombinado.add(expId);
     try {
         const { data: exp, error: expErr } = await supabase
             .from('expedientes')
             .select('id, numero_expediente, documentacion, oportunidad_id')
-            .eq('id', req.params.id)
+            .eq('id', expId)
             .maybeSingle();
         if (expErr || !exp) return res.status(404).json({ error: 'Expediente no encontrado' });
 
@@ -2965,33 +3043,57 @@ router.post('/:id/facturas/generar-pdf', enforceAuth, async (req, res) => {
 
         const { data: op } = await supabase
             .from('oportunidades').select('datos_calculo, id_oportunidad').eq('id', exp.oportunidad_id).single();
-        const driveFolderId = op?.datos_calculo?.drive_folder_id || op?.datos_calculo?.inputs?.drive_folder_id;
-        if (!driveFolderId) return res.status(400).json({ error: 'La oportunidad no tiene carpeta de Drive configurada.' });
 
         const driveService = require('../services/driveService');
         const { combineFilesToPdf } = require('../services/facturasCombineService');
-
-        // Carpeta "5. FACTURAS" (resolución tolerante para no crear duplicados).
-        const facturasFolderId = await driveService.getOrCreateSubfolderNormalized(driveFolderId, reformaUploadService.SUBCARPETA_FACTURAS);
+        const { facturasFolderId, driveFolderId } = await carpetaFacturas(op);
+        if (!facturasFolderId) return res.status(400).json({ error: 'La oportunidad no tiene carpeta de Drive configurada.' });
 
         const numExp = (exp.numero_expediente || op?.id_oportunidad || 'EXPEDIENTE').trim();
         const outName = `${numExp} - FACTURAS.pdf`;
 
-        // Ficheros origen: todo lo de "5. FACTURAS" salvo el propio combinado y subcarpetas (OLD).
-        const all = await driveService.listFiles(facturasFolderId);
-        const sources = all
-            .filter(f => f.mimeType !== 'application/vnd.google-apps.folder')
-            .filter(f => f.name !== outName)
-            .sort((a, b) => String(a.name).localeCompare(String(b.name), 'es', { numeric: true }));
-        if (!sources.length) return res.status(400).json({ error: 'No se han encontrado ficheros de factura en Drive.' });
+        // Ficheros VIVOS de la carpeta (listFiles ya excluye la papelera).
+        const enCarpeta = (await driveService.listFiles(facturasFolderId))
+            .filter(f => f.mimeType !== 'application/vnd.google-apps.folder' && f.name !== outName);
+        const vivosPorId = new Map(enCarpeta.map(f => [f.id, f]));
+
+        // Origen = las facturas de la lista, en su orden, deduplicadas por id de Drive.
+        // Si el id apuntado ya no está vivo (alguien vació el fichero a la papelera y
+        // quedó otra copia buena en la carpeta), se REPARA por nombre en vez de fallar.
+        const sinPdf = [];
+        const reparadas = [];
+        const vistos = new Set();
+        const sources = [];
+        for (const f of ordenarFacturas(facturas)) {
+            const etiqueta = f.numero_factura || '(sin nº)';
+            let id = facturaDriveId(f);
+            if (id && !vivosPorId.has(id)) {
+                let nombre = null;
+                try { nombre = (await driveService.getFileMetadata(id, 'id, name, trashed'))?.name || null; } catch { /* borrado */ }
+                const gemelo = nombre ? enCarpeta.find(x => x.name === nombre) : null;
+                if (gemelo) { id = gemelo.id; reparadas.push(`${etiqueta} → ${nombre}`); }
+                else id = null;
+            }
+            if (!id) { sinPdf.push(etiqueta); continue; }
+            if (vistos.has(id)) continue;
+            vistos.add(id);
+            sources.push({ id, name: etiqueta });
+        }
+        if (sinPdf.length) {
+            return res.status(400).json({
+                error: `No se encuentra en Drive el PDF de ${sinPdf.length} factura(s): ${sinPdf.join(', ')}. Vuelve a subirlas.`
+            });
+        }
+        if (!sources.length) return res.status(400).json({ error: 'Ninguna factura tiene PDF asociado.' });
 
         const combined = await combineFilesToPdf(sources);
         if (!combined) return res.status(500).json({ error: 'No se pudo generar el PDF (formatos no soportados).' });
 
-        // Reemplaza el combinado anterior si existía (mismo nombre → un único fichero).
+        // Borra TODOS los combinados previos con ese nombre (no solo el primero: si
+        // una regeneración anterior dejó dos, hay que llevarse los dos por delante).
         try {
-            const prev = await driveService.findFileByName(facturasFolderId, outName);
-            if (prev) await driveService.deleteFile(prev);
+            const previos = await driveService.findFilesByName(facturasFolderId, outName);
+            for (const prev of previos) await driveService.deleteFile(prev);
         } catch (e) { /* no bloquear la regeneración */ }
 
         const saved = await driveService.saveFileToFolder(facturasFolderId, outName, 'application/pdf', combined.buffer);
@@ -3003,13 +3105,19 @@ router.post('/:id/facturas/generar-pdf', enforceAuth, async (req, res) => {
         let auditLink = null;
         try {
             const auditFolderId = await driveService.getOrCreateSubfolderNormalized(driveFolderId, '10. EXPEDIENTE CAE');
-            const prevAudit = await driveService.findFileByName(auditFolderId, outName);
-            if (prevAudit) await driveService.deleteFile(prevAudit);
+            const previosAudit = await driveService.findFilesByName(auditFolderId, outName);
+            for (const prev of previosAudit) await driveService.deleteFile(prev);
             const copied = await driveService.copyFile(saved.id, auditFolderId, outName);
             if (copied?.link) auditLink = copied.link;
         } catch (copyErr) {
             console.warn('[facturas/generar-pdf] No se pudo copiar a "10. EXPEDIENTE CAE":', copyErr.message);
         }
+
+        // Huérfanos: ficheros de "5. FACTURAS" que no son de ninguna factura registrada
+        // ni el propio combinado. Son los que antes se colaban en el PDF.
+        const huerfanos = enCarpeta
+            .filter(f => !vistos.has(f.id))
+            .map(f => ({ id: f.id, name: f.name }));
 
         res.json({
             success: true,
@@ -3019,11 +3127,191 @@ router.post('/:id/facturas/generar-pdf', enforceAuth, async (req, res) => {
             count: sources.length,
             pages: combined.pages,
             skipped: combined.skipped,
-            audit_link: auditLink
+            audit_link: auditLink,
+            huerfanos,
+            reparadas
         });
     } catch (err) {
         console.error('Error POST expedientes/:id/facturas/generar-pdf:', err);
         res.status(500).json({ error: 'Error al generar el PDF de facturas', details: err.message });
+    } finally {
+        generandoCombinado.delete(expId);
+    }
+});
+
+// ─── DELETE /api/expedientes/:id/facturas/:driveId ────────────────────────────
+// Quita una factura del expediente Y archiva su PDF en "5. FACTURAS/OLD".
+//
+// Antes, borrar la fila en el modal solo la quitaba del JSON: el PDF seguía en la
+// carpeta y volvía a entrar en el combinado. Se ARCHIVA en vez de borrar (mismo
+// criterio que el resto de la app: nada se pierde, pero deja de contar).
+router.delete('/:id/facturas/:driveId', staffOnly, async (req, res) => {
+    try {
+        const { id, driveId } = req.params;
+        const { data: exp, error: expErr } = await supabase
+            .from('expedientes').select('id, oportunidad_id, documentacion').eq('id', id).maybeSingle();
+        if (expErr || !exp) return res.status(404).json({ error: 'Expediente no encontrado' });
+
+        const { data: op } = await supabase
+            .from('oportunidades').select('datos_calculo').eq('id', exp.oportunidad_id).single();
+
+        // 1) Archivar el fichero en OLD (best-effort: si Drive falla, la fila se quita igual;
+        //    el combinado ya no lo mira porque va por la lista, no por la carpeta).
+        let archivado = null;
+        try {
+            const driveService = require('../services/driveService');
+            const { facturasFolderId } = await carpetaFacturas(op);
+            if (facturasFolderId) {
+                const meta = await driveService.getFileMetadata(driveId, 'id, name');
+                if (meta?.name) archivado = await driveService.archiveExistingToOld(facturasFolderId, driveId, meta.name);
+            }
+        } catch (e) {
+            console.warn('[facturas/delete] no se pudo archivar en OLD:', e.message);
+        }
+
+        // 2) Quitar la fila (RPC atómica por oportunidad: no reescribe `documentacion` entera).
+        const { error: rpcErr } = await supabase.rpc('remove_expediente_factura_by_driveid', {
+            p_oportunidad_id: exp.oportunidad_id, p_drive_id: driveId
+        });
+        if (rpcErr) return res.status(500).json({ error: 'No se pudo quitar la factura', details: rpcErr.message });
+
+        res.json({ success: true, archivado });
+    } catch (err) {
+        console.error('Error DELETE expedientes/:id/facturas/:driveId:', err);
+        res.status(500).json({ error: 'Error al eliminar la factura', details: err.message });
+    }
+});
+
+// ─── POST /api/expedientes/:id/facturas/ocr ───────────────────────────────────
+// Sueltas la factura y la app hace el resto: la sube a "5. FACTURAS", la LEE con el
+// mismo OCR multimodal que ya usamos para los CEE, y pasa un FILTRO PREVIO de
+// incidencias cruzándola con el expediente (facturaIncidencias.js).
+//
+// Devuelve la fila lista para el modal + las incidencias PROPUESTAS. No registra
+// ninguna: las confirma una persona. La IA solo lee; el criterio es de las reglas.
+//
+// ADMIN-only: aquí se leen importes (regla de dinero del módulo).
+const facturaUpload = require('multer')({
+    storage: require('multer').memoryStorage(),
+    limits: { fileSize: 25 * 1024 * 1024, files: 20 },
+});
+
+// Nombre libre en la carpeta: nunca dos ficheros con el mismo nombre (Drive lo
+// permite, y son justo los homónimos los que despistan al reconciliar).
+async function nombreLibreEnCarpeta(driveService, folderId, base, ext) {
+    let candidate = `${base}${ext}`;
+    let n = 2;
+    while (await driveService.findFileByName(folderId, candidate)) {
+        candidate = `${base}_${n}${ext}`;
+        n++;
+    }
+    return candidate;
+}
+
+router.post('/:id/facturas/ocr', adminOnly, (req, res, next) => {
+    facturaUpload.array('files', 20)(req, res, (err) => {
+        if (err) {
+            if (err.code === 'LIMIT_FILE_SIZE') return res.status(413).json({ error: 'Algún fichero supera los 25 MB.' });
+            console.error('[facturaOcr] multer:', err.message);
+            return res.status(400).json({ error: 'No se pudieron procesar los ficheros.' });
+        }
+        next();
+    });
+}, async (req, res) => {
+    try {
+        const files = req.files || [];
+        if (!files.length) return res.status(400).json({ error: 'No se recibió ningún fichero (campo "files").' });
+
+        const { CEE_ECO_SELECT, rebuildCee } = require('../utils/ceeEcoFields');
+        const { data: expRaw, error: expErr } = await supabase
+            .from('expedientes')
+            .select(`id, numero_expediente, documentacion, instalacion, oportunidad_id, instalador_asociado_id, ${CEE_ECO_SELECT}`)
+            .eq('id', req.params.id)
+            .maybeSingle();
+        if (expErr || !expRaw) return res.status(404).json({ error: 'Expediente no encontrado' });
+        const exp = rebuildCee(expRaw);   // nunca traemos cee.xml_* (regla 22)
+
+        const { data: op } = await supabase
+            .from('oportunidades')
+            .select('id, ficha, datos_calculo, cliente_id, instalador_asociado_id, prescriptor_id')
+            .eq('id', exp.oportunidad_id).single();
+
+        // 1) Normalizar a PDF (una foto o varias páginas sueltas se unen antes de leer).
+        const ceeOcrService = require('../services/ceeOcrService');
+        let pdf;
+        try {
+            ({ pdf } = await ceeOcrService.normalizeToPdf(files));
+        } catch (e) {
+            return res.status(400).json({ error: e.message });
+        }
+
+        // 2) Leer la factura.
+        const facturaOcrService = require('../services/facturaOcrService');
+        let ocr;
+        try {
+            ocr = await facturaOcrService.extractFacturaFromPdf(pdf);
+        } catch (e) {
+            console.error('[facturaOcr] extracción falló:', e.message);
+            return res.status(e.status === 429 ? 429 : 502).json({ error: 'La lectura de la factura falló: ' + e.message });
+        }
+
+        // 3) Guardar en "5. FACTURAS" con un nombre que identifique la factura.
+        const driveService = require('../services/driveService');
+        const { facturasFolderId } = await carpetaFacturas(op);
+        if (!facturasFolderId) return res.status(400).json({ error: 'La oportunidad no tiene carpeta de Drive configurada.' });
+
+        const numLimpio = String(ocr.numero_factura || '').replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '');
+        const base = numLimpio ? `FACTURA_${numLimpio}` : (files[0].originalname || 'FACTURA').replace(/\.[a-z0-9]+$/i, '');
+        const fileName = await nombreLibreEnCarpeta(driveService, facturasFolderId, base, '.pdf');
+        const saved = await driveService.saveFileToFolder(facturasFolderId, fileName, 'application/pdf', pdf);
+        if (!saved?.link) return res.status(500).json({ error: 'La factura se ha leído pero no se pudo guardar en Drive.' });
+
+        // 4) Filtro previo de incidencias (determinista, sobre el JSON del OCR).
+        const [{ data: cliente }, { data: instalador }] = await Promise.all([
+            op?.cliente_id
+                ? supabase.from('clientes').select('nombre_razon_social, apellidos, dni, direccion, municipio, codigo_postal').eq('id_cliente', op.cliente_id).maybeSingle()
+                : Promise.resolve({ data: null }),
+            (exp.instalador_asociado_id || op?.instalador_asociado_id || op?.prescriptor_id)
+                ? supabase.from('prescriptores').select('razon_social, cif').eq('id_empresa', exp.instalador_asociado_id || op.instalador_asociado_id || op.prescriptor_id).maybeSingle()
+                : Promise.resolve({ data: null }),
+        ]);
+
+        // Bono CAE del cliente para el control de sobrefinanciación (best-effort: si no
+        // se puede calcular, esa regla sencillamente no se aplica).
+        let caeEstimado = null;
+        try {
+            const { computeExpedienteFinancialsNode } = require('../services/expedienteFinancialsNode');
+            const fin = await computeExpedienteFinancialsNode(exp, op);
+            caeEstimado = fin?.cae ?? null;
+        } catch (e) { console.warn('[facturaOcr] CAE estimado:', e.message); }
+
+        const { detectarIncidenciasFactura } = require('../services/facturaIncidencias');
+        const incidencias = detectarIncidenciasFactura({
+            ocr, exp, op, cliente, instalador,
+            facturasExistentes: Array.isArray(exp.documentacion?.facturas) ? exp.documentacion.facturas : [],
+            caeEstimado,
+        });
+
+        // 5) Fila lista para el modal. NO se persiste aquí: la añade el frontend con el
+        //    resto de la documentación (una sola forma de guardar el expediente).
+        res.json({
+            success: true,
+            provider: facturaOcrService.PROVIDER,
+            factura: {
+                numero_factura: ocr.numero_factura || '',
+                fecha_factura: ocr.fecha_factura || null,
+                importe_sin_iva: ocr.totales?.base_imponible ?? 0,
+                drive_link: saved.link,
+                drive_id: saved.id,
+                origen: 'ocr',
+                validada: false,
+            },
+            ocr,
+            incidencias,
+        });
+    } catch (err) {
+        console.error('Error POST expedientes/:id/facturas/ocr:', err);
+        res.status(500).json({ error: 'Error procesando la factura', details: err.message });
     }
 });
 

@@ -74,10 +74,18 @@ function carpetaObjetivoOportunidad(estado) {
 // ─── Lotes ────────────────────────────────────────────────────────────────────
 // El lote se lleva dentro las carpetas de sus expedientes, así que su estado
 // arrastra a todo el grupo.
+// Los estados intermedios del papeleo (firma del S.O., oferta) NO mueven la carpeta:
+// el lote no sale de "06. REVISADO LISTO PARA VERIFICAR" hasta que la oferta vuelve
+// firmada y de verdad se envía a verificar (decisión usuario 2026-08-03). Mover 5
+// carpetas de expediente en cada hito intermedio no aporta nada y da ruido en Drive.
 const CARPETA_LOTE = {
     'BORRADOR':                             FOLDERS.LISTO_VERIFICAR,
     'SOLICITADO PRESUPUESTO A VERIFICADOR':  FOLDERS.LISTO_VERIFICAR,
+    'PTE. FIRMA S.O.':                       FOLDERS.LISTO_VERIFICAR,
+    'PTE. OFERTA VERIFICADOR':               FOLDERS.LISTO_VERIFICAR,
+    'PTE. FIRMA OFERTA S.O.':                FOLDERS.LISTO_VERIFICAR,
     'ENVIADO A VERIFICADOR':                 FOLDERS.ENVIADOS_VERIFICAR,
+    'VERIFICADO':                            FOLDERS.ENVIADOS_VERIFICAR,
     'PTE. SUBIDA MITECO':                    FOLDERS.ENVIADOS_VERIFICAR,
     'REQUERIMIENTO VERIFICADOR':             FOLDERS.REQUERIMIENTO,
     'REQUERIMIENTO G.A.':                    FOLDERS.REQUERIMIENTO,

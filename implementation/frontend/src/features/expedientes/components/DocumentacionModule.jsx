@@ -39,18 +39,16 @@ const FIRMABLES_CON_CERTIFICADO = new Set([
     'anexo_fotografico_signed_link',
 ]);
 
+// Documentos que se pueden abrir YA firmando desde un enlace externo
+// (`/?exp=<id>&firmar=<clave>`): el aviso de "falta tu firma en el Anexo de Cesión"
+// manda `firmar=cesion` y, al abrir el expediente, salta directamente el popup de
+// Autofirma sobre el PDF que subió el cliente. Solo claves de FIRMABLES_CON_CERTIFICADO.
+const AUTO_FIRMA_DOCS = {
+    cesion: { field: 'anexo_cesion_signed_link', label: 'Anexo Cesión de Ahorro' },
+    fotografico: { field: 'anexo_fotografico_signed_link', label: 'Anexo Fotográfico' },
+};
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-// Convierte un ArrayBuffer a base64 POR TROZOS. Evita el "Maximum call stack size
-// exceeded" de `String.fromCharCode(...array)` con ficheros grandes (PDFs).
-function arrayBufferToBase64(arrayBuffer) {
-    const bytes = new Uint8Array(arrayBuffer);
-    let binary = '';
-    const chunk = 0x8000;
-    for (let i = 0; i < bytes.length; i += chunk) {
-        binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
-    }
-    return btoa(binary);
-}
 
 function ValidationModal({ isOpen, onClose, missingFields, onConfirm, docName }) {
     if (!isOpen) return null;
@@ -207,16 +205,47 @@ function formatDateDisplay(dateStr) {
 }
 
 // ─── Componente de Facturas ───────────────────────────────────────────────────
-function FacturasSection({ expedienteId, facturas, onChange, readOnly, onGenerateCombined, combinedLink, generating }) {
+// Id de Drive de una factura. Las antiguas se guardaron solo con `drive_link`, así
+// que hay que saber sacarlo del enlace para poder borrarlas de la carpeta.
+function driveIdDeFactura(f) {
+    if (f?.drive_id) return f.drive_id;
+    const s = String(f?.drive_link || '');
+    const m = /\/file\/d\/([A-Za-z0-9_-]{10,})/.exec(s) || /[?&]id=([A-Za-z0-9_-]{10,})/.exec(s);
+    return m ? m[1] : null;
+}
+
+function FacturasSection({ expedienteId, facturas, onChange, onCommit, readOnly, onGenerateCombined, combinedLink, generating, huerfanos, ultimoCombinado }) {
     const { user } = useAuth();
     const isAdmin = user?.rol === 'ADMIN';
     const [uploading, setUploading] = useState({}); // idx → bool
+    const [ocrBusy, setOcrBusy] = useState(false);
+    const [dragOver, setDragOver] = useState(false);
+    // Resultado del último OCR pendiente de confirmar: { numero, incidencias[] }.
+    // Las incidencias se PROPONEN; solo se registran las que el usuario deja marcadas.
+    const [revision, setRevision] = useState(null);
+    const [incSel, setIncSel] = useState(new Set());
+    const [regBusy, setRegBusy] = useState(false);
 
     const addFactura = () => {
         onChange([...facturas, { numero_factura: '', fecha_factura: null, importe_sin_iva: 0, drive_link: null, validada: false }]);
     };
-    const removeFactura = (idx) => {
-        onChange(facturas.filter((_, i) => i !== idx));
+
+    // Quitar una factura: además de sacarla de la lista, ARCHIVA su PDF en
+    // "5. FACTURAS/OLD". Si solo se quitaba la fila, el fichero seguía en la carpeta
+    // y volvía a colarse en el PDF combinado (era el origen del "una factura, dos PDF").
+    const removeFactura = async (idx) => {
+        const f = facturas[idx];
+        const driveId = driveIdDeFactura(f);
+        if (driveId && expedienteId) {
+            try {
+                await axios.delete(`/api/expedientes/${expedienteId}/facturas/${driveId}`);
+            } catch (err) {
+                console.warn('No se pudo archivar el PDF de la factura:', err);
+            }
+        }
+        // El backend ya ha quitado la fila del JSON; persistimos para no dejar el
+        // estado local por detrás de la BD.
+        (onCommit || onChange)(facturas.filter((_, i) => i !== idx));
     };
     const updateFactura = (idx, field, val) => {
         const updated = facturas.map((f, i) => i === idx ? { ...f, [field]: val || null } : f);
@@ -231,33 +260,96 @@ function FacturasSection({ expedienteId, facturas, onChange, readOnly, onGenerat
     // Todas subidas (con PDF) y validadas → habilita el PDF único.
     const canGenerate = facturas.length > 0 && facturas.every(f => f.drive_link && f.validada);
 
-    const handleFileUpload = async (idx, file) => {
-        if (!file || !expedienteId) return;
-        setUploading(u => ({ ...u, [idx]: true }));
+    // Sube la factura y la LEE (OCR). `idx = null` → alta nueva; con idx, rellena esa
+    // fila sin pisar lo que ya esté escrito a mano (el OCR propone, no manda).
+    const procesarFactura = async (fileList, idx = null) => {
+        const files = Array.from(fileList || []).filter(Boolean);
+        if (!files.length || !expedienteId) return;
+        if (idx === null) setOcrBusy(true); else setUploading(u => ({ ...u, [idx]: true }));
         try {
-            const arrayBuffer = await file.arrayBuffer();
-            // Conversión a base64 POR TROZOS. `String.fromCharCode(...array)` con el
-            // spread de un PDF (>100 KB) revienta el stack ("Maximum call stack size
-            // exceeded") y caía en el catch genérico "Comprueba la configuración de Drive".
-            const base64 = arrayBufferToBase64(arrayBuffer);
-            const { data } = await axios.post(`/api/expedientes/${expedienteId}/facturas/upload`, {
-                base64,
-                fileName: file.name,
-                mimeType: file.type || 'application/pdf'
-            });
-            // Guardar enlace + driveId (necesario para dedup y para el PDF combinado).
-            // Subir una nueva versión invalida la validación previa de esa factura.
-            onChange(facturas.map((f, i) => i === idx
-                ? { ...f, drive_link: data.drive_link, drive_id: data.drive_id, validada: false }
-                : f));
+            // Si la fila ya tenía PDF (Reemplazar), se archiva el anterior antes de subir
+            // el nuevo: si no, quedan los dos en la carpeta.
+            if (idx !== null) {
+                const prevId = driveIdDeFactura(facturas[idx]);
+                if (prevId) {
+                    try { await axios.delete(`/api/expedientes/${expedienteId}/facturas/${prevId}`); }
+                    catch (e) { console.warn('No se pudo archivar el PDF anterior:', e); }
+                }
+            }
+
+            const form = new FormData();
+            files.forEach(f => form.append('files', f));
+            const { data } = await axios.post(`/api/expedientes/${expedienteId}/facturas/ocr`, form);
+
+            // El fichero YA está en Drive: la fila se persiste de inmediato (autoguardado,
+            // modelo C del módulo). Si se dejara solo en estado local y se cerrase el modal
+            // sin guardar, el PDF quedaría huérfano en la carpeta.
+            const guardar = onCommit || onChange;
+            const leida = data.factura || {};
+            if (idx === null) {
+                guardar([...facturas, leida]);
+            } else {
+                // Solo rellena los huecos: si ya habías escrito el nº o el importe, manda lo tuyo.
+                guardar(facturas.map((f, i) => i !== idx ? f : {
+                    ...f,
+                    numero_factura: f.numero_factura || leida.numero_factura || '',
+                    fecha_factura: f.fecha_factura || leida.fecha_factura || null,
+                    importe_sin_iva: Number(f.importe_sin_iva) || leida.importe_sin_iva || 0,
+                    drive_link: leida.drive_link,
+                    drive_id: leida.drive_id,
+                    origen: 'ocr',
+                    validada: false,   // una versión nueva vuelve a estar sin validar
+                }));
+            }
+
+            const incidencias = data.incidencias || [];
+            setRevision({ numero: leida.numero_factura || '', incidencias, ocr: data.ocr });
+            setIncSel(new Set(incidencias.map((_, i) => i)));   // se proponen todas marcadas
         } catch (err) {
-            console.error('Error subiendo factura:', err);
+            console.error('Error procesando la factura:', err);
             const detail = err.response?.data?.error || err.response?.data?.details || err.message || '';
-            alert('Error al subir la factura a Drive.' + (detail ? `\n\nDetalle: ${detail}` : ' Comprueba la configuración de Drive.'));
+            alert('No se pudo procesar la factura.' + (detail ? `\n\nDetalle: ${detail}` : ''));
         } finally {
-            setUploading(u => ({ ...u, [idx]: false }));
+            if (idx === null) setOcrBusy(false); else setUploading(u => ({ ...u, [idx]: false }));
         }
     };
+
+    // Da de alta en el expediente SOLO las incidencias que sigan marcadas.
+    const registrarIncidencias = async () => {
+        const elegidas = (revision?.incidencias || []).filter((_, i) => incSel.has(i));
+        if (!elegidas.length) { setRevision(null); return; }
+        setRegBusy(true);
+        try {
+            for (const inc of elegidas) {
+                const texto = [
+                    `${inc.titulo}. ${inc.texto}`,
+                    inc.evidencia ? `\nEvidencia en la factura: ${inc.evidencia}` : '',
+                    `\nDetectado al subir la factura ${revision.numero || '(sin nº)'}.`,
+                ].join('');
+                await axios.post(`/api/expedientes/${expedienteId}/incidencias`, {
+                    texto,
+                    severidad: inc.severidad,
+                    procedencia: 'AGENTE_IA',
+                });
+            }
+            alert(`${elegidas.length} incidencia(s) registrada(s) en el expediente.`);
+        } catch (err) {
+            alert(err.response?.data?.error || 'No se pudieron registrar las incidencias.');
+        } finally {
+            setRegBusy(false);
+            setRevision(null);
+        }
+    };
+
+    const dropProps = !readOnly && !ocrBusy ? {
+        onDragOver: (e) => { if (e.dataTransfer?.types?.includes('Files')) { e.preventDefault(); e.stopPropagation(); setDragOver(true); } },
+        onDragLeave: () => setDragOver(false),
+        onDrop: (e) => {
+            if (!e.dataTransfer?.types?.includes('Files')) return;
+            e.preventDefault(); e.stopPropagation(); setDragOver(false);
+            procesarFactura(e.dataTransfer.files, null);
+        },
+    } : {};
 
     return (
         <div>
@@ -275,6 +367,119 @@ function FacturasSection({ expedienteId, facturas, onChange, readOnly, onGenerat
                     </button>
                 )}
             </div>
+
+            {/* SOLTAR FACTURA → OCR. Sube, lee los datos y cruza con el expediente en
+                una sola operación. Lo que detecte se PROPONE abajo; no registra nada solo. */}
+            {!readOnly && (
+                <label
+                    {...dropProps}
+                    className={`flex flex-col items-center justify-center gap-1.5 w-full mb-4 rounded-xl border border-dashed px-4 py-5 text-center transition-all ${
+                        ocrBusy
+                            ? 'border-brand/40 bg-brand/[0.04] text-brand/70 cursor-wait'
+                            : dragOver
+                                ? 'border-brand bg-brand/[0.08] text-brand cursor-copy'
+                                : 'border-white/10 text-white/35 hover:border-white/25 hover:text-white/60 cursor-pointer'
+                    }`}
+                >
+                    {ocrBusy ? (
+                        <>
+                            <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                            </svg>
+                            <span className="text-[11px] font-black uppercase tracking-widest">Leyendo la factura…</span>
+                        </>
+                    ) : (
+                        <>
+                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9 13h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V20a2 2 0 01-2 2z" />
+                            </svg>
+                            <span className="text-[11px] font-black uppercase tracking-widest">Suelta aquí la factura</span>
+                            <span className="text-[10px] normal-case opacity-70">PDF o foto · rellena nº, fecha e importe y revisa incidencias</span>
+                        </>
+                    )}
+                    <input
+                        type="file" multiple accept=".pdf,image/*" className="hidden" disabled={ocrBusy}
+                        onChange={e => { procesarFactura(e.target.files, null); e.target.value = ''; }}
+                    />
+                </label>
+            )}
+
+            {/* Revisión del OCR: incidencias PROPUESTAS. Solo se registran las marcadas. */}
+            {revision && (
+                <div className="mb-4 rounded-xl border border-white/10 bg-bkg-elevated/60 overflow-hidden">
+                    <div className="px-4 py-3 border-b border-white/[0.06] flex items-center justify-between gap-3">
+                        <p className="text-[11px] font-black uppercase tracking-widest text-white/70">
+                            {revision.incidencias.length
+                                ? `${revision.incidencias.length} posible(s) incidencia(s)`
+                                : 'Factura leída sin incidencias'}
+                        </p>
+                        <button onClick={() => setRevision(null)} className="text-white/25 hover:text-white/60 transition-colors" title="Cerrar">
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                        </button>
+                    </div>
+                    {revision.incidencias.length === 0 ? (
+                        <p className="px-4 py-3 text-[11px] text-emerald-400/80 normal-case">
+                            Nada que objetar: titular, alcance, fechas e importes cuadran con el expediente.
+                        </p>
+                    ) : (
+                        <>
+                            <div className="max-h-72 overflow-y-auto divide-y divide-white/[0.05]">
+                                {revision.incidencias.map((inc, i) => (
+                                    <label key={i} className="flex gap-3 px-4 py-3 cursor-pointer hover:bg-white/[0.02] transition-colors">
+                                        <input
+                                            type="checkbox" checked={incSel.has(i)}
+                                            onChange={() => setIncSel(prev => {
+                                                const next = new Set(prev);
+                                                next.has(i) ? next.delete(i) : next.add(i);
+                                                return next;
+                                            })}
+                                            className="mt-1 accent-brand w-3.5 h-3.5 flex-shrink-0"
+                                        />
+                                        <div className="min-w-0">
+                                            <p className="flex items-center gap-2 flex-wrap">
+                                                <span className={`px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-widest ${
+                                                    inc.severidad === 'GRAVE'
+                                                        ? 'bg-red-500/15 text-red-400 border border-red-500/25'
+                                                        : 'bg-amber-500/15 text-amber-400 border border-amber-500/25'
+                                                }`}>{inc.severidad}</span>
+                                                <span className="text-[12px] font-bold text-white/85 normal-case">{inc.titulo}</span>
+                                            </p>
+                                            <p className="text-[11px] text-white/45 normal-case mt-1 leading-snug">{inc.texto}</p>
+                                            {inc.evidencia && (
+                                                <p className="text-[10px] text-white/30 normal-case mt-1 italic truncate">{inc.evidencia}</p>
+                                            )}
+                                        </div>
+                                    </label>
+                                ))}
+                            </div>
+                            <div className="px-4 py-3 bg-white/[0.02] border-t border-white/[0.06] flex justify-end gap-2">
+                                <button onClick={() => setRevision(null)} disabled={regBusy}
+                                        className="px-4 py-2 rounded-lg border border-white/10 text-white/50 text-[10px] font-black uppercase tracking-widest hover:text-white hover:border-white/30 transition-all disabled:opacity-40">
+                                    No registrar
+                                </button>
+                                <button onClick={registrarIncidencias} disabled={regBusy || incSel.size === 0}
+                                        className="px-4 py-2 rounded-lg bg-brand/10 border border-brand/30 text-brand text-[10px] font-black uppercase tracking-widest hover:bg-brand hover:text-bkg-deep transition-all disabled:opacity-40">
+                                    {regBusy ? 'Registrando…' : `Registrar ${incSel.size}`}
+                                </button>
+                            </div>
+                        </>
+                    )}
+                </div>
+            )}
+
+            {/* Ficheros sueltos en "5. FACTURAS" que no corresponden a ninguna factura de
+                la lista. Ya NO entran en el PDF combinado, pero conviene limpiarlos. */}
+            {!readOnly && isAdmin && huerfanos?.length > 0 && (
+                <div className="mb-4 rounded-xl border border-amber-500/25 bg-amber-500/[0.06] px-4 py-3">
+                    <p className="text-[11px] font-black uppercase tracking-widest text-amber-400">
+                        {huerfanos.length} fichero(s) sueltos en la carpeta
+                    </p>
+                    <p className="text-[11px] text-white/50 normal-case mt-1 leading-snug">
+                        Están en "5. FACTURAS" pero no corresponden a ninguna factura registrada, así que
+                        no entran en el PDF único: {huerfanos.map(h => h.name).join(', ')}.
+                    </p>
+                </div>
+            )}
 
             {facturas.length === 0 ? (
                 <p className="text-white/30 text-xs italic">Sin facturas.</p>
@@ -331,9 +536,10 @@ function FacturasSection({ expedienteId, facturas, onChange, readOnly, onGenerat
                                                 </a>
                                             )}
                                             {!readOnly && (
-                                                <label className="cursor-pointer text-xs text-white/30 hover:text-white/60">
-                                                    Reemplazar
-                                                    <input type="file" accept=".pdf,image/*" className="hidden" onChange={e => handleFileUpload(idx, e.target.files[0])} />
+                                                <label className={`text-xs ${uploading[idx] ? 'text-brand/60 cursor-wait' : 'cursor-pointer text-white/30 hover:text-white/60'}`}>
+                                                    {uploading[idx] ? 'Leyendo…' : 'Reemplazar'}
+                                                    <input type="file" accept=".pdf,image/*" className="hidden" disabled={uploading[idx]}
+                                                           onChange={e => { procesarFactura(e.target.files, idx); e.target.value = ''; }} />
                                                 </label>
                                             )}
                                             {/* Validación de la factura (solo ADMIN). Verde = validada. */}
@@ -370,7 +576,7 @@ function FacturasSection({ expedienteId, facturas, onChange, readOnly, onGenerat
                                                     <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                                                     </svg>
-                                                    Subiendo a Drive...
+                                                    Leyendo y subiendo a Drive...
                                                 </>
                                             ) : (
                                                 <>
@@ -383,9 +589,10 @@ function FacturasSection({ expedienteId, facturas, onChange, readOnly, onGenerat
                                             <input
                                                 type="file"
                                                 accept=".pdf,image/*"
+                                                multiple
                                                 className="hidden"
                                                 disabled={uploading[idx]}
-                                                onChange={e => handleFileUpload(idx, e.target.files[0])}
+                                                onChange={e => { procesarFactura(e.target.files, idx); e.target.value = ''; }}
                                             />
                                         </label>
                                     ) : (
@@ -409,12 +616,32 @@ function FacturasSection({ expedienteId, facturas, onChange, readOnly, onGenerat
                                     ? 'Todas validadas. Genera un único PDF con todas las facturas.'
                                     : 'Sube y valida todas las facturas para poder generar el PDF único.'}
                             </p>
+                            {/* El combinado se guarda en "5. FACTURAS" y se COPIA a
+                                "10. EXPEDIENTE CAE" (la carpeta canónica que revisa el
+                                auditor). Se dice aquí porque, si no, ver el mismo PDF en
+                                dos carpetas parece que se haya generado dos veces. */}
                             {combinedLink && isAdmin && (
-                                <a href={combinedLink} target="_blank" rel="noopener noreferrer"
-                                   className="text-[11px] text-brand/80 hover:text-brand font-bold inline-flex items-center gap-1 mt-1.5">
-                                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
-                                    Ver PDF combinado en Drive
-                                </a>
+                                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-1.5">
+                                    <a href={combinedLink} target="_blank" rel="noopener noreferrer"
+                                       className="text-[11px] text-brand/80 hover:text-brand font-bold inline-flex items-center gap-1">
+                                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
+                                        Ver en 5. FACTURAS
+                                    </a>
+                                    {ultimoCombinado?.auditLink && (
+                                        <a href={ultimoCombinado.auditLink} target="_blank" rel="noopener noreferrer"
+                                           className="text-[11px] text-white/40 hover:text-white/70 font-bold inline-flex items-center gap-1">
+                                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
+                                            Copia en 10. EXPEDIENTE CAE
+                                        </a>
+                                    )}
+                                </div>
+                            )}
+                            {combinedLink && isAdmin && (
+                                <p className="text-white/25 text-[10px] normal-case mt-1 leading-snug">
+                                    Es el MISMO PDF en dos carpetas: el de trabajo en "5. FACTURAS" y la copia
+                                    para el auditor en "10. EXPEDIENTE CAE".
+                                    {ultimoCombinado && ` Última generación: ${ultimoCombinado.count} factura(s) → ${ultimoCombinado.pages} página(s).`}
+                                </p>
                             )}
                         </div>
                         <button
@@ -437,7 +664,7 @@ function FacturasSection({ expedienteId, facturas, onChange, readOnly, onGenerat
 }
 
 // ─── Componente Principal ─────────────────────────────────────────────────────
-export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, results, onEditCliente }) {
+export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, results, onEditCliente, autoFirmarDoc, onAutoFirmarDocDone }) {
     const { user } = useAuth();
     const isReforma = expediente?.oportunidades?.ficha === 'RES080' || expediente?.numero_expediente?.includes('RES080');
     const isHybrid  = expediente?.oportunidades?.ficha === 'RES093' || expediente?.numero_expediente?.includes('RES093');
@@ -814,26 +1041,53 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
         });
     };
 
+    // Cambios de facturas que YA han tocado Drive (alta por OCR, borrado): se persisten
+    // en el acto para que la BD no quede por detrás de la carpeta.
+    const handleFacturasCommit = (facturas) => {
+        setLocal(prev => {
+            const next = { ...prev, facturas };
+            const cifo = calcCifo(next);
+            const merged = { ...next, fecha_inicio_cifo: cifo.inicio, fecha_fin_cifo: cifo.fin };
+            onSave({ documentacion: merged });
+            return merged;
+        });
+    };
+
     // Genera un ÚNICO PDF con todas las facturas ("{nº expte} - FACTURAS.pdf" en la
     // carpeta "5. FACTURAS"). Requiere que todas estén subidas y validadas: primero
     // persistimos (el backend relee las validaciones) y luego llamamos al endpoint.
     const [generatingFacturas, setGeneratingFacturas] = useState(false);
+    const [huerfanosFacturas, setHuerfanosFacturas] = useState([]);
+    const [ultimoCombinado, setUltimoCombinado] = useState(null);
+    // Guarda de reentrada. El estado de React se confirma en el siguiente render, así
+    // que `generatingFacturas` NO sirve para frenar una segunda llamada disparada en
+    // el mismo ciclo: dos POST solapados creaban DOS PDF combinados en Drive.
+    const generandoRef = useRef(false);
+
     const handleGenerateFacturasPdf = async () => {
-        if (!expediente?.id) return;
+        if (!expediente?.id || generandoRef.current) return;
+        generandoRef.current = true;
         setGeneratingFacturas(true);
         try {
             await onSave({ documentacion: local });
             const { data } = await axios.post(`/api/expedientes/${expediente.id}/facturas/generar-pdf`);
-            setLocal(prev => {
-                const next = { ...prev, facturas_combined_link: data.drive_link };
-                onSave({ documentacion: next });
-                return next;
-            });
-            const extra = data.skipped?.length ? `\n\n(${data.skipped.length} fichero(s) omitido(s) por formato no soportado.)` : '';
-            alert(`PDF único generado con ${data.count} factura(s).${extra}`);
+            setHuerfanosFacturas(data.huerfanos || []);
+            setUltimoCombinado({ auditLink: data.audit_link || null, count: data.count, pages: data.pages });
+            const next = { ...local, facturas_combined_link: data.drive_link };
+            setLocal(next);
+            await onSave({ documentacion: next });
+            // Se dice cuántas páginas salen: si una factura de 1 página produjera 2,
+            // se ve en el aviso en vez de descubrirlo abriendo el PDF.
+            const avisos = [];
+            if (data.skipped?.length) avisos.push(`${data.skipped.length} fichero(s) omitido(s) por formato no soportado.`);
+            if (data.reparadas?.length) avisos.push(`Se ha recuperado el PDF de: ${data.reparadas.join(', ')}.`);
+            if (data.huerfanos?.length) avisos.push(`${data.huerfanos.length} fichero(s) sueltos en la carpeta NO se han incluido.`);
+            alert(`PDF único generado: ${data.count} factura(s) → ${data.pages} página(s).`
+                + (avisos.length ? `\n\n${avisos.join('\n')}` : ''));
         } catch (err) {
             alert(err.response?.data?.error || 'No se pudo generar el PDF de facturas.');
         } finally {
+            generandoRef.current = false;
             setGeneratingFacturas(false);
         }
     };
@@ -846,7 +1100,7 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
     React.useEffect(() => {
         const facturas = local.facturas || [];
         const allDone = facturas.length > 0 && facturas.every(f => f.drive_link && f.validada);
-        if (allDone && !local.facturas_combined_link && !generatingFacturas) {
+        if (allDone && !local.facturas_combined_link && !generandoRef.current) {
             handleGenerateFacturasPdf();
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1172,6 +1426,26 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
         }
     };
 
+    // ── Firma automática al llegar por enlace (?firmar=<clave>) ───────────────
+    // El aviso de "falta tu firma en el Anexo de Cesión" (email y WhatsApp) trae el
+    // enlace `/?exp=<id>&firmar=cesion`: al abrir el expediente se despliega este
+    // módulo y aquí se lanza el popup de Autofirma sin más clicks — el mismo gesto de
+    // un-click que la firma de las fichas del lote. A partir de ahí todo sigue el
+    // camino normal (handleDocumentoFirmado → sube a Drive, contrafirma y valida).
+    const autoFirmaRef = React.useRef(null);
+    React.useEffect(() => {
+        const spec = autoFirmarDoc ? AUTO_FIRMA_DOCS[autoFirmarDoc] : null;
+        if (!spec || autoFirmaRef.current === autoFirmarDoc) return;
+        autoFirmaRef.current = autoFirmarDoc;         // una sola vez por enlace
+        onAutoFirmarDocDone?.();
+        // Nada que firmar: aún no hay PDF del cliente, o ya lo firmamos nosotros
+        // (p. ej. al reabrir el enlace del correo). Se deja el módulo abierto y ya.
+        if (!local[spec.field]) return;
+        if (spec.field === 'anexo_cesion_signed_link' && local.cesion_firmado_brokergy) return;
+        openFirmarConCertificado(spec.field, spec.label);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [autoFirmarDoc, local[AUTO_FIRMA_DOCS[autoFirmarDoc]?.field]]);
+
     // ── Rechazo de documento: marca docs_rechazados (recuadro rojo) y, si se elige
     // cliente/instalador, envía el aviso por WhatsApp/email para que lo corrijan.
     const isRejected = (field) => !!local.docs_rechazados?.[field];
@@ -1209,6 +1483,18 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
         return null;
     };
 
+    // Anexos que GENERAMOS nosotros y firma el cliente desde /firmar-anexos. Rechazar
+    // uno de éstos no basta: el enlace del cliente sirve el BORRADOR de Drive, así que
+    // mientras no se regenere y se reenvíe, el cliente se descarga el mismo PDF con el
+    // error y lo firma otra vez igual (caso real: nº de serie erróneos en el Anexo I).
+    // El backend bloquea ese borrador hasta que se reenvía; aquí encadenamos el rechazo
+    // con el envío del anexo corregido para que no quede a medias.
+    const ANEXO_REGENERABLE = {
+        anexo_i_signed_link: 'anexo1',
+        anexo_cesion_signed_link: 'cesion',
+    };
+    const rejectRegenKey = rejectDoc ? ANEXO_REGENERABLE[rejectDoc.field] : null;
+
     const buildRejectMessage = (t, field, label, motivo) => {
         const nombre = recipientName(t);
         const numExp = expediente?.numero_expediente || '';
@@ -1237,22 +1523,39 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
         setManagingSigned(null);
     };
 
-    const confirmRejectDoc = async () => {
+    // `reenviar` → tras registrar el rechazo abre el envío de anexos con el documento
+    // ya marcado: el PDF se REGENERA con los datos actuales del expediente, viaja
+    // adjunto y actualiza el borrador de Drive (que es lo que firma el cliente).
+    const confirmRejectDoc = async (reenviar = false) => {
         if (!rejectMotivo.trim() || !rejectDoc) return;
         setRejectSending(true); setRejectError(null);
         try {
-            const target = rejectTarget === 'cliente' ? 'CLIENTE' : rejectTarget === 'instalador' ? 'INSTALADOR' : 'NINGUNO';
+            // Al reenviar, el aviso va con el anexo corregido adjunto: un mensaje suelto
+            // ahora solo serviría para mandar al cliente a firmar un anexo bloqueado.
+            const target = reenviar ? 'NINGUNO'
+                : rejectTarget === 'cliente' ? 'CLIENTE' : rejectTarget === 'instalador' ? 'INSTALADOR' : 'NINGUNO';
+            const motivo = rejectMotivo.trim();
             const { data } = await axios.post(`/api/expedientes/${expediente.id}/documentos/rechazar`, {
                 field: rejectDoc.field,
                 label: rejectDoc.label,
-                motivo: rejectMotivo.trim(),
+                motivo,
                 target,
                 channels: ['whatsapp', 'email'],
                 mensaje: target === 'NINGUNO' ? '' : rejectMsg,
             });
             // Fusiona SOLO lo que persistió el backend (no pisa ediciones locales sin guardar).
             setLocal(prev => ({ ...prev, docs_rechazados: data.docs_rechazados, docs_validados: data.docs_validados, historial: data.historial }));
+            const regenKey = ANEXO_REGENERABLE[rejectDoc.field];
+            const label = rejectDoc.label;
             setRejectDoc(null); setRejectMotivo(''); setRejectMsg('');
+            if (reenviar && regenKey) {
+                setEnviarAnexos({
+                    open: true,
+                    docs: [regenKey],
+                    overrides: null,
+                    nota: `Hemos corregido el ${label} (${motivo}). Firma esta versión nueva: la anterior no es válida.`,
+                });
+            }
         } catch (e) {
             setRejectError(e.response?.data?.error || 'No se pudo rechazar el documento.');
         } finally {
@@ -1431,6 +1734,7 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                 results={results}
                 initialDocs={enviarAnexos.docs}
                 overrides={enviarAnexos.overrides}
+                initialNote={enviarAnexos.nota}
                 onMarkSent={markAnexosSent}
                 onEditCliente={onEditCliente}
             />
@@ -2458,6 +2762,18 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                                 <label className="block text-[10px] font-black uppercase tracking-widest text-white/40 mb-2">¿Por qué se rechaza?</label>
                                 <textarea value={rejectMotivo} onChange={e => setRejectMotivo(e.target.value)} rows={2} placeholder="Ej: el importe no coincide con la base imponible" className="no-uppercase w-full bg-bkg-elevated border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-red-400/50 resize-none" />
                             </div>
+                            {rejectRegenKey && (
+                                <div className="rounded-xl border border-amber-400/25 bg-amber-500/[0.06] p-3.5">
+                                    <p className="text-[11px] text-amber-300 font-bold leading-snug flex gap-2">
+                                        <svg className="w-4 h-4 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" /></svg>
+                                        <span>Este anexo lo generamos nosotros. Al rechazarlo, <span className="font-black">el enlace de firma del cliente queda bloqueado</span> hasta que le reenvíes la versión corregida — así no vuelve a firmar la que tiene el error. <span className="font-black">Corrige antes los datos en el expediente</span>: el anexo se regenera con lo que haya guardado al enviarlo.</span>
+                                    </p>
+                                </div>
+                            )}
+                            {/* Los anexos regenerables no ofrecen "aviso suelto": el mensaje va con
+                                el PDF corregido adjunto desde el popup de envío (paso siguiente). */}
+                            {!rejectRegenKey && (
+                                <>
                             <div>
                                 <label className="block text-[10px] font-black uppercase tracking-widest text-white/40 mb-2">Enviar a corregir a</label>
                                 <div className="grid grid-cols-3 gap-2">
@@ -2477,12 +2793,21 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                                     <p className="text-[10px] text-white/25 mt-1.5 normal-case">Se enviará por WhatsApp/email a <span className="text-white/45">{recipientName(rejectTarget)}</span>{(() => { const nt = notifyTarget(rejectTarget); const d = nt.tlf || nt.email; return d ? <span className="text-white/30"> · {d}</span> : null; })()}.</p>
                                 </div>
                             )}
+                                </>
+                            )}
                             {rejectError && <p className="text-[12px] text-red-400">⚠️ {rejectError}</p>}
                         </div>
 
                         <div className="px-6 py-4 bg-white/[0.02] border-t border-white/10 flex gap-3">
                             <button onClick={() => setRejectDoc(null)} disabled={rejectSending} className="flex-1 px-4 py-2.5 rounded-xl border border-white/10 text-white/50 text-[10px] font-black uppercase tracking-widest hover:text-white hover:border-white/30 transition-all disabled:opacity-40">Cancelar</button>
-                            <button onClick={confirmRejectDoc} disabled={rejectSending || !rejectMotivo.trim()} className="flex-1 px-4 py-2.5 rounded-xl bg-red-500/15 border border-red-500/30 text-red-300 text-[10px] font-black uppercase tracking-widest hover:bg-red-500 hover:text-white transition-all disabled:opacity-40">{rejectSending ? 'Enviando…' : rejectTarget === 'ninguno' ? 'Rechazar' : 'Rechazar y avisar'}</button>
+                            {rejectRegenKey ? (
+                                <>
+                                    <button onClick={() => confirmRejectDoc(false)} disabled={rejectSending || !rejectMotivo.trim()} title="Marcar el rechazo ahora y reenviar el anexo corregido más tarde" className="px-4 py-2.5 rounded-xl border border-white/10 text-white/50 text-[10px] font-black uppercase tracking-widest hover:text-white hover:border-white/30 transition-all disabled:opacity-40">Solo rechazar</button>
+                                    <button onClick={() => confirmRejectDoc(true)} disabled={rejectSending || !rejectMotivo.trim()} className="flex-1 px-4 py-2.5 rounded-xl bg-red-500/15 border border-red-500/30 text-red-300 text-[10px] font-black uppercase tracking-widest hover:bg-red-500 hover:text-white transition-all disabled:opacity-40">{rejectSending ? 'Rechazando…' : 'Rechazar y reenviar corregido'}</button>
+                                </>
+                            ) : (
+                                <button onClick={() => confirmRejectDoc(false)} disabled={rejectSending || !rejectMotivo.trim()} className="flex-1 px-4 py-2.5 rounded-xl bg-red-500/15 border border-red-500/30 text-red-300 text-[10px] font-black uppercase tracking-widest hover:bg-red-500 hover:text-white transition-all disabled:opacity-40">{rejectSending ? 'Enviando…' : rejectTarget === 'ninguno' ? 'Rechazar' : 'Rechazar y avisar'}</button>
+                            )}
                         </div>
                     </div>
                 </div>
@@ -2506,10 +2831,13 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                                 expedienteId={expediente?.id}
                                 facturas={local.facturas || []}
                                 onChange={handleFacturasChange}
+                                onCommit={handleFacturasCommit}
                                 readOnly={false}
                                 onGenerateCombined={handleGenerateFacturasPdf}
                                 combinedLink={local.facturas_combined_link}
                                 generating={generatingFacturas}
+                                huerfanos={huerfanosFacturas}
+                                ultimoCombinado={ultimoCombinado}
                             />
                         </div>
                         <div className="p-4 sm:p-5 border-t border-white/5 bg-white/[0.01] flex justify-end gap-3">

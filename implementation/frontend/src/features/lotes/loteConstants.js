@@ -5,8 +5,12 @@
 export const LOTE_ESTADOS = [
     'BORRADOR',
     'SOLICITADO PRESUPUESTO A VERIFICADOR',
+    'PTE. FIRMA S.O.',
+    'PTE. OFERTA VERIFICADOR',
+    'PTE. FIRMA OFERTA S.O.',
     'ENVIADO A VERIFICADOR',
     'REQUERIMIENTO VERIFICADOR',
+    'VERIFICADO',
     'PTE. SUBIDA MITECO',
     'REQUERIMIENTO G.A.',
     'CAE EMITIDO – PTE PAGO BROKERGY',
@@ -18,9 +22,12 @@ export function loteEstadoBadge(estado) {
     const s = (estado || '').toUpperCase();
     if (s === 'BORRADOR') return 'bg-white/5 text-white/50 border-white/15';
     if (s.includes('REQUERIMIENTO')) return 'bg-amber-500/10 text-amber-400 border-amber-500/20';
-    if (s === 'FINALIZADO') return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
+    if (s === 'FINALIZADO' || s === 'VERIFICADO') return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
     if (s.includes('CAE EMITIDO') || s.includes('PAGO')) return 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20';
     if (s.includes('MITECO')) return 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20';
+    // Los estados de espera del papeleo (firma del S.O., oferta) van en ámbar suave:
+    // el lote está parado esperando a un tercero, no avanzando.
+    if (s.startsWith('PTE. FIRMA') || s === 'PTE. OFERTA VERIFICADOR') return 'bg-amber-500/[0.07] text-amber-300/80 border-amber-500/20';
     if (s.includes('VERIFICADOR')) return 'bg-blue-500/10 text-blue-400 border-blue-500/20';
     return 'bg-white/5 text-white/40 border-white/10';
 }

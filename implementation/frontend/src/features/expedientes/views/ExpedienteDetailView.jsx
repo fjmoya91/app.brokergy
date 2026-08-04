@@ -148,7 +148,7 @@ function ModuleSection({ id, title, icon, activeSection, onToggle, children, bad
 }
 
 // ─── Vista de Detalle ─────────────────────────────────────────────────────────
-export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
+export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, initialFirmarDoc, onClearInitialFirmarDoc }) {
     const { showAlert, showConfirm } = useModal();
     const { user } = useAuth();
     const userRole = (user?.rol || '').toUpperCase();
@@ -177,6 +177,20 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
     const [showClienteModal, setShowClienteModal] = useState(false);
     const [openLoteId, setOpenLoteId] = useState(null);
     const [localPrioridad, setLocalPrioridad] = useState('NORMAL');
+
+    // ─── Deep-link de firma (?exp=…&firmar=cesion) ────────────────────────────
+    // Llega desde el aviso de "falta tu firma en el Anexo de Cesión": al abrir el
+    // expediente desplegamos Documentación y el módulo lanza solo el popup de
+    // Autofirma sobre el documento. Es una orden de un solo uso: se limpia arriba
+    // en cuanto se consume para que no vuelva a saltar en el siguiente expediente.
+    const [autoFirmarDoc, setAutoFirmarDoc] = useState(null);
+    useEffect(() => {
+        if (!initialFirmarDoc || !expediente || isCertificador) return;
+        setActiveSection('documentacion');
+        setAutoFirmarDoc(initialFirmarDoc);
+        onClearInitialFirmarDoc?.();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [initialFirmarDoc, expediente?.id, isCertificador]);
 
     // ─── Autoguardado de "Instalación" (modelo C) ─────────────────────────────
     // El módulo no tiene botón "Guardar": se persiste solo tras una pausa de
@@ -1466,6 +1480,8 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate }) {
                             saving={saving}
                             results={calcResults}
                             onEditCliente={() => setShowClienteModal(true)}
+                            autoFirmarDoc={autoFirmarDoc}
+                            onAutoFirmarDocDone={() => setAutoFirmarDoc(null)}
                         />
                     </ModuleSection>
                 )}

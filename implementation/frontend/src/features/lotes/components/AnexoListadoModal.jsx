@@ -11,6 +11,7 @@ import { computeExpedienteFinancials } from '../../expedientes/logic/expedienteF
 import { SIGN_BOXES, fichaSignBox } from '../../expedientes/logic/signBoxes';
 import FirmarConCertificadoModal from '../../expedientes/components/FirmarConCertificadoModal';
 import { EnviarLoteDocModal } from './EnviarLoteDocModal';
+import { deriveSoEnvio, CC_BROKERGY } from '../logic/soContactos';
 
 const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
 
@@ -37,30 +38,12 @@ export function AnexoListadoModal({ lote, onClose }) {
     const html = useMemo(() => buildAnexoListadoHtml(lote, { mes, convenioFecha }), [lote, mes, convenioFecha]);
 
     // ── Envío al Sujeto Obligado ──────────────────────────────────────────────
+    // Destinatario, teléfono, representante y sugerencias de CC salen de la ficha
+    // del S.O. (fuente única en logic/soContactos.js). En copia va solo Brokergy;
+    // los contactos del S.O. se añaden de un clic desde las sugerencias.
     const so = lote.sujeto_obligado || {};
-    const soEmail = so.email || '';
-    const soRepNombre = [so.nombre_responsable, so.apellidos_responsable].filter(Boolean).join(' ') || undefined;
-    const soRepNif = so.nif_responsable || undefined;
-
-    // Los contactos del S.O. ya están en su ficha (`contactos_notificacion`): el
-    // interlocutor habitual va como destinatario y el email de la empresa en copia,
-    // en vez de escribirlos a mano en cada envío.
-    const soContactos = useMemo(() => {
-        const raw = so.contactos_notificacion;
-        const arr = Array.isArray(raw) ? raw : (typeof raw === 'string' && raw.trim() ? JSON.parse(raw || '[]') : []);
-        return (arr || []).filter(c => c && (c.email || c.tlf));
-    }, [so.contactos_notificacion]);
-
-    const contactoPrincipal = soContactos[0] || null;
-    const soNotifyEmail = so.notify_email || contactoPrincipal?.email || soEmail || '';
-    const soNotifyPhone = contactoPrincipal?.tlf || so.tlf || '';
-    // En copia: el email de la empresa y el resto de contactos, sin repetir el destinatario.
-    const soCc = useMemo(() => {
-        const dest = (soNotifyEmail || '').toLowerCase();
-        return [soEmail, ...soContactos.map(c => c.email)]
-            .filter(e => e && e.toLowerCase() !== dest)
-            .filter((e, i, arr) => arr.indexOf(e) === i);
-    }, [soEmail, soContactos, soNotifyEmail]);
+    const { contactoPrincipal, notifyEmail: soNotifyEmail, notifyPhone: soNotifyPhone,
+        ccSugerencias: soCc, repNombre: soRepNombre, repNif: soRepNif } = useMemo(() => deriveSoEnvio(so), [so]);
 
     // Aviso corto por WhatsApp al interlocutor, además del email con los documentos.
     const avisoWaDefault = `Hola ${contactoPrincipal?.nombre ? String(contactoPrincipal.nombre).split(' ')[0] : ''}, os hemos enviado por email otro lote (${lote.codigo || ''}) para firmar.
@@ -69,6 +52,11 @@ Una vez firmado a través de la app, nos llegará una notificación para continu
 Cuando tengamos la oferta del verificador formal os la enviamos para su firma.
 Un saludo.`.replace(/ ,/g, ',');
     const numFichas = (lote.expedientes || []).length;
+    // Solicitud ya subida en la fase 1 del proceso: el backend la reutiliza de Drive.
+    const solicitudYaSubida = useMemo(
+        () => (lote.documentos_so || []).find(d => d && d.key === 'solicitud_verificacion') || null,
+        [lote.documentos_so]
+    );
     const [sendOpen, setSendOpen] = useState(false);
     const [solicitud, setSolicitud] = useState(null);   // { name, base64 }
     const [solicitudErr, setSolicitudErr] = useState('');
@@ -177,7 +165,15 @@ Un saludo.`.replace(/ ,/g, ',');
         <div className="space-y-5">
             <div>
                 <label className="block text-[9px] font-black text-white/30 uppercase tracking-[0.2em] mb-2">Solicitud de Verificación (PDF)</label>
-                {solicitud ? (
+                {/* Si ya se subió en la fase 1 del proceso, no hay que volver a adjuntarla:
+                    el backend la coge de Drive y la mete en el email y en la firma en cadena. */}
+                {solicitudYaSubida && !solicitud ? (
+                    <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-emerald-500/10 border border-emerald-400/30">
+                        <svg className="w-4 h-4 text-emerald-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+                        <span className="text-[11px] text-white/80 truncate flex-1">{solicitudYaSubida.file_name || 'Solicitud de Verificación'}</span>
+                        <span className="text-[9px] font-black uppercase tracking-wider text-emerald-400/70 shrink-0">Ya subida</span>
+                    </div>
+                ) : solicitud ? (
                     <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-emerald-500/10 border border-emerald-400/30">
                         <svg className="w-4 h-4 text-emerald-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
                         <span className="text-[11px] text-white/80 truncate flex-1">{solicitud.name}</span>
@@ -196,7 +192,10 @@ Un saludo.`.replace(/ ,/g, ',');
                     </label>
                 )}
                 {solicitudErr && <p className="mt-1 text-[10px] text-red-400">{solicitudErr}</p>}
-                <p className="mt-1 text-[9px] text-white/25">Se adjunta al email y entra en la firma en cadena del S.O.</p>
+                <p className="mt-1 text-[9px] text-white/25">
+                    Se adjunta al email y entra en la firma en cadena del S.O.
+                    {solicitudYaSubida && !solicitud ? ' Ya la subiste en el paso 1 del proceso.' : ''}
+                </p>
             </div>
 
             {/* Aviso por WhatsApp, además del email. Desactivado por defecto y con el
@@ -278,7 +277,7 @@ Un saludo.`.replace(/ ,/g, ',');
     // Antes de enviar: si NO se ha subido la Solicitud de Verificación, preguntar si
     // continuar sin ella o volver para subirla. Devuelve true = enviar, false = cancelar.
     const confirmAntesDeEnviar = async () => {
-        if (solicitud) return true;
+        if (solicitud || solicitudYaSubida) return true;
         return showConfirm(
             'No has adjuntado la Solicitud de Verificación (PDF). Si continúas, se enviará al S.O. sin ella y no entrará en la firma en cadena.\n\nPulsa "Enviar sin solicitud" para continuar, o "Cancelar" para subirla primero.',
             'Falta la solicitud de verificación',
@@ -384,7 +383,7 @@ Un saludo.`.replace(/ ,/g, ',');
                     subtitle={`${lote.codigo || 'Lote'} · Anexo I + ${numFichas} ficha(s) RES${solicitud ? ' + solicitud' : ''}`}
                     defaultEmail={soNotifyEmail}
                     defaultMessage={sendMsg}
-                    defaultCc={soCc.join(', ')}
+                    defaultCc={CC_BROKERGY}
                     ccSuggestions={soCc}
                     summaryData={{ id: lote.codigo || 'LOTE', docType: 'Anexo I · Listado Cesión + Fichas RES' }}
                     docs={buildDocs()}

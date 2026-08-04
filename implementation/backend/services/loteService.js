@@ -21,18 +21,10 @@ const ESTADOS_COMPLETO = ['DOC. COMPLETA'];
 
 // Estados del LOTE (fase verificación → CAE → pago). Los expedientes del lote
 // avanzan en bloque; un requerimiento puede marcar un expediente concreto vía
-// el módulo de incidencias. (La lista canónica se consolida en el Slice 5.)
-const LOTE_ESTADOS = [
-    'BORRADOR',
-    'SOLICITADO PRESUPUESTO A VERIFICADOR',
-    'ENVIADO A VERIFICADOR',
-    'REQUERIMIENTO VERIFICADOR',
-    'PTE. SUBIDA MITECO',
-    'REQUERIMIENTO G.A.',
-    'CAE EMITIDO – PTE PAGO BROKERGY',
-    'PTE. PAGO BROKERGY A CLIENTE',
-    'FINALIZADO',
-];
+// el módulo de incidencias.
+// La lista canónica vive en services/loteDocs.js, que además sabe qué hito del
+// papeleo desbloquea cada estado. Aquí se reexporta para no romper los imports.
+const { LOTE_ESTADOS } = require('./loteDocs');
 
 // Instalador asociado al expediente (para la recomendación "mismo instalador").
 function getInstaladorId(exp, op) {

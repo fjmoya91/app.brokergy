@@ -581,7 +581,7 @@ function CrearLoteDesdeSeleccionModal({ soList, count, anio, ccaa, totals, canSe
 // número legible; nos permite abrir el detalle sin resolverlo contra la lista.
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialSelection, onOpenExpedienteChange, initialEstados, onClearInitialEstados, initialPrioridad }) {
+export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialSelection, onOpenExpedienteChange, initialEstados, onClearInitialEstados, initialPrioridad, initialFirmarDoc, onClearInitialFirmarDoc }) {
     const { showAlert, showConfirm } = useModal();
     const { user } = useAuth();
     const [expedientes, setExpedientes] = useState([]);
@@ -1092,6 +1092,8 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
                 expedienteId={selectedExpediente.id}
                 onBack={() => { setSelectedExpediente(null); fetchExpedientes(); }}
                 onNavigate={onNavigate}
+                initialFirmarDoc={initialFirmarDoc}
+                onClearInitialFirmarDoc={onClearInitialFirmarDoc}
             />
         );
     }

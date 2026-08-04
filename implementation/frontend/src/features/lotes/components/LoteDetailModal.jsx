@@ -9,7 +9,7 @@ import { computeLoteEco } from '../logic/loteEco';
 import { AnexoListadoModal } from './AnexoListadoModal';
 import { SolicitudVerificacionModal } from './SolicitudVerificacionModal';
 import { FacturaSoModal } from './FacturaSoModal';
-import { LoteDocumentosModule } from './LoteDocumentosModule';
+import { LoteProcesoFases } from './LoteProcesoFases';
 import { RequerimientoModal } from './RequerimientoModal';
 
 const presName = (p) => p ? (p.acronimo || p.razon_social || '—') : null;
@@ -96,15 +96,8 @@ export function LoteDetailModal({ loteId, soList: soListProp, verList: verListPr
     }, []); // eslint-disable-line
 
     const isBorrador = lote?.estado === 'BORRADOR';
-    // La factura al S.O. se habilita a partir de "CAE EMITIDO – PTE PAGO BROKERGY".
-    const facturaEnabled = LOTE_ESTADOS.indexOf(lote?.estado) >= LOTE_ESTADOS.indexOf('CAE EMITIDO – PTE PAGO BROKERGY');
-    // El requerimiento (reenviar para nueva firma) se habilita cuando el lote está
-    // en un estado de REQUERIMIENTO (verificador / G.A.) o cuando ya se envió alguna
-    // vez al S.O. (hay documentos en documentos_so). En ambos casos hace falta que
-    // el lote tenga expedientes (las fichas se regeneran a partir de ellos).
-    const enRequerimiento = String(lote?.estado || '').includes('REQUERIMIENTO');
-    const puedeRequerimiento = (lote?.expedientes || []).length > 0
-        && ((lote?.documentos_so || []).length > 0 || enRequerimiento);
+    // El gating de cada acción (qué se puede hacer y cuándo) lo decide el módulo de
+    // fases a partir del papeleo real del lote — ver logic/loteProceso.js.
 
     const refresh = useCallback(async () => {
         const { data } = await axios.get(`/api/lotes/${loteId}`);
@@ -441,76 +434,20 @@ export function LoteDetailModal({ loteId, soList: soListProp, verList: verListPr
                             </div>
                         )}
 
-                        {/* Documentos del lote (Anexo I, solicitud, oferta, fichas, factura) */}
+                        {/* El proceso del lote, por fases: documentos y acciones en el orden
+                            real del trámite (solicitud → firma S.O. → oferta → verificación → cobro) */}
                         <div className="border-t border-white/5 pt-5">
-                            <LoteDocumentosModule lote={lote} onChanged={() => { refresh(); onChanged?.(); }} />
-                        </div>
-
-                        {/* Acciones del lote */}
-                        <div className="border-t border-white/5 pt-5">
-                            <p className="text-[10px] uppercase tracking-[0.2em] font-black text-white/30 mb-3">Acciones</p>
-                            <div className="space-y-2">
-                                {/* Anexo I + Cesión S.O. */}
-                                <button onClick={() => setShowAnexo(true)} disabled={!(lote.expedientes || []).length}
-                                    className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-bkg-surface border border-white/[0.06] hover:border-brand/30 hover:bg-brand/5 disabled:opacity-40 disabled:cursor-not-allowed transition-all group text-left">
-                                    <div className="shrink-0 w-8 h-8 rounded-lg bg-brand/10 border border-brand/20 flex items-center justify-center group-hover:bg-brand/20 transition-colors">
-                                        <svg className="w-4 h-4 text-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-                                    </div>
-                                    <div className="min-w-0">
-                                        <p className="text-sm font-black text-white group-hover:text-brand transition-colors">Anexo I · Cesión S.O.</p>
-                                        <p className="text-[11px] text-white/40">Genera y envía el Anexo I y la Cesión de Ahorros al Sujeto Obligado</p>
-                                    </div>
-                                    <svg className="w-4 h-4 text-white/20 group-hover:text-brand/60 ml-auto shrink-0 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
-                                </button>
-
-                                {/* Solicitud Verificación */}
-                                <button onClick={() => setShowSolicitud(true)} disabled={!(lote.expedientes || []).length}
-                                    className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-bkg-surface border border-white/[0.06] hover:border-brand/30 hover:bg-brand/5 disabled:opacity-40 disabled:cursor-not-allowed transition-all group text-left">
-                                    <div className="shrink-0 w-8 h-8 rounded-lg bg-brand/10 border border-brand/20 flex items-center justify-center group-hover:bg-brand/20 transition-colors">
-                                        <svg className="w-4 h-4 text-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /></svg>
-                                    </div>
-                                    <div className="min-w-0">
-                                        <p className="text-sm font-black text-white group-hover:text-brand transition-colors">Solicitud de Verificación</p>
-                                        <p className="text-[11px] text-white/40">Genera y envía la solicitud formal al verificador</p>
-                                    </div>
-                                    <svg className="w-4 h-4 text-white/20 group-hover:text-brand/60 ml-auto shrink-0 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
-                                </button>
-
-                                {/* Requerimiento — reenviar fichas (regeneradas) al S.O. para nueva firma */}
-                                <button onClick={() => setShowRequerimiento(true)} disabled={!puedeRequerimiento}
-                                    title={!puedeRequerimiento ? 'Disponible cuando el lote esté en REQUERIMIENTO o ya se haya enviado al S.O.' : ''}
-                                    className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-bkg-surface border border-white/[0.06] hover:border-amber-400/30 hover:bg-amber-500/5 disabled:opacity-40 disabled:cursor-not-allowed transition-all group text-left">
-                                    <div className="shrink-0 w-8 h-8 rounded-lg bg-amber-500/10 border border-amber-400/20 flex items-center justify-center group-hover:bg-amber-500/20 transition-colors">
-                                        <svg className="w-4 h-4 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M5.07 19h13.86a2 2 0 001.74-2.99L13.74 4.01a2 2 0 00-3.48 0L3.33 16.01A2 2 0 005.07 19z" /></svg>
-                                    </div>
-                                    <div className="min-w-0">
-                                        <p className="text-sm font-black text-white group-hover:text-amber-300 transition-colors">Requerimiento · reenviar para firma</p>
-                                        <p className="text-[11px] text-white/40">Regenera las fichas seleccionadas y las reenvía al S.O. para que las vuelva a firmar</p>
-                                    </div>
-                                    <svg className="w-4 h-4 text-white/20 group-hover:text-amber-400/60 ml-auto shrink-0 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
-                                </button>
-
-                                {/* Factura S.O. — venta de CAEs al Sujeto Obligado = margen: SOLO ADMIN */}
-                                {canSeeMargin && (
-                                <button onClick={() => setShowFactura(true)}
-                                    disabled={!facturaEnabled || !(lote.expedientes || []).length || !lote.sujeto_obligado_id}
-                                    title={!facturaEnabled ? 'Disponible a partir de "CAE EMITIDO – PTE PAGO BROKERGY"' : (!lote.sujeto_obligado_id ? 'Asigna primero el Sujeto Obligado' : '')}
-                                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl border disabled:opacity-40 disabled:cursor-not-allowed transition-all group text-left ${lote.factura_so?.numero ? 'bg-emerald-500/[0.06] border-emerald-500/20 hover:border-emerald-500/40 hover:bg-emerald-500/10' : 'bg-bkg-surface border-white/[0.06] hover:border-brand/30 hover:bg-brand/5'}`}>
-                                    <div className={`shrink-0 w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${lote.factura_so?.numero ? 'bg-emerald-500/15 border border-emerald-500/30 group-hover:bg-emerald-500/25' : 'bg-brand/10 border border-brand/20 group-hover:bg-brand/20'}`}>
-                                        <svg className={`w-4 h-4 ${lote.factura_so?.numero ? 'text-emerald-300' : 'text-brand'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 14l6-6m-5.5.5h.01m4.99 5h.01M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16l3.5-2 3.5 2 3.5-2 3.5 2z" /></svg>
-                                    </div>
-                                    <div className="min-w-0">
-                                        <p className={`text-sm font-black transition-colors ${lote.factura_so?.numero ? 'text-emerald-300' : 'text-white group-hover:text-brand'}`}>
-                                            Factura al S.O.{lote.factura_so?.numero ? ` · ${lote.factura_so.numero}` : ''}
-                                        </p>
-                                        <p className="text-[11px] text-white/40">
-                                            {lote.factura_so?.numero ? 'Factura emitida — ver o regenerar' : !facturaEnabled ? 'Se habilita en "CAE EMITIDO – PTE PAGO BROKERGY"' : 'Genera la factura de venta de CAEs al Sujeto Obligado'}
-                                        </p>
-                                    </div>
-                                    <svg className={`w-4 h-4 ml-auto shrink-0 transition-colors ${lote.factura_so?.numero ? 'text-emerald-300/40 group-hover:text-emerald-300/80' : 'text-white/20 group-hover:text-brand/60'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
-                                </button>
-                                )}
-                            </div>
+                            <LoteProcesoFases
+                                lote={lote}
+                                canSeeMargin={canSeeMargin}
+                                onChanged={() => { refresh(); onChanged?.(); }}
+                                acciones={{
+                                    abrirSolicitud: () => setShowSolicitud(true),
+                                    abrirAnexo: () => setShowAnexo(true),
+                                    abrirRequerimiento: () => setShowRequerimiento(true),
+                                    abrirFactura: () => setShowFactura(true),
+                                }}
+                            />
                         </div>
 
                         {lote.notas && <p className="text-[12px] text-white/40 italic">📝 {lote.notas}</p>}

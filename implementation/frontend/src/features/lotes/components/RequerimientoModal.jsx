@@ -9,6 +9,7 @@ import { buildFichaTer100Html } from '../../expedientes/logic/fichaTer100Html';
 import { computeExpedienteFinancials } from '../../expedientes/logic/expedienteFinancials';
 import { SIGN_BOXES, fichaSignBox } from '../../expedientes/logic/signBoxes';
 import { EnviarLoteDocModal } from './EnviarLoteDocModal';
+import { deriveSoEnvio, CC_BROKERGY } from '../logic/soContactos';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Requerimiento — reenvío al S.O. de documentos concretos para NUEVA firma.
@@ -55,25 +56,10 @@ export function RequerimientoModal({ lote, onClose, onSent }) {
     const selectedExps = useMemo(() => expedientes.filter(e => sel.has(e.id)), [expedientes, sel]);
     const nSel = selectedExps.length + (incluirAnexo ? 1 : 0);
 
-    // ── Destinatario S.O. (misma resolución que AnexoListadoModal) ──────────────
+    // ── Destinatario S.O. (fuente única: logic/soContactos.js) ──────────────────
     const so = lote.sujeto_obligado || {};
-    const soEmail = so.email || '';
-    const soRepNombre = [so.nombre_responsable, so.apellidos_responsable].filter(Boolean).join(' ') || undefined;
-    const soRepNif = so.nif_responsable || undefined;
-    const soContactos = useMemo(() => {
-        const raw = so.contactos_notificacion;
-        const arr = Array.isArray(raw) ? raw : (typeof raw === 'string' && raw.trim() ? JSON.parse(raw || '[]') : []);
-        return (arr || []).filter(c => c && (c.email || c.tlf));
-    }, [so.contactos_notificacion]);
-    const contactoPrincipal = soContactos[0] || null;
-    const soNotifyEmail = so.notify_email || contactoPrincipal?.email || soEmail || '';
-    const soNotifyPhone = contactoPrincipal?.tlf || so.tlf || '';
-    const soCc = useMemo(() => {
-        const dest = (soNotifyEmail || '').toLowerCase();
-        return [soEmail, ...soContactos.map(c => c.email)]
-            .filter(e => e && e.toLowerCase() !== dest)
-            .filter((e, i, arr) => arr.indexOf(e) === i);
-    }, [soEmail, soContactos, soNotifyEmail]);
+    const { contactoPrincipal, notifyEmail: soNotifyEmail, notifyPhone: soNotifyPhone,
+        ccSugerencias: soCc, repNombre: soRepNombre, repNif: soRepNif } = useMemo(() => deriveSoEnvio(so), [so]);
 
     // ── Documentos a regenerar y reenviar ───────────────────────────────────────
     const buildDocs = () => {
@@ -246,7 +232,7 @@ export function RequerimientoModal({ lote, onClose, onSent }) {
                     defaultMessage={sendMsg}
                     messageLabel="Mensaje (email)"
                     whatsappNote={waMsg}
-                    defaultCc={soCc.join(', ')}
+                    defaultCc={CC_BROKERGY}
                     ccSuggestions={soCc}
                     summaryData={{ id: lote.codigo || 'LOTE', docType: 'Requerimiento · documentos para nueva firma' }}
                     docs={buildDocs()}

@@ -5,6 +5,7 @@ const { requireAuth, enforceAuth, adminOnly } = require('../middleware/auth');
 const { normalizeContactos } = require('../services/notifyContacts');
 const { searchAddress } = require('../services/googleService');
 const marketplaceStats = require('../services/marketplaceStatsRefresher');
+const certificadorFacturacion = require('../services/certificadorFacturacion');
 
 // `prescriptores.notas` son notas INTERNAS del equipo sobre el partner. Un partner
 // nunca debe leerlas, ni siquiera las de su propia ficha, así que se eliminan de la
@@ -261,6 +262,76 @@ router.get('/:id/expedientes-certificador', enforceAuth, async (req, res) => {
     } catch (err) {
         console.error('Error GET expedientes del certificador:', err);
         res.status(500).json({ error: 'Error al recuperar los expedientes del certificador' });
+    }
+});
+
+// ─── Facturación del certificador (conciliación mensual) ─────────────────────
+// Todo lo que sigue mueve DINERO, así que es `adminOnly`: ni el TRABAJADOR ni,
+// por supuesto, el propio certificador ven estos importes (ver `roleFlags`).
+
+// GET /api/prescriptores/:id/facturacion-certificador?mes=YYYY-MM
+// Lo devengado ese mes + el arrastre sin facturar de meses anteriores + los
+// totales calculados para cotejarlos con el pie de la factura recibida.
+router.get('/:id/facturacion-certificador', adminOnly, async (req, res) => {
+    try {
+        const data = await certificadorFacturacion.buildFacturacion(req.params.id, req.query.mes);
+        res.json(data);
+    } catch (err) {
+        console.error('Error GET facturación del certificador:', err);
+        res.status(500).json({ error: err.message || 'Error al calcular la facturación del certificador' });
+    }
+});
+
+// PATCH /api/prescriptores/:id/facturacion-certificador/tarifas
+router.patch('/:id/facturacion-certificador/tarifas', adminOnly, async (req, res) => {
+    try {
+        const tarifas = await certificadorFacturacion.saveTarifas(req.params.id, req.body || {});
+        res.json({ ok: true, tarifas });
+    } catch (err) {
+        console.error('Error PATCH tarifas del certificador:', err);
+        res.status(400).json({ error: err.message || 'No se pudieron guardar las tarifas' });
+    }
+});
+
+// POST /api/prescriptores/:id/facturacion-certificador/conciliar
+// Recibe la factura ya parseada en el navegador (pdf.js) y propone el
+// emparejamiento con los expedientes. NO escribe nada: es una propuesta que el
+// admin confirma antes de sellar.
+router.post('/:id/facturacion-certificador/conciliar', adminOnly, async (req, res) => {
+    try {
+        const { numero, fecha, items, nifs } = req.body || {};
+        const out = await certificadorFacturacion.conciliarFactura(req.params.id, { numero, fecha, items, nifs });
+        res.json(out);
+    } catch (err) {
+        console.error('Error POST conciliar factura:', err);
+        res.status(400).json({ error: err.message || 'No se pudo conciliar la factura' });
+    }
+});
+
+// POST /api/prescriptores/:id/facturacion-certificador/sellar
+// Marca conceptos como facturados. Es lo que impide pagar dos veces el mismo
+// registro y lo que hace que lo no facturado arrastre al mes siguiente.
+router.post('/:id/facturacion-certificador/sellar', adminOnly, async (req, res) => {
+    try {
+        const { factura, fecha, conceptos } = req.body || {};
+        const usuario = req.user?.email || req.user?.id_usuario || null;
+        const out = await certificadorFacturacion.sellar(req.params.id, { factura, fecha, conceptos, usuario });
+        res.json({ ok: true, ...out });
+    } catch (err) {
+        console.error('Error POST sellar facturación:', err);
+        res.status(400).json({ error: err.message || 'No se pudo sellar la facturación' });
+    }
+});
+
+// POST /api/prescriptores/:id/facturacion-certificador/desellar
+router.post('/:id/facturacion-certificador/desellar', adminOnly, async (req, res) => {
+    try {
+        const { expediente_id, concepto } = req.body || {};
+        const out = await certificadorFacturacion.desellar(req.params.id, { expediente_id, concepto });
+        res.json(out);
+    } catch (err) {
+        console.error('Error POST desellar facturación:', err);
+        res.status(400).json({ error: err.message || 'No se pudo quitar el sello' });
     }
 });
 

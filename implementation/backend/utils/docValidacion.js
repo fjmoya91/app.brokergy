@@ -79,6 +79,51 @@ function invalidarValidacionDocs(documentacion, campos, opts = {}) {
     return { ...doc, docs_validados: validados, docs_rechazados: rechazados, historial };
 }
 
+// ─── Borrador del cliente invalidado por un rechazo ───────────────────────────
+// El cliente NO firma el PDF que le mandamos por WhatsApp: firma el que le sirve
+// /firmar-anexos, y ése sale del BORRADOR de Drive (`{doc}_drive_link`). Rechazar
+// el firmado no toca ese borrador, así que hasta ahora el cliente volvía al enlace,
+// se descargaba el MISMO documento erróneo y lo firmaba otra vez igual de mal
+// (caso real: números de serie equivocados en el Anexo I de 26RES060_142).
+//
+// Un borrador está OBSOLETO mientras el rechazo sea POSTERIOR a la última vez que
+// se regeneró (`{doc}_drive_at`, sellado en mergeDocumentacion) o se envió
+// (`{doc}_sent_at`). Mientras lo esté, la vista pública ni lo ofrece ni lo sirve:
+// la única salida es corregir los datos y reenviar el anexo regenerado.
+const BORRADORES_CLIENTE = {
+    anexo_i: {
+        draft: 'anexo_i_drive_link', sent: 'anexo_i_sent_at', at: 'anexo_i_drive_at',
+        signed: 'anexo_i_signed_link', label: 'Anexo I',
+    },
+    anexo_cesion: {
+        draft: 'anexo_cesion_drive_link', sent: 'anexo_cesion_sent_at', at: 'anexo_cesion_drive_at',
+        signed: 'anexo_cesion_signed_link', label: 'Anexo de Cesión de Ahorros',
+    },
+};
+
+const _ts = (v) => { const t = Date.parse(v || ''); return Number.isNaN(t) ? 0 : t; };
+
+/**
+ * Estado de rechazo del anexo `which` ('anexo_i' | 'anexo_cesion').
+ * Devuelve null si nunca se rechazó. `obsoleto` = el borrador que serviría el
+ * enlace público sigue siendo el rechazado (todavía no se ha regenerado/reenviado).
+ */
+function rechazoBorrador(documentacion, which) {
+    const spec = BORRADORES_CLIENTE[which];
+    if (!spec) return null;
+    const doc = documentacion || {};
+    const rechazo = doc.docs_rechazados?.[spec.signed];
+    if (!rechazo?.at) return null;
+    const ultimaVersion = Math.max(_ts(doc[spec.sent]), _ts(doc[spec.at]));
+    return {
+        doc: which,
+        label: spec.label,
+        motivo: rechazo.motivo || '',
+        at: rechazo.at,
+        obsoleto: _ts(rechazo.at) > ultimaVersion,
+    };
+}
+
 /**
  * Igual que `invalidarValidacionDocs` pero para los documentos del CEE, cuyo estado
  * vive en la columna `cee` (`cee.docs_validados['{inicial|final}_{slot}']`).
@@ -95,7 +140,9 @@ function invalidarValidacionCee(cee, section, slot) {
 module.exports = {
     DOCUMENTO_VALIDABLE_LABELS,
     CAMPO_A_SLOT_VALIDABLE,
+    BORRADORES_CLIENTE,
     slotValidableDe,
     invalidarValidacionDocs,
     invalidarValidacionCee,
+    rechazoBorrador,
 };

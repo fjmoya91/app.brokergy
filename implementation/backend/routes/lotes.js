@@ -19,6 +19,10 @@ const {
     loadExpedienteContext, evaluarElegibilidadBase, casaConLote,
     nextLoteCodigo, sugerirMismoInstalador,
 } = loteService;
+const {
+    LOTE_DOC_SLOTS, SLOTS_SUBIBLES, nextDocKey, slotDeKey, sincronizarEstadoLote,
+    CARPETA_DOCS, nombreDocLote,
+} = require('../services/loteDocs');
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -78,6 +82,22 @@ async function ensureLoteFolder(lote) {
     if (!folderId) throw new Error('No se pudo crear la carpeta del lote en Drive');
     await supabase.from('lotes').update({ drive_folder_id: folderId, updated_at: nowIso() }).eq('id', lote.id);
     return folderId;
+}
+
+// Subcarpeta de la carpeta del lote donde va TODO el papeleo de nivel lote
+// (solicitud, Anexo I, oferta, informes del verificador, facturas). Así la raíz del
+// lote solo contiene las carpetas de sus expedientes. Se crea de forma perezosa, al
+// escribir el primer documento: un lote en BORRADOR puede borrarse y no queremos
+// dejar árboles vacíos en Drive. Si Drive falla, cae a la raíz del lote y no bloquea.
+async function ensureLoteDocsFolder(lote) {
+    const loteFolder = await ensureLoteFolder(lote);
+    try {
+        const nombre = CARPETA_DOCS(lote.codigo || `LOTE-${String(lote.id).slice(0, 8)}`);
+        const sub = await driveService.getOrCreateSubfolder(loteFolder, nombre);
+        return sub || loteFolder;
+    } catch (_) {
+        return loteFolder;
+    }
 }
 
 // Sanea un nombre de fichero para Drive y garantiza la extensión .pdf.
@@ -543,18 +563,19 @@ router.post('/:id/factura-so', adminOnly, async (req, res) => {
         if (error) throw error;
         if (!lote) return res.status(404).json({ error: 'Lote no encontrado' });
 
-        const folderId = await ensureLoteFolder(lote);
+        const docsFolder = await ensureLoteDocsFolder(lote);
         const pdfBuffer = await htmlToPdf(html);
-        // Nombre del fichero: "{nº factura} - {nombre lote} - {acrónimo S.O.}.pdf".
+        // Nombre del fichero: "5. {nº factura} - {nombre lote} - {acrónimo S.O.}.pdf".
         // El acrónimo del S.O. no viene en el lote crudo (solo el id) → se busca.
         let acronimoSO = 'SO';
         if (lote.sujeto_obligado_id) {
             const { data: soRow } = await supabase.from('prescriptores').select('acronimo, razon_social').eq('id_empresa', lote.sujeto_obligado_id).maybeSingle();
             if (soRow) acronimoSO = soRow.acronimo || soRow.razon_social || 'SO';
         }
-        const fileName = `${factura.numero} - ${lote.codigo || 'LOTE'} - ${acronimoSO}`
-            .trim().replace(/[\\/<>:"|?*]/g, '_') + '.pdf';
-        const saved = await driveService.saveFileToFolder(folderId, fileName, 'application/pdf', pdfBuffer);
+        const fileName = pdfFileName(nombreDocLote('factura_so', {
+            label: `${factura.numero} - ${lote.codigo || 'LOTE'} - ${acronimoSO}`,
+        }));
+        const saved = await saveOrReplacePdf(docsFolder, fileName, pdfBuffer);
         if (!saved) throw new Error('No se pudo guardar la factura en Drive');
 
         await upsertFacturaSo(lote, factura, {
@@ -563,7 +584,7 @@ router.post('/:id/factura-so', adminOnly, async (req, res) => {
             drive_file_id: saved.id || null,
             generada_por: usuarioDe(req),
         });
-        await supabase.from('lotes').update({ drive_folder_id: folderId, updated_at: nowIso() }).eq('id', lote.id);
+        await supabase.from('lotes').update({ updated_at: nowIso() }).eq('id', lote.id);
 
         const { data: updated } = await supabase.from('lotes').select('*').eq('id', lote.id).maybeSingle();
         const [enriched] = await enrichLotes([updated]);
@@ -581,60 +602,253 @@ router.post('/:id/factura-so', adminOnly, async (req, res) => {
 // Verificación subida), los envía por email/WhatsApp al S.O. con el enlace de
 // firma, y registra todo en lotes.documentos_so para la firma en cadena del S.O.
 // (/firmar-lote/:id). Los HTML de Anexo I y fichas los construye el frontend.
-// ─── POST /api/lotes/:id/documentos/oferta ────────────────────────────────
-// Sube la OFERTA DE VERIFICACIÓN que devuelve el verificador. Va a la carpeta
-// Drive del lote y se registra en `documentos_so` como una entrada más, para que
-// aparezca en el visor de documentos junto al Anexo I y la solicitud.
-router.post('/:id/documentos/oferta', staffOnly, async (req, res) => {
+// ─── POST /api/lotes/:id/documentos/:slot ─────────────────────────────────────
+// Sube UN documento del lote al slot indicado (ver services/loteDocs.js): la
+// solicitud de verificación, la oferta que devuelve el verificador, un informe de
+// inexactitudes (admite varios), el informe de verificación, el dictamen favorable
+// o la factura del verificador. Va a la carpeta Drive del lote y se registra en
+// `documentos_so`, que es lo que pinta el módulo de fases del proceso.
+//
+// Con `firmado: true` se sube el documento YA FIRMADA por el S.O. (caso "nos la
+// devuelven firmada por email"): no toca el borrador, solo rellena signed_*, igual
+// que si la hubiera firmado él mismo desde /firmar-lote/:id.
+//
+// Cada subida puede AVANZAR el estado del lote (sincronizarEstadoLote).
+router.post('/:id/documentos/:slot', staffOnly, async (req, res) => {
     try {
-        const { base64, fileName } = req.body || {};
+        const slot = req.params.slot;
+        const cfg = LOTE_DOC_SLOTS[slot];
+        if (!cfg || !SLOTS_SUBIBLES.includes(slot)) {
+            return res.status(400).json({ error: `Documento de lote no válido: ${slot}` });
+        }
+        const { base64, fileName, firmado, importe } = req.body || {};
         if (!base64) return res.status(400).json({ error: 'Falta el fichero' });
 
         const { data: lote, error } = await supabase.from('lotes').select('*').eq('id', req.params.id).maybeSingle();
         if (error || !lote) return res.status(404).json({ error: 'Lote no encontrado' });
 
-        const folderId = await ensureLoteFolder(lote);
+        const docsFolder = await ensureLoteDocsFolder(lote);
         const buffer = Buffer.from(String(base64).split(',').pop(), 'base64');
-        const name = pdfFileName(fileName || `${lote.codigo || 'LOTE'} - Oferta de verificacion`);
-        const saved = await saveOrReplacePdf(folderId, name, buffer);
-        if (!saved) throw new Error('No se pudo guardar la oferta en Drive');
+        const esFirmado = !!firmado && !!cfg.firmable;
 
         // Releemos `documentos_so` justo antes de escribir para no pisar cambios de
-        // otro envío en curso, y sustituimos la entrada de la oferta si ya existía.
+        // otro envío en curso.
         const { data: fresh } = await supabase.from('lotes').select('documentos_so, historial').eq('id', lote.id).maybeSingle();
         const docs = Array.isArray(fresh?.documentos_so) ? [...fresh.documentos_so] : [];
-        const entrada = {
-            key: 'oferta_verificacion',
-            tipo: 'oferta_verificacion',
-            label: 'Oferta de verificación',
-            expediente_id: null,
-            file_name: name,
-            draft_link: saved.link,
-            draft_file_id: saved.id,
-            signed_link: null,
-            signed_file_id: null,
-            sent_at: null,
-            signed_at: null,
-            uploaded_at: nowIso(),
-        };
-        const idx = docs.findIndex(d => d?.key === 'oferta_verificacion');
+
+        // Un slot `multiple` abre entrada nueva en cada subida; el resto se reemplaza.
+        const key = esFirmado ? slot : nextDocKey(docs, slot);
+        const idx = docs.findIndex(d => d?.key === key);
+        const previa = idx >= 0 ? docs[idx] : null;
+        if (esFirmado && !previa) {
+            return res.status(409).json({ error: `Sube antes el borrador de "${cfg.label}" para poder registrar el firmado.` });
+        }
+
+        // El nombre en Drive es SIEMPRE el canónico (prefijo numérico + slot), no el
+        // del fichero que sube el usuario: es lo que ordena la carpeta. El original se
+        // guarda en la entrada por trazabilidad (trae la referencia del verificador).
+        const nDoc = cfg.multiple ? String(key).split('_').pop() : null;
+        const baseName = nombreDocLote(slot, { n: nDoc });
+        const name = pdfFileName(esFirmado ? `${baseName}_fdo` : baseName);
+        const saved = await saveOrReplacePdf(docsFolder, name, buffer);
+        if (!saved) throw new Error(`No se pudo guardar "${cfg.label}" en Drive`);
+
+        const entrada = esFirmado
+            ? { ...previa, signed_link: saved.link, signed_file_id: saved.id, signed_at: nowIso() }
+            : {
+                key,
+                tipo: slot,
+                label: `${cfg.label}${nDoc}`,
+                expediente_id: null,
+                file_name: name,
+                // Documentos redactados por terceros (verificador): no hay plantilla
+                // propia ni recuadro de firma fijo. Se buscan estos textos para
+                // pre-situarlo; si no aparecen, el firmante lo dibuja a mano.
+                anchor: cfg.firmable ? ['conforme', 'aceptaci', 'fdo', 'firma', 'el cliente'] : null,
+                fixedBox: null,
+                draft_link: saved.link,
+                draft_file_id: saved.id,
+                // Nombre con el que llegó el fichero: en la oferta y los informes del
+                // verificador lleva su número de referencia y no queremos perderlo.
+                original_file_name: fileName || null,
+                signed_link: null,
+                signed_file_id: null,
+                sent_at: null,
+                signed_at: null,
+                uploaded_at: nowIso(),
+            };
         if (idx >= 0) docs[idx] = entrada; else docs.push(entrada);
 
         const historial = Array.isArray(fresh?.historial) ? [...fresh.historial] : [];
         historial.push({
-            id: `${Date.now()}_oferta`, tipo: 'sistema',
-            texto: `Subida la oferta de verificación (${name}).`,
+            id: `${Date.now()}_doc_${slot}`, tipo: 'sistema',
+            texto: esFirmado
+                ? `Registrado "${entrada.label}" FIRMADO por el S.O. (${name}).`
+                : `Subido "${entrada.label}" (${name}).`,
             fecha: nowIso(), usuario: usuarioDe(req),
         });
 
-        await supabase.from('lotes').update({
-            documentos_so: docs, historial, drive_folder_id: folderId, updated_at: nowIso(),
-        }).eq('id', lote.id);
+        // `drive_folder_id` ya lo persiste ensureLoteFolder.
+        const update = { documentos_so: docs, historial, updated_at: nowIso() };
+        // El importe de la factura del verificador se guarda EN LA ENTRADA del
+        // documento, no en `lotes.coste_verificacion`: la verificación la paga el
+        // SUJETO OBLIGADO, no Brokergy. Sirve para saber a cuánto le sale a él el
+        // €/MWh (verificación + lo que nos paga), no para nuestro margen.
+        const importeNum = Number(importe);
+        if (cfg.importe && Number.isFinite(importeNum) && importeNum > 0) {
+            entrada.importe = importeNum;
+            update.documentos_so = docs;
+        }
+        await supabase.from('lotes').update(update).eq('id', lote.id);
 
-        res.json({ ok: true, documento: entrada });
+        // Un informe de inexactitudes REABRE el lote aunque ya estuviera VERIFICADO:
+        // es el único paso atrás legítimo del proceso.
+        await sincronizarEstadoLote(lote.id, {
+            docs,
+            usuario: usuarioDe(req),
+            motivo: `subida de ${entrada.label}`,
+            ...(slot === 'informe_inexactitudes'
+                ? { destino: 'REQUERIMIENTO VERIFICADOR', retroceso: true }
+                : {}),
+        });
+
+        const { data: updated } = await supabase.from('lotes').select('*').eq('id', lote.id).maybeSingle();
+        const [enriched] = await enrichLotes([updated]);
+        res.json({ ok: true, documento: entrada, lote: scrubLoteForUser(enriched, req) });
     } catch (err) {
-        console.error('[POST /lotes/:id/documentos/oferta]', err.message);
-        res.status(500).json({ error: err.message || 'Error al subir la oferta de verificación' });
+        console.error('[POST /lotes/:id/documentos/:slot]', err.message);
+        res.status(500).json({ error: err.message || 'Error al subir el documento del lote' });
+    }
+});
+
+// ─── DELETE /api/lotes/:id/documentos/:key — quitar un documento subido ─────────
+// Solo para los que se suben a mano (un informe de inexactitudes duplicado, un PDF
+// equivocado). Los generados por la app (Anexo I, fichas) se regeneran, no se borran.
+router.delete('/:id/documentos/:key', staffOnly, async (req, res) => {
+    try {
+        const key = req.params.key;
+        const slot = slotDeKey(key);
+        if (!slot || !SLOTS_SUBIBLES.includes(slot)) {
+            return res.status(400).json({ error: 'Ese documento no se puede borrar desde aquí.' });
+        }
+        const { data: lote, error } = await supabase.from('lotes').select('*').eq('id', req.params.id).maybeSingle();
+        if (error || !lote) return res.status(404).json({ error: 'Lote no encontrado' });
+
+        const docs = Array.isArray(lote.documentos_so) ? [...lote.documentos_so] : [];
+        const idx = docs.findIndex(d => d?.key === key);
+        if (idx < 0) return res.status(404).json({ error: 'Documento no encontrado en el lote' });
+        const [quitado] = docs.splice(idx, 1);
+
+        // El fichero de Drive se borra sin bloquear: si falla, la entrada ya no está.
+        for (const fileId of [quitado.draft_file_id, quitado.signed_file_id].filter(Boolean)) {
+            try { await driveService.deleteFile(fileId); } catch (_) { /* no bloqueante */ }
+        }
+
+        const historial = Array.isArray(lote.historial) ? [...lote.historial] : [];
+        historial.push({
+            id: `${Date.now()}_doc_del`, tipo: 'sistema',
+            texto: `Eliminado "${quitado.label || key}" del lote.`,
+            fecha: nowIso(), usuario: usuarioDe(req),
+        });
+        await supabase.from('lotes').update({ documentos_so: docs, historial, updated_at: nowIso() }).eq('id', lote.id);
+
+        const { data: updated } = await supabase.from('lotes').select('*').eq('id', lote.id).maybeSingle();
+        const [enriched] = await enrichLotes([updated]);
+        res.json({ ok: true, lote: scrubLoteForUser(enriched, req) });
+    } catch (err) {
+        console.error('[DELETE /lotes/:id/documentos/:key]', err.message);
+        res.status(500).json({ error: err.message || 'Error al borrar el documento del lote' });
+    }
+});
+
+// ─── POST /api/lotes/:id/enviar-oferta — mandar la oferta al S.O. para firma ─────
+// La entidad verificadora nos pasa su oferta, la subimos al lote y desde aquí se
+// manda al Sujeto Obligado para que la firme. Adjunta el PDF y añade el enlace
+// `/firmar-lote/:id`, donde el S.O. puede: firmarla online con su certificado
+// (Autofirma), subirla firmada a mano (nos llega aviso automático) o devolvérnosla
+// firmada por email. Marca `sent_at` en la entrada de la oferta.
+router.post('/:id/enviar-oferta', staffOnly, async (req, res) => {
+    try {
+        const {
+            to, cc, phone, channels = { email: true, whatsapp: false },
+            customMessage, frontendOrigin,
+        } = req.body || {};
+
+        if (channels.email && !to) return res.status(400).json({ error: 'Falta el email del destinatario' });
+        if (channels.whatsapp && !phone) return res.status(400).json({ error: 'Falta el teléfono para WhatsApp' });
+
+        const { data: lote, error } = await supabase.from('lotes').select('*').eq('id', req.params.id).maybeSingle();
+        if (error) throw error;
+        if (!lote) return res.status(404).json({ error: 'Lote no encontrado' });
+
+        const docs = Array.isArray(lote.documentos_so) ? [...lote.documentos_so] : [];
+        const idx = docs.findIndex(d => d?.key === 'oferta_verificacion');
+        if (idx < 0) return res.status(409).json({ error: 'El lote no tiene oferta de verificación subida.' });
+
+        // El PDF vive en Drive: se descarga para adjuntarlo (no guardamos binarios en BD).
+        const fileId = docs[idx].draft_file_id || (String(docs[idx].draft_link || '').match(/[-\w]{25,}/) || [])[0];
+        if (!fileId) return res.status(409).json({ error: 'La oferta no tiene fichero en Drive.' });
+        const buf = await driveService.getFileContent(fileId);
+        if (!buf || !buf.length) return res.status(409).json({ error: 'No se pudo descargar la oferta de Drive.' });
+
+        // El enlace va ACOTADO a la oferta (`?doc=`): la firma del Anexo I y las fichas
+        // es otro proceso y ya pasó. El S.O. abre y solo ve un documento y un botón.
+        const origin = (frontendOrigin || process.env.FRONTEND_URL || 'https://app.brokergy.es').replace(/\/$/, '');
+        const firmaUrl = `${origin}/firmar-lote/${lote.id}?doc=oferta_verificacion`;
+        const msgConEnlace = `${customMessage || ''}\n\n${firmaUrl}`.trim();
+        const fileName = docs[idx].file_name || `${lote.codigo || 'LOTE'} - Oferta de verificacion.pdf`;
+
+        const warnings = [];
+        if (channels.email && to) {
+            try {
+                const emailService = require('../services/emailService');
+                await emailService.sendAnnexEmail({
+                    to, cc,
+                    userName: lote.codigo || 'LOTE',
+                    attachments: [{ filename: fileName, content: buf }],
+                    customMessage: msgConEnlace,
+                    // `docType` manda en el ASUNTO ("… — Brokergy (LOTE-…)") y en el
+                    // titular de la cabecera: que diga la acción, no solo el documento.
+                    summaryData: { id: lote.codigo || 'LOTE', docType: 'Firmar Oferta de verificación' },
+                    from: SO_EMAIL_FROM,
+                    buttonLabel: '🖊️ Firmar la oferta',
+                    pillLabel: 'Firmar Oferta de Verificación',
+                    preheader: `Oferta de verificación del lote ${lote.codigo || ''} — pendiente de vuestra firma.`,
+                });
+            } catch (e) { warnings.push(`Email: ${e.message}`); }
+        }
+        if (channels.whatsapp && phone) {
+            try {
+                const whatsappService = require('../services/whatsappService');
+                await whatsappService.sendText(phone, msgConEnlace);
+                await whatsappService.sendMedia(
+                    phone,
+                    { base64: buf.toString('base64'), filename: fileName, mimetype: 'application/pdf' },
+                    { caption: fileName.replace(/\.pdf$/i, ''), splitCaption: false }
+                );
+            } catch (e) { warnings.push(`WhatsApp: ${e.message}`); }
+        }
+
+        const sentAt = nowIso();
+        docs[idx] = { ...docs[idx], sent_at: sentAt };
+        const historial = Array.isArray(lote.historial) ? [...lote.historial] : [];
+        const canales = [channels.email && to ? 'email' : null, channels.whatsapp && phone ? 'whatsapp' : null].filter(Boolean).join('+');
+        historial.push({
+            id: `${Date.now()}_enviar_oferta`, tipo: 'sistema',
+            texto: `Enviada al S.O. la oferta de verificación para firma${canales ? ` (${canales})` : ''}.`,
+            fecha: sentAt, usuario: usuarioDe(req),
+        });
+        await supabase.from('lotes').update({ documentos_so: docs, historial, updated_at: sentAt }).eq('id', lote.id);
+
+        // El lote queda esperando que el S.O. devuelva la oferta firmada.
+        await sincronizarEstadoLote(lote.id, { docs, usuario: usuarioDe(req), motivo: 'oferta enviada al S.O.' });
+
+        const { data: updated } = await supabase.from('lotes').select('*').eq('id', lote.id).maybeSingle();
+        const [enriched] = await enrichLotes([updated]);
+        res.json({ ok: true, firma_url: firmaUrl, warnings, lote: scrubLoteForUser(enriched, req) });
+    } catch (err) {
+        console.error('[POST /lotes/:id/enviar-oferta]', err.message);
+        res.status(500).json({ error: err.message || 'Error al enviar la oferta de verificación' });
     }
 });
 
@@ -659,8 +873,10 @@ router.post('/:id/enviar-so', staffOnly, async (req, res) => {
         if (error) throw error;
         if (!lote) return res.status(404).json({ error: 'Lote no encontrado' });
 
-        // 1) Carpeta del lote (padre = "07. ENVIADOS A VERIFICAR").
+        // 1) Carpeta del lote (padre = "07. ENVIADOS A VERIFICAR") + su subcarpeta de
+        //    documentación, donde van los papeles de nivel lote.
         const folderId = await ensureLoteFolder(lote);
+        const docsFolder = await ensureLoteDocsFolder(lote);
 
         // 2) Mover la carpeta de Drive de cada expediente del lote dentro de la del lote.
         const { data: exps } = await supabase
@@ -706,11 +922,14 @@ router.post('/:id/enviar-so', staffOnly, async (req, res) => {
             // Carpeta destino del borrador: expediente/"6. ANEXOS CAE" si es ficha con
             // carpeta resoluble; si no, la carpeta del lote.
             const expFolder = d.expediente_id ? expFolderMap[d.expediente_id] : null;
-            let draftFolder = folderId;
+            // Las FICHAS van a "6. ANEXOS CAE" de su expediente; los documentos de
+            // nivel lote (Anexo I) a la subcarpeta de documentación del lote.
+            let draftFolder = docsFolder;
             if (expFolder) {
-                draftFolder = await driveService.getOrCreateSubfolder(expFolder, '6. ANEXOS CAE') || folderId;
+                draftFolder = await driveService.getOrCreateSubfolder(expFolder, '6. ANEXOS CAE') || docsFolder;
             }
-            const { rev, fileName, saved } = await saveDocRevision({ existing: existingByKey[key], baseFileName: d.fileName, key, expFolder, draftFolder, folderId, pdf });
+            const baseFileName = d.expediente_id ? d.fileName : nombreDocLote(key);
+            const { rev, fileName, saved } = await saveDocRevision({ existing: existingByKey[key], baseFileName, key, expFolder, draftFolder, folderId: docsFolder, pdf });
             attachments.push({ filename: fileName, content: pdf });
             documentosSo.push({
                 key,
@@ -728,11 +947,25 @@ router.post('/:id/enviar-so', staffOnly, async (req, res) => {
             });
         }
 
+        // Solicitud de Verificación YA SUBIDA en la fase 1: se conserva su entrada tal
+        // cual y se adjunta al email bajándola de Drive. Solo se vuelve a subir si el
+        // llamante manda una nueva (`solicitud.base64`), que la reemplaza.
+        const solicitudPrevia = existingByKey['solicitud_verificacion'];
+        if (!(solicitud && solicitud.base64) && solicitudPrevia) {
+            const fileId = solicitudPrevia.draft_file_id || (String(solicitudPrevia.draft_link || '').match(/[-\w]{25,}/) || [])[0];
+            let buf = null;
+            try { buf = fileId ? await driveService.getFileContent(fileId) : null; } catch (_) { buf = null; }
+            if (buf && buf.length) {
+                attachments.push({ filename: solicitudPrevia.file_name || 'Solicitud Verificacion.pdf', content: buf });
+            }
+            documentosSo.push({ ...solicitudPrevia, sent_at: sentAt });
+        }
+
         // Solicitud de Verificación (PDF subido en base64).
         if (solicitud && solicitud.base64) {
             const buf = Buffer.from(solicitud.base64, 'base64');
-            const baseName = String(solicitud.fileName || `Solicitud Verificacion - ${lote.codigo || 'lote'}`).replace(/\.pdf$/i, '');
-            const { rev, fileName, saved } = await saveDocRevision({ existing: existingByKey['solicitud_verificacion'], baseFileName: baseName, key: 'solicitud_verificacion', expFolder: null, draftFolder: folderId, folderId, pdf: buf });
+            const baseName = nombreDocLote('solicitud_verificacion');
+            const { rev, fileName, saved } = await saveDocRevision({ existing: existingByKey['solicitud_verificacion'], baseFileName: baseName, key: 'solicitud_verificacion', expFolder: null, draftFolder: docsFolder, folderId: docsFolder, pdf: buf });
             attachments.push({ filename: fileName, content: buf });
             documentosSo.push({
                 key: 'solicitud_verificacion', tipo: 'solicitud_verificacion',
@@ -794,7 +1027,15 @@ router.post('/:id/enviar-so', staffOnly, async (req, res) => {
             } catch (e) { warnings.push(`Aviso WhatsApp: ${e.message}`); }
         }
 
-        // 6) Persistir documentos + historial.
+        // 6) Persistir documentos + historial. Se FUSIONA: las entradas que no se han
+        //    regenerado aquí (oferta, informes de inexactitudes, dictamen, factura del
+        //    verificador…) siguen en el lote. Antes se sobrescribía la lista entera y
+        //    un reenvío al S.O. se llevaba por delante todo el papeleo posterior.
+        const regeneradas = new Set(documentosSo.map(d => d.key));
+        const documentosFinales = [
+            ...(Array.isArray(lote.documentos_so) ? lote.documentos_so : []).filter(d => d && !regeneradas.has(d.key)),
+            ...documentosSo,
+        ];
         const historial = Array.isArray(lote.historial) ? [...lote.historial] : [];
         const canales = [channels.email && to ? 'email' : null, channels.whatsapp && phone ? 'whatsapp' : null].filter(Boolean).join('+');
         historial.push({
@@ -803,8 +1044,11 @@ router.post('/:id/enviar-so', staffOnly, async (req, res) => {
             fecha: sentAt, usuario: usuarioDe(req),
         });
         await supabase.from('lotes').update({
-            documentos_so: documentosSo, historial, drive_folder_id: folderId, updated_at: sentAt,
+            documentos_so: documentosFinales, historial, drive_folder_id: folderId, updated_at: sentAt,
         }).eq('id', lote.id);
+
+        // El lote queda esperando la firma del Sujeto Obligado.
+        await sincronizarEstadoLote(lote.id, { docs: documentosFinales, usuario: usuarioDe(req), motivo: 'documentación enviada al S.O.' });
 
         const { data: updated } = await supabase.from('lotes').select('*').eq('id', lote.id).maybeSingle();
         const [enriched] = await enrichLotes([updated]);
@@ -846,6 +1090,7 @@ router.post('/:id/requerimiento', staffOnly, async (req, res) => {
         if (!lote) return res.status(404).json({ error: 'Lote no encontrado' });
 
         const folderId = await ensureLoteFolder(lote);
+        const docsFolder = await ensureLoteDocsFolder(lote);
 
         // Estado actual de documentos_so (se conserva; solo se tocan las entradas reenviadas).
         const documentosSo = Array.isArray(lote.documentos_so) ? [...lote.documentos_so] : [];
@@ -884,15 +1129,16 @@ router.post('/:id/requerimiento', staffOnly, async (req, res) => {
 
             // Carpeta del borrador: "6. ANEXOS CAE" del expediente si es ficha; si no, la del lote.
             const expFolder = existing?.exp_folder_id || (d.expediente_id ? expFolderMap[d.expediente_id] : null) || null;
-            let draftFolder = folderId;
+            let draftFolder = docsFolder;
             if (expFolder) {
-                draftFolder = await driveService.getOrCreateSubfolder(expFolder, '6. ANEXOS CAE') || folderId;
+                draftFolder = await driveService.getOrCreateSubfolder(expFolder, '6. ANEXOS CAE') || docsFolder;
             }
 
             // Guardar como nueva revisión: archiva a OLD la versión anterior (borrador +
             // firmado, si existían) y nombra el nuevo con sufijo _rev{N}. Ver saveDocRevision().
             const pdf = d.pdfBase64 ? Buffer.from(d.pdfBase64, 'base64') : await htmlToPdf(d.html);
-            const { rev, fileName, saved } = await saveDocRevision({ existing, baseFileName: d.fileName, key, expFolder, draftFolder, folderId, pdf });
+            const baseFileName = d.expediente_id ? d.fileName : nombreDocLote(key);
+            const { rev, fileName, saved } = await saveDocRevision({ existing, baseFileName, key, expFolder, draftFolder, folderId: docsFolder, pdf });
             attachments.push({ filename: fileName, content: pdf });
 
             const entry = {

@@ -143,6 +143,10 @@ export function FirmarAnexosView({ expedienteId }) {
     const anexosListos = !!(info?.anexo_i_enviado || info?.anexo_cesion_enviado || info?.anexo_i_disponible || info?.anexo_cesion_disponible);
     const hayDescarga = !!(info?.anexo_i_disponible || info?.anexo_cesion_disponible);
     const descargarUrl = (which) => `${API_URL}/anexos-upload/${expedienteId}/descargar/${which}`;
+    // Anexos que hemos rechazado. `preparando` = todavía no está la versión
+    // corregida, así que ese anexo no se ofrece (ni descarga ni firma digital):
+    // firmar otra vez el que tenía el error no arregla nada.
+    const rechazos = info?.rechazos || [];
 
     const handleGuardarDatos = async () => {
         const errs = [];
@@ -324,6 +328,23 @@ export function FirmarAnexosView({ expedienteId }) {
                     </div>
 
                     <div className="p-8 space-y-5">
+                        {/* Aviso de anexo rechazado: el documento que firmaste tenía un error.
+                            Se muestra en cualquier fase (menos al acabar de subir) porque es lo
+                            primero que el cliente tiene que entender al volver al enlace. */}
+                        {!done && rechazos.map(r => (
+                            <div key={r.doc} className="rounded-2xl border border-red-500/25 bg-red-500/[0.07] p-5 animate-fade-in">
+                                <p className="text-[11px] font-black uppercase tracking-[0.15em] text-red-300 mb-2">
+                                    {r.preparando ? `${r.label} — corrigiéndolo` : `${r.label} — versión corregida`}
+                                </p>
+                                <p className="text-white/60 text-sm leading-relaxed">
+                                    {r.preparando ? (
+                                        <>Hemos revisado el <strong className="text-white">{r.label}</strong> que firmaste y hemos detectado un error{r.motivo ? <> (<span className="text-white/80">{r.motivo}</span>)</> : ''}. <strong className="text-white">Estamos preparando la versión corregida</strong> y te la enviaremos en cuanto esté. No hace falta que hagas nada todavía.</>
+                                    ) : (
+                                        <>Ya está corregido el <strong className="text-white">{r.label}</strong>{r.motivo ? <> ({r.motivo})</> : ''}. <strong className="text-white">Firma la versión nueva</strong> que encontrarás aquí abajo: la que firmaste antes no nos sirve.</>
+                                    )}
+                                </p>
+                            </div>
+                        ))}
                         {done ? (
                             <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-2xl p-8 text-center animate-fade-in">
                                 <div className="w-16 h-16 rounded-full bg-emerald-500/10 flex items-center justify-center mx-auto mb-4 border border-emerald-500/20">

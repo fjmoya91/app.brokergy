@@ -98,6 +98,13 @@ function App() {
     return params.get('exp') || null;
   });
 
+  // Deep-link de FIRMA: ?exp=<id>&firmar=cesion abre el expediente y lanza ya el
+  // popup de Autofirma sobre el documento indicado (hoy la contrafirma del Anexo de
+  // Cesión, desde el aviso de "falta tu firma"). Se consume una sola vez.
+  const [initialFirmarDoc] = useState(() => {
+    return new URLSearchParams(window.location.search).get('firmar') || null;
+  });
+
   // Deep-link a un listado ya filtrado por estado: ?tab=expedientes&estados=X
   // o ?tab=oportunidades&opestado=X. Los genera el cuadro de mando al abrir una
   // pestaña nueva desde el embudo, para no perder el panel de origen.
@@ -624,6 +631,9 @@ function App() {
   // reporta de vuelta; es el que se refleja en la URL. Van separados porque el detalle
   // vive dentro de ExpedientesView, no aquí.
   const [pendingRestoreExp, setPendingRestoreExp] = useState(initialExpediente);
+  // Documento a firmar nada más abrir el expediente (?firmar=). Se limpia en cuanto
+  // el detalle lo consume, para que no vuelva a saltar al navegar a otro expediente.
+  const [pendingFirmarDoc, setPendingFirmarDoc] = useState(initialFirmarDoc);
   // Filtros precargados al saltar desde el cuadro de mando a un listado —ya sea
   // navegación interna o, como ahora, una pestaña nueva abierta con ?estados=/
   // ?opestado= en la URL—. Se consumen y se limpian en destino para que no se
@@ -656,6 +666,9 @@ function App() {
     // quedar pegados en la barra de direcciones en cada cambio de pestaña.
     p.delete('exp'); p.delete('op'); p.delete('tab');
     p.delete('estados'); p.delete('opestado'); p.delete('prioridad');
+    // 'firmar' es una orden de un solo uso (abrir el popup de firma): en cuanto se
+    // ha leído no debe quedarse pegado en la barra de direcciones.
+    p.delete('firmar');
     if (openExpedienteId && activeTab === 'expedientes') {
       p.set('tab', 'expedientes');
       p.set('exp', openExpedienteId);
@@ -970,6 +983,8 @@ function App() {
                 onNavigate={handleNavigate}
                 initialSelectedId={pendingRestoreExp}
                 onClearInitialSelection={() => setPendingRestoreExp(null)}
+                initialFirmarDoc={pendingFirmarDoc}
+                onClearInitialFirmarDoc={() => setPendingFirmarDoc(null)}
                 onOpenExpedienteChange={setOpenExpedienteId}
                 initialEstados={pendingExpEstados}
                 onClearInitialEstados={() => setPendingExpEstados(null)}

@@ -22,7 +22,7 @@ const CLAVES_PROTEGIDAS = [
     'anexo_orden',
 ];
 
-const { DOCUMENTO_VALIDABLE_LABELS, invalidarValidacionDocs } = require('./docValidacion');
+const { DOCUMENTO_VALIDABLE_LABELS, BORRADORES_CLIENTE, invalidarValidacionDocs } = require('./docValidacion');
 
 function mergeDocumentacion(existingDoc, payloadDoc) {
     const existing = existingDoc || {};
@@ -31,6 +31,17 @@ function mergeDocumentacion(existingDoc, payloadDoc) {
     const merged = { ...existing, ...payloadDoc };
     for (const k of CLAVES_PROTEGIDAS) {
         if (k in existing) merged[k] = existing[k];
+    }
+
+    // Sello de "este borrador es de ahora". Es lo que levanta el bloqueo del enlace
+    // público tras rechazar un anexo (ver `rechazoBorrador` en docValidacion): sin
+    // él no habría forma de distinguir el borrador corregido del que se rechazó.
+    // Se sella aquí y no en el frontend para que valga venga de donde venga la
+    // escritura (app, MCP, skills).
+    for (const spec of Object.values(BORRADORES_CLIENTE)) {
+        if (merged[spec.draft] && merged[spec.draft] !== existing[spec.draft]) {
+            merged[spec.at] = new Date().toISOString();
+        }
     }
 
     // Red de seguridad: si el enlace de un documento validable CAMBIA en este

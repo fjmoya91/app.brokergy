@@ -454,6 +454,159 @@ Nunca volver a poner un `FOLDER_MAP` suelto en una ruta.
 
 ---
 
+## Facturación del certificador — conciliación mensual (2026-08-03)
+
+Pestaña **FACTURACIÓN** dentro del modal "Seguimiento de certificados" (`CertificadorFacturacionPanel.jsx`).
+**Solo ADMIN**: aquí se ven importes. El backend lo repite — todas las rutas son `adminOnly`.
+
+### El modelo: el certificador no factura expedientes, factura HITOS DE REGISTRO
+
+| Concepto | Cuándo se devenga | Importe |
+|---|---|---|
+| `honorario` | Mes del **PRIMER** registro del expediente, **una sola vez** (se registre uno o los dos CEE) | 60 € |
+| `tasa_inicial` | Mes del **primer** registro (ver pacto de adelanto) | 16,39 € |
+| `tasa_final` | Mes del **primer** registro (ver pacto de adelanto) | 16,39 € |
+
+**PACTO DE ADELANTO (`adelanta_tasas`, por defecto SÍ)**: el certificador pone de su bolsillo las DOS
+tasas y las factura enteras en el **primer pago**, sin esperar a registrar el CEE final. Por eso un
+expediente devenga honorario + las dos tasas en el mes de su primer registro, y una línea de
+"2 tasas" con solo el CEE inicial registrado **es correcta, no un error**. Se puede desactivar por
+certificador si con alguno se acuerda pagar cada tasa contra su registro.
+
+Las tasas son **suplidos**: no llevan IVA (art. 78.Tres.3º Ley 37/1992) y quedan fuera de la base
+imponible. Los honorarios llevan IVA 21 % y retención de IRPF 15 %. Tarifas configurables por
+certificador en `app_settings` clave `tarifas_certificador:{id}`.
+
+La fecha que manda es la del justificante (`documentacion.fecha_registro_cee_*`), con respaldo en
+`seguimiento.cee_*_ts.REGISTRADO`.
+
+### Sello de facturado
+`expedientes.documentacion.fact_cert` = `{ honorario: {factura, fecha, importe, esperado, …}, tasa_inicial: {…}, tasa_final: {…} }`.
+
+**REGLA**: se escribe con la RPC **`merge_expediente_doc_json`** (MERGE `||`, no reemplazo). Los tres
+conceptos se sellan en momentos distintos —el honorario en julio, la tasa del CEE final en
+septiembre—: un reemplazo borraría lo sellado antes. Script: `scripts/facturacion_certificador.sql`.
+
+### Las dos vistas del panel
+- **Mensual = SOLO CONSULTA.** Dice lo que el certificador *debería* facturarte de ese mes
+  (devengado / ya facturado / pendiente) y el arrastre. No premarca nada: anunciar "cuadra" sin haber
+  comparado con ninguna factura era información falsa. Un enlace activa el **modo manual** (casillas +
+  sellado) para cuando la factura llegue en un formato que el parser no sepa leer — pasa: una misma
+  certificadora ha usado dos plantillas distintas.
+- **Factura importada = donde se concilia.** Manda la factura y no el calendario, porque el
+  certificador mete en una misma factura registros de varios meses.
+
+### Importar la factura (vía rápida)
+El PDF se lee **en el navegador** con pdf.js (ya en el bundle) — no se sube a ningún sitio. Solo
+viajan las líneas parseadas a `POST /:id/facturacion-certificador/conciliar`, que devuelve el
+expediente propuesto por línea. Parser: `features/admin/logic/facturaCertificadorParser.js`.
+
+**Cada certificador usa SU plantilla y no se parecen en nada.** Las dos conocidas:
+
+```
+Lanuza   "CEE inicial y CEE final registrados. C/ Dalí 4, 13150 Carrión…  1  60,00 €  60,00 €"
+Moncayo  "- (26RES060_160) VIVIENDA UNIFAMILIAR EN QUINTANAR DE LA ORDEN…  1  60,00 €"
+```
+
+**REGLA — parsear por la COLA de la línea, no por columnas.** Lo único común es `<cantidad>` seguida de
+uno o dos importes; el resto de la línea es la descripción. Con UN importe, ése es el total de la línea
+(Moncayo escribe `2 32,78 €`, las dos tasas ya sumadas); con DOS, el primero es el unitario y el
+segundo el total (Lanuza escribe `2 16,39 € 32,78 €`). La cola puede venir pegada a la descripción o
+sola en su línea (los suplidos de Lanuza ocupan dos líneas de texto y la cola una tercera).
+
+**REGLA — se trabaja sobre LÍNEAS VISUALES, nunca sobre los fragmentos sueltos de pdf.js.** pdf.js
+trocea por donde le conviene (`"FACTURA Nº AP0"·"3"·"0"·"7"·"20"·"2"·"6"`, `"3"·"0"·"/06/2026"`) y esos
+dígitos sueltos, leídos como celdas, se cuelan en la columna de "unidades" y crean conceptos fantasma.
+
+**REGLA — si la línea cita el nº de expediente, manda ése.** `(26RES060_160)` es un dato; la dirección
+es una conjetura. Si el nº citado no está entre los expedientes con registros del certificador, se
+distingue entre "no es suyo" y "es suyo pero aún no tiene ningún CEE registrado" (el caso frecuente:
+entrega, factura, y el CEE sigue pendiente de tu revisión).
+
+**REGLA — el emparejamiento por dirección exige el número de portal**. Sin esa comprobación, "Virgen de
+Criptana 7" casaba al 80 % con el expediente de "Virgen de Criptana 82". Solo se premarca lo de
+confianza ALTA y **sin avisos**; lo demás lo confirma una persona.
+
+El parser también lee los **totales que la factura declara** en su pie (`TOTAL SUPLIDOS 147,51 €`) y
+avisa si el desglose no los suma: la factura AP03072026 lista dos veces el suplido de Los Carrascales
+pero su total solo lo cuenta una vez.
+
+**REGLA — verificar que la factura es DEL certificador cuya ficha está abierta.** Trabajamos con varios
+certificadores (Lanuza, Moncayo…) y el panel es por ficha: subir la de uno en la ficha de otro
+emparejaría contra los expedientes equivocados. Se coteja por NIF (`parseada.nifs` → `verificarEmisor`),
+que todas las plantillas imprimen. Si es de otro, se enseña de quién es y **se bloquea el sellado**.
+La búsqueda del emisor se limita a `tipo_empresa = 'CERTIFICADOR'`: el NIF de Brokergy también sale en
+la factura (es quien la recibe) y está en `prescriptores`.
+
+### Aviso de CEE entregados y sin revisar
+`services/revisionPendienteNotifier.js`, arrancado desde `server.js` (`setInterval`, mismo patrón que
+`marketplaceStatsRefresher`). El certificador **factura al entregar, no al revisar**: un CEE que se
+queda en `PRESENTADO`/`PTE_REVISION` se acaba pagando sin validar. Resumen **diario** por WhatsApp
+(`WHATSAPP_ADMIN_CHAT`) + email (`ADMIN_EMAIL`) de lo parado más de `REVISION_ALERTA_DIAS` (2).
+Comprueba cada 6 h, envía solo entre `REVISION_ALERTA_HORA_MIN` y `_MAX` (8-21 h Madrid) y **una vez
+por día natural**, con el guard persistido en `app_settings.revision_pendiente_last_notify` para que un
+reinicio no duplique el aviso. Un CEE entregado **sin** fecha se incluye marcado "sin fecha": es más
+sospechoso, no menos. Rutas: `GET /api/expedientes/alertas/revision-pendiente` (staff) y
+`POST .../enviar` (admin).
+
+⚠️ En LOCAL el primer chequeo salta a los 90 s del arranque y **manda avisos de verdad**. Para
+desarrollar: `REVISION_ALERTA_ENABLED=false` en el `.env`.
+
+---
+
+## Facturas de la obra — OCR y filtro previo de incidencias (2026-08-03)
+
+Modal **FACTURAS DE LA OBRA** (pestaña Documentación → "Gestionar"). Sueltas el PDF y la app lo
+sube a "5. FACTURAS", lo LEE y lo cruza con el expediente. **Solo ADMIN**: aquí hay importes.
+
+### El OCR es el mismo camino que el del CEE
+[facturaOcrService.js](implementation/backend/services/facturaOcrService.js) es el gemelo de
+`ceeOcrService.js`: Gemini 2.5 Flash con `responseSchema`, `temperature: 0` y reintentos 429/500/503,
+reutilizando `ceeOcrService.normalizeToPdf` (une fotos sueltas en un PDF antes de leer). Coste real
+medido: **< 0,002 € por factura**, ~11 s. Ruta: `POST /api/expedientes/:id/facturas/ocr` (multipart,
+NO base64 en JSON).
+
+**REGLA — la IA solo LEE; el juicio es de las reglas.** El modelo devuelve el desglose con cada línea
+clasificada en un enum cerrado de `partida` (AEROTERMIA · ACS · EMISORES · VENTANAS · CUBIERTA ·
+FACHADA · SUELO · FOTOVOLTAICA · OBRA_CIVIL · MANO_OBRA · OTROS). Quién decide qué es incidencia es
+[facturaIncidencias.js](implementation/backend/services/facturaIncidencias.js), determinista y con la
+evidencia literal citada, para que cualquiera pueda reproducir por qué saltó.
+
+### Lo que mira (mismo criterio que el §4B de la skill `auditar-expediente`)
+- **GRAVE `UNIDADES_TERMINALES`** — en RES060/RES093/TER100 (`esSustitucionCaldera`), una línea
+  `EMISORES` es incidencia: **la ficha no admite cambiar ni ampliar las unidades terminales**. La
+  actuación es sustituir el GENERADOR, y el emisor existente es el que fija la temperatura de
+  impulsión y con ella el SCOP. RES080 exento (ahí sí cabe obra de emisores). ⚠️ Conectar o purgar
+  los emisores YA EXISTENTES es `OBRA_CIVIL`, no `EMISORES` — probado: no da falso positivo.
+- **GRAVE**: `TITULAR` (NIF del cliente ≠ el del expediente) · `EMISOR` (no factura el instalador
+  asociado, que es quien firma el CIFO) · `ALCANCE` (partida fuera de la ficha) ·
+  `ALCANCE_SIN_EQUIPO` (única factura sin la bomba de calor) · `DUPLICADA` · `SERIE_DISTINTA` ·
+  `FECHA` (anterior al registro del CEE inicial, o futura) · `SOBREFINANCIACION`.
+- **LEVE**: `SIN_EQUIPO` (falta marca / modelo / nº de serie — lo ideal es que la factura lo cite) ·
+  `SIN_DESGLOSE` · `DIRECCION` · `SIN_CLIENTE` · `SIN_FECHA`.
+
+**Las incidencias se PROPONEN, no se registran solas.** El modal las lista con casilla, GRAVES
+primero; solo las marcadas se dan de alta vía `POST /:id/incidencias` con `procedencia: AGENTE_IA`.
+
+### PDF único de facturas — por qué salían duplicados
+**REGLA — el combinado se construye desde `documentacion.facturas[]`, NUNCA listando la carpeta.**
+Listar "5. FACTURAS" metía en el PDF cualquier fichero suelto. Caso real (26RES060_159): la misma
+factura subida dos veces con 3 minutos de diferencia → el combinado la incluía **dos veces**, y esa
+inversión duplicada es la que viaja al verificador (`Σ facturas[].importe_sin_iva` es la inversión
+del Anexo y de la solicitud). Además:
+- **Borrar o reemplazar una factura ARCHIVA su PDF** en `5. FACTURAS/OLD` (`archiveExistingToOld`).
+  Antes solo se quitaba la fila del JSON y el fichero seguía contando.
+- **Lock en memoria + `findFilesByName` (plural)**: dos POST solapados creaban dos combinados con el
+  mismo nombre (Drive lo permite) y el borrado previo solo se llevaba uno. El front lo guarda además
+  con un `useRef` (el estado de React se confirma un render tarde y no frena la reentrada).
+- **Repara referencias muertas**: si el `drive_id` registrado está en la papelera pero hay un gemelo
+  vivo con el mismo nombre en la carpeta, lo usa y lo avisa, en vez de fallar.
+- La respuesta trae `huerfanos[]` (ficheros de la carpeta que no son de ninguna factura registrada).
+- **El combinado vive en DOS carpetas a propósito**: el de trabajo en "5. FACTURAS" y la copia para
+  el auditor en "10. EXPEDIENTE CAE". Se dice en la UI porque parecía que se generaba dos veces.
+
+---
+
 ## Reglas Críticas — No Romper
 
 1. **Drive**: La creación de carpetas es **no bloqueante**. **REGLA DE ORO:** Los enlaces a Drive (`drive_folder_link`) solo se muestran en el frontend si `user.rol === 'ADMIN'`.
@@ -480,6 +633,7 @@ Nunca volver a poner un `FOLDER_MAP` suelto en una ruta.
 21. **NUNCA guardar ficheros en base64 dentro de un JSONB**: ni fotos, ni PDFs, ni fichas técnicas. Van a Drive; en BD solo el enlace o el `driveId`. Motivo: Postgres descomprime la columna JSONB **entera** en cuanto una consulta la toca, aunque solo pida un subcampo. 48 MB de fotos en `documentacion` tumbaron la BD dos veces el 21/07/2026 (OOM en la instancia Micro de 1 GB). Un trigger (`scripts/guard_documentacion_size.sql`) rechaza ya cualquier `documentacion` > 2 MB.
 22. **Listados: nunca traer columnas JSONB completas**. En un `select` sobre MUCHAS filas, pedir campos concretos (`cee->cee_inicial`) o usar la RPC. Referencias: `get_expedientes_list_v3` (listado de expedientes, con los contadores de incidencias ya agregados) y `utils/ceeEcoFields.js` (`CEE_ECO_SELECT` + `rebuildCee`, usado por lotes). En particular `cee.xml_inicial`/`xml_final` (el XML crudo del CEE, ~12 MB en total) **solo** se leen en el detalle de un expediente. Un `ilike '%…%'` que además pida un JSONB recorre y descomprime la tabla entera — ver el patrón en dos pasos de `findExpediente()` en el MCP.
 23. **Cliente EMPRESA — firma el representante legal**: si `clientes.es_empresa`, `nombre_razon_social` es la razón social y `dni` es el CIF; quien comparece y firma es el **representante legal** (`representante_nombre` / `representante_apellidos` / `representante_dni`). El Convenio de Cesión redacta el bloque del Cedente igual que el del Cesionario ("actuando en nombre y representación de la entidad…") y el Anexo I rellena con esos datos el apartado 3 y el "Fdo.". Nunca presentar a una sociedad como "mayor de edad, con documento de identificación B…".
+24. **Rechazar un anexo del cliente BLOQUEA su borrador**: el cliente no firma el PDF que le llegó por WhatsApp, firma el que le sirve `/firmar-anexos` desde `{doc}_drive_link`. Rechazar el firmado no toca ese borrador, así que sin bloqueo el cliente vuelve al enlace, se descarga el MISMO PDF erróneo y lo firma otra vez igual (26RES060_142: nº de serie mal en el Anexo I). Fuente única: `rechazoBorrador()` en [docValidacion.js](implementation/backend/utils/docValidacion.js) — un borrador está obsoleto mientras el rechazo sea POSTERIOR a `{doc}_sent_at` y a `{doc}_drive_at` (este último lo sella `mergeDocumentacion` al cambiar el enlace, venga la escritura de donde venga). Mientras lo esté, la vista pública no lo ofrece y el proxy de descarga responde 409. La salida es **corregir los datos y reenviar**: "Rechazar y reenviar corregido" encadena con `EnviarAnexosModal`, que regenera el PDF con los datos actuales, lo manda adjunto y archiva el borrador viejo en OLD (`replaceExisting` de `/api/pdf/save-to-drive`). Un aviso de rechazo a secas solo manda al cliente a un enlace bloqueado.
 
 ---
 

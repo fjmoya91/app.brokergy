@@ -11,7 +11,7 @@ const anexoFotograficoService = require('../services/anexoFotograficoService');
 const uploadNotifier = require('../services/uploadNotifier');
 const { buildCertClienteData } = require('../services/certClienteData');
 // Una versión NUEVA de un documento ya validado lo devuelve a "pendiente de revisar".
-const { invalidarValidacionDocs, invalidarValidacionCee } = require('../utils/docValidacion');
+const { invalidarValidacionDocs, invalidarValidacionCee, rechazoBorrador } = require('../utils/docValidacion');
 const { requireAuth, isStaff } = require('../middleware/auth');
 const axios = require('axios');
 const multer = require('multer');
@@ -1793,6 +1793,13 @@ router.get('/anexos-upload/:expedienteId', async (req, res) => {
             .maybeSingle();
         if (error || !exp) return res.status(404).json({ error: 'Expediente no encontrado' });
         const doc = exp.documentacion || {};
+        // Anexos rechazados por Brokergy. Mientras el borrador corregido no esté
+        // regenerado y enviado, el anexo se retira de la página: si no, el cliente
+        // se descarga el mismo PDF erróneo y lo vuelve a firmar mal.
+        const rechazoI = rechazoBorrador(doc, 'anexo_i');
+        const rechazoC = rechazoBorrador(doc, 'anexo_cesion');
+        const bloqI = !!rechazoI?.obsoleto;
+        const bloqC = !!rechazoC?.obsoleto;
         res.json({
             numero_expediente: exp.numero_expediente,
             cliente: [exp.clientes?.nombre_razon_social, exp.clientes?.apellidos].filter(Boolean).join(' ') || '—',
@@ -1800,14 +1807,18 @@ router.get('/anexos-upload/:expedienteId', async (req, res) => {
             anexo_i_pedido: !!(doc.anexo_i_drive_link || doc.anexo_i_sent_at),
             anexo_cesion_pedido: !!(doc.anexo_cesion_drive_link || doc.anexo_cesion_sent_at),
             // anexos YA generados (borrador en Drive) → descargables
-            anexo_i_disponible: !!doc.anexo_i_drive_link,
-            anexo_cesion_disponible: !!doc.anexo_cesion_drive_link,
+            anexo_i_disponible: !!doc.anexo_i_drive_link && !bloqI,
+            anexo_cesion_disponible: !!doc.anexo_cesion_drive_link && !bloqC,
             // anexos ENVIADOS al cliente → habilitan la fase de firma (aunque no estén en Drive)
-            anexo_i_enviado: !!doc.anexo_i_sent_at,
-            anexo_cesion_enviado: !!doc.anexo_cesion_sent_at,
-            // qué ya hemos recibido firmado
-            anexo_i_firmado: !!doc.anexo_i_signed_link,
-            anexo_cesion_firmado: !!doc.anexo_cesion_signed_link,
+            anexo_i_enviado: !!doc.anexo_i_sent_at && !bloqI,
+            anexo_cesion_enviado: !!doc.anexo_cesion_sent_at && !bloqC,
+            // rechazos: motivo + si estamos preparando ya la versión corregida
+            rechazos: [rechazoI, rechazoC].filter(Boolean).map(r => ({
+                doc: r.doc, label: r.label, motivo: r.motivo, at: r.at, preparando: r.obsoleto,
+            })),
+            // qué ya hemos recibido firmado (un firmado RECHAZADO no cuenta como recibido)
+            anexo_i_firmado: !!doc.anexo_i_signed_link && !rechazoI,
+            anexo_cesion_firmado: !!doc.anexo_cesion_signed_link && !rechazoC,
             dni_subido: !!(doc.dni_frontal_link && doc.dni_trasero_link),
             // datos del cliente + qué falta por completar
             datos_cliente: buildDatosCliente(exp.clientes, doc),
@@ -2076,6 +2087,11 @@ router.post('/anexos-upload/:expedienteId',
                 // Misma ficha (titular + dirección de la instalación) que el resto de avisos.
                 const { data: clienteData } = buildCertClienteData(exp, exp.oportunidades, exp.clientes);
                 const portalLink = `https://app.brokergy.es/?exp=${exp.id}`;
+                // Enlace de CONTRAFIRMA: abre el expediente y lanza ya el popup de
+                // Autofirma sobre el Anexo de Cesión firmado por el cliente (igual que
+                // el enlace de firma de las fichas del lote: un click y a firmar). Al
+                // firmar, el propio flujo lo sube a Drive y lo deja validado.
+                const firmaLink = `${portalLink}&firmar=cesion`;
                 // Firma electrónica del cliente ⇒ el Convenio de Cesión espera aún la
                 // contrafirma de Brokergy (con firma manuscrita el PDF ya va completo).
                 const pendienteContrafirma = !!docUpdate.anexo_cesion_signed_link
@@ -2088,7 +2104,7 @@ router.post('/anexos-upload/:expedienteId',
                     clienteData.direccionInstalacion ? `Instalación: ${clienteData.direccionInstalacion}` : null,
                     `Recibido: ${partes}`,
                     ...(pendienteContrafirma
-                        ? ['', `El cliente firmó *electrónicamente*: falta la firma de Brokergy en el Anexo de Cesión.\n${portalLink}`]
+                        ? ['', `El cliente firmó *electrónicamente*: falta la firma de Brokergy en el Anexo de Cesión.\nAbre este enlace y se lanza directamente la firma con Autofirma:\n${firmaLink}`]
                         : []),
                 ].filter(v => v !== null).join('\n');
                 try { if (adminPhone) await whatsappService.sendText(adminPhone, msg); } catch (e) { console.error('[anexos-upload] WA notify:', e.message); }
@@ -2101,6 +2117,7 @@ router.post('/anexos-upload/:expedienteId',
                         cesionLink: docUpdate.anexo_cesion_signed_link || null,
                         anexoILink: docUpdate.anexo_i_signed_link || null,
                         portalLink,
+                        firmaLink,
                         pendienteContrafirma,
                     });
                 } catch (e) { console.error('[anexos-upload] Email notify:', e.message); }
@@ -2126,6 +2143,16 @@ router.get('/anexos-upload/:expedienteId/descargar/:doc', async (req, res) => {
         const d = exp.documentacion || {};
         const link = doc === 'anexo_i' ? d.anexo_i_drive_link : doc === 'cesion' ? d.anexo_cesion_drive_link : null;
         if (!link) return res.status(404).json({ error: 'Documento no disponible' });
+        // Anexo rechazado y todavía sin corregir: no se sirve. La página ya no lo
+        // ofrece, pero una pestaña abierta de antes o el enlace del email seguirían
+        // bajando el PDF erróneo — y firmarlo otra vez es justo lo que evitamos.
+        const rechazo = rechazoBorrador(d, doc === 'anexo_i' ? 'anexo_i' : 'anexo_cesion');
+        if (rechazo?.obsoleto) {
+            return res.status(409).json({
+                error: 'Este documento tenía un error y lo estamos corrigiendo. Te enviaremos la versión corregida para que la firmes.',
+                motivo: rechazo.motivo || null,
+            });
+        }
         const fileId = (String(link).match(/[-\w]{25,}/) || [])[0];
         if (!fileId) return res.status(400).json({ error: 'Enlace no válido' });
         const { getFileContent } = require('../services/driveService');
@@ -2240,10 +2267,14 @@ router.post('/lote-firma/:loteId/firmar', async (req, res) => {
         const base = String(docsSo[idx].file_name || docsSo[idx].label || docKey).replace(/\.pdf$/i, '').replace(/[\\/<>:"|?*]/g, '_');
         const fileName = `${base}_fdo.pdf`;
         // Carpeta destino del FIRMADO: si el documento pertenece a un expediente (ficha),
-        // va a su carpeta "10. EXPEDIENTE CAE"; si es de lote (Anexo I / Solicitud), a la del lote.
+        // va a su carpeta "10. EXPEDIENTE CAE"; si es de lote (Anexo I / Solicitud /
+        // Oferta), a la subcarpeta de documentación del lote, junto a su borrador.
         let signedFolder = lote.drive_folder_id;
         if (docsSo[idx].exp_folder_id) {
             signedFolder = await driveService.getOrCreateSubfolder(docsSo[idx].exp_folder_id, '10. EXPEDIENTE CAE') || lote.drive_folder_id;
+        } else {
+            const { CARPETA_DOCS } = require('../services/loteDocs');
+            signedFolder = await driveService.getOrCreateSubfolder(lote.drive_folder_id, CARPETA_DOCS(lote.codigo)) || lote.drive_folder_id;
         }
         try {
             const prev = await driveService.findFileByName(signedFolder, fileName);
@@ -2262,6 +2293,34 @@ router.post('/lote-firma/:loteId/firmar', async (req, res) => {
             fecha: new Date().toISOString(), usuario: 'Sujeto Obligado',
         });
         await supabase.from('lotes').update({ documentos_so: docsSo, historial, updated_at: new Date().toISOString() }).eq('id', lote.id);
+
+        // Cada firma puede completar un hito: cuando el S.O. termina el Anexo I + las
+        // fichas el lote pasa a esperar la oferta, y cuando devuelve la oferta firmada
+        // pasa a ENVIADO A VERIFICADOR (que ya sí mueve la carpeta a "07").
+        await require('../services/loteDocs').sincronizarEstadoLote(lote.id, {
+            docs: docsSo, usuario: 'Sujeto Obligado', motivo: 'firma del S.O.',
+        });
+
+        // La OFERTA DE VERIFICACIÓN se avisa aparte y siempre: es el hito que
+        // desbloquea la verificación, y llega tanto si el S.O. la firma con su
+        // certificado como si sube el PDF firmado a mano desde el mismo enlace.
+        if (docKey === 'oferta_verificacion') {
+            const label = docsSo[idx].label || 'Oferta de verificación';
+            const link = saved.link;
+            setImmediate(async () => {
+                const adminPhone = process.env.WHATSAPP_ADMIN_CHAT;
+                const adminEmail = process.env.ADMIN_EMAIL || 'franciscojavier.moya.s2e2@gmail.com';
+                const msg = `✍️ *Oferta de verificación firmada*\nLote: *${lote.codigo || lote.id}*\nEl Sujeto Obligado ha firmado la oferta. Ya está en la carpeta del lote en Drive.`;
+                try { if (adminPhone) await whatsappService.sendText(adminPhone, msg); } catch (e) {}
+                try {
+                    await emailService.sendMail({
+                        to: adminEmail,
+                        subject: `✍️ Oferta de verificación firmada — lote ${lote.codigo || ''}`,
+                        html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;"><div style="background:linear-gradient(135deg,#f59e0b,#ea580c);padding:20px 28px;"><h2 style="margin:0;color:#fff;font-size:16px;">BROKERGY · Oferta firmada</h2></div><div style="padding:24px;background:#fff;"><p>El Sujeto Obligado ha firmado <strong>${label}</strong> del lote <strong>${lote.codigo || lote.id}</strong>.</p><p style="margin-top:12px;">El PDF firmado está en la carpeta del lote en Drive${link ? `: <a href="${link}">abrir documento</a>` : ''}.</p></div></div>`,
+                    });
+                } catch (e) {}
+            });
+        }
 
         // Al completar todas las firmas, avisar al admin (background).
         if (todosFirmados) {
