@@ -1,0 +1,67 @@
+// ─── Contactos a los que dirigir un documento del expediente ──────────────────
+// Fuente ÚNICA de "a quién puedo escribir por este expediente": la usan el envío
+// de anexos (EnviarAnexosModal) y el aviso de rechazo de un documento
+// (DocumentacionModule). Antes vivía suelta dentro del modal de envío, y el modal
+// de rechazo solo sabía elegir entre CLIENTE e INSTALADOR — sin poder dirigirse a
+// la persona de contacto, que es con quien se habla en la mayoría de instaladores.
+//
+// Espejo en el backend: services/notifyContacts.js (partnerNotifyTargets), que es
+// quien decide el destinatario por defecto cuando aquí no se manda ninguno.
+
+/** Un teléfono sirve para WhatsApp si tiene al menos 9 dígitos. */
+export const phoneValid = (ph) => (ph || '').replace(/[^0-9]/g, '').length >= 9;
+
+/** Contactos del cliente final: titular + persona de contacto si la hay. */
+export function clienteContacts(cli = {}) {
+    const out = [];
+    const nombre = [cli.nombre_razon_social, cli.apellidos].filter(Boolean).join(' ').trim();
+    const tlf = cli.tlf || cli.telefono || '';
+    if (tlf || cli.email) {
+        out.push({ id: 'cli', label: nombre || 'Cliente', sublabel: 'Titular', phone: tlf, email: cli.email || '' });
+    }
+    if (cli.persona_contacto_nombre && (cli.persona_contacto_tlf || cli.persona_contacto_email)) {
+        out.push({
+            id: 'cli_contacto', label: cli.persona_contacto_nombre, sublabel: 'Persona de contacto',
+            phone: cli.persona_contacto_tlf || '', email: cli.persona_contacto_email || '',
+        });
+    }
+    return out;
+}
+
+/** Contactos del instalador: representante legal + personas de contacto. */
+export function instaladorContacts(pres = {}) {
+    const out = [];
+    const repName = [pres.nombre_responsable, pres.apellidos_responsable].filter(Boolean).join(' ') || pres.razon_social || 'Instalador';
+    const repPhone = pres.tlf || pres.telefono || '';
+    if (repPhone || pres.email) {
+        out.push({
+            id: 'rep', label: repName, sublabel: pres.es_autonomo ? 'Autónomo' : 'Representante legal',
+            phone: repPhone, email: pres.email || '',
+        });
+    }
+    const arr = Array.isArray(pres.contactos_notificacion) ? pres.contactos_notificacion : [];
+    if (arr.length) {
+        arr.forEach((c, i) => {
+            if (c && (c.tlf || c.email)) {
+                out.push({ id: `c${i}`, label: c.nombre || 'Contacto', sublabel: 'Persona de contacto', phone: c.tlf || '', email: c.email || '' });
+            }
+        });
+    } else if (pres.nombre_contacto && (pres.tlf_contacto || pres.email_contacto)) {
+        out.push({ id: 'contacto', label: pres.nombre_contacto, sublabel: 'Persona de contacto', phone: pres.tlf_contacto || '', email: pres.email_contacto || '' });
+    }
+    return out;
+}
+
+/**
+ * Contacto marcado por defecto: si el instalador tiene activado el desvío de
+ * notificaciones, se escribe a sus personas de contacto, no al representante.
+ */
+export function defaultContactId(target, cli, pres) {
+    if (target === 'instalador') {
+        const list = instaladorContacts(pres);
+        const alt = list.filter(c => c.id !== 'rep');
+        if (pres?.contacto_notificaciones_activas && alt.length) return alt[0].id;
+        return list[0]?.id || null;
+    }
+    return clienteContacts(cli)[0]?.id || null;
+}

@@ -17,6 +17,7 @@ import { EnviarBorradorRiteModal } from './EnviarBorradorRiteModal';
 import { EnviarAnexosModal } from './EnviarAnexosModal';
 import FirmarConCertificadoModal from './FirmarConCertificadoModal';
 import { SIGN_BOXES } from '../logic/signBoxes';
+import { clienteContacts, instaladorContacts, defaultContactId, phoneValid } from '../utils/docContacts';
 import { calcCifo } from '../logic/calcCifo';
 import { readAnnexPrefs, orderAttachments } from '../logic/annexPrefs';
 
@@ -875,6 +876,10 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
     const [rejectMsgEdited, setRejectMsgEdited] = useState(false);
     const [rejectSending, setRejectSending] = useState(false);
     const [rejectError, setRejectError] = useState(null);
+    // Persona concreta a la que se dirige el aviso (titular / representante /
+    // persona de contacto). Sin esto el aviso iba siempre al contacto que eligiera
+    // el backend, y con la mayoría de instaladores se habla con otra persona.
+    const [rejectContactId, setRejectContactId] = useState(null);
     const [showEnviarBorrador, setShowEnviarBorrador] = useState(false);
     const [enviarAnexos, setEnviarAnexos] = useState({ open: false, docs: [], overrides: null });
     // Firma con certificado (Autofirma) de un documento YA firmado que está en Drive:
@@ -1450,9 +1455,24 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
     // cliente/instalador, envía el aviso por WhatsApp/email para que lo corrijan.
     const isRejected = (field) => !!local.docs_rechazados?.[field];
 
-    // Resuelve a quién se notifica REALMENTE (igual que resolveSolicitudContacto del
-    // backend): para el instalador, el CONTACTO de notificaciones si está activo.
+    // Contactos disponibles del grupo elegido (titular / representante / personas de
+    // contacto). Misma lista que ofrece el envío de anexos — fuente única en
+    // utils/docContacts para que ambos sitios se dirijan a la misma gente.
+    const rejectContacts = rejectTarget === 'cliente'
+        ? clienteContacts(expediente?.clientes || {})
+        : rejectTarget === 'instalador'
+            ? instaladorContacts(expediente?.prescriptores || {})
+            : [];
+    const rejectContact = rejectContacts.find(c => c.id === rejectContactId) || rejectContacts[0] || null;
+
+    // Resuelve a quién se notifica REALMENTE. Manda el contacto marcado; si no hay
+    // ninguno se cae al mismo criterio del backend (resolveSolicitudContacto): para
+    // el instalador, el CONTACTO de notificaciones si está activo.
     const notifyTarget = (t) => {
+        const marcado = rejectContact;
+        if (marcado && ((t === 'cliente' && rejectTarget === 'cliente') || (t === 'instalador' && rejectTarget === 'instalador'))) {
+            return { nombre: marcado.label, tlf: marcado.phone || null, email: marcado.email || null };
+        }
         if (t === 'cliente' || t === 'CLIENTE') {
             const c = expediente?.clientes || {};
             return {
@@ -1498,6 +1518,17 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
     const buildRejectMessage = (t, field, label, motivo) => {
         const nombre = recipientName(t);
         const numExp = expediente?.numero_expediente || '';
+        // Los anexos que generamos nosotros NO se piden corregidos: los corregimos y
+        // los reenviamos. Y su enlace de firma está bloqueado hasta entonces, así que
+        // mandar ahí al destinatario sería mandarlo a una puerta cerrada.
+        if (ANEXO_REGENERABLE[field]) {
+            return `Hola ${nombre} 👋\n\n`
+                + `Hemos revisado «${label}» del expediente ${numExp} y hemos detectado un error:\n\n`
+                + `• Motivo: ${motivo || '—'}\n\n`
+                + `Lo estamos corrigiendo por nuestra parte. Te enviaremos la versión corregida para firmar; `
+                + `la anterior ya no es válida, no hace falta que hagas nada mientras tanto.\n\n`
+                + `¡Gracias!\nBROKERGY — Ingeniería Energética`;
+        }
         const link = docUploadLink(field);
         return `Hola ${nombre} 👋\n\n`
             + `Hemos revisado «${label}» del expediente ${numExp} y necesitamos que lo corrijáis:\n\n`
@@ -1512,15 +1543,23 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
             setRejectMsg(buildRejectMessage(rejectTarget, rejectDoc.field, rejectDoc.label, rejectMotivo));
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [rejectDoc, rejectTarget, rejectMotivo, rejectMsgEdited]);
+    }, [rejectDoc, rejectTarget, rejectContactId, rejectMotivo, rejectMsgEdited]);
 
     const openRejectDoc = (field, label) => {
         setRejectMotivo(''); setRejectMsg(''); setRejectMsgEdited(false); setRejectError(null);
         // Defecto razonable: anexos del cliente → cliente; CIFO/RITE/factura → instalador.
         const clienteFields = ['anexo_i_signed_link', 'anexo_cesion_signed_link', 'anexo_fotografico_signed_link'];
-        setRejectTarget(clienteFields.includes(field) ? 'cliente' : 'instalador');
+        const t = clienteFields.includes(field) ? 'cliente' : 'instalador';
+        setRejectTarget(t);
+        setRejectContactId(defaultContactId(t, expediente?.clientes || {}, expediente?.prescriptores || {}));
         setRejectDoc({ field, label });
         setManagingSigned(null);
+    };
+
+    // Cambiar de destinatario recoloca el contacto marcado en el que toca por defecto.
+    const switchRejectTarget = (t) => {
+        setRejectTarget(t);
+        setRejectContactId(t === 'ninguno' ? null : defaultContactId(t, expediente?.clientes || {}, expediente?.prescriptores || {}));
     };
 
     // `reenviar` → tras registrar el rechazo abre el envío de anexos con el documento
@@ -1530,10 +1569,7 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
         if (!rejectMotivo.trim() || !rejectDoc) return;
         setRejectSending(true); setRejectError(null);
         try {
-            // Al reenviar, el aviso va con el anexo corregido adjunto: un mensaje suelto
-            // ahora solo serviría para mandar al cliente a firmar un anexo bloqueado.
-            const target = reenviar ? 'NINGUNO'
-                : rejectTarget === 'cliente' ? 'CLIENTE' : rejectTarget === 'instalador' ? 'INSTALADOR' : 'NINGUNO';
+            const target = rejectTarget === 'cliente' ? 'CLIENTE' : rejectTarget === 'instalador' ? 'INSTALADOR' : 'NINGUNO';
             const motivo = rejectMotivo.trim();
             const { data } = await axios.post(`/api/expedientes/${expediente.id}/documentos/rechazar`, {
                 field: rejectDoc.field,
@@ -1542,6 +1578,10 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                 target,
                 channels: ['whatsapp', 'email'],
                 mensaje: target === 'NINGUNO' ? '' : rejectMsg,
+                // Persona marcada: manda sobre el contacto por defecto del backend.
+                ...(target !== 'NINGUNO' && rejectContact
+                    ? { nombre: rejectContact.label, tlf: rejectContact.phone || '', email: rejectContact.email || '' }
+                    : {}),
             });
             // Fusiona SOLO lo que persistió el backend (no pisa ediciones locales sin guardar).
             setLocal(prev => ({ ...prev, docs_rechazados: data.docs_rechazados, docs_validados: data.docs_validados, historial: data.historial }));
@@ -2766,19 +2806,15 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                                 <div className="rounded-xl border border-amber-400/25 bg-amber-500/[0.06] p-3.5">
                                     <p className="text-[11px] text-amber-300 font-bold leading-snug flex gap-2">
                                         <svg className="w-4 h-4 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" /></svg>
-                                        <span>Este anexo lo generamos nosotros. Al rechazarlo, <span className="font-black">el enlace de firma del cliente queda bloqueado</span> hasta que le reenvíes la versión corregida — así no vuelve a firmar la que tiene el error. <span className="font-black">Corrige antes los datos en el expediente</span>: el anexo se regenera con lo que haya guardado al enviarlo.</span>
+                                        <span>Este anexo lo generamos nosotros. Al rechazarlo, <span className="font-black">el enlace de firma del cliente queda bloqueado</span> hasta que le reenvíes la versión corregida — así no vuelve a firmar la que tiene el error. <span className="font-black">Corrige antes los datos en el expediente</span>: el anexo se regenera con lo que haya guardado al enviarlo. El aviso de aquí abajo es opcional; el anexo corregido va en el paso siguiente, con sus destinatarios y su mensaje.</span>
                                     </p>
                                 </div>
                             )}
-                            {/* Los anexos regenerables no ofrecen "aviso suelto": el mensaje va con
-                                el PDF corregido adjunto desde el popup de envío (paso siguiente). */}
-                            {!rejectRegenKey && (
-                                <>
                             <div>
-                                <label className="block text-[10px] font-black uppercase tracking-widest text-white/40 mb-2">Enviar a corregir a</label>
+                                <label className="block text-[10px] font-black uppercase tracking-widest text-white/40 mb-2">{rejectRegenKey ? 'Avisar del rechazo a' : 'Enviar a corregir a'}</label>
                                 <div className="grid grid-cols-3 gap-2">
                                     {['cliente', 'instalador', 'ninguno'].map(v => (
-                                        <button key={v} onClick={() => setRejectTarget(v)} title={v === 'ninguno' ? 'Solo rechazar, sin enviar mensaje' : recipientName(v)}
+                                        <button key={v} onClick={() => switchRejectTarget(v)} title={v === 'ninguno' ? 'Solo rechazar, sin enviar mensaje' : recipientName(v)}
                                             className={`py-2.5 px-2 rounded-xl border transition-all text-center ${rejectTarget === v ? 'border-red-400/80 bg-red-400/[0.08]' : 'border-white/10 bg-white/[0.03] hover:border-white/20'}`}>
                                             <span className={`block text-[10px] font-black uppercase tracking-widest ${rejectTarget === v ? 'text-red-300' : 'text-white/60'}`}>{v === 'ninguno' ? 'Sin aviso' : v === 'cliente' ? 'Cliente' : 'Instalador'}</span>
                                             <span className="block text-[9px] font-bold normal-case truncate mt-0.5 text-white/35">{v === 'ninguno' ? 'No enviar' : recipientName(v)}</span>
@@ -2786,14 +2822,40 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                                     ))}
                                 </div>
                             </div>
+                            {rejectTarget !== 'ninguno' && rejectContacts.length > 0 && (
+                                <div>
+                                    <label className="block text-[10px] font-black uppercase tracking-widest text-white/40 mb-2">Persona de contacto</label>
+                                    <div className="space-y-2">
+                                        {rejectContacts.map(c => {
+                                            const on = (rejectContact?.id === c.id);
+                                            return (
+                                                <button key={c.id} type="button" onClick={() => setRejectContactId(c.id)}
+                                                    className={`w-full flex items-center gap-3 p-2.5 rounded-xl border text-left transition-all ${on ? 'border-red-400/60 bg-red-400/[0.06]' : 'border-white/10 bg-white/[0.02] hover:border-white/20'}`}>
+                                                    <span className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${on ? 'border-red-400' : 'border-white/20'}`}>
+                                                        {on && <span className="w-2 h-2 rounded-full bg-red-400" />}
+                                                    </span>
+                                                    <div className="min-w-0 flex-1">
+                                                        <div className="flex items-center gap-2">
+                                                            <span className="text-[12px] font-bold text-white truncate normal-case">{c.label}</span>
+                                                            <span className="text-[9px] uppercase tracking-wider text-white/30 font-bold shrink-0">{c.sublabel}</span>
+                                                        </div>
+                                                        <div className="text-[10px] text-white/35 truncate normal-case">{c.phone || 'sin teléfono'}{c.email ? ` · ${c.email}` : ''}</div>
+                                                    </div>
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                    {rejectContact && !phoneValid(rejectContact.phone) && !rejectContact.email && (
+                                        <p className="text-[10px] text-amber-400/80 mt-1.5 normal-case">Este contacto no tiene teléfono ni email: el rechazo se registrará, pero no saldrá ningún aviso.</p>
+                                    )}
+                                </div>
+                            )}
                             {rejectTarget !== 'ninguno' && (
                                 <div>
                                     <label className="block text-[10px] font-black uppercase tracking-widest text-white/40 mb-2">Mensaje (editable)</label>
                                     <textarea value={rejectMsg} onChange={e => { setRejectMsg(e.target.value); setRejectMsgEdited(true); }} rows={7} className="no-uppercase w-full bg-bkg-elevated border border-white/10 rounded-xl px-3 py-2 text-sm text-white/90 focus:outline-none focus:border-red-400/50 resize-none" />
-                                    <p className="text-[10px] text-white/25 mt-1.5 normal-case">Se enviará por WhatsApp/email a <span className="text-white/45">{recipientName(rejectTarget)}</span>{(() => { const nt = notifyTarget(rejectTarget); const d = nt.tlf || nt.email; return d ? <span className="text-white/30"> · {d}</span> : null; })()}.</p>
+                                    <p className="text-[10px] text-white/25 mt-1.5 normal-case">Se enviará por WhatsApp/email a <span className="text-white/45">{recipientName(rejectTarget)}</span>{(() => { const nt = notifyTarget(rejectTarget); const d = nt.tlf || nt.email; return d ? <span className="text-white/30"> · {d}</span> : null; })()}.{rejectRegenKey ? ' El anexo corregido se envía después, en el paso siguiente, donde eliges contactos y canal.' : ''}</p>
                                 </div>
-                            )}
-                                </>
                             )}
                             {rejectError && <p className="text-[12px] text-red-400">⚠️ {rejectError}</p>}
                         </div>
@@ -2802,8 +2864,8 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                             <button onClick={() => setRejectDoc(null)} disabled={rejectSending} className="flex-1 px-4 py-2.5 rounded-xl border border-white/10 text-white/50 text-[10px] font-black uppercase tracking-widest hover:text-white hover:border-white/30 transition-all disabled:opacity-40">Cancelar</button>
                             {rejectRegenKey ? (
                                 <>
-                                    <button onClick={() => confirmRejectDoc(false)} disabled={rejectSending || !rejectMotivo.trim()} title="Marcar el rechazo ahora y reenviar el anexo corregido más tarde" className="px-4 py-2.5 rounded-xl border border-white/10 text-white/50 text-[10px] font-black uppercase tracking-widest hover:text-white hover:border-white/30 transition-all disabled:opacity-40">Solo rechazar</button>
-                                    <button onClick={() => confirmRejectDoc(true)} disabled={rejectSending || !rejectMotivo.trim()} className="flex-1 px-4 py-2.5 rounded-xl bg-red-500/15 border border-red-500/30 text-red-300 text-[10px] font-black uppercase tracking-widest hover:bg-red-500 hover:text-white transition-all disabled:opacity-40">{rejectSending ? 'Rechazando…' : 'Rechazar y reenviar corregido'}</button>
+                                    <button onClick={() => confirmRejectDoc(false)} disabled={rejectSending || !rejectMotivo.trim()} title="Marcar el rechazo (y enviar el aviso si has elegido destinatario). El anexo corregido lo reenvías más tarde." className="px-4 py-2.5 rounded-xl border border-white/10 text-white/50 text-[10px] font-black uppercase tracking-widest hover:text-white hover:border-white/30 transition-all disabled:opacity-40">{rejectTarget === 'ninguno' ? 'Solo rechazar' : 'Rechazar y avisar'}</button>
+                                    <button onClick={() => confirmRejectDoc(true)} disabled={rejectSending || !rejectMotivo.trim()} title="Registra el rechazo, envía el aviso si procede y abre el envío del anexo regenerado" className="flex-1 px-4 py-2.5 rounded-xl bg-red-500/15 border border-red-500/30 text-red-300 text-[10px] font-black uppercase tracking-widest hover:bg-red-500 hover:text-white transition-all disabled:opacity-40">{rejectSending ? 'Rechazando…' : 'Rechazar y reenviar corregido'}</button>
                                 </>
                             ) : (
                                 <button onClick={() => confirmRejectDoc(false)} disabled={rejectSending || !rejectMotivo.trim()} className="flex-1 px-4 py-2.5 rounded-xl bg-red-500/15 border border-red-500/30 text-red-300 text-[10px] font-black uppercase tracking-widest hover:bg-red-500 hover:text-white transition-all disabled:opacity-40">{rejectSending ? 'Enviando…' : rejectTarget === 'ninguno' ? 'Rechazar' : 'Rechazar y avisar'}</button>

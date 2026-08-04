@@ -4,6 +4,7 @@ import confetti from 'canvas-confetti';
 import { useModal } from '../../../context/ModalContext';
 import { postEmail } from '../../../utils/emailFallback';
 import { buildAnexoIHtml, buildAnexoCesionHtml, getDualMessage, getClientCaeRate, buildInstalacionAddress } from '../utils/docGenerators';
+import { clienteContacts, instaladorContacts, phoneValid } from '../utils/docContacts';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Envío unificado de los anexos del cliente (Anexo I + Anexo de Cesión de Ahorros).
@@ -88,34 +89,9 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
     // El justificante va junto al IBAN (no se trata como dato suelto que falta).
     const datosFaltan = [faltaEmail && 'email', faltaDni && 'DNI/CIF', faltaIban && 'IBAN'].filter(Boolean);
 
-    // ── Contactos por grupo ──────────────────────────────────────────────────
-    const cliContacts = [];
-    {
-        const cliPhone = cli.tlf || cli.telefono || '';
-        if (cliPhone || cli.email) {
-            cliContacts.push({ id: 'cli', label: clienteNombre || 'Cliente', sublabel: 'Titular', phone: cliPhone, email: cli.email || '' });
-        }
-        if (cli.persona_contacto_nombre && (cli.persona_contacto_tlf || cli.persona_contacto_email)) {
-            cliContacts.push({ id: 'cli_contacto', label: cli.persona_contacto_nombre, sublabel: 'Persona de contacto', phone: cli.persona_contacto_tlf || '', email: cli.persona_contacto_email || '' });
-        }
-    }
-    const instContacts = [];
-    {
-        const repName = [pres.nombre_responsable, pres.apellidos_responsable].filter(Boolean).join(' ') || pres.razon_social || 'Instalador';
-        const repPhone = pres.tlf || pres.telefono || '';
-        if (repPhone || pres.email) {
-            instContacts.push({ id: 'rep', label: repName, sublabel: pres.es_autonomo ? 'Autónomo' : 'Representante legal', phone: repPhone, email: pres.email || '' });
-        }
-        const arr = Array.isArray(pres.contactos_notificacion) ? pres.contactos_notificacion : [];
-        if (arr.length) {
-            arr.forEach((c, i) => {
-                if (c && (c.tlf || c.email)) instContacts.push({ id: `c${i}`, label: c.nombre || 'Contacto', sublabel: 'Persona de contacto', phone: c.tlf || '', email: c.email || '' });
-            });
-        } else if (pres.nombre_contacto && (pres.tlf_contacto || pres.email_contacto)) {
-            instContacts.push({ id: 'contacto', label: pres.nombre_contacto, sublabel: 'Persona de contacto', phone: pres.tlf_contacto || '', email: pres.email_contacto || '' });
-        }
-    }
-    const phoneValid = (ph) => (ph || '').replace(/[^0-9]/g, '').length >= 9;
+    // ── Contactos por grupo (fuente única: utils/docContacts) ────────────────
+    const cliContacts  = clienteContacts(cli);
+    const instContacts = instaladorContacts(pres);
 
     // Incidencias detectadas y aún abiertas (control de calidad). Se ofrecen para
     // copiarlas al mensaje como "observaciones". Viven en documentacion.incidencias[].
@@ -331,12 +307,12 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
     const handlePedirDatos = async () => {
         setPedirBusy(true); setPedir(null);
         const phone = cliContacts[0]?.phone || cli.tlf || cli.telefono || '';
-        const phoneValid = (phone || '').replace(/[^0-9]/g, '').length >= 9;
+        const tienePhone = phoneValid(phone);
         const faltanTxt = datosFaltan.length ? ` (${datosFaltan.join(', ')})` : '';
         const msg = `¡Hola ${firstName}! 👋\n\nPara poder tramitar tu ayuda del expediente *${numexpte}* necesitamos que completes unos datos${faltanTxt} y, si procede, subas el justificante de titularidad bancaria. Es muy rápido, desde aquí:\n${firmaUrl}\n\nGracias 🙌\n*Brokergy*`;
         let copied = false;
         try { await navigator.clipboard.writeText(firmaUrl); copied = true; } catch (e) { copied = false; }
-        if (phoneValid && waReady) {
+        if (tienePhone && waReady) {
             try {
                 await axios.post('/api/whatsapp/send-text', { phone, message: msg });
                 setPedir({ ok: true, text: `WhatsApp enviado a ${phone}${copied ? ' · enlace copiado' : ''}` });
@@ -344,7 +320,7 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
                 setPedir({ ok: false, text: `${copied ? 'Enlace copiado. ' : ''}No se pudo enviar el WhatsApp: ${err.response?.data?.error || err.message}` });
             }
         } else {
-            setPedir({ ok: copied, text: copied ? `Enlace copiado al portapapeles${phoneValid ? ' (WhatsApp no conectado)' : ' (cliente sin teléfono)'} — pégalo donde quieras.` : 'No se pudo copiar el enlace.' });
+            setPedir({ ok: copied, text: copied ? `Enlace copiado al portapapeles${tienePhone ? ' (WhatsApp no conectado)' : ' (cliente sin teléfono)'} — pégalo donde quieras.` : 'No se pudo copiar el enlace.' });
         }
         setPedirBusy(false);
     };
