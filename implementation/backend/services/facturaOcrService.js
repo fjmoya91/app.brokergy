@@ -22,6 +22,58 @@ const MAX_RETRIES = 3;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // ─────────────────────────────────────────────────────────────────────────────
+// RAZONAMIENTO DEL MODELO — DESACTIVADO A PROPÓSITO
+//
+// Gemini 2.5 Flash trae "thinking" con presupuesto DINÁMICO por defecto, y con un
+// PDF + un responseSchema estricto como el de aquí se dispara: medido sobre una
+// factura real de 5 líneas (497 KB), 62.913 tokens de razonamiento y **250 s** de
+// respuesta. nginx corta la petición a los 120 s (proxy_read_timeout), así que el
+// usuario veía SIEMPRE un 504 mientras el backend seguía trabajando cuatro minutos
+// y acababa dejando el PDF huérfano en "5. FACTURAS".
+//
+// Con thinkingBudget 0 la MISMA factura se lee en 5,6 s y 2.012 tokens, con la
+// extracción igual de buena (mismo nº de factura, una línea MÁS detectada). Leer
+// una factura es transcribir campos rotulados, no razonar: el presupuesto de
+// razonamiento no aportaba nada y costaba 30× en tokens.
+//
+// Se deja regulable por si algún día se quiere reactivar con tope (nunca dinámico).
+const THINKING_BUDGET = Number.isFinite(Number(process.env.FACTURA_OCR_THINKING_BUDGET))
+    ? Number(process.env.FACTURA_OCR_THINKING_BUDGET)
+    : 0;
+
+// Tope de tiempo TOTAL (todos los reintentos incluidos). Tiene que quedar por
+// DEBAJO del proxy_read_timeout de nginx (120 s) para que un cuelgue del proveedor
+// dé un error limpio y accionable en vez de un 504 opaco con el backend zombi
+// detrás. Ver nginx/nginx.https.conf → location /api/.
+const DEADLINE_MS = Number(process.env.FACTURA_OCR_TIMEOUT_MS) || 100_000;
+
+/**
+ * fetch con presupuesto de tiempo GLOBAL: cada intento se aborta al agotarse lo que
+ * quede del plazo, de modo que los reintentos no puedan sumar más que el plazo.
+ */
+async function fetchConPlazo(url, opts, restanteMs) {
+    if (restanteMs <= 0) {
+        const err = new Error(`La lectura superó el plazo de ${Math.round(DEADLINE_MS / 1000)}s.`);
+        err.status = 504;
+        throw err;
+    }
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), restanteMs);
+    try {
+        return await fetch(url, { ...opts, signal: ctrl.signal });
+    } catch (e) {
+        if (e.name === 'AbortError') {
+            const err = new Error(`La lectura superó el plazo de ${Math.round(DEADLINE_MS / 1000)}s.`);
+            err.status = 504;
+            throw err;
+        }
+        throw e;
+    } finally {
+        clearTimeout(t);
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Partidas: enum CERRADO. La IA clasifica cada línea; las reglas deciden qué
 // hacer con esa clasificación. Si el enum se abre, hay que revisar las reglas de
 // alcance de facturaIncidencias.js (dependen de estos valores exactos).
@@ -147,20 +199,25 @@ async function extractWithGemini(pdfBuffer) {
             responseMimeType: 'application/json',
             responseSchema: GEMINI_SCHEMA,
             temperature: 0,
+            // Sin razonamiento: ver THINKING_BUDGET arriba (250 s → 5,6 s).
+            thinkingConfig: { thinkingBudget: THINKING_BUDGET },
         },
     };
 
+    const t0 = Date.now();
+    const finPlazo = t0 + DEADLINE_MS;
     let res, text;
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-        res = await fetch(url, {
+        res = await fetchConPlazo(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
             body: JSON.stringify(body),
-        });
+        }, finPlazo - Date.now());
         text = await res.text();
         if (res.ok) break;
         if (!RETRYABLE_STATUS.has(res.status) || attempt === MAX_RETRIES) break;
         const waitMs = Math.round(900 * 2 ** attempt + Math.random() * 300);
+        if (Date.now() + waitMs >= finPlazo) break;   // no dormir fuera de plazo
         console.warn(`[facturaOcr] Gemini ${res.status} (intento ${attempt + 1}/${MAX_RETRIES + 1}), reintentando en ${waitMs}ms…`);
         await sleep(waitMs);
     }
@@ -173,6 +230,10 @@ async function extractWithGemini(pdfBuffer) {
     }
     let data;
     try { data = JSON.parse(text); } catch { throw new Error('Respuesta de Gemini no es JSON.'); }
+    // Traza del consumo: un repunte de `pensados` es la señal de que el modelo ha
+    // vuelto a razonar (fue justo lo que disparó el tiempo a 250 s y provocaba el 504).
+    const u = data?.usageMetadata || {};
+    console.log(`[facturaOcr] Gemini ${GEMINI_MODEL} ${((Date.now() - t0) / 1000).toFixed(1)}s · tokens entrada=${u.promptTokenCount ?? '?'} pensados=${u.thoughtsTokenCount ?? 0} salida=${u.candidatesTokenCount ?? '?'}`);
     const out = data?.candidates?.[0]?.content?.parts?.[0]?.text;
     if (!out) throw new Error('Gemini no devolvió contenido extraído.');
     return JSON.parse(out);
@@ -194,17 +255,19 @@ async function extractWithOpenAI(pdfBuffer) {
         }],
     });
 
+    const finPlazo = Date.now() + DEADLINE_MS;
     let res, text;
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-        res = await fetch('https://api.openai.com/v1/responses', {
+        res = await fetchConPlazo('https://api.openai.com/v1/responses', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
             body: payload,
-        });
+        }, finPlazo - Date.now());
         text = await res.text();
         if (res.ok) break;
         if (!RETRYABLE_STATUS.has(res.status) || attempt === MAX_RETRIES) break;
         const waitMs = Math.round(900 * 2 ** attempt + Math.random() * 300);
+        if (Date.now() + waitMs >= finPlazo) break;   // no dormir fuera de plazo
         console.warn(`[facturaOcr] OpenAI ${res.status} (intento ${attempt + 1}/${MAX_RETRIES + 1}), reintentando en ${waitMs}ms…`);
         await sleep(waitMs);
     }
