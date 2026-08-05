@@ -26,6 +26,54 @@ const MAX_RETRIES = 3;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // ─────────────────────────────────────────────────────────────────────────────
+// RAZONAMIENTO DEL MODELO — DESACTIVADO, MEDIDO SOBRE CEE REALES (2026-08-05)
+//
+// Gemini 2.5 trae "thinking" con presupuesto DINÁMICO por defecto. Aquí NO se
+// desbocaba como en el OCR de facturas (10,6 s frente a 250 s: el esquema del CEE
+// son 21 campos planos, no un array de líneas que haya que clasificar una a una),
+// pero tampoco aportaba nada. A/B sobre 3 CEE reales (RES060 inicial, RES060
+// final y RES080), 63 comparaciones de campo:
+//
+//   · con razonamiento: 10,6 s de media
+//   · sin razonamiento:  2,9 s de media
+//   · UNA sola diferencia… y a favor de NO razonar:
+//       demandas.refrigeracion_kwh_m2_ano → 21,3 (razonando) vs 21,31 (sin)
+//     El CEE trae los dos números: 21,3 es el valor REDONDEADO de la etiqueta
+//     energética y 21,31 el de la fila "Demanda [kWh/m² año]", que es el que pide
+//     el campo. Razonando, el modelo se quedaba con el de la etiqueta.
+//
+// Leer un CEE es localizar campos rotulados, no razonar.
+const THINKING_BUDGET = Number.isFinite(Number(process.env.CEE_OCR_THINKING_BUDGET))
+  ? Number(process.env.CEE_OCR_THINKING_BUDGET)
+  : 0;
+
+// Tope de tiempo TOTAL (reintentos incluidos), por DEBAJO del proxy_read_timeout
+// de nginx (120 s): un cuelgue del proveedor tiene que dar un error legible, no un
+// 504 opaco con el backend trabajando por detrás. Mismo criterio que en
+// facturaOcrService, donde ese 504 fue justo el fallo que hubo que diagnosticar.
+const DEADLINE_MS = Number(process.env.CEE_OCR_TIMEOUT_MS) || 100_000;
+
+/** fetch con presupuesto de tiempo GLOBAL compartido por todos los reintentos. */
+async function fetchConPlazo(url, opts, restanteMs) {
+  const agotado = () => {
+    const err = new Error(`La lectura superó el plazo de ${Math.round(DEADLINE_MS / 1000)}s.`);
+    err.status = 504;
+    return err;
+  };
+  if (restanteMs <= 0) throw agotado();
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), restanteMs);
+  try {
+    return await fetch(url, { ...opts, signal: ctrl.signal });
+  } catch (e) {
+    if (e.name === 'AbortError') throw agotado();
+    throw e;
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Prompt de extracción (validado contra CEE real, procedimiento CEXv2.x / CE3X)
 // ─────────────────────────────────────────────────────────────────────────────
 const EXTRACTION_PROMPT = `Eres un extractor de datos de Certificados de Eficiencia Energética de Edificios (CEE) de España (procedimiento CEXv2.x / CE3X). Te doy el PDF de un CEE. Extrae EXACTAMENTE los siguientes datos y devuélvelos en JSON según el esquema.
@@ -176,20 +224,25 @@ async function extractWithGemini(pdfBuffer) {
       responseMimeType: 'application/json',
       responseSchema: GEMINI_SCHEMA,
       temperature: 0,
+      // Sin razonamiento: ver THINKING_BUDGET arriba (10,6 s → 2,9 s, y más fiel).
+      thinkingConfig: { thinkingBudget: THINKING_BUDGET },
     },
   };
 
+  const t0 = Date.now();
+  const finPlazo = t0 + DEADLINE_MS;
   let res, text;
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-    res = await fetch(url, {
+    res = await fetchConPlazo(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
       body: JSON.stringify(body),
-    });
+    }, finPlazo - Date.now());
     text = await res.text();
     if (res.ok) break;
     if (!RETRYABLE_STATUS.has(res.status) || attempt === MAX_RETRIES) break;
     const waitMs = Math.round(900 * 2 ** attempt + Math.random() * 300);
+    if (Date.now() + waitMs >= finPlazo) break;   // no dormir fuera de plazo
     console.warn(`[ceeOcr] Gemini ${res.status} (intento ${attempt + 1}/${MAX_RETRIES + 1}), reintentando en ${waitMs}ms…`);
     await sleep(waitMs);
   }
@@ -202,6 +255,9 @@ async function extractWithGemini(pdfBuffer) {
   }
   let data;
   try { data = JSON.parse(text); } catch { throw new Error('Respuesta de Gemini no es JSON.'); }
+  // Un repunte de `pensados` avisa de que el modelo ha vuelto a razonar.
+  const u = data?.usageMetadata || {};
+  console.log(`[ceeOcr] Gemini ${GEMINI_MODEL} ${((Date.now() - t0) / 1000).toFixed(1)}s · tokens entrada=${u.promptTokenCount ?? '?'} pensados=${u.thoughtsTokenCount ?? 0} salida=${u.candidatesTokenCount ?? '?'}`);
   const out = data?.candidates?.[0]?.content?.parts?.[0]?.text;
   if (!out) throw new Error('Gemini no devolvió contenido extraído.');
   return JSON.parse(out);
