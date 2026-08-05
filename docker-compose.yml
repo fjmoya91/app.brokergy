@@ -2,7 +2,13 @@ version: '3.8'
 
 services:
   backend:
-    build: ./implementation/backend
+    # Contexto = ./implementation (no ./implementation/backend): el backend importa
+    # en runtime la lógica ESM de frontend/src (matemática del CAE, CIFO, RES080) y
+    # solo desde este contexto se puede copiar dentro de la imagen.
+    # El .dockerignore que aplica pasa a ser implementation/.dockerignore.
+    build:
+      context: ./implementation
+      dockerfile: backend/Dockerfile
     container_name: brokergy-backend
     restart: unless-stopped
     stop_grace_period: 30s

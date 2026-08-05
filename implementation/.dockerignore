@@ -1,0 +1,48 @@
+# Contexto de build del BACKEND.
+#
+# El backend importa en RUNTIME la lógica ESM del frontend (calculation.js,
+# cifoDoc.js, res080Doc.js, ter100.js, demandaAcs.js, annexPrefs.js) para no
+# duplicar la matemática del CAE. Por eso su contexto de build es
+# `./implementation` y no `./implementation/backend`: desde aquí se puede copiar
+# `frontend/src` dentro de la imagen. Ver docker-compose.yml → backend.build.
+#
+# ⚠️ Al mover el contexto, este fichero SUSTITUYE a `backend/.dockerignore`
+# (Docker solo lee el .dockerignore de la RAÍZ del contexto). Todo lo que aquel
+# excluía tiene que seguir excluido aquí, o entra en la imagen.
+
+# Dependencias: se instalan dentro con `npm ci` (y el frontend no las necesita:
+# de él solo viajan fuentes ESM puras).
+**/node_modules
+
+# Secretos: el entorno entra por `env_file` en compose, NUNCA horneado en la imagen.
+backend/.env
+backend/.env.*
+
+# Sesión de WhatsApp: son volúmenes montados en runtime (whatsapp_auth/cache).
+backend/.wwebjs_auth/
+backend/.wwebjs_cache/
+
+# Scripts de operación/migración: se ejecutan desde el repo, no desde la imagen
+# (ya estaban excluidos en backend/.dockerignore — se mantiene la paridad).
+backend/scripts/
+
+# Del frontend SOLO viaja `src/`. Lo demás es build, apps nativas y binarios.
+frontend/dist/
+frontend/android/
+frontend/ios/
+frontend/public/
+frontend/assets/
+frontend/*.json
+frontend/*.js
+frontend/*.html
+
+# Otros servicios: tienen su propio build en compose.
+rite-generator/
+
+# Ruido que no pinta nada en una imagen de servidor.
+api/
+scratch/
+skills/
+*.md
+*.log
+npm-debug.log*

@@ -16,10 +16,31 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
-COPY package*.json ./
+# OJO: el contexto de build es `./implementation` (NO `./implementation/backend`),
+# así que todas las rutas van prefijadas. Ver docker-compose.yml → backend.build.
+COPY backend/package*.json ./
 RUN npm ci --omit=dev
 
-COPY . .
+COPY backend/ ./
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Lógica ESM compartida con el frontend (FUENTE ÚNICA de la matemática del CAE).
+#
+# `cifoService.js` y `expedienteFinancialsNode.js` la importan en runtime con
+# `path.join(__dirname, '../../frontend/src/…')`, que desde /app/services resuelve
+# a /frontend/src — la MISMA ruta relativa que en el repo. Copiándola aquí, el
+# código no necesita saber si corre en local o en un contenedor.
+#
+# Sin esto: `Cannot find module '/frontend/src/features/calculator/logic/
+# calculation.js'` y se caen el CIFO server-side, `estado_cifo`/`generar_cifo`
+# del MCP, la economía del portal del cliente y la regla SOBREFINANCIACIÓN del
+# OCR de facturas (esta última en silencio: va dentro de un try/catch).
+COPY frontend/src /frontend/src
+
+# Marcador OBLIGATORIO: Node decide ESM/CJS por el package.json más cercano. Sin
+# él, estos ficheros heredan el del backend (CJS) y dan "Cannot use import
+# statement outside a module". En el repo ese papel lo hace frontend/package.json.
+RUN echo '{"type":"module"}' > /frontend/package.json
 
 ENV NODE_ENV=production
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/google-chrome-stable
