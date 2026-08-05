@@ -55,6 +55,12 @@ const DESIGN_SHARED = `
     .cmp tr:last-child td { border-bottom: none; }
     .just tr:last-child td { border-bottom: none; }
     .doc-foot { margin-top: auto; padding-top: 10px; border-top: 1px solid #ECECE4; display: flex; justify-content: space-between; font-size: 10.5px; color: #9A9A92; font-weight: 500; }
+    /* Capturas CE3X de la actuación de ventanas (ver buildCe3xPage) */
+    .ce3x-frame { border: 1px solid #E9E9E1; border-radius: 16px; overflow: hidden; background: #fff; }
+    .ce3x-img { display: block; width: 100%; max-height: 370px; object-fit: contain; background: #FAFAF6; }
+    /* El rótulo va sobre banda oscura/verde: el hueco editable es claro, así que
+       su texto necesita color propio o se queda blanco sobre blanco. */
+    .ce3x-frame .doc-editable { color: #1A1A1A; }
 `;
 
 export function buildRes080DocCss(appUrl) {
@@ -86,6 +92,26 @@ export function buildRes080DocCss(appUrl) {
         min-width: 20px;
     }
     .doc-editable:focus { background: #fff9c4; box-shadow: inset 0 0 0 1px #F18A00; }
+    /* Hueco vacío de captura CE3X: solo existe en el PREVIEW (el PDF no imprime
+       cuadros vacíos). Se clica para armarlo y se pega con Ctrl+V. */
+    .ce3x-drop {
+        display: flex; flex-direction: column; align-items: center; justify-content: center;
+        gap: 6px; height: 210px; padding: 0 24px; text-align: center;
+        border: 2px dashed #D8D8CE; border-radius: 16px; background: #FAFAF6;
+        color: #9A9A92; font-size: 12.5px; cursor: pointer; outline: none;
+    }
+    .ce3x-drop:hover { border-color: #C4C4B8; color: #6E6E66; }
+    .ce3x-drop.is-active { border-color: #F18A00; background: #FFF8EC; color: #B5730A; }
+    .ce3x-drop.is-busy { border-style: solid; border-color: #93C01F; background: #F3F8E6; color: #4d6a12; }
+    .ce3x-hint { font-size: 10.5px; letter-spacing: .4px; text-transform: uppercase; font-weight: 700; }
+    .ce3x-add {
+        cursor: pointer; user-select: none;
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 7px 15px; border-radius: 999px;
+        border: 1px dashed #C4C4B8; background: #FAFAF6; color: #6E6E66;
+        font-size: 11px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase;
+    }
+    .ce3x-add:hover { border-color: #F18A00; background: #FFF8EC; color: #B5730A; }
     @media print {
         .doc-wrap { background: #fff !important; padding: 0 !important; }
         .doc-page { margin: 0 !important; box-shadow: none !important; }
@@ -140,6 +166,10 @@ export const RES080_FIELD_DEFAULTS = {
     cristal_nuevo_ug: '1,1',
     cristal_nuevo_g: '0,43',
     permeabilidad_nueva: '3',
+    // Rótulos de las capturas CE3X de la actuación de ventanas. Son editables
+    // porque el hueco capturado cambia de una obra a otra.
+    ce3x_titulo_antes: 'DETALLE VENTANA y PUERTA COCINA CE3X ANTES',
+    ce3x_titulo_despues: 'DETALLE VENTANA y PUERTA COCINA CE3X DESPUÉS',
 };
 
 const toDdMmYyyy = (val) => {
@@ -346,10 +376,120 @@ const formatNum = (val) => {
 };
 
 // ============================================================================
+// buildCe3xPages — páginas de CAPTURAS DEL CE3X de la actuación de ventanas.
+//
+// FUENTE ÚNICA de estas páginas: las usan tanto este builder (PDF / backend)
+// como el modal CertificadoRes080Modal, que mantiene su propia copia del resto
+// del documento. `ce3x` es { antes: [{ src, driveId, busy }], despues: [ … ] }
+// con `src` ya resuelto a algo que el navegador pueda pintar (data URI): las
+// imágenes viven en Drive y el puntero, en documentacion.ce3x_capturas.
+//
+// Cada fase admite VARIAS capturas (una vivienda cambia más de un tipo de
+// hueco). Se maquetan a DOS bloques por página: con el rótulo y una imagen de
+// hasta 400px, es lo que cabe en A4 sin desbordar.
+//
+// Devuelve [] cuando no hay nada que enseñar (PDF sin ninguna captura), para
+// que el certificado no lleve recuadros vacíos: al verificador le parecerían
+// documentación pendiente. El hueco para pegar y el botón "+" son del VISOR:
+// nunca se imprimen.
+// ============================================================================
+const CE3X_FASES = [
+    { slot: 'antes', field: 'ce3x_titulo_antes', head: '#1A1A1A', color: '#fff' },
+    { slot: 'despues', field: 'ce3x_titulo_despues', head: '#93C01F', color: '#1A1A1A' },
+];
+
+export function buildCe3xPages({ ce3x = {}, ed, eb, isForPdf, pageHeader, sectionTitle, footer, addSlot = null }) {
+    const lista = (slot) => {
+        const val = ce3x[slot];
+        if (Array.isArray(val)) return val;
+        return val && typeof val === 'object' ? [val] : [];
+    };
+
+    const marco = (f, cuerpo, pie = '') => `
+        <div style="margin-top:14px;">
+            <div class="ce3x-frame">
+                <div style="padding:8px 16px;background:${f.head};color:${f.color};font-family:'Archivo';font-weight:800;font-size:11px;letter-spacing:1px;">${eb(f.field)}</div>
+                ${cuerpo}
+                ${pie}
+            </div>
+        </div>`;
+
+    // Un bloque por captura + (solo en el visor) el hueco de pegado abierto con
+    // el "+" y el botón para abrirlo. `grande` = ocupa imagen (dos por página);
+    // el botón "+" es una línea y viaja pegado a su fase sin gastar hueco.
+    const bloques = [];
+    const push = (html, grande = true) => bloques.push({ html, grande });
+    for (const f of CE3X_FASES) {
+        const caps = lista(f.slot);
+        for (const cap of caps) {
+            push(marco(
+                f,
+                cap.src
+                    ? `<img class="ce3x-img" src="${cap.src}" alt="${ed(f.field)}">`
+                    : `<div style="padding:12px;"><div class="ce3x-drop is-busy"><span class="ce3x-hint">Guardando la captura…</span></div></div>`,
+                isForPdf ? '' : `
+                    <div style="display:flex;justify-content:flex-end;padding:6px 10px;background:#FAFAF6;border-top:1px solid #ECECE4;">
+                        <span data-ce3x-clear="${f.slot}" data-ce3x-drive="${cap.driveId || ''}" style="cursor:pointer;font-size:10.5px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;color:#c0392b;">✕ Quitar captura</span>
+                    </div>`
+            ));
+        }
+        if (isForPdf) continue;
+
+        // Sin ninguna captura, el hueco sale abierto (es donde se pega la
+        // primera); con capturas, solo al pulsar "+".
+        const abierto = caps.length === 0 || addSlot === f.slot;
+        if (abierto) {
+            const activo = addSlot === f.slot;
+            push(marco(f, `
+                <div style="padding:12px;">
+                    <div class="ce3x-drop${activo ? ' is-active' : ''}" data-ce3x="${f.slot}" tabindex="0">
+                        <span class="ce3x-hint">${activo ? 'Listo · pulsa Ctrl+V' : 'Clic aquí y Ctrl+V'}</span>
+                        <span>Pega aquí la captura del CE3X, o arrastra el archivo de imagen</span>
+                    </div>
+                </div>`));
+        } else {
+            push(`
+                <div style="margin-top:10px;display:flex;justify-content:flex-end;">
+                    <span data-ce3x-add="${f.slot}" class="ce3x-add">+ Añadir captura del ${f.slot === 'antes' ? 'antes' : 'después'}</span>
+                </div>`, false);
+        }
+    }
+
+    if (!bloques.some(b => b.grande)) return [];
+
+    // Reparto: dos bloques grandes por página; el "+" acompaña a su fase sin
+    // gastar hueco (si no, una página podría quedarse con un botón suelto).
+    const paginas = [];
+    let actual = [];
+    let grandes = 0;
+    const cerrar = () => {
+        if (actual.length === 0) return;
+        const primera = paginas.length === 0;
+        paginas.push(`
+            <div class="doc-page">
+                ${pageHeader}
+                ${sectionTitle(`Detalle de los huecos en CE3X${primera ? '' : ' (cont.)'}`, '20px')}
+                ${primera ? `<p style="margin:0 0 2px 20px;font-size:12.5px;color:#4a4a44;">Capturas de la definición de los huecos en el programa de certificación CE3X, antes y después de la rehabilitación.</p>` : ''}
+                ${actual.join('')}
+                ${footer}
+            </div>`);
+        actual = [];
+        grandes = 0;
+    };
+    for (const b of bloques) {
+        if (b.grande && grandes === 2) cerrar();
+        actual.push(b.html);
+        if (b.grande) grandes++;
+    }
+    cerrar();
+    return paginas;
+}
+
+// ============================================================================
 // buildRes080Html — documento HTML completo. `isForPdf` true (backend) → sin
 // contenteditable. `attachments`: slots de anexos con { id, label, file:{driveId} }.
 // ============================================================================
-export function buildRes080Html({ data, appUrl, attachments = [], isForPdf = true, withAnnexPreview = false }) {
+export function buildRes080Html({ data, appUrl, attachments = [], isForPdf = true, withAnnexPreview = false, ce3x = {} }) {
     const APP_URL = appUrl || '';
     const {
         fields, env, inst, cli, results,
@@ -695,6 +835,14 @@ export function buildRes080Html({ data, appUrl, attachments = [], isForPdf = tru
                 ${footer}
             </div>
         `);
+
+        // PÁGINA 4-bis: CAPTURAS DEL CE3X (detalle del hueco antes/después).
+        // Va en página aparte porque la de ventanas ya llega llena con las dos
+        // tablas de huecos y la comparativa. En el PDF solo se imprime lo que
+        // tiene captura: un recuadro vacío en el certificado del verificador
+        // parecería documentación que falta. En el PREVIEW salen siempre los dos
+        // huecos, que es donde se pegan (Ctrl+V).
+        pages.push(...buildCe3xPages({ ce3x, ed, eb, isForPdf, pageHeader, sectionTitle, footer }));
     }
 
     // PÁGINA: JUSTIFICACIÓN DEL CÁLCULO DE AHORRO (solo si hay results.details)

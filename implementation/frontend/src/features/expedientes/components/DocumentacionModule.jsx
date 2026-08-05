@@ -300,6 +300,9 @@ function FacturasSection({ expedienteId, facturas, onChange, onCommit, readOnly,
                     drive_id: leida.drive_id,
                     origen: 'ocr',
                     validada: false,   // una versión nueva vuelve a estar sin validar
+                    // Partidas del OCR: identifican la factura de la instalación
+                    // térmica (de ella sale la fecha de pruebas del RITE).
+                    partidas: leida.partidas || f.partidas || [],
                 }));
             }
 
@@ -988,6 +991,9 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
             setPotFrioPendiente(pend);
             situadoEnRef.current = data?.situadoEn || null;
             setSituadoEnOpciones(data?.situadoEn?.opciones || []);
+            // Fecha de pruebas ambigua → su propio popup (tampoco es un "dato faltante").
+            fechaPruebasRef.current = data?.fechaPruebas || null;
+            setFechaPruebasInfo(data?.fechaPruebas || null);
             return Array.isArray(data?.missing) ? data.missing : [];
         } catch (e) {
             console.warn('[memoria-rite] No se pudo validar en el servidor:', e?.message);
@@ -995,6 +1001,8 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
             setPotFrioPendiente([]);
             situadoEnRef.current = null;
             setSituadoEnOpciones([]);
+            fechaPruebasRef.current = null;
+            setFechaPruebasInfo(null);
             return [];
         }
     };
@@ -1160,12 +1168,20 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
     const cliId = expediente?.clientes?.id_cliente || expediente?.cliente_id || null;
     const [sexoPopup, setSexoPopup] = useState({ isOpen: false, saving: null, error: null });
 
-    // ── Fecha de pruebas (cuando NO hay factura) ──────────────────────────────
-    // La fecha de pruebas de la Memoria RITE se toma de la factura. Si el
-    // expediente aún no tiene factura, se pide a mano en un popup y se persiste en
-    // documentacion.fecha_pruebas_cert_instalacion (el backend la usa como
-    // fallback → no salta el error de "Subir a Drive").
+    // ── Fecha de pruebas del Certificado de Instalación Térmica ───────────────
+    // Es la fecha de la puesta en marcha de la instalación TÉRMICA. La resuelve
+    // el backend (GET /memoria-rite/check → `fechaPruebas`, fuente única en
+    // utils/riteValidation): manda lo marcado a mano y, si no, la factura con
+    // partida AEROTERMIA/ACS. Solo se pregunta cuando el dato es AMBIGUO — sin
+    // facturas, o con varias y ninguna identificable como la térmica: en una
+    // REFORMA la primera factura puede ser la de las ventanas y adivinar deja la
+    // memoria fechada en una obra que no es la del CAE.
     const [fechaPruebasPopup, setFechaPruebasPopup] = useState({ isOpen: false, value: null, saving: false, error: null });
+    // Lo que devuelve /check. Como con las potencias, se lee en el MISMO tick en
+    // que llega (el click encadena los popups), así que la ref da la lectura
+    // síncrona y el estado solo alimenta el render.
+    const fechaPruebasRef = useRef(null);
+    const [fechaPruebasInfo, setFechaPruebasInfo] = useState(null);
 
     // ── Potencia frigorífica del modelo (cuando el emisor da frío) ────────────
     // El dato vive en el CATÁLOGO, no en el expediente: se teclea una vez aquí,
@@ -1184,17 +1200,15 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
     const [situadoEnValue, setSituadoEnValue] = useState('');
     const situadoEnRef = useRef(null);
 
-    const tieneFechaPruebas = () =>
-        (!!local.facturas?.length && !!local.facturas[0]?.fecha_factura) || !!local.fecha_pruebas_cert_instalacion;
-
-    // Llamado tras pasar la validación: si falta la fecha de pruebas (sin factura),
-    // la pide antes; en cuanto la tiene, sigue al popup de sexo.
+    // Llamado tras pasar la validación: si la fecha de pruebas no es fiable, la
+    // pide antes; en cuanto la tiene, sigue al popup de sexo.
     // Cadena de popups previos a generar: fecha de pruebas → potencia frigorífica
     // → titular (sexo / jurídica) → modal de generación. Cada paso se salta solo
     // si su dato ya está resuelto.
     const abrirSexoThenBorrador = () => {
-        if (!tieneFechaPruebas()) {
-            setFechaPruebasPopup({ isOpen: true, value: null, saving: false, error: null });
+        const pendiente = fechaPruebasRef.current;
+        if (pendiente) {
+            setFechaPruebasPopup({ isOpen: true, value: pendiente.propuesta || null, saving: false, error: null });
             return;
         }
         if (potFrioRef.current.length || situadoEnRef.current) {
@@ -1275,6 +1289,10 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
             const merged = { ...local, fecha_pruebas_cert_instalacion: fecha };
             setLocal(merged);
             await onSave({ documentacion: merged });
+            // Ya es un dato marcado a mano: manda sobre las facturas y no se
+            // vuelve a preguntar en esta cadena.
+            fechaPruebasRef.current = null;
+            setFechaPruebasInfo(null);
             setFechaPruebasPopup({ isOpen: false, value: null, saving: false, error: null });
             // Siguiente eslabón de la cadena (potencia frigorífica → titular).
             if (potFrioRef.current.length || situadoEnRef.current) setPotFrioPopup({ isOpen: true, values: {}, saving: false, error: null });
@@ -1879,6 +1897,18 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                     });
                 }}
                 onSaveAnnexPrefs={(prefs) => setLocal(prev => ({ ...prev, cifo_annex_prefs: prefs }))}
+                // Capturas CE3X: el modal ya las persistió por su endpoint atómico
+                // (clave protegida en mergeDocumentacion). Aquí solo mantenemos
+                // coherente la copia local para no re-descargarlas al reabrir.
+                onSaveCe3x={(accion, slot, captura) => setLocal(prev => {
+                    const capturas = { ...(prev.ce3x_capturas || {}) };
+                    const val = capturas[slot];
+                    const lista = Array.isArray(val) ? val : (val && typeof val === 'object' ? [val] : []);
+                    capturas[slot] = accion === 'add'
+                        ? [...lista, captura]
+                        : lista.filter(c => c.driveId !== captura.driveId);
+                    return { ...prev, ce3x_capturas: capturas };
+                })}
             />
             <AnexoFotograficoModal
                 isOpen={showAnexoFotografico}
@@ -1902,24 +1932,56 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                 }}
             />
 
-            {/* Popup: sexo del titular antes de generar la Memoria RITE */}
+            {/* Popup: fecha de pruebas del Certificado de Instalación Térmica.
+                Solo aparece cuando el backend NO puede resolverla con certeza
+                (sin facturas, o con varias y ninguna clasificada como térmica).
+                Se listan las facturas para poder elegir la de la instalación
+                térmica: en una reforma la más antigua suele ser la de ventanas. */}
             {fechaPruebasPopup.isOpen && (() => {
                 const busy = fechaPruebasPopup.saving;
+                const info = fechaPruebasInfo;
+                const facturas = info?.facturas || [];
                 const close = () => !busy && setFechaPruebasPopup({ isOpen: false, value: null, saving: false, error: null });
+                const fmt = (iso) => { try { return new Date(iso).toLocaleDateString('es-ES'); } catch { return iso; } };
                 return (
                     <div className="fixed inset-0 z-[320] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4" onClick={close}>
                         <div className="bg-[#0F1013] border border-white/[0.07] rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-200" onClick={e => e.stopPropagation()}>
                             <div className="px-6 py-5 border-b border-white/[0.07] bg-brand/5">
                                 <h2 className="text-lg font-black uppercase tracking-tight text-white">Fecha de pruebas</h2>
                                 <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest mt-0.5">
-                                    Este expediente aún no tiene factura
+                                    {facturas.length ? 'No se sabe qué factura es la de la instalación térmica' : 'Este expediente aún no tiene factura'}
                                 </p>
                             </div>
                             <div className="px-6 py-6 space-y-4">
                                 <p className="text-sm text-white/60 leading-relaxed">
-                                    La fecha de pruebas de la Memoria RITE se toma de la factura. Como aún no hay factura cargada,
-                                    indica la fecha de pruebas a mano. Se guardará en el expediente y se usará para generar la documentación.
+                                    {facturas.length ? (
+                                        <>La fecha de pruebas debe ser la de la puesta en marcha de la <strong className="text-white/80">instalación térmica</strong>.
+                                        Este expediente tiene varias facturas y ninguna se ha podido identificar como la de la aerotermia/ACS,
+                                        así que indícala tú. Se guardará en el expediente y mandará sobre las facturas.</>
+                                    ) : (
+                                        <>La fecha de pruebas de la Memoria RITE se toma de la factura de la instalación térmica.
+                                        Como aún no hay factura cargada, indícala a mano. Se guardará en el expediente y se usará para generar la documentación.</>
+                                    )}
                                 </p>
+                                {facturas.length > 0 && (
+                                    <div className="space-y-1.5">
+                                        <p className="text-[9px] font-black uppercase tracking-widest text-white/30">Facturas del expediente</p>
+                                        {facturas.map((f, i) => (
+                                            <button key={i} type="button" disabled={busy}
+                                                onClick={() => setFechaPruebasPopup(p => ({ ...p, value: f.fecha, error: null }))}
+                                                className={`w-full flex items-center justify-between gap-3 px-3 py-2 rounded-xl border text-left transition-all ${
+                                                    fechaPruebasPopup.value === f.fecha
+                                                        ? 'bg-brand/10 border-brand/40'
+                                                        : 'bg-white/[0.02] border-white/[0.06] hover:border-white/20'
+                                                }`}>
+                                                <span className="text-[11px] text-white/70 truncate">
+                                                    {f.numero || '(sin nº)'}{f.termica ? ' · térmica' : ''}
+                                                </span>
+                                                <span className="text-[11px] font-bold text-white/50 shrink-0">{fmt(f.fecha)}</span>
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
                                 <DateField
                                     label="Fecha de pruebas"
                                     value={fechaPruebasPopup.value}

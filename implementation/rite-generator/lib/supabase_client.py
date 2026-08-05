@@ -81,7 +81,38 @@ def cargar_desde_supabase(numero_expediente: str) -> dict:
     return {"exp": exp, "instalador": instalador}
 
 
-def normalizar(raw: dict, fecha_firma: str = None) -> dict:
+#: Partidas del OCR de facturas que identifican la actuación TÉRMICA (la del CAE).
+#: ESPEJO de `PARTIDAS_TERMICAS` en backend/utils/riteValidation.js.
+_PARTIDAS_TERMICAS = ("AEROTERMIA", "ACS")
+
+
+def _resolver_fecha_pruebas(doc: dict) -> str | None:
+    """Fecha de puesta en marcha de la INSTALACIÓN TÉRMICA.
+
+    ESPEJO de `resolveFechasRite` en backend/utils/riteValidation.js. La app
+    normalmente manda ya resuelta la fecha (parámetro `fecha_pruebas`); esta
+    función es la que aplica la regla en el modo CLI / --from-json.
+
+    Orden: lo marcado a mano en la app > factura con partida AEROTERMIA/ACS (la
+    más reciente si hay varias) > factura más reciente. NUNCA `facturas[0]`: en
+    una REFORMA la primera factura registrada puede ser la de las ventanas y la
+    memoria saldría fechada en una obra que no es la de la instalación térmica.
+    """
+    manual = doc.get("fecha_pruebas_cert_instalacion")
+    if manual:
+        return manual
+    con_fecha = sorted(
+        (f for f in (doc.get("facturas") or []) if f.get("fecha_factura")),
+        key=lambda f: str(f["fecha_factura"]),
+    )
+    termicas = [f for f in con_fecha
+                if any(str(p or "").strip().upper() in _PARTIDAS_TERMICAS
+                       for p in (f.get("partidas") or []))]
+    candidatas = termicas or con_fecha
+    return candidatas[-1]["fecha_factura"] if candidatas else None
+
+
+def normalizar(raw: dict, fecha_firma: str = None, fecha_pruebas: str = None) -> dict:
     """Convierte el dict crudo (Supabase o JSON de ejemplo) a la estructura
     que consumen mapeo.py y la guía JE6. Calcula cargas térmicas (opción B)."""
     exp = raw["exp"]
@@ -92,11 +123,10 @@ def normalizar(raw: dict, fecha_firma: str = None) -> dict:
     doc = exp.get("documentacion") or {}
     instalador = raw.get("instalador") or {}
 
-    # Fecha de pruebas = fecha de factura; si no hay factura, se usa la fecha de
-    # pruebas introducida a mano en la app (documentacion.fecha_pruebas_cert_instalacion).
-    facturas = doc.get("facturas") or []
-    fecha_factura = facturas[0].get("fecha_factura") if facturas else None
-    fecha_pruebas = fecha_factura or doc.get("fecha_pruebas_cert_instalacion")
+    # Fechas del Certificado de Instalación Térmica. Si el backend las manda
+    # (siempre, desde la app), esas mandan: las resuelve él con la fuente única
+    # de riteValidation. `_resolver_fecha_pruebas` es el fallback del modo CLI.
+    fecha_pruebas = fecha_pruebas or _resolver_fecha_pruebas(doc)
 
     superficie = dc.get("superficie")
     zona = dc.get("zona", "D3")
@@ -238,6 +268,9 @@ def normalizar(raw: dict, fecha_firma: str = None) -> dict:
             "num_empresa_rite": num_empresa_rite,   # Nº Registro Integrado Industrial (EMPRESA)
             "carnet_personal": carnet_personal,      # Nº de Carné del instalador/técnico firmante
             "localidad": instalador.get("municipio", ""),
+            # La app manda `fecha_firma` = documentacion.fecha_firma_cert_instalacion.
+            # Si no consta, se firma el día de las pruebas: el certificado no puede
+            # ser anterior a probar la instalación.
             "fecha_firma": _fmt(fecha_firma) if fecha_firma else _fmt(fecha_pruebas),
         },
         # El TOTAL es calor + ACS: el frío NO suma (criterio de los certificados ya

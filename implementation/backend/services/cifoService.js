@@ -140,6 +140,35 @@ async function ensureHuecosParsed(cee) {
     }
 }
 
+// Capturas CE3X de la actuación de ventanas (documentacion.ce3x_capturas): en BD
+// solo está el puntero a Drive, así que aquí se bajan y se embeben como data URI
+// — es lo que sabe pintar el HTML que imprime Puppeteer. Una captura que no se
+// pueda leer no tumba la generación: el certificado sale sin ella.
+async function loadCe3xCapturas(exp) {
+    const capturas = exp?.documentacion?.ce3x_capturas || {};
+    const { getFileContent } = require('./driveService');
+    const out = { antes: [], despues: [] };
+    for (const slot of ['antes', 'despues']) {
+        // Tolerante a la forma vieja (una captura suelta por fase).
+        const val = capturas[slot];
+        const lista = Array.isArray(val) ? val : (val && typeof val === 'object' ? [val] : []);
+        for (const cap of lista) {
+            if (!cap?.driveId) continue;
+            try {
+                const buf = await getFileContent(cap.driveId);
+                if (!buf || !buf.length) continue;
+                out[slot].push({
+                    driveId: cap.driveId,
+                    src: `data:${cap.mimeType || 'image/png'};base64,${Buffer.from(buf).toString('base64')}`,
+                });
+            } catch (e) {
+                console.warn(`[cifoService] captura CE3X ${slot} ilegible (${cap.driveId}): ${e.message}`);
+            }
+        }
+    }
+    return out;
+}
+
 // Resultado energético RES080 (details + EFi/EFf + AETOTAL) — espejo de la rama
 // RES080 de calcResults en ExpedienteDetailView.
 async function computeRes080Results(exp) {
@@ -634,7 +663,8 @@ async function generarCifo(numeroOrId, { force = false } = {}) {
             const { deriveRes080Data, buildRes080Html } = await loadRes080Doc();
             const data = deriveRes080Data({ expediente: exp, results });
             ({ attachments, annexes } = await resolveAnnexAttachments(exp));
-            html = buildRes080Html({ data, appUrl: ASSET_URL, attachments, isForPdf: true });
+            const ce3x = await loadCe3xCapturas(exp);
+            html = buildRes080Html({ data, appUrl: ASSET_URL, attachments, isForPdf: true, ce3x });
         }
         docLabel = 'Certificado Reforma RES080';
     } else {

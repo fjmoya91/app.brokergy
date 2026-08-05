@@ -11,6 +11,7 @@
  *   · cifo_extra_annexes                → RPC cifo_annex_append/remove (/anexos-cifo)
  *   · cifo_annex_prefs                  → RPC cifo_annex_prefs_set (/anexos-cifo/prefs)
  *   · anexo_comentarios/_excluidas/_orden → PUT /:id/anexo-fotografico/config
+ *   · ce3x_capturas                     → RPC res080_ce3x_set (/res080/ce3x/:slot)
  *
  * Vive aparte para poder probarse sin levantar la ruta entera.
  */
@@ -20,6 +21,7 @@ const CLAVES_PROTEGIDAS = [
     'anexo_comentarios',
     'anexo_excluidas',
     'anexo_orden',
+    'ce3x_capturas',
 ];
 
 const { DOCUMENTO_VALIDABLE_LABELS, BORRADORES_CLIENTE, invalidarValidacionDocs } = require('./docValidacion');

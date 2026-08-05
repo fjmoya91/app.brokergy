@@ -14,6 +14,9 @@ import {
     excludedPagesFor, prepareAnnexAttachments, buildAnnexPayload, formatPageRanges
 } from '../logic/annexPrefs';
 import AnexoPaginasModal from './AnexoPaginasModal';
+// La página de capturas del CE3X NO se duplica aquí: vive en res080Doc.js, que es
+// lo que usa el backend para generar el mismo certificado server-side.
+import { buildCe3xPages } from '../logic/res080Doc';
 import { postEmail } from '../../../utils/emailFallback';
 
 // ─── CONSTANTES Y ESTILOS ────────────────────────────────────────────────────
@@ -64,6 +67,12 @@ const DESIGN_SHARED = `
     .cmp tr:last-child td { border-bottom: none; }
     .just tr:last-child td { border-bottom: none; }
     .doc-foot { margin-top: auto; padding-top: 10px; border-top: 1px solid #ECECE4; display: flex; justify-content: space-between; font-size: 10.5px; color: #9A9A92; font-weight: 500; }
+    /* Capturas CE3X de la actuación de ventanas (espejo de logic/res080Doc.js) */
+    .ce3x-frame { border: 1px solid #E9E9E1; border-radius: 16px; overflow: hidden; background: #fff; }
+    .ce3x-img { display: block; width: 100%; max-height: 370px; object-fit: contain; background: #FAFAF6; }
+    /* El rótulo va sobre banda oscura/verde: el hueco editable es claro, así que
+       su texto necesita color propio o se queda blanco sobre blanco. */
+    .ce3x-frame .doc-editable { color: #1A1A1A; }
 `;
 
 const DOC_CSS = `
@@ -97,6 +106,27 @@ const DOC_CSS = `
     }
     .doc-editable:focus { background: #fff9c4; box-shadow: inset 0 0 0 1px #F18A00; }
 
+    /* Hueco vacío de captura CE3X: solo en el PREVIEW (el PDF no imprime cuadros
+       vacíos). Se clica para armarlo y se pega con Ctrl+V. */
+    .ce3x-drop {
+        display: flex; flex-direction: column; align-items: center; justify-content: center;
+        gap: 6px; height: 210px; padding: 0 24px; text-align: center;
+        border: 2px dashed #D8D8CE; border-radius: 16px; background: #FAFAF6;
+        color: #9A9A92; font-size: 12.5px; cursor: pointer; outline: none;
+    }
+    .ce3x-drop:hover { border-color: #C4C4B8; color: #6E6E66; }
+    .ce3x-drop.is-active { border-color: #F18A00; background: #FFF8EC; color: #B5730A; }
+    .ce3x-drop.is-busy { border-style: solid; border-color: #93C01F; background: #F3F8E6; color: #4d6a12; }
+    .ce3x-hint { font-size: 10.5px; letter-spacing: .4px; text-transform: uppercase; font-weight: 700; }
+    .ce3x-add {
+        cursor: pointer; user-select: none;
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 7px 15px; border-radius: 999px;
+        border: 1px dashed #C4C4B8; background: #FAFAF6; color: #6E6E66;
+        font-size: 11px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase;
+    }
+    .ce3x-add:hover { border-color: #F18A00; background: #FFF8EC; color: #B5730A; }
+
     @media print {
         .doc-wrap { background: #fff !important; padding: 0 !important; }
         .doc-page { margin: 0 !important; box-shadow: none !important; }
@@ -126,7 +156,7 @@ const PDF_CSS = `
 // Emisores de calefacción (para la justificación del SCOP, igual que RES060).
 // La lista vive en cifoDoc.js — fuente única, incluye las unidades aire-aire.
 
-export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, attachments: externalAttachments, onAttachmentsChange, onSaveDrive, onSaveFichaLink, onSaveExtraAnnexes, onSaveAnnexPrefs, onMarkSent, onSaveSignedLink }) {
+export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, attachments: externalAttachments, onAttachmentsChange, onSaveDrive, onSaveFichaLink, onSaveExtraAnnexes, onSaveAnnexPrefs, onMarkSent, onSaveSignedLink, onSaveCe3x }) {
     const { user } = useAuth();
     // Firma con certificado electrónico (Autofirma, formato arrastrable)
     const [signOpen, setSignOpen] = useState(false);
@@ -209,6 +239,9 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, a
         cristal_nuevo_ug: '1,1',
         cristal_nuevo_g: '0,43',
         permeabilidad_nueva: '3',
+        // Rótulos de las capturas CE3X (espejo de RES080_FIELD_DEFAULTS).
+        ce3x_titulo_antes: 'DETALLE VENTANA y PUERTA COCINA CE3X ANTES',
+        ce3x_titulo_despues: 'DETALLE VENTANA y PUERTA COCINA CE3X DESPUÉS',
     });
 
     const [editableData, setEditableData] = useState({});
@@ -643,6 +676,176 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, a
         });
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isOpen, expediente?.id]);
+
+    // ─── CAPTURAS CE3X (actuación de ventanas) ───────────────────────────────
+    // Se pegan con Ctrl+V sobre el propio visor. La imagen se sube a Drive
+    // ("6. ANEXOS CAE") y en documentacion.ce3x_capturas queda solo el puntero
+    // (regla #21); aquí se mantiene además el data URI, que es lo que pinta el
+    // preview y lo que viaja embebido en el HTML a /api/pdf/*.
+    // Cada fase es una LISTA: una vivienda cambia más de un tipo de hueco y el
+    // botón "+" del visor añade capturas sin límite.
+    const [ce3x, setCe3x] = useState({ antes: [], despues: [] });
+    const [ce3xSlot, setCe3xSlot] = useState(null); // fase con el hueco "armado" para el Ctrl+V
+    // Espejo en ref: los handlers son async y necesitan el estado ANTERIOR para
+    // deshacer si la subida falla, sin depender de la closure del render.
+    const ce3xRef = useRef({ antes: [], despues: [] });
+    const setCe3xState = useCallback((updater) => {
+        setCe3x(prev => {
+            const next = typeof updater === 'function' ? updater(prev) : updater;
+            ce3xRef.current = next;
+            return next;
+        });
+    }, []);
+
+    const blobToDataUrl = (blob) => new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+    });
+
+    // Deja la captura en un formato que el backend acepta y con un peso razonable:
+    // del portapapeles siempre llega PNG, pero un fichero arrastrado puede ser
+    // cualquier cosa — y el PDF la lleva embebida en base64.
+    const normalizarCe3x = async (file) => {
+        const mime = file.type === 'image/jpg' ? 'image/jpeg' : file.type;
+        if (['image/png', 'image/jpeg', 'image/webp'].includes(mime) && file.size <= 4 * 1024 * 1024) {
+            return { blob: file, mimeType: mime };
+        }
+        const bitmap = await createImageBitmap(file);
+        const escala = Math.min(1, 1800 / bitmap.width);
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(bitmap.width * escala);
+        canvas.height = Math.round(bitmap.height * escala);
+        canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+        const blob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', 0.9));
+        return { blob, mimeType: 'image/jpeg' };
+    };
+
+    // Cada captura se identifica por su driveId; hasta que el backend responde,
+    // por un `tmp` local (así la fila provisional se puede sustituir o retirar).
+    const subirCe3x = useCallback(async (slot, file) => {
+        if (!expediente?.id || !file) return;
+        const tmp = `tmp_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+        setCe3xSlot(null);
+        try {
+            const { blob, mimeType } = await normalizarCe3x(file);
+            const src = await blobToDataUrl(blob);
+            setCe3xState(prev => ({ ...prev, [slot]: [...(prev[slot] || []), { tmp, src, busy: true }] }));
+            const { data } = await axios.post(`/api/expedientes/${expediente.id}/res080/ce3x/${slot}`, {
+                base64: String(src).split(',')[1],
+                mimeType,
+            });
+            setCe3xState(prev => ({
+                ...prev,
+                [slot]: (prev[slot] || []).map(c => c.tmp === tmp ? { src, driveId: data.driveId } : c),
+            }));
+            if (onSaveCe3x) onSaveCe3x('add', slot, data);
+        } catch (err) {
+            console.error('[RES080] subir captura CE3X falló:', err);
+            setCe3xState(prev => ({ ...prev, [slot]: (prev[slot] || []).filter(c => c.tmp !== tmp) }));
+            alert('❌ No se pudo guardar la captura del CE3X.');
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [expediente?.id, onSaveCe3x]);
+
+    const quitarCe3x = useCallback(async (slot, driveId) => {
+        if (!expediente?.id || !driveId) return;
+        if (!window.confirm('¿Quitar la captura del CE3X? Se borra también de Drive.')) return;
+        const previo = ce3xRef.current[slot] || [];
+        setCe3xState(prev => ({ ...prev, [slot]: (prev[slot] || []).filter(c => c.driveId !== driveId) }));
+        try {
+            await axios.delete(`/api/expedientes/${expediente.id}/res080/ce3x/${slot}/${driveId}`);
+            if (onSaveCe3x) onSaveCe3x('remove', slot, { driveId });
+        } catch (err) {
+            console.error('[RES080] borrar captura CE3X falló:', err);
+            setCe3xState(prev => ({ ...prev, [slot]: previo }));
+            alert('❌ No se pudo quitar la captura del CE3X.');
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [expediente?.id, onSaveCe3x]);
+
+    // Hidratación al abrir: en BD solo está el puntero a Drive, así que la imagen
+    // se baja por el endpoint del expediente (Drive no se puede hotlinkear, regla #18).
+    // Al cambiar de expediente se tira lo cargado (las capturas son de ESE
+    // expediente). Cerrar y reabrir el modal, en cambio, las conserva: la copia
+    // en memoria del padre puede ir por detrás y volveríamos a pintar huecos
+    // vacíos sobre capturas que ya están guardadas.
+    useEffect(() => {
+        setCe3xState({ antes: [], despues: [] });
+        setCe3xSlot(null);
+    }, [expediente?.id, setCe3xState]);
+
+    useEffect(() => {
+        if (!isOpen || !expediente?.id) { setCe3xSlot(null); return; }
+        const capturas = expediente.documentacion?.ce3x_capturas || {};
+        // Tolerante a la forma vieja (una captura suelta por fase).
+        const listaDe = (slot) => {
+            const val = capturas[slot];
+            if (Array.isArray(val)) return val;
+            return val && typeof val === 'object' ? [val] : [];
+        };
+        let cancelado = false;
+        (async () => {
+            for (const slot of ['antes', 'despues']) {
+                for (const cap of listaDe(slot)) {
+                    if (!cap?.driveId) continue;
+                    if ((ce3xRef.current[slot] || []).some(c => c.driveId === cap.driveId)) continue;
+                    try {
+                        const resp = await axios.get(`/api/expedientes/${expediente.id}/res080/ce3x/${slot}/${cap.driveId}/content`, { responseType: 'blob' });
+                        const src = await blobToDataUrl(resp.data);
+                        if (cancelado) return;
+                        setCe3xState(prev => {
+                            const actual = prev[slot] || [];
+                            if (actual.some(c => c.driveId === cap.driveId)) return prev;
+                            return { ...prev, [slot]: [...actual, { src, driveId: cap.driveId }] };
+                        });
+                    } catch (e) {
+                        console.warn('[RES080] captura CE3X no disponible:', slot, cap.driveId, e.message);
+                    }
+                }
+            }
+        })();
+        return () => { cancelado = true; };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isOpen, expediente?.id]);
+
+    // Ctrl+V con un hueco armado. Va a nivel de documento porque el visor se pinta
+    // con dangerouslySetInnerHTML y el foco puede estar en cualquier sitio.
+    useEffect(() => {
+        if (!isOpen || !ce3xSlot) return;
+        const onPaste = (e) => {
+            const item = Array.from(e.clipboardData?.items || []).find(i => i.type?.startsWith('image/'));
+            if (!item) return;
+            e.preventDefault();
+            const file = item.getAsFile();
+            if (file) subirCe3x(ce3xSlot, file);
+        };
+        document.addEventListener('paste', onPaste);
+        return () => document.removeEventListener('paste', onPaste);
+    }, [isOpen, ce3xSlot, subirCe3x]);
+
+    // Clic en el visor: el "+" abre un hueco nuevo, el hueco se arma / desarma y
+    // el ✕ quita esa captura.
+    const handleCe3xClick = (e) => {
+        const clear = e.target.closest?.('[data-ce3x-clear]');
+        if (clear) {
+            quitarCe3x(clear.getAttribute('data-ce3x-clear'), clear.getAttribute('data-ce3x-drive'));
+            return;
+        }
+        const add = e.target.closest?.('[data-ce3x-add]');
+        if (add) { setCe3xSlot(add.getAttribute('data-ce3x-add')); return; }
+        const zona = e.target.closest?.('[data-ce3x]');
+        setCe3xSlot(zona ? zona.getAttribute('data-ce3x') : null);
+    };
+    const handleCe3xDragOver = (e) => { if (e.target.closest?.('[data-ce3x]')) e.preventDefault(); };
+    const handleCe3xDrop = (e) => {
+        const zona = e.target.closest?.('[data-ce3x]');
+        if (!zona) return;
+        e.preventDefault();
+        const file = Array.from(e.dataTransfer?.files || []).find(f => f.type?.startsWith('image/'));
+        if (file) subirCe3x(zona.getAttribute('data-ce3x'), file);
+    };
 
     if (!isOpen || !expediente) return null;
 
@@ -1185,6 +1388,16 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, a
                     ${footer}
                 </div>
             `);
+
+            // PÁGINA 4-bis: CAPTURAS DEL CE3X (detalle del hueco antes/después).
+            // Página aparte: la de ventanas ya llega llena con las dos tablas de
+            // huecos y la comparativa. En el PDF solo se imprime lo que tiene
+            // captura; en el visor salen siempre los dos huecos, que es donde se
+            // pega con Ctrl+V. Markup en logic/res080Doc.js (fuente única).
+            pages.push(...buildCe3xPages({
+                ce3x, ed, eb, isForPdf, pageHeader, sectionTitle, footer,
+                addSlot: isForPdf ? null : ce3xSlot,
+            }));
         }
 
         // PÁGINA: JUSTIFICACIÓN DEL CÁLCULO DE AHORRO (solo si hay datos de results)
@@ -2099,7 +2312,10 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, a
                 <div ref={containerRef} className="flex-1 overflow-auto bg-[#16181D] py-8 px-4 text-center custom-scrollbar">
                     <div className="inline-block text-left"
                          style={{ transform: `scale(${scale})`, transformOrigin: 'top center' }}
-                         onBlur={handleContentBlur}>
+                         onBlur={handleContentBlur}
+                         onClick={handleCe3xClick}
+                         onDragOver={handleCe3xDragOver}
+                         onDrop={handleCe3xDrop}>
                         <style dangerouslySetInnerHTML={{ __html: DOC_CSS }} />
                         <div dangerouslySetInnerHTML={{ __html: generateHtml(false, true) }} />
                     </div>

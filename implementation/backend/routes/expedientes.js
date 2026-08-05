@@ -10,7 +10,8 @@ const { normalizeData } = require('../utils/normalization');
 const { unidadesSinSerie, countUnidades: countUnidadesAero } = require('../utils/aerotermiaUnits');
 const {
     validateMemoriaRite, resolvePotenciasCatalogo,
-    potenciasCatalogoPendientes, situadoEnPendiente, SITUADO_EN_OPCIONES
+    potenciasCatalogoPendientes, situadoEnPendiente, SITUADO_EN_OPCIONES,
+    resolveFechasRite, fechaPruebasPendiente
 } = require('../utils/riteValidation');
 const { resolveFincaInputs } = require('../utils/fincaInputs');
 const { resolveInstaladorFirmante } = require('../utils/instaladorFirmante');
@@ -3305,6 +3306,14 @@ router.post('/:id/facturas/ocr', adminOnly, (req, res, next) => {
                 drive_id: saved.id,
                 origen: 'ocr',
                 validada: false,
+                // Partidas presentes en la factura (AEROTERMIA, VENTANAS, …). Se
+                // persisten porque en una REFORMA hay varias facturas y hace falta
+                // saber CUÁL es la de la instalación térmica: de ella sale la fecha
+                // de pruebas de la Memoria RITE (ver resolveFechasRite). Son unas
+                // pocas etiquetas cortas, no el desglose completo.
+                partidas: [...new Set((ocr.lineas || [])
+                    .map(l => String(l?.partida || '').trim().toUpperCase())
+                    .filter(Boolean))],
             },
             ocr,
             incidencias,
@@ -3459,7 +3468,13 @@ function buildRitePayloads({ exp, cli, op, normalizedDatos, pres }) {
         cargo: pres.cargo || '',
         municipio: pres.municipio || ''
     } : null;
-    return { expPayload, instaladorPayload };
+    // Fechas del Certificado de Instalación Térmica. Las resuelve el BACKEND
+    // (fuente única en riteValidation) y viajan explícitas al microservicio:
+    // así lo que se marca a mano en la app manda sobre la factura, y la fecha
+    // de firma deja de ir en null (antes el generador la copiaba de la fecha
+    // de pruebas, que además salía de la primera factura registrada).
+    const fechas = resolveFechasRite(exp.documentacion || {});
+    return { expPayload, instaladorPayload, fechas };
 }
 
 // Carga expediente + cliente + oportunidad + instalador (misma resolución que GET /:id).
@@ -3516,7 +3531,11 @@ router.get('/:id/memoria-rite/check', enforceAuth, async (req, res) => {
         const potencias = await potenciasCatalogoPendientes(exp.instalacion, supabase);
         res.json({
             missing, potencias,
-            situadoEn: situadoEnPendiente(exp) ? { opciones: SITUADO_EN_OPCIONES } : null
+            situadoEn: situadoEnPendiente(exp) ? { opciones: SITUADO_EN_OPCIONES } : null,
+            // Fecha de pruebas: null si el dato es fiable; si es ambiguo (varias
+            // facturas y ninguna identificada como térmica) devuelve la propuesta
+            // y las facturas para que el usuario ELIJA en vez de adivinar.
+            fechaPruebas: fechaPruebasPendiente(exp.documentacion || {}),
         });
     } catch (err) {
         console.error('Error GET expedientes/:id/memoria-rite/check:', err);
@@ -3525,11 +3544,16 @@ router.get('/:id/memoria-rite/check', enforceAuth, async (req, res) => {
 });
 
 // Llama al microservicio y devuelve los ficheros [{name,mimetype,base64}].
-async function generarRiteFiles(expPayload, instaladorPayload) {
+async function generarRiteFiles(expPayload, instaladorPayload, fechas = {}) {
     const RITE_SERVICE_URL = process.env.RITE_SERVICE_URL || 'http://localhost:8090';
     const { data } = await axios.post(
         `${RITE_SERVICE_URL}/generar-rite-json`,
-        { exp: expPayload, instalador: instaladorPayload, fecha_firma: null },
+        {
+            exp: expPayload,
+            instalador: instaladorPayload,
+            fecha_firma: fechas.firma || null,
+            fecha_pruebas: fechas.pruebas || null,
+        },
         { timeout: 90000, maxBodyLength: Infinity, maxContentLength: Infinity });
     return data?.files;
 }
@@ -3548,10 +3572,10 @@ router.post('/:id/memoria-rite/generate', enforceAuth, async (req, res) => {
         }
 
         // 3) Generar vía microservicio
-        const { expPayload, instaladorPayload } = buildRitePayloads({ exp, cli, op, normalizedDatos, pres });
+        const { expPayload, instaladorPayload, fechas } = buildRitePayloads({ exp, cli, op, normalizedDatos, pres });
         let files;
         try {
-            files = await generarRiteFiles(expPayload, instaladorPayload);
+            files = await generarRiteFiles(expPayload, instaladorPayload, fechas);
         } catch (svcErr) {
             const detail = svcErr.response?.data?.detail || svcErr.message;
             console.error('[memoria-rite] Error llamando al microservicio RITE:', detail);
@@ -3662,10 +3686,10 @@ router.post('/:id/memoria-rite/send', enforceAuth, async (req, res) => {
         }
 
         // Generar ficheros frescos vía microservicio
-        const { expPayload, instaladorPayload } = buildRitePayloads({ exp, cli, op, normalizedDatos, pres });
+        const { expPayload, instaladorPayload, fechas } = buildRitePayloads({ exp, cli, op, normalizedDatos, pres });
         let files;
         try {
-            files = await generarRiteFiles(expPayload, instaladorPayload);
+            files = await generarRiteFiles(expPayload, instaladorPayload, fechas);
         } catch (svcErr) {
             return res.status(502).json({ error: 'El servicio de generación RITE no está disponible', details: svcErr.response?.data?.detail || svcErr.message });
         }
@@ -3764,10 +3788,10 @@ router.post('/:id/memoria-rite/files', enforceAuth, async (req, res) => {
         const ctx = await loadRiteContext(req.params.id);
         if (!ctx) return res.status(404).json({ error: 'Expediente no encontrado' });
         const { exp, cli, op, normalizedDatos, pres } = ctx;
-        const { expPayload, instaladorPayload } = buildRitePayloads({ exp, cli, op, normalizedDatos, pres });
+        const { expPayload, instaladorPayload, fechas } = buildRitePayloads({ exp, cli, op, normalizedDatos, pres });
         let files;
         try {
-            files = await generarRiteFiles(expPayload, instaladorPayload);
+            files = await generarRiteFiles(expPayload, instaladorPayload, fechas);
         } catch (svcErr) {
             return res.status(502).json({ error: 'El servicio de generación RITE no está disponible', details: svcErr.response?.data?.detail || svcErr.message });
         }
@@ -5693,6 +5717,163 @@ router.delete('/:id/anexos-cifo/:driveId', enforceAuth, async (req, res) => {
     } catch (err) {
         console.error('Error DELETE /:id/anexos-cifo/:driveId:', err);
         res.status(500).json({ error: 'internal', message: err.message });
+    }
+});
+
+// ─── CAPTURAS CE3X DEL CERTIFICADO RES080 ────────────────────────────────────
+// Cuando la actuación de reforma incluye VENTANAS, el certificado lleva las
+// capturas de pantalla del CE3X con el detalle de los huecos ANTES y DESPUÉS.
+// Cada fase admite VARIAS (una vivienda cambia más de un tipo de hueco). Se
+// pegan con Ctrl+V sobre el propio visor del certificado.
+//
+// La IMAGEN va a Drive ("6. ANEXOS CAE"); en `documentacion.ce3x_capturas.<slot>`
+// queda solo la LISTA de punteros (regla #21). La escritura es atómica vía RPC
+// `res080_ce3x_add/remove` y la clave está protegida en mergeDocumentacion,
+// porque el autoguardado del expediente reenvía `documentacion` entera con una
+// copia vieja (ver scripts/res080_ce3x_capturas.sql).
+const CE3X_SLOTS = { antes: 'ANTES', despues: 'DESPUES' };
+const CE3X_SUBCARPETA = '6. ANEXOS CAE';
+
+// Lista de capturas de una fase, tolerante a la forma vieja (objeto suelto).
+const ce3xLista = (documentacion, slot) => {
+    const val = documentacion?.ce3x_capturas?.[slot];
+    if (Array.isArray(val)) return val;
+    return val && typeof val === 'object' ? [val] : [];
+};
+
+// Extensión a partir del mimetype declarado, acotada a formatos de imagen.
+const ce3xExt = (mimeType) => ({
+    'image/png': 'png',
+    'image/jpeg': 'jpg',
+    'image/jpg': 'jpg',
+    'image/webp': 'webp',
+}[String(mimeType || '').toLowerCase()] || null);
+
+// Expediente + carpeta Drive de su oportunidad. Devuelve null si falta algo.
+async function loadCe3xContext(expId) {
+    const { data: exp } = await supabase
+        .from('expedientes')
+        .select('id, oportunidad_id, numero_expediente, documentacion')
+        .eq('id', expId)
+        .maybeSingle();
+    if (!exp) return { error: 'expediente_not_found', status: 404 };
+    const { data: op } = await supabase
+        .from('oportunidades')
+        .select('datos_calculo')
+        .eq('id', exp.oportunidad_id)
+        .maybeSingle();
+    const folderId = op?.datos_calculo?.drive_folder_id || op?.datos_calculo?.inputs?.drive_folder_id;
+    return { exp, folderId };
+}
+
+// ─── POST /api/expedientes/:id/res080/ce3x/:slot ─────────────────────────────
+// Body: { base64, mimeType }. AÑADE una captura a la fase (no sustituye: para
+// quitar una concreta está el DELETE con su driveId).
+router.post('/:id/res080/ce3x/:slot', enforceAuth, async (req, res) => {
+    const slot = String(req.params.slot || '').toLowerCase();
+    if (!CE3X_SLOTS[slot]) return res.status(400).json({ error: 'slot_invalido' });
+    const { base64, mimeType } = req.body || {};
+    const ext = ce3xExt(mimeType);
+    if (!base64 || !ext) return res.status(400).json({ error: 'imagen_invalida' });
+
+    try {
+        const { exp, folderId, error, status } = await loadCe3xContext(req.params.id);
+        if (error) return res.status(status).json({ error });
+        if (!folderId) return res.status(400).json({ error: 'no_drive_folder' });
+
+        const buffer = Buffer.from(String(base64).split(',').pop(), 'base64');
+        if (!buffer.length) return res.status(400).json({ error: 'imagen_vacia' });
+        // 12 MB: una captura de pantalla no llega ni de lejos; por encima de eso
+        // es un fichero que no toca guardar aquí.
+        if (buffer.length > 12 * 1024 * 1024) return res.status(413).json({ error: 'imagen_demasiado_grande' });
+
+        const { getOrCreateSubfolder, saveFileToFolder } = require('../services/driveService');
+        const destino = await getOrCreateSubfolder(folderId, CE3X_SUBCARPETA);
+        if (!destino) return res.status(502).json({ error: 'no_subcarpeta' });
+
+        // Sufijo por el MAYOR índice usado, no por el número de capturas: si se
+        // borró la _2 y se sube otra, reutilizar el 2 dejaría dos ficheros con el
+        // mismo nombre en Drive (que lo permite) y no se sabría cuál es cuál.
+        const lista = ce3xLista(exp.documentacion, slot);
+        const idx = lista.reduce((max, c) => Math.max(max, parseInt(c?.idx, 10) || 0), 0) + 1;
+        const fileName = `CE3X_VENTANAS_${CE3X_SLOTS[slot]}_${idx}.${ext}`;
+        const result = await saveFileToFolder(destino, fileName, mimeType, buffer, { throwOnError: true });
+        if (!result) return res.status(502).json({ error: 'upload_failed' });
+
+        const captura = {
+            driveId: result.id,
+            link: result.link,
+            fileName,
+            mimeType,
+            idx,
+            at: new Date().toISOString(),
+        };
+        const { error: rpcErr } = await supabase.rpc('res080_ce3x_add', {
+            p_id: exp.id, p_slot: slot, p_captura: captura,
+        });
+        if (rpcErr) throw rpcErr;
+
+        res.json(captura);
+    } catch (err) {
+        console.error('Error POST /:id/res080/ce3x/:slot:', err);
+        res.status(500).json({ error: 'internal', message: err.message });
+    }
+});
+
+// ─── DELETE /api/expedientes/:id/res080/ce3x/:slot/:driveId ──────────────────
+router.delete('/:id/res080/ce3x/:slot/:driveId', enforceAuth, async (req, res) => {
+    const slot = String(req.params.slot || '').toLowerCase();
+    if (!CE3X_SLOTS[slot]) return res.status(400).json({ error: 'slot_invalido' });
+    try {
+        const { exp, error, status } = await loadCe3xContext(req.params.id);
+        if (error) return res.status(status).json({ error });
+
+        // Solo se borra de Drive lo que está registrado en ESTE expediente: la
+        // ruta no puede servir de borrado genérico de la Drive API.
+        const captura = ce3xLista(exp.documentacion, slot).find(c => c.driveId === req.params.driveId);
+        if (!captura) return res.status(404).json({ error: 'captura_no_encontrada' });
+
+        const { deleteFile } = require('../services/driveService');
+        try { await deleteFile(captura.driveId); }
+        catch (e) { console.warn(`[ce3x] no se pudo borrar ${captura.driveId}: ${e.message}`); }
+
+        const { error: rpcErr } = await supabase.rpc('res080_ce3x_remove', {
+            p_id: exp.id, p_slot: slot, p_drive_id: captura.driveId,
+        });
+        if (rpcErr) throw rpcErr;
+
+        res.json({ success: true });
+    } catch (err) {
+        console.error('Error DELETE /:id/res080/ce3x/:slot/:driveId:', err);
+        res.status(500).json({ error: 'internal', message: err.message });
+    }
+});
+
+// ─── GET /api/expedientes/:id/res080/ce3x/:slot/:driveId/content ─────────────
+// Sirve la imagen para el visor del modal. Solo el driveId registrado en el
+// propio expediente (no es un proxy genérico de la Drive API).
+router.get('/:id/res080/ce3x/:slot/:driveId/content', enforceAuth, async (req, res) => {
+    const slot = String(req.params.slot || '').toLowerCase();
+    if (!CE3X_SLOTS[slot]) return res.status(400).send('slot inválido');
+    try {
+        const { data: exp } = await supabase
+            .from('expedientes')
+            .select('documentacion')
+            .eq('id', req.params.id)
+            .maybeSingle();
+        const captura = ce3xLista(exp?.documentacion, slot).find(c => c.driveId === req.params.driveId);
+        if (!captura) return res.status(404).send('No hay captura');
+
+        const { getFileContent } = require('../services/driveService');
+        const content = await getFileContent(captura.driveId);
+        if (!content) return res.status(404).send('No se pudo leer la captura');
+
+        res.setHeader('Content-Type', captura.mimeType || 'image/png');
+        res.setHeader('Cache-Control', 'private, max-age=60');
+        res.send(content);
+    } catch (err) {
+        console.error('Error GET /:id/res080/ce3x/:slot/:driveId/content:', err);
+        res.status(500).send('Error');
     }
 });
 

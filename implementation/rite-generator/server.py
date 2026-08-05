@@ -69,7 +69,11 @@ def generar_rite_json(payload: dict = Body(...)):
     el cliente, la oportunidad y el prescriptor, los pasa aquí, y se encarga él
     mismo de subir los ficheros a Drive con su OAuth.
 
-    Body: { exp: {...}, instalador: {...}|null, fecha_firma?: "YYYY-MM-DD" }
+    Body: { exp: {...}, instalador: {...}|null,
+            fecha_firma?: "YYYY-MM-DD", fecha_pruebas?: "YYYY-MM-DD" }
+      - `fecha_firma` / `fecha_pruebas` las resuelve el backend de la app
+        (utils/riteValidation.resolveFechasRite) y mandan sobre lo que se pueda
+        deducir de las facturas. Si no vienen, se deducen aquí (modo CLI).
       - `exp` debe traer las mismas claves que devuelve sc.cargar_desde_supabase()
         (numero_expediente, instalacion, cee, documentacion, datos_calculo,
          ref_catastral, is_reforma, nombre_razon_social, apellidos, dni, tlf,
@@ -86,11 +90,12 @@ def generar_rite_json(payload: dict = Body(...)):
                             detail="Body inválido: falta 'exp' con 'numero_expediente'")
     instalador = payload.get("instalador")
     fecha_firma = payload.get("fecha_firma")
+    fecha_pruebas = payload.get("fecha_pruebas")
 
     # 1) Normalizar (misma ruta que el modo --from-json, ya probado)
     try:
         raw = {"exp": exp, "instalador": instalador}
-        datos = sc.normalizar(raw, fecha_firma)
+        datos = sc.normalizar(raw, fecha_firma, fecha_pruebas)
     except Exception as e:
         raise HTTPException(status_code=422, detail=f"Normalización: {e}")
 
@@ -118,11 +123,12 @@ def generar_rite_json(payload: dict = Body(...)):
 @app.post("/generar-rite/{numero_expediente}")
 def generar_rite(numero_expediente: str,
                  fecha_firma: str | None = Query(None, description="YYYY-MM-DD"),
+                 fecha_pruebas: str | None = Query(None, description="YYYY-MM-DD"),
                  subir_drive: bool = Query(True)):
     # 1) Datos desde Supabase
     try:
         raw = sc.cargar_desde_supabase(numero_expediente)
-        datos = sc.normalizar(raw, fecha_firma)
+        datos = sc.normalizar(raw, fecha_firma, fecha_pruebas)
     except Exception as e:
         raise HTTPException(status_code=404, detail=f"Expediente: {e}")
 

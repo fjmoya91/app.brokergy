@@ -308,19 +308,113 @@ function validateMemoriaRite({ exp, cli, op, pres, presReal }) {
     }
 
     // ── Fecha de pruebas ─────────────────────────────────────────────────────
-    // Se toma de la factura; si no hay factura, vale la introducida a mano
-    // (documentacion.fecha_pruebas_cert_instalacion).
-    const tieneFechaFactura = Array.isArray(doc.facturas) && doc.facturas.length
-        && P(doc.facturas[0] && doc.facturas[0].fecha_factura);
-    if (!tieneFechaFactura && !P(doc.fecha_pruebas_cert_instalacion)) {
-        missing.push('Fecha de Factura o Fecha de Pruebas (Documentación)');
+    // Manual > factura térmica > conjetura (ver resolveFechasRite).
+    if (!P(resolveFechasRite(doc).pruebas)) {
+        missing.push('Fecha de Pruebas Cert. Instalación (Documentación)');
     }
 
     return missing;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// FECHAS del Certificado de Instalación Térmica (Memoria RITE)
+// ─────────────────────────────────────────────────────────────────────────────
+// La fecha de PRUEBAS es la de la puesta en marcha de la INSTALACIÓN TÉRMICA y
+// la de FIRMA la del certificado que emite el instalador. Antes se tomaba
+// `facturas[0].fecha_factura` a secas y `fecha_firma` se mandaba en null:
+//   · En una REFORMA la primera factura registrada puede ser la de las ventanas
+//     o la de la envolvente → la memoria salía fechada en una obra que no es la
+//     instalación térmica (caso real: 26/12/2025, factura de ventanas).
+//   · Lo que el usuario marcaba a mano en la app NO servía de nada, porque la
+//     factura mandaba sobre el campo manual. Corregir la fecha no cambiaba el
+//     documento, que es exactamente lo que se reportó.
+//
+// Orden de resolución de la fecha de PRUEBAS:
+//   1. `documentacion.fecha_pruebas_cert_instalacion` — lo marcado A MANO.
+//      MANDA SIEMPRE: es una decisión explícita del usuario.
+//   2. Factura de la instalación TÉRMICA: la que el OCR clasificó con partida
+//      AEROTERMIA o ACS. Si hay varias, la MÁS RECIENTE (la obra se remata con
+//      la última entrega).
+//   3. Conjetura: la factura más reciente de todas. Solo vale cuando NO hay
+//      ambigüedad (una sola factura); con varias sin clasificar hay que
+//      preguntar — de eso se encarga `fechaPruebasPendiente()`.
+//
+// La fecha de FIRMA es `fecha_firma_cert_instalacion` y, si no está, la de
+// pruebas: el certificado no puede firmarse antes de probar la instalación.
+//
+// ESPEJO de `_resolver_fecha_pruebas` en rite-generator/lib/supabase_client.py
+// (el microservicio conserva la misma regla para el modo CLI, sin backend).
+
+/** Partidas del OCR que identifican la actuación TÉRMICA (la del CAE). */
+const PARTIDAS_TERMICAS = ['AEROTERMIA', 'ACS'];
+
+/** ¿La factura incluye alguna línea de la instalación térmica? */
+function facturaEsTermica(f) {
+    const partidas = Array.isArray(f && f.partidas) ? f.partidas : [];
+    return partidas.some(p => PARTIDAS_TERMICAS.includes(String(p || '').trim().toUpperCase()));
+}
+
+/** Facturas con fecha, ordenadas de más antigua a más reciente. */
+function facturasConFecha(doc) {
+    const facturas = Array.isArray(doc && doc.facturas) ? doc.facturas : [];
+    return facturas
+        .filter(f => isPresent(f && f.fecha_factura))
+        .sort((a, b) => String(a.fecha_factura).localeCompare(String(b.fecha_factura)));
+}
+
+/** { pruebas, firma, origen } — `origen` ∈ manual | factura_termica | factura | null */
+function resolveFechasRite(doc) {
+    const d = doc || {};
+    let pruebas = null;
+    let origen = null;
+
+    if (isPresent(d.fecha_pruebas_cert_instalacion)) {
+        pruebas = d.fecha_pruebas_cert_instalacion;
+        origen = 'manual';
+    } else {
+        const conFecha = facturasConFecha(d);
+        const termicas = conFecha.filter(facturaEsTermica);
+        const elegida = (termicas.length ? termicas : conFecha).slice(-1)[0] || null;
+        if (elegida) {
+            pruebas = elegida.fecha_factura;
+            origen = termicas.length ? 'factura_termica' : 'factura';
+        }
+    }
+
+    const firma = isPresent(d.fecha_firma_cert_instalacion)
+        ? d.fecha_firma_cert_instalacion
+        : pruebas;
+
+    return { pruebas, firma, origen };
+}
+
+/**
+ * ¿Hay que PREGUNTAR la fecha de pruebas antes de generar?
+ * Devuelve null cuando el dato es fiable (marcado a mano, factura térmica
+ * identificada o una única factura) y, si no, la propuesta + las facturas del
+ * expediente para que el usuario elija. Adivinar en silencio entre la factura de
+ * las ventanas y la de la aerotermia es justo lo que hay que evitar.
+ */
+function fechaPruebasPendiente(doc) {
+    const { pruebas, origen } = resolveFechasRite(doc);
+    if (origen === 'manual' || origen === 'factura_termica') return null;
+    const conFecha = facturasConFecha(doc);
+    if (origen === 'factura' && conFecha.length === 1) return null;
+    return {
+        propuesta: pruebas,
+        origen,
+        facturas: conFecha.map(f => ({
+            numero: f.numero_factura || '',
+            fecha: f.fecha_factura,
+            importe_sin_iva: f.importe_sin_iva ?? null,
+            termica: facturaEsTermica(f),
+        })),
+    };
+}
+
 module.exports = {
     isPresent, potenciaBloque, potenciaFrioBloque, emisorLlevaFrio,
     potenciasCatalogoPendientes, situadoEnPendiente, SITUADO_EN_OPCIONES,
-    acsEsEquipoPropio, resolvePotenciasCatalogo, validateMemoriaRite
+    acsEsEquipoPropio, resolvePotenciasCatalogo, validateMemoriaRite,
+    PARTIDAS_TERMICAS, facturaEsTermica, resolveFechasRite, fechaPruebasPendiente
 };
