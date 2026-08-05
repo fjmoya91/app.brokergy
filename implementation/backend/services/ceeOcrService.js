@@ -36,13 +36,19 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 //
 //   · con razonamiento: 10,6 s de media
 //   · sin razonamiento:  2,9 s de media
-//   · UNA sola diferencia… y a favor de NO razonar:
-//       demandas.refrigeracion_kwh_m2_ano → 21,3 (razonando) vs 21,31 (sin)
-//     El CEE trae los dos números: 21,3 es el valor REDONDEADO de la etiqueta
-//     energética y 21,31 el de la fila "Demanda [kWh/m² año]", que es el que pide
-//     el campo. Razonando, el modelo se quedaba con el de la etiqueta.
+//   · UNA sola diferencia: demandas.refrigeracion_kwh_m2_ano → 21,3 vs 21,31
 //
-// Leer un CEE es localizar campos rotulados, no razonar.
+// ⚠️ Esa diferencia NO acredita que una variante lea mejor que la otra: repitiendo
+// la MISMA lectura sin razonar salen unas veces 21,3 y otras 21,31, así que el
+// campo es inestable en los dos modos (temperature 0 no garantiza determinismo).
+// Lo que sí está establecido es que apagar el razonamiento es 3,5× más rápido y
+// no degrada la extracción — leer un CEE es localizar campos rotulados, no razonar.
+//
+// La causa de fondo de ese vaivén es del PROMPT, no del razonamiento: el CEE trae
+// los DOS números —21,3 es el valor REDONDEADO de la etiqueta energética y 21,31 el
+// de la fila "Demanda [kWh/m² año]", que es el que pide el campo— y nada le dice al
+// modelo cuál mandar. Si algún día importa la precisión de ese campo, se arregla
+// anclando el prompt a la fila, no tocando el presupuesto de razonamiento.
 const THINKING_BUDGET = Number.isFinite(Number(process.env.CEE_OCR_THINKING_BUDGET))
   ? Number(process.env.CEE_OCR_THINKING_BUDGET)
   : 0;
