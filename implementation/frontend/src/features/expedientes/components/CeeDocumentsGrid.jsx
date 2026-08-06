@@ -8,6 +8,8 @@ import {
     resolveCertEspera, suggestCertTono, CERT_ESPERA, ESPERA_LABELS, CERT_TONO_LABELS,
 } from '../logic/certMessages';
 import { esTer100 } from '../logic/ter100';
+import { buildCe3xFinal, CE3X_FALTA } from '../logic/ce3xFinal';
+import { getUnidades } from '../logic/aerotermiaUnits';
 import { SolicitarFaltantesModal } from './SolicitarFaltantesModal';
 import { SendActionOverlay } from '../../../components/SendActionOverlay';
 import { WhatsappConnectModal } from '../../whatsapp/components/WhatsappConnectModal';
@@ -188,6 +190,7 @@ export function CeeDocumentsGrid({
     onNotifyReview,
     onApproveCee,
     onApproveSend,
+    onSaveInstalacion,
     onEditCliente
 }) {
     const { showAlert, showConfirm } = useModal();
@@ -215,6 +218,16 @@ export function CeeDocumentsGrid({
     // Nota adicional del envío: se añade al final del mensaje (WhatsApp y email).
     // Vive aparte de la plantilla para que "Restaurar plantilla" no se la lleve.
     const [certNota, setCertNota] = useState('');
+    // ── Instrucciones CE3X del CEE Final ─────────────────────────────────────
+    // Desde 2026-08 el CEE final lo teclea el certificador, no Brokergy: el
+    // encargo de la fase final lleva el bloque con los valores exactos que tiene
+    // que meter en CE3X. `faltantes` son los datos que la app NO puede inventar
+    // (el SEER, que vive en el catálogo del modelo, y los litros de acumulación
+    // de ACS, que son de la obra) y que bloquean el envío hasta rellenarlos.
+    const [ce3x, setCe3x] = useState({ bloque: '', faltantes: [] });
+    const [ce3xPopup, setCe3xPopup] = useState(null); // { values, saving, error }
+    // Modelos del catálogo ya traídos, para no repetir el fetch al reconstruir.
+    const ce3xModelosRef = useRef({});
     // Datos del cliente que faltan para que el certificador pueda trabajar.
     const [certClienteMissing, setCertClienteMissing] = useState([]);
     // Enlaces (descarga carpeta CEE + subida del CEE registrado) para el preview del visto bueno.
@@ -306,10 +319,56 @@ export function CeeDocumentsGrid({
             return buildCertApproveMessage(section, certName, clienteNombre, numExp, ceeFolderLink, expedienteId, tono === 'urgent' ? 'urgent' : 'normal');
         }
         if (template === 'standard') {
-            return buildCertEncargoMessage(section, certName, clienteNombre, numExp, ceeFolderLink, expedienteId);
+            // El bloque CE3X solo tiene sentido en el encargo del CEE FINAL: es
+            // lo que el certificador copia para emitirlo él.
+            return buildCertEncargoMessage(section, certName, clienteNombre, numExp, ceeFolderLink, expedienteId,
+                section === 'final' ? ce3x.bloque : '');
         }
         return buildCertMessage({ espera, tono, fase: section, certName, clienteNombre, numExp, expedienteId, dias });
     };
+
+    // El bloque CE3X necesita el SEER, que vive en el CATÁLOGO del modelo y no en
+    // el expediente: hay que traerse las fichas de los equipos antes de montarlo.
+    useEffect(() => {
+        if (!certNotifyModal || certNotifyModal.section !== 'final') {
+            setCe3x({ bloque: '', faltantes: [] });
+            return;
+        }
+        let cancelled = false;
+        (async () => {
+            const inst = expediente?.instalacion || {};
+            const ids = [...new Set(
+                [...getUnidades(inst.aerotermia_cal), ...getUnidades(inst.aerotermia_acs)]
+                    .map(u => u?.aerotermia_db_id)
+                    .filter(Boolean)
+            )];
+            const modelos = { ...ce3xModelosRef.current };
+            await Promise.all(ids.map(async (id) => {
+                if (modelos[id]) return;
+                try {
+                    const { data } = await axios.get(`/api/aerotermia/${id}`);
+                    if (data) modelos[id] = data;
+                } catch { /* el modelo puede haberse borrado del catálogo: se pedirá a mano */ }
+            }));
+            if (cancelled) return;
+            ce3xModelosRef.current = modelos;
+            setCe3x(buildCe3xFinal(expediente, { modelos }));
+        })();
+        return () => { cancelled = true; };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [certNotifyModal, expediente?.id]);
+
+    // El bloque llega por fetch (igual que el nombre del certificador): cuando
+    // está listo re-sembramos el encargo, salvo que el texto ya esté editado.
+    useEffect(() => {
+        if (!certNotifyModal || certTemplate !== 'standard' || certNotifyModal.section !== 'final') return;
+        if (certNotifyMessage !== lastCertDefaultRef.current) return;
+        const def = certTemplateText('standard', 'final', certEspera, certTono, certPhaseInfo('final').dias);
+        if (def === certNotifyMessage) return;
+        setCertNotifyMessage(def);
+        lastCertDefaultRef.current = def;
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [ce3x.bloque, certTemplate]);
 
     // Al abrir el modal, sembramos el cuadro con la plantilla por defecto del tipo activo.
     useEffect(() => {
@@ -363,6 +422,12 @@ export function CeeDocumentsGrid({
     // botones que disparan lo mismo: el de la cabecera fija y el del final del popup.
     const handleCertSend = async () => {
         if (!certNotifyModal) return;
+        // El encargo del CEE Final no sale a medias: si falta el SEER o los litros
+        // de acumulación, se piden antes (el certificador no puede deducirlos).
+        if (certNotifyModal.section === 'final' && certTemplate === 'standard' && ce3x.faltantes.length) {
+            setCe3xPopup({ values: {}, saving: false, error: null });
+            return;
+        }
         // Validación pre-vuelo para CEE Final
         if (certNotifyModal.section === 'final' && certTemplate === 'standard') {
             const missingDocs = [];
@@ -382,9 +447,15 @@ export function CeeDocumentsGrid({
         setSendingCertNotify(true);
         try {
             const phase = certNotifyModal.section === 'final' ? 'final' : 'initial';
-            // La nota se envía al final del cuerpo, sea cual sea la plantilla.
+            // La nota se envía al final del cuerpo, sea cual sea la plantilla, y
+            // en NEGRITA: es lo que añadimos a mano y tiene que destacar sobre la
+            // plantilla. Se envuelve línea a línea porque el `*…*` de WhatsApp no
+            // cruza saltos de línea (un solo par se comería el formato entero).
             const nota = certNota.trim();
-            const mensajeFinal = nota ? `${certNotifyMessage}\n\n${nota}` : certNotifyMessage;
+            const notaFmt = nota
+                ? nota.split('\n').map(l => (l.trim() ? `*${l.trim().replace(/^\*+|\*+$/g, '')}*` : '')).join('\n')
+                : '';
+            const mensajeFinal = notaFmt ? `${certNotifyMessage}\n\n${notaFmt}` : certNotifyMessage;
             if (certTemplate === 'approve') {
                 // Visto bueno: avanza el estado a REVISADO y avisa al certificador.
                 const data = onApproveSend
@@ -420,6 +491,87 @@ export function CeeDocumentsGrid({
             console.error('Error notifying cert:', err);
         } finally {
             setSendingCertNotify(false);
+        }
+    };
+
+    // Abre el popup de notificación al certificador ya sembrado con la plantilla
+    // que toca. Lo usan la campana de cada fase y el aviso de "listo para encargar".
+    const abrirCertModal = (section, tpl) => {
+        const info = certPhaseInfo(section);
+        const tono = suggestCertTono(info.dias);
+        setCertTemplate(tpl);
+        setCertEspera(info.espera);
+        setCertTono(tono);
+        setCertChannels(['email']);
+        // Sembramos el texto correcto YA (no dependemos solo del efecto de apertura).
+        const def = certTemplateText(tpl, section, info.espera, tono, info.dias);
+        setCertNotifyMessage(def);
+        lastCertDefaultRef.current = def;
+        setCertNotifyModal({ section });
+    };
+
+    // ¿Toca ya encargar el CEE Final? El inicial tiene que estar REGISTRADO (sin eso
+    // no hay final que presentar) y la obra terminada — factura subida o fin de obra
+    // comunicado por el instalador. En cuanto se encarga, el aviso desaparece.
+    // Devuelve las pruebas encontradas, para decir POR QUÉ está listo.
+    const listoParaCeeFinal = (() => {
+        const seg = expediente?.seguimiento || {};
+        if (seg.cee_inicial !== 'REGISTRADO') return null;
+        if (seg.cee_final && seg.cee_final !== 'PTE_ENVIO_CERT') return null;
+        const doc = expediente?.documentacion || {};
+        const pruebas = [];
+        const nf = doc.facturas?.length || 0;
+        if (nf > 0) pruebas.push(`${nf} factura${nf === 1 ? '' : 's'} de obra`);
+        if (doc.fecha_fin_obra_comunicada) pruebas.push('fin de obra comunicado');
+        return pruebas.length ? pruebas : null;
+    })();
+
+    // Clave del input de cada dato que falta para el CE3X.
+    const ce3xKey = (f) => (f.tipo === CE3X_FALTA.SEER ? `seer|${f.modeloId}` : CE3X_FALTA.LITROS_ACS);
+
+    // Guarda los datos que faltaban y reconstruye el bloque. El SEER va al
+    // CATÁLOGO (es del modelo: se teclea una vez y sirve para todos los
+    // expedientes que lleven ese equipo, igual que las potencias del RITE); los
+    // litros de acumulación van al EXPEDIENTE (son de esta obra).
+    const guardarFaltantesCe3x = async () => {
+        const vals = ce3xPopup?.values || {};
+        const numVal = (k) => parseFloat(String(vals[k] ?? '').replace(',', '.'));
+        if (ce3x.faltantes.some(f => !(numVal(ce3xKey(f)) > 0))) {
+            setCe3xPopup(p => ({ ...p, error: 'Completa todos los datos: el certificador no puede deducirlos.' }));
+            return;
+        }
+        setCe3xPopup(p => ({ ...p, saving: true, error: null }));
+        try {
+            const modelos = { ...ce3xModelosRef.current };
+            for (const f of ce3x.faltantes.filter(x => x.tipo === CE3X_FALTA.SEER)) {
+                const { data } = await axios.patch(`/api/aerotermia/${f.modeloId}/datos-rite`, {
+                    seer: numVal(ce3xKey(f)),
+                });
+                modelos[f.modeloId] = { ...(modelos[f.modeloId] || {}), ...(data || {}) };
+            }
+            ce3xModelosRef.current = modelos;
+
+            let expActualizado = expediente;
+            if (ce3x.faltantes.some(f => f.tipo === CE3X_FALTA.LITROS_ACS)) {
+                const instNueva = {
+                    ...(expediente?.instalacion || {}),
+                    aerotermia_acs: {
+                        ...(expediente?.instalacion?.aerotermia_acs || {}),
+                        litros: numVal(CE3X_FALTA.LITROS_ACS),
+                    },
+                };
+                await onSaveInstalacion?.(instNueva);
+                expActualizado = { ...expediente, instalacion: instNueva };
+            }
+
+            setCe3x(buildCe3xFinal(expActualizado, { modelos }));
+            setCe3xPopup(null);
+        } catch (err) {
+            setCe3xPopup(p => ({
+                ...p,
+                saving: false,
+                error: err.response?.data?.error || 'No se pudieron guardar los datos.',
+            }));
         }
     };
 
@@ -522,6 +674,9 @@ export function CeeDocumentsGrid({
     // Mergeamos slots vacíos con lo que haya en Drive. El ref guarda el último id
     // escaneado para evitar repetir; si el usuario cambia de expediente y vuelve,
     // se re-escanea porque el id cambió.
+    // .xml / .cex que están en la carpeta de Drive pero no han pasado por el slot.
+    // { inicial: { xml?: link, cex?: link }, final: {…} }
+    const [driveSinVincular, setDriveSinVincular] = useState({ inicial: {}, final: {} });
     const scannedExpIdRef = useRef(null);
     useEffect(() => {
         if (!expediente?.id) return;
@@ -532,6 +687,14 @@ export function CeeDocumentsGrid({
             try {
                 const { data } = await axios.get(`/api/expedientes/${expediente.id}/documents/scan-cee`);
                 if (cancelled || !data) return;
+
+                // .xml y .cex encontrados en Drive que NO han pasado por el slot. No se
+                // mergean (encender el slot diría "hecho" sin haber parseado nada): se
+                // avisa de que están ahí para que se carguen por el slot.
+                setDriveSinVincular({
+                    inicial: data.inicial?.sinVincular || {},
+                    final: data.final?.sinVincular || {},
+                });
 
                 // Detectar si hay algo nuevo que mergear: solo añadimos los slots que estén vacíos
                 // en ceeFiles pero llenos en Drive. Así no pisamos cambios locales en curso.
@@ -1035,16 +1198,7 @@ export function CeeDocumentsGrid({
                                                                 const tpl = isPendingReview
                                                                     ? 'approve'
                                                                     : (!info.subestado || info.subestado === 'PTE_ENVIO_CERT') ? 'standard' : 'seguimiento';
-                                                                const tono = suggestCertTono(info.dias);
-                                                                setCertTemplate(tpl);
-                                                                setCertEspera(info.espera);
-                                                                setCertTono(tono);
-                                                                setCertChannels(['email']);
-                                                                // Sembramos el texto correcto YA (no dependemos solo del efecto de apertura).
-                                                                const def = certTemplateText(tpl, section, info.espera, tono, info.dias);
-                                                                setCertNotifyMessage(def);
-                                                                lastCertDefaultRef.current = def;
-                                                                setCertNotifyModal({ section });
+                                                                abrirCertModal(section, tpl);
                                                             }}
                                                             className={`w-7 h-7 rounded-lg border flex items-center justify-center transition-all active:scale-95 ${bellClass}`}
                                                         >
@@ -1092,6 +1246,29 @@ export function CeeDocumentsGrid({
                                         Gestión técnica del activo
                                     </p>
                                     <CeeStatusPill expediente={expediente} section={section} />
+
+                                    {/* CEE inicial registrado + obra terminada = toca encargar el
+                                        final. Antes había que acordarse; ahora el expediente lo dice
+                                        y el chip abre directamente el encargo con las instrucciones
+                                        CE3X. Desaparece solo en cuanto se encarga. */}
+                                    {section === 'final' && listoParaCeeFinal
+                                        && (user?.rol || '').toUpperCase() === 'ADMIN' && (
+                                        <button
+                                            onClick={() => abrirCertModal('final', 'standard')}
+                                            title={`Listo para encargar: ${listoParaCeeFinal.join(' · ')}`}
+                                            className="mt-2 w-full flex items-center gap-2 px-2.5 py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-left hover:bg-emerald-500/20 hover:border-emerald-500/50 transition-all active:scale-[0.98]"
+                                        >
+                                            <span className="text-sm leading-none">✅</span>
+                                            <span className="min-w-0">
+                                                <span className="block text-[9px] font-black uppercase tracking-widest text-emerald-400 leading-tight">
+                                                    Listo para encargar
+                                                </span>
+                                                <span className="block text-[9px] text-emerald-300/50 truncate normal-case">
+                                                    {listoParaCeeFinal.join(' · ')}
+                                                </span>
+                                            </span>
+                                        </button>
+                                    )}
                                 </div>
                                 <div className="ml-auto">
                                     {showSlot('xml')}
@@ -1201,6 +1378,37 @@ export function CeeDocumentsGrid({
                             <div className="flex items-center justify-between gap-2 pl-4 border-l border-white/5 w-[340px] shrink-0">
                                 {['pdf', 'cex', 'registro', 'etiqueta', 'otros'].map(sId => showSlot(sId))}
                             </div>
+
+                            {/* 6. Aviso: hay .xml/.cex en la carpeta de Drive que no han
+                                pasado por el slot. No encendemos el slot con ellos —eso
+                                diría "hecho" sin haber leído las demandas—, pero tampoco
+                                los escondemos: se dice que están ahí y qué falta. */}
+                            {(() => {
+                                const sv = driveSinVincular[section] || {};
+                                const pend = ['xml', 'cex'].filter(k => sv[k] && !ceeFiles?.[section]?.[k]);
+                                if (!pend.length) return null;
+                                const ceeSec = expediente?.cee?.[section === 'final' ? 'cee_final' : 'cee_inicial'];
+                                const demandaLeida = parseFloat(ceeSec?.demandaCalefaccion) > 0;
+                                const faltanCalculos = pend.includes('xml') && !demandaLeida;
+                                return (
+                                    <div className="w-full flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3 py-2.5 rounded-xl bg-amber-500/[0.06] border border-amber-500/25">
+                                        <span className="text-[9px] font-black uppercase tracking-widest text-amber-400 whitespace-nowrap">
+                                            ⚠ {pend.map(k => (k === 'xml' ? '.XML' : '.CEX')).join(' y ')} en Drive sin cargar por el slot
+                                        </span>
+                                        <span className="text-[10px] text-white/50 normal-case leading-snug flex-1 min-w-[240px]">
+                                            {faltanCalculos
+                                                ? 'Está en la carpeta pero no ha pasado por el slot, así que NO se han leído las demandas ni las fechas. Súbelo al slot para que se procese.'
+                                                : 'Está en la carpeta pero no ha pasado por el slot, así que el expediente no lo tiene registrado. Súbelo al slot.'}
+                                        </span>
+                                        {pend.map(k => (
+                                            <a key={k} href={sv[k]} target="_blank" rel="noopener noreferrer"
+                                                className="text-[9px] font-black uppercase tracking-widest text-amber-400 hover:text-amber-300 whitespace-nowrap">
+                                                Ver {k === 'xml' ? '.XML' : '.CEX'} ↗
+                                            </a>
+                                        ))}
+                                    </div>
+                                );
+                            })()}
                         </div>
                     );
                 })}
@@ -1789,6 +1997,41 @@ export function CeeDocumentsGrid({
                             </div>
                         )}
 
+                        {/* Encargo del CEE Final: el mensaje lleva las instrucciones CE3X.
+                            Si falta el SEER o los litros de acumulación, el bloque sale
+                            incompleto y el envío se bloquea hasta rellenarlos. */}
+                        {certNotifyModal.section === 'final' && certTemplate === 'standard' && (
+                            ce3x.faltantes.length > 0 ? (
+                                <div className="mb-5 px-4 py-3 rounded-xl bg-amber-500/[0.06] border border-amber-500/30">
+                                    <p className="text-[10px] font-black text-amber-400 uppercase tracking-widest mb-1.5">
+                                        ⚠ Faltan datos para el CE3X
+                                    </p>
+                                    <p className="text-[11px] text-white/60 leading-snug normal-case mb-2">
+                                        El certificador no puede deducir{' '}
+                                        <b className="text-amber-300/90">
+                                            {ce3x.faltantes.map(f => f.tipo === CE3X_FALTA.SEER
+                                                ? `el SEER de ${[f.marca, f.modelo].filter(Boolean).join(' ') || 'el equipo'}`
+                                                : 'los litros de acumulación de ACS').join(' · ')}
+                                        </b>. Sin eso el mensaje sale a medias.
+                                    </p>
+                                    <button
+                                        type="button"
+                                        onClick={() => setCe3xPopup({ values: {}, saving: false, error: null })}
+                                        className="text-[10px] font-black uppercase tracking-widest text-amber-400 hover:text-amber-300 transition-colors"
+                                    >Completar ahora →</button>
+                                </div>
+                            ) : ce3x.bloque ? (
+                                <div className="mb-5 px-4 py-3 rounded-xl bg-emerald-500/[0.05] border border-emerald-500/20">
+                                    <p className="text-[10px] font-black text-emerald-400 uppercase tracking-widest">
+                                        ✓ Instrucciones CE3X incluidas{ce3x.hibridacion ? ' · hibridación (2 generadores)' : ''}
+                                    </p>
+                                    <p className="text-[11px] text-white/50 leading-snug normal-case mt-1">
+                                        El mensaje lleva el equipo, los rendimientos en % y la demanda cubierta, para que los copie tal cual.
+                                    </p>
+                                </div>
+                            ) : null
+                        )}
+
                         {/* Mensaje a enviar (editable). Es el texto real que se manda al certificador. */}
                         <div className="flex items-center justify-between mb-2">
                             <p className="text-[9px] font-black text-white/30 uppercase tracking-widest">Mensaje al certificador</p>
@@ -1825,7 +2068,7 @@ export function CeeDocumentsGrid({
                             value={certNota}
                             onChange={e => setCertNota(e.target.value)}
                             disabled={sendingCertNotify}
-                            placeholder="Aclaración para este envío concreto. Se añade al final del mensaje, en WhatsApp y en el email."
+                            placeholder="Aclaración para este envío concreto. Se añade al final del mensaje EN NEGRITA, en WhatsApp y en el email."
                             rows={3}
                             maxLength={1000}
                             className="w-full bg-black/30 border border-white/10 rounded-xl p-3 text-sm leading-relaxed text-white normal-case placeholder:text-white/20 focus:outline-none focus:border-brand/40 resize-none mb-1"
@@ -1883,6 +2126,94 @@ export function CeeDocumentsGrid({
                                 </>
                             )}
                         </button>
+                    </div>
+                </div>
+            )}
+
+            {/* ── POPUP: datos que faltan para las instrucciones CE3X ──────────
+                Mismo patrón que el de las potencias de la Memoria RITE: el SEER es
+                del MODELO y se guarda en el catálogo (se teclea una vez y ya sirve
+                para todos los expedientes con ese equipo); los litros de acumulación
+                son de la obra y se guardan en el expediente. */}
+            {ce3xPopup && (
+                <div className="fixed inset-0 z-[600] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
+                    onClick={() => !ce3xPopup.saving && setCe3xPopup(null)}>
+                    <div className="bg-[#0F1013] border border-white/[0.07] rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden animate-fade-in" onClick={e => e.stopPropagation()}>
+                        <div className="px-6 py-5 border-b border-white/[0.07] bg-brand/5">
+                            <h2 className="text-lg font-black uppercase tracking-tight text-white">Faltan datos para el CE3X</h2>
+                            <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest mt-0.5">
+                                Encargo del CEE Final · Expediente {numExp}
+                            </p>
+                        </div>
+                        <div className="px-6 py-6 space-y-4 max-h-[60vh] overflow-y-auto">
+                            <p className="text-sm text-white/60 leading-relaxed normal-case">
+                                Sin estos valores el certificador no puede cerrar el CEE final. El SEER es del
+                                MODELO y al guardarlo queda en el catálogo: solo se pide una vez por equipo.
+                            </p>
+                            {ce3x.faltantes.map(f => {
+                                const k = ce3xKey(f);
+                                if (f.tipo === CE3X_FALTA.SEER) {
+                                    return (
+                                        <div key={k} className="bg-white/[0.02] border border-white/10 rounded-2xl p-4 space-y-3">
+                                            <div className="flex items-start justify-between gap-3">
+                                                <div className="min-w-0">
+                                                    <p className="text-sm font-black text-white normal-case">{[f.marca, f.modelo].filter(Boolean).join(' · ') || 'Equipo'}</p>
+                                                    {f.modelo_ud_exterior && <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest mt-0.5">Ud. ext: {f.modelo_ud_exterior}</p>}
+                                                </div>
+                                                {f.ficha && (
+                                                    <a href={f.ficha} target="_blank" rel="noopener noreferrer"
+                                                        className="shrink-0 px-3 py-2 rounded-xl border border-brand/40 text-brand text-[10px] font-black uppercase tracking-widest hover:bg-brand/10 transition-all">
+                                                        Ver ficha técnica ↗
+                                                    </a>
+                                                )}
+                                            </div>
+                                            <div className="flex items-center gap-3">
+                                                <span className="text-[10px] font-black uppercase tracking-widest text-white/50 w-44">SEER (refrigeración)</span>
+                                                <input type="text" inputMode="decimal" autoFocus
+                                                    disabled={ce3xPopup.saving} placeholder="5,20"
+                                                    value={ce3xPopup.values[k] ?? ''}
+                                                    onChange={e => setCe3xPopup(p => ({ ...p, values: { ...p.values, [k]: e.target.value } }))}
+                                                    className="w-28 bg-white/[0.03] border border-white/10 rounded-xl px-3 py-2.5 text-white font-black tabular-nums focus:outline-none focus:border-brand/50 disabled:opacity-50" />
+                                                <span className="text-[11px] font-black uppercase tracking-widest text-white/40">→ CE3X en %</span>
+                                            </div>
+                                            {!f.ficha && <p className="text-[10px] text-white/30 normal-case">Este modelo no tiene ficha técnica enlazada en el catálogo.</p>}
+                                        </div>
+                                    );
+                                }
+                                return (
+                                    <div key={k} className="bg-white/[0.02] border border-white/10 rounded-2xl p-4 space-y-3">
+                                        <p className="text-sm font-black text-white normal-case">Acumulación de ACS</p>
+                                        <p className="text-[11px] text-white/40 normal-case leading-snug">
+                                            Es un dato de la obra (mírala en el albarán o en la foto del depósito): se guarda en este expediente.
+                                        </p>
+                                        <div className="flex items-center gap-3">
+                                            <span className="text-[10px] font-black uppercase tracking-widest text-white/50 w-44">Volumen del depósito</span>
+                                            <input type="text" inputMode="decimal"
+                                                disabled={ce3xPopup.saving} placeholder="200"
+                                                value={ce3xPopup.values[k] ?? ''}
+                                                onChange={e => setCe3xPopup(p => ({ ...p, values: { ...p.values, [k]: e.target.value } }))}
+                                                className="w-28 bg-white/[0.03] border border-white/10 rounded-xl px-3 py-2.5 text-white font-black tabular-nums focus:outline-none focus:border-brand/50 disabled:opacity-50" />
+                                            <span className="text-[11px] font-black uppercase tracking-widest text-white/40">litros</span>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                            <p className="text-[11px] text-white/30 leading-relaxed normal-case">
+                                Ojo: las fichas ErP solo traen calefacción y ACS. El SEER está en la tabla de
+                                capacidades de la ficha comercial o en la etiqueta energética de refrigeración.
+                            </p>
+                            {ce3xPopup.error && <p className="text-[11px] text-red-400 normal-case">❌ {ce3xPopup.error}</p>}
+                        </div>
+                        <div className="px-6 py-4 bg-white/[0.02] border-t border-white/[0.07] flex items-center justify-between gap-3">
+                            <button type="button" disabled={ce3xPopup.saving} onClick={() => setCe3xPopup(null)}
+                                className="px-4 py-2.5 rounded-xl border border-white/10 text-white/50 text-[10px] font-black uppercase tracking-widest hover:text-white hover:border-white/30 transition-all disabled:opacity-40">
+                                Cancelar
+                            </button>
+                            <button type="button" disabled={ce3xPopup.saving} onClick={guardarFaltantesCe3x}
+                                className="px-5 py-2.5 rounded-xl bg-brand text-black text-[10px] font-black uppercase tracking-widest hover:brightness-110 transition-all disabled:opacity-40">
+                                {ce3xPopup.saving ? 'Guardando…' : 'Guardar y ver el mensaje →'}
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}

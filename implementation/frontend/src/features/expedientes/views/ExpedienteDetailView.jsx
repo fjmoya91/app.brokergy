@@ -1363,6 +1363,7 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, initial
                         saving={saving}
                         certificadores={certificadores}
                         onAutoStatus={handleCeeAutoStatus}
+                        onSaveInstalacion={(instalacion) => handleSave({ instalacion })}
                         onEditCliente={() => setShowClienteModal(true)}
                     />
 

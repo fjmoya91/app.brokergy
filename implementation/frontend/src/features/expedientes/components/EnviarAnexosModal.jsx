@@ -133,7 +133,7 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
         if (tgt === 'cliente') {
             if (both) return getDualMessage(firstName, beneficioStr, numexpte) + footerCliente;
             if (docKeys[0] === 'anexo1') {
-                return `Buenas tardes, ${firstName}:\n\n`
+                return `Hola ${firstName}:\n\n`
                     + `Te adjunto el *Anexo I (Declaración Responsable)* de tu expediente *${numexpte}*, necesario para tramitar la ayuda.\n\n`
                     + `*Firma del documento:*\n`
                     + `1. *Firma electrónica* (recomendado si dispones de certificado digital).\n`
@@ -141,7 +141,7 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
                     + `Quedamos a la espera del documento firmado.\n\nUn saludo,\n*Brokergy · Ingeniería energética.*`
                     + footerCliente;
             }
-            return `Buenas tardes, ${firstName}:\n\n`
+            return `Hola ${firstName}:\n\n`
                 + `Te adjunto el *Anexo de Cesión de Ahorros* de tu expediente *${numexpte}*, imprescindible para gestionar y tramitar la ayuda${beneficioStr && beneficioStr !== '___________' ? ` (importe estimado *${beneficioStr} €*)` : ''}.\n\n`
                 + `*Firma del documento:*\n`
                 + `1. *Firma electrónica* (recomendado si dispones de certificado digital).\n`

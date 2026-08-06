@@ -139,11 +139,19 @@ export function buildCertMessage({ espera, tono, fase, certName, clienteNombre, 
 }
 
 // Mensaje de ENCARGO: la asignación inicial del trabajo al certificador.
-export function buildCertEncargoMessage(fase, certName, clienteNombre, numExp, ceeFolderLink, expedienteId) {
+//
+// En la fase FINAL el encargo lleva además el bloque de instrucciones CE3X
+// (`ce3xBlock`, que construye logic/ce3xFinal.js). Desde 2026-08 el CEE final
+// lo teclea el certificador, no Brokergy: el aviso genérico "ya puedes
+// presentarlo" no le bastaba, necesita los valores exactos del equipo. El
+// bloque entra como parámetro para que este módulo siga siendo texto puro y no
+// dependa de la instalación del expediente.
+export function buildCertEncargoMessage(fase, certName, clienteNombre, numExp, ceeFolderLink, expedienteId, ce3xBlock = '') {
     const tecnico = firstNameProper(certName) || 'técnico';
     const cli = clienteNombre ? ` (${toTitleCase(clienteNombre)})` : '';
+    const bloque = ce3xBlock ? `\n\n${ce3xBlock}` : '';
     const body = fase === 'final'
-        ? `¡Hola ${tecnico}! 👋\n\nYa puedes presentar el CEE Final del expediente ${numExp}${cli}.\n\nToda la documentación de obra (facturas, memorias de instalación y fotos de fin de obra) ya está disponible en la carpeta compartida.\n\n¡Gracias!`
+        ? `¡Hola ${tecnico}! 👋\n\nYa puedes presentar el CEE Final del expediente ${numExp}${cli}.\n\nToda la documentación de obra (facturas, memorias de instalación y fotos de fin de obra) ya está disponible en la carpeta compartida.${bloque}\n\n¡Gracias!`
         : `¡Hola ${tecnico}! 👋\n\nTe hemos asignado el expediente ${numExp}${cli} para la emisión del CEE Inicial.\n\nTienes toda la documentación del cliente en la carpeta compartida y en el portal.\n\n¡Gracias!`;
     return body + expedienteLine(expedienteId) + carpetaLine(ceeFolderLink);
 }
@@ -176,7 +184,7 @@ export function buildCertDefaultMessage(template, section, certName, clienteNomb
         return buildCertApproveMessage(fase, certName, clienteNombre, numExp, ceeFolderLink, expedienteId, opts.priority || 'normal');
     }
     if (template === 'standard') {
-        return buildCertEncargoMessage(fase, certName, clienteNombre, numExp, ceeFolderLink, expedienteId);
+        return buildCertEncargoMessage(fase, certName, clienteNombre, numExp, ceeFolderLink, expedienteId, opts.ce3xBlock || '');
     }
     return buildCertMessage({
         espera: opts.espera || CERT_ESPERA.EMISION,

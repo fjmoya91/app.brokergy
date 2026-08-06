@@ -760,6 +760,20 @@ async function buildChecklistData(exp, cli, op) {
         cicloCesion.detalle = 'Cliente firmó — pendiente firma Brokergy';
     }
 
+    // ── Las fotos tienen un DESTINO: el Anexo Fotográfico ─────────────────────
+    // Las fotos del expediente no son un fin en sí mismo: se piden para montar el
+    // Anexo Fotográfico (y, las del ANTES, para que el certificador haga el CEE).
+    // Una vez el Anexo está emitido y FIRMADO, ese material ya cumplió su función:
+    // seguir listándolo como "falta" mandaba a reclamar al cliente fotos que no se
+    // van a usar. Un rechazo del Anexo lo reabre (habrá que rehacerlo, y puede que
+    // con material nuevo).
+    const anexoFotoRechazado = !!doc.docs_rechazados?.anexo_fotografico_signed_link;
+    const anexoFotoValidado  = !!doc.docs_validados?.anexo_fotografico_signed_link;
+    const fotosCerradas = anexoFotoFirmado && !anexoFotoRechazado;
+    const motivoFotosCerradas = fotosCerradas
+        ? `Cubierta por el Anexo Fotográfico ${anexoFotoValidado ? 'validado' : 'firmado'}`
+        : null;
+
     const grupoCliente = [
         mk('datos_personales', 'Datos personales', 'CLIENTE', datosPersOk, ['anexos', 'final'], datosPersOk ? null : 'Faltan: ' + faltanPers.join(', ')),
         mk('numero_cuenta', 'Nº de cuenta (IBAN)', 'CLIENTE', ibanOk, ['anexos', 'final'], ibanOk ? c.numero_cuenta : 'Sin IBAN'),
@@ -834,7 +848,13 @@ async function buildChecklistData(exp, cli, op) {
 
     // ── CUALQUIERA (fotos) — slots REALES de la app, excluyendo RITE/Facturas (ya en Instalador).
     let slots = [];
-    try { slots = reformaUploadService.buildDocChecklist(datos) || []; } catch (e) { console.warn('[checklist] buildDocChecklist:', e.message); }
+    // `estado: 'ACEPTADA'` forzado: si hay expediente, la oportunidad está aceptada
+    // por definición (lo garantiza el trigger de BD), pero en los MIGRADOS la
+    // oportunidad es sintética y su `datos_calculo.estado` puede no decirlo. Sin
+    // esto, buildDocChecklist devolvía TODOS los slots como opcionales y el barrido
+    // de un migrado no exigía ninguna foto.
+    try { slots = reformaUploadService.buildDocChecklist({ ...datos, estado: 'ACEPTADA' }) || []; }
+    catch (e) { console.warn('[checklist] buildDocChecklist:', e.message); }
     // Reconciliación con Drive, IGUAL que hacen el popup de fotos (buildDocsView) y
     // el Anexo Fotográfico (collectPhotoGroups). Sin esto el barrido solo miraba
     // `reforma_uploads`, así que una foto que llegó a Drive por otra vía —expediente
@@ -847,7 +867,17 @@ async function buildChecklistData(exp, cli, op) {
             const waived = !!overrides[s.key]?.waived;
             const arr = uploads[s.key] || [];
             const subida = (Array.isArray(arr) && arr.length > 0) || enDrive.has(s.key);
-            const requerida = !waived && !!s.required;
+            // Un slot `optionalAlways` (CEE previo, vídeos, "Otros antes/después")
+            // NUNCA se exige: buildDocChecklist no lo pasa a required ni al ACEPTAR.
+            const opcional = !s.required;
+            const requerida = !waived && !opcional && !fotosCerradas;
+            // NO PROCEDE = falta, pero no hay que pedirlo. Se distingue de "waived"
+            // (decisión manual del admin) porque aquí lo decide el propio expediente:
+            // o el slot es opcional por naturaleza, o el Anexo Fotográfico ya cerró
+            // el capítulo. Ninguno de los dos debe salir en la lista de pendientes.
+            const noProcede = !subida && !waived && !requerida;
+            const motivo = !noProcede ? null
+                : (opcional ? 'Opcional — no se pide' : motivoFotosCerradas);
             const obj = requerida ? ['final'] : [];
             // El recuento sale de la BD; si la foto solo está en Drive (arr vacío) no
             // sabemos cuántas son sin volver a listar, así que se dice de dónde viene.
@@ -855,14 +885,65 @@ async function buildChecklistData(exp, cli, op) {
                 ? 'No necesario'
                 : (subida
                     ? (arr.length > 0 ? `${arr.length} archivo(s)` : 'Aportada (en Drive)')
-                    : (requerida ? 'Requerida — sin subir' : 'Opcional'));
+                    : (requerida ? 'Requerida — sin subir' : motivo));
             // `fase`, `required` y `subida` se exponen para "solicitar lo que falta"
             // (presente mezcla subida||waived y no basta para saber si hay fichero).
-            return mk(s.key, s.label || s.key, 'CUALQUIERA', subida || waived, obj, detalle, null, { waived, fase: s.fase, required: !!s.required, subida });
+            // `required` es el EFECTIVO (ya descontado el cierre por Anexo Fotográfico),
+            // que es lo que decide qué viene premarcado en la solicitud.
+            return mk(s.key, s.label || s.key, 'CUALQUIERA', subida || waived, obj, detalle, null,
+                { waived, fase: s.fase, required: requerida, subida, opcional, no_procede: noProcede, motivo_no_procede: motivo });
         });
 
     const todos = [...grupoCliente, ...grupoBrokergy, ...grupoInstalador, ...grupoCertificador, ...grupoFotos];
     const faltanPara = (objetivo) => todos.filter(i => i.objetivos.includes(objetivo) && !i.presente).map(i => i.label);
+
+    // ── ¿Lo hemos pedido ya? ─────────────────────────────────────────────────
+    // "Falta la factura" no dice lo mismo que "falta la factura y se la pedimos hace
+    // 12 días": lo primero es trabajo nuestro, lo segundo es insistir. Cada solicitud
+    // enviada queda en `documentacion.historial` (tipo 'solicitud_docs', ver
+    // POST /:id/solicitar-faltantes) con la lista de lo pedido; aquí se cruza con el
+    // barrido para que cada pendiente diga cuándo se pidió por última vez y cuántas
+    // veces. Un documento que ENVIAMOS nosotros (Anexo I, Cesión, CIFO) ya lleva su
+    // propio reloj en `{doc}_sent_at` vía cicloDoc: eso es "enviado", esto es "pedido".
+    const historialDocs = Array.isArray(doc.historial) ? doc.historial : [];
+    // Las solicitudes anteriores a 2026-08 solo guardaban los TEXTOS de lo pedido;
+    // desde entonces se guarda también `solicitado_keys` (las claves del barrido).
+    // Para las viejas se cruza por etiqueta, con alias donde la solicitud la reescribe.
+    const ALIAS_PETICION = {
+        'certificado rite (y memoria firmada)': 'rite',
+        'factura(s) de la obra': 'factura',
+    };
+    // ⚠️ TODO se compara en minúsculas. El historial guardado NO conserva la caja:
+    // cuando el detalle del expediente autoguarda, `normalizeData` pasa a MAYÚSCULAS
+    // el objeto entero, así que en BD conviven entradas `solicitud_docs` y
+    // `SOLICITUD_DOCS`, con sus textos y sus claves igual de gritadas. Comparar por
+    // igualdad exacta se comía la mayoría de las solicitudes.
+    const normLabel = (s) => String(s || '').trim().toLowerCase();
+    const peticiones = new Map(); // id (en minúsculas) → { fecha, target, veces }
+    const anotaPeticion = (id, s) => {
+        if (!id) return;
+        const k = normLabel(id);
+        const prev = peticiones.get(k);
+        peticiones.set(k, { fecha: s.fecha, target: s.target || null, veces: (prev?.veces || 0) + 1 });
+    };
+    const solicitudes = historialDocs
+        .filter(h => h && normLabel(h.tipo) === 'solicitud_docs' && h.fecha)
+        .sort((a, b) => Date.parse(a.fecha) - Date.parse(b.fecha));
+    for (const s of solicitudes) {
+        const keys = Array.isArray(s.solicitado_keys) ? s.solicitado_keys.filter(Boolean) : [];
+        if (keys.length) { keys.forEach(k => anotaPeticion(String(k), s)); continue; }
+        // Registro legacy: solo textos.
+        (Array.isArray(s.solicitado) ? s.solicitado : []).filter(Boolean).forEach(l => {
+            const n = normLabel(l);
+            anotaPeticion(ALIAS_PETICION[n] || `label:${n}`, s);
+        });
+    }
+    for (const it of todos) {
+        if (it.presente || it.no_procede) continue;
+        const p = peticiones.get(normLabel(it.key)) || peticiones.get(`label:${normLabel(it.label)}`);
+        if (p) it.peticion = { ...p, dias: diasDesde(p.fecha), cuando: fmtEnvio(p.fecha) };
+    }
+    const ultimaSolicitud = solicitudes.length ? solicitudes[solicitudes.length - 1] : null;
 
     // ── PISTAS PARALELAS ─────────────────────────────────────────────────────
     // Las tres cosas que pueden estar en la calle A LA VEZ, cada una en manos de
@@ -885,6 +966,7 @@ async function buildChecklistData(exp, cli, op) {
             pendientes: pendientes.map(i => ({
                 key: i.key, label: i.label, situacion: i.situacion || 'SIN_EMITIR',
                 dias_esperando: i.dias_esperando ?? null, detalle: i.detalle || null,
+                enviado_at: i.enviado_at ?? null, peticion: i.peticion || null,
             })),
         };
     };
@@ -913,6 +995,22 @@ async function buildChecklistData(exp, cli, op) {
             { responsable: 'CUALQUIERA', label: 'Cualquiera (fotos)', items: grupoFotos },
         ],
         pistas,
+        // Por qué el bloque de fotos deja de pedir cosas (si es el caso). Se dice en
+        // la UI: un barrido que de repente no lista ninguna foto tiene que explicarse.
+        fotos: {
+            cerradas: fotosCerradas,
+            validado: anexoFotoValidado,
+            motivo: motivoFotosCerradas,
+        },
+        // Última solicitud de documentación enviada (a quién y cuándo), para el pie
+        // del barrido. El detalle por ítem va en `item.peticion`.
+        ultima_solicitud: ultimaSolicitud ? {
+            fecha: ultimaSolicitud.fecha,
+            cuando: fmtEnvio(ultimaSolicitud.fecha),
+            dias: diasDesde(ultimaSolicitud.fecha),
+            target: ultimaSolicitud.target || null,
+            solicitado: Array.isArray(ultimaSolicitud.solicitado) ? ultimaSolicitud.solicitado : [],
+        } : null,
         objetivos: {
             anexos: { listo: faltanPara('anexos').length === 0, faltan: faltanPara('anexos') },
             expediente_final: { listo: faltanPara('final').length === 0, faltan: faltanPara('final') },
@@ -1041,6 +1139,16 @@ function buildSolicitudPendientes(checklist, { hayInstalador }) {
     const out = [];
     const cliPend = items('CLIENTE').filter(i => !i.presente);
     const insPend = items('INSTALADOR').filter(i => !i.presente);
+    // Huella de reclamación del barrido, por clave. La arrastramos hasta aquí para
+    // que quien redacta el mensaje —persona o agente— sepa si esto es la primera vez
+    // que se pide o la tercera, y con qué tono escribir.
+    const huella = new Map();
+    for (const g of checklist.grupos || []) {
+        for (const i of g.items || []) {
+            if (i.peticion || i.enviado_at) huella.set(i.key, { peticion: i.peticion || null, enviado_at: i.enviado_at || null });
+        }
+    }
+    const conHuella = (o) => ({ ...o, ...(huella.get(o.key) || { peticion: null, enviado_at: null }) });
 
     // Los anexos se GENERAN con IBAN+justificante: mientras falten datos, la firma
     // no se incluye por defecto (el admin puede forzarla desde el checklist).
@@ -1051,26 +1159,30 @@ function buildSolicitudPendientes(checklist, { hayInstalador }) {
         // (lo generamos nosotros), y BROKERGY no se "solicita" a nadie.
         const tipo = (i.key === 'numero_cuenta' || i.key === 'justificante') ? 'dato' : 'firma';
         const espera = tipo === 'firma' && datosFaltan;
-        out.push({ key: i.key, label: i.label, tipo, fase: null, required: true, waived: false, ownerDefault: 'CLIENTE', flujo: 'firmar-anexos', defaultIncluido: !espera, nota: espera ? 'Los anexos se generan con el IBAN y el justificante; la firma se pedirá cuando estén.' : (i.detalle || null) });
+        out.push(conHuella({ key: i.key, label: i.label, tipo, fase: null, required: true, waived: false, ownerDefault: 'CLIENTE', flujo: 'firmar-anexos', defaultIncluido: !espera, nota: espera ? 'Los anexos se generan con el IBAN y el justificante; la firma se pedirá cuando estén.' : (i.detalle || null) }));
     }
 
     const riteFalta = insPend.some(i => i.key === 'rite');
     const factFalta = insPend.some(i => i.key === 'factura');
     for (const i of insPend) {
-        if (i.key === 'rite') out.push({ key: 'rite', label: 'Certificado RITE (y memoria firmada)', tipo: 'doc', fase: 'DESPUES', required: true, waived: false, ownerDefault: 'INSTALADOR', flujo: 'subir-rite', defaultIncluido: true });
-        if (i.key === 'factura') out.push({ key: 'factura', label: 'Factura(s) de la obra', tipo: 'doc', fase: 'DESPUES', required: true, waived: false, ownerDefault: 'INSTALADOR', flujo: 'subir-docs', slot: 'DOC_FACTURAS', defaultIncluido: true });
+        if (i.key === 'rite') out.push(conHuella({ key: 'rite', label: 'Certificado RITE (y memoria firmada)', tipo: 'doc', fase: 'DESPUES', required: true, waived: false, ownerDefault: 'INSTALADOR', flujo: 'subir-rite', defaultIncluido: true }));
+        if (i.key === 'factura') out.push(conHuella({ key: 'factura', label: 'Factura(s) de la obra', tipo: 'doc', fase: 'DESPUES', required: true, waived: false, ownerDefault: 'INSTALADOR', flujo: 'subir-docs', slot: 'DOC_FACTURAS', defaultIncluido: true }));
         if (i.key === 'cifo') {
             // El CIFO se GENERA con los datos del RITE y de las facturas: hasta
             // tenerlos no se incluye por defecto (el admin puede forzarlo).
             const listo = !riteFalta && !factFalta;
-            out.push({ key: 'cifo', label: i.label, tipo: 'firma', fase: 'DESPUES', required: true, waived: false, ownerDefault: 'INSTALADOR', flujo: 'subir-cifo', defaultIncluido: listo, nota: listo ? null : 'Se genera con el RITE y la factura; se pedirá cuando estén.' });
+            out.push(conHuella({ key: 'cifo', label: i.label, tipo: 'firma', fase: 'DESPUES', required: true, waived: false, ownerDefault: 'INSTALADOR', flujo: 'subir-cifo', defaultIncluido: listo, nota: listo ? null : 'Se genera con el RITE y la factura; se pedirá cuando estén.' }));
         }
     }
 
     for (const f of items('CUALQUIERA')) {
         if (f.subida) continue; // ya aportada
         const ownerDefault = (f.fase === 'DESPUES' && hayInstalador) ? 'INSTALADOR' : 'CLIENTE';
-        out.push({ key: f.key, label: f.label, tipo: 'foto', fase: f.fase || null, required: !!f.required, waived: !!f.waived, ownerDefault, flujo: 'subir-docs', slot: f.key, defaultIncluido: !!f.required && !f.waived });
+        // Lo que "no procede" (slot opcional, o fotos ya cubiertas por el Anexo
+        // Fotográfico firmado) SIGUE listándose aquí: este modal es justo la
+        // superficie donde se decide qué pedir, y el admin puede querer forzarlo.
+        // Lo que no hace es venir premarcado — `required` ya es el efectivo.
+        out.push(conHuella({ key: f.key, label: f.label, tipo: 'foto', fase: f.fase || null, required: !!f.required, waived: !!f.waived, ownerDefault, flujo: 'subir-docs', slot: f.key, defaultIncluido: !!f.required && !f.waived, noProcede: !!f.no_procede, nota: f.motivo_no_procede || null }));
     }
     return out;
 }
@@ -1231,12 +1343,17 @@ router.post('/:id/solicitar-faltantes', internalKeyOrAuth, async (req, res) => {
         const destLabel = nombreDest ? ` (${nombreDest}${tlf ? ` · ${tlf}` : ''})` : (tlf ? ` (${tlf})` : '');
         // Lista concreta de lo solicitado (para que el agente sepa QUÉ se pidió, no solo a quién).
         const solicitado = Array.isArray(req.body?.solicitado) ? req.body.solicitado.filter(Boolean).map(String) : [];
+        // Y las CLAVES del barrido de esos mismos ítems: es lo que permite al barrido
+        // decir "la factura se pidió el 21/07" sin tener que casar textos, que cambian
+        // (el modal reescribe algunas etiquetas al redactar el mensaje).
+        const solicitadoKeys = Array.isArray(req.body?.solicitado_keys) ? req.body.solicitado_keys.filter(Boolean).map(String) : [];
         const solicitadoTxt = solicitado.length ? `. Pedido: ${solicitado.join('; ')}` : '';
         historial.push({
             id: Date.now().toString() + '_solicitud',
             tipo: 'solicitud_docs',
             texto: `Solicitud de documentación enviada a ${target === 'CLIENTE' ? 'Cliente' : 'Instalador'}${destLabel} vía ${sent.join(' + ')}${solicitadoTxt}`,
             solicitado,
+            solicitado_keys: solicitadoKeys,
             target,
             fecha: new Date().toISOString(),
             usuario: userName,
@@ -1595,6 +1712,165 @@ router.post('/:id/documentos/firmar-subir', enforceAuth, async (req, res) => {
     } catch (err) {
         console.error('[firmar-subir]', err.message);
         res.status(500).json({ error: 'Error al subir el PDF firmado', details: err.message });
+    }
+});
+
+// ─── POST /api/expedientes/:id/documentos/cesion-manuscrita ───────────────────
+// Monta y sube el Anexo de Cesión firmado A MANO desde la app, igual que ya hacía
+// la página pública /firmar-anexos: [escaneo firmado] + [DNI del cliente, las dos
+// caras en UNA página] + [DNI del representante de Brokergy como ÚLTIMA página].
+//
+// Por qué existe: cuando el cliente devuelve el anexo por correo/en mano, el escaneo
+// se subía al slot TAL CUAL y quedaba un anexo manuscrito sin identificar a las dos
+// partes — el mismo documento que por el enlace público salía completo. El montaje es
+// fuente única (utils/dniAnexo.js), así que los dos caminos producen el MISMO PDF.
+//
+// El DNI del cliente no se pide dos veces: si el expediente ya tiene la página montada
+// (`documentacion.dni_link`, típico de un cliente que ya subió el DNI por el enlace),
+// se reutiliza y basta con soltar el escaneo. Subir caras nuevas manda sobre ella.
+//
+// Multipart: cesion (obligatorio) · dni_frontal · dni_trasero (imágenes)
+const cesionUpload = require('multer')({
+    storage: require('multer').memoryStorage(),
+    limits: { fileSize: 30 * 1024 * 1024, files: 3 },
+});
+
+router.post('/:id/documentos/cesion-manuscrita', enforceAuth, (req, res, next) => {
+    cesionUpload.fields([
+        { name: 'cesion', maxCount: 1 },
+        { name: 'dni_frontal', maxCount: 1 },
+        { name: 'dni_trasero', maxCount: 1 },
+    ])(req, res, (err) => {
+        if (err) {
+            if (err.code === 'LIMIT_FILE_SIZE') return res.status(413).json({ error: 'Algún fichero supera los 30 MB.' });
+            console.error('[cesion-manuscrita] multer:', err.message);
+            return res.status(400).json({ error: 'No se pudieron procesar los ficheros.' });
+        }
+        next();
+    });
+}, async (req, res) => {
+    try {
+        const cesionFile = req.files?.cesion?.[0];
+        const frontFile = req.files?.dni_frontal?.[0] || null;
+        const backFile = req.files?.dni_trasero?.[0] || null;
+        if (!cesionFile) return res.status(400).json({ error: 'Falta el Anexo de Cesión firmado (campo "cesion").' });
+        if ((frontFile && !backFile) || (!frontFile && backFile)) {
+            return res.status(400).json({ error: 'El DNI se anexa por las DOS caras: faltan la delantera o la trasera.' });
+        }
+
+        const { data: exp, error } = await supabase
+            .from('expedientes')
+            .select('id, numero_expediente, documentacion, drive_folder_id, oportunidades(datos_calculo)')
+            .eq('id', req.params.id)
+            .maybeSingle();
+        if (error || !exp) return res.status(404).json({ error: 'Expediente no encontrado' });
+
+        let datos = exp.oportunidades?.datos_calculo || {};
+        if (typeof datos === 'string') { try { datos = JSON.parse(datos); } catch (_) { datos = {}; } }
+        const driveFolderId = datos?.drive_folder_id || datos?.inputs?.drive_folder_id || exp.drive_folder_id;
+        if (!driveFolderId) return res.status(422).json({ error: 'El expediente no tiene carpeta de Drive asociada' });
+
+        const driveService = require('../services/driveService');
+        const { buildCesionManuscrita } = require('../utils/dniAnexo');
+        const docObj = exp.documentacion || {};
+        const numexpte = exp.numero_expediente || exp.id;
+
+        // DNI que ya tuviera el expediente: se baja de Drive solo si no llegan caras
+        // nuevas (una petición menos en el caso rápido, que es el habitual).
+        // `dni_link` es la página con las dos caras; los expedientes antiguos guardaron
+        // las caras SUELTAS (`dni_frontal_link` / `dni_trasero_link`) y ahí se
+        // concatenan las dos — el objetivo es no volver a pedir un DNI que ya tenemos.
+        const bajarDrive = async (link) => {
+            const id = link && extractDriveFileId(link);
+            if (!id) return null;
+            const buf = await driveService.getFileContent(id);
+            return buf?.length ? Buffer.from(buf) : null;
+        };
+        let dniPdfPrevio = null;
+        if (!frontFile) {
+            try {
+                if (docObj.dni_link) {
+                    dniPdfPrevio = await bajarDrive(docObj.dni_link);
+                } else if (docObj.dni_frontal_link && docObj.dni_trasero_link) {
+                    const { mergePdfs } = require('../utils/dniAnexo');
+                    const [f, b] = await Promise.all([bajarDrive(docObj.dni_frontal_link), bajarDrive(docObj.dni_trasero_link)]);
+                    if (f && b) dniPdfPrevio = await mergePdfs(f, [b]);
+                }
+            } catch (e) { console.warn('[cesion-manuscrita] DNI previo no descargable:', e.message); }
+        }
+
+        const { pdf, dniPage, incluidos, faltan } = await buildCesionManuscrita(
+            cesionFile.buffer,
+            cesionFile.mimetype,
+            { dniFront: frontFile?.buffer, dniBack: backFile?.buffer, dniPdf: dniPdfPrevio },
+        );
+
+        const subfolderId = await driveService.getOrCreateSubfolder(driveFolderId, '6. ANEXOS CAE');
+        // El anexo anterior se ARCHIVA en OLD, no se borra (mismo versionado que el
+        // resto de firmados): si esta subida corrige una que rechazamos, la mala queda.
+        const guardar = async (name, buffer) => {
+            const prev = await driveService.findFileByName(subfolderId, name);
+            if (prev) {
+                try { await driveService.archiveExistingToOld(subfolderId, prev, name); }
+                catch (e) { console.warn('[cesion-manuscrita] no se pudo archivar el previo:', e.message); }
+            }
+            const saved = await driveService.saveFileToFolder(subfolderId, name, 'application/pdf', buffer);
+            if (saved?.id) { try { await driveService.setFolderPublic(saved.id, 'reader'); } catch (e) {} }
+            return saved;
+        };
+
+        const saved = await guardar(`${numexpte} - Anexo Cesión ahorro_fdo.pdf`, pdf);
+        if (!saved?.link) throw new Error('No se pudo guardar el anexo montado en Drive');
+
+        // La página de DNI recién montada se guarda aparte: es la que reutilizarán las
+        // siguientes subidas (y la que ya usaba el flujo público).
+        let dniLink = docObj.dni_link || null;
+        if (dniPage) {
+            const savedDni = await guardar(`${numexpte} - DNI.pdf`, dniPage);
+            if (savedDni?.link) dniLink = savedDni.link;
+        }
+
+        const usuario = req.user?.rol_nombre === 'ADMIN' ? 'ADMINISTRADOR' : (req.user?.acronimo || req.user?.razon_social || 'SISTEMA');
+        let newDoc = invalidarValidacionDocs(
+            {
+                ...docObj,
+                anexo_cesion_signed_link: saved.link,
+                anexo_cesion_firma_tipo: 'manuscrita',
+                // El escaneo ya lleva las dos firmas físicas: no falta contrafirma digital.
+                cesion_firmado_brokergy: true,
+                ...(dniLink ? { dni_link: dniLink } : {}),
+            },
+            'anexo_cesion_signed_link',
+            { usuario, origen: 'firma manuscrita montada desde la app' },
+        );
+        const historial = Array.isArray(newDoc.historial) ? [...newDoc.historial] : [];
+        historial.push({
+            id: `${Date.now()}_cesion_manuscrita`,
+            tipo: 'doc_montado',
+            texto: `Anexo de Cesión manuscrito montado y subido: ${incluidos.join(' + ')}`
+                + (faltan.length ? ` · SIN: ${faltan.join(', ')}` : ''),
+            campo: 'anexo_cesion_signed_link',
+            fecha: new Date().toISOString(),
+            usuario,
+        });
+        newDoc = { ...newDoc, historial };
+
+        const { error: updErr } = await supabase.from('expedientes')
+            .update({ documentacion: newDoc, updated_at: new Date().toISOString() })
+            .eq('id', req.params.id);
+        if (updErr) throw updErr;
+
+        res.json({
+            ok: true,
+            signed_link: saved.link,
+            dni_link: dniLink,
+            incluidos,
+            faltan,
+            documentacion: newDoc,
+        });
+    } catch (err) {
+        console.error('[cesion-manuscrita]', err.message);
+        res.status(500).json({ error: 'No se pudo montar el Anexo de Cesión', details: err.message });
     }
 });
 
@@ -2290,6 +2566,46 @@ router.put('/:id', enforceAuth, async (req, res) => {
                 estado: activeEstado,
                 fecha: new Date().toISOString(),
                 usuario: usuarioName
+            });
+            docObj.historial = hist;
+        }
+
+        // ── Traza de "documento enviado a firmar" ───────────────────────────────
+        // `{doc}_sent_at` guarda SOLO la última fecha: si se reenvía un anexo
+        // corregido, la anterior se pierde y no queda constancia de que se mandó dos
+        // veces. Este es el chokepoint por el que pasan todos los "marcar como
+        // enviado" (botón de Documentación, EnviarAnexosModal, CIFO…), así que aquí
+        // se deja una entrada en el historial por cada envío. El campo sigue siendo
+        // la fuente para el reloj del barrido; esto es la trazabilidad.
+        const DOCS_ENVIABLES = {
+            anexo_i_sent_at: 'Anexo I',
+            anexo_cesion_sent_at: 'Anexo de Cesión de Ahorros',
+            anexo_fotografico_sent_at: 'Anexo Fotográfico',
+            cert_cifo_sent_at: 'Certificado de Instalación / CIFO',
+            cert_rite_sent_at: 'Certificado RITE',
+            ficha_res060_sent_at: 'Ficha RES',
+            borrador_cert_sent_at: 'Borrador del certificado (instalador)',
+        };
+        const enviadosAhora = Object.entries(DOCS_ENVIABLES).filter(([campo]) => {
+            const antes = existing.documentacion?.[campo] || null;
+            const ahora = docObj?.[campo] || null;
+            return !!ahora && ahora !== antes;   // null→fecha o fecha→fecha nueva (reenvío)
+        });
+        if (enviadosAhora.length) {
+            const hist = Array.isArray(docObj.historial) ? docObj.historial : [];
+            const usuarioName = req.user?.rol_nombre === 'ADMIN'
+                ? 'ADMINISTRADOR'
+                : (req.user?.acronimo || req.user?.razon_social || 'SISTEMA');
+            enviadosAhora.forEach(([campo, label], i) => {
+                const reenvio = !!existing.documentacion?.[campo];
+                hist.push({
+                    id: `${Date.now()}_${i}_envio`,
+                    tipo: 'doc_enviado',
+                    texto: `${label} ${reenvio ? 'REENVIADO' : 'enviado'} para firma.`,
+                    campo,
+                    fecha: docObj[campo],
+                    usuario: usuarioName,
+                });
             });
             docObj.historial = hist;
         }
@@ -3894,7 +4210,7 @@ router.get('/:id/documents/scan-cee', enforceAuth, async (req, res) => {
         };
 
         const scanSection = async (sectionLabel) => {
-            const out = { xml: null, pdf: null, cex: null, registro: null, etiqueta: null, otros: [] };
+            const out = { xml: null, pdf: null, cex: null, registro: null, etiqueta: null, otros: [], sinVincular: {} };
             const ceeRoot = await findSubfolderByName(driveFolderId, '1. CEE');
             if (!ceeRoot) return out;
             const sectionFolder = await findSubfolderByName(ceeRoot, sectionLabel);
@@ -3905,6 +4221,14 @@ router.get('/:id/documents/scan-cee', enforceAuth, async (req, res) => {
                 const slot = matchSlot(f.name);
                 if (slot === 'otros' || slot === null) {
                     out.otros.push(f.webViewLink);
+                } else if (slot === 'xml' || slot === 'cex') {
+                    // El .xml y el .cex NO encienden su slot desde Drive. Encender el
+                    // slot dice "hecho", y con estos dos no basta con que el fichero
+                    // exista: pasar por el slot es lo que PARSEA las demandas del .xml
+                    // y lo que mueve el subestado al subir el .cex. Un fichero dejado a
+                    // mano en la carpeta ponía el slot en ámbar sin haber calculado
+                    // nada. Se informan aparte para poder avisar de que están ahí.
+                    if (!out.sinVincular[slot]) out.sinVincular[slot] = f.webViewLink;
                 } else if (!out[slot]) {
                     out[slot] = f.webViewLink;
                 }

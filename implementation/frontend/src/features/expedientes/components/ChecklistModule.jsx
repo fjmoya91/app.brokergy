@@ -87,6 +87,46 @@ function PistaCard({ pista }) {
     );
 }
 
+// ─── Huella de reclamación ───────────────────────────────────────────────────
+// "Falta la factura" y "falta la factura, y se la pedimos hace 12 días" piden
+// cosas distintas: lo primero es trabajo nuestro, lo segundo es insistir. El
+// barrido lo dice en cada fila, con dos relojes distintos:
+//   · ENVIADO — documentos que mandamos nosotros a firmar (`{doc}_sent_at`).
+//   · PEDIDO  — lo que reclamamos por WhatsApp/email (historial de solicitudes).
+// Sin huella, "Sin pedir" es la información más accionable de la fila.
+function fmtDia(iso) {
+    if (!iso) return null;
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return null;
+    return d.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: '2-digit' });
+}
+
+function HuellaTag({ it }) {
+    if (it.enviado_at) {
+        const d = typeof it.dias_esperando === 'number' ? it.dias_esperando : null;
+        return (
+            <span title={it.detalle || ''} className="shrink-0 text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded border border-sky-400/25 text-sky-300/80">
+                Enviado {fmtDia(it.enviado_at)}{d > 0 ? ` · ${d} d` : ''}
+            </span>
+        );
+    }
+    if (it.peticion) {
+        const { cuando, dias, veces } = it.peticion;
+        return (
+            <span title={`Última solicitud: ${cuando || ''}${veces > 1 ? ` · pedido ${veces} veces` : ''}`}
+                  className="shrink-0 text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded border border-white/10 text-white/40">
+                Pedido {fmtDia(it.peticion.fecha)}{dias > 0 ? ` · ${dias} d` : ''}{veces > 1 ? ` ×${veces}` : ''}
+            </span>
+        );
+    }
+    return (
+        <span title="Todavía no se ha reclamado ni enviado nada de esto"
+              className="shrink-0 text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded border border-amber-400/20 text-amber-300/60">
+            Sin pedir
+        </span>
+    );
+}
+
 // Fila compacta de un ítem PENDIENTE. `action` = botón opcional a la derecha.
 function PendingRow({ it, action }) {
     const bloqueaAnexos = it.objetivos?.includes('anexos');
@@ -95,7 +135,8 @@ function PendingRow({ it, action }) {
             <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${bloqueaAnexos ? 'bg-amber-400' : 'bg-white/30'}`} />
             <span className="text-[13px] font-medium text-white/85 truncate flex-1">{it.label}</span>
             {bloqueaAnexos && <span className="text-[8px] font-black uppercase tracking-wider text-amber-300/80 border border-amber-400/20 rounded px-1 py-0.5 shrink-0">anexos</span>}
-            {it.detalle && it.detalle !== 'Requerida — sin subir' && <span title={it.detalle} className="text-[10px] text-white/30 truncate max-w-[35%]">{it.detalle}</span>}
+            {it.detalle && it.detalle !== 'Requerida — sin subir' && <span title={it.detalle} className="text-[10px] text-white/30 truncate max-w-[28%]">{it.detalle}</span>}
+            <HuellaTag it={it} />
             {action}
         </div>
     );
@@ -175,10 +216,14 @@ export function ChecklistModule({ expediente, onChanged }) {
 
     const recibidos = allItems.filter(i => i.presente && !i.waived).length;
     const noNecesarios = allItems.filter(i => i.waived).length;
+    // "No procede" ≠ "no necesario": lo decide el propio expediente (slot opcional
+    // por naturaleza, o fotos ya cubiertas por el Anexo Fotográfico firmado), no una
+    // decisión manual del admin. Se cuenta al pie pero no se reclama a nadie.
+    const noProcede = allItems.filter(i => i.no_procede).length;
 
-    // Grupos con SOLO lo pendiente (no presente).
+    // Grupos con SOLO lo pendiente REAL (ni recibido, ni descartado).
     const gruposPend = (data.grupos || [])
-        .map(g => ({ ...g, pend: g.items.filter(i => !i.presente) }))
+        .map(g => ({ ...g, pend: g.items.filter(i => !i.presente && !i.no_procede) }))
         .filter(g => g.pend.length > 0);
     const todoListo = gruposPend.length === 0;
     const hayContactables = gruposPend.some(g => g.responsable === 'CLIENTE' || g.responsable === 'INSTALADOR');
@@ -242,6 +287,7 @@ export function ChecklistModule({ expediente, onChanged }) {
                                         it.key === 'justificante' && expediente?.id ? (
                                             <JustificanteUploader key={it.key} variant="row" label={it.label}
                                                 expedienteId={expediente.id}
+                                                huella={<HuellaTag it={it} />}
                                                 onUploaded={() => { load(); if (onChanged) onChanged(); }} />
                                         ) : (
                                             <PendingRow key={it.key} it={it}
@@ -268,10 +314,26 @@ export function ChecklistModule({ expediente, onChanged }) {
                 </div>
             )}
 
-            {/* Pie: contadores de lo que NO se lista + actualizar */}
-            <div className="flex items-center justify-between pt-1 border-t border-white/5">
-                <span className="text-[10px] font-bold uppercase tracking-widest text-white/25">
-                    {recibidos} recibido{recibidos === 1 ? '' : 's'}{noNecesarios > 0 ? ` · ${noNecesarios} no necesario${noNecesarios === 1 ? '' : 's'}` : ''}
+            {/* Por qué el bloque de fotos ha dejado de pedir: un barrido que de golpe
+                no lista ninguna foto tiene que explicarse, o parece que se ha roto. */}
+            {data.fotos?.cerradas && (
+                <p className="text-[10px] text-white/30 leading-snug">
+                    📷 Las fotos ya no se reclaman: el Anexo Fotográfico está {data.fotos.validado ? 'firmado y validado' : 'firmado'}.
+                    Si se rechaza, vuelven a pedirse.
+                </p>
+            )}
+
+            {/* Pie: contadores de lo que NO se lista + última solicitud + actualizar */}
+            <div className="flex items-center justify-between gap-3 pt-1 border-t border-white/5">
+                <span className="text-[10px] font-bold uppercase tracking-widest text-white/25 truncate">
+                    {recibidos} recibido{recibidos === 1 ? '' : 's'}
+                    {noNecesarios > 0 ? ` · ${noNecesarios} no necesario${noNecesarios === 1 ? '' : 's'}` : ''}
+                    {noProcede > 0 ? ` · ${noProcede} no procede${noProcede === 1 ? '' : 'n'}` : ''}
+                    {data.ultima_solicitud && (
+                        <span title={`Enviada a ${data.ultima_solicitud.target === 'INSTALADOR' ? 'instalador' : 'cliente'} el ${data.ultima_solicitud.cuando}`}>
+                            {' · última solicitud '}{fmtDia(data.ultima_solicitud.fecha)}
+                        </span>
+                    )}
                 </span>
                 <button onClick={load} className="text-[10px] font-black uppercase tracking-widest text-white/30 hover:text-brand transition-colors flex items-center gap-1.5">
                     <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>

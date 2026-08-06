@@ -13,9 +13,11 @@ const { buildCertClienteData } = require('../services/certClienteData');
 // Una versión NUEVA de un documento ya validado lo devuelve a "pendiente de revisar".
 const { invalidarValidacionDocs, invalidarValidacionCee, rechazoBorrador } = require('../utils/docValidacion');
 const { requireAuth, isStaff } = require('../middleware/auth');
+const {
+    imageToPdf, imagesToPdf, dniTwoSidesOnePage, readRepresentanteDni, mergePdfs,
+} = require('../utils/dniAnexo');
 const axios = require('axios');
 const multer = require('multer');
-const { PDFDocument } = require('pdf-lib');
 
 // Configuración de multer (memoria para subida directa a Drive)
 const upload = multer({
@@ -45,119 +47,9 @@ function uploadDocsSingle(req, res, next) {
     });
 }
 
-async function imageToPdf(imageBuffer, mimeType) {
-    const pdfDoc = await PDFDocument.create();
-    const img = mimeType === 'image/png'
-        ? await pdfDoc.embedPng(imageBuffer)
-        : await pdfDoc.embedJpg(imageBuffer);
-    const { width, height } = img.scale(1);
-    const page = pdfDoc.addPage([width, height]);
-    page.drawImage(img, { x: 0, y: 0, width, height });
-    return Buffer.from(await pdfDoc.save());
-}
-
-// Une varias imágenes en un único PDF (una imagen por página, sin reescalar).
-// pdf-lib solo sabe embeber JPG y PNG: detectamos el formato por los bytes mágicos
-// y omitimos lo que no sea embebible (HEIC/webp…). Devuelve el buffer + cuántas
-// se incluyeron / se omitieron para poder avisar al usuario.
-async function imagesToPdf(images) {
-    const pdfDoc = await PDFDocument.create();
-    let added = 0, skipped = 0;
-    for (const { buffer } of images) {
-        try {
-            const isPng = buffer.length > 8 && buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4E && buffer[3] === 0x47;
-            const isJpg = buffer.length > 3 && buffer[0] === 0xFF && buffer[1] === 0xD8 && buffer[2] === 0xFF;
-            let img;
-            if (isPng) img = await pdfDoc.embedPng(buffer);
-            else if (isJpg) img = await pdfDoc.embedJpg(buffer);
-            else { skipped++; continue; }
-            const { width, height } = img.scale(1);
-            const page = pdfDoc.addPage([width, height]);
-            page.drawImage(img, { x: 0, y: 0, width, height });
-            added++;
-        } catch (e) {
-            console.warn('[imagesToPdf] no se pudo embeber una imagen:', e.message);
-            skipped++;
-        }
-    }
-    const pdf = Buffer.from(await pdfDoc.save());
-    return { pdf, added, skipped };
-}
-
-const A4_WIDTH_PT = 595.276;
-const A4_HEIGHT_PT = 841.890;
-
-// Coloca las DOS caras del DNI (imágenes) en UNA sola página A4 (delante arriba,
-// detrás abajo), centradas. Devuelve el buffer PDF de 1 página, o null si algún
-// lado no es imagen embebible (PDF/HEIC…) → el llamador cae al modo antiguo.
-async function dniTwoSidesOnePage(frontBuf, backBuf) {
-    const embedImg = async (doc, buf) => {
-        if (!buf || buf.length < 4) return null;
-        const isPng = buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4E && buf[3] === 0x47;
-        const isJpg = buf[0] === 0xFF && buf[1] === 0xD8 && buf[2] === 0xFF;
-        try {
-            if (isPng) return await doc.embedPng(buf);
-            if (isJpg) return await doc.embedJpg(buf);
-        } catch (e) { console.warn('[dniOnePage] no embebible:', e.message); }
-        return null;
-    };
-    const doc = await PDFDocument.create();
-    const page = doc.addPage([A4_WIDTH_PT, A4_HEIGHT_PT]);
-    const margin = 40;
-    const gap = 24;
-    const halfH = (A4_HEIGHT_PT - margin * 2 - gap) / 2;
-    const maxW = A4_WIDTH_PT - margin * 2;
-    const drawImg = (img, topY) => {
-        const s = Math.min(maxW / img.width, halfH / img.height);
-        const w = img.width * s, h = img.height * s;
-        page.drawImage(img, { x: (A4_WIDTH_PT - w) / 2, y: topY - h, width: w, height: h });
-    };
-    const imgF = await embedImg(doc, frontBuf);
-    const imgB = await embedImg(doc, backBuf);
-    if (!imgF || !imgB) return null;   // alguna cara no es imagen → modo antiguo
-    drawImg(imgF, A4_HEIGHT_PT - margin);                         // arriba
-    drawImg(imgB, A4_HEIGHT_PT - margin - halfH - gap);           // abajo
-    return Buffer.from(await doc.save());
-}
-
-// DNI del representante de Brokergy (se anexa a la Cesión manuscrita). Se lee de
-// backend/assets/dni_representante.(pdf|jpg|png) si el fichero existe.
-function readRepresentanteDni() {
-    const fs = require('fs'); const path = require('path');
-    for (const ext of ['pdf', 'jpg', 'jpeg', 'png']) {
-        const p = path.join(__dirname, '..', 'assets', `dni_representante.${ext}`);
-        try { if (fs.existsSync(p)) return { buffer: fs.readFileSync(p), ext }; } catch (e) {}
-    }
-    return null;
-}
-
-// Concatena un PDF principal con varios PDF anexo, normalizando cada página
-// anexada a A4 (escalada y centrada). Réplica del helper de routes/pdf.js para
-// no acoplar este módulo al router de PDF. Se usa para anexar el DNI (delante +
-// detrás) al final del Anexo de Cesión firmado a mano.
-async function mergePdfs(mainBuffer, annexBuffers) {
-    if (!annexBuffers || annexBuffers.length === 0) return mainBuffer;
-    const merged = await PDFDocument.load(mainBuffer);
-    for (const buf of annexBuffers) {
-        if (!buf || buf.length === 0) continue;
-        try {
-            const annexDoc = await PDFDocument.load(buf, { ignoreEncryption: true });
-            const indices = annexDoc.getPageIndices();
-            const embedded = await merged.embedPdf(annexDoc, indices);
-            for (const ep of embedded) {
-                const page = merged.addPage([A4_WIDTH_PT, A4_HEIGHT_PT]);
-                const { width: w, height: h } = ep;
-                const scale = Math.min(A4_WIDTH_PT / w, A4_HEIGHT_PT / h);
-                const drawW = w * scale;
-                const drawH = h * scale;
-                page.drawPage(ep, { x: (A4_WIDTH_PT - drawW) / 2, y: (A4_HEIGHT_PT - drawH) / 2, width: drawW, height: drawH });
-            }
-        } catch (e) {
-            console.warn('[mergePdfs/public] Skip anexo no parseable:', e.message);
-        }
-    }
-    return Buffer.from(await merged.save());
-}
+// Helpers de PDF/DNI: fuente ÚNICA en utils/dniAnexo.js. El montaje del Anexo de
+// Cesión manuscrito (escaneo + DNI del cliente + DNI del representante) lo comparten
+// esta subida pública y la subida desde la app, y tiene que dar EL MISMO documento.
 
 
 
@@ -1447,7 +1339,7 @@ router.get('/cifo-upload/:expedienteId', async (req, res) => {
         const { expedienteId } = req.params;
         const { data: exp, error } = await supabase
             .from('expedientes')
-            .select('id, numero_expediente, instalacion, clientes!cliente_id(nombre_razon_social, apellidos)')
+            .select('id, numero_expediente, instalacion, documentacion, clientes!cliente_id(nombre_razon_social, apellidos)')
             .eq('id', expedienteId)
             .maybeSingle();
 
@@ -1468,10 +1360,16 @@ router.get('/cifo-upload/:expedienteId', async (req, res) => {
             if (pres?.razon_social) instaladorNombre = pres.razon_social;
         }
 
+        // CIFO rechazado y todavía sin corregir: la página no ofrece la firma. Si no,
+        // el instalador vuelve al enlace del email y firma otra vez el mismo PDF malo.
+        const rechazo = rechazoBorrador(exp.documentacion || {}, 'cert_cifo');
+
         res.json({
             numero_expediente: exp.numero_expediente,
             cliente: [exp.clientes?.nombre_razon_social, exp.clientes?.apellidos].filter(Boolean).join(' ') || '—',
             instalador: instaladorNombre,
+            bloqueado: !!rechazo?.obsoleto,
+            rechazo: rechazo ? { label: rechazo.label, motivo: rechazo.motivo, at: rechazo.at, preparando: rechazo.obsoleto } : null,
         });
     } catch (e) {
         console.error('[CIFO upload info] Error:', e);
@@ -1496,6 +1394,16 @@ router.get('/cifo-upload/:expedienteId/pdf', async (req, res) => {
 
         const draftLink = exp.documentacion?.cert_cifo_drive_link;
         if (!draftLink) return res.status(404).json({ error: 'Este expediente aún no tiene un CIFO generado para firmar' });
+
+        // Mismo criterio que los anexos del cliente: mientras el CIFO rechazado no se
+        // haya regenerado y reenviado no se sirve, ni siquiera desde una pestaña vieja.
+        const rechazoCifo = rechazoBorrador(exp.documentacion || {}, 'cert_cifo');
+        if (rechazoCifo?.obsoleto) {
+            return res.status(409).json({
+                error: 'Este certificado tenía un error y lo estamos corrigiendo. Te enviaremos la versión corregida para que la firmes.',
+                motivo: rechazoCifo.motivo || null,
+            });
+        }
 
         const m = String(draftLink).match(/\/file\/d\/([A-Za-z0-9_-]+)/) || String(draftLink).match(/[?&]id=([A-Za-z0-9_-]+)/);
         const fileId = m ? m[1] : null;
@@ -1994,11 +1902,16 @@ router.post('/anexos-upload/:expedienteId',
                 // Desconocido: intentamos tratarlo como PDF.
                 return file.buffer;
             };
+            // El fichero anterior NO se borra: se archiva en "6. ANEXOS CAE/OLD" como
+            // `{nombre}_OLD`. Cuando esta subida es la corrección de un anexo RECHAZADO,
+            // el PDF que se rechazó es justo el que queda archivado — sin eso, el motivo
+            // del rechazo quedaba en el historial pero la versión mala desaparecía.
+            // Mismo versionado que el alta desde la app (POST /documents/upload).
             const saveReplacing = async (name, buffer) => {
                 try {
                     const existing = await driveService.findFileByName(subfolderId, name);
-                    if (existing) await driveService.deleteFile(existing);
-                } catch (e) { console.warn('[anexos-upload] no se pudo reemplazar previo:', e.message); }
+                    if (existing) await driveService.archiveExistingToOld(subfolderId, existing, name);
+                } catch (e) { console.warn('[anexos-upload] no se pudo archivar el previo:', e.message); }
                 const r = await driveService.saveFileToFolder(subfolderId, name, 'application/pdf', buffer);
                 if (r?.id) { try { await driveService.setFolderPublic(r.id, 'reader'); } catch (e) {} }
                 return r;
@@ -2255,37 +2168,18 @@ router.post('/lote-firma/:loteId/firmar', async (req, res) => {
         if (error || !lote) return res.status(404).json({ error: 'Lote no encontrado' });
         if (!lote.drive_folder_id) return res.status(409).json({ error: 'El lote no tiene carpeta de Drive' });
 
-        const docsSo = Array.isArray(lote.documentos_so) ? [...lote.documentos_so] : [];
-        const idx = docsSo.findIndex(d => d.key === docKey);
-        if (idx < 0) return res.status(404).json({ error: 'Documento no encontrado en el lote' });
-
+        // Guardar el firmado es la MISMA operación venga del enlace público o del
+        // panel: services/loteDocs.guardarDocFirmado (misma carpeta, mismo nombre,
+        // y retira el visto bueno anterior porque hay que revisar el nuevo).
         const buf = Buffer.from(signedPdfBase64, 'base64');
-        if (buf.length < 5 || buf[0] !== 0x25 || buf[1] !== 0x50) { // %P
-            return res.status(400).json({ error: 'El fichero firmado no es un PDF válido' });
-        }
-
-        const base = String(docsSo[idx].file_name || docsSo[idx].label || docKey).replace(/\.pdf$/i, '').replace(/[\\/<>:"|?*]/g, '_');
-        const fileName = `${base}_fdo.pdf`;
-        // Carpeta destino del FIRMADO: si el documento pertenece a un expediente (ficha),
-        // va a su carpeta "10. EXPEDIENTE CAE"; si es de lote (Anexo I / Solicitud /
-        // Oferta), a la subcarpeta de documentación del lote, junto a su borrador.
-        let signedFolder = lote.drive_folder_id;
-        if (docsSo[idx].exp_folder_id) {
-            signedFolder = await driveService.getOrCreateSubfolder(docsSo[idx].exp_folder_id, '10. EXPEDIENTE CAE') || lote.drive_folder_id;
-        } else {
-            const { CARPETA_DOCS } = require('../services/loteDocs');
-            signedFolder = await driveService.getOrCreateSubfolder(lote.drive_folder_id, CARPETA_DOCS(lote.codigo)) || lote.drive_folder_id;
-        }
+        let docsSo, idx, saved, todosFirmados;
         try {
-            const prev = await driveService.findFileByName(signedFolder, fileName);
-            if (prev) await driveService.deleteFile(prev);
-        } catch (_) { /* no bloqueante */ }
-        const saved = await driveService.saveFileToFolder(signedFolder, fileName, 'application/pdf', buf);
-        if (!saved) throw new Error('No se pudo guardar el documento firmado en Drive');
-
-        docsSo[idx] = { ...docsSo[idx], signed_link: saved.link, signed_file_id: saved.id || null, signed_at: new Date().toISOString() };
-        const todosFirmados = docsSo.length > 0 && docsSo.every(d => d.signed_link);
-
+            const r = await require('../services/loteDocs').guardarDocFirmado(lote, docKey, buf);
+            docsSo = r.docsSo; saved = r.saved; todosFirmados = r.todosFirmados;
+            idx = docsSo.findIndex(d => d.key === docKey);
+        } catch (e) {
+            return res.status(400).json({ error: e.message });
+        }
         const historial = Array.isArray(lote.historial) ? [...lote.historial] : [];
         historial.push({
             id: `${Date.now()}_firma_so`, tipo: 'sistema',

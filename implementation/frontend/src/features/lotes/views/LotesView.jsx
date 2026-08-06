@@ -4,6 +4,8 @@ import { useModal } from '../../../context/ModalContext';
 import { useAuth } from '../../../context/AuthContext';
 import { getRoleFlags } from '../../../utils/roleFlags';
 import { LoteDetailModal } from '../components/LoteDetailModal';
+import { LogoEmpresa } from '../components/LogoEmpresa';
+import { LotesResumen } from '../components/LotesResumen';
 import { loteEstadoBadge } from '../loteConstants';
 import { computeLoteEco } from '../logic/loteEco';
 
@@ -109,17 +111,18 @@ export function LotesView({ onNavigate }) {
 
     useEffect(() => { fetchLotes(); fetchPrescriptores(); }, [fetchLotes, fetchPrescriptores]);
 
-    const stats = useMemo(() => ({
-        total: lotes.length,
-        borradores: lotes.filter(l => l.estado === 'BORRADOR').length,
-        enCurso: lotes.filter(l => l.estado !== 'BORRADOR' && l.estado !== 'FINALIZADO').length,
-        finalizados: lotes.filter(l => l.estado === 'FINALIZADO').length,
-    }), [lotes]);
-
-    const visibles = useMemo(
-        () => filtroEstado === 'TODO' ? lotes : lotes.filter(l => l.estado === filtroEstado),
-        [lotes, filtroEstado]
-    );
+    // El recuento por estado y el filtro viven en el cuadro de mando (LotesResumen):
+    // sus píldoras son las que filtran, así que aquí no hace falta contar nada.
+    //
+    // `filtroEstado` = 'TODO', un estado concreto, o el pseudo-filtro DOC_PENDIENTE
+    // (lotes con algún documento firmado que nadie ha revisado todavía).
+    const visibles = useMemo(() => {
+        if (filtroEstado === 'TODO') return lotes;
+        if (filtroEstado === 'DOC_PENDIENTE') {
+            return lotes.filter(l => (l.documentos_so || []).some(d => d?.signed_link && !d?.validado_at));
+        }
+        return lotes.filter(l => l.estado === filtroEstado);
+    }, [lotes, filtroEstado]);
 
     return (
         <div className="animate-fade-in w-full max-w-[1600px] mx-auto px-6 sm:px-10 py-10 relative z-10">
@@ -136,20 +139,17 @@ export function LotesView({ onNavigate }) {
                 </button>
             </div>
 
-            {/* Stats + filtro */}
-            <div className="flex items-center gap-2 flex-wrap mb-6">
-                {[
-                    ['TODO', `Todos (${stats.total})`],
-                    ['BORRADOR', `Borradores (${stats.borradores})`],
-                ].map(([val, label]) => (
-                    <button key={val} onClick={() => setFiltroEstado(val)}
-                        className={`px-3 py-1.5 rounded-lg text-[11px] font-black uppercase tracking-widest border transition-all ${
-                            filtroEstado === val ? 'bg-brand/15 text-brand border-brand/30' : 'text-white/40 border-white/10 hover:text-white/70'}`}>
-                        {label}
-                    </button>
-                ))}
-                <span className="text-[11px] text-white/30 ml-2">En curso: {stats.enCurso} · Finalizados: {stats.finalizados}</span>
-            </div>
+            {/* Cuadro de mando — resume lo que se está viendo (respeta el filtro), para
+                que el total de arriba cuadre siempre con las tarjetas de abajo. */}
+            {!loading && !error && (
+                <LotesResumen
+                    lotes={visibles}
+                    todosLotes={lotes}
+                    canSeeMargin={canSeeMargin}
+                    filtroEstado={filtroEstado}
+                    onFiltrar={setFiltroEstado}
+                />
+            )}
 
             {/* Lista */}
             {loading ? (
@@ -158,8 +158,17 @@ export function LotesView({ onNavigate }) {
                 <div className="text-center py-20 text-red-400 text-sm">{error}</div>
             ) : visibles.length === 0 ? (
                 <div className="text-center py-20 border border-dashed border-white/10 rounded-2xl">
-                    <p className="text-white/40 text-sm">No hay lotes todavía.</p>
-                    <button onClick={() => setShowCrear(true)} className="mt-3 text-brand text-xs font-black uppercase tracking-widest hover:underline">Crear el primero</button>
+                    {filtroEstado === 'TODO' ? (
+                        <>
+                            <p className="text-white/40 text-sm">No hay lotes todavía.</p>
+                            <button onClick={() => setShowCrear(true)} className="mt-3 text-brand text-xs font-black uppercase tracking-widest hover:underline">Crear el primero</button>
+                        </>
+                    ) : (
+                        <>
+                            <p className="text-white/40 text-sm">Ningún lote con ese filtro.</p>
+                            <button onClick={() => setFiltroEstado('TODO')} className="mt-3 text-brand text-xs font-black uppercase tracking-widest hover:underline">Ver todos</button>
+                        </>
+                    )}
                 </div>
             ) : (
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -168,7 +177,16 @@ export function LotesView({ onNavigate }) {
                             className="text-left bg-bkg-surface border border-white/[0.06] rounded-2xl p-5 hover:border-brand/30 hover:bg-bkg-hover transition-all group">
                             <div className="flex items-start justify-between gap-3 mb-3">
                                 <div className="min-w-0">
-                                    <p className="text-base font-black text-white truncate">{l.codigo || 'LOTE (sin código)'}</p>
+                                    {/* El nº del verificador va PEGADO al nuestro: son los dos
+                                        nombres del mismo lote, uno por cada lado de la mesa. */}
+                                    <div className="flex items-baseline gap-2 min-w-0">
+                                        <p className="text-base font-black text-white truncate">{l.codigo || 'LOTE (sin código)'}</p>
+                                        {l.expediente_verificador && (
+                                            <span className="text-[11px] font-black text-brand/80 shrink-0" title="Nº de expediente del verificador">
+                                                ⧉ {l.expediente_verificador}
+                                            </span>
+                                        )}
+                                    </div>
                                     <p className="text-[11px] text-white/40 mt-0.5">
                                         {l.anio_actuacion ? `${l.anio_actuacion}` : 'Año pendiente'} · {l.ccaa || 'CCAA pendiente'}
                                     </p>
@@ -177,15 +195,20 @@ export function LotesView({ onNavigate }) {
                                     {l.estado}
                                 </span>
                             </div>
-                            <div className="grid grid-cols-2 gap-3 text-[11px]">
-                                <div>
-                                    <p className="text-white/30 uppercase tracking-widest font-black text-[9px]">Sujeto Obligado</p>
-                                    <p className="text-white/70 truncate">{presName(l.sujeto_obligado) || '— sin asignar'}</p>
-                                </div>
-                                <div>
-                                    <p className="text-white/30 uppercase tracking-widest font-black text-[9px]">Verificador</p>
-                                    <p className="text-white/70 truncate">{presName(l.verificador) || '— sin asignar'}</p>
-                                </div>
+                            {/* S.O. y verificador en UNA línea con sus logos: son dos datos de
+                                una palabra cada uno y ocupaban cuatro líneas de tarjeta. */}
+                            <div className="flex items-center gap-2 text-[11px] min-w-0">
+                                <span className="flex items-center gap-1.5 min-w-0" title={`Sujeto Obligado: ${presName(l.sujeto_obligado) || 'sin asignar'}`}>
+                                    <LogoEmpresa p={l.sujeto_obligado} size={22} />
+                                    <span className="text-white/70 truncate">{presName(l.sujeto_obligado) || '— sin S.O.'}</span>
+                                </span>
+                                <svg className="w-3.5 h-3.5 text-white/15 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                                </svg>
+                                <span className="flex items-center gap-1.5 min-w-0" title={`Verificador: ${presName(l.verificador) || 'sin asignar'}`}>
+                                    <LogoEmpresa p={l.verificador} size={22} />
+                                    <span className="text-white/70 truncate">{presName(l.verificador) || '— sin verificador'}</span>
+                                </span>
                             </div>
                             <div className={`grid ${canSeeMargin ? 'grid-cols-3' : 'grid-cols-2'} gap-2 mt-3`}>
                                 <div className="bg-bkg-base/40 rounded-lg px-2 py-1.5 text-center">

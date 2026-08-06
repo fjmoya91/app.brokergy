@@ -648,8 +648,10 @@ export const buildAnexoCesionHtml = (expediente, results) => {
     return `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><style>${ANEXO_CESION_CSS}@page { size: A4; margin: 0; }</style></head><body><div class="conv-wrap">${p1}${p2}</div></body></html>`;
 };
 
+// Saludo NEUTRO a propósito: "Buenas tardes" salía mal en cuanto el envío se hacía
+// por la mañana, y estos mensajes se mandan a cualquier hora (y se leen más tarde).
 export const getDualMessage = (nombre, importeCAE, numexpte) => {
-    return `Buenas tardes, ${nombre}:
+    return `Hola ${nombre}:
 
 Ya he realizado todos los cálculos para obtener el máximo beneficio posible y te traigo buenas noticias: finalmente vamos a solicitar una ayuda por un importe de unos *${importeCAE} €* para tu expediente como puedes ver en el anexo de cesión de ahorros.
 

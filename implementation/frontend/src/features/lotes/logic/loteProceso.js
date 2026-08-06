@@ -22,6 +22,10 @@ export const SLOTS = {
     // La emite el VERIFICADOR al SUJETO OBLIGADO (el S.O. es quien le contrata).
     // No es la de Brokergy al S.O. por la venta de CAEs — esa es la de la fase 5.
     factura_verificador:    { label: 'Factura del verificador al Sujeto Obligado', multiple: false, firmable: false, importe: true },
+    // Fase 5 — presentación a MITECO y resolución de la Gestora de Ahorros.
+    justificante_miteco:    { label: 'Justificante de subida a MITECO', multiple: false, firmable: false },
+    requerimiento_ga:       { label: 'Requerimiento de la G.A.', multiple: true, firmable: false },
+    certificado_cae:        { label: 'Certificado CAE emitido', multiple: false, firmable: false },
 };
 
 // Documentos que firma el Sujeto Obligado en la fase 2.
@@ -44,6 +48,9 @@ export function analizarProceso(lote) {
     const informeVerificacion = byKey('informe_verificacion');
     const dictamen = byKey('dictamen_favorable');
     const facturaVerificador = byKey('factura_verificador');
+    const justificanteMiteco = byKey('justificante_miteco');
+    const requerimientosGa = porTipo('requerimiento_ga');
+    const certificadoCae = byKey('certificado_cae');
     const facturaSo = lote?.factura_so || null;
 
     const docsSo = docs.filter(esDocSo);
@@ -88,6 +95,13 @@ export function analizarProceso(lote) {
         },
         {
             n: 5,
+            titulo: 'Presentación a MITECO',
+            hecha: !!certificadoCae,
+            bloqueo: verificado ? null : 'Se habilita cuando la verificación sea favorable.',
+            docs: [justificanteMiteco, ...requerimientosGa, certificadoCae].filter(Boolean),
+        },
+        {
+            n: 6,
             titulo: 'Factura de Brokergy al Sujeto Obligado',
             hecha: !!facturaSo?.numero,
             bloqueo: caeEmitido ? null : 'Se habilita en "CAE EMITIDO – PTE PAGO BROKERGY".',
@@ -98,7 +112,8 @@ export function analizarProceso(lote) {
 
     return {
         docs, solicitud, anexo, fichas, oferta, inexactitudes,
-        informeVerificacion, dictamen, facturaVerificador, facturaSo,
+        informeVerificacion, dictamen, facturaVerificador,
+        justificanteMiteco, requerimientosGa, certificadoCae, facturaSo,
         soEnviado, soFirmado, ofertaEnviada, ofertaFirmada, verificado, caeEmitido,
         fases, faseActual: actual ? actual.n : null,
     };

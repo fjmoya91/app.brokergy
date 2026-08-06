@@ -3,7 +3,7 @@ import axios from 'axios';
 import { useModal } from '../../../context/ModalContext';
 import { analizarProceso, SLOTS } from '../logic/loteProceso';
 import { computeLoteEco } from '../logic/loteEco';
-import { EnviarOfertaModal } from './EnviarOfertaModal';
+import { EnviarDocLoteModal } from './EnviarDocLoteModal';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // El proceso del lote, por FASES, en el orden real del trámite. Sustituye a los
@@ -29,17 +29,47 @@ const fmtFecha = (iso) => {
 
 const eur = (n) => (Number(n) || 0).toLocaleString('es-ES', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
 
-const EstadoPill = ({ doc }) => {
-    if (doc.signed_link) return <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider border bg-emerald-500/10 text-emerald-400 border-emerald-500/30">Firmado</span>;
-    if (doc.sent_at) return <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider border bg-amber-500/10 text-amber-400 border-amber-500/30">Enviado</span>;
-    return <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider border bg-white/[0.04] text-white/30 border-white/10">Borrador</span>;
+// El ciclo de un documento tiene CUATRO estados, y cada uno su color, para saber de
+// un vistazo si la pelota está en nuestro tejado o en el del S.O./verificador:
+//   BORRADOR (gris)  · generado o subido, todavía no ha salido
+//   ENVIADO  (ámbar) · salió al S.O./verificador — esperando respuesta
+//   RECIBIDO (cian)  · ha vuelto firmado, PENDIENTE DE REVISAR
+//   OK       (verde) · revisado y dado por bueno por un ADMIN
+const ESTADOS_DOC = {
+    ok:       { label: 'OK ✓',    cls: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/40' },
+    recibido: { label: 'Recibido', cls: 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30' },
+    enviado:  { label: 'Enviado',  cls: 'bg-amber-500/10 text-amber-400 border-amber-500/30' },
+    borrador: { label: 'Borrador', cls: 'bg-white/[0.04] text-white/30 border-white/10' },
 };
 
-// Fila de un documento: nombre, fecha, estado y enlaces a Drive.
-const Fila = ({ doc, acciones = null, onBorrar = null }) => {
-    const fecha = fmtFecha(doc.signed_at) || fmtFecha(doc.sent_at) || fmtFecha(doc.uploaded_at);
+export const estadoDeDoc = (doc) => {
+    if (!doc) return 'borrador';
+    if (doc.validado_at) return 'ok';
+    if (doc.signed_link) return 'recibido';
+    if (doc.sent_at) return 'enviado';
+    return 'borrador';
+};
+
+const EstadoPill = ({ doc }) => {
+    const e = ESTADOS_DOC[estadoDeDoc(doc)];
+    return <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider border shrink-0 ${e.cls}`}>{e.label}</span>;
+};
+
+// Documentos que pueden volver firmados (los que salen a firmar).
+const TIPOS_FIRMABLES = ['solicitud_verificacion', 'anexo_i_listado', 'ficha_res', 'oferta_verificacion'];
+const esFirmable = (doc) => TIPOS_FIRMABLES.includes(doc?.tipo);
+
+// Fila de un documento. Cuando ha vuelto firmado, el firmado se pinta como una
+// SUBFILA propia en cian/verde: son dos cosas distintas (lo que mandamos y lo que
+// nos devolvieron) y antes se confundían en un solo enlace.
+const Fila = ({ doc, acciones = null, onBorrar = null, onSubirFirmado = null, onValidar = null, ocupado = false }) => {
+    const fecha = fmtFecha(doc.sent_at) || fmtFecha(doc.uploaded_at);
+    const estado = estadoDeDoc(doc);
     return (
-        <div className="rounded-xl bg-white/[0.02] border border-white/[0.05] hover:border-white/10 transition-colors">
+        <div className={`rounded-xl border transition-colors ${
+            estado === 'ok' ? 'bg-emerald-500/[0.04] border-emerald-500/20'
+                : estado === 'recibido' ? 'bg-cyan-500/[0.04] border-cyan-500/20'
+                    : 'bg-white/[0.02] border-white/[0.05] hover:border-white/10'}`}>
             <div className="flex items-center gap-3 px-3 py-2.5">
                 <svg className="w-4 h-4 text-white/25 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
@@ -47,18 +77,15 @@ const Fila = ({ doc, acciones = null, onBorrar = null }) => {
                 <div className="min-w-0 flex-1">
                     <p className="text-[11px] font-bold text-white/80 truncate">{doc.label || doc.file_name}</p>
                     <p className="text-[9px] text-white/25">
-                        {[fecha, doc.importe ? eur(doc.importe) : null].filter(Boolean).join(' · ')}
+                        {[doc.sent_at ? `Enviado ${fecha}` : (fecha ? `Subido ${fecha}` : null),
+                          doc.importe ? eur(doc.importe) : null].filter(Boolean).join(' · ') || '—'}
                     </p>
                 </div>
                 <EstadoPill doc={doc} />
                 <div className="flex items-center gap-1.5 shrink-0">
                     {doc.draft_link && (
                         <a href={doc.draft_link} target="_blank" rel="noopener noreferrer"
-                            className="px-2 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider text-white/40 hover:text-white hover:bg-white/5 transition-all">Borrador</a>
-                    )}
-                    {doc.signed_link && (
-                        <a href={doc.signed_link} target="_blank" rel="noopener noreferrer"
-                            className="px-2 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider text-emerald-400 hover:bg-emerald-500/10 transition-all">Firmado</a>
+                            className="px-2 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider text-white/40 hover:text-white hover:bg-white/5 transition-all">Ver</a>
                     )}
                     {onBorrar && (
                         <button type="button" onClick={onBorrar} title="Quitar del lote"
@@ -66,7 +93,45 @@ const Fila = ({ doc, acciones = null, onBorrar = null }) => {
                     )}
                 </div>
             </div>
-            {acciones && <div className="px-3 pb-2.5 flex items-center gap-2 flex-wrap">{acciones}</div>}
+
+            {/* Lo que nos han DEVUELTO firmado, en su propia línea. */}
+            {doc.signed_link && (
+                <div className={`mx-3 mb-2.5 rounded-lg border px-2.5 py-2 flex items-center gap-2 flex-wrap ${
+                    estado === 'ok' ? 'bg-emerald-500/[0.07] border-emerald-500/25' : 'bg-cyan-500/[0.07] border-cyan-500/25'}`}>
+                    <span className={`text-[9px] font-black uppercase tracking-wider ${estado === 'ok' ? 'text-emerald-400' : 'text-cyan-300'}`}>
+                        ↩ Firmado recibido
+                    </span>
+                    <span className="text-[9px] text-white/30">{fmtFecha(doc.signed_at) || ''}</span>
+                    <a href={doc.signed_link} target="_blank" rel="noopener noreferrer"
+                        className="px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider text-white/50 hover:text-white hover:bg-white/5 transition-all">Abrir</a>
+                    <div className="flex-1" />
+                    {doc.validado_at ? (
+                        <span className="text-[9px] text-emerald-400/70 font-bold">
+                            OK{doc.validado_por ? ` · ${doc.validado_por}` : ''}
+                            {onValidar && (
+                                <button type="button" onClick={() => onValidar(false)} disabled={ocupado}
+                                    className="ml-2 text-white/25 hover:text-amber-400 transition-colors">quitar</button>
+                            )}
+                        </span>
+                    ) : onValidar ? (
+                        <button type="button" onClick={() => onValidar(true)} disabled={ocupado}
+                            className="px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 disabled:opacity-40 transition-all">
+                            ✓ Marcar OK
+                        </button>
+                    ) : null}
+                </div>
+            )}
+
+            {(acciones || onSubirFirmado) && (
+                <div className="px-3 pb-2.5 flex items-center gap-2 flex-wrap">
+                    {onSubirFirmado && (
+                        <BotonSubir disabled={ocupado} onFile={onSubirFirmado}>
+                            {doc.signed_link ? '↻ Reemplazar firmado' : '↑ Subir firmado'}
+                        </BotonSubir>
+                    )}
+                    {acciones}
+                </div>
+            )}
         </div>
     );
 };
@@ -97,9 +162,9 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
     const { showConfirm, showAlert } = useModal();
     const [subiendo, setSubiendo] = useState(null);   // slot en curso
     const [error, setError] = useState('');
-    const [enviarOferta, setEnviarOferta] = useState(false);
+    const [docAEnviar, setDocAEnviar] = useState(null);   // documento que se está mandando al S.O.
     const [importeFactura, setImporteFactura] = useState('');
-    const [ofertaRecien, setOfertaRecien] = useState(null);
+
 
     const p = useMemo(() => analizarProceso(lote), [lote]);
 
@@ -144,6 +209,48 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
         }
     };
 
+    // ── El PDF que nos devuelven FIRMADO, de cualquier documento del lote ─────
+    // Vale para el Anexo I, las fichas, la solicitud o la oferta: da igual que el
+    // S.O. haya firmado por el enlace o nos lo mande por email, acaba en el mismo
+    // sitio (mismo endpoint que la firma pública).
+    const subirFirmado = async (docKey, file) => {
+        if (!file) return;
+        if (file.type !== 'application/pdf') { setError('El fichero firmado debe ser un PDF.'); return; }
+        setError('');
+        setSubiendo(docKey);
+        try {
+            const base64 = await fileToBase64(file);
+            await axios.post(`/api/lotes/${lote.id}/documentos/${docKey}/firmado`, { base64 });
+            if (onChanged) onChanged();
+        } catch (err) {
+            setError(err.response?.data?.error || 'No se pudo registrar el firmado.');
+        } finally {
+            setSubiendo(null);
+        }
+    };
+
+    // Visto bueno del ADMIN: que vuelva firmado no quiere decir que esté bien.
+    const validar = async (docKey, ok) => {
+        setError('');
+        setSubiendo(docKey);
+        try {
+            await axios.post(`/api/lotes/${lote.id}/documentos/${docKey}/validar`, { ok });
+            if (onChanged) onChanged();
+        } catch (err) {
+            setError(err.response?.data?.error || 'No se pudo marcar el documento.');
+        } finally {
+            setSubiendo(null);
+        }
+    };
+
+    // Props comunes de una fila de documento (firmado + visto bueno cuando aplica).
+    const propsFila = (d) => ({
+        ocupado: subiendo === d.key,
+        onSubirFirmado: esFirmable(d) ? (f) => subirFirmado(d.key, f) : null,
+        onValidar: (canSeeMargin && d.signed_link) ? (ok) => validar(d.key, ok) : null,
+        onBorrar: (SLOTS[d.tipo] && !d.signed_link) ? () => borrar(d) : null,
+    });
+
     const borrar = async (doc) => {
         const ok = await showConfirm(`¿Quitar "${doc.label || doc.file_name}" del lote?\n\nSe borra también de la carpeta de Drive.`, 'Quitar documento', 'warning');
         if (!ok) return;
@@ -171,24 +278,28 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
     const subirOferta = async (file) => {
         const doc = await subir('oferta_verificacion', file);
         if (!doc) return;
-        setOfertaRecien(doc);
         const enviar = await showConfirm(
             'La oferta de verificación ya está guardada en la carpeta del lote.\n\n¿La enviamos ahora al Sujeto Obligado para que la firme?',
             'Oferta subida', 'success'
         );
-        if (enviar) setEnviarOferta(true);
+        if (enviar) setDocAEnviar(doc);
     };
 
     // Fase 4 — la factura del verificador trae su importe (rellena el coste del lote).
     const subirFacturaVerificador = async (file) => {
         const imp = Number(String(importeFactura).replace(',', '.'));
         const doc = await subir('factura_verificador', file, Number.isFinite(imp) && imp > 0 ? { importe: imp } : {});
-        if (doc) {
-            setImporteFactura('');
-            if (!(Number.isFinite(imp) && imp > 0)) {
-                showAlert('Factura guardada, pero sin importe no se puede calcular a cuánto le sale el €/MWh al Sujeto Obligado. Puedes volver a subirla con el importe.', 'Sin importe', 'info');
-            }
+        if (!doc) return;
+        setImporteFactura('');
+        if (!(Number.isFinite(imp) && imp > 0)) {
+            await showAlert('Factura guardada, pero sin importe no se puede calcular a cuánto le sale el €/MWh al Sujeto Obligado. Puedes volver a subirla con el importe.', 'Sin importe', 'info');
         }
+        // El verificador se la emite AL S.O., así que se la remitimos nosotros.
+        const enviar = await showConfirm(
+            'Factura del verificador guardada en el lote.\n\n¿Se la enviamos por email al Sujeto Obligado? Es a él a quien se la emite el verificador.',
+            'Factura subida', 'success'
+        );
+        if (enviar) setDocAEnviar(doc);
     };
 
     // ── Cabecera de fase ──────────────────────────────────────────────────────
@@ -219,17 +330,18 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
                     )}
                 </div>
                 <div className="space-y-2 pl-8">
-                    {f.docs.map(d => (
-                        <Fila key={d.key} doc={d}
-                            onBorrar={SLOTS[d.tipo] && !d.signed_link ? () => borrar(d) : null} />
-                    ))}
-                    {bloqueada ? <p className="text-[10px] text-white/25 italic">{f.bloqueo}</p> : children}
+                    {f.docs.map(d => <Fila key={d.key} doc={d} {...propsFila(d)} />)}
+                    {/* El aviso de "aún no toca" NO impide actuar: los lotes que vienen
+                        de antes de la app tienen documentos firmados fuera y hay que
+                        poder registrarlos igual. Se avisa, no se bloquea. */}
+                    {bloqueada && <p className="text-[10px] text-white/25 italic">{f.bloqueo}</p>}
+                    {children}
                 </div>
             </div>
         );
     };
 
-    const [f1, f2, f3, f4, f5] = p.fases;
+    const [f1, f2, f3, f4, f5, f6] = p.fases;
     const nExps = (lote?.expedientes || []).length;
 
     return (
@@ -276,23 +388,22 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
 
             {/* 3 · Oferta de verificación */}
             <Fase f={f3}>
+                {/* Subir el firmado y darle el OK van en la propia fila del documento;
+                    aquí solo lo que es de la fase: traer la oferta y mandarla a firmar. */}
                 <div className="flex items-center gap-2 flex-wrap">
                     {!p.oferta ? (
                         <BotonSubir disabled={subiendo === 'oferta_verificacion'} onFile={subirOferta} destacado>
                             {subiendo === 'oferta_verificacion' ? 'Subiendo…' : '↑ Subir oferta del verificador'}
                         </BotonSubir>
-                    ) : !p.ofertaFirmada ? (
-                        <>
-                            <BotonAccion onClick={() => setEnviarOferta(true)}>
-                                {p.ofertaEnviada ? '↻ Reenviar para firma' : '✉ Enviar para firma'}
-                            </BotonAccion>
-                            <BotonSubir disabled={subiendo === 'oferta_verificacion'} onFile={(f) => subir('oferta_verificacion', f, { firmado: true })}>
-                                Subir firmada
-                            </BotonSubir>
-                            <BotonSubir disabled={subiendo === 'oferta_verificacion'} onFile={subirOferta}>Reemplazar</BotonSubir>
-                        </>
                     ) : (
-                        <p className="text-[10px] text-emerald-400/70">Oferta firmada por el S.O. · lote enviado a verificar.</p>
+                        <>
+                            {!p.ofertaFirmada && (
+                                <BotonAccion onClick={() => setDocAEnviar(p.oferta)}>
+                                    {p.ofertaEnviada ? '↻ Reenviar para firma' : '✉ Enviar para firma'}
+                                </BotonAccion>
+                            )}
+                            <BotonSubir disabled={subiendo === 'oferta_verificacion'} onFile={subirOferta}>Reemplazar oferta</BotonSubir>
+                        </>
                     )}
                 </div>
             </Fase>
@@ -329,39 +440,34 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
                         </div>
                     )}
 
-                    {/* Lo que le sale la jugada al Sujeto Obligado: verificación + lo que
-                        nos paga. Es SU coste, no el nuestro: no toca el margen del lote. */}
-                    {canSeeMargin && costeSo && (
-                        <div className="rounded-xl border border-white/[0.07] bg-white/[0.02] px-3 py-2.5">
-                            <p className="text-[9px] font-black text-white/30 uppercase tracking-[0.2em] mb-1.5">
-                                Coste para el Sujeto Obligado{costeSo.estimado ? ' · sobre ahorro estimado' : ' · sobre ahorro verificado'}
-                            </p>
-                            <div className="flex items-baseline gap-3 flex-wrap text-[11px]">
-                                <span className="text-white/50">
-                                    Verificación <strong className="text-white/80">{costeSo.verifMwh.toLocaleString('es-ES', { maximumFractionDigits: 2 })} €/MWh</strong>
-                                    <span className="text-white/25"> ({eur(costeSo.importe)} / {costeSo.mwh.toLocaleString('es-ES', { maximumFractionDigits: 1 })} MWh)</span>
-                                </span>
-                                {costeSo.nuestro != null && (
-                                    <>
-                                        <span className="text-white/50">+ nos paga <strong className="text-white/80">{costeSo.nuestro.toLocaleString('es-ES', { maximumFractionDigits: 2 })} €/MWh</strong></span>
-                                        <span className="text-brand font-black">= {costeSo.total.toLocaleString('es-ES', { maximumFractionDigits: 2 })} €/MWh</span>
-                                    </>
-                                )}
-                            </div>
-                            {costeSo.nuestro == null && (
-                                <p className="text-[9px] text-white/25 mt-1">Pon la oferta del lote (€/MWh) para ver el total.</p>
-                            )}
-                        </div>
-                    )}
-
                     {p.verificado && <p className="text-[10px] text-emerald-400/70">Verificación favorable · informe y dictamen recibidos.</p>}
                 </div>
             </Fase>
 
-            {/* 5 · La factura de Brokergy al S.O. por la venta de CAEs. NO es la del
+            {/* 5 · Presentación a MITECO y resolución de la Gestora de Ahorros */}
+            <Fase f={f5}>
+                <div className="flex items-center gap-2 flex-wrap">
+                    {!p.justificanteMiteco && (
+                        <BotonSubir disabled={subiendo === 'justificante_miteco'} onFile={(f) => subir('justificante_miteco', f)}>
+                            {subiendo === 'justificante_miteco' ? 'Subiendo…' : '↑ Justificante de subida a MITECO'}
+                        </BotonSubir>
+                    )}
+                    <BotonSubir disabled={subiendo === 'requerimiento_ga'} onFile={(f) => subir('requerimiento_ga', f)}>
+                        {subiendo === 'requerimiento_ga' ? 'Subiendo…' : `+ Requerimiento G.A.${p.requerimientosGa.length ? ` (${p.requerimientosGa.length})` : ''}`}
+                    </BotonSubir>
+                    {!p.certificadoCae && (
+                        <BotonSubir disabled={subiendo === 'certificado_cae'} onFile={(f) => subir('certificado_cae', f)} destacado>
+                            {subiendo === 'certificado_cae' ? 'Subiendo…' : '↑ Certificado CAE emitido'}
+                        </BotonSubir>
+                    )}
+                </div>
+                {p.certificadoCae && <p className="text-[10px] text-emerald-400/70">CAE emitido · pendiente del pago del S.O. a Brokergy.</p>}
+            </Fase>
+
+            {/* 6 · La factura de Brokergy al S.O. por la venta de CAEs. NO es la del
                 verificador (fase 4, que va del verificador al S.O.). Es margen: solo ADMIN. */}
             {canSeeMargin && (
-                <Fase f={f5}>
+                <Fase f={f6}>
                     <div className="space-y-2">
                         {p.facturaSo?.drive_link && (
                             <Fila doc={{
@@ -380,11 +486,11 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
 
             {error && <p className="text-[10px] text-red-400">{error}</p>}
 
-            {enviarOferta && (
-                <EnviarOfertaModal
+            {docAEnviar && (
+                <EnviarDocLoteModal
                     lote={lote}
-                    oferta={p.oferta || ofertaRecien}
-                    onClose={() => setEnviarOferta(false)}
+                    doc={docAEnviar}
+                    onClose={() => setDocAEnviar(null)}
                     onSent={() => { if (onChanged) onChanged(); }}
                 />
             )}

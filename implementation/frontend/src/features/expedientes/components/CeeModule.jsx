@@ -422,6 +422,41 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
         }));
     };
 
+    // Marcador estable en el texto de la incidencia: es lo que permite no volver a
+    // abrirla si ya está registrada (el certificador puede resubir el .xml varias
+    // veces mientras corrige).
+    const MARCA_INC_DEMANDA = '[CEE-DEMANDA]';
+
+    /**
+     * Registra como incidencia GRAVE que la demanda de calefacción del CEE final no
+     * coincide con la del inicial. El popup solo avisa en el momento y se cierra
+     * clicando fuera: sin esto, quien no estuviera delante no se entera nunca y el
+     * expediente viaja al verificador con dos certificados que se contradicen.
+     * Best-effort: si falla, el aviso visual ya ha salido y no se bloquea nada.
+     */
+    const registrarIncidenciaDemanda = async (iniValue, finValue) => {
+        if (!expediente?.id) return;
+        const yaAbierta = (expediente?.documentacion?.incidencias || []).some(
+            i => i.estado === 'ABIERTA' && String(i.texto || '').includes(MARCA_INC_DEMANDA)
+        );
+        if (yaAbierta) return;
+        const diff = Math.abs(iniValue - finValue);
+        const pct = iniValue > 0 ? Math.round((diff / iniValue) * 1000) / 10 : 0;
+        try {
+            await axios.post(`/api/expedientes/${expediente.id}/incidencias`, {
+                texto: `${MARCA_INC_DEMANDA} La demanda de calefacción del CEE FINAL no coincide con la del INICIAL: `
+                    + `${iniValue.toLocaleString('es-ES')} kWh/año en el inicial frente a ${finValue.toLocaleString('es-ES')} kWh/año en el final `
+                    + `(${diff.toLocaleString('es-ES')} kWh/año, ${pct} %). `
+                    + `En esta ficha la actuación es sustituir el generador y la envolvente no se toca, así que la demanda debe ser la misma. `
+                    + `Detectado automáticamente al subir el .xml del CEE final.`,
+                procedencia: 'AGENTE_IA',
+                severidad: 'GRAVE',
+            });
+        } catch (err) {
+            console.warn('[incidencia demanda CEE] no se pudo registrar:', err.message);
+        }
+    };
+
     const processXmlFile = (file, isFinal = false) => {
         if (!file) return;
         if (!file.name.toLowerCase().endsWith('.xml')) {
@@ -512,6 +547,7 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                                 iniValue: Math.round(iniDemanda),
                                 finValue: Math.round(finDemanda),
                             });
+                            registrarIncidenciaDemanda(Math.round(iniDemanda), Math.round(finDemanda));
                         } else {
                             setXmlWarning(null);
                         }
@@ -1617,6 +1653,13 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                                     <div className="px-4 py-2 border-t border-white/[0.04] bg-amber-500/5 text-center">
                                         <span className="text-[10px] font-bold text-amber-400">
                                             Diferencia: {Math.abs(xmlWarning.iniValue - xmlWarning.finValue).toLocaleString('es-ES')} kWh/año
+                                        </span>
+                                    </div>
+                                    {/* El popup se cierra clicando fuera: si no quedara registrado,
+                                        quien no estuviera delante no se enteraría nunca. */}
+                                    <div className="px-4 py-2 border-t border-white/[0.04] text-center">
+                                        <span className="text-[9px] text-white/30 normal-case">
+                                            Queda registrado como incidencia GRAVE en el expediente.
                                         </span>
                                     </div>
                                 </>

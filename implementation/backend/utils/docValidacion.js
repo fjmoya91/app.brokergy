@@ -90,6 +90,11 @@ function invalidarValidacionDocs(documentacion, campos, opts = {}) {
 // se regeneró (`{doc}_drive_at`, sellado en mergeDocumentacion) o se envió
 // (`{doc}_sent_at`). Mientras lo esté, la vista pública ni lo ofrece ni lo sirve:
 // la única salida es corregir los datos y reenviar el anexo regenerado.
+//
+// El CIFO va en la misma lista aunque lo firme el INSTALADOR y no el cliente: su
+// enlace (/subir-cifo) sirve igualmente el borrador de Drive, así que un CIFO
+// rechazado se podía volver a firmar con el mismo error desde el enlace del email.
+// El Anexo Fotográfico NO entra: no lo sirve ninguna página pública.
 const BORRADORES_CLIENTE = {
     anexo_i: {
         draft: 'anexo_i_drive_link', sent: 'anexo_i_sent_at', at: 'anexo_i_drive_at',
@@ -98,6 +103,10 @@ const BORRADORES_CLIENTE = {
     anexo_cesion: {
         draft: 'anexo_cesion_drive_link', sent: 'anexo_cesion_sent_at', at: 'anexo_cesion_drive_at',
         signed: 'anexo_cesion_signed_link', label: 'Anexo de Cesión de Ahorros',
+    },
+    cert_cifo: {
+        draft: 'cert_cifo_drive_link', sent: 'cert_cifo_sent_at', at: 'cert_cifo_drive_at',
+        signed: 'cert_cifo_signed_link', label: 'Certificado de Instalación (CIFO)',
     },
 };
 

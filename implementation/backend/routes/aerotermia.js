@@ -225,12 +225,14 @@ router.put('/:id', enforceAuth, requireAdmin, async (req, res) => {
 });
 
 // PATCH /api/aerotermia/:id/datos-rite — completar SOLO los datos del modelo que
-// pide el RITE: potencia térmica (`potencia_calefaccion`), frigorífica, absorbida
-// por los compresores y gas refrigerante.
+// piden la Memoria RITE y el CEE final: potencia térmica (`potencia_calefaccion`),
+// frigorífica, absorbida por los compresores, gas refrigerante y SEER.
 //
-// Lo usa el popup que salta al generar la Memoria RITE cuando el modelo no tiene
-// alguna de ellas: se teclean una vez, con la ficha técnica a mano, y quedan en el
-// catálogo para todos los expedientes futuros que usen ese equipo.
+// Lo usan los popups que saltan al generar la Memoria RITE o al mandarle al
+// certificador las instrucciones del CEE final (el SEER solo hace falta cuando el
+// emisor da frío y el equipo se declara con refrigeración en CE3X): se teclean una
+// vez, con la ficha técnica a mano, y quedan en el catálogo para todos los
+// expedientes futuros que usen ese equipo.
 //
 // NO se reutiliza el PUT /:id porque ese pasa por `buildPayload`, que reconstruye
 // la fila ENTERA: enviarle solo estos campos pondría a null todo lo demás (SCOPs,
@@ -241,20 +243,21 @@ router.put('/:id', enforceAuth, requireAdmin, async (req, res) => {
 router.patch('/:id/datos-rite', staffOnly, async (req, res) => {
     try {
         const updates = {};
-        for (const campo of ['potencia_calefaccion', 'potencia_frigorifica', 'potencia_compresores']) {
-            const v = parseFloat(req.body?.[campo]);
+        for (const campo of ['potencia_calefaccion', 'potencia_frigorifica', 'potencia_compresores', 'seer']) {
+            // El SEER llega tecleado a mano y en España se escribe con coma.
+            const v = parseFloat(String(req.body?.[campo] ?? '').replace(',', '.'));
             if (v > 0) updates[campo] = v;
         }
         const refri = String(req.body?.refrigerante || '').trim().toUpperCase();
         if (refri) updates.refrigerante = refri;
         if (!Object.keys(updates).length) {
-            return res.status(400).json({ error: 'Indica al menos un dato (potencias en kW mayores que 0, o el refrigerante)' });
+            return res.status(400).json({ error: 'Indica al menos un dato (potencias en kW o SEER mayores que 0, o el refrigerante)' });
         }
         const { data, error } = await supabase
             .from('aerotermia')
             .update(updates)
             .eq('id', req.params.id)
-            .select('id, marca, modelo_comercial, potencia_calefaccion, potencia_frigorifica, potencia_compresores, refrigerante')
+            .select('id, marca, modelo_comercial, potencia_calefaccion, potencia_frigorifica, potencia_compresores, refrigerante, seer')
             .single();
         if (error) throw error;
         if (!data) return res.status(404).json({ error: 'Equipo no encontrado' });

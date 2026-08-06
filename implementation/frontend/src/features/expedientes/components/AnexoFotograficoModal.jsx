@@ -37,7 +37,11 @@ const ACCEPT_FOTOS = 'image/*,.jpg,.jpeg,.jpe,.jfif,.png,.webp,.heic,.heif,.bmp,
  * Fotográfico (decisión del usuario, 2026-07-24). Mismo componente, no una copia:
  * si se toca el gestor, cambia en los dos sitios a la vez.
  */
-export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: externalPhotos, onPhotosChange, onSaveDrive, onSignedComplete, results, soloFotos = false }) {
+// `rechazo` ({ motivo, label }): el modal se ha abierto desde el rechazo del Anexo
+// Fotográfico firmado, para rehacerlo y reenviarlo corregido. Cambia el aviso de
+// cabecera y el texto con el que se manda al cliente — que tiene que entender por
+// qué recibe el mismo documento otra vez y que el anterior ya no vale.
+export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: externalPhotos, onPhotosChange, onSaveDrive, onSignedComplete, results, rechazo = null, soloFotos = false }) {
     const { showAlert, showConfirm } = useModal();
     const { user } = useAuth();
     const containerRef = useRef(null);
@@ -704,6 +708,16 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
         finally { setSavingDrive(false); }
     };
 
+    // Cuando el reenvío viene de un rechazo, el destinatario recibe el MISMO documento
+    // por segunda vez: sin esta explicación no sabe cuál de los dos vale.
+    const rechazoIntro = (canal) => {
+        if (!rechazo) return null;
+        const bold = canal === 'whatsapp' ? '*' : '';
+        return `Hemos corregido el ${bold}Anexo Fotográfico${bold} del expediente ${bold}${numexpte}${bold}.\n\n`
+            + `Motivo de la corrección: ${rechazo.motivo}\n\n`
+            + `Le adjuntamos la versión corregida, que es la que debe firmar. La versión anterior queda anulada.`;
+    };
+
     const handleSendByEmail = async () => {
         const toEmail = cli.email;
         if (!toEmail) {
@@ -726,7 +740,8 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
                 pdfBase64: pdf,
                 to: toEmail,
                 userName: summaryData.userName,
-                summaryData: { ...summaryData, id: numexpte }
+                summaryData: { ...summaryData, id: numexpte },
+                ...(rechazo ? { customMessage: rechazoIntro('email') } : {}),
             });
 
             if (response.data.success) {
@@ -761,7 +776,9 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
 
             // 3. Construir mensaje
             const firstName = (cli.nombre_razon_social || '').split(/\s+/)[0];
-            const caption = `Hola ${firstName},\n\nTe adjunto el *Anexo Fotográfico* de tu expediente *${numexpte}*.\n\nUn saludo,\n*BROKERGY*`;
+            const caption = rechazo
+                ? `${firstName},\n\n${rechazoIntro('whatsapp')}\n\nAtentamente,\n*BROKERGY · Ingeniería Energética*`
+                : `Hola ${firstName},\n\nTe adjunto el *Anexo Fotográfico* de tu expediente *${numexpte}*.\n\nUn saludo,\n*BROKERGY*`;
 
             // 4. Enviar
             await axios.post('/api/whatsapp/send-media', {
@@ -881,6 +898,17 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
                         <button onClick={handleDownloadPdf} disabled={generating || savingDrive || sendingEmail || sendingWhatsapp || loadedCount === 0} className="px-5 py-2 bg-brand text-black text-xs font-black rounded-xl uppercase tracking-wider transition-all hover:brightness-110 active:scale-95 disabled:opacity-30">{generating ? <Spinner /> : 'Generar PDF'}</button>
                     </div>
                 </div>
+
+                {/* Se ha llegado aquí rechazando el anexo firmado: qué falló y qué toca. */}
+                {rechazo && (
+                    <div className="flex-shrink-0 px-5 py-3 bg-red-500/[0.07] border-b border-red-500/20 flex items-start gap-2.5">
+                        <svg className="w-4 h-4 text-red-400 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" /></svg>
+                        <p className="text-[11px] text-red-200 leading-snug">
+                            <span className="font-black uppercase tracking-wider">Anexo rechazado</span> — {rechazo.motivo}
+                            <span className="block text-red-200/60 mt-0.5">Corrige lo que falle (fotos, recortes, comentarios), vuelve a <span className="font-bold">guardar en Drive</span> y reenvíalo: el envío ya explica al cliente que la versión anterior no es válida.</span>
+                        </p>
+                    </div>
+                )}
 
                 {signOpen && signPdfB64 && (
                     <FirmarConCertificadoModal

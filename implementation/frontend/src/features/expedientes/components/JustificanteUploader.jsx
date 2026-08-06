@@ -12,7 +12,10 @@ const fileToBase64 = (file) => new Promise((resolve, reject) => {
     r.readAsDataURL(file);
 });
 
-export function JustificanteUploader({ expedienteId, currentLink = null, onUploaded, variant = 'box', label = 'Justificante de titularidad bancaria' }) {
+// `huella` = pastilla opcional a la derecha (ENVIADO/PEDIDO/SIN PEDIR del barrido):
+// esta fila sustituye a PendingRow para el justificante y sin ella sería el único
+// pendiente que no dice si ya se ha reclamado.
+export function JustificanteUploader({ expedienteId, currentLink = null, onUploaded, variant = 'box', label = 'Justificante de titularidad bancaria', huella = null }) {
     const [link, setLink] = useState(currentLink || null);
     const [uploading, setUploading] = useState(false);
     const [dragging, setDragging] = useState(false);
@@ -65,6 +68,7 @@ export function JustificanteUploader({ expedienteId, currentLink = null, onUploa
                     <span className="text-[13px] font-medium text-white/85 truncate block">{label}</span>
                     {uploading && <div className="mt-1.5"><Bar /></div>}
                 </div>
+                {huella}
                 <span className={`shrink-0 flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[9px] font-black uppercase tracking-wider transition-all ${
                     uploading ? 'border-brand/40 text-brand' : dragging ? 'border-brand bg-brand text-black' : 'border-brand/30 bg-brand/10 text-brand'
                 }`}>

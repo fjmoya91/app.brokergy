@@ -32,7 +32,12 @@ const APP_URL = import.meta.env.VITE_APP_URL || (typeof window !== 'undefined' ?
 // (cabecera, pie, portada). La identidad que se muestra en la portada es la de la
 // empresa instaladora (mismos datos que la tabla "Datos de la empresa instaladora").
 
-export function CertificadoCifoModal({ isOpen, onClose, expediente, results, attachments: externalAttachments, onAttachmentsChange, onSaveDrive, onSaveFichaLink, onSaveExtraAnnexes, onSaveAnnexPrefs, onMarkSent }) {
+// `rechazo` ({ motivo, label }): el modal se ha abierto desde el rechazo del CIFO
+// firmado, para regenerarlo y reenviarlo corregido. Añade la plantilla de mensaje
+// "Corrección" y el aviso de cabecera con el motivo. Mientras el CIFO esté rechazado
+// y sin reenviar, el backend NO sirve el borrador en /subir-cifo (rechazoBorrador en
+// utils/docValidacion): la única salida es corregir, regenerar y volver a enviar.
+export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rechazo = null, attachments: externalAttachments, onAttachmentsChange, onSaveDrive, onSaveFichaLink, onSaveExtraAnnexes, onSaveAnnexPrefs, onMarkSent }) {
     const { user } = useAuth();
     const { showConfirm } = useModal();
     const containerRef = useRef(null);
@@ -47,7 +52,7 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
     const [waReady, setWaReady] = useState(null);                 // null = sin comprobar
     const [selectedIds, setSelectedIds] = useState([]);          // varios destinatarios
     const [manualContact, setManualContact] = useState({ name: '', phone: '', email: '' });
-    const [templateKey, setTemplateKey] = useState('primera');   // 'primera' | 'requerimiento'
+    const [templateKey, setTemplateKey] = useState('primera');   // 'primera' | 'requerimiento' | 'correccion'
     const [sendMessage, setSendMessage] = useState('');
     const [sendStatus, setSendStatus] = useState(null);          // { ok, text }
     const [channels, setChannels] = useState({ email: true, whatsapp: true }); // canales elegidos en el popup
@@ -967,10 +972,15 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
     };
     const selectedContacts = selectedIds.map(resolveContact);
 
-    // Dos plantillas: primera solicitud de firma vs. reenvío por requerimiento.
+    // Tres plantillas: primera solicitud de firma · reenvío por requerimiento ·
+    // reenvío porque NOSOTROS rechazamos el CIFO firmado (el instalador recibe el
+    // mismo certificado por segunda vez y tiene que saber por qué y cuál vale).
     const buildCifoMessage = (tplKey, contactName) => {
         const firstName = (contactName || '').trim().split(/\s+/)[0] || 'instalador';
         const expteB = `*${numexpte}*`;
+        if (tplKey === 'correccion') {
+            return `Hola ${firstName},\n\nHemos revisado el *Certificado CIFO* del expediente ${expteB} de ${cliNombre}${instAddrText ? ` (instalación en ${instAddrText})` : ''} y hemos detectado un error, así que lo hemos corregido por nuestra parte.\n\n*Motivo de la corrección:* ${rechazo?.motivo || '—'}\n\nTe adjuntamos la versión corregida, que es la que hay que firmar — la anterior queda anulada. Abre este enlace y fírmala *directamente con tu certificado electrónico* (Autofirma), sin descargar ni volver a subir nada:\n\n${uploadLink}\n\nDebe firmarlo el representante legal de la empresa instaladora. Disculpa las molestias y gracias por tu colaboración.\n*BROKERGY · Ingeniería Energética*`;
+        }
         if (tplKey === 'requerimiento') {
             return `Hola ${firstName},\n\nHemos recibido un *requerimiento* sobre el expediente ${expteB} de ${cliNombre}${instAddrText ? ` (instalación en ${instAddrText})` : ''} y necesitamos que el *Certificado CIFO* se vuelva a firmar.\n\nAbre este enlace y fírmalo *directamente con tu certificado electrónico* (Autofirma), sin descargar ni volver a subir nada. Nos llegará firmado automáticamente:\n\n${uploadLink}\n\nDebe firmarlo el representante legal de la empresa instaladora. Disculpa las molestias y gracias por tu colaboración.\n*BROKERGY · Ingeniería Energética*`;
         }
@@ -982,8 +992,9 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
         // notificación; si no, el representante (o el primero disponible).
         const defIds = (pres.contacto_notificaciones_activas && altIds.length) ? altIds : (instContacts[0] ? [instContacts[0].id] : []);
         const sel = instContacts.filter(c => defIds.includes(c.id));
-        // Si ya hubo un firmado previo, lo más probable es que sea un requerimiento.
-        const defaultTpl = doc.cert_cifo_signed_link ? 'requerimiento' : 'primera';
+        // Si venimos de rechazar el CIFO firmado, la plantilla es la de corrección.
+        // Si no, y ya hubo un firmado previo, lo más probable es un requerimiento.
+        const defaultTpl = rechazo ? 'correccion' : (doc.cert_cifo_signed_link ? 'requerimiento' : 'primera');
         setSelectedIds(defIds);
         setTemplateKey(defaultTpl);
         setSendMessage(buildCifoMessage(defaultTpl, sel[0]?.label || empResponsable));
@@ -1031,9 +1042,11 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
 
     // Envíos individuales (devuelven { ok, text } y NO tocan el status global).
     const sendEmailOnce = async (c) => {
-        const subject = templateKey === 'requerimiento'
-            ? `${numexpte} - Requerimiento: firmar de nuevo Certificado CIFO`
-            : `${numexpte} - Firmar Certificado CIFO de ${cliNombre}`;
+        const subject = templateKey === 'correccion'
+            ? `${numexpte} - Certificado CIFO corregido: firmar de nuevo`
+            : templateKey === 'requerimiento'
+                ? `${numexpte} - Requerimiento: firmar de nuevo Certificado CIFO`
+                : `${numexpte} - Firmar Certificado CIFO de ${cliNombre}`;
         // Si el buzón principal ha agotado su cuota diaria, postEmail pregunta
         // si reenviar desde el alternativo (ver utils/emailFallback).
         const { data } = await postEmail('/api/pdf/send-cifo', {
@@ -1233,6 +1246,18 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
                     </div>
                 </div>
 
+                {/* Se ha llegado aquí rechazando el CIFO firmado: qué falló y qué toca.
+                    Mientras no se reenvíe, /subir-cifo no le sirve nada al instalador. */}
+                {rechazo && (
+                    <div className="flex-shrink-0 px-5 py-3 bg-red-500/[0.07] border-b border-red-500/20 flex items-start gap-2.5">
+                        <svg className="w-4 h-4 text-red-400 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" /></svg>
+                        <p className="text-[11px] text-red-200 leading-snug">
+                            <span className="font-black uppercase tracking-wider">CIFO rechazado</span> — {rechazo.motivo}
+                            <span className="block text-red-200/60 mt-0.5">Corrige los datos del expediente, <span className="font-bold">sube el certificado corregido a Drive</span> y pulsa Enviar: hasta entonces el enlace de firma del instalador está bloqueado.</span>
+                        </p>
+                    </div>
+                )}
+
                 {/* CONTENT PREVIEW */}
                 <div ref={containerRef} className="flex-1 overflow-auto bg-[#16181D] py-8 px-4 text-center">
                     <div className="inline-block text-left" 
@@ -1327,6 +1352,14 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, att
                                             className={`flex-1 py-2 rounded-lg text-[10px] font-black uppercase tracking-wider border transition-all ${templateKey === 'requerimiento' ? 'border-amber-400/50 bg-amber-400/10 text-amber-400' : 'border-white/10 text-white/40 hover:text-white'}`}>
                                             Requerimiento
                                         </button>
+                                        {/* Solo cuando venimos de rechazar el CIFO: la plantilla explica
+                                            el motivo y que el certificado anterior queda anulado. */}
+                                        {rechazo && (
+                                            <button type="button" onClick={() => pickTemplate('correccion')}
+                                                className={`flex-1 py-2 rounded-lg text-[10px] font-black uppercase tracking-wider border transition-all ${templateKey === 'correccion' ? 'border-red-400/50 bg-red-400/10 text-red-300' : 'border-white/10 text-white/40 hover:text-white'}`}>
+                                                Corrección
+                                            </button>
+                                        )}
                                     </div>
                                     <textarea
                                         value={sendMessage}

@@ -10,6 +10,7 @@ import { AnexoListadoModal } from './AnexoListadoModal';
 import { SolicitudVerificacionModal } from './SolicitudVerificacionModal';
 import { FacturaSoModal } from './FacturaSoModal';
 import { LoteProcesoFases } from './LoteProcesoFases';
+import { LogoEmpresa } from './LogoEmpresa';
 import { RequerimientoModal } from './RequerimientoModal';
 
 const presName = (p) => p ? (p.acronimo || p.razon_social || '—') : null;
@@ -76,6 +77,9 @@ export function LoteDetailModal({ loteId, soList: soListProp, verList: verListPr
     const [fSearch, setFSearch] = useState('');
     const [costeVerifInput, setCosteVerifInput] = useState('');
     const [ofertaInput, setOfertaInput] = useState('');
+    const [expVerifInput, setExpVerifInput] = useState('');
+    // Pestañas: el lote tiene demasiada cosa para una sola columna con scroll.
+    const [tab, setTab] = useState('resumen');
     const [showAnexo, setShowAnexo] = useState(false);
     const [showSolicitud, setShowSolicitud] = useState(false);
     const [showFactura, setShowFactura] = useState(false);
@@ -138,15 +142,24 @@ export function LoteDetailModal({ loteId, soList: soListProp, verList: verListPr
     }), [elegibles, effCcaa, effAnio, fSearch]); // eslint-disable-line
 
     // Resumen económico del lote (modelo del Excel del usuario).
-    //   beneficioLote = ofertaLote(€/MWh) × ahorro(MWh) − pagoCliente(€) − costeVerif(€)
+    //   beneficioLote = ofertaLote(€/MWh) × ahorro(MWh) − pagoCliente(€)
     //   beneficioActual = Σ profitBrokergy por expediente (el "antes", sin oferta de lote)
     const eco = useMemo(() => computeLoteEco(lote), [lote?.expedientes, lote?.coste_verificacion, lote?.oferta_lote]);
 
-    // Sincroniza los inputs de coste/oferta con el lote cargado.
+    // Documentos que han vuelto firmados y nadie ha revisado: es lo que hay que
+    // mirar hoy, así que va de contador en la pestaña de Documentación.
+    const docsPendientes = useMemo(
+        () => (lote?.documentos_so || []).filter(d => d?.signed_link && !d?.validado_at).length,
+        [lote?.documentos_so]
+    );
+
+    // Sincroniza los inputs manuales (coste, oferta, nº de expte. del verificador)
+    // con el lote cargado.
     useEffect(() => {
         setCosteVerifInput(lote?.coste_verificacion ?? '');
         setOfertaInput(lote?.oferta_lote ?? '');
-    }, [lote?.id, lote?.coste_verificacion, lote?.oferta_lote]);
+        setExpVerifInput(lote?.expediente_verificador ?? '');
+    }, [lote?.id, lote?.coste_verificacion, lote?.oferta_lote, lote?.expediente_verificador]);
 
     // ─── Acciones ────────────────────────────────────────────────────────────────
     const patchLote = async (patch) => {
@@ -222,6 +235,9 @@ export function LoteDetailModal({ loteId, soList: soListProp, verList: verListPr
                         {lote && (
                             <p className="text-[11px] text-white/40">
                                 {lote.anio_actuacion ? `Año ${lote.anio_actuacion}` : 'Año pendiente'} · {lote.ccaa || 'CCAA pendiente'} · {(lote.expedientes || []).length}/5 expedientes
+                                {lote.expediente_verificador && (
+                                    <> · <span className="text-brand/70 font-black" title="Nº de expediente del verificador">⧉ {lote.expediente_verificador}</span></>
+                                )}
                             </p>
                         )}
                     </div>
@@ -233,7 +249,30 @@ export function LoteDetailModal({ loteId, soList: soListProp, verList: verListPr
                 {loading || !lote ? (
                     <div className="p-12 text-center text-white/30 text-sm">Cargando…</div>
                 ) : (
-                    <div className="p-6 space-y-6">
+                    <div className="p-6">
+
+                        {/* Pestañas — el papeleo, los expedientes y los números no se
+                            miran a la vez; juntarlos obligaba a un scroll larguísimo. */}
+                        <div className="flex items-center gap-1 border-b border-white/[0.07] mb-5 -mt-1">
+                            {[
+                                ['resumen', 'Resumen', null],
+                                ['expedientes', 'Expedientes', (lote.expedientes || []).length],
+                                ['documentacion', 'Documentación', docsPendientes || null],
+                            ].map(([id, label, badge]) => (
+                                <button key={id} type="button" onClick={() => setTab(id)}
+                                    className={`relative px-4 py-2.5 text-[11px] font-black uppercase tracking-wider transition-colors ${
+                                        tab === id ? 'text-brand' : 'text-white/35 hover:text-white/70'}`}>
+                                    {label}
+                                    {badge != null && (
+                                        <span className={`ml-1.5 px-1.5 py-0.5 rounded-full text-[9px] ${
+                                            id === 'documentacion' ? 'bg-cyan-500/15 text-cyan-300' : 'bg-white/[0.06] text-white/40'}`}>{badge}</span>
+                                    )}
+                                    {tab === id && <span className="absolute left-0 right-0 -bottom-px h-0.5 bg-brand rounded-full" />}
+                                </button>
+                            ))}
+                        </div>
+
+                        <div className={tab === 'resumen' ? 'space-y-6' : 'hidden'}>
 
                         {/* Resumen económico del lote (modelo Excel).
                             El TRABAJADOR ve ahorro + pago al cliente, pero NO el margen Brokergy. */}
@@ -265,9 +304,11 @@ export function LoteDetailModal({ loteId, soList: soListProp, verList: verListPr
                                 )}
                             </div>
 
-                            {canSeeMargin && (<>
-                            {/* Inputs manuales: coste de verificación (€) + oferta del lote (€/MWh) */}
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            {/* Inputs manuales. El coste y la oferta son MARGEN (solo ADMIN);
+                                el nº de expediente del verificador es un dato de gestión que
+                                ve y edita todo el staff. */}
+                            <div className={`grid grid-cols-1 gap-2 ${canSeeMargin ? 'sm:grid-cols-3' : ''}`}>
+                                {canSeeMargin && (
                                 <div>
                                     <label className="block text-[9px] uppercase tracking-widest font-black text-white/30 mb-1">Coste verificación (€)</label>
                                     <input type="number" value={costeVerifInput} disabled={busy}
@@ -276,6 +317,8 @@ export function LoteDetailModal({ loteId, soList: soListProp, verList: verListPr
                                         placeholder="0"
                                         className="w-full bg-bkg-surface border border-white/[0.08] rounded-xl px-3 py-2 text-sm text-white focus:border-brand/40 focus:outline-none" />
                                 </div>
+                                )}
+                                {canSeeMargin && (
                                 <div>
                                     <label className="block text-[9px] uppercase tracking-widest font-black text-white/30 mb-1">Oferta lote (€/MWh)</label>
                                     <input type="number" value={ofertaInput} disabled={busy}
@@ -287,30 +330,69 @@ export function LoteDetailModal({ loteId, soList: soListProp, verList: verListPr
                                         <p className="text-[9px] text-white/30 mt-1">Ref. S.O.: {Number(lote.sujeto_obligado.precio_referencia).toLocaleString('es-ES')} €/MWh</p>
                                     )}
                                 </div>
+                                )}
+                                <div>
+                                    <label className="block text-[9px] uppercase tracking-widest font-black text-white/30 mb-1">Nº expte. verificador</label>
+                                    <input type="text" value={expVerifInput} disabled={busy}
+                                        onChange={e => setExpVerifInput(e.target.value)}
+                                        onBlur={() => { if (expVerifInput.trim() !== String(lote.expediente_verificador ?? '')) patchLote({ expediente_verificador: expVerifInput.trim() }); }}
+                                        placeholder="El que nos dé el verificador"
+                                        className="w-full bg-bkg-surface border border-white/[0.08] rounded-xl px-3 py-2 text-sm text-white placeholder-white/20 focus:border-brand/40 focus:outline-none" />
+                                    <p className="text-[9px] text-white/30 mt-1">
+                                        {lote.verificador ? `Su referencia en ${presName(lote.verificador)}.` : 'Su referencia en el sistema del verificador.'}
+                                    </p>
+                                </div>
                             </div>
 
-                            {/* Desglose €/MWh */}
+                            {canSeeMargin && (<>
+                            {/* Desglose €/MWh. La VERIFICACIÓN se muestra pero NO resta en
+                                nuestro margen: la paga el S.O. (va marcada como suya). */}
                             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                                 {[
-                                    { label: 'Cliente', value: eco.mediaCliente, color: 'text-white/70' },
-                                    { label: 'Verificación', value: eco.costeVerifMwh, color: 'text-white/70' },
-                                    { label: 'Total', value: eco.totalMwh, color: 'text-white/70' },
-                                    { label: 'Margen', value: eco.margen, color: 'text-emerald-400' },
-                                ].map(({ label, value, color }) => value != null && (
+                                    { label: 'Cliente', value: eco.mediaCliente, color: 'text-white/70', nota: null },
+                                    { label: 'Verificación', value: eco.costeVerifMwh, color: 'text-white/40', nota: 'la paga el S.O.' },
+                                    { label: 'Nos paga', value: eco.ofertaLote, color: 'text-white/70', nota: null },
+                                    { label: 'Margen', value: eco.margen, color: 'text-emerald-400', nota: null },
+                                ].map(({ label, value, color, nota }) => value != null && (
                                     <div key={label} className="bg-white/[0.02] border border-white/[0.05] rounded-xl px-3 py-2 text-center">
                                         <p className="text-[8px] uppercase tracking-widest font-black text-white/25 mb-0.5">{label}</p>
                                         <p className={`text-sm font-black ${color}`}>{value.toLocaleString('es-ES', { maximumFractionDigits: 2 })} <span className="text-[10px] font-normal text-white/30">€/MWh</span></p>
+                                        {nota && <p className="text-[8px] text-white/20 mt-0.5">{nota}</p>}
                                     </div>
                                 ))}
                             </div>
                             <p className="text-[10px] text-white/30 text-right">Beneficio sin oferta: <b className="text-white/50">{eur(eco.beneficioActual)}</b></p>
+
+                            {/* Lo que le AHORRAMOS al S.O. frente a pagar la equivalencia
+                                financiera. Es el argumento con el que se negocia el precio. */}
+                            {eco.ahorroSoMwh != null && (
+                                <div className="rounded-xl border border-cyan-500/20 bg-cyan-500/[0.05] px-4 py-3">
+                                    <div className="flex items-center justify-between gap-3 mb-2">
+                                        <p className="text-[9px] font-black text-cyan-300/70 uppercase tracking-[0.2em]">Ahorro que le generamos al S.O.</p>
+                                        <p className="text-[9px] text-white/25">Equiv. financiera {eco.equivalenciaFinanciera.toLocaleString('es-ES', { minimumFractionDigits: 2 })} €/MWh</p>
+                                    </div>
+                                    <div className="flex items-baseline gap-3 flex-wrap">
+                                        <span className="text-xl font-black text-cyan-300">{eur(eco.ahorroSoTotal)}</span>
+                                        <span className="text-sm font-black text-cyan-300/80">{eco.ahorroSoPct.toLocaleString('es-ES', { maximumFractionDigits: 1 })} %</span>
+                                        <span className="text-[11px] text-white/40">
+                                            {eco.ahorroSoMwh.toLocaleString('es-ES', { maximumFractionDigits: 2 })} €/MWh
+                                        </span>
+                                    </div>
+                                    <p className="text-[9px] text-white/30 mt-1.5">
+                                        {eco.equivalenciaFinanciera.toLocaleString('es-ES', { minimumFractionDigits: 2 })} − ({eco.ofertaLote.toLocaleString('es-ES', { maximumFractionDigits: 2 })} que nos paga + {eco.costeVerifMwh.toLocaleString('es-ES', { maximumFractionDigits: 2 })} de verificación) × {eco.ahorroMwh.toLocaleString('es-ES', { maximumFractionDigits: 1 })} MWh
+                                    </p>
+                                </div>
+                            )}
                             </>)}
                         </div>
 
                         {/* Destinatarios */}
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <div>
-                                <label className="block text-[10px] uppercase tracking-[0.2em] font-black text-white/30 mb-2">Sujeto Obligado</label>
+                                <div className="flex items-center gap-2 mb-2">
+                                    <LogoEmpresa p={lote.sujeto_obligado} size={22} />
+                                    <label className="block text-[10px] uppercase tracking-[0.2em] font-black text-white/30">Sujeto Obligado</label>
+                                </div>
                                 <select value={lote.sujeto_obligado_id || ''} disabled={!isBorrador || busy}
                                     onChange={e => patchLote({ sujeto_obligado_id: e.target.value || null })}
                                     className="w-full bg-bkg-surface border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white focus:border-brand/40 focus:outline-none disabled:opacity-60">
@@ -319,7 +401,17 @@ export function LoteDetailModal({ loteId, soList: soListProp, verList: verListPr
                                 </select>
                             </div>
                             <div>
-                                <label className="block text-[10px] uppercase tracking-[0.2em] font-black text-white/30 mb-2">Verificador</label>
+                                <div className="flex items-center gap-2 mb-2">
+                                    <LogoEmpresa p={lote.verificador} size={22} />
+                                    <label className="block text-[10px] uppercase tracking-[0.2em] font-black text-white/30">Verificador</label>
+                                    {/* Su nº de expediente, junto a su nombre: es como se
+                                        refieren ellos al lote cuando hablamos. */}
+                                    {lote.expediente_verificador && (
+                                        <span className="text-[10px] font-black text-brand/80 truncate" title="Nº de expediente del verificador">
+                                            ⧉ {lote.expediente_verificador}
+                                        </span>
+                                    )}
+                                </div>
                                 <select value={lote.verificador_id || ''} disabled={!isBorrador || busy}
                                     onChange={e => patchLote({ verificador_id: e.target.value || null })}
                                     className="w-full bg-bkg-surface border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white focus:border-brand/40 focus:outline-none disabled:opacity-60">
@@ -329,6 +421,21 @@ export function LoteDetailModal({ loteId, soList: soListProp, verList: verListPr
                                 {verList.length === 0 && <p className="text-[10px] text-white/30 mt-1">Aún no hay verificadores dados de alta.</p>}
                             </div>
                         </div>
+
+                        {lote.notas && <p className="text-[12px] text-white/40 italic">📝 {lote.notas}</p>}
+
+                        {/* Borrar lote — SOLO ADMIN (el trabajador no borra) */}
+                        {isBorrador && canDelete && (
+                            <div className="border-t border-white/5 pt-4 flex justify-end">
+                                <button onClick={borrarLote} disabled={busy}
+                                    className="text-[11px] font-black uppercase tracking-widest text-red-400/70 hover:text-red-400 transition-colors">
+                                    Borrar lote
+                                </button>
+                            </div>
+                        )}
+                        </div>
+
+                        <div className={tab === 'expedientes' ? 'space-y-6' : 'hidden'}>
 
                         {/* Expedientes del lote — colapsable */}
                         <div>
@@ -434,9 +541,12 @@ export function LoteDetailModal({ loteId, soList: soListProp, verList: verListPr
                             </div>
                         )}
 
+                        </div>
+
                         {/* El proceso del lote, por fases: documentos y acciones en el orden
-                            real del trámite (solicitud → firma S.O. → oferta → verificación → cobro) */}
-                        <div className="border-t border-white/5 pt-5">
+                            real del trámite (solicitud → firma S.O. → oferta → verificación
+                            → MITECO → cobro) */}
+                        <div className={tab === 'documentacion' ? '' : 'hidden'}>
                             <LoteProcesoFases
                                 lote={lote}
                                 canSeeMargin={canSeeMargin}
@@ -449,18 +559,6 @@ export function LoteDetailModal({ loteId, soList: soListProp, verList: verListPr
                                 }}
                             />
                         </div>
-
-                        {lote.notas && <p className="text-[12px] text-white/40 italic">📝 {lote.notas}</p>}
-
-                        {/* Borrar lote — SOLO ADMIN (el trabajador no borra) */}
-                        {isBorrador && canDelete && (
-                            <div className="border-t border-white/5 pt-4 flex justify-end">
-                                <button onClick={borrarLote} disabled={busy}
-                                    className="text-[11px] font-black uppercase tracking-widest text-red-400/70 hover:text-red-400 transition-colors">
-                                    Borrar lote
-                                </button>
-                            </div>
-                        )}
                     </div>
                 )}
             </div>

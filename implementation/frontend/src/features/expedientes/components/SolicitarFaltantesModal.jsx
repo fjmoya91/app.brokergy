@@ -299,6 +299,14 @@ export function SolicitarFaltantesModal({ isOpen, onClose, expedienteId, numeroE
         try {
             const asunto = `Documentación pendiente · Expediente ${info?.numero_expediente || numeroExpediente || ''}`.trim();
             const solicitado = acciones.flatMap(a => a.items || []);
+            // Además de los textos, las CLAVES del barrido de lo que se pide: es lo que
+            // permite al barrido decir "esto se pidió el 21/07" sin casar etiquetas
+            // (algunas se reescriben al redactar el mensaje). Con "todo al instalador"
+            // se mandan también las del cliente, igual que las acciones.
+            const owners = (active === 'INSTALADOR' && todoAlInstalador) ? ['CLIENTE', 'INSTALADOR'] : [active];
+            const solicitado_keys = items
+                .filter(it => it.incluido && !it.waived && owners.includes(it.owner))
+                .map(it => it.key);
             const sentTo = [];
             for (const r of recipientsActive) {
                 const chans = eff.filter(ch => ch === 'whatsapp' ? !!r.tlf : !!r.email);
@@ -311,6 +319,7 @@ export function SolicitarFaltantesModal({ isOpen, onClose, expedienteId, numeroE
                     email: r.email || null,
                     nombre: r.nombre || null,
                     solicitado,
+                    solicitado_keys,
                     asunto,
                 });
                 sentTo.push(r.nombre || r.tlf || r.email);

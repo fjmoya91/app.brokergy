@@ -15,6 +15,7 @@ import { CertificadoRes080Modal } from './CertificadoRes080Modal';
 import { AnexoFotograficoModal } from './AnexoFotograficoModal';
 import { EnviarBorradorRiteModal } from './EnviarBorradorRiteModal';
 import { EnviarAnexosModal } from './EnviarAnexosModal';
+import { CesionManuscritaModal, esFirmaManuscrita } from './CesionManuscritaModal';
 import FirmarConCertificadoModal from './FirmarConCertificadoModal';
 import { SIGN_BOXES } from '../logic/signBoxes';
 import { clienteContacts, instaladorContacts, defaultContactId, phoneValid } from '../utils/docContacts';
@@ -883,6 +884,13 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
     // persona de contacto). Sin esto el aviso iba siempre al contacto que eligiera
     // el backend, y con la mayoría de instaladores se habla con otra persona.
     const [rejectContactId, setRejectContactId] = useState(null);
+    // Rechazo que ha abierto el modal de generación del Anexo Fotográfico / CIFO para
+    // regenerarlo y reenviarlo corregido. { motivo, label, nota } — null si se abrió
+    // el modal por las buenas. Se limpia al cerrarlo.
+    const [regenRechazo, setRegenRechazo] = useState(null);
+    // Escaneo del Anexo de Cesión firmado A MANO pendiente de montar (anexo + DNI del
+    // cliente + DNI del representante). { file } — null si no hay ninguno en curso.
+    const [cesionManuscrita, setCesionManuscrita] = useState(null);
     const [showEnviarBorrador, setShowEnviarBorrador] = useState(false);
     const [enviarAnexos, setEnviarAnexos] = useState({ open: false, docs: [], overrides: null });
     // Firma con certificado (Autofirma) de un documento YA firmado que está en Drive:
@@ -1521,38 +1529,54 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
         return null;
     };
 
-    // Anexos que GENERAMOS nosotros y firma el cliente desde /firmar-anexos. Rechazar
-    // uno de éstos no basta: el enlace del cliente sirve el BORRADOR de Drive, así que
-    // mientras no se regenere y se reenvíe, el cliente se descarga el mismo PDF con el
-    // error y lo firma otra vez igual (caso real: nº de serie erróneos en el Anexo I).
+    // Documentos que GENERAMOS nosotros y firma un tercero. Rechazar uno de éstos no
+    // basta: su enlace público sirve el BORRADOR de Drive, así que mientras no se
+    // regenere y se reenvíe, el firmante se descarga el mismo PDF con el error y lo
+    // firma otra vez igual (caso real: nº de serie erróneos en el Anexo I).
     // El backend bloquea ese borrador hasta que se reenvía; aquí encadenamos el rechazo
-    // con el envío del anexo corregido para que no quede a medias.
-    const ANEXO_REGENERABLE = {
-        anexo_i_signed_link: 'anexo1',
-        anexo_cesion_signed_link: 'cesion',
+    // con el envío del documento corregido para que no quede a medias.
+    //   via      → por dónde se reenvía el corregido (qué modal se abre después)
+    //   firmante → quién lo firma, que es a quien hay que avisar
+    //   bloquea  → si su enlace público queda cerrado hasta reenviarlo (ver
+    //              BORRADORES_CLIENTE en backend/utils/docValidacion.js). El Anexo
+    //              Fotográfico no tiene enlace público: se regenera y se reenvía, pero
+    //              no hay nada que desbloquear.
+    const DOC_REGENERABLE = {
+        anexo_i_signed_link:           { via: 'anexos', key: 'anexo1', firmante: 'cliente',    bloquea: true },
+        anexo_cesion_signed_link:      { via: 'anexos', key: 'cesion', firmante: 'cliente',    bloquea: true },
+        anexo_fotografico_signed_link: { via: 'foto',                  firmante: 'cliente',    bloquea: false },
+        // Mismo slot, dos documentos distintos: el CIFO lo firma el INSTALADOR desde
+        // /subir-cifo (por eso su enlace se bloquea), mientras que el Certificado
+        // RES080 lo firma Brokergy y solo se ENTREGA al cliente — ahí no hay enlace
+        // público que cerrar, solo un documento que rehacer y volver a mandar.
+        cert_cifo_signed_link: isReforma
+            ? { via: 'cifo', firmante: 'cliente',    bloquea: false }
+            : { via: 'cifo', firmante: 'instalador', bloquea: true },
     };
-    const rejectRegenKey = rejectDoc ? ANEXO_REGENERABLE[rejectDoc.field] : null;
+    const rejectRegen = rejectDoc ? DOC_REGENERABLE[rejectDoc.field] : null;
 
     const buildRejectMessage = (t, field, label, motivo) => {
         const nombre = recipientName(t);
         const numExp = expediente?.numero_expediente || '';
-        // Los anexos que generamos nosotros NO se piden corregidos: los corregimos y
-        // los reenviamos. Y su enlace de firma está bloqueado hasta entonces, así que
+        // Los documentos que generamos nosotros NO se piden corregidos: los corregimos
+        // y los reenviamos. Y su enlace de firma está bloqueado hasta entonces, así que
         // mandar ahí al destinatario sería mandarlo a una puerta cerrada.
-        if (ANEXO_REGENERABLE[field]) {
-            return `Hola ${nombre} 👋\n\n`
-                + `Hemos revisado «${label}» del expediente ${numExp} y hemos detectado un error:\n\n`
-                + `• Motivo: ${motivo || '—'}\n\n`
-                + `Lo estamos corrigiendo por nuestra parte. Te enviaremos la versión corregida para firmar; `
-                + `la anterior ya no es válida, no hace falta que hagas nada mientras tanto.\n\n`
-                + `¡Gracias!\nBROKERGY — Ingeniería Energética`;
+        if (DOC_REGENERABLE[field]) {
+            return `${nombre}:\n\n`
+                + `Le informamos de que, tras la revisión de «${label}» del expediente ${numExp}, `
+                + `el documento ha sido rechazado por el siguiente motivo:\n\n`
+                + `• ${motivo || '—'}\n\n`
+                + `Estamos preparando la versión corregida, que le remitiremos para su firma. `
+                + `La versión anterior queda anulada; no es necesaria ninguna acción por su parte hasta recibirla.\n\n`
+                + `Atentamente,\nBROKERGY — Ingeniería Energética`;
         }
         const link = docUploadLink(field);
-        return `Hola ${nombre} 👋\n\n`
-            + `Hemos revisado «${label}» del expediente ${numExp} y necesitamos que lo corrijáis:\n\n`
-            + `• Motivo: ${motivo || '—'}\n\n`
-            + (link ? `👉 Súbelo ya corregido directamente aquí:\n${link}\n\n` : '')
-            + `¡Gracias!\nBROKERGY — Ingeniería Energética`;
+        return `${nombre}:\n\n`
+            + `Le informamos de que, tras la revisión de «${label}» del expediente ${numExp}, `
+            + `el documento ha sido rechazado por el siguiente motivo:\n\n`
+            + `• ${motivo || '—'}\n\n`
+            + (link ? `Le agradecemos que nos remita el documento corregido a través del siguiente enlace:\n${link}\n\n` : '')
+            + `Atentamente,\nBROKERGY — Ingeniería Energética`;
     };
 
     // Autogenera el mensaje a partir del motivo/destinatario mientras no se edite a mano.
@@ -1565,8 +1589,11 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
 
     const openRejectDoc = (field, label) => {
         setRejectMotivo(''); setRejectMsg(''); setRejectMsgEdited(false); setRejectError(null);
-        // Defecto razonable: anexos del cliente → cliente; CIFO/RITE/factura → instalador.
+        // Defecto razonable: anexos del cliente → cliente; CIFO/RITE/factura →
+        // instalador. Salvo en REFORMA, donde ese mismo slot es el Certificado RES080,
+        // que firmamos nosotros y se entrega al cliente.
         const clienteFields = ['anexo_i_signed_link', 'anexo_cesion_signed_link', 'anexo_fotografico_signed_link'];
+        if (isReforma) clienteFields.push('cert_cifo_signed_link');
         const t = clienteFields.includes(field) ? 'cliente' : 'instalador';
         setRejectTarget(t);
         setRejectContactId(defaultContactId(t, expediente?.clientes || {}, expediente?.prescriptores || {}));
@@ -1580,9 +1607,11 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
         setRejectContactId(t === 'ninguno' ? null : defaultContactId(t, expediente?.clientes || {}, expediente?.prescriptores || {}));
     };
 
-    // `reenviar` → tras registrar el rechazo abre el envío de anexos con el documento
-    // ya marcado: el PDF se REGENERA con los datos actuales del expediente, viaja
-    // adjunto y actualiza el borrador de Drive (que es lo que firma el cliente).
+    // `reenviar` → tras registrar el rechazo abre el envío del documento con él ya
+    // marcado: el PDF se REGENERA con los datos actuales del expediente, viaja adjunto
+    // y actualiza el borrador de Drive (que es lo que firma el destinatario). Cada
+    // documento se reenvía por su propia superficie: los anexos del cliente por
+    // EnviarAnexosModal, el Anexo Fotográfico y el CIFO por su modal de generación.
     const confirmRejectDoc = async (reenviar = false) => {
         if (!rejectMotivo.trim() || !rejectDoc) return;
         setRejectSending(true); setRejectError(null);
@@ -1603,16 +1632,22 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
             });
             // Fusiona SOLO lo que persistió el backend (no pisa ediciones locales sin guardar).
             setLocal(prev => ({ ...prev, docs_rechazados: data.docs_rechazados, docs_validados: data.docs_validados, historial: data.historial }));
-            const regenKey = ANEXO_REGENERABLE[rejectDoc.field];
+            const regen = DOC_REGENERABLE[rejectDoc.field];
             const label = rejectDoc.label;
             setRejectDoc(null); setRejectMotivo(''); setRejectMsg('');
-            if (reenviar && regenKey) {
-                setEnviarAnexos({
-                    open: true,
-                    docs: [regenKey],
-                    overrides: null,
-                    nota: `Hemos corregido el ${label} (${motivo}). Firma esta versión nueva: la anterior no es válida.`,
-                });
+            if (reenviar && regen) {
+                const nota = `Hemos corregido el ${label} (${motivo}). Firma esta versión nueva: la anterior no es válida.`;
+                if (regen.via === 'anexos') {
+                    setEnviarAnexos({ open: true, docs: [regen.key], overrides: null, nota });
+                } else {
+                    // El Anexo Fotográfico y el CIFO se regeneran desde su propio modal
+                    // (fotos / cálculos + anexos técnicos). Se abre con el motivo del
+                    // rechazo delante para corregir antes de volver a generar y enviar.
+                    setRegenRechazo({ motivo, label, nota });
+                    if (regen.via === 'foto') setShowAnexoFotografico(true);
+                    else if (isReforma) setShowCertificadoRes080(true);
+                    else setShowCertificadoCifo(true);
+                }
             }
         } catch (e) {
             setRejectError(e.response?.data?.error || 'No se pudo rechazar el documento.');
@@ -1622,6 +1657,25 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
     };
 
     const handleSignedUpload = async (field, file) => {
+        if (!file) return;
+
+        // Anexo de Cesión firmado A MANO: el escaneo por sí solo no vale — hay que
+        // anexarle el DNI del cliente y el del representante de Brokergy, igual que
+        // hace el enlace público. Si el PDF trae firma electrónica NO se toca: ése ya
+        // identifica al firmante por el certificado y sigue el camino de siempre.
+        // La detección no es una barrera: el modal deja subirlo tal cual si se
+        // equivoca (una firma digital hecha con una herramienta que no sepamos leer).
+        if (field === 'anexo_cesion_signed_link' && await esFirmaManuscrita(file)) {
+            setCesionManuscrita({ file });
+            return;
+        }
+        return uploadSignedPlain(field, file);
+    };
+
+    // Subida "tal cual" de un firmado: va a su subcarpeta de Drive con el nombre del
+    // documento y queda enlazado en el slot. Separado de handleSignedUpload para que
+    // el montaje de la Cesión manuscrita pueda saltárselo y volver aquí si hace falta.
+    const uploadSignedPlain = async (field, file) => {
         if (!file) return;
 
         const displayNames = {
@@ -1825,9 +1879,10 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
             />
             <CertificadoCifoModal
                 isOpen={showCertificadoCifo}
-                onClose={() => setShowCertificadoCifo(false)}
+                onClose={() => { setShowCertificadoCifo(false); setRegenRechazo(null); }}
                 expediente={expediente}
                 results={results}
+                rechazo={showCertificadoCifo ? regenRechazo : null}
                 attachments={cifoAttachments}
                 onAttachmentsChange={setCifoAttachments}
                 onSaveDrive={(link) => handleModalSaveDrive('cert_cifo_drive_link', link)}
@@ -1864,9 +1919,10 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
             />
             <CertificadoRes080Modal
                 isOpen={showCertificadoRes080}
-                onClose={() => setShowCertificadoRes080(false)}
+                onClose={() => { setShowCertificadoRes080(false); setRegenRechazo(null); }}
                 expediente={expediente}
                 results={results}
+                rechazo={showCertificadoRes080 ? regenRechazo : null}
                 attachments={cifoAttachments}
                 onAttachmentsChange={setCifoAttachments}
                 onSaveSignedLink={(link) => handleModalSaveDrive('cert_cifo_signed_link', link)}
@@ -1912,9 +1968,10 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
             />
             <AnexoFotograficoModal
                 isOpen={showAnexoFotografico}
-                onClose={() => setShowAnexoFotografico(false)}
+                onClose={() => { setShowAnexoFotografico(false); setRegenRechazo(null); }}
                 expediente={expediente}
                 results={results}
+                rechazo={showAnexoFotografico ? regenRechazo : null}
                 photos={local.photo_attachments}
                 onPhotosChange={(newPhotos) => setLocal(p => ({ ...p, photo_attachments: newPhotos }))}
                 onSaveDrive={(link) => handleModalSaveDrive('anexo_fotografico_drive_link', link)}
@@ -2833,6 +2890,38 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                 </div>
             )}
 
+            {/* Montaje del Anexo de Cesión manuscrito (escaneo + DNI cliente + DNI Brokergy) */}
+            <CesionManuscritaModal
+                isOpen={!!cesionManuscrita}
+                onClose={() => setCesionManuscrita(null)}
+                expediente={expediente}
+                file={cesionManuscrita?.file}
+                // Los expedientes antiguos guardaron las caras sueltas en vez de la
+                // página montada: también cuentan como "ya tenemos el DNI".
+                dniLink={local.dni_link || ((local.dni_frontal_link && local.dni_trasero_link) ? local.dni_frontal_link : null)}
+                onSubirTalCual={() => {
+                    const f = cesionManuscrita?.file;
+                    setCesionManuscrita(null);
+                    if (f) uploadSignedPlain('anexo_cesion_signed_link', f);
+                }}
+                onDone={(data) => {
+                    // El backend ya persistió `documentacion` entera (enlace montado,
+                    // tipo de firma, DNI y el historial): aquí solo reflejamos lo suyo,
+                    // sin re-guardar, para no pisar lo que acaba de escribir.
+                    setLocal(prev => ({
+                        ...prev,
+                        anexo_cesion_signed_link: data.signed_link,
+                        anexo_cesion_firma_tipo: 'manuscrita',
+                        cesion_firmado_brokergy: true,
+                        ...(data.dni_link ? { dni_link: data.dni_link } : {}),
+                        docs_validados: data.documentacion?.docs_validados ?? prev.docs_validados,
+                        docs_rechazados: data.documentacion?.docs_rechazados ?? prev.docs_rechazados,
+                        historial: data.documentacion?.historial ?? prev.historial,
+                    }));
+                    setCesionManuscrita(null);
+                }}
+            />
+
             {/* Firma con certificado (Autofirma) del documento ya firmado por la otra parte */}
             {signCtx && signPdfB64 && (
                 <FirmarConCertificadoModal
@@ -2847,16 +2936,23 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
 
             {/* Modal de RECHAZO de documento (motivo + destinatario + mensaje → aviso) */}
             {rejectDoc && (
-                <div className="fixed inset-0 z-[400] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in" onClick={() => !rejectSending && setRejectDoc(null)}>
-                    <div className="bg-[#0F1013] border border-white/10 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden flex flex-col max-h-[90vh]" onClick={e => e.stopPropagation()}>
+                // Nunca se cierra al clicar fuera (mismo criterio que Clientes/Partners):
+                // aquí se escribe un motivo y se edita el mensaje del aviso, y un click
+                // despistado en el fondo lo tiraba todo. Solo "X" o "Cancelar".
+                <div className="fixed inset-0 z-[400] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
+                    <div className="bg-[#0F1013] border border-white/10 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
                         <div className="px-6 py-5 border-b border-white/10 bg-red-500/5 flex items-center gap-3 text-red-400">
                             <svg className="w-6 h-6 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                             </svg>
-                            <div className="min-w-0">
+                            <div className="min-w-0 flex-1">
                                 <h3 className="text-base font-black uppercase tracking-tight">Rechazar documento</h3>
                                 <p className="text-[11px] text-white/40 truncate">{rejectDoc.label}</p>
                             </div>
+                            <button onClick={() => setRejectDoc(null)} disabled={rejectSending} title="Cerrar"
+                                className="w-8 h-8 shrink-0 flex items-center justify-center rounded-lg text-white/40 hover:text-white hover:bg-white/10 transition-all disabled:opacity-30">
+                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                            </button>
                         </div>
 
                         <div className="px-6 py-5 space-y-5 overflow-y-auto">
@@ -2864,16 +2960,22 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                                 <label className="block text-[10px] font-black uppercase tracking-widest text-white/40 mb-2">¿Por qué se rechaza?</label>
                                 <textarea value={rejectMotivo} onChange={e => setRejectMotivo(e.target.value)} rows={2} placeholder="Ej: el importe no coincide con la base imponible" className="no-uppercase w-full bg-bkg-elevated border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-red-400/50 resize-none" />
                             </div>
-                            {rejectRegenKey && (
+                            {rejectRegen && (
                                 <div className="rounded-xl border border-amber-400/25 bg-amber-500/[0.06] p-3.5">
                                     <p className="text-[11px] text-amber-300 font-bold leading-snug flex gap-2">
                                         <svg className="w-4 h-4 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" /></svg>
-                                        <span>Este anexo lo generamos nosotros. Al rechazarlo, <span className="font-black">el enlace de firma del cliente queda bloqueado</span> hasta que le reenvíes la versión corregida — así no vuelve a firmar la que tiene el error. <span className="font-black">Corrige antes los datos en el expediente</span>: el anexo se regenera con lo que haya guardado al enviarlo. El aviso de aquí abajo es opcional; el anexo corregido va en el paso siguiente, con sus destinatarios y su mensaje.</span>
+                                        <span>
+                                            Este documento lo generamos nosotros.{' '}
+                                            {rejectRegen.bloquea
+                                                ? <>Al rechazarlo, <span className="font-black">el enlace de firma {rejectRegen.firmante === 'instalador' ? 'del instalador' : 'del cliente'} queda bloqueado</span> hasta que le reenvíes la versión corregida — así no vuelve a firmar la que tiene el error. </>
+                                                : <>Al continuar se abre su generador para que lo rehagas y lo reenvíes corregido. </>}
+                                            <span className="font-black">Corrige antes los datos en el expediente</span>: el documento se regenera con lo que haya guardado al enviarlo. El aviso de aquí abajo es opcional; el documento corregido va en el paso siguiente, con sus destinatarios y su mensaje.
+                                        </span>
                                     </p>
                                 </div>
                             )}
                             <div>
-                                <label className="block text-[10px] font-black uppercase tracking-widest text-white/40 mb-2">{rejectRegenKey ? 'Avisar del rechazo a' : 'Enviar a corregir a'}</label>
+                                <label className="block text-[10px] font-black uppercase tracking-widest text-white/40 mb-2">{rejectRegen ? 'Avisar del rechazo a' : 'Enviar a corregir a'}</label>
                                 <div className="grid grid-cols-3 gap-2">
                                     {['cliente', 'instalador', 'ninguno'].map(v => (
                                         <button key={v} onClick={() => switchRejectTarget(v)} title={v === 'ninguno' ? 'Solo rechazar, sin enviar mensaje' : recipientName(v)}
@@ -2916,7 +3018,7 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                                 <div>
                                     <label className="block text-[10px] font-black uppercase tracking-widest text-white/40 mb-2">Mensaje (editable)</label>
                                     <textarea value={rejectMsg} onChange={e => { setRejectMsg(e.target.value); setRejectMsgEdited(true); }} rows={7} className="no-uppercase w-full bg-bkg-elevated border border-white/10 rounded-xl px-3 py-2 text-sm text-white/90 focus:outline-none focus:border-red-400/50 resize-none" />
-                                    <p className="text-[10px] text-white/25 mt-1.5 normal-case">Se enviará por WhatsApp/email a <span className="text-white/45">{recipientName(rejectTarget)}</span>{(() => { const nt = notifyTarget(rejectTarget); const d = nt.tlf || nt.email; return d ? <span className="text-white/30"> · {d}</span> : null; })()}.{rejectRegenKey ? ' El anexo corregido se envía después, en el paso siguiente, donde eliges contactos y canal.' : ''}</p>
+                                    <p className="text-[10px] text-white/25 mt-1.5 normal-case">Se enviará por WhatsApp/email a <span className="text-white/45">{recipientName(rejectTarget)}</span>{(() => { const nt = notifyTarget(rejectTarget); const d = nt.tlf || nt.email; return d ? <span className="text-white/30"> · {d}</span> : null; })()}.{rejectRegen ? ' El documento corregido se envía después, en el paso siguiente, donde eliges contactos y canal.' : ''}</p>
                                 </div>
                             )}
                             {rejectError && <p className="text-[12px] text-red-400">⚠️ {rejectError}</p>}
@@ -2924,10 +3026,10 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
 
                         <div className="px-6 py-4 bg-white/[0.02] border-t border-white/10 flex gap-3">
                             <button onClick={() => setRejectDoc(null)} disabled={rejectSending} className="flex-1 px-4 py-2.5 rounded-xl border border-white/10 text-white/50 text-[10px] font-black uppercase tracking-widest hover:text-white hover:border-white/30 transition-all disabled:opacity-40">Cancelar</button>
-                            {rejectRegenKey ? (
+                            {rejectRegen ? (
                                 <>
-                                    <button onClick={() => confirmRejectDoc(false)} disabled={rejectSending || !rejectMotivo.trim()} title="Marcar el rechazo (y enviar el aviso si has elegido destinatario). El anexo corregido lo reenvías más tarde." className="px-4 py-2.5 rounded-xl border border-white/10 text-white/50 text-[10px] font-black uppercase tracking-widest hover:text-white hover:border-white/30 transition-all disabled:opacity-40">{rejectTarget === 'ninguno' ? 'Solo rechazar' : 'Rechazar y avisar'}</button>
-                                    <button onClick={() => confirmRejectDoc(true)} disabled={rejectSending || !rejectMotivo.trim()} title="Registra el rechazo, envía el aviso si procede y abre el envío del anexo regenerado" className="flex-1 px-4 py-2.5 rounded-xl bg-red-500/15 border border-red-500/30 text-red-300 text-[10px] font-black uppercase tracking-widest hover:bg-red-500 hover:text-white transition-all disabled:opacity-40">{rejectSending ? 'Rechazando…' : 'Rechazar y reenviar corregido'}</button>
+                                    <button onClick={() => confirmRejectDoc(false)} disabled={rejectSending || !rejectMotivo.trim()} title="Marcar el rechazo (y enviar el aviso si has elegido destinatario). El documento corregido lo reenvías más tarde." className="px-4 py-2.5 rounded-xl border border-white/10 text-white/50 text-[10px] font-black uppercase tracking-widest hover:text-white hover:border-white/30 transition-all disabled:opacity-40">{rejectTarget === 'ninguno' ? 'Solo rechazar' : 'Rechazar y avisar'}</button>
+                                    <button onClick={() => confirmRejectDoc(true)} disabled={rejectSending || !rejectMotivo.trim()} title="Registra el rechazo, envía el aviso si procede y abre la regeneración del documento para reenviarlo corregido" className="flex-1 px-4 py-2.5 rounded-xl bg-red-500/15 border border-red-500/30 text-red-300 text-[10px] font-black uppercase tracking-widest hover:bg-red-500 hover:text-white transition-all disabled:opacity-40">{rejectSending ? 'Rechazando…' : 'Rechazar y reenviar corregido'}</button>
                                 </>
                             ) : (
                                 <button onClick={() => confirmRejectDoc(false)} disabled={rejectSending || !rejectMotivo.trim()} className="flex-1 px-4 py-2.5 rounded-xl bg-red-500/15 border border-red-500/30 text-red-300 text-[10px] font-black uppercase tracking-widest hover:bg-red-500 hover:text-white transition-all disabled:opacity-40">{rejectSending ? 'Enviando…' : rejectTarget === 'ninguno' ? 'Rechazar' : 'Rechazar y avisar'}</button>

@@ -21,7 +21,7 @@ const {
 } = loteService;
 const {
     LOTE_DOC_SLOTS, SLOTS_SUBIBLES, nextDocKey, slotDeKey, sincronizarEstadoLote,
-    CARPETA_DOCS, nombreDocLote,
+    CARPETA_DOCS, nombreDocLote, guardarDocFirmado,
 } = require('../services/loteDocs');
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -201,7 +201,7 @@ async function enrichLotes(lotes) {
 
     const [presRes, expRes, facRes] = await Promise.all([
         presIds.length
-            ? supabase.from('prescriptores').select('id_empresa, razon_social, acronimo, precio_referencia, codigo_identificacion, email, cif, direccion, codigo_postal, municipio, provincia, nombre_responsable, apellidos_responsable, nif_responsable, landing_telefono_contacto, contactos_notificacion, contacto_notificaciones_activas').in('id_empresa', presIds)
+            ? supabase.from('prescriptores').select('id_empresa, razon_social, acronimo, precio_referencia, codigo_identificacion, email, cif, direccion, codigo_postal, municipio, provincia, nombre_responsable, apellidos_responsable, nif_responsable, landing_telefono_contacto, contactos_notificacion, contacto_notificaciones_activas, logo_empresa').in('id_empresa', presIds)
             : Promise.resolve({ data: [] }),
         // `cee` se pide por campos (sin el XML crudo) y de `documentacion` solo la
         // fecha del CIFO, que es lo único que mira geoCcaa.resolveAnioActuacion.
@@ -489,8 +489,15 @@ router.patch('/:id', staffOnly, async (req, res) => {
         if (error) throw error;
         if (!lote) return res.status(404).json({ error: 'Lote no encontrado' });
 
-        const { sujeto_obligado_id, verificador_id, notas, coste_verificacion, oferta_lote } = req.body || {};
+        const { sujeto_obligado_id, verificador_id, notas, coste_verificacion, oferta_lote, expediente_verificador } = req.body || {};
         const update = { updated_at: nowIso() };
+
+        // Nº de expediente que el verificador da al lote en SU sistema. Dato manual e
+        // informativo, no económico: lo edita todo el staff.
+        if (expediente_verificador !== undefined) {
+            const v = String(expediente_verificador || '').trim();
+            update.expediente_verificador = v || null;
+        }
 
         // La oferta del lote y el coste de verificación son MARGEN Brokergy: solo el
         // ADMIN puede fijarlos. El TRABAJADOR ni los ve ni los edita (se ignoran).
@@ -709,7 +716,9 @@ router.post('/:id/documentos/:slot', staffOnly, async (req, res) => {
             motivo: `subida de ${entrada.label}`,
             ...(slot === 'informe_inexactitudes'
                 ? { destino: 'REQUERIMIENTO VERIFICADOR', retroceso: true }
-                : {}),
+                : slot === 'requerimiento_ga'
+                    ? { destino: 'REQUERIMIENTO G.A.', retroceso: true }
+                    : {}),
         });
 
         const { data: updated } = await supabase.from('lotes').select('*').eq('id', lote.id).maybeSingle();
@@ -718,6 +727,77 @@ router.post('/:id/documentos/:slot', staffOnly, async (req, res) => {
     } catch (err) {
         console.error('[POST /lotes/:id/documentos/:slot]', err.message);
         res.status(500).json({ error: err.message || 'Error al subir el documento del lote' });
+    }
+});
+
+// ─── POST /api/lotes/:id/documentos/:key/firmado — registrar el PDF firmado ─────
+// Sirve para CUALQUIER documento del lote (Anexo I, fichas, solicitud, oferta), no
+// solo la oferta: el S.O. puede devolver cualquiera firmado por email o traerlo ya
+// firmado de fuera de la app, y hay que poder registrarlo sin pasar por el enlace
+// público. Misma operación que la firma en /firmar-lote (guardarDocFirmado).
+router.post('/:id/documentos/:key/firmado', staffOnly, async (req, res) => {
+    try {
+        const { base64 } = req.body || {};
+        if (!base64) return res.status(400).json({ error: 'Falta el fichero firmado' });
+
+        const { data: lote, error } = await supabase.from('lotes').select('*').eq('id', req.params.id).maybeSingle();
+        if (error || !lote) return res.status(404).json({ error: 'Lote no encontrado' });
+        if (!lote.drive_folder_id) await ensureLoteFolder(lote);
+
+        const { data: fresh } = await supabase.from('lotes').select('*').eq('id', lote.id).maybeSingle();
+        const buffer = Buffer.from(String(base64).split(',').pop(), 'base64');
+        const { docsSo, entry } = await guardarDocFirmado(fresh, req.params.key, buffer);
+
+        const historial = Array.isArray(fresh.historial) ? [...fresh.historial] : [];
+        historial.push({
+            id: `${Date.now()}_fdo`, tipo: 'sistema',
+            texto: `Registrado el PDF firmado de "${entry.label || req.params.key}".`,
+            fecha: nowIso(), usuario: usuarioDe(req),
+        });
+        await supabase.from('lotes').update({ documentos_so: docsSo, historial, updated_at: nowIso() }).eq('id', lote.id);
+        await sincronizarEstadoLote(lote.id, { docs: docsSo, usuario: usuarioDe(req), motivo: `firmado de ${entry.label || req.params.key}` });
+
+        const { data: updated } = await supabase.from('lotes').select('*').eq('id', lote.id).maybeSingle();
+        const [enriched] = await enrichLotes([updated]);
+        res.json({ ok: true, documento: entry, lote: scrubLoteForUser(enriched, req) });
+    } catch (err) {
+        console.error('[POST /lotes/:id/documentos/:key/firmado]', err.message);
+        res.status(500).json({ error: err.message || 'Error al registrar el documento firmado' });
+    }
+});
+
+// ─── POST /api/lotes/:id/documentos/:key/validar — visto bueno del ADMIN ─────────
+// Que un documento vuelva firmado no quiere decir que esté BIEN. El ADMIN lo revisa
+// y lo marca OK; hasta entonces se ve como "pendiente de revisar". Con `ok: false`
+// se retira el visto bueno. Un firmado nuevo lo retira solo (ver guardarDocFirmado).
+router.post('/:id/documentos/:key/validar', adminOnly, async (req, res) => {
+    try {
+        const ok = req.body?.ok !== false;
+        const { data: lote, error } = await supabase.from('lotes').select('*').eq('id', req.params.id).maybeSingle();
+        if (error || !lote) return res.status(404).json({ error: 'Lote no encontrado' });
+
+        const docs = Array.isArray(lote.documentos_so) ? [...lote.documentos_so] : [];
+        const idx = docs.findIndex(d => d && d.key === req.params.key);
+        if (idx < 0) return res.status(404).json({ error: 'Documento no encontrado en el lote' });
+
+        docs[idx] = ok
+            ? { ...docs[idx], validado_at: nowIso(), validado_por: usuarioDe(req) }
+            : { ...docs[idx], validado_at: null, validado_por: null };
+
+        const historial = Array.isArray(lote.historial) ? [...lote.historial] : [];
+        historial.push({
+            id: `${Date.now()}_val`, tipo: 'sistema',
+            texto: `${ok ? 'Marcado OK' : 'Retirado el OK de'} "${docs[idx].label || req.params.key}".`,
+            fecha: nowIso(), usuario: usuarioDe(req),
+        });
+        await supabase.from('lotes').update({ documentos_so: docs, historial, updated_at: nowIso() }).eq('id', lote.id);
+
+        const { data: updated } = await supabase.from('lotes').select('*').eq('id', lote.id).maybeSingle();
+        const [enriched] = await enrichLotes([updated]);
+        res.json({ ok: true, lote: scrubLoteForUser(enriched, req) });
+    } catch (err) {
+        console.error('[POST /lotes/:id/documentos/:key/validar]', err.message);
+        res.status(500).json({ error: err.message || 'Error al marcar el documento' });
     }
 });
 
@@ -761,17 +841,21 @@ router.delete('/:id/documentos/:key', staffOnly, async (req, res) => {
     }
 });
 
-// ─── POST /api/lotes/:id/enviar-oferta — mandar la oferta al S.O. para firma ─────
-// La entidad verificadora nos pasa su oferta, la subimos al lote y desde aquí se
-// manda al Sujeto Obligado para que la firme. Adjunta el PDF y añade el enlace
-// `/firmar-lote/:id`, donde el S.O. puede: firmarla online con su certificado
-// (Autofirma), subirla firmada a mano (nos llega aviso automático) o devolvérnosla
-// firmada por email. Marca `sent_at` en la entrada de la oferta.
-router.post('/:id/enviar-oferta', staffOnly, async (req, res) => {
+// ─── POST /api/lotes/:id/enviar-documento/:key — mandar un documento al S.O. ─────
+// Sirve para CUALQUIER documento del lote que haya que remitir: la oferta de
+// verificación (que además hay que firmar) o la factura del verificador, que le
+// llega a él porque es quien contrata la verificación. Adjunta el PDF bajándolo de
+// Drive y marca `sent_at` en la entrada.
+//
+// Si el documento es FIRMABLE, el email lleva además el enlace `/firmar-lote/:id`
+// acotado a ese documento (`?doc=`), donde el S.O. puede firmarlo con certificado,
+// subirlo firmado a mano o devolvérnoslo por email. Si no lo es (una factura), va
+// tal cual, sin enlace de firma.
+router.post('/:id/enviar-documento/:key', staffOnly, async (req, res) => {
     try {
         const {
             to, cc, phone, channels = { email: true, whatsapp: false },
-            customMessage, frontendOrigin,
+            customMessage, frontendOrigin, asunto, etiqueta,
         } = req.body || {};
 
         if (channels.email && !to) return res.status(400).json({ error: 'Falta el email del destinatario' });
@@ -781,22 +865,27 @@ router.post('/:id/enviar-oferta', staffOnly, async (req, res) => {
         if (error) throw error;
         if (!lote) return res.status(404).json({ error: 'Lote no encontrado' });
 
+        const docKey = req.params.key;
         const docs = Array.isArray(lote.documentos_so) ? [...lote.documentos_so] : [];
-        const idx = docs.findIndex(d => d?.key === 'oferta_verificacion');
-        if (idx < 0) return res.status(409).json({ error: 'El lote no tiene oferta de verificación subida.' });
+        const idx = docs.findIndex(d => d?.key === docKey);
+        if (idx < 0) return res.status(409).json({ error: 'Ese documento no está en el lote.' });
+
+        const cfg = LOTE_DOC_SLOTS[slotDeKey(docKey)] || {};
+        const nombreDoc = docs[idx].label || cfg.label || 'Documento del lote';
 
         // El PDF vive en Drive: se descarga para adjuntarlo (no guardamos binarios en BD).
         const fileId = docs[idx].draft_file_id || (String(docs[idx].draft_link || '').match(/[-\w]{25,}/) || [])[0];
-        if (!fileId) return res.status(409).json({ error: 'La oferta no tiene fichero en Drive.' });
+        if (!fileId) return res.status(409).json({ error: `"${nombreDoc}" no tiene fichero en Drive.` });
         const buf = await driveService.getFileContent(fileId);
-        if (!buf || !buf.length) return res.status(409).json({ error: 'No se pudo descargar la oferta de Drive.' });
+        if (!buf || !buf.length) return res.status(409).json({ error: `No se pudo descargar "${nombreDoc}" de Drive.` });
 
-        // El enlace va ACOTADO a la oferta (`?doc=`): la firma del Anexo I y las fichas
-        // es otro proceso y ya pasó. El S.O. abre y solo ve un documento y un botón.
+        // Enlace de firma SOLO si el documento se firma. Va ACOTADO a él (`?doc=`): la
+        // firma del Anexo I y las fichas es otro proceso y ya pasó, y enseñarle los 8
+        // documentos al S.O. cuando solo tiene que firmar uno le despista.
         const origin = (frontendOrigin || process.env.FRONTEND_URL || 'https://app.brokergy.es').replace(/\/$/, '');
-        const firmaUrl = `${origin}/firmar-lote/${lote.id}?doc=oferta_verificacion`;
-        const msgConEnlace = `${customMessage || ''}\n\n${firmaUrl}`.trim();
-        const fileName = docs[idx].file_name || `${lote.codigo || 'LOTE'} - Oferta de verificacion.pdf`;
+        const firmaUrl = cfg.firmable ? `${origin}/firmar-lote/${lote.id}?doc=${encodeURIComponent(docKey)}` : null;
+        const msgConEnlace = firmaUrl ? `${customMessage || ''}\n\n${firmaUrl}`.trim() : (customMessage || '');
+        const fileName = docs[idx].file_name || `${lote.codigo || 'LOTE'} - ${nombreDoc}.pdf`;
 
         const warnings = [];
         if (channels.email && to) {
@@ -809,11 +898,11 @@ router.post('/:id/enviar-oferta', staffOnly, async (req, res) => {
                     customMessage: msgConEnlace,
                     // `docType` manda en el ASUNTO ("… — Brokergy (LOTE-…)") y en el
                     // titular de la cabecera: que diga la acción, no solo el documento.
-                    summaryData: { id: lote.codigo || 'LOTE', docType: 'Firmar Oferta de verificación' },
+                    summaryData: { id: lote.codigo || 'LOTE', docType: asunto || (cfg.firmable ? `Firmar ${nombreDoc}` : nombreDoc) },
                     from: SO_EMAIL_FROM,
-                    buttonLabel: '🖊️ Firmar la oferta',
-                    pillLabel: 'Firmar Oferta de Verificación',
-                    preheader: `Oferta de verificación del lote ${lote.codigo || ''} — pendiente de vuestra firma.`,
+                    buttonLabel: firmaUrl ? `🖊️ Firmar ${nombreDoc}` : undefined,
+                    pillLabel: etiqueta || (cfg.firmable ? `Firmar ${nombreDoc}` : nombreDoc),
+                    preheader: `${nombreDoc} del lote ${lote.codigo || ''}${cfg.firmable ? ' — pendiente de vuestra firma.' : '.'}`,
                 });
             } catch (e) { warnings.push(`Email: ${e.message}`); }
         }
@@ -834,21 +923,21 @@ router.post('/:id/enviar-oferta', staffOnly, async (req, res) => {
         const historial = Array.isArray(lote.historial) ? [...lote.historial] : [];
         const canales = [channels.email && to ? 'email' : null, channels.whatsapp && phone ? 'whatsapp' : null].filter(Boolean).join('+');
         historial.push({
-            id: `${Date.now()}_enviar_oferta`, tipo: 'sistema',
-            texto: `Enviada al S.O. la oferta de verificación para firma${canales ? ` (${canales})` : ''}.`,
+            id: `${Date.now()}_enviar_doc`, tipo: 'sistema',
+            texto: `Enviado al S.O. "${nombreDoc}"${cfg.firmable ? ' para firma' : ''}${canales ? ` (${canales})` : ''}.`,
             fecha: sentAt, usuario: usuarioDe(req),
         });
         await supabase.from('lotes').update({ documentos_so: docs, historial, updated_at: sentAt }).eq('id', lote.id);
 
-        // El lote queda esperando que el S.O. devuelva la oferta firmada.
-        await sincronizarEstadoLote(lote.id, { docs, usuario: usuarioDe(req), motivo: 'oferta enviada al S.O.' });
+        // Mandar la oferta deja el lote esperando que la devuelvan firmada.
+        await sincronizarEstadoLote(lote.id, { docs, usuario: usuarioDe(req), motivo: `envío de ${nombreDoc}` });
 
         const { data: updated } = await supabase.from('lotes').select('*').eq('id', lote.id).maybeSingle();
         const [enriched] = await enrichLotes([updated]);
         res.json({ ok: true, firma_url: firmaUrl, warnings, lote: scrubLoteForUser(enriched, req) });
     } catch (err) {
-        console.error('[POST /lotes/:id/enviar-oferta]', err.message);
-        res.status(500).json({ error: err.message || 'Error al enviar la oferta de verificación' });
+        console.error('[POST /lotes/:id/enviar-documento/:key]', err.message);
+        res.status(500).json({ error: err.message || 'Error al enviar el documento del lote' });
     }
 });
 

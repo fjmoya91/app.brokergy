@@ -190,6 +190,21 @@ export function SubirCifoView({ expedienteId }) {
                                     </p>
                                     <p className="text-white/20 text-xs mt-6">Puedes cerrar esta ventana.</p>
                                 </div>
+                            ) : info.bloqueado ? (
+                                // El CIFO se rechazó y todavía no se ha reenviado el corregido.
+                                // No se ofrece firmar: sería volver a firmar el mismo error.
+                                <div className="bg-amber-500/10 border border-amber-500/20 rounded-2xl p-8 text-center animate-fade-in">
+                                    <div className="w-16 h-16 rounded-full bg-amber-500/10 flex items-center justify-center mx-auto mb-4 border border-amber-500/20">
+                                        <svg className="w-8 h-8 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" /></svg>
+                                    </div>
+                                    <h2 className="text-xl font-black text-amber-400 uppercase tracking-widest mb-3">Estamos corrigiéndolo</h2>
+                                    <p className="text-white/50 text-sm leading-relaxed">
+                                        El <strong className="text-white">Certificado CIFO</strong> del expediente <strong className="text-brand">{info.numero_expediente}</strong> tenía un error y lo estamos corrigiendo.
+                                        {info.rechazo?.motivo ? <><br /><span className="text-white/35">Motivo: {info.rechazo.motivo}</span></> : null}
+                                        <br />Te enviaremos la versión corregida para que la firmes. No hace falta que hagas nada mientras tanto.
+                                    </p>
+                                    <p className="text-white/20 text-xs mt-6">Puedes cerrar esta ventana.</p>
+                                </div>
                             ) : (
                                 <>
                                     {/* OPCIÓN RECOMENDADA: firmar en el navegador con Autofirma */}

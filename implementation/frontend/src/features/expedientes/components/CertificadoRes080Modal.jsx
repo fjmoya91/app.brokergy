@@ -156,7 +156,11 @@ const PDF_CSS = `
 // Emisores de calefacción (para la justificación del SCOP, igual que RES060).
 // La lista vive en cifoDoc.js — fuente única, incluye las unidades aire-aire.
 
-export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, attachments: externalAttachments, onAttachmentsChange, onSaveDrive, onSaveFichaLink, onSaveExtraAnnexes, onSaveAnnexPrefs, onMarkSent, onSaveSignedLink, onSaveCe3x }) {
+// `rechazo` ({ motivo, label }): el modal se ha abierto desde el rechazo del
+// certificado firmado, para regenerarlo y reentregarlo corregido. Cambia el aviso de
+// cabecera y el mensaje de entrega — el cliente recibe el mismo documento otra vez y
+// tiene que saber por qué y cuál de los dos vale.
+export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, rechazo = null, attachments: externalAttachments, onAttachmentsChange, onSaveDrive, onSaveFichaLink, onSaveExtraAnnexes, onSaveAnnexPrefs, onMarkSent, onSaveSignedLink, onSaveCe3x }) {
     const { user } = useAuth();
     // Firma con certificado electrónico (Autofirma, formato arrastrable)
     const [signOpen, setSignOpen] = useState(false);
@@ -1725,6 +1729,11 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, a
 
     const buildDeliveryMessage = (contactName) => {
         const firstName = (contactName || '').trim().split(/\s+/)[0] || 'hola';
+        // Reentrega tras un rechazo: el motivo va delante, y se deja claro que la
+        // versión anterior queda anulada (si no, el cliente conserva las dos).
+        if (rechazo) {
+            return `Hola ${firstName},\n\nHemos revisado el *Certificado Final de Obra (RES080)* de tu expediente *${numExpte}* y hemos detectado un error, así que lo hemos corregido.\n\n*Motivo de la corrección:* ${rechazo.motivo || '—'}\n\nTe adjuntamos la versión corregida y firmada, que sustituye a la anterior. La versión que recibiste antes queda anulada.\n\nDisculpa las molestias. Cualquier duda, quedamos a tu disposición.\n\nUn saludo,\n*BROKERGY · Ingeniería Energética*`;
+        }
         return `Hola ${firstName},\n\nTe adjuntamos el *Certificado Final de Obra (RES080)* correspondiente a tu expediente *${numExpte}*, ya firmado.\n\nEs el documento que acredita la actuación de rehabilitación energética realizada en tu vivienda.\n\nCualquier duda, quedamos a tu disposición.\n\nUn saludo,\n*BROKERGY · Ingeniería Energética*`;
     };
 
@@ -2287,6 +2296,17 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, a
                         </button>
                     </div>
                 </div>
+
+                {/* Se ha llegado aquí rechazando el certificado firmado: qué falló y qué toca. */}
+                {rechazo && (
+                    <div className="flex-shrink-0 px-5 py-3 bg-red-500/[0.07] border-b border-red-500/20 flex items-start gap-2.5">
+                        <svg className="w-4 h-4 text-red-400 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" /></svg>
+                        <p className="text-[11px] text-red-200 leading-snug">
+                            <span className="font-black uppercase tracking-wider">Certificado rechazado</span> — {rechazo.motivo}
+                            <span className="block text-red-200/60 mt-0.5">Corrige los datos del expediente, vuelve a <span className="font-bold">firmar</span> el certificado corregido y reentrégalo: el mensaje de envío ya avisa de que el anterior queda anulado.</span>
+                        </p>
+                    </div>
+                )}
 
                 {/* ── MODAL FIRMA CON CERTIFICADO (Autofirma, recuadro arrastrable) ── */}
                 {signOpen && signPdfB64 && (

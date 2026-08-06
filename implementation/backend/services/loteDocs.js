@@ -29,6 +29,10 @@ const LOTE_DOC_SLOTS = {
     // quien contrata la verificación — por eso la oferta se la mandamos a él a firmar).
     // No confundir con la de Brokergy al S.O. por la venta de CAEs, que es la del paso 5.
     factura_verificador:    { label: 'Factura del verificador al Sujeto Obligado', fase: 4, multiple: false, firmable: false, importe: true },
+    // Fase 5 — presentación a MITECO y resolución de la Gestora de Ahorros (G.A.).
+    justificante_miteco:    { label: 'Justificante de subida a MITECO', fase: 5, multiple: false, firmable: false },
+    requerimiento_ga:       { label: 'Requerimiento de la G.A.', fase: 5, multiple: true, firmable: false },
+    certificado_cae:        { label: 'Certificado CAE emitido', fase: 5, multiple: false, firmable: false },
 };
 
 // Slots que se suben a mano desde el módulo de documentos (los de fase 2 los genera
@@ -36,6 +40,7 @@ const LOTE_DOC_SLOTS = {
 const SLOTS_SUBIBLES = [
     'solicitud_verificacion', 'oferta_verificacion', 'informe_inexactitudes',
     'informe_verificacion', 'dictamen_favorable', 'factura_verificador',
+    'justificante_miteco', 'requerimiento_ga', 'certificado_cae',
 ];
 
 // Documentos que componen la FIRMA DEL SUJETO OBLIGADO (fase 2). Cuando están todos
@@ -79,7 +84,10 @@ const PREFIJO_DOC = {
     informe_verificacion:   '4.2',
     dictamen_favorable:     '4.3',
     factura_verificador:    '4.4',
-    factura_so:             '5.',   // Brokergy → S.O. (venta de CAEs)
+    justificante_miteco:    '5.1',
+    requerimiento_ga:       '5.2',
+    certificado_cae:        '5.3',
+    factura_so:             '6.',   // Brokergy → S.O. (venta de CAEs)
 };
 
 // Nombre canónico (sin extensión) de un documento de lote. `n` numera los slots
@@ -88,6 +96,62 @@ function nombreDocLote(slot, { n = null, label = null } = {}) {
     const prefijo = PREFIJO_DOC[slot] || '';
     const base = label || LOTE_DOC_SLOTS[slot]?.label || slot;
     return `${prefijo} ${base}${n ? ` ${n}` : ''}`.trim();
+}
+
+/**
+ * Guarda el PDF FIRMADO de un documento del lote y actualiza su entrada.
+ * Fuente única de esta operación: la usan la firma pública del S.O.
+ * (/lote-firma/:id/firmar) y la subida a mano desde el panel, que hacen lo mismo
+ * — el firmado llega por el enlace o por email, pero acaba en el mismo sitio.
+ *
+ * El firmado de una FICHA va a "10. EXPEDIENTE CAE" de SU expediente; el resto,
+ * a la carpeta del lote.
+ *
+ * @returns {{ docsSo: Array, entry: object, todosFirmados: boolean, saved: object }}
+ */
+async function guardarDocFirmado(lote, docKey, buffer) {
+    const driveService = require('./driveService');
+    if (!lote?.drive_folder_id) throw new Error('El lote no tiene carpeta de Drive');
+    if (!buffer || buffer.length < 5 || buffer[0] !== 0x25 || buffer[1] !== 0x50) { // %P
+        throw new Error('El fichero firmado no es un PDF válido');
+    }
+    const docsSo = Array.isArray(lote.documentos_so) ? [...lote.documentos_so] : [];
+    const idx = docsSo.findIndex(d => d && d.key === docKey);
+    if (idx < 0) throw new Error('Documento no encontrado en el lote');
+
+    const base = String(docsSo[idx].file_name || docsSo[idx].label || docKey)
+        .replace(/\.pdf$/i, '').replace(/[\\/<>:"|?*]/g, '_');
+    const fileName = `${base}_fdo.pdf`;
+
+    // Ficha de un expediente → "10. EXPEDIENTE CAE" del propio expediente.
+    // Documento de nivel lote → la subcarpeta de documentación, junto a su borrador.
+    let signedFolder = lote.drive_folder_id;
+    if (docsSo[idx].exp_folder_id) {
+        signedFolder = await driveService.getOrCreateSubfolder(docsSo[idx].exp_folder_id, '10. EXPEDIENTE CAE') || lote.drive_folder_id;
+    } else {
+        signedFolder = await driveService.getOrCreateSubfolder(lote.drive_folder_id, CARPETA_DOCS(lote.codigo)) || lote.drive_folder_id;
+    }
+    try {
+        const prev = await driveService.findFileByName(signedFolder, fileName);
+        if (prev) await driveService.deleteFile(prev);
+    } catch (_) { /* no bloqueante */ }
+
+    const saved = await driveService.saveFileToFolder(signedFolder, fileName, 'application/pdf', buffer);
+    if (!saved) throw new Error('No se pudo guardar el documento firmado en Drive');
+
+    // Un firmado NUEVO invalida el visto bueno anterior: hay que revisarlo otra vez.
+    docsSo[idx] = {
+        ...docsSo[idx],
+        signed_link: saved.link, signed_file_id: saved.id || null,
+        signed_at: new Date().toISOString(),
+        validado_at: null, validado_por: null,
+    };
+    return {
+        docsSo,
+        entry: docsSo[idx],
+        saved,
+        todosFirmados: docsSo.length > 0 && docsSo.every(d => d.signed_link),
+    };
 }
 
 // Slot base de una clave ('informe_inexactitudes_2' → 'informe_inexactitudes').
@@ -128,6 +192,7 @@ function estadoSegunDocs(docs) {
     const hay = (k) => !!byKey(k);
     const firmado = (k) => !!byKey(k)?.signed_link;
 
+    if (hay('certificado_cae')) return 'CAE EMITIDO – PTE PAGO BROKERGY';
     if (hay('informe_verificacion') && hay('dictamen_favorable')) return 'VERIFICADO';
     if (firmado('oferta_verificacion')) return 'ENVIADO A VERIFICADOR';
     if (byKey('oferta_verificacion')?.sent_at) return 'PTE. FIRMA OFERTA S.O.';
@@ -236,6 +301,7 @@ module.exports = {
     nextDocKey,
     slotDeKey,
     esDocDelSujetoObligado,
+    guardarDocFirmado,
     estadoSegunDocs,
     siguienteEstado,
     sincronizarEstadoLote,
