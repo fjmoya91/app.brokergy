@@ -1826,16 +1826,23 @@ router.post('/:id/documentos/cesion-manuscrita', enforceAuth, (req, res, next) =
             return res.status(400).json({ error: 'El DNI se anexa por las DOS caras: faltan la delantera o la trasera.' });
         }
 
+        // OJO: `expedientes` NO tiene columna drive_folder_id (la carpeta vive en
+        // oportunidades.datos_calculo). Nombrarla aquí hacía que PostgREST devolviera
+        // error y la ruta respondiera "Expediente no encontrado" en TODOS los casos.
         const { data: exp, error } = await supabase
             .from('expedientes')
-            .select('id, numero_expediente, documentacion, drive_folder_id, oportunidades(datos_calculo)')
+            .select('id, numero_expediente, documentacion, oportunidades!oportunidad_id(datos_calculo)')
             .eq('id', req.params.id)
             .maybeSingle();
-        if (error || !exp) return res.status(404).json({ error: 'Expediente no encontrado' });
+        if (error) {
+            console.error('[cesion-manuscrita] select:', error.message);
+            return res.status(500).json({ error: 'No se pudo leer el expediente', details: error.message });
+        }
+        if (!exp) return res.status(404).json({ error: 'Expediente no encontrado' });
 
         let datos = exp.oportunidades?.datos_calculo || {};
         if (typeof datos === 'string') { try { datos = JSON.parse(datos); } catch (_) { datos = {}; } }
-        const driveFolderId = datos?.drive_folder_id || datos?.inputs?.drive_folder_id || exp.drive_folder_id;
+        const driveFolderId = datos?.drive_folder_id || datos?.inputs?.drive_folder_id;
         if (!driveFolderId) return res.status(422).json({ error: 'El expediente no tiene carpeta de Drive asociada' });
 
         const driveService = require('../services/driveService');

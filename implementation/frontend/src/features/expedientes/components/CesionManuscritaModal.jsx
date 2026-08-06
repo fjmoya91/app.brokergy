@@ -50,6 +50,10 @@ export async function esFirmaManuscrita(file) {
 const esImagen = (f) => !!f && (f.type || '').startsWith('image/');
 
 export function CesionManuscritaModal({ isOpen, onClose, expediente, file, dniLink, onDone, onSubirTalCual }) {
+    // Lo PRIMERO que se pregunta es qué hacer con el fichero: un escaneo que ya viene
+    // completo (con los DNI dentro) no hay que montarlo, y forzar el montaje dejaba
+    // los DNI duplicados o bloqueaba la subida. `modo` null = todavía preguntando.
+    const [modo, setModo] = useState(null);           // null | 'montar'
     const [caras, setCaras] = useState([]);           // [File delante, File detrás]
     const [usarDniPrevio, setUsarDniPrevio] = useState(true);
     const [busy, setBusy] = useState(false);
@@ -58,7 +62,7 @@ export function CesionManuscritaModal({ isOpen, onClose, expediente, file, dniLi
     const inputRef = useRef(null);
 
     useEffect(() => {
-        if (isOpen) { setCaras([]); setUsarDniPrevio(!!dniLink); setError(null); setBusy(false); }
+        if (isOpen) { setModo(null); setCaras([]); setUsarDniPrevio(!!dniLink); setError(null); setBusy(false); }
     }, [isOpen, dniLink]);
 
     if (!isOpen || !file) return null;
@@ -73,6 +77,7 @@ export function CesionManuscritaModal({ isOpen, onClose, expediente, file, dniLi
 
     const dniListo = usarDniPrevio ? !!dniLink : caras.length === 2;
     const faltaDni = !dniListo;
+    const esFoto = !/pdf$/i.test(file.type || '') && !/\.pdf$/i.test(file.name || '');
 
     const montar = async () => {
         setBusy(true); setError(null);
@@ -134,6 +139,54 @@ export function CesionManuscritaModal({ isOpen, onClose, expediente, file, dniLi
                     </button>
                 </div>
 
+                {/* ── PASO 1: qué hacemos con el fichero ─────────────────────────
+                    Se pregunta ANTES de nada. Detectamos que no lleva firma
+                    electrónica, pero eso no dice si el escaneo ya trae los DNI
+                    dentro — y eso solo lo sabe quien lo ha recibido. */}
+                {modo === null ? (
+                    <>
+                        <div className="px-6 py-5 space-y-3">
+                            <p className="text-[12px] text-white/45 normal-case leading-snug">
+                                Este PDF <span className="font-black text-white/70">no lleva firma electrónica</span>, así que la firma es manuscrita. ¿Cómo lo subimos?
+                            </p>
+
+                            <button type="button" onClick={() => setModo('montar')}
+                                className="w-full text-left rounded-xl border border-brand/30 bg-brand/[0.06] hover:border-brand/60 hover:bg-brand/[0.1] p-4 transition-all group">
+                                <div className="flex items-center gap-2 mb-1">
+                                    <svg className="w-4 h-4 text-brand shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>
+                                    <span className="text-[12px] font-black uppercase tracking-wider text-brand">Anexarle los DNI</span>
+                                </div>
+                                <p className="text-[11px] text-white/40 normal-case leading-snug">
+                                    Le añado el DNI del cliente (las dos caras en una página) y el del representante de Brokergy como última página. Es lo que monta el enlace de firma.
+                                </p>
+                            </button>
+
+                            {/* "Tal cual" solo tiene sentido con un PDF: una foto se
+                                subiría con nombre .pdf y bytes de imagen (ilegible).
+                                Para eso está el montaje, que la convierte antes. */}
+                            <button type="button" onClick={onSubirTalCual} disabled={busy || !onSubirTalCual || esFoto}
+                                title={esFoto ? 'Es una foto: hay que convertirla a PDF, usa la opción de arriba' : 'Sube el PDF sin modificarlo'}
+                                className="w-full text-left rounded-xl border border-white/12 bg-white/[0.02] hover:border-white/30 hover:bg-white/[0.05] p-4 transition-all disabled:opacity-40 disabled:hover:border-white/12 disabled:hover:bg-white/[0.02] disabled:cursor-not-allowed">
+                                <div className="flex items-center gap-2 mb-1">
+                                    <svg className="w-4 h-4 text-white/50 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" /></svg>
+                                    <span className="text-[12px] font-black uppercase tracking-wider text-white/70">Subirlo tal cual</span>
+                                </div>
+                                <p className="text-[11px] text-white/35 normal-case leading-snug">
+                                    {esFoto
+                                        ? <>Has soltado una <span className="font-bold text-white/50">foto</span>, no un PDF: hay que convertirla antes, así que esta opción no aplica.</>
+                                        : <>El PDF que has soltado, sin tocarlo. Para cuando el escaneo <span className="font-bold text-white/50">ya viene completo</span> (con los DNI dentro) o está firmado con una herramienta que no sabemos leer.</>}
+                                </p>
+                            </button>
+                        </div>
+                        <div className="px-6 py-4 bg-white/[0.02] border-t border-white/10">
+                            <button onClick={onClose} disabled={busy}
+                                className="w-full px-4 py-2.5 rounded-xl border border-white/10 text-white/50 text-[10px] font-black uppercase tracking-widest hover:text-white hover:border-white/30 transition-all disabled:opacity-40">
+                                Cancelar
+                            </button>
+                        </div>
+                    </>
+                ) : (
+                <>
                 <div className="px-6 py-5 space-y-4 overflow-y-auto">
                     {/* Qué va a quedar montado, en orden */}
                     <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3.5 space-y-1.5">
@@ -197,21 +250,13 @@ export function CesionManuscritaModal({ isOpen, onClose, expediente, file, dniLi
                         </p>
                     )}
                     {error && <p className="text-[12px] text-red-400 normal-case">⚠️ {error}</p>}
-
-                    {/* La detección puede fallar con firmas hechas por herramientas que
-                        no sabemos leer: entonces el anexo NO lleva DNI y se sube tal cual. */}
-                    {onSubirTalCual && (
-                        <button type="button" onClick={onSubirTalCual} disabled={busy}
-                            className="text-[10px] font-bold text-white/25 hover:text-white/60 underline decoration-1 underline-offset-4 transition-colors normal-case disabled:opacity-30">
-                            ¿Está firmado electrónicamente? Súbelo tal cual, sin anexar los DNI
-                        </button>
-                    )}
                 </div>
 
                 <div className="px-6 py-4 bg-white/[0.02] border-t border-white/10 flex gap-3">
-                    <button onClick={onClose} disabled={busy}
+                    <button onClick={() => { setModo(null); setError(null); }} disabled={busy}
+                        title="Volver a elegir cómo subirlo"
                         className="flex-1 px-4 py-2.5 rounded-xl border border-white/10 text-white/50 text-[10px] font-black uppercase tracking-widest hover:text-white hover:border-white/30 transition-all disabled:opacity-40">
-                        Cancelar
+                        Atrás
                     </button>
                     <button onClick={montar} disabled={busy}
                         title={faltaDni ? 'Se montará sin el DNI del cliente' : 'Monta el anexo con los DNI y lo sube al expediente'}
@@ -219,6 +264,8 @@ export function CesionManuscritaModal({ isOpen, onClose, expediente, file, dniLi
                         {busy ? 'Montando y subiendo…' : faltaDni ? 'Montar sin el DNI' : 'Montar y subir'}
                     </button>
                 </div>
+                </>
+                )}
             </div>
         </div>
     );
