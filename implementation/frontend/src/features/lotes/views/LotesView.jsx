@@ -6,6 +6,7 @@ import { getRoleFlags } from '../../../utils/roleFlags';
 import { LoteDetailModal } from '../components/LoteDetailModal';
 import { LogoEmpresa } from '../components/LogoEmpresa';
 import { LotesResumen } from '../components/LotesResumen';
+import { BotonCarpetaLocal } from '../components/BotonCarpetaLocal';
 import { loteEstadoBadge } from '../loteConstants';
 import { computeLoteEco } from '../logic/loteEco';
 
@@ -173,8 +174,12 @@ export function LotesView({ onNavigate }) {
             ) : (
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                     {visibles.map(l => { const eco = computeLoteEco(l); return (
-                        <button key={l.id} onClick={() => setDetailId(l.id)}
-                            className="text-left bg-bkg-surface border border-white/[0.06] rounded-2xl p-5 hover:border-brand/30 hover:bg-bkg-hover transition-all group">
+                        // Div y no button: dentro va el botón de carpeta local, y un
+                        // <button> anidado en otro <button> es HTML inválido.
+                        <div key={l.id} role="button" tabIndex={0}
+                            onClick={() => setDetailId(l.id)}
+                            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setDetailId(l.id); } }}
+                            className="cursor-pointer text-left bg-bkg-surface border border-white/[0.06] rounded-2xl p-5 hover:border-brand/30 hover:bg-bkg-hover focus:outline-none focus:border-brand/40 transition-all group">
                             <div className="flex items-start justify-between gap-3 mb-3">
                                 <div className="min-w-0">
                                     {/* El nº del verificador va PEGADO al nuestro: son los dos
@@ -191,9 +196,17 @@ export function LotesView({ onNavigate }) {
                                         {l.anio_actuacion ? `${l.anio_actuacion}` : 'Año pendiente'} · {l.ccaa || 'CCAA pendiente'}
                                     </p>
                                 </div>
-                                <span className={`shrink-0 text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded border ${loteEstadoBadge(l.estado)}`}>
-                                    {l.estado}
-                                </span>
+                                <div className="flex items-center gap-2 shrink-0">
+                                    {/* Carpeta del lote en el Explorador (espejo local de Drive).
+                                        Solo si ya tiene carpeta: se crea al enviar el 1er documento. */}
+                                    {l.drive_folder_id && (
+                                        <BotonCarpetaLocal loteId={l.id} compacto
+                                            onError={(m) => showAlert(m, 'Carpeta local', 'error')} />
+                                    )}
+                                    <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded border ${loteEstadoBadge(l.estado)}`}>
+                                        {l.estado}
+                                    </span>
+                                </div>
                             </div>
                             {/* S.O. y verificador en UNA línea con sus logos: son dos datos de
                                 una palabra cada uno y ocupaban cuatro líneas de tarjeta. */}
@@ -235,7 +248,7 @@ export function LotesView({ onNavigate }) {
                                 </span>
                                 <span className="text-[11px] text-brand/70 group-hover:text-brand font-black uppercase tracking-widest">Gestionar →</span>
                             </div>
-                        </button>
+                        </div>
                     ); })}
                 </div>
             )}

@@ -4,6 +4,7 @@ import { useModal } from '../../../context/ModalContext';
 import { analizarProceso, SLOTS } from '../logic/loteProceso';
 import { computeLoteEco } from '../logic/loteEco';
 import { EnviarDocLoteModal } from './EnviarDocLoteModal';
+import { BotonCarpetaLocal } from './BotonCarpetaLocal';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // El proceso del lote, por FASES, en el orden real del trámite. Sustituye a los
@@ -349,10 +350,13 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
             <div className="flex items-center justify-between">
                 <p className="text-[9px] font-black text-white/30 uppercase tracking-[0.2em]">Proceso del lote</p>
                 {lote?.drive_folder_id && (
-                    <a href={`https://drive.google.com/drive/folders/${lote.drive_folder_id}`} target="_blank" rel="noopener noreferrer"
-                        className="text-[9px] font-black uppercase tracking-widest text-brand/70 hover:text-brand transition-colors">
-                        Abrir carpeta Drive →
-                    </a>
+                    <div className="flex items-center gap-2">
+                        <BotonCarpetaLocal loteId={lote.id} compacto onError={setError} />
+                        <a href={`https://drive.google.com/drive/folders/${lote.drive_folder_id}`} target="_blank" rel="noopener noreferrer"
+                            className="text-[9px] font-black uppercase tracking-widest text-brand/70 hover:text-brand transition-colors">
+                            Abrir carpeta Drive →
+                        </a>
+                    </div>
                 )}
             </div>
 

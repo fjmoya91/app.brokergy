@@ -609,6 +609,45 @@ router.post('/:id/factura-so', adminOnly, async (req, res) => {
 // Verificación subida), los envía por email/WhatsApp al S.O. con el enlace de
 // firma, y registra todo en lotes.documentos_so para la firma en cadena del S.O.
 // (/firmar-lote/:id). Los HTML de Anexo I y fichas los construye el frontend.
+// ─── GET /api/lotes/:id/local-path — ruta de la carpeta en el disco ─────────────
+// Espejo de `GET /api/expedientes/:id/local-path` (ver memoria del protocolo
+// brokergylocal:). El navegador no puede abrir `file://`, así que devolvemos la
+// ruta de Windows y el frontend la lanza por el protocolo propio.
+//
+// La ruta se reconstruye SUBIENDO por las carpetas padre en Drive, no se compone a
+// mano: así sigue siendo correcta aunque el lote cambie de carpeta de estado
+// (06. LISTO PARA VERIFICAR → 07. ENVIADOS A VERIFICAR → …).
+router.get('/:id/local-path', staffOnly, async (req, res) => {
+    try {
+        const { data: lote, error } = await supabase
+            .from('lotes').select('id, codigo, drive_folder_id').eq('id', req.params.id).maybeSingle();
+        if (error) throw error;
+        if (!lote) return res.status(404).json({ error: 'Lote no encontrado' });
+        if (!lote.drive_folder_id) {
+            return res.status(404).json({ error: 'El lote todavía no tiene carpeta de Drive. Se crea al enviar el primer documento.' });
+        }
+
+        const { getFolderPathSegments, sanitizeWindowsSegment } = require('../services/driveService');
+        const rawSegments = await getFolderPathSegments(lote.drive_folder_id);
+        if (!rawSegments.length) {
+            return res.status(502).json({ error: 'No se pudo resolver la ruta de la carpeta en Drive' });
+        }
+        // Google sustituye los caracteres ilegales de Windows (\ / : * ? " < > |)
+        // al espejar la carpeta, así que la ruta local no lleva el nombre crudo.
+        const segments = rawSegments.map(sanitizeWindowsSegment);
+        const base = (process.env.LOCAL_DRIVE_BASE || 'C:\\Users\\Usuario\\Mi unidad').replace(/[\\/]+$/, '');
+
+        res.json({
+            path: [base, ...segments].join('\\'),
+            folderName: segments[segments.length - 1],
+            segments,
+        });
+    } catch (err) {
+        console.error('[GET /lotes/:id/local-path]', err.message);
+        res.status(500).json({ error: 'Error al resolver la ruta local', details: err.message });
+    }
+});
+
 // ─── POST /api/lotes/:id/documentos/:slot ─────────────────────────────────────
 // Sube UN documento del lote al slot indicado (ver services/loteDocs.js): la
 // solicitud de verificación, la oferta que devuelve el verificador, un informe de
