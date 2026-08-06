@@ -112,6 +112,9 @@ const baseCss = `
         .prop-htitle h2 { margin: 0; padding: 0; font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif; color: var(--white); font-size: 22px; font-weight: 800; line-height: 1.3; flex: 1; min-width: 0; }
         .prop-htitle h2 em { font-style: normal; color: var(--orange); }
         .prop-htitle h2 small { display: block; font-size: 12px; font-weight: 700; color: rgba(255,255,255,0.45); letter-spacing: 0.3px; margin-top: 3px; }
+        /* El nombre del partner se escribe SIEMPRE: hay instaladores sin logo subido y el
+           chip vacío no decía con quién se colabora. */
+        .prop-htitle h2 small strong { color: rgba(255,255,255,0.9); font-weight: 800; text-transform: uppercase; letter-spacing: 0.6px; }
         .prop-hsub { color: rgba(255,255,255,0.4); font-size: 11px; margin-top: 5px; position: relative; z-index: 1; }
 
         .prop-cbar { 
@@ -1913,10 +1916,10 @@ info@brokergy.es · 623 926 179`;
                                     </div>
                                     <div className="prop-hline"></div>
                                     <div className="prop-htitle">
-                                        {cobrand?.logo ? (
+                                        {cobrand ? (
                                             <>
-                                                <h2>Propuesta de <em>Bono Energético CAE</em> y Servicios de Eficiencia Energética <small>en colaboración con:</small></h2>
-                                                <div className="prop-cochip"><img src={cobrand.logo} alt={cobrand.name || ''} /></div>
+                                                <h2>Propuesta de <em>Bono Energético CAE</em> y Servicios de Eficiencia Energética <small>en colaboración con{cobrand.name ? <>: <strong>{cobrand.name}</strong></> : ':'}</small></h2>
+                                                {cobrand.logo && <div className="prop-cochip"><img src={cobrand.logo} alt={cobrand.name || ''} /></div>}
                                             </>
                                         ) : (
                                             <h2>Propuesta de <em>Bono Energético CAE</em> y servicios de eficiencia energética</h2>
