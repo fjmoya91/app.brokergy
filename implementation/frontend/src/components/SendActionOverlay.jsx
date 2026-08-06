@@ -2,9 +2,10 @@ import React, { useEffect, useRef } from 'react';
 import confetti from 'canvas-confetti';
 
 // ─── SendActionOverlay ───────────────────────────────────────────────────────
-// Overlay ESTÁNDAR para cualquier acción de envío (WhatsApp / email):
-//   fase 'sending' → animación "Enviando…"   ·   fase 'done' → ✓/✗ + confeti de docs.
-// Úsalo en TODOS los envíos para que todos los popups sean iguales.
+// Overlay ESTÁNDAR para cualquier acción que tarde y acabe en éxito/error (envío
+// por WhatsApp/email, subida de un documento a Drive):
+//   fase 'sending' → animación en curso   ·   fase 'done' → ✓/✗ + confeti de docs.
+// Úsalo en TODAS ellas para que todos los popups sean iguales. NUNCA un alert().
 //
 // Props:
 //   phase: null | 'sending' | 'done'
@@ -14,6 +15,7 @@ import confetti from 'canvas-confetti';
 //   errorText: string (mensaje de error en 'done' + !ok)
 //   onClose: () => void (cierra el overlay; se llama desde el botón final)
 //   sendingTitle / okTitle / errorTitle: textos opcionales
+//   icon: 'send' (avión, por defecto) | 'upload' (nube con el documento subiendo)
 
 function fireDocsConfetti() {
     if (typeof window === 'undefined') return;
@@ -27,6 +29,29 @@ function fireDocsConfetti() {
     burst(0.2, 0); burst(0.8, 140); burst(0.5, 300);
 }
 
+// Animación de la fase 'sending' según la acción. El avión sube en diagonal (se va);
+// en la subida, el documento entra en la nube desde abajo una y otra vez, que es lo
+// que está pasando de verdad mientras el fichero viaja a Drive.
+const SENDING_ART = {
+    send: (
+        <svg className="w-8 h-8 text-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8} style={{ animation: 'float 1.8s ease-in-out infinite' }}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+        </svg>
+    ),
+    upload: (
+        <span className="relative w-9 h-9 block">
+            {/* nube quieta: es el destino */}
+            <svg className="absolute inset-0 w-9 h-9 text-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.6}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M7 17a4.5 4.5 0 01-.99-8.89A5.5 5.5 0 0116.9 7.5H17a4.5 4.5 0 011 8.88" />
+            </svg>
+            {/* documento que sube y desaparece dentro de ella */}
+            <svg className="absolute inset-0 w-9 h-9 text-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2} style={{ animation: 'subeALaNube 1.5s cubic-bezier(0.4, 0, 0.4, 1) infinite' }}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 21v-9m0 0l-3 3m3-3l3 3" />
+            </svg>
+        </span>
+    ),
+};
+
 export function SendActionOverlay({
     phase,
     ok = false,
@@ -37,6 +62,7 @@ export function SendActionOverlay({
     sendingTitle = 'Enviando mensaje…',
     okTitle = '¡Mensaje enviado!',
     errorTitle = 'No se pudo enviar',
+    icon = 'send',
 }) {
     const firedRef = useRef(false);
     useEffect(() => {
@@ -59,8 +85,8 @@ export function SendActionOverlay({
                             <div className="relative w-24 h-24 mb-6 flex items-center justify-center">
                                 <span className="absolute inset-0 rounded-full bg-brand/20 animate-ping" />
                                 <span className="absolute inset-4 rounded-full bg-brand/20 animate-ping" style={{ animationDelay: '0.5s' }} />
-                                <div className="relative w-16 h-16 rounded-full bg-brand/15 border border-brand/40 flex items-center justify-center">
-                                    <svg className="w-8 h-8 text-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8} style={{ animation: 'float 1.8s ease-in-out infinite' }}><path strokeLinecap="round" strokeLinejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>
+                                <div className="relative w-16 h-16 rounded-full bg-brand/15 border border-brand/40 flex items-center justify-center overflow-hidden">
+                                    {SENDING_ART[icon] || SENDING_ART.send}
                                 </div>
                             </div>
                             <h3 className="text-xl font-black uppercase tracking-tight text-white">{sendingTitle}</h3>

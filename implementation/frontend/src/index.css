@@ -193,6 +193,26 @@ body {
   }
 }
 
+/* Subida a la nube (SendActionOverlay icon="upload"): el documento entra por abajo,
+   sube y se desvanece dentro de la nube. En bucle mientras dura la subida. */
+@keyframes subeALaNube {
+  0% {
+    transform: translateY(7px);
+    opacity: 0;
+  }
+  25% {
+    opacity: 1;
+  }
+  70% {
+    transform: translateY(-3px);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(-7px);
+    opacity: 0;
+  }
+}
+
 .animate-fade-in {
   animation: fadeIn var(--transition-normal) ease-out forwards;
 }

@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import axios from 'axios';
+import { SendActionOverlay } from '../../../components/SendActionOverlay';
 
 // ─── Anexo de Cesión firmado A MANO — montaje desde la app ────────────────────
 // El anexo manuscrito que vale no es el escaneo suelto: es el escaneo + el DNI del
@@ -59,10 +60,11 @@ export function CesionManuscritaModal({ isOpen, onClose, expediente, file, dniLi
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState(null);
     const [drag, setDrag] = useState(false);
+    const [overlay, setOverlay] = useState(null);     // { phase, ok, error, data }
     const inputRef = useRef(null);
 
     useEffect(() => {
-        if (isOpen) { setModo(null); setCaras([]); setUsarDniPrevio(!!dniLink); setError(null); setBusy(false); }
+        if (isOpen) { setModo(null); setCaras([]); setUsarDniPrevio(!!dniLink); setError(null); setBusy(false); setOverlay(null); }
     }, [isOpen, dniLink]);
 
     if (!isOpen || !file) return null;
@@ -79,8 +81,13 @@ export function CesionManuscritaModal({ isOpen, onClose, expediente, file, dniLi
     const faltaDni = !dniListo;
     const esFoto = !/pdf$/i.test(file.type || '') && !/\.pdf$/i.test(file.name || '');
 
+    // El montaje baja el DNI de Drive, compone el PDF y lo vuelve a subir: son varios
+    // segundos. Se enseña el overlay estándar en vez de dejar la app muda.
+    // `onDone` (que actualiza el expediente y CIERRA este modal) se llama al cerrar el
+    // overlay, no antes: si no, el modal se desmontaría con el overlay dentro.
     const montar = async () => {
         setBusy(true); setError(null);
+        setOverlay({ phase: 'sending', ok: false, error: '', data: null });
         try {
             const form = new FormData();
             form.append('cesion', file, file.name || 'anexo_cesion.pdf');
@@ -93,13 +100,21 @@ export function CesionManuscritaModal({ isOpen, onClose, expediente, file, dniLi
                 form,
                 { headers: { 'Content-Type': 'multipart/form-data' } },
             );
-            onDone?.(data);
-            onClose?.();
+            setOverlay({ phase: 'done', ok: true, error: '', data });
         } catch (e) {
-            setError(e.response?.data?.error || 'No se pudo montar el Anexo de Cesión.');
+            const msg = e.response?.data?.error || 'No se pudo montar el Anexo de Cesión.';
+            setError(msg);
+            setOverlay({ phase: 'done', ok: false, error: msg, data: null });
         } finally {
             setBusy(false);
         }
+    };
+
+    const cerrarOverlay = () => {
+        const ok = overlay?.ok;
+        const data = overlay?.data;
+        setOverlay(null);
+        if (ok) onDone?.(data);      // actualiza el expediente y cierra el modal
     };
 
     const Cara = ({ i, label }) => {
@@ -267,6 +282,22 @@ export function CesionManuscritaModal({ isOpen, onClose, expediente, file, dniLi
                 </>
                 )}
             </div>
+
+            {/* Montaje + subida a Drive: mismo overlay que el resto de subidas.
+                En el éxito lista lo que ha entrado de verdad en el PDF (lo dice el
+                backend), no lo que se pidió: si faltó el DNI, aquí se ve. */}
+            <SendActionOverlay
+                phase={overlay?.phase || null}
+                ok={!!overlay?.ok}
+                icon="upload"
+                subtitle={expediente?.numero_expediente || ''}
+                sendingTitle="Montando y subiendo…"
+                okTitle="¡Anexo montado y subido!"
+                errorTitle="No se pudo montar"
+                items={overlay?.ok ? (overlay.data?.incluidos || []) : []}
+                errorText={overlay?.error || ''}
+                onClose={cerrarOverlay}
+            />
         </div>
     );
 }

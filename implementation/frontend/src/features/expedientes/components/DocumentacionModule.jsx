@@ -16,6 +16,7 @@ import { AnexoFotograficoModal } from './AnexoFotograficoModal';
 import { EnviarBorradorRiteModal } from './EnviarBorradorRiteModal';
 import { EnviarAnexosModal } from './EnviarAnexosModal';
 import { CesionManuscritaModal, esFirmaManuscrita } from './CesionManuscritaModal';
+import { SendActionOverlay } from '../../../components/SendActionOverlay';
 import FirmarConCertificadoModal from './FirmarConCertificadoModal';
 import { SIGN_BOXES } from '../logic/signBoxes';
 import { clienteContacts, instaladorContacts, defaultContactId, phoneValid } from '../utils/docContacts';
@@ -891,6 +892,9 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
     // Escaneo del Anexo de Cesión firmado A MANO pendiente de montar (anexo + DNI del
     // cliente + DNI del representante). { file } — null si no hay ninguno en curso.
     const [cesionManuscrita, setCesionManuscrita] = useState(null);
+    // Overlay de "subiendo a la nube → subido" de un documento firmado.
+    // { phase: 'sending'|'done', ok, label, error }
+    const [subidaDoc, setSubidaDoc] = useState(null);
     const [showEnviarBorrador, setShowEnviarBorrador] = useState(false);
     const [enviarAnexos, setEnviarAnexos] = useState({ open: false, docs: [], overrides: null });
     // Firma con certificado (Autofirma) de un documento YA firmado que está en Drive:
@@ -1692,6 +1696,10 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
         const fileName = `${expediente.numero_expediente} - ${baseName}_fdo.pdf`;
 
         setEditMode(false); // To show progress or lock
+        // Overlay estándar mientras viaja a Drive: subir un PDF grande tarda varios
+        // segundos y hasta ahora la app no daba ninguna señal — parecía colgada, y el
+        // aviso final era un alert() del navegador.
+        setSubidaDoc({ phase: 'sending', ok: false, label: baseName, error: '' });
         const reader = new FileReader();
         reader.onload = async (e) => {
             const base64 = e.target.result.split(',')[1];
@@ -1702,25 +1710,28 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                     mimeType: file.type,
                     subfolders: [SIGNED_SUBFOLDER[field] || SIGNED_SUBFOLDER_DEFAULT]
                 });
-                if (data.drive_link) {
-                    setLocal(prev => {
-                        const updates = { [field]: data.drive_link };
-                        // Cuando el admin sube la Cesión firmada, es la versión final (ambas firmas)
-                        if (field === 'anexo_cesion_signed_link') updates.cesion_firmado_brokergy = true;
-                        // Re-subir un firmado lo deja como "subido sin revisar": limpia validación/rechazo previos.
-                        const dv = { ...(prev.docs_validados || {}) }; delete dv[field];
-                        const dr = { ...(prev.docs_rechazados || {}) }; delete dr[field];
-                        const next = { ...prev, ...updates, docs_validados: dv, docs_rechazados: dr };
-                        onSave({ documentacion: next });
-                        return next;
-                    });
-                    alert('✅ Archivo firmado subido correctamente');
-                }
+                if (!data.drive_link) throw new Error('Drive no devolvió el enlace del fichero.');
+                setLocal(prev => {
+                    const updates = { [field]: data.drive_link };
+                    // Cuando el admin sube la Cesión firmada, es la versión final (ambas firmas)
+                    if (field === 'anexo_cesion_signed_link') updates.cesion_firmado_brokergy = true;
+                    // Re-subir un firmado lo deja como "subido sin revisar": limpia validación/rechazo previos.
+                    const dv = { ...(prev.docs_validados || {}) }; delete dv[field];
+                    const dr = { ...(prev.docs_rechazados || {}) }; delete dr[field];
+                    const next = { ...prev, ...updates, docs_validados: dv, docs_rechazados: dr };
+                    onSave({ documentacion: next });
+                    return next;
+                });
+                setSubidaDoc({ phase: 'done', ok: true, label: baseName, error: '' });
             } catch (err) {
                 console.error('Error uploading signed doc:', err);
-                alert('Error al subir el archivo firmado');
+                setSubidaDoc({
+                    phase: 'done', ok: false, label: baseName,
+                    error: err.response?.data?.error || err.message || 'No se pudo subir el archivo firmado.',
+                });
             }
         };
+        reader.onerror = () => setSubidaDoc({ phase: 'done', ok: false, label: baseName, error: 'No se pudo leer el fichero del disco.' });
         reader.readAsDataURL(file);
     };
 
@@ -2889,6 +2900,20 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                     </div>
                 </div>
             )}
+
+            {/* Subida de un documento firmado a Drive: "subiendo a la nube" → ✓ + confeti */}
+            <SendActionOverlay
+                phase={subidaDoc?.phase || null}
+                ok={!!subidaDoc?.ok}
+                icon="upload"
+                subtitle={expediente?.numero_expediente || ''}
+                sendingTitle="Subiendo a la nube…"
+                okTitle="¡Documento subido!"
+                errorTitle="No se pudo subir"
+                items={subidaDoc?.ok ? [`${subidaDoc.label} · guardado en Drive`] : []}
+                errorText={subidaDoc?.error || ''}
+                onClose={() => setSubidaDoc(null)}
+            />
 
             {/* Montaje del Anexo de Cesión manuscrito (escaneo + DNI cliente + DNI Brokergy) */}
             <CesionManuscritaModal
