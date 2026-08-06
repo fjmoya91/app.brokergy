@@ -5,6 +5,7 @@ import { useModal } from '../../../context/ModalContext';
 import { postEmail } from '../../../utils/emailFallback';
 import { buildAnexoIHtml, buildAnexoCesionHtml, getDualMessage, getClientCaeRate, buildInstalacionAddress } from '../utils/docGenerators';
 import { clienteContacts, instaladorContacts, phoneValid } from '../utils/docContacts';
+import { unidadesSinSerie, countUnidades } from '../logic/aerotermiaUnits';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Envío unificado de los anexos del cliente (Anexo I + Anexo de Cesión de Ahorros).
@@ -57,6 +58,42 @@ const composeNote = (base, note) => {
     return `${clean}\n\n${block}`;
 };
 
+// ── Validación DURA: datos sin los que el documento NO se puede mandar ────────
+// El firmante no firma "el PDF que le mandamos": firma el borrador que le sirve
+// su enlace público. Un Anexo I sin nº de serie o una Cesión sin IBAN vuelven
+// firmados y hay que rechazarlos, bloquear el borrador y rehacer el envío entero
+// (26RES060_142). Por eso aquí no hay "enviar de todos modos" — el aviso ámbar
+// de "datos incompletos" sigue siendo para lo que sí admite hueco.
+// Devuelve { anexo1: motivo|null, cesion: motivo|null }.
+function anexoBlockers(expediente) {
+    const inst = expediente?.instalacion || {};
+    const cli = expediente?.clientes || {};
+    const opInputs = expediente?.oportunidades?.datos_calculo?.inputs || {};
+
+    // Solo las unidades DECLARADAS: un RES080 de envolvente no tiene bomba de
+    // calor y su Anexo I no lleva ninguna serie.
+    const series = [];
+    const nCal = countUnidades(inst.aerotermia_cal);
+    for (const n of unidadesSinSerie(inst.aerotermia_cal)) {
+        series.push(nCal > 1 ? `nº de serie ud. exterior (equipo ${n})` : 'nº de serie de la unidad exterior');
+    }
+    // `normalizeData` persiste los strings en MAYÚSCULAS: el valor en BD es 'SI'.
+    const hayAcs = inst.cambio_acs != null
+        ? (inst.cambio_acs === true || String(inst.cambio_acs).toLowerCase() === 'si')
+        : !!(opInputs.changeAcs === true || opInputs.incluir_acs === true);
+    if (hayAcs && !inst.misma_aerotermia_acs) {
+        const nAcs = countUnidades(inst.aerotermia_acs);
+        for (const n of unidadesSinSerie(inst.aerotermia_acs)) {
+            series.push(nAcs > 1 ? `nº de serie ud. interior/ACS (equipo ${n})` : 'nº de serie de la unidad interior (ACS)');
+        }
+    }
+    const ibanOk = !!(cli.numero_cuenta && !String(cli.numero_cuenta).includes('_'));
+    return {
+        anexo1: series.length ? `Falta ${series.join(', ')}` : null,
+        cesion: ibanOk ? null : 'Falta el nº de cuenta (IBAN) del cliente',
+    };
+}
+
 export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results, initialDocs, overrides, initialNote, onMarkSent, onEditCliente }) {
     const { showConfirm } = useModal();
     const op       = expediente?.oportunidades || {};
@@ -98,6 +135,9 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
     const openIncidencias = (expediente?.documentacion?.incidencias || [])
         .filter(i => i && i.estado !== 'SUBSANADA');
 
+    // Documentos que hoy no se pueden enviar (y por qué). Ver `anexoBlockers`.
+    const blockers = anexoBlockers(expediente);
+
     // ── Estado ───────────────────────────────────────────────────────────────
     const [docs, setDocs]               = useState(['anexo1', 'cesion']);
     const [target, setTarget]           = useState('cliente'); // 'cliente' | 'instalador'
@@ -119,6 +159,9 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
 
     // ── Mensaje por defecto (se adapta a destinatario + documentos) ──────────
     const buildDefaultMessage = (tgt, docKeys) => {
+        // Sin documentos que enviar (p.ej. los dos bloqueados) no hay mensaje que
+        // redactar: escribir el de la Cesión "por defecto" sería mentir.
+        if (!docKeys || !docKeys.length) return '';
         const both = docKeys.includes('anexo1') && docKeys.includes('cesion');
         // Footer con el enlace de subida (mismo para uno o ambos documentos).
         const footerCliente = firmaUrl
@@ -183,7 +226,11 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
     // Inicialización al abrir
     useEffect(() => {
         if (!isOpen) return;
-        const startDocs = (Array.isArray(initialDocs) && initialDocs.length) ? initialDocs.filter(k => DOC_DEFS[k]) : ['anexo1', 'cesion'];
+        // Lo bloqueado no se premarca: ni el mensaje debe anunciarlo ni el botón
+        // debe dar a entender que va a salir.
+        const bloq = anexoBlockers(expediente);
+        const startDocs = ((Array.isArray(initialDocs) && initialDocs.length) ? initialDocs.filter(k => DOC_DEFS[k]) : ['anexo1', 'cesion'])
+            .filter(k => !bloq[k]);
         const startTarget = 'cliente';
         const defIds = pickDefaultIds(startTarget);
         const sel = cliContacts.filter(c => defIds.includes(c.id));
@@ -247,6 +294,11 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
         ...(docs.includes('cesion') ? missingCesion : []),
     ];
 
+    const isBlocked = (k) => !!blockers[k];
+    // Selección EFECTIVA: lo bloqueado no viaja aunque estuviera marcado de antes.
+    const sendDocs = docs.filter(k => !isBlocked(k));
+    const blockedSelected = docs.filter(isBlocked);
+
     // ── Handlers de selección ────────────────────────────────────────────────
     const applyMessage = (tgt, docKeys) => {
         if (userEditedRef.current) return;
@@ -277,6 +329,7 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
         });
     };
     const toggleDoc = (k) => {
+        if (isBlocked(k)) return;
         setDocs(prev => {
             const next = prev.includes(k) ? prev.filter(x => x !== k) : [...prev, k];
             const ordered = ['anexo1', 'cesion'].filter(x => next.includes(x));
@@ -326,7 +379,7 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
     };
 
     // ── Construcción de los documentos seleccionados ─────────────────────────
-    const buildDocDefs = () => docs.map(k => {
+    const buildDocDefs = () => sendDocs.map(k => {
         if (k === 'anexo1') {
             const html = (overrides && overrides.anexo1) ? overrides.anexo1 : buildAnexoIHtml(expediente, results, {}, true);
             return { key: 'anexo1', label: 'Anexo I', fileName: `${numexpte}${DOC_DEFS.anexo1.file}`, html };
@@ -338,7 +391,12 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
     const handleSend = async () => {
         const doEmail = willEmail;
         const doWa = willWhatsapp;
-        if (!docs.length) { setStatus({ ok: false, text: 'Selecciona al menos un documento.' }); return; }
+        if (!sendDocs.length) {
+            setStatus({ ok: false, text: blockedSelected.length
+                ? `No se puede enviar: ${blockedSelected.map(k => `${DOC_DEFS[k].label} — ${blockers[k].toLowerCase()}`).join(' · ')}. Complétalo en el expediente y vuelve.`
+                : 'Selecciona al menos un documento.' });
+            return;
+        }
         if (!selectedContacts.length) { setStatus({ ok: false, text: 'Selecciona al menos un destinatario.' }); return; }
         if (!doEmail && !doWa) { setStatus({ ok: false, text: 'Selecciona al menos un canal disponible.' }); return; }
 
@@ -451,16 +509,18 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
     // ── UI helpers ───────────────────────────────────────────────────────────
     const DocChip = ({ k }) => {
         const def = DOC_DEFS[k];
-        const on = docs.includes(k);
+        const blocked = isBlocked(k);
+        const on = docs.includes(k) && !blocked;
         return (
-            <button type="button" onClick={() => toggleDoc(k)}
-                className={`flex items-center gap-2.5 p-3 rounded-xl border text-left transition-all ${on ? 'border-brand/50 bg-brand/10' : 'border-white/10 bg-white/[0.02] hover:border-white/20'}`}>
-                <span className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 ${on ? 'border-brand bg-brand' : 'border-white/20'}`}>
+            <button type="button" onClick={() => toggleDoc(k)} disabled={blocked} title={blocked ? blockers[k] : undefined}
+                className={`flex items-center gap-2.5 p-3 rounded-xl border text-left transition-all ${blocked ? 'border-red-500/25 bg-red-500/[0.04] cursor-not-allowed' : on ? 'border-brand/50 bg-brand/10' : 'border-white/10 bg-white/[0.02] hover:border-white/20'}`}>
+                <span className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 ${blocked ? 'border-red-500/30' : on ? 'border-brand bg-brand' : 'border-white/20'}`}>
                     {on && <svg className="w-3 h-3 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
+                    {blocked && <svg className="w-2.5 h-2.5 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>}
                 </span>
                 <div className="min-w-0">
-                    <div className="text-[11px] font-black uppercase tracking-wider text-white truncate">{def.label}</div>
-                    <div className="text-[9px] text-white/40 truncate">{def.sublabel}</div>
+                    <div className={`text-[11px] font-black uppercase tracking-wider truncate ${blocked ? 'text-white/40' : 'text-white'}`}>{def.label}</div>
+                    <div className={`text-[9px] truncate ${blocked ? 'text-red-400/70' : 'text-white/40'}`}>{blocked ? 'No se puede enviar' : def.sublabel}</div>
                 </div>
             </button>
         );
@@ -489,6 +549,13 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
                             <DocChip k="anexo1" />
                             <DocChip k="cesion" />
                         </div>
+                        {/* Bloqueo duro: sin estos datos el documento sale mal y vuelve
+                            firmado igual de mal. No hay "enviar de todos modos". */}
+                        {Object.entries(blockers).filter(([, v]) => v).map(([k, v]) => (
+                            <p key={k} className="mt-2 text-[10px] text-red-400 leading-snug font-bold">
+                                🔒 {DOC_DEFS[k].label}: {v}. Rellénalo en el expediente antes de enviarlo — si lo firma así, habrá que rechazarlo y repetir el envío.
+                            </p>
+                        ))}
                         {selectedMissing.length > 0 && (
                             <p className="mt-2 text-[10px] text-amber-400/90 leading-snug">
                                 ⚠️ Datos incompletos: {selectedMissing.join(', ')}. Puedes enviar igualmente.
@@ -694,11 +761,11 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
 
                 {/* Footer */}
                 <div className="px-6 py-4 bg-white/[0.02] border-t border-white/[0.07] flex items-center justify-between gap-3">
-                    <span className="text-[9px] font-bold uppercase tracking-widest text-white/25">{docs.length} doc{docs.length === 1 ? '' : 's'} · {[willEmail && 'Email', willWhatsapp && 'WhatsApp'].filter(Boolean).join(' + ') || 'sin canal'}</span>
+                    <span className="text-[9px] font-bold uppercase tracking-widest text-white/25">{sendDocs.length} doc{sendDocs.length === 1 ? '' : 's'} · {[willEmail && 'Email', willWhatsapp && 'WhatsApp'].filter(Boolean).join(' + ') || 'sin canal'}</span>
                     <div className="flex items-center gap-3">
                         <button onClick={onClose} className="px-4 py-2.5 rounded-xl border border-white/10 text-white/50 text-[10px] font-black uppercase tracking-widest hover:text-white hover:border-white/30 transition-all">Cerrar</button>
-                        <button onClick={handleSend} disabled={busy || !docs.length || (!willEmail && !willWhatsapp)}
-                            title={(!willEmail && !willWhatsapp) ? 'Selecciona al menos un canal disponible' : (!docs.length ? 'Selecciona al menos un documento' : 'Enviar')}
+                        <button onClick={handleSend} disabled={busy || !sendDocs.length || (!willEmail && !willWhatsapp)}
+                            title={(!willEmail && !willWhatsapp) ? 'Selecciona al menos un canal disponible' : (!sendDocs.length ? (blockedSelected.length ? blockers[blockedSelected[0]] : 'Selecciona al menos un documento') : 'Enviar')}
                             className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-brand text-black text-[11px] font-black uppercase tracking-widest hover:brightness-110 active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed transition-all">
                             {sending
                                 ? <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.4 0 0 5.4 0 12h4z" /></svg>

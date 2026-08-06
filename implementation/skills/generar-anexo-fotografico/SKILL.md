@@ -174,6 +174,8 @@ habituales):
 - `FOTO_UNIDAD_EXTERIOR` = unidad exterior nueva instalada.
 - `FOTO_UNIDAD_EXTERIOR_PLACA` = placa/etiqueta de la unidad exterior.
 - `FOTO_UNIDAD_INTERIOR` / `FOTO_UNIDAD_INTERIOR_PLACA` = unidad interior/hidrokit y su placa.
+- `FOTO_EMISORES_ANTES` = radiador tipo de la vivienda (la unidad terminal que se conserva). Solo si el
+  emisor son radiadores: con suelo radiante su equivalente es el armario de colectores.
 - `FOTO_ARMARIO_SUELO_RADIANTE` = armario de colectores del suelo radiante (circuitos, válvulas y
   conexión con el equipo nuevo). Solo si el emisor es suelo radiante.
 - `FOTO_ACS_DEPOSITO` = depósito de ACS nuevo. Solo si ACS está justificado.

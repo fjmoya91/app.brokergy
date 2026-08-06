@@ -853,8 +853,24 @@ async function buildChecklistData(exp, cli, op) {
     // oportunidad es sintética y su `datos_calculo.estado` puede no decirlo. Sin
     // esto, buildDocChecklist devolvía TODOS los slots como opcionales y el barrido
     // de un migrado no exigía ninguna foto.
-    try { slots = reformaUploadService.buildDocChecklist({ ...datos, estado: 'ACEPTADA' }) || []; }
-    catch (e) { console.warn('[checklist] buildDocChecklist:', e.message); }
+    // Apartados que declara la pestaña INSTALACIÓN (emisor, piscina) computados
+    // ON-READ: `syncInstalacionConcepts` los persiste al GUARDAR el expediente, y
+    // sin esto un expediente que no se ha vuelto a tocar desde entonces no vería
+    // la foto de su unidad terminal. Se fusionan por slot para no pisar `waived`.
+    const overridesInst = reformaUploadService.overridesFromInstalacion(exp.instalacion);
+    const overridesConInst = { ...(datos.docs_overrides || {}) };
+    for (const [k, v] of Object.entries(overridesInst)) overridesConInst[k] = { ...(overridesConInst[k] || {}), ...v };
+    // Material que solo servía para levantar el CEE inicial: registrado el CEE,
+    // deja de pedirse (lo aplica buildDocChecklist, ver CEE_CAPTACION_SLOTS).
+    const ceeIniRegistrado = present(doc.fecha_registro_cee_inicial) || exp.seguimiento?.cee_inicial === 'REGISTRADO';
+    try {
+        slots = reformaUploadService.buildDocChecklist({
+            ...datos,
+            docs_overrides: overridesConInst,
+            estado: 'ACEPTADA',
+            cee_inicial_registrado: !!ceeIniRegistrado,
+        }) || [];
+    } catch (e) { console.warn('[checklist] buildDocChecklist:', e.message); }
     // Reconciliación con Drive, IGUAL que hacen el popup de fotos (buildDocsView) y
     // el Anexo Fotográfico (collectPhotoGroups). Sin esto el barrido solo miraba
     // `reforma_uploads`, así que una foto que llegó a Drive por otra vía —expediente
@@ -877,7 +893,7 @@ async function buildChecklistData(exp, cli, op) {
             // el capítulo. Ninguno de los dos debe salir en la lista de pendientes.
             const noProcede = !subida && !waived && !requerida;
             const motivo = !noProcede ? null
-                : (opcional ? 'Opcional — no se pide' : motivoFotosCerradas);
+                : (s.noRequeridoMotivo || (opcional ? 'Opcional — no se pide' : motivoFotosCerradas));
             const obj = requerida ? ['final'] : [];
             // El recuento sale de la BD; si la foto solo está en Drive (arr vacío) no
             // sabemos cuántas son sin volver a listar, así que se dice de dónde viene.
@@ -1037,7 +1053,7 @@ router.get('/:id/checklist', enforceAuth, async (req, res) => {
 // a su flujo público correcto (firma anexos, subir RITE/CIFO, subir fotos/facturas).
 // Solo incluye lo que realmente falta. Los enlaces de /subir-docs llevan ?rol=&need=
 // para que el destinatario vea ÚNICAMENTE los slots pendientes.
-function buildSolicitudAcciones(checklist, { expId, uploadBase }) {
+function buildSolicitudAcciones(checklist, { expId, uploadBase, bloqueos = {} }) {
     const FRONTEND = process.env.FRONTEND_URL || 'https://app.brokergy.es';
     const items = (r) => (checklist.grupos.find(g => g.responsable === r)?.items || []);
     const fotos = items('CUALQUIERA');
@@ -1059,8 +1075,11 @@ function buildSolicitudAcciones(checklist, { expId, uploadBase }) {
     const cliente = [];
     const ibanFalta = cliPend.find(i => i.key === 'numero_cuenta');
     const justifFalta = cliPend.find(i => i.key === 'justificante');
-    const anexoIFalta = cliPend.find(i => i.key === 'anexo_i_firmado');
-    const cesionFalta = cliPend.find(i => i.key === 'cesion_firmado');
+    // Una firma BLOQUEADA no se pide: su borrador todavía no se puede emitir bien
+    // (Anexo I sin nº de serie, Cesión sin IBAN) y el firmante devolvería un PDF
+    // para tirar. Ver `bloqueosDeFirma`.
+    const anexoIFalta = !bloqueos.anexo_i_firmado && cliPend.find(i => i.key === 'anexo_i_firmado');
+    const cesionFalta = !bloqueos.cesion_firmado && cliPend.find(i => i.key === 'cesion_firmado');
     const datosFaltan = ibanFalta || justifFalta;
 
     if (datosFaltan) {
@@ -1134,7 +1153,47 @@ function buildSolicitudAcciones(checklist, { expId, uploadBase }) {
 // compone el mensaje a partir de esta lista según lo que el admin marque.
 //   { key, label, tipo:'dato'|'firma'|'doc'|'foto', fase, required, waived,
 //     ownerDefault, flujo, slot?, defaultIncluido, nota? }
-function buildSolicitudPendientes(checklist, { hayInstalador }) {
+// Nº de serie que le faltan al Anexo I, unidad por unidad (espejo de la
+// validación de `validateExpediente('anexo1')` en DocumentacionModule).
+// Solo cuenta las unidades DECLARADAS: un RES080 de envolvente no tiene bomba de
+// calor y su Anexo I no lleva ninguna serie.
+function seriesPendientesAnexoI(exp, op) {
+    const inst = exp.instalacion || {};
+    const faltan = [];
+    const nCal = countUnidadesAero(inst.aerotermia_cal);
+    for (const n of unidadesSinSerie(inst.aerotermia_cal)) {
+        faltan.push(nCal > 1 ? `el nº de serie de la ud. exterior (equipo ${n})` : 'el nº de serie de la unidad exterior');
+    }
+    const inputs = op?.datos_calculo?.inputs || {};
+    // `normalizeData` sube los strings a MAYÚSCULAS antes de persistir: el valor
+    // en BD es 'SI', no 'si'.
+    const hayAcs = inst.cambio_acs != null
+        ? (inst.cambio_acs === true || String(inst.cambio_acs).toLowerCase() === 'si')
+        : !!(inputs.changeAcs === true || inputs.incluir_acs === true);
+    if (hayAcs && !inst.misma_aerotermia_acs) {
+        const nAcs = countUnidadesAero(inst.aerotermia_acs);
+        for (const n of unidadesSinSerie(inst.aerotermia_acs)) {
+            faltan.push(nAcs > 1 ? `el nº de serie de la ud. interior/ACS (equipo ${n})` : 'el nº de serie de la unidad interior (ACS)');
+        }
+    }
+    return faltan;
+}
+
+// Firmas que NO se pueden pedir todavía porque el documento que hay que firmar
+// aún no se puede emitir bien. No es una preferencia de redacción: mandar a
+// firmar un Anexo I sin nº de serie o una Cesión sin IBAN devuelve un PDF
+// firmado que hay que rechazar y rehacer (ver `rechazoBorrador`, 26RES060_142).
+// { <key del pendiente>: 'motivo' }
+function bloqueosDeFirma(exp, op, { faltaIban, faltaJustificante }) {
+    const out = {};
+    const series = seriesPendientesAnexoI(exp, op);
+    if (series.length) out.anexo_i_firmado = `Falta ${series.join(', ')} — el Anexo I ${series.length > 1 ? 'los' : 'lo'} declara`;
+    const datos = [faltaIban && 'el nº de cuenta (IBAN)', faltaJustificante && 'el justificante de titularidad'].filter(Boolean);
+    if (datos.length) out.cesion_firmado = `Falta ${datos.join(' y ')} — la Cesión se redacta con ${datos.length > 1 ? 'esos datos' : 'ese dato'}`;
+    return out;
+}
+
+function buildSolicitudPendientes(checklist, { hayInstalador, bloqueos = {} }) {
     const items = (r) => (checklist.grupos.find(g => g.responsable === r)?.items || []);
     const out = [];
     const cliPend = items('CLIENTE').filter(i => !i.presente);
@@ -1150,16 +1209,16 @@ function buildSolicitudPendientes(checklist, { hayInstalador }) {
     }
     const conHuella = (o) => ({ ...o, ...(huella.get(o.key) || { peticion: null, enviado_at: null }) });
 
-    // Los anexos se GENERAN con IBAN+justificante: mientras falten datos, la firma
-    // no se incluye por defecto (el admin puede forzarla desde el checklist).
-    const datosFaltan = cliPend.some(i => i.key === 'numero_cuenta' || i.key === 'justificante');
+    // Los anexos se GENERAN con IBAN+justificante y con los nº de serie: mientras
+    // falte ese material, la firma no se puede pedir (`bloqueos`) — no es que no
+    // venga premarcada, es que pedirla produce un PDF firmado para tirar.
     for (const i of cliPend) {
         if (i.key === 'datos_personales') continue; // los completa Brokergy (adminPendiente)
         // El Anexo Fotográfico ya no está en este grupo: es del grupo BROKERGY
         // (lo generamos nosotros), y BROKERGY no se "solicita" a nadie.
         const tipo = (i.key === 'numero_cuenta' || i.key === 'justificante') ? 'dato' : 'firma';
-        const espera = tipo === 'firma' && datosFaltan;
-        out.push(conHuella({ key: i.key, label: i.label, tipo, fase: null, required: true, waived: false, ownerDefault: 'CLIENTE', flujo: 'firmar-anexos', defaultIncluido: !espera, nota: espera ? 'Los anexos se generan con el IBAN y el justificante; la firma se pedirá cuando estén.' : (i.detalle || null) }));
+        const bloqueo = tipo === 'firma' ? (bloqueos[i.key] || null) : null;
+        out.push(conHuella({ key: i.key, label: i.label, tipo, fase: null, required: true, waived: false, ownerDefault: 'CLIENTE', flujo: 'firmar-anexos', bloqueado: !!bloqueo, defaultIncluido: !bloqueo, nota: bloqueo || (i.detalle || null) }));
     }
 
     const riteFalta = insPend.some(i => i.key === 'rite');
@@ -1171,7 +1230,7 @@ function buildSolicitudPendientes(checklist, { hayInstalador }) {
             // El CIFO se GENERA con los datos del RITE y de las facturas: hasta
             // tenerlos no se incluye por defecto (el admin puede forzarlo).
             const listo = !riteFalta && !factFalta;
-            out.push(conHuella({ key: 'cifo', label: i.label, tipo: 'firma', fase: 'DESPUES', required: true, waived: false, ownerDefault: 'INSTALADOR', flujo: 'subir-cifo', defaultIncluido: listo, nota: listo ? null : 'Se genera con el RITE y la factura; se pedirá cuando estén.' }));
+            out.push(conHuella({ key: 'cifo', label: i.label, tipo: 'firma', fase: 'DESPUES', required: true, waived: false, ownerDefault: 'INSTALADOR', flujo: 'subir-cifo', bloqueado: !listo, defaultIncluido: listo, nota: listo ? null : `Falta ${[riteFalta && 'el RITE', factFalta && 'la factura'].filter(Boolean).join(' y ')} — el CIFO se genera con esos datos` }));
         }
     }
 
@@ -1209,7 +1268,16 @@ router.get('/:id/solicitud-info', internalKeyOrAuth, async (req, res) => {
         }
 
         const checklist = await buildChecklistData(exp, cli, op);
-        const acciones = buildSolicitudAcciones(checklist, { expId: exp.id, uploadBase });
+        // Firmas que no se pueden pedir todavía (Anexo I sin nº de serie, Cesión
+        // sin IBAN/justificante). Se leen del propio barrido para no duplicar el
+        // criterio de "presente".
+        const itemsCliente = checklist.grupos.find(g => g.responsable === 'CLIENTE')?.items || [];
+        const noPresente = (k) => !itemsCliente.find(i => i.key === k)?.presente;
+        const bloqueos = bloqueosDeFirma(exp, op, {
+            faltaIban: noPresente('numero_cuenta'),
+            faltaJustificante: noPresente('justificante'),
+        });
+        const acciones = buildSolicitudAcciones(checklist, { expId: exp.id, uploadBase, bloqueos });
 
         // Datos de la OBRA (cliente + dirección) para personalizar el mensaje al
         // instalador, que puede llevar varias obras a la vez.
@@ -1235,7 +1303,7 @@ router.get('/:id/solicitud-info', internalKeyOrAuth, async (req, res) => {
                 subirRite: `${FRONTEND}/subir-rite/${exp.id}`,
                 subirCifo: `${FRONTEND}/subir-cifo/${exp.id}`,
             },
-            pendientes: buildSolicitudPendientes(checklist, { hayInstalador }),
+            pendientes: buildSolicitudPendientes(checklist, { hayInstalador, bloqueos }),
         });
     } catch (err) {
         console.error('[solicitud-info]', err.message);

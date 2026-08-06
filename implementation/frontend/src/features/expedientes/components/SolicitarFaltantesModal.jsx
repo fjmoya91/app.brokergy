@@ -20,11 +20,15 @@ const RECIPIENTS = [
     { id: 'INSTALADOR', key: 'instalador', label: 'Instalador' },
 ];
 
+// SIN EMOJIS a propósito: esto se manda a clientes e instaladores en nombre de
+// Brokergy, y un mensaje de trabajo que reclama documentación se lee mejor sin
+// decoración. Los asteriscos de WhatsApp (negrita) tampoco se usan aquí: el
+// mismo texto viaja por email, donde se ven como asteriscos sueltos.
 function buildMessage({ nombre, numExp, acciones, obra, target }) {
-    const saludo = `Hola${nombre ? ` ${nombre}` : ''} 👋`;
+    const saludo = `Hola${nombre ? ` ${nombre}` : ''},`;
     // Para el instalador (lleva varias obras a la vez) indicamos cliente + dirección.
     const obraLine = (target === 'INSTALADOR' && obra && (obra.cliente || obra.direccion))
-        ? `\n\n📍 Obra de *${obra.cliente || '—'}*${obra.direccion ? ` — ${obra.direccion}` : ''}\nExpediente ${numExp || ''}`
+        ? `\n\nObra de ${obra.cliente || '—'}${obra.direccion ? ` — ${obra.direccion}` : ''}\nExpediente ${numExp || ''}`
         : '';
     if (!acciones || acciones.length === 0) {
         return `${saludo}${obraLine}\n\nDe momento no hay nada pendiente${target === 'INSTALADOR' ? '' : ' por tu parte'} en el expediente ${numExp || ''}.\n\nBROKERGY — Ingeniería Energética`;
@@ -37,9 +41,9 @@ function buildMessage({ nombre, numExp, acciones, obra, target }) {
         const relay = target === 'INSTALADOR' && a.owner === 'CLIENTE';
         const titulo = relay ? (a.tituloRelay || a.titulo) : a.titulo;
         const nota = relay ? (a.notaRelay || a.nota) : a.nota;
-        const items = (a.items || []).map(it => `   • ${it}`).join('\n');
+        const items = (a.items || []).map(it => `   - ${it}`).join('\n');
         const notaStr = nota ? `\n${nota}` : '';
-        const linkLine = relay ? `🔗 Enlace para el cliente: ${a.url}` : `👉 ${a.url}`;
+        const linkLine = relay ? `Enlace para el cliente: ${a.url}` : `Enlace: ${a.url}`;
         return `${i + 1}) ${titulo}:\n${items}${notaStr}\n${linkLine}`;
     }).join('\n\n');
     return `${saludo}${obraLine}\n\n${intro}\n\n${blocks}\n\nGracias.\nBROKERGY — Ingeniería Energética`;
@@ -51,7 +55,10 @@ function buildMessage({ nombre, numExp, acciones, obra, target }) {
 function buildAccionesFromItems(allItems, owner, info) {
     const urls = info?.urls || {};
     const uploadBase = info?.uploadBase || null;
-    const mine = (allItems || []).filter(it => it.incluido && !it.waived && it.owner === owner);
+    // `bloqueado` = el documento a firmar todavía no se puede emitir bien (Anexo I
+    // sin nº de serie, Cesión sin IBAN, CIFO sin RITE/factura). No entra en el
+    // mensaje ni marcándolo a mano: el enlace serviría un borrador para tirar.
+    const mine = (allItems || []).filter(it => it.incluido && !it.waived && !it.bloqueado && it.owner === owner);
     const acciones = [];
 
     // Datos y firmas de anexos (siempre del CLIENTE). La secuencia "primero datos,
@@ -123,10 +130,23 @@ function buildAccionesFromItems(allItems, owner, info) {
 const TIPO_ORDER = { dato: 0, firma: 1, doc: 2, foto: 3 };
 function sortItems(a, b) {
     if (!!a.waived !== !!b.waived) return a.waived ? 1 : -1;
+    // Lo bloqueado va detrás de lo que sí se puede pedir hoy: no es una opción,
+    // es una consecuencia de lo de arriba.
+    if (!!a.bloqueado !== !!b.bloqueado) return a.bloqueado ? 1 : -1;
     const t = (TIPO_ORDER[a.tipo] ?? 9) - (TIPO_ORDER[b.tipo] ?? 9);
     if (t !== 0) return t;
     const fa = a.fase === 'DESPUES' ? 1 : 0, fb = b.fase === 'DESPUES' ? 1 : 0;
     return fa - fb;
+}
+
+// "Pedido el 21/07 · 2 veces" — la huella que ya viaja en cada pendiente. Sin
+// esto, el mismo mensaje se manda tres veces sin que nadie se entere.
+function huellaTexto(it) {
+    const p = it.peticion;
+    if (!p) return null;
+    const d = typeof p.dias === 'number' ? (p.dias === 0 ? 'hoy' : `hace ${p.dias} d`) : null;
+    const veces = p.veces > 1 ? ` · ${p.veces} veces` : '';
+    return `Ya pedido${d ? ` ${d}` : ''}${veces}`;
 }
 
 export function SolicitarFaltantesModal({ isOpen, onClose, expedienteId, numeroExpediente }) {
@@ -204,6 +224,14 @@ export function SolicitarFaltantesModal({ isOpen, onClose, expedienteId, numeroE
         ? [...cliAcciones, ...insAcciones]
         : (active === 'CLIENTE' ? cliAcciones : insAcciones);
     const tabItems = items.filter(it => it.owner === active);
+    // Lo que se va a pedir en el OTRO mensaje (el del otro destinatario). Se avisa
+    // en la propia pestaña: la del cliente no dice nada de las fotos del instalador
+    // y se enviaba creyendo que se había pedido todo.
+    const otroId = active === 'CLIENTE' ? 'INSTALADOR' : 'CLIENTE';
+    const otroItems = (todoAlInstalador && active === 'INSTALADOR')
+        ? []
+        : items.filter(it => it.owner === otroId && it.incluido && !it.waived && !it.bloqueado);
+    const otroPendiente = { id: otroId, n: otroItems.length, labels: otroItems.map(i => i.label) };
     const actChannels = channels[active] || [];
     const sinPendientes = !loading && acciones.length === 0;
     const puedeTodoInstalador = cliAcciones.length > 0;
@@ -219,7 +247,7 @@ export function SolicitarFaltantesModal({ isOpen, onClose, expedienteId, numeroE
             INSTALADOR: buildMessage({ nombre: dest.INSTALADOR?.nombre, numExp, acciones: todoAlInstalador ? [...cliAcc, ...insAcc] : insAcc, obra: info?.obra, target: 'INSTALADOR' }),
         });
     };
-    const toggleIncluido = (it) => { if (!it.waived) applyItems(items.map(x => x.key === it.key ? { ...x, incluido: !x.incluido } : x)); };
+    const toggleIncluido = (it) => { if (!it.waived && !it.bloqueado) applyItems(items.map(x => x.key === it.key ? { ...x, incluido: !x.incluido } : x)); };
     const switchOwner = (it) => applyItems(items.map(x => x.key === it.key ? { ...x, owner: x.owner === 'CLIENTE' ? 'INSTALADOR' : 'CLIENTE' } : x));
     // "No necesario" PERSISTE en el expediente (docs_overrides[slot].waived), igual
     // que el botón del slot de fotos: deja de contar como pendiente en toda la app.
@@ -338,7 +366,9 @@ export function SolicitarFaltantesModal({ isOpen, onClose, expedienteId, numeroE
 
     return (
         <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/70 backdrop-blur-sm animate-fade-in p-4">
-            <div className="bg-bkg-deep border border-white/10 rounded-2xl w-full max-w-lg shadow-2xl flex flex-col max-h-[90vh]" onClick={e => e.stopPropagation()}>
+            {/* En PC el checklist y el mensaje van EN PARALELO (dos columnas): lo que
+                se marca a la izquierda se ve redactado a la derecha sin scroll. */}
+            <div className="bg-bkg-deep border border-white/10 rounded-2xl w-full max-w-lg lg:max-w-5xl shadow-2xl flex flex-col max-h-[92vh]" onClick={e => e.stopPropagation()}>
                 {/* Header */}
                 <div className="p-5 border-b border-white/10 flex items-center justify-between">
                     <div>
@@ -355,7 +385,7 @@ export function SolicitarFaltantesModal({ isOpen, onClose, expedienteId, numeroE
                     <div className="grid grid-cols-2 gap-2 p-1 bg-white/[0.03] rounded-xl border border-white/10">
                         {RECIPIENTS.map(r => {
                             const n = !legacy
-                                ? items.filter(it => it.owner === r.id && it.incluido && !it.waived).length
+                                ? items.filter(it => it.owner === r.id && it.incluido && !it.waived && !it.bloqueado).length
                                 : (info?.[r.key]?.acciones || []).length;
                             return (
                                 <button key={r.id} onClick={() => setActive(r.id)}
@@ -378,7 +408,8 @@ export function SolicitarFaltantesModal({ isOpen, onClose, expedienteId, numeroE
                     ) : error ? (
                         <div className="px-4 py-3 rounded-xl border border-red-400/20 bg-red-500/[0.06] text-[12px] text-red-400">⚠️ {error}</div>
                     ) : (
-                        <>
+                        <div className="grid lg:grid-cols-2 lg:gap-7 lg:items-start">
+                          <div>
                             {/* Destinatario (editable) — por defecto la persona de notificaciones */}
                             <div className="flex items-center justify-between mb-1.5">
                                 <p className="text-[9px] font-black text-white/30 uppercase tracking-widest">Destinatario</p>
@@ -455,23 +486,27 @@ export function SolicitarFaltantesModal({ isOpen, onClose, expedienteId, numeroE
                                             <p className="text-[9px] font-black text-white/30 uppercase tracking-widest">Qué se pide</p>
                                             <p className="text-[9px] text-white/25">✓ incluir · ⇄ destinatario · 🚫 no necesario</p>
                                         </div>
-                                        <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
+                                        <div className="space-y-1.5 max-h-56 lg:max-h-[46vh] overflow-y-auto pr-1">
                                             {tabItems.map(it => {
                                                 const otherLabel = it.owner === 'CLIENTE' ? 'Instalador' : 'Cliente';
+                                                const huella = huellaTexto(it);
                                                 return (
-                                                    <div key={it.key} className={`flex items-center gap-2.5 px-2.5 py-2 rounded-lg border transition-all ${it.waived ? 'border-white/5 bg-white/[0.01] opacity-60' : it.incluido ? 'border-brand/25 bg-brand/[0.05]' : 'border-white/10 bg-white/[0.02]'}`}>
-                                                        <button type="button" onClick={() => toggleIncluido(it)} disabled={it.waived}
-                                                            className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 transition-all ${it.waived ? 'border-white/10 cursor-not-allowed' : it.incluido ? 'border-brand bg-brand' : 'border-white/25 hover:border-white/50'}`}>
-                                                            {it.incluido && !it.waived && <svg className="w-3 h-3 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
+                                                    <div key={it.key} className={`flex items-center gap-2.5 px-2.5 py-2 rounded-lg border transition-all ${it.waived ? 'border-white/5 bg-white/[0.01] opacity-60' : it.bloqueado ? 'border-white/5 bg-white/[0.01]' : it.incluido ? 'border-brand/25 bg-brand/[0.05]' : 'border-white/10 bg-white/[0.02]'}`}>
+                                                        <button type="button" onClick={() => toggleIncluido(it)} disabled={it.waived || it.bloqueado}
+                                                            title={it.bloqueado ? it.nota || 'Todavía no se puede pedir' : undefined}
+                                                            className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 transition-all ${(it.waived || it.bloqueado) ? 'border-white/10 cursor-not-allowed' : it.incluido ? 'border-brand bg-brand' : 'border-white/25 hover:border-white/50'}`}>
+                                                            {it.incluido && !it.waived && !it.bloqueado && <svg className="w-3 h-3 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
                                                         </button>
                                                         <div className="min-w-0 flex-1">
                                                             <div className="flex items-center gap-1.5 flex-wrap">
-                                                                <span className={`text-[11px] font-bold ${it.waived ? 'text-white/35 line-through' : 'text-white/85'}`}>{it.label}</span>
-                                                                {it.fase && <span className={`text-[8px] font-black px-1 py-0.5 rounded uppercase tracking-wider shrink-0 ${it.fase === 'DESPUES' ? 'bg-sky-500/15 text-sky-300' : 'bg-amber-500/15 text-amber-300'}`}>{it.fase === 'DESPUES' ? 'Después' : 'Antes'}</span>}
-                                                                {!it.required && !it.waived && <span className="text-[8px] font-black px-1 py-0.5 rounded uppercase tracking-wider bg-white/5 text-white/35 shrink-0">Opcional</span>}
+                                                                <span className={`text-[11px] font-bold ${it.waived ? 'text-white/35 line-through' : it.bloqueado ? 'text-white/40' : 'text-white/85'}`}>{it.label}</span>
+                                                                {it.fase && !it.bloqueado && <span className={`text-[8px] font-black px-1 py-0.5 rounded uppercase tracking-wider shrink-0 ${it.fase === 'DESPUES' ? 'bg-sky-500/15 text-sky-300' : 'bg-amber-500/15 text-amber-300'}`}>{it.fase === 'DESPUES' ? 'Después' : 'Antes'}</span>}
+                                                                {!it.required && !it.waived && !it.bloqueado && <span className="text-[8px] font-black px-1 py-0.5 rounded uppercase tracking-wider bg-white/5 text-white/35 shrink-0">Opcional</span>}
                                                                 {it.waived && <span className="text-[8px] font-black px-1 py-0.5 rounded uppercase tracking-wider bg-white/5 text-white/35 shrink-0">No necesario</span>}
+                                                                {it.bloqueado && <span className="text-[8px] font-black px-1 py-0.5 rounded uppercase tracking-wider bg-white/5 text-white/40 shrink-0">Aún no</span>}
+                                                                {huella && !it.waived && !it.bloqueado && <span className="text-[8px] font-black px-1 py-0.5 rounded uppercase tracking-wider bg-sky-500/10 text-sky-300/70 shrink-0">{huella}</span>}
                                                             </div>
-                                                            {it.nota && !it.waived && <p className="text-[9px] text-amber-400/60 mt-0.5">{it.nota}</p>}
+                                                            {it.nota && !it.waived && <p className={`text-[9px] mt-0.5 ${it.bloqueado ? 'text-white/35' : 'text-amber-400/60'}`}>{it.nota}</p>}
                                                         </div>
                                                         {it.flujo === 'subir-docs' && !it.waived && (
                                                             <button type="button" onClick={() => switchOwner(it)} title={`Pedírselo al ${otherLabel.toLowerCase()}`}
@@ -512,6 +547,22 @@ export function SolicitarFaltantesModal({ isOpen, onClose, expedienteId, numeroE
                                 <p className="text-[10px] text-amber-400/70 mb-4">⚠️ Pendiente de completar por Brokergy (no se solicita al cliente): {info.cliente.adminPendiente.join(', ')}.</p>
                             )}
 
+                            {/* Lo que le toca al OTRO destinatario. El modal enseña un
+                                mensaje cada vez y era fácil enviar el del cliente creyendo
+                                que se pedía todo, dejando sin pedir lo del instalador. */}
+                            {!legacy && otroPendiente.n > 0 && (
+                                <button type="button" onClick={() => setActive(otroPendiente.id)}
+                                    className="w-full text-left px-3 py-2.5 mb-4 rounded-xl border border-amber-400/25 bg-amber-500/[0.06] hover:border-amber-400/50 transition-all">
+                                    <p className="text-[11px] text-amber-300 font-bold">
+                                        Faltan {otroPendiente.n} cosa{otroPendiente.n === 1 ? '' : 's'} más que se le piden {otroPendiente.id === 'INSTALADOR' ? 'al instalador' : 'al cliente'} en su propio mensaje.
+                                    </p>
+                                    <p className="text-[10px] text-white/45 mt-0.5 truncate">{otroPendiente.labels.join(' · ')}</p>
+                                    <p className="text-[9px] font-black uppercase tracking-widest text-amber-400/80 mt-1">Ir a ese mensaje →</p>
+                                </button>
+                            )}
+                          </div>
+
+                          <div>
                             {/* Canales */}
                             <p className="text-[9px] font-black text-white/30 uppercase tracking-widest mb-2">Enviar por</p>
                             <div className="flex gap-2 mb-4">
@@ -531,7 +582,7 @@ export function SolicitarFaltantesModal({ isOpen, onClose, expedienteId, numeroE
                                 value={messages[active]}
                                 onChange={e => setMessages(prev => ({ ...prev, [active]: e.target.value }))}
                                 rows={13}
-                                className="w-full bg-black/30 border border-white/10 rounded-xl p-3 text-xs text-white/90 leading-relaxed focus:outline-none focus:border-brand/40 resize-y font-mono no-uppercase"
+                                className="w-full lg:h-[44vh] bg-black/30 border border-white/10 rounded-xl p-3 text-xs text-white/90 leading-relaxed focus:outline-none focus:border-brand/40 resize-y font-mono no-uppercase"
                             />
 
                             {result[active] && result[active].type === 'error' && (
@@ -539,7 +590,8 @@ export function SolicitarFaltantesModal({ isOpen, onClose, expedienteId, numeroE
                                     ⚠️ {result[active].text}
                                 </div>
                             )}
-                        </>
+                          </div>
+                        </div>
                     )}
                 </div>
 

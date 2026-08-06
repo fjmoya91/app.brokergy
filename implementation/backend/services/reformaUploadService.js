@@ -112,6 +112,17 @@ function getSlotDef(funnel, slotKey, origen = 'aerotermia') {
 
 const PHASE = { ANTES: 'ANTES', DESPUES: 'DESPUES' };
 
+// Material que se pide ÚNICAMENTE para que el certificador levante el CEE
+// inicial. Deja de exigirse en cuanto ese CEE está registrado (ver el final de
+// buildDocChecklist).
+const CEE_CAPTACION_SLOTS = new Set([
+    'FOTO_FACHADA_PRINCIPAL',
+    'FOTO_PATIOS_INTERIORES',
+    'VIDEO_VIVIENDA',
+    'DOC_PLANOS',
+    'DOC_CEE_EXISTENTE',
+]);
+
 // Slots cuya foto se sube SIEMPRE a resolución original: son primeros planos de la
 // PLACA DE CARACTERÍSTICAS, y de ahí se leen marca, modelo, potencia y nº de serie
 // (van al CIFO y al Anexo I). Reducirlas aunque sea un poco puede dejar el serial
@@ -140,6 +151,11 @@ const ADDABLE_CONCEPTS = [
     { id: 'acs',      label: 'ACS: sistema actual + depósito', slots: ['FOTO_ACS_ANTES', 'FOTO_ACS_DEPOSITO'] },
     { id: 'placas',   label: 'Placas solares (después)', slots: ['FOTO_PLACAS_SOLARES'] },
     { id: 'suelo_radiante', label: 'Armario del suelo radiante (después)', slots: ['FOTO_ARMARIO_SUELO_RADIANTE'] },
+    // Unidad terminal de AGUA que NO es suelo radiante (radiadores). Es la pareja
+    // del armario de colectores: en la ficha, el emisor existente es quien fija la
+    // temperatura de impulsión y con ella el SCOP que se declara, así que hay que
+    // poder enseñarlo. Uno u otro, nunca los dos (ver conceptsFromInstalacion).
+    { id: 'emisores', label: 'Radiadores / unidad terminal (antes)', slots: ['FOTO_EMISORES_ANTES'] },
     // Calentamiento de agua de piscina (AE_CAP de la ficha TER100). La ficha exige
     // informe fotográfico "antes y después de la instalación de la bomba de calor",
     // y el circuito de piscina es una actuación aparte de la de calefacción/ACS.
@@ -180,8 +196,12 @@ function conceptsFromEnvolvente(envolvente) {
 
 /**
  * Ids de ADDABLE_CONCEPTS que declara la pestaña INSTALACIÓN del expediente:
- *   · emisor: con suelo radiante hay armario de colectores, y esa foto (circuitos
- *     + conexión con la bomba de calor) no la cubre ningún otro apartado.
+ *   · emisor: la unidad terminal EXISTENTE es la que fija la temperatura de
+ *     impulsión y con ella el SCOP declarado, así que se documenta siempre —
+ *     con suelo radiante, el armario de colectores; con radiadores, el radiador.
+ *     Uno u otro: son el mismo dato visto por sus dos formas. Los emisores
+ *     aire-aire de un RES080 (splits/conductos) no entran: esa foto ya es la de
+ *     la unidad interior.
  *   · piscina: si el expediente TER100 incluye calentamiento de agua de piscina,
  *     ese circuito es una actuación aparte que hay que documentar antes/después.
  * Ambos los fija el admin en Instalación, después de la simulación.
@@ -191,8 +211,22 @@ function conceptsFromInstalacion(instalacion) {
     const emisor = String(inst.tipo_emisor || '').toLowerCase();
     const ids = [];
     if (emisor === 'suelo_radiante') ids.push('suelo_radiante');
+    else if (emisor.startsWith('radiadores')) ids.push('emisores');
     if (inst.piscina?.activa === true) ids.push('piscina');
     return ids;
+}
+
+/**
+ * Los mismos apartados que `conceptsFromInstalacion`, pero en forma de
+ * `docs_overrides` para poder computarlos ON-READ sin escribir en BD.
+ * `syncInstalacionConcepts` los PERSISTE al guardar el expediente; esto permite
+ * que el barrido de un expediente que aún no se ha vuelto a guardar ya los vea.
+ */
+function overridesFromInstalacion(instalacion) {
+    const slots = ADDABLE_CONCEPTS
+        .filter(c => conceptsFromInstalacion(instalacion).includes(c.id))
+        .flatMap(c => c.slots);
+    return Object.fromEntries(slots.map(k => [k, { enabled: true }]));
 }
 
 /**
@@ -282,9 +316,14 @@ function deriveSelectors(datosCalculo = {}) {
     // válvulas y conexión con la bomba de calor) no la cubre ningún otro apartado.
     // Si el expediente lo declara más tarde en la pestaña Instalación, llega por
     // docs_overrides (syncInstalacionConcepts), no por aquí.
-    const sueloRadiante = inputs.emitterType !== undefined
-        ? inputs.emitterType === 'suelo_radiante'
-        : funnel.emisor_tipo === 'suelo_radiante';
+    const emisorTipo = String(
+        inputs.emitterType !== undefined ? inputs.emitterType : (funnel.emisor_tipo || '')
+    ).toLowerCase();
+    const sueloRadiante = emisorTipo === 'suelo_radiante';
+    // Radiadores: la unidad terminal existente que hay que poder enseñar cuando NO
+    // hay suelo radiante. Los aire-aire (splits/conductos de un RES080) quedan
+    // fuera: esa foto es la de la unidad interior.
+    const radiadores = emisorTipo.startsWith('radiadores');
 
     // ¿Hay caldera de combustión que se va a sustituir?
     const fuel = String(inputs.fuelType || '').toLowerCase();
@@ -305,7 +344,7 @@ function deriveSelectors(datosCalculo = {}) {
     // desmontada" del DESPUÉS por "depósito de ACS junto a la caldera antigua".
     const hibridacion = inputs.hibridacion === true || datosCalculo.hibridacion === true;
 
-    return { reforma, changeAcs, hayCaldera, hibridacion, sueloRadiante };
+    return { reforma, changeAcs, hayCaldera, hibridacion, sueloRadiante, radiadores };
 }
 
 /**
@@ -336,6 +375,12 @@ function buildDocChecklist(datosCalculo = {}) {
         push({ key: 'FOTO_PLACA_CALDERA_ANTES', fase: PHASE.ANTES, required: true, gating: 'pre_aceptacion', multiple: true, accept: ACCEPT_FOTO,
                label: 'Placa de la caldera', help: 'La etiqueta del fabricante. Acércate hasta que se lean marca, modelo y potencia.' });
     }
+    // Unidad terminal EXISTENTE con radiadores. Su pareja con suelo radiante es
+    // FOTO_ARMARIO_SUELO_RADIANTE (fase DESPUÉS, junto al equipo nuevo): nunca se
+    // piden las dos. Justifica la temperatura de impulsión con la que se declara
+    // el SCOP, así que no la cubre ninguna otra foto.
+    if (want('FOTO_EMISORES_ANTES', sel.radiadores)) push({ key: 'FOTO_EMISORES_ANTES', fase: PHASE.ANTES, required: false, multiple: true, accept: ACCEPT_FOTO,
+           label: 'Radiadores existentes', help: 'Una foto de un radiador tipo de la vivienda. Es la unidad terminal que se conserva y la que fija la temperatura de impulsión del equipo nuevo.' });
     push({ key: 'FOTO_FACHADA_PRINCIPAL', fase: PHASE.ANTES, required: false, multiple: true, accept: ACCEPT_FOTO,
            label: 'Fachada de la calle (completa)', help: 'Para ver cuántas ventanas hay y su tamaño.' });
     push({ key: 'FOTO_PATIOS_INTERIORES', fase: PHASE.ANTES, required: false, multiple: true, accept: ACCEPT_FOTO,
@@ -358,7 +403,9 @@ function buildDocChecklist(datosCalculo = {}) {
     // Piscina (TER100): el circuito se habilita desde la pestaña Instalación, nunca
     // desde la simulación — de ahí que solo entre por docs_overrides.
     if (want('FOTO_PISCINA_ANTES', false)) push({ key: 'FOTO_PISCINA_ANTES', fase: PHASE.ANTES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Calentamiento de piscina actual', help: 'El equipo que calienta hoy el agua de la piscina y su conexión con el circuito.' });
-    push({ key: 'OTROS_ANTES', fase: PHASE.ANTES, required: false, multiple: true, named: true, accept: ACCEPT_CUALQUIERA,
+    // `optionalAlways` como su gemelo OTROS_DESPUES: es un cajón de sastre, no un
+    // documento con nombre — reclamárselo a nadie ("súbeme otros") no significa nada.
+    push({ key: 'OTROS_ANTES', fase: PHASE.ANTES, required: false, multiple: true, named: true, optionalAlways: true, accept: ACCEPT_CUALQUIERA,
            label: 'Otros (antes de la obra)', help: 'PDF, fotos, vídeos u otros archivos que no encajen en las categorías anteriores. Al subirlos se te pedirá un nombre para guardarlos identificados.' });
 
     // ───────── DESPUÉS DE LA OBRA ─────────
@@ -369,10 +416,11 @@ function buildDocChecklist(datosCalculo = {}) {
     // La unidad INTERIOR en sí (no su placa). Existía en el mapa de actuaciones del
     // Anexo y el generador la recogía de Drive, pero el checklist no la emitía: era
     // un slot fantasma, imposible de subir ("Tipo de documento no válido" = el POST
-    // no encuentra el slot en el checklist). `optionalAlways` a propósito — se emite
-    // para que sea un destino válido de subida, NO para añadir una exigencia nueva a
-    // todos los expedientes al pasar a ACEPTADA.
-    push({ key: 'FOTO_UNIDAD_INTERIOR', fase: PHASE.DESPUES, required: false, optionalAlways: true, multiple: true, accept: ACCEPT_FOTO,
+    // no encuentra el slot en el checklist). Nació `optionalAlways` para no añadir
+    // exigencias al reactivarlo; se le quitó porque el equipo instalado es justo lo
+    // que documenta el Anexo Fotográfico: la app la marcaba como "falta esta foto"
+    // y en cambio "solicitar lo que falta" nunca llegaba a pedirla.
+    push({ key: 'FOTO_UNIDAD_INTERIOR', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO,
            label: 'Unidad interior / ACS', help: 'La unidad de dentro (split, hidrokit o depósito) ya instalada.' });
     push({ key: 'FOTO_UNIDAD_INTERIOR_PLACA', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO,
            label: 'Placa de la unidad interior / DEPOSITO ACS', help: 'La etiqueta de datos de la unidad de dentro o del depósito de agua caliente. Que se lean marca, modelo y número de serie.' });
@@ -406,6 +454,23 @@ function buildDocChecklist(datosCalculo = {}) {
     if (datosCalculo.estado === 'ACEPTADA') {
         for (const s of slots) {
             if (!s.optionalAlways) s.required = true;
+        }
+    }
+
+    // ── El CEE inicial ya registrado cierra el material de CAPTACIÓN ──────────
+    // Fachada, patios, vídeo, planos y CEE previo no son documentación del
+    // expediente: son el material con el que el certificador levanta el CEE
+    // inicial. Una vez ese CEE está REGISTRADO ya cumplieron su función —
+    // seguir reclamándolos manda a molestar al cliente por fotos que nadie va a
+    // mirar. La caldera y su placa NO entran aquí: de ahí salen el Anexo
+    // Fotográfico y los datos del equipo antiguo del CIFO.
+    // Lo activa quien conoce el estado del expediente (el barrido), pasando
+    // `cee_inicial_registrado`: este servicio solo ve la oportunidad.
+    if (datosCalculo.cee_inicial_registrado === true) {
+        for (const s of slots) {
+            if (!CEE_CAPTACION_SLOTS.has(s.key)) continue;
+            s.required = false;
+            s.noRequeridoMotivo = 'Ya no hace falta — el CEE inicial está registrado';
         }
     }
 
@@ -1008,7 +1073,9 @@ module.exports = {
     conceptsFromEnvolvente,
     syncEnvolventeConcepts,
     conceptsFromInstalacion,
+    overridesFromInstalacion,
     syncInstalacionConcepts,
+    CEE_CAPTACION_SLOTS,
     syncRiteToExpediente,
     addFacturaToExpediente,
     removeFacturaFromExpediente,

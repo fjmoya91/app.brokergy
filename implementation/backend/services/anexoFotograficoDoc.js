@@ -39,7 +39,7 @@ const ANEXO_ACTUACIONES = [
         desc: 'Retirada del sistema de calefacción existente e instalación de un sistema de aerotermia de alta eficiencia energética.',
         bandAntes: 'Antes · Situación inicial',
         bandDespues: 'Después · Actuación ejecutada',
-        antes: ['FOTO_CALDERA_ANTES', 'FOTO_PLACA_CALDERA_ANTES', 'FOTO_ACS_ANTES'],
+        antes: ['FOTO_CALDERA_ANTES', 'FOTO_PLACA_CALDERA_ANTES', 'FOTO_EMISORES_ANTES', 'FOTO_ACS_ANTES'],
         despues: ['FOTO_UNIDAD_EXTERIOR', 'FOTO_UNIDAD_EXTERIOR_PLACA', 'FOTO_UNIDAD_INTERIOR', 'FOTO_UNIDAD_INTERIOR_PLACA', 'FOTO_ARMARIO_SUELO_RADIANTE', 'FOTO_ACS_DEPOSITO', 'FOTO_CALDERA_DESMONTADA'],
     },
     {
