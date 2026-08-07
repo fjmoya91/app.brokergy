@@ -53,8 +53,18 @@ def _elegir_esquema(datos):
     histórico para no romper la generación, avisando por log.
     """
     meta = datos.get("_meta", {}) or {}
-    familia = "suelo" if "SUELO" in (meta.get("emisor", "") or "").upper() else "radiadores"
+    emisor = (meta.get("emisor", "") or "").upper()
+    familia = next((f for clave, f in (("SUELO", "suelo"), ("CONDUCTO", "conductos"),
+                                       ("SPLIT", "splits"))
+                    if clave in emisor), "radiadores")
     modo = meta.get("acs_modo") or ("interacumulador" if datos.get("objeto", {}).get("acs") else "sin_acs")
+
+    # AIRE-AIRE (conductos / splits): no hay circuito de agua, así que el ACS no
+    # puede salir de un interacumulador cargado por la unidad — siempre lo da un
+    # equipo independiente. Si el expediente dice "mismo equipo para ACS" es un
+    # error de datos, no una instalación posible.
+    if familia in ("conductos", "splits") and modo == "interacumulador":
+        modo = "bdc_acs"
 
     especifico = os.path.join(ASSETS, f"esquema_{familia}_{modo}.png")
     if os.path.exists(especifico):
