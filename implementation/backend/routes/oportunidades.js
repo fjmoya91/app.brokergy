@@ -1257,6 +1257,22 @@ router.get('/:id/docs', enforceAuth, async (req, res) => {
     }
 });
 
+// GET /api/oportunidades/:id/upload-link → solo el enlace público de subida.
+// Hermano ligero de `/docs`: aquel reconcilia la carpeta de Drive entera, y la
+// propuesta solo necesita la URL para imprimir su botón "Subir documentación".
+router.get('/:id/upload-link', enforceAuth, async (req, res) => {
+    try {
+        const opp = await findOppForDocs(req.params.id);
+        if (!opp) return res.status(404).json({ error: 'Oportunidad no encontrada' });
+        // Idempotente: si la oportunidad es anterior a la siembra del token, lo crea.
+        const link = await reformaUploadService.ensureUploadLink(opp.id);
+        return res.json({ upload_link: link });
+    } catch (e) {
+        console.error('[Docs] upload-link error:', e.message);
+        res.status(500).json({ error: 'Error interno' });
+    }
+});
+
 // ── Curación de fotos para el ESCAPARATE público (instaladores.brokergy.es) ──
 // Deriva fase y actuación del nombre del slot FOTO_*.
 function faseDeSlot(slot) {

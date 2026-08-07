@@ -1,8 +1,14 @@
 FROM node:20-slim
 
 # Chrome dependencies + Google Chrome Stable
+#
+# fonts-noto-color-emoji: SIN ella el contenedor no tiene NINGUNA fuente con
+# emojis (solo fonts-liberation) y Chrome los pinta como cuadraditos "tofu" al
+# generar el PDF — se veían bien en el navegador del usuario y mal en el PDF
+# enviado al cliente (propuesta, anexo fotográfico…). Es un arreglo de fuente,
+# no de maquetado: ningún documento cambia salvo esos glifos.
 RUN apt-get update && apt-get install -y \
-    wget ca-certificates fonts-liberation \
+    wget ca-certificates fonts-liberation fonts-noto-color-emoji \
     procps \
     libatk-bridge2.0-0 libatk1.0-0 libcairo2 libcups2 \
     libdbus-1-3 libgbm1 libglib2.0-0 libgtk-3-0 \

@@ -257,6 +257,8 @@ const baseCss = `
         .prop-dsend p { margin: 0; padding: 0; }
         .prop-dsend .t { font-size: 9.5px; font-weight: 800; color: var(--green-dark); margin-bottom: 3px; }
         .prop-dsend .d { font-size: 9.5px; color: var(--g600); line-height: 1.5; }
+        .prop-dsend-btn { display: inline-flex; align-items: center; gap: 9px; margin-top: 10px; background: var(--green-dark); color: var(--white); font-weight: 800; font-size: 10.5px; padding: 8px 12px 8px 16px; border-radius: 50px; text-decoration: none; line-height: 1; letter-spacing: 0.3px; }
+        .prop-dsend-btn span.a { width: 18px; height: 18px; border-radius: 50%; background: var(--white); color: var(--green-dark); display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 900; line-height: 1; }
 
         .prop-tipbar { background: var(--yellow-light); border: 1px solid var(--g200); border-top: 4px solid var(--yellow); border-radius: 10px; padding: 18px 20px; margin-top: 26px; }
         .prop-tipbar h5 { margin: 0 0 4px; padding: 0; font-size: 9.5px; font-weight: 800; color: var(--g800); text-transform: uppercase; letter-spacing: 0.4px; }
@@ -378,6 +380,9 @@ export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }
     // bucle de medición. Va en el DOM, así que el PDF hereda la misma clase.
     const [page1Compact, setPage1Compact] = useState(false);
     const [brokergyLogo, setBrokergyLogo] = useState(`${APP_URL}${BROKERGY_LOGO_PATH}`);
+    // Enlace público de subida (/subir-docs/:uuid?token=) — el MISMO que se le
+    // manda al cliente por WhatsApp para pedirle las fotos.
+    const [uploadLink, setUploadLink] = useState(null);
     const [generating, setGenerating] = useState(false);
     const [savingToDrive, setSavingToDrive] = useState(false);
     const [scale, setScale] = useState(1);
@@ -655,6 +660,17 @@ export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }
         })();
         return () => { cancelado = true; };
     }, [isOpen]);
+
+    // Enlace de subida para el botón de la página de documentación. Una simulación
+    // sin guardar no tiene oportunidad —ni token—, así que el botón no sale.
+    useEffect(() => {
+        if (!isOpen || !inputs?.id_oportunidad) { setUploadLink(null); return; }
+        let cancelado = false;
+        axios.get(`/api/oportunidades/${inputs.id_oportunidad}/upload-link`)
+            .then(r => { if (!cancelado) setUploadLink(r.data?.upload_link || null); })
+            .catch(() => { if (!cancelado) setUploadLink(null); });
+        return () => { cancelado = true; };
+    }, [isOpen, inputs?.id_oportunidad]);
 
     // Vuelta al tamaño normal cuando cambia lo que ocupa la portada, para no
     // arrastrar un "compacto" heredado de otra propuesta.
@@ -2500,7 +2516,22 @@ info@brokergy.es · 623 926 179`;
 
                                             <div className="prop-dsend">
                                                 <p className="t">📩 ¿Cómo enviar la documentación?</p>
-                                                <p className="d">Puede enviar toda la documentación a <strong>info@brokergy.es</strong> o por WhatsApp al <strong>623 926 179</strong>. No es necesario enviarla toda de una vez; puede ir recopilándola progresivamente.</p>
+                                                {uploadLink ? (
+                                                    <p className="d">Lo más cómodo es subirla desde su enlace privado: la recibimos al instante y verá qué le falta en cada momento. También puede enviarla a <strong>info@brokergy.es</strong> o por WhatsApp al <strong>623 926 179</strong>. No es necesario enviarla toda de una vez.</p>
+                                                ) : (
+                                                    <p className="d">Puede enviar toda la documentación a <strong>info@brokergy.es</strong> o por WhatsApp al <strong>623 926 179</strong>. No es necesario enviarla toda de una vez; puede ir recopilándola progresivamente.</p>
+                                                )}
+                                                {/* Mismo enlace que se le manda por WhatsApp para pedirle las fotos
+                                                    (/subir-docs/:uuid?token=). Sin oportunidad guardada no hay token:
+                                                    entonces la caja se queda como estaba, solo con email y teléfono.
+                                                    No se imprime la URL debajo, como sí hace el CTA de firma: esta
+                                                    lleva un token de 32 caracteres que nadie va a teclear. */}
+                                                {uploadLink && (
+                                                    <a href={uploadLink} target="_blank" rel="noopener noreferrer" className="prop-dsend-btn">
+                                                        <span>SUBIR MI DOCUMENTACIÓN AQUÍ</span>
+                                                        <span className="a">→</span>
+                                                    </a>
+                                                )}
                                             </div>
                                         </div>
                                     </div>
