@@ -157,8 +157,26 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
     const [pedirBusy, setPedirBusy]     = useState(false);
     const userEditedRef = useRef(false);
 
+    // ── A quién saludamos ────────────────────────────────────────────────────
+    // El saludo lo manda el/los contacto(s) MARCADOS, no el titular: si se escribe
+    // a la persona de contacto y el mensaje sigue diciendo "Hola FRANCISCO", quien
+    // lo recibe ve que va dirigido a otra persona (y delata la plantilla).
+    // Si hay varios marcados, se saludan todos ("Hola NOELIA y FRANCISCO").
+    const firstNameOf = (s) => (String(s || '').trim().split(/\s+/)[0] || '');
+    const greetName = (tgt, ids, manual = manualContact) => {
+        const list = tgt === 'cliente' ? cliContacts : instContacts;
+        const names = (ids || [])
+            .map(id => (id === 'otro' ? (manual?.name || '') : (list.find(c => c.id === id)?.label || '')))
+            .map(firstNameOf)
+            .filter(Boolean);
+        const uniq = [...new Set(names)];
+        if (uniq.length) return uniq.join(' y ');
+        // Sin contacto marcado: el titular para el cliente, saludo genérico para el instalador.
+        return tgt === 'cliente' ? firstName : '';
+    };
+
     // ── Mensaje por defecto (se adapta a destinatario + documentos) ──────────
-    const buildDefaultMessage = (tgt, docKeys) => {
+    const buildDefaultMessage = (tgt, docKeys, ids = selectedIds, manual = manualContact) => {
         // Sin documentos que enviar (p.ej. los dos bloqueados) no hay mensaje que
         // redactar: escribir el de la Cesión "por defecto" sería mentir.
         if (!docKeys || !docKeys.length) return '';
@@ -173,10 +191,12 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
             ? `\n\n———\n📎 *Enlace para subir los documentos firmados + foto del DNI (ambas caras):*\n${firmaUrl}`
             : '';
 
+        const saludo = greetName(tgt, ids, manual);
+
         if (tgt === 'cliente') {
-            if (both) return getDualMessage(firstName, beneficioStr, numexpte) + footerCliente;
+            if (both) return getDualMessage(saludo, beneficioStr, numexpte) + footerCliente;
             if (docKeys[0] === 'anexo1') {
-                return `Hola ${firstName}:\n\n`
+                return `Hola ${saludo}:\n\n`
                     + `Te adjunto el *Anexo I (Declaración Responsable)* de tu expediente *${numexpte}*, necesario para tramitar la ayuda.\n\n`
                     + `*Firma del documento:*\n`
                     + `1. *Firma electrónica* (recomendado si dispones de certificado digital).\n`
@@ -184,7 +204,7 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
                     + `Quedamos a la espera del documento firmado.\n\nUn saludo,\n*Brokergy · Ingeniería energética.*`
                     + footerCliente;
             }
-            return `Hola ${firstName}:\n\n`
+            return `Hola ${saludo}:\n\n`
                 + `Te adjunto el *Anexo de Cesión de Ahorros* de tu expediente *${numexpte}*, imprescindible para gestionar y tramitar la ayuda${beneficioStr && beneficioStr !== '___________' ? ` (importe estimado *${beneficioStr} €*)` : ''}.\n\n`
                 + `*Firma del documento:*\n`
                 + `1. *Firma electrónica* (recomendado si dispones de certificado digital).\n`
@@ -196,7 +216,7 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
         const docsLabel = both
             ? 'el *Anexo I (Declaración Responsable)* y el *Anexo de Cesión de Ahorros*'
             : (docKeys[0] === 'anexo1' ? 'el *Anexo I (Declaración Responsable)*' : 'el *Anexo de Cesión de Ahorros*');
-        return `¡Hola! 👋\n\n`
+        return `¡Hola${saludo ? ` ${saludo}` : ''}! 👋\n\n`
             + `Desde *Brokergy* os hacemos llegar ${docsLabel} del expediente *${numexpte}*${clienteNombre ? ` (cliente: *${clienteNombre}*)` : ''}.\n\n`
             + `Por favor, hacedlos llegar al titular para su firma o gestionad la recogida de firma según corresponda.\n\n`
             + `Ambos pueden firmarse de forma *electrónica* (con certificado digital) o *manuscrita* (con nombre, apellidos y DNI a mano + foto del DNI por ambas caras).\n\n`
@@ -246,7 +266,7 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
         setSelectedIncIds([]);
         setExtraNote(nota);
         setNoteInMessage(true);
-        const base = buildDefaultMessage(startTarget, startDocs);
+        const base = buildDefaultMessage(startTarget, startDocs, defIds, { name: '', phone: '', email: '' });
         setMessage(nota ? composeNote(base, nota) : base);
         setStatus(null);
         setSendPhase(null);
@@ -300,9 +320,9 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
     const blockedSelected = docs.filter(isBlocked);
 
     // ── Handlers de selección ────────────────────────────────────────────────
-    const applyMessage = (tgt, docKeys) => {
+    const applyMessage = (tgt, docKeys, ids = selectedIds, manual = manualContact) => {
         if (userEditedRef.current) return;
-        let base = buildDefaultMessage(tgt, docKeys);
+        let base = buildDefaultMessage(tgt, docKeys, ids, manual);
         if (noteInMessage) base = composeNote(base, buildObservaciones());
         setMessage(base);
     };
@@ -345,9 +365,19 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
         setTarget(tgt);
         setSelectedIds(defIds);
         setChannels({ email: sel.some(c => c.email), whatsapp: sel.some(c => phoneValid(c.phone)) });
-        applyMessage(tgt, docs);
+        applyMessage(tgt, docs, defIds);
     };
-    const toggleContact = (id) => setSelectedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+    // Cambiar de destinatario re-redacta el saludo (ver greetName).
+    const toggleContact = (id) => {
+        const next = selectedIds.includes(id) ? selectedIds.filter(x => x !== id) : [...selectedIds, id];
+        setSelectedIds(next);
+        applyMessage(target, docs, next);
+    };
+    const setManualName = (name) => {
+        const next = { ...manualContact, name };
+        setManualContact(next);
+        if (selectedIds.includes('otro')) applyMessage(target, docs, selectedIds, next);
+    };
     const toggleChannel = (ch) => setChannels(prev => ({ ...prev, [ch]: !prev[ch] }));
 
     const exitToExpediente = () => {
@@ -431,7 +461,8 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
                     // pregunta si reenviar desde el alternativo (ver utils/emailFallback).
                     await postEmail('/api/pdf/send-annex', {
                         to: c.email,
-                        userName: target === 'cliente' ? (clienteNombre || c.label) : c.label,
+                        // El nombre del email es el del CONTACTO al que se escribe, no el del titular.
+                        userName: c.label || clienteNombre,
                         customMessage: message,
                         summaryData: { id: numexpte, docType: docTypeLabel, userName: clienteNombre || c.label },
                         docs: docDefs.map(d => ({ html: d.html, fileName: d.fileName })),
@@ -619,7 +650,7 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
                             </button>
                             {selectedIds.includes('otro') && (
                                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pl-7">
-                                    <input value={manualContact.name} onChange={e => setManualContact(m => ({ ...m, name: e.target.value }))} placeholder="Nombre" className="w-full min-w-0 bg-bkg-elevated border border-white/5 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-brand/40 transition-all" />
+                                    <input value={manualContact.name} onChange={e => setManualName(e.target.value)} placeholder="Nombre"className="w-full min-w-0 bg-bkg-elevated border border-white/5 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-brand/40 transition-all" />
                                     <input value={manualContact.phone} onChange={e => setManualContact(m => ({ ...m, phone: e.target.value }))} placeholder="Teléfono" className="w-full min-w-0 bg-bkg-elevated border border-white/5 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-brand/40 transition-all" />
                                     <input type="email" value={manualContact.email} onChange={e => setManualContact(m => ({ ...m, email: e.target.value }))} placeholder="Email" className="w-full min-w-0 no-uppercase bg-bkg-elevated border border-white/5 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-brand/40 transition-all" />
                                 </div>
@@ -661,7 +692,7 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
                         <div className="flex items-center justify-between mb-2">
                             <label className="block text-[9px] font-black text-white/30 uppercase tracking-[0.2em]">Mensaje (email / WhatsApp)</label>
                             {userEditedRef.current && (
-                                <button type="button" onClick={() => { userEditedRef.current = false; let base = buildDefaultMessage(target, docs); if (noteInMessage) base = composeNote(base, buildObservaciones()); setMessage(base); }}
+                                <button type="button" onClick={() => { userEditedRef.current = false; let base = buildDefaultMessage(target, docs, selectedIds); if (noteInMessage) base = composeNote(base, buildObservaciones()); setMessage(base); }}
                                     className="text-[9px] font-black uppercase tracking-widest text-white/30 hover:text-brand transition-colors">↻ Restablecer</button>
                             )}
                         </div>
