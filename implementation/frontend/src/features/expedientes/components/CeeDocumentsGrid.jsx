@@ -919,16 +919,23 @@ export function CeeDocumentsGrid({
                         // expediente: se pisaban entre sí y el subestado REGISTRADO podía
                         // perderse aunque la fecha sí quedara guardada.
                         const today = new Date().toISOString().split('T')[0];
+                        // Si a continuación sale el popup de notificación, el aviso al
+                        // staff lo decide ESE popup (`notify_staff: false`): el admin ya
+                        // sabe que acaba de subir el registro, y recibir el email aunque
+                        // pulsara "Omitir notificación" solo le llenaba el buzón.
+                        const notifyStaffEnPut = !(user?.rol === 'ADMIN');
                         if (section === 'inicial') {
                             onAutoStatus({
                                 fecha_registro_cee_inicial: today,
                                 cee_inicial: 'REGISTRADO',
                                 estado: 'PTE. FIN OBRA',
+                                notify_staff: notifyStaffEnPut,
                             });
                         } else if (section === 'final') {
                             onAutoStatus({
                                 fecha_registro_cee_final: today,
                                 cee_final: 'REGISTRADO',
+                                notify_staff: notifyStaffEnPut,
                             });
                         }
                     }
@@ -1046,7 +1053,11 @@ export function CeeDocumentsGrid({
             await axios.post(`/api/expedientes/${expId}/notify-registration`, {
                 target: targetParam,
                 type: notifyModal.type,
-                channels: selectedChannels
+                channels: selectedChannels,
+                // Copia del "registro presentado" al buzón del staff. Solo al notificar:
+                // el PUT de la subida ya no lo manda (ver `notify_staff`), así que
+                // "Omitir notificación" no genera ningún email, ni siquiera interno.
+                notifyStaff: true,
             });
             showAlert(`Notificaciones enviadas correctamente.`, 'Comunicaciones Enviadas', 'success');
             setNotifyModal(null);

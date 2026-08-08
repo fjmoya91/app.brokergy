@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from 'react';
 import axios from 'axios';
 import { useAuth } from '../../../context/AuthContext';
 import { useModal } from '../../../context/ModalContext';
@@ -102,23 +102,110 @@ export const EXPEDIENTE_ESTADOS = [
     'FINALIZADO'
 ];
 
-// ─── Acordeón de módulo ───────────────────────────────────────────────────────
-function ModuleSection({ id, title, icon, activeSection, onToggle, children, badge, headerAction, leftAction }) {
-    const isOpen = activeSection === id;
+// ─── Iconos de los módulos ────────────────────────────────────────────────────
+// Fuente única: los pintan la barra de pestañas y la cabecera del módulo abierto,
+// así que no se duplican los `d` de los SVG en dos sitios.
+const MODULE_ICONS = {
+    checklist: ['M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01'],
+    seguimiento: ['M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4'],
+    cee: ['M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z'],
+    instalacion: [
+        'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z',
+        'M15 12a3 3 0 11-6 0 3 3 0 016 0z'
+    ],
+    envolvente: ['M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4'],
+    documentacion: ['M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z'],
+    economico: ['M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z'],
+};
+
+function ModuleIcon({ id, className = 'w-4 h-4' }) {
+    const paths = MODULE_ICONS[id] || [];
     return (
-        <div className="border border-white/[0.06] rounded-2xl overflow-hidden">
-            <div className="flex items-center bg-bkg-surface border-b border-white/5 pr-6 transition-all duration-300">
+        <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            {paths.map((d, i) => (
+                <path key={i} strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={d} />
+            ))}
+        </svg>
+    );
+}
+
+// ─── Barra de pestañas de los módulos ─────────────────────────────────────────
+// Va PEGADA arriba (sticky) y es la forma de moverse entre módulos. Con el
+// acordeón clásico había que recorrer un módulo entero —Documentación mide varios
+// miles de píxeles— solo para alcanzar la cabecera del siguiente o cerrarlo.
+// Se queda justo debajo del panel económico: su altura se mide en vivo y viaja en
+// la variable CSS --exp-sum-h (0 cuando no hay panel, p. ej. para no-ADMIN).
+const ModuleTabs = React.forwardRef(function ModuleTabs({ tabs, active, onSelect }, ref) {
+    const handleKeyDown = (e) => {
+        if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+        e.preventDefault();
+        const i = tabs.findIndex(t => t.id === active);
+        const delta = e.key === 'ArrowRight' ? 1 : -1;
+        const next = tabs[((i < 0 ? 0 : i + delta) + tabs.length) % tabs.length];
+        if (next) onSelect(next.id);
+    };
+    return (
+        <div
+            ref={ref}
+            className="sticky top-14 md:top-[var(--exp-sum-h,0px)] z-[90] scroll-mt-14 md:scroll-mt-[var(--exp-sum-h,0px)] -mx-6 sm:-mx-8 lg:-mx-10 px-6 sm:px-8 lg:px-10 py-2 mb-3 bg-bkg-base/85 backdrop-blur-xl border-y border-white/[0.06]"
+        >
+            <div
+                role="tablist"
+                aria-label="Módulos del expediente"
+                onKeyDown={handleKeyDown}
+                className="flex items-center gap-1.5 overflow-x-auto scrollbar-hide"
+            >
+                {tabs.map(t => {
+                    const isActive = t.id === active;
+                    return (
+                        <button
+                            key={t.id}
+                            role="tab"
+                            aria-selected={isActive}
+                            onClick={() => onSelect(isActive ? null : t.id)}
+                            title={isActive ? `${t.full || t.label} (clic para cerrar)` : (t.full || t.label)}
+                            className={`shrink-0 flex items-center gap-2 px-3 py-2 rounded-xl border transition-all ${
+                                isActive
+                                    ? 'bg-brand/15 border-brand/40 text-brand'
+                                    : 'bg-white/[0.02] border-white/[0.06] text-white/40 hover:text-white hover:bg-white/[0.06]'
+                            }`}
+                        >
+                            <ModuleIcon id={t.id} className="w-3.5 h-3.5 shrink-0" />
+                            <span className="text-[10px] font-black uppercase tracking-widest whitespace-nowrap">{t.label}</span>
+                            {t.badge != null && (
+                                <span className={`min-w-[16px] h-[16px] px-1 flex items-center justify-center rounded-full text-[9px] font-black ${t.badgeClass || 'bg-white/10 text-white/60'}`}>
+                                    {t.badge}
+                                </span>
+                            )}
+                        </button>
+                    );
+                })}
+            </div>
+        </div>
+    );
+});
+
+// ─── Módulo abierto ───────────────────────────────────────────────────────────
+// Solo se pinta el módulo activo: los demás viven en la barra de pestañas, no
+// como cabeceras apiladas. Su cabecera queda pegada bajo la barra para tener
+// siempre a mano las acciones del módulo (Guardar, fechas previstas, cerrar).
+function ModuleSection({ id, title, activeSection, onToggle, children, badge, headerAction, leftAction }) {
+    const isOpen = activeSection === id;
+    if (!isOpen) return null;
+    return (
+        <div className="border border-white/[0.06] rounded-2xl">
+            <div className="sticky top-[calc(3.5rem_+_var(--exp-tabs-h,0px))] md:top-[calc(var(--exp-sum-h,0px)_+_var(--exp-tabs-h,0px))] z-[80] flex items-center bg-bkg-surface/95 backdrop-blur-xl border-b border-white/5 pr-6 rounded-t-2xl transition-all duration-300">
                 {leftAction && (
                     <div className="pl-6">
                         {leftAction}
                     </div>
                 )}
                 <button
-                    onClick={() => onToggle(isOpen ? null : id)}
-                    className="flex-1 flex items-center justify-between px-6 py-4 hover:bg-bkg-hover transition-colors text-left"
+                    onClick={() => onToggle(null)}
+                    className="flex-1 flex items-center justify-between px-6 py-4 hover:bg-bkg-hover transition-colors text-left rounded-tl-2xl"
                 >
                     <div className="flex items-center gap-3">
-                        <span className="text-white/50">{icon}</span>
+                        <span className="text-white/50"><ModuleIcon id={id} /></span>
                         <span className="text-sm font-black text-white uppercase tracking-wider">{title}</span>
                         {badge && (
                             <span className="text-xs text-brand/80 bg-brand/10 px-2 py-0.5 rounded font-bold">{badge}</span>
@@ -126,23 +213,19 @@ function ModuleSection({ id, title, icon, activeSection, onToggle, children, bad
                     </div>
                 </button>
                 {headerAction}
-                <button 
-                    onClick={() => onToggle(isOpen ? null : id)}
+                <button
+                    onClick={() => onToggle(null)}
                     className="p-2 text-white/30 hover:text-white transition-colors"
+                    title="Cerrar módulo"
                 >
-                    <svg
-                        className={`w-4 h-4 transition-transform ${isOpen ? 'rotate-180' : ''}`}
-                        fill="none" viewBox="0 0 24 24" stroke="currentColor"
-                    >
+                    <svg className="w-4 h-4 rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                     </svg>
                 </button>
             </div>
-            {isOpen && (
-                <div className="p-6 border-t border-white/[0.06] bg-bkg-base/40">
-                    {children}
-                </div>
-            )}
+            <div className="p-6 bg-bkg-base/40 rounded-b-2xl">
+                {children}
+            </div>
         </div>
     );
 }
@@ -163,7 +246,12 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, initial
     const [error, setError] = useState(null);
     const [saving, setSaving] = useState(false);
     const [saveMsg, setSaveMsg] = useState(null);
-    const [activeSection, setActiveSection] = useState(null);
+    // Módulo abierto. Se recuerda durante la sesión: se trabaja "por tareas"
+    // (revisar el CEE de varios expedientes seguidos, firmar documentación…), así
+    // que al entrar en el siguiente expediente lo natural es caer en el mismo sitio.
+    const [activeSection, setActiveSection] = useState(() => {
+        try { return sessionStorage.getItem('brokergy-exp-tab') || 'checklist'; } catch { return 'checklist'; }
+    });
     const [certificadores, setCertificadores] = useState([]);
 
     // Estado "Live" para monitorización en tiempo real sin guardar
@@ -247,6 +335,61 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, initial
             rootRef.current?.scrollIntoView({ block: 'start' });
         }
     }, [expedienteId, loading, expediente]);
+
+    // ─── Navegación por pestañas ──────────────────────────────────────────────
+    // Qué módulos existen para ESTE expediente y ESTE rol. Misma condición que la
+    // que decide si se pinta cada <ModuleSection>: si se toca una, tocar la otra.
+    const moduleTabs = useMemo(() => {
+        const num = expediente?.numero_expediente || '';
+        return [
+            { id: 'checklist',     label: 'Barrido',       full: 'Barrido · Qué falta',                  show: !isCertificador },
+            { id: 'seguimiento',   label: 'Seguimiento',   full: 'Control de Seguimiento',               show: true },
+            { id: 'cee',           label: 'CEE',           full: 'Certificado de Eficiencia Energética', show: true },
+            { id: 'instalacion',   label: 'Instalación',   full: 'Instalación',                          show: true },
+            { id: 'envolvente',    label: 'Envolvente',    full: 'Envolvente',                           show: num.includes('RES080') },
+            { id: 'documentacion', label: 'Documentación', full: 'Documentación',                        show: !isCertificador },
+            { id: 'economico',     label: 'Económico',     full: 'Datos Económicos',                     show: isAdmin },
+        ].filter(t => t.show);
+    }, [expediente?.numero_expediente, isCertificador, isAdmin]);
+
+    // El módulo recordado de la sesión puede no existir aquí (Envolvente solo en
+    // RES080, Económico solo ADMIN…): en ese caso se cae al primero disponible.
+    useEffect(() => {
+        if (!moduleTabs.length || !activeSection) return;
+        if (!moduleTabs.some(t => t.id === activeSection)) setActiveSection(moduleTabs[0].id);
+    }, [moduleTabs, activeSection]);
+
+    const tabsAnchorRef = useRef(null);
+    const selectSection = useCallback((id) => {
+        setActiveSection(id);
+        if (!id) return;
+        try { sessionStorage.setItem('brokergy-exp-tab', id); } catch (e) { /* navegación privada */ }
+        // Volver al principio del módulo recién abierto. El ancla es un div de
+        // altura cero JUSTO antes de la barra: hacer scrollIntoView sobre la barra
+        // (que es sticky) no movería nada cuando ya está pegada arriba.
+        requestAnimationFrame(() => {
+            tabsAnchorRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+        });
+    }, []);
+
+    // Alturas reales del panel económico y de la barra de pestañas, publicadas como
+    // variables CSS para encadenar los `sticky` (barra bajo el panel, cabecera del
+    // módulo bajo la barra) sin números mágicos.
+    const summaryRef = useRef(null);
+    const tabsRef = useRef(null);
+    useLayoutEffect(() => {
+        const root = rootRef.current;
+        if (!root) return;
+        const apply = () => {
+            root.style.setProperty('--exp-sum-h', `${summaryRef.current?.offsetHeight || 0}px`);
+            root.style.setProperty('--exp-tabs-h', `${tabsRef.current?.offsetHeight || 0}px`);
+        };
+        apply();
+        const ro = new ResizeObserver(apply);
+        if (summaryRef.current) ro.observe(summaryRef.current);
+        if (tabsRef.current) ro.observe(tabsRef.current);
+        return () => ro.disconnect();
+    }, [loading, expedienteId, activeSection]);
 
     // `opts.silentOk` omite SOLO el aviso verde de éxito (los errores siempre se
     // ven). Lo usa el autoguardado: ese aviso es un bloque en flujo, y aparecer y
@@ -408,6 +551,10 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, initial
 
         for (const [key, val] of Object.entries(patch)) {
             if (key === 'estado') cambios.estado = val;
+            // Bandera de control del PUT (no es un campo del expediente): decide si el
+            // backend manda el aviso de "registro presentado" al staff. Ver el popup de
+            // notificación en CeeDocumentsGrid.
+            else if (key === 'notify_staff') cambios.notify_staff = val;
             // Claves fecha_* van a documentacion (ej: fecha_registro_cee_inicial).
             // Esto garantiza que los flags cee_ini/fin_registro_ok de la vista SQL
             // sean correctos.
@@ -815,7 +962,7 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, initial
                 Va como primer elemento y con -mt para quedar pegado al borde superior;
                 sticky top-0 lo mantiene fijo al hacer scroll. Importes = SOLO ADMIN. */}
             {resumenResults && isAdmin && (
-                <div className="sticky top-0 z-[100] -mt-6 sm:-mt-8 lg:-mt-10 -mx-6 sm:-mx-8 lg:-mx-10 px-6 sm:px-8 lg:px-10 py-3 md:py-2 bg-bkg-base/60 backdrop-blur-xl border-b border-white/[0.05] mb-6 md:mb-4 shadow-2xl max-md:fixed max-md:bottom-0 max-md:inset-x-0 max-md:top-auto max-md:mt-0 max-md:mx-0 max-md:px-3 max-md:py-2 max-md:mb-0 max-md:border-0 max-md:bg-transparent max-md:backdrop-blur-none max-md:shadow-none max-md:rounded-none">
+                <div ref={summaryRef} className="sticky top-0 z-[100] -mt-6 sm:-mt-8 lg:-mt-10 -mx-6 sm:-mx-8 lg:-mx-10 px-6 sm:px-8 lg:px-10 py-3 md:py-2 bg-bkg-base/60 backdrop-blur-xl border-b border-white/[0.05] mb-6 md:mb-4 shadow-2xl max-md:fixed max-md:bottom-0 max-md:inset-x-0 max-md:top-auto max-md:mt-0 max-md:mx-0 max-md:px-3 max-md:py-2 max-md:mb-0 max-md:border-0 max-md:bg-transparent max-md:backdrop-blur-none max-md:shadow-none max-md:rounded-none">
                     <ResumenEconomicoExpediente
                         results={resumenResults}
                         proposal={proposalResults}
@@ -1281,18 +1428,24 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, initial
                 </div>
             )}
 
-            {/* Módulos en acordeón */}
+            {/* Ancla de scroll: marca dónde EMPIEZA la barra de pestañas (que es
+                sticky y por tanto no sirve como destino de scrollIntoView). */}
+            <div ref={tabsAnchorRef} className="scroll-mt-14 md:scroll-mt-[var(--exp-sum-h,0px)]" />
+
+            <ModuleTabs
+                ref={tabsRef}
+                tabs={moduleTabs}
+                active={activeSection}
+                onSelect={selectSection}
+            />
+
+            {/* Módulo abierto (uno cada vez; se elige en la barra de pestañas) */}
             <div className="space-y-3">
 
                 {!isCertificador && (
                     <ModuleSection
                         id="checklist"
                         title="Barrido · Qué falta"
-                        icon={
-                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
-                            </svg>
-                        }
                         activeSection={activeSection}
                         onToggle={setActiveSection}
                         badge="Pendientes"
@@ -1304,11 +1457,6 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, initial
                 <ModuleSection
                     id="seguimiento"
                     title="Control de Seguimiento"
-                    icon={
-                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
-                        </svg>
-                    }
                     activeSection={activeSection}
                     onToggle={setActiveSection}
                     badge="Roadmap"
@@ -1324,11 +1472,6 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, initial
                 <ModuleSection
                     id="cee"
                     title="Certificado de Eficiencia Energética"
-                    icon={
-                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" />
-                        </svg>
-                    }
                     activeSection={activeSection}
                     onToggle={setActiveSection}
                     badge={expediente.cee?.tipo === 'xml' ? 'XML' : 'Aportado'}
@@ -1383,12 +1526,6 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, initial
                 <ModuleSection
                     id="instalacion"
                     title="Instalación"
-                    icon={
-                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                        </svg>
-                    }
                     activeSection={activeSection}
                     onToggle={setActiveSection}
                     headerAction={!isCertificador && <AutoSaveHint saving={saving} />}
@@ -1406,11 +1543,6 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, initial
                     <ModuleSection
                         id="envolvente"
                         title="Envolvente"
-                        icon={
-                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-                            </svg>
-                        }
                         activeSection={activeSection}
                         onToggle={setActiveSection}
                         headerAction={
@@ -1447,11 +1579,6 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, initial
                     <ModuleSection
                         id="documentacion"
                         title="Documentación"
-                        icon={
-                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                            </svg>
-                        }
                         activeSection={activeSection}
                         onToggle={setActiveSection}
                         headerAction={
@@ -1492,11 +1619,6 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, initial
                     <ModuleSection
                         id="economico"
                         title="Datos Económicos"
-                        icon={
-                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                            </svg>
-                        }
                         activeSection={activeSection}
                         onToggle={setActiveSection}
                         badge="CAE"

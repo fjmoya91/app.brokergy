@@ -2224,7 +2224,12 @@ router.post('/:id/comunicar-cee-inicial', enforceAuth, async (req, res) => {
 router.post('/:id/notify-registration', enforceAuth, async (req, res) => {
     try {
         const { id } = req.params;
-        const { target, type, channels = ['email', 'whatsapp'] } = req.body; 
+        // `notifyStaff`: copia del aviso de "registro presentado" al staff. El PUT ya
+        // NO lo manda cuando el registro lo sube un admin desde el panel (`notify_staff:
+        // false`), así que la decisión es de este popup: si el admin pulsa "Enviar
+        // notificaciones", se queda constancia en el buzón; si pulsa "Omitir", no llega
+        // nada a nadie — que era justo la queja.
+        const { target, type, channels = ['email', 'whatsapp'], notifyStaff = false } = req.body;
 
         const sendEmail = channels.includes('email');
         const sendWA = channels.includes('whatsapp');
@@ -2335,6 +2340,17 @@ Puedes subirlas directamente al expediente a través de este enlace:
                     }
                 }
             }
+        }
+
+        // ─── COPIA AL STAFF ────────────────────────────────────────────────────
+        // Sin `notifyClientLink`: el cliente acaba de ser avisado desde aquí, ofrecer
+        // el botón de "Notificar al Cliente" solo invitaría a duplicar el aviso.
+        if (notifyStaff) {
+            const certNombre = await getCertificadorNombre(exp).catch(() => '');
+            await emailService.sendCeeRegistradoStaffEmail(
+                'franciscojavier.moya.s2e2@gmail.com', false, numExp, clienteFull, ubicacion,
+                certNombre, `CEE ${labelType.toUpperCase()}`, `https://app.brokergy.es/expedientes/${id}`
+            ).catch(e => console.error('[notify-registration] Email Staff:', e.message));
         }
 
         res.json({ success: true });
@@ -2579,6 +2595,15 @@ router.put('/:id', enforceAuth, async (req, res) => {
             stampSeguimientoTimestamps(existing.seguimiento, updates.seguimiento);
         }
         
+        // Aviso al staff de "registro presentado": tiene sentido cuando lo sube OTRO
+        // (el certificador por su enlace público) — al admin le llega el email con el
+        // botón de "Notificar al Cliente". Cuando lo sube el propio admin desde el
+        // panel, él ya lo sabe y además tiene delante el popup que le pregunta a quién
+        // avisar: mandarle el email igualmente le petaba el buzón y contradecía su
+        // "Omitir notificación". Por eso el panel manda `notify_staff: false` y el
+        // aviso sale solo si pulsa "Enviar notificaciones" (notify-registration).
+        const staffNotify = body.notify_staff !== false;
+
         // ─── AUTOMATIZACIÓN REGISTRO CEE INICIAL ────────────────────────────────
         // Cuando el CEE Inicial pasa a REGISTRADO:
         //   1. Avanzar estado global a PTE. FIN OBRA (si procede)
@@ -2760,7 +2785,9 @@ router.put('/:id', enforceAuth, async (req, res) => {
         }
 
         // ── Notificaciones admin con enlace one-tap (fire-and-forget post-save) ──
-        if (_notifyAdminCeeInicial) {
+        // `staffNotify === false` (subida desde el panel por un ADMIN): el token queda
+        // generado, pero el email NO sale de aquí. Ver comentario en `staffNotify`.
+        if (_notifyAdminCeeInicial && staffNotify) {
             const { token, expId, exp: capturedExp } = _notifyAdminCeeInicial;
             setImmediate(async () => {
                 try {
@@ -2784,7 +2811,7 @@ router.put('/:id', enforceAuth, async (req, res) => {
             });
         }
 
-        if (_notifyAdminCeeFinal) {
+        if (_notifyAdminCeeFinal && staffNotify) {
             const { token, expId, exp: capturedExp } = _notifyAdminCeeFinal;
             setImmediate(async () => {
                 try {
