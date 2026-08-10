@@ -490,10 +490,16 @@ const sendProposalEmail = async ({ to, userName, pdfBuffer, tableImageBase64, su
         ? emailP('💡 Recordatorio: Para las deducciones del IRPF debes contar con retenciones aplicables. Nosotros dejaremos toda la parte técnica preparada para tu solicitud.', { size: 13, color: BRAND.muted, mb: 22 })
         : '';
 
-    const pasosHtml = `<h3 style="margin:8px 0 12px;font-size:16px;font-weight:700;color:${BRAND.text};">Pasos a seguir:</h3>` +
+    const pasosHtml = emailHeading('Pasos a seguir:') +
         (isB2B
-            ? `<ul style="margin:0 0 18px;padding:0 0 0 20px;font-size:14px;line-height:1.8;color:${BRAND.muted};"><li>El cliente debe <strong>aceptar el presupuesto de instalación</strong>.</li><li>El cliente debe <strong>aceptar la propuesta</strong> adjunta en PDF. Es vital presentar el CEE Inicial antes de cualquier factura para no perder las ayudas.</li></ul>` + emailP('Podéis compartir este enlace de firma directamente con el cliente:', { size: 14, color: BRAND.muted })
-            : `<ul style="margin:0 0 18px;padding:0 0 0 20px;font-size:14px;line-height:1.8;color:${BRAND.muted};"><li><strong>Aceptar el presupuesto</strong> al instalador.</li><li><strong>Aceptar la propuesta</strong> adjunta en PDF. Es vital presentar el Certificado Inicial antes de cualquier factura para asegurar las deducciones fiscales.</li></ul>`);
+            ? emailList([
+                'El cliente debe <strong>aceptar el presupuesto de instalación</strong>.',
+                'El cliente debe <strong>aceptar la propuesta</strong> adjunta en PDF. Es vital presentar el CEE Inicial antes de cualquier factura para no perder las ayudas.',
+              ], { size: 14 }) + emailP('Podéis compartir este enlace de firma directamente con el cliente:', { size: 14, color: BRAND.muted })
+            : emailList([
+                '<strong>Aceptar el presupuesto</strong> al instalador.',
+                '<strong>Aceptar la propuesta</strong> adjunta en PDF. Es vital presentar el Certificado Inicial antes de cualquier factura para asegurar las deducciones fiscales.',
+              ], { size: 14 }));
 
     const botonesHtml = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:22px;"><tr><td align="center" style="padding-bottom:12px;">${emailButton(proposalUrl, '📄 Ver propuesta online', BRAND.orange)}</td></tr><tr><td align="center">${emailButton(firmaUrl, `✍️ ${isB2B ? 'Enlace de firma para el cliente' : 'Aceptar y firmar'}`)}</td></tr></table>`;
 
@@ -562,12 +568,21 @@ const sendAcceptanceNotificationEmail = async ({ to, userName, numeroExpediente,
             emailP('A partir de este momento, uno de nuestros certificadores comenzará a preparar el <strong>Certificado de Eficiencia Energética inicial</strong>. Es muy importante que este certificado quede emitido y registrado <strong>antes de la última factura de la obra</strong>, ya que, de lo contrario, podrían surgir problemas para aplicar las deducciones fiscales. Además, este documento es necesario para tramitar correctamente tu expediente CAE.', { color: BRAND.muted, mb: 22 }) +
             emailBox(
                 emailP('📁 Documentación previa necesaria', { size: 14, bold: true, color: BRAND.orangeDark, mb: 12 }) +
-                `<ul style="margin:0;padding:0 0 0 18px;font-size:14px;line-height:1.8;color:${BRAND.muted};"><li>Planos de la vivienda o croquis de distribución.</li><li>Foto general de la caldera existente.</li><li>Foto de la placa de características de la caldera, bien legible.</li><li>Si la caldera ya no está instalada, fotos del hueco donde estaba.</li><li>Fotos de los radiadores (al menos uno por estancia) o del colector, si hay suelo radiante.</li><li>Vídeo corto recorriendo la vivienda, mostrando estancias, ventanas, puertas y accesos al exterior.</li><li>Fotos de las fachadas o paredes exteriores, incluyendo ventanas y puertas.</li><li>Si vas a cambiar ventanas o mejorar aislamiento, fotos y presupuesto.</li></ul>`,
+                emailList([
+                    'Planos de la vivienda o croquis de distribución.',
+                    'Foto general de la caldera existente.',
+                    'Foto de la placa de características de la caldera, bien legible.',
+                    'Si la caldera ya no está instalada, fotos del hueco donde estaba.',
+                    'Fotos de los radiadores (al menos uno por estancia) o del colector, si hay suelo radiante.',
+                    'Vídeo corto recorriendo la vivienda, mostrando estancias, ventanas, puertas y accesos al exterior.',
+                    'Fotos de las fachadas o paredes exteriores, incluyendo ventanas y puertas.',
+                    'Si vas a cambiar ventanas o mejorar aislamiento, fotos y presupuesto.',
+                ], { mb: 0 }),
                 { mb: 22 }
             ) +
             emailP('No hace falta que nos lo envíes todo de una sola vez; puedes mandarlo poco a poco conforme lo vayas recopilando.', { size: 14, color: BRAND.muted, mb: 15 }) +
             emailP('<strong>Importante:</strong> procura que las fotos tengan buena luz y que las placas de características se vean perfectamente, para evitar retrasos en la tramitación.', { size: 14, color: BRAND.orangeDark, mb: 22 }) +
-            `<h3 style="margin:8px 0 15px;font-size:16px;font-weight:700;color:${BRAND.text};">Puedes enviarlo por:</h3>` +
+            emailHeading('Puedes enviarlo por:', { mb: 15 }) +
             (uploadLink ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;"><tr><td align="center">${emailButton(uploadLink, '📂 Subir documentación aquí')}</td></tr></table>` : '') +
             `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:22px;"><tr>
                <td width="48%" style="background:${BRAND.soft};border:1px solid ${BRAND.border};border-radius:10px;padding:15px;text-align:center;">
@@ -743,7 +758,7 @@ const sendCertificadorNotificationEmail = async ({
         pill: isUrgent ? PILL.warning('Encargo urgente', '🚨') : PILL.neutral('Nuevo encargo', '📩'),
         contentHtml:
             introBlockHtml + directrizHtml + clienteInfoHtml + adminMessageHtml +
-            `<h3 style="margin:8px 0 12px;font-size:14px;font-weight:700;color:${BRAND.text};">Accesos directos:</h3>` +
+            emailHeading('Accesos directos:', { size: 14 }) +
             botonesHtml +
             `<div style="height:20px;line-height:20px;font-size:0;">&nbsp;</div>` +
             emailP('Ante cualquier duda técnica, contacta con Brokergy antes de emitir el certificado.', { size: 13, color: BRAND.muted, center: true, mb: 0 }),
@@ -810,7 +825,7 @@ const sendCertificadorFinalNotificationEmail = async ({
         pill: isUrgent ? PILL.warning('Encargo urgente', '🚨') : PILL.neutral('Nuevo encargo', '📩'),
         contentHtml:
             introBlockHtml + clienteInfoHtml + adminMessageHtml +
-            `<h3 style="margin:8px 0 12px;font-size:14px;font-weight:700;color:${BRAND.text};">Accesos directos:</h3>` +
+            emailHeading('Accesos directos:', { size: 14 }) +
             botonesHtml +
             `<div style="height:20px;line-height:20px;font-size:0;">&nbsp;</div>` +
             emailP('Por favor, una vez emitido, sube el registro y la etiqueta a la misma carpeta o al portal.', { size: 13, color: BRAND.muted, center: true, mb: 0 }),
@@ -1042,7 +1057,7 @@ const sendReviewRequestEmailToAdmin = async ({
             emailP(`El técnico <strong>${escapeHtml(certName || 'Técnico')}</strong> ha subido el archivo <strong>.CEX</strong> del <strong>CEE ${phaseLabel}</strong> para el expediente <strong style="color:${BRAND.orangeDark};">${escapeHtml(numExp)}</strong>${clienteName ? ` del cliente <strong>${escapeHtml(clienteName)}</strong>` : ''}.`, { color: BRAND.muted, mb: 16 }) +
             emailP('El expediente está pendiente de tu revisión para validar y autorizar la presentación.', { color: BRAND.muted, mb: 22 }) +
             certInfoHtml + clienteInfoHtml + techMessageHtml +
-            `<h3 style="margin:8px 0 12px;font-size:14px;font-weight:700;color:${BRAND.text};">Accesos directos:</h3>` +
+            emailHeading('Accesos directos:', { size: 14 }) +
             botonesHtml +
             `<div style="height:20px;line-height:20px;font-size:0;">&nbsp;</div>` +
             emailP(approveLink ? 'Revisa el .CEX y, si todo es correcto, pulsa <strong>Dar Visto Bueno</strong> (o hazlo desde el portal).' : 'Una vez revisado el .CEX, pulsa <strong>Validar y Autorizar Presentación</strong> en el portal.', { size: 13, color: BRAND.muted, center: true, mb: 0 }),
@@ -1130,6 +1145,18 @@ const BRAND = {
     grayTint: '#F1F2EC', grayText: '#8A8F7A',
 };
 
+// ─── Outlook (Windows) ───────────────────────────────────────────────────────
+// Outlook de escritorio NO pinta el HTML con un navegador: usa el motor de Word.
+// Eso descarta cosas que en Gmail funcionan y aquí hay que dar hechas:
+//   · `white-space:pre-wrap` se ignora → los saltos de línea van en <br>.
+//   · la fuente NO se hereda de forma fiable a <p>/<li>/<h1> → se pone en cada uno.
+//   · `line-height` sin unidad se interpreta mal → siempre en px.
+//   · el padding de un <a> se ignora → en los botones va en el <td>.
+const FONT = 'font-family:Arial,Helvetica,sans-serif;';
+const lh = (size, factor = 1.6) => `${Math.round(size * factor)}px`;
+// Saltos de línea de un texto plano → <br> (el string ya viene escapado).
+const nl2br = (html) => String(html).replace(/\r\n|\r|\n/g, '<br>');
+
 // Presets de pill de estado (emoji + colores).
 const PILL = {
     success: (text, emoji = '✅') => ({ emoji, text, bg: BRAND.greenTint, color: BRAND.greenDark }),
@@ -1138,28 +1165,47 @@ const PILL = {
     info:    (text, emoji = '📩') => ({ emoji, text, bg: '#E8F0FB', color: '#2563A6' }),
 };
 
-// Botón relleno (fondo de color, texto blanco).
+// Botón relleno (fondo de color, texto blanco). El padding va en el <td> y el
+// color de fondo también como atributo `bgcolor`: Outlook ignora el padding del
+// <a> y el texto quedaba pegado a los bordes de la caja de color.
 function emailButton(href, label, bg = BRAND.green) {
-    return `<table role="presentation" cellpadding="0" cellspacing="0" align="center"><tr><td style="border-radius:8px;background:${bg};"><a href="${href}" style="display:inline-block;padding:12px 24px;font-size:14px;font-weight:700;color:#FFFFFF;text-decoration:none;">${label}</a></td></tr></table>`;
+    return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center"><tr><td bgcolor="${bg}" style="border-radius:8px;background:${bg};padding:12px 24px;text-align:center;"><a href="${href}" style="${FONT}font-size:14px;line-height:18px;font-weight:700;color:#FFFFFF;text-decoration:none;">${label}</a></td></tr></table>`;
 }
 // Botón outline (borde oscuro, texto oscuro).
 function emailOutlineButton(href, label) {
-    return `<table role="presentation" cellpadding="0" cellspacing="0" align="center"><tr><td style="border-radius:8px;border:1.5px solid #1A1A1A;"><a href="${href}" style="display:inline-block;padding:11px 22px;font-size:14px;font-weight:700;color:#1A1A1A;text-decoration:none;">${label}</a></td></tr></table>`;
+    return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center"><tr><td style="border-radius:8px;border:1.5px solid #1A1A1A;padding:11px 22px;text-align:center;"><a href="${href}" style="${FONT}font-size:14px;line-height:18px;font-weight:700;color:#1A1A1A;text-decoration:none;">${label}</a></td></tr></table>`;
 }
 // Alias histórico usado por el email de visto bueno.
 const certButton = (href, label, bg) => emailButton(href, label, bg);
 
 // Párrafo de cuerpo. opts: {size,color,mb,center,pre,bold}
+// `pre` = el texto trae sus propios saltos de línea (mensajes escritos a mano en
+// los popups de envío). Se convierten a <br> en vez de dejarlos al
+// `white-space:pre-wrap`, que Outlook ignora: el mensaje llegaba de una pieza,
+// como un párrafo corrido, mientras en Gmail se veía bien.
 function emailP(html, opts = {}) {
     const size = opts.size || 15, color = opts.color || BRAND.text;
     const mb = opts.mb != null ? opts.mb : 18;
-    return `<p style="margin:0 0 ${mb}px 0;font-size:${size}px;line-height:1.6;color:${color};${opts.center ? 'text-align:center;' : ''}${opts.pre ? 'white-space:pre-wrap;' : ''}${opts.bold ? 'font-weight:700;' : ''}">${html}</p>`;
+    const body = opts.pre ? nl2br(html) : html;
+    return `<p style="margin:0 0 ${mb}px 0;${FONT}font-size:${size}px;line-height:${lh(size)};color:${color};${opts.center ? 'text-align:center;' : ''}${opts.bold ? 'font-weight:700;' : ''}${opts.css || ''}">${body}</p>`;
 }
 // Caja destacada (fondo suave, borde).
 function emailBox(innerHtml, opts = {}) {
     const bg = opts.bg || BRAND.soft, border = opts.border || BRAND.border;
     const mb = opts.mb != null ? opts.mb : 22;
-    return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${bg};border:1px solid ${border};border-radius:10px;margin-bottom:${mb}px;"><tr><td style="padding:${opts.pad || '20px 22px'};">${innerHtml}</td></tr></table>`;
+    return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:${bg};border:1px solid ${border};border-radius:10px;margin-bottom:${mb}px;"><tr><td bgcolor="${bg}" style="padding:${opts.pad || '20px 22px'};">${innerHtml}</td></tr></table>`;
+}
+// Epígrafe dentro del cuerpo.
+function emailHeading(text, opts = {}) {
+    const size = opts.size || 16;
+    return `<h3 style="margin:${opts.mt != null ? opts.mt : 8}px 0 ${opts.mb != null ? opts.mb : 12}px;${FONT}font-size:${size}px;line-height:${lh(size, 1.4)};font-weight:700;color:${opts.color || BRAND.text};">${text}</h3>`;
+}
+// Lista de viñetas. Outlook no hereda la fuente en <li>, así que va explícita.
+function emailList(items, opts = {}) {
+    const size = opts.size || 14, color = opts.color || BRAND.muted;
+    const mb = opts.mb != null ? opts.mb : 18;
+    const li = items.filter(Boolean).map(i => `<li style="margin-bottom:6px;">${i}</li>`).join('');
+    return `<ul style="margin:0 0 ${mb}px;padding:0 0 0 20px;${FONT}font-size:${size}px;line-height:${lh(size, 1.7)};color:${color};">${li}</ul>`;
 }
 // ── Texto estilo WhatsApp → HTML de email ────────────────────────────────────
 // Los mensajes que se editan en los popups de envío se escriben para WhatsApp
@@ -1193,7 +1239,7 @@ function waTextToEmailHtml(text, opts = {}) {
     };
     const flushList = () => {
         if (!list.length) return;
-        out.push(`<ul style="margin:0 0 16px;padding:0 0 0 20px;font-size:15px;line-height:1.7;color:${BRAND.muted};">${list.map(i => `<li style="margin-bottom:6px;">${i}</li>`).join('')}</ul>`);
+        out.push(emailList(list, { size: 15, mb: 16 }));
         list = [];
     };
     for (const raw of lines) {
@@ -1217,7 +1263,7 @@ function waTextToEmailHtml(text, opts = {}) {
         const head = line.match(/^(?:🔹|💡|✅|⚠️)\s*\*([^*\n]+)\*\s*(.*)$/);
         if (head) {
             flushPara();
-            out.push(`<p style="margin:20px 0 8px;font-size:15px;line-height:1.5;font-weight:700;color:${BRAND.orangeDark};">${escapeHtml(head[1])}</p>`);
+            out.push(`<p style="margin:20px 0 8px;${FONT}font-size:15px;line-height:23px;font-weight:700;color:${BRAND.orangeDark};">${escapeHtml(head[1])}</p>`);
             if (head[2]) para.push(waInlineToHtml(head[2]));
             if (opts.afterHeading && insertAt < 0 && opts.afterHeading.test(head[1])) {
                 if (para.length) pendingInsert = true;   // espera a que salga su párrafo
@@ -1238,9 +1284,9 @@ function waTextToEmailHtml(text, opts = {}) {
 // Tabla de datos (label/valor) para resúmenes de expediente.
 function emailDataTable(rows) {
     const body = rows.filter(Boolean).map(([k, v]) =>
-        `<tr><td style="padding:5px 0;font-size:13px;color:${BRAND.muted};white-space:nowrap;vertical-align:top;">${k}</td><td style="padding:5px 0 5px 14px;font-size:13px;color:${BRAND.text};font-weight:700;">${v || '—'}</td></tr>`
+        `<tr><td style="padding:5px 0;${FONT}font-size:13px;line-height:20px;color:${BRAND.muted};white-space:nowrap;vertical-align:top;">${k}</td><td style="padding:5px 0 5px 14px;${FONT}font-size:13px;line-height:20px;color:${BRAND.text};font-weight:700;">${v || '—'}</td></tr>`
     ).join('');
-    return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0">${body}</table>`;
+    return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">${body}</table>`;
 }
 
 // Shell de marca para TODOS los emails (cliente/instalador/certificador): barra
@@ -1248,43 +1294,50 @@ function emailDataTable(rows) {
 // pill = { emoji, text, bg, color } | null. contentHtml = cuerpo central.
 function brandEmailShell({ preheader, title, pill, contentHtml, footerNote }) {
     const note = footerNote || 'Este mensaje se ha generado automáticamente, por favor no respondas a este correo.';
-    const pillHtml = pill ? `<table role="presentation" cellpadding="0" cellspacing="0" style="margin-bottom:20px;"><tr><td style="background:${pill.bg};border-radius:20px;padding:6px 14px;"><span style="font-size:12px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;color:${pill.color};">${pill.emoji} ${escapeHtml(pill.text)}</span></td></tr></table>` : '';
+    const pillHtml = pill ? `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:20px;"><tr><td bgcolor="${pill.bg}" style="background:${pill.bg};border-radius:20px;padding:6px 14px;"><span style="${FONT}font-size:12px;line-height:16px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;color:${pill.color};">${pill.emoji} ${escapeHtml(pill.text)}</span></td></tr></table>` : '';
     return `<!DOCTYPE html>
-<html lang="es" xmlns="http://www.w3.org/1999/xhtml">
+<html lang="es" xmlns="http://www.w3.org/1999/xhtml" xmlns:o="urn:schemas-microsoft-com:office:office">
 <head>
 <meta charset="UTF-8">
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="color-scheme" content="light">
 <meta name="supported-color-schemes" content="light">
+<!--[if mso]>
+<xml><o:OfficeDocumentSettings><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml>
+<style>table,td,div,p,h1,h2,h3,ul,ol,li,span,a,strong,b,em{font-family:Arial,Helvetica,sans-serif !important;}</style>
+<![endif]-->
 <title>${escapeHtml(title)}</title>
 </head>
 <body style="margin:0;padding:0;background:${BRAND.bg};">
 <div style="display:none;max-height:0;overflow:hidden;opacity:0;">${escapeHtml(preheader || '')}</div>
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${BRAND.bg};font-family:Arial,Helvetica,sans-serif;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${BRAND.bg}" style="background:${BRAND.bg};${FONT}">
 <tr><td align="center" style="padding:40px 16px;">
-<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:600px;max-width:600px;">
-<tr><td style="height:5px;line-height:5px;font-size:0;background-color:${BRAND.greenDark};background-image:linear-gradient(90deg,${BRAND.orange},${BRAND.green});border-radius:14px 14px 0 0;">&nbsp;</td></tr>
-<tr><td style="background:${BRAND.card};border:1px solid ${BRAND.border};border-top:none;border-radius:0 0 14px 14px;">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-bottom:1px solid ${BRAND.border};">
+<!--[if mso]><table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0"><tr><td><![endif]-->
+<table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:600px;max-width:600px;">
+<tr><td height="5" bgcolor="${BRAND.greenDark}" style="height:5px;line-height:5px;font-size:0;background-color:${BRAND.greenDark};background-image:linear-gradient(90deg,${BRAND.orange},${BRAND.green});border-radius:14px 14px 0 0;">&nbsp;</td></tr>
+<tr><td bgcolor="${BRAND.card}" style="background:${BRAND.card};border:1px solid ${BRAND.border};border-top:none;border-radius:0 0 14px 14px;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-bottom:1px solid ${BRAND.border};">
     <tr><td style="padding:28px 40px;">
-      <table role="presentation" cellpadding="0" cellspacing="0"><tr>
-        <td valign="middle" style="width:52px;padding-right:16px;"><img src="${CERT_LOGO_URL}" width="48" height="48" alt="Brokergy" style="display:block;border-radius:50%;"></td>
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
+        <td valign="middle" width="52" style="width:52px;padding-right:16px;"><img src="${CERT_LOGO_URL}" width="48" height="48" alt="Brokergy" style="display:block;border:0;border-radius:50%;"></td>
         <td valign="middle">
-          <p style="margin:0 0 2px 0;font-size:11px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:${BRAND.muted};">BROKERGY · Ingeniería Energética</p>
-          <h1 style="margin:0;font-size:22px;line-height:1.25;color:${BRAND.text};font-weight:700;">${escapeHtml(title)}</h1>
+          <p style="margin:0 0 2px 0;${FONT}font-size:11px;line-height:15px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:${BRAND.muted};">BROKERGY · Ingeniería Energética</p>
+          <h1 style="margin:0;${FONT}font-size:22px;line-height:28px;color:${BRAND.text};font-weight:700;">${escapeHtml(title)}</h1>
         </td>
       </tr></table>
     </td></tr>
   </table>
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
     <tr><td style="padding:32px 40px 36px 40px;">
       ${pillHtml}
       ${contentHtml}
     </td></tr>
   </table>
 </td></tr>
-<tr><td align="center" style="padding:28px 16px 8px;"><p style="margin:0;font-size:12px;color:${BRAND.muted};line-height:1.6;font-family:Arial,Helvetica,sans-serif;">BROKERGY · Ingeniería Energética<br>${note}</p></td></tr>
+<tr><td align="center" style="padding:28px 16px 8px;"><p style="margin:0;${FONT}font-size:12px;line-height:19px;color:${BRAND.muted};">BROKERGY · Ingeniería Energética<br>${note}</p></td></tr>
 </table>
+<!--[if mso]></td></tr></table><![endif]-->
 </td></tr>
 </table>
 </body>
@@ -1296,7 +1349,7 @@ function certEmailShell({ preheader, title, pillEmoji, pillText, pillBg, pillCol
     const openLink = portalLink || (expedienteId ? `https://app.brokergy.es/?exp=${expedienteId}` : null);
     const cta = openLink ? `
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:4px;">
-        <tr><td align="center" style="font-size:13px;line-height:1.6;color:${BRAND.muted};padding-bottom:14px;">Si lo prefieres, puedes abrir el expediente directamente en la app:</td></tr>
+        <tr><td align="center" style="${FONT}font-size:13px;line-height:21px;color:${BRAND.muted};padding-bottom:14px;">Si lo prefieres, puedes abrir el expediente directamente en la app:</td></tr>
         <tr><td align="center">${emailOutlineButton(openLink, '📁 Abrir Expediente')}</td></tr>
       </table>` : '';
     return brandEmailShell({
@@ -1321,56 +1374,44 @@ const sendCertificadorApproveNotification = async (to, certName, numExp, phaseLa
     const firstName = (certName || '').trim().split(/\s+/)[0] || 'técnico';
     const bodyParagraphs = bodyText
         // El *negrita* de WhatsApp se convierte a <b> para que no salgan asteriscos sueltos.
-        ? `<p style="margin:0 0 22px 0;font-size:15px;line-height:1.6;color:#1A1A1A;white-space:pre-wrap;">${escapeHtml(bodyText).replace(/\*([^*\n]+)\*/g, '<b>$1</b>')}</p>`
-        : `<p style="margin:0 0 18px 0;font-size:15px;line-height:1.6;color:#1A1A1A;">${isUrgent ? `🚨<strong>¡Urgente ${escapeHtml(firstName)}!</strong> 🚨` : `¡Hola ${escapeHtml(firstName)}! 👋`}</p>
-           <p style="margin:0 0 18px 0;font-size:15px;line-height:1.6;color:#1A1A1A;">Hemos revisado el <strong>${phaseLabel}</strong> del expediente <strong>${numExp}</strong> y tiene nuestro visto bueno. Ya puedes proceder a registrarlo en Industria.</p>
-           ${isUrgent ? `<p style="margin:0 0 18px 0;font-size:15px;line-height:1.6;color:#1A1A1A;">🚨 Te pedimos que lo <strong>priorices</strong>: necesitamos el registro con carácter <strong>URGENTE</strong> para poder cumplir con los plazos del programa de ayudas.</p>` : ''}
-           <p style="margin:0 0 22px 0;font-size:15px;line-height:1.6;color:#1A1A1A;">¡Gracias!</p>`;
+        ? emailP(escapeHtml(bodyText).replace(/\*([^*\n]+)\*/g, '<b>$1</b>'), { pre: true, mb: 22 })
+        : emailP(isUrgent ? `🚨<strong>¡Urgente ${escapeHtml(firstName)}!</strong> 🚨` : `¡Hola ${escapeHtml(firstName)}! 👋`) +
+          emailP(`Hemos revisado el <strong>${phaseLabel}</strong> del expediente <strong>${numExp}</strong> y tiene nuestro visto bueno. Ya puedes proceder a registrarlo en Industria.`) +
+          (isUrgent ? emailP('🚨 Te pedimos que lo <strong>priorices</strong>: necesitamos el registro con carácter <strong>URGENTE</strong> para poder cumplir con los plazos del programa de ayudas.') : '') +
+          emailP('¡Gracias!', { mb: 22 });
 
     // Aviso destacado de urgencia (va sobre el cuerpo, tanto si el mensaje es editado
     // como si es el de por defecto).
-    const urgentBanner = isUrgent ? `
-      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#FDECEC;border:1px solid #F0B4B4;border-radius:10px;margin-bottom:22px;">
-        <tr><td style="padding:14px 18px;text-align:center;">
-          <p style="margin:0;font-size:14px;font-weight:700;color:#B42318;">🚨 REGISTRO URGENTE — Por favor, prioriza este expediente</p>
-        </td></tr>
-      </table>` : '';
+    const urgentBanner = isUrgent
+        ? emailBox(emailP('🚨 REGISTRO URGENTE — Por favor, prioriza este expediente', { size: 14, bold: true, color: '#B42318', center: true, mb: 0 }), { bg: '#FDECEC', border: '#F0B4B4', pad: '14px 18px' })
+        : '';
 
-    const stepsBox = (presentFolderLink || ceeUploadLink) ? `
-      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F8F9F6;border:1px solid #E8E9E4;border-radius:10px;margin-bottom:22px;">
-        <tr><td style="padding:24px 22px 2px 22px;">
-          <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+    const stepsBox = (presentFolderLink || ceeUploadLink) ? emailBox(
+        `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
             ${presentFolderLink ? `<tr><td align="center" style="padding-bottom:22px;">
-              <p style="margin:0 0 12px 0;font-size:14px;font-weight:700;color:#1A1A1A;text-align:center;">1 · Descarga los archivos para presentarlos</p>
+              ${emailP('1 · Descarga los archivos para presentarlos', { size: 14, bold: true, center: true, mb: 12 })}
               ${certButton(presentFolderLink, `📄 Descargar CEE (${phaseLabel})`, GREEN)}
             </td></tr>` : ''}
             ${ceeUploadLink ? `<tr><td align="center" style="padding-bottom:22px;">
-              <p style="margin:0 0 12px 0;font-size:14px;font-weight:700;color:#1A1A1A;text-align:center;">2 · Una vez presentado en Industria, puedes subirlo directamente aquí</p>
-              <p style="margin:0 0 14px 0;font-size:13px;line-height:1.6;color:#667085;text-align:center;">Sube el CEE registrado (etiqueta energética + justificante de registro). Se guardará automáticamente en el expediente.</p>
+              ${emailP('2 · Una vez presentado en Industria, puedes subirlo directamente aquí', { size: 14, bold: true, center: true, mb: 12 })}
+              ${emailP('Sube el CEE registrado (etiqueta energética + justificante de registro). Se guardará automáticamente en el expediente.', { size: 13, color: BRAND.muted, center: true, mb: 14 })}
               ${certButton(ceeUploadLink, '📤 Subir CEE registrado', GREEN)}
             </td></tr>` : ''}
-          </table>
-        </td></tr>
-      </table>` : '';
+          </table>`,
+        { pad: '24px 22px 2px 22px' }
+    ) : '';
 
     const attachNote = (attachments && attachments.length)
-        ? `<p style="margin:0 0 18px 0;font-size:12px;color:#667085;text-align:center;">📎 Se adjuntan ${attachments.length} archivo(s) del CEE a este correo.</p>`
+        ? emailP(`📎 Se adjuntan ${attachments.length} archivo(s) del CEE a este correo.`, { size: 12, color: BRAND.muted, center: true })
         : '';
 
     // Ficha del cliente: el certificador la necesita a mano al registrar en Industria.
     const filas = clienteDataRows(extra.clienteData).filter(Boolean);
-    const clienteBox = filas.length ? `
-      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F8F9F6;border:1px solid #E8E9E4;border-radius:10px;margin-bottom:22px;">
-        <tr><td style="padding:18px 22px;">
-          <p style="margin:0 0 12px 0;font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#667085;">📋 Datos del cliente</p>
-          <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
-            ${filas.map(([k, v]) => `<tr>
-              <td style="padding:4px 0;font-size:13px;color:#667085;width:42%;">${escapeHtml(k)}</td>
-              <td style="padding:4px 0;font-size:13px;color:#1A1A1A;font-weight:600;">${v}</td>
-            </tr>`).join('')}
-          </table>
-        </td></tr>
-      </table>` : '';
+    const clienteBox = filas.length ? emailBox(
+        emailP('📋 Datos del cliente', { size: 11, bold: true, color: BRAND.muted, mb: 12, css: 'letter-spacing:1px;text-transform:uppercase;' }) +
+        emailDataTable(filas.map(([k, v]) => [escapeHtml(k), v])),
+        { pad: '18px 22px' }
+    ) : '';
 
     const html = certEmailShell({
         preheader: isUrgent
@@ -1405,7 +1446,12 @@ const sendCeeInicialRegistradoClientEmail = async (to, clientName, numExp, porta
             emailP(`Te escribimos para comunicarte que ya ha sido presentado el Certificado de Eficiencia Energética INICIAL de tu expediente <strong>${escapeHtml(numExp)}</strong>.`, { color: BRAND.muted, mb: 22 }) +
             emailBox(emailP('Desde este momento ya se pueden emitir facturas y pagos.', { bold: true, color: BRAND.greenDark, mb: 0 }), { bg: BRAND.greenTint, border: BRAND.green, mb: 22 }) +
             emailP('📸 <strong>Recuerda hacerle fotografías a todo:</strong>', { mb: 8 }) +
-            `<ul style="margin:0 0 18px;padding:0 0 0 18px;font-size:14px;line-height:1.7;color:${BRAND.muted};"><li>Caldera existente y placa de fabricación.</li><li>Desmontaje de la caldera.</li><li>Montaje de la aerotermia.</li><li>Fotos de las nuevas placas de fabricación (tanto de la exterior como interior).</li></ul>` +
+            emailList([
+                'Caldera existente y placa de fabricación.',
+                'Desmontaje de la caldera.',
+                'Montaje de la aerotermia.',
+                'Fotos de las nuevas placas de fabricación (tanto de la exterior como interior).',
+            ]) +
             emailP('Las fotos son la parte más importante del proceso para que podamos argumentar ante el ministerio que se ha realizado la reforma.', { size: 14, color: BRAND.muted, mb: 22 }) +
             `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:22px;"><tr><td align="center">${emailButton(portalLink, 'Subir Fotografías')}</td></tr></table>` +
             emailP('Una vez finalizada la obra, debes comunicárnoslo por aquí para proceder con el CEE Final y el resto de la documentación.', { size: 14, color: BRAND.muted, center: true, mb: 0 }),

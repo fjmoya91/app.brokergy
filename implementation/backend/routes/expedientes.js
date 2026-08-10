@@ -1397,7 +1397,9 @@ router.post('/:id/solicitar-faltantes', internalKeyOrAuth, async (req, res) => {
         }
         if (channels.includes('email')) {
             if (!email) return res.status(400).json({ error: 'No hay email para enviar. Indica uno.' });
-            const html = `<div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;color:#222;white-space:pre-wrap;line-height:1.5">${mensaje.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>`;
+            // Los saltos van en <br>: Outlook (motor de Word) ignora `white-space:pre-wrap`
+            // y el mensaje llegaba de una pieza, como un párrafo corrido.
+            const html = `<div style="font-family:Arial,Helvetica,sans-serif;max-width:560px;margin:0 auto;color:#222;font-size:15px;line-height:24px">${mensaje.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\r\n|\r|\n/g, '<br>')}</div>`;
             await emailService.sendMail({ to: email, subject: asunto, text: mensaje, html });
             sent.push('Email');
         }
@@ -1470,7 +1472,7 @@ router.post('/:id/documentos/rechazar', enforceAuth, async (req, res) => {
                 catch (e) { console.warn('[rechazar-doc] WA:', e.message); sent.push('WhatsApp (encolado)'); }
             }
             if (channels.includes('email') && email) {
-                const html = `<div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;color:#222;white-space:pre-wrap;line-height:1.5">${mensaje.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>`;
+                const html = `<div style="font-family:Arial,Helvetica,sans-serif;max-width:560px;margin:0 auto;color:#222;font-size:15px;line-height:24px">${mensaje.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\r\n|\r|\n/g, '<br>')}</div>`;
                 try { await emailService.sendMail({ to: email, subject: `Documento a revisar · Expediente ${exp.numero_expediente || ''}`.trim(), text: mensaje, html }); sent.push('Email'); }
                 catch (e) { console.warn('[rechazar-doc] Email:', e.message); }
             }
@@ -4131,18 +4133,20 @@ router.post('/:id/memoria-rite/send', enforceAuth, async (req, res) => {
                 if (!destEmail) { out.email = { ok: false, error: 'Sin email' }; }
                 else {
                     try {
-                        const safeMsg = (message || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                        // Saltos en <br> y maquetado con tablas: Outlook usa el motor de Word,
+                        // que ignora `white-space:pre-wrap` (el mensaje llegaba de una pieza).
+                        const safeMsg = (message || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\r\n|\r|\n/g, '<br>');
                         const html = `
-                          <div style="font-family:Arial,Helvetica,sans-serif;max-width:600px;margin:0 auto;border:1px solid #eee;border-radius:12px;overflow:hidden">
-                            <div style="background:linear-gradient(135deg,#f59e0b,#ea580c);padding:24px 28px;color:#fff">
-                              <h1 style="margin:0;font-size:20px;letter-spacing:.5px">BROKERGY</h1>
-                              <p style="margin:4px 0 0;font-size:12px;opacity:.9">Ingeniería Energética · Documentación RITE</p>
-                            </div>
-                            <div style="padding:24px 28px;color:#222;font-size:14px;line-height:1.6;white-space:pre-wrap">${safeMsg}</div>
-                            <div style="padding:0 28px 24px;color:#555;font-size:12px">
+                          <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" align="center" style="width:600px;max-width:600px;font-family:Arial,Helvetica,sans-serif;border:1px solid #eee;border-radius:12px;">
+                            <tr><td bgcolor="#ea580c" style="background:#ea580c;background-image:linear-gradient(135deg,#f59e0b,#ea580c);padding:24px 28px;color:#fff;border-radius:12px 12px 0 0;">
+                              <h1 style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:20px;line-height:26px;letter-spacing:.5px;color:#fff;">BROKERGY</h1>
+                              <p style="margin:4px 0 0;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:18px;color:#FFE7D0;">Ingeniería Energética · Documentación RITE</p>
+                            </td></tr>
+                            <tr><td style="padding:24px 28px;font-family:Arial,Helvetica,sans-serif;color:#222;font-size:14px;line-height:22px;">${safeMsg}</td></tr>
+                            <tr><td style="padding:0 28px 24px;font-family:Arial,Helvetica,sans-serif;color:#555;font-size:12px;line-height:18px;">
                               📎 Adjuntos: <b>Memoria Técnica RITE</b> (Word${memoriaPdf ? ' y PDF' : ''}) y <b>Borrador del Certificado de Instalación Térmica</b> (PDF).
-                            </div>
-                          </div>`;
+                            </td></tr>
+                          </table>`;
                         await emailService.sendMail({
                             to: destEmail,
                             subject: `Documentación RITE — Expediente ${exp.numero_expediente}`,

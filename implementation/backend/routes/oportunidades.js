@@ -1508,7 +1508,9 @@ router.post('/:id/docs/enviar-enlace', staffOnly, async (req, res) => {
                     await emailService.sendMail({
                         to: email,
                         subject: `Documentación de tu expediente ${opp.id_oportunidad}`,
-                        html: `<div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;color:#222;white-space:pre-wrap;line-height:1.5">${String(message).replace(/&/g, '&amp;').replace(/</g, '&lt;')}</div>`,
+                        // Saltos en <br>: Outlook ignora `white-space:pre-wrap` y el
+                        // mensaje llegaba de una pieza, como un párrafo corrido.
+                        html: `<div style="font-family:Arial,Helvetica,sans-serif;max-width:560px;margin:0 auto;color:#222;font-size:15px;line-height:24px">${String(message).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/\r\n|\r|\n/g, '<br>')}</div>`,
                         text: message
                     });
                     results.push({ type: rcp.type, ok: true, to: email });
