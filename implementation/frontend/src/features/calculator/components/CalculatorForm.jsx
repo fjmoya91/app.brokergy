@@ -1862,8 +1862,9 @@ export function CalculatorForm({
                                                     ) : (
                                                         <>
                                                     <div>
-                                                        <p className="text-[7px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 line-clamp-1">Horas Eq. (th)</p>
-                                                        <p className="text-sm font-black text-white">{result.hybridization.th} <span className="text-[8px] text-white/30">h</span></p>
+                                                        {/* H_HE: horas anuales equivalentes en modo activo — Rgto. (UE) 813/2013 */}
+                                                        <p className="text-[7px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 line-clamp-1">H(HE) modo activo</p>
+                                                        <p className="text-sm font-black text-white">{result.hybridization.hHE} <span className="text-[8px] text-white/30">h</span></p>
                                                     </div>
                                                     <div>
                                                         <p className="text-[7px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 line-clamp-1">P. Diseño</p>

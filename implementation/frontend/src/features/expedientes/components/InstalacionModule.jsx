@@ -2006,12 +2006,13 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
                                     </div>
                                     <div>
                                         <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-1.5">
-                                            {esCoberturaPorCaldera ? 'P. Caldera' : 'Horas Eq.'}
+                                            {/* H_HE: horas anuales equivalentes en modo activo — Rgto. (UE) 813/2013 */}
+                                            {esCoberturaPorCaldera ? 'P. Caldera' : 'H(HE) modo activo'}
                                         </p>
                                         <p className="text-sm font-black text-white leading-none tabular-nums font-mono">
                                             {esCoberturaPorCaldera
                                                 ? hybridizationRes.boilerPower.toFixed(2)
-                                                : (hybridizationRes.pDesign > 0 ? (demandAnnual / hybridizationRes.pDesign).toFixed(0) : '0')}
+                                                : hybridizationRes.hHE}
                                             <span className="text-[10px] text-white/30 ml-1 font-sans">{esCoberturaPorCaldera ? 'kW' : 'h'}</span>
                                         </p>
                                     </div>

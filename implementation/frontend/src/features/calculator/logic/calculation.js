@@ -21,14 +21,48 @@ export const HDD = {
 
 // ============================================================================
 // DATOS HIBRIDACIÓN (Anexo III RES093)
+// ----------------------------------------------------------------------------
+// HORAS ANUALES EQUIVALENTES EN MODO ACTIVO (H_HE)
+//
+// La carga de diseño para calefacción (P_designh) NO se obtiene dividiendo la
+// demanda anual entre unas "horas equivalentes" propias de la zona climática
+// española (así se hacía antes, con la tabla de las fichas RES220/RES230, y era
+// un ERROR: esos valores son horas de funcionamiento, no la H_HE del marco
+// europeo, y daban una carga de diseño muy por debajo de la real).
+//
+// El marco que fija la relación entre demanda anual de calor y carga de diseño
+// es el Reglamento (UE) n.º 813/2013, Anexo III, punto 4, letra c):
+//     Q_H = P_designh × H_HE,  con H_HE = 2 066 h
+// y el Reglamento Delegado (UE) n.º 811/2013, Anexo VII, punto 4, letra c), que
+// recoge la misma relación para las tres temporadas de calefacción de
+// referencia (medio 2.066 h · frío 2.465 h · cálido 1.336 h).
+//
+// Se aplica la temporada de CLIMA MEDIO porque es aquella en la que el
+// fabricante declara el SCOP adoptado (condiciones climáticas promedio), que es
+// la condición mínima que exige el Anexo V de la ficha RES060 —marco al que
+// remite el Anexo II de la RES093—. SCOP y horas equivalentes son parámetros de
+// la MISMA temporada de referencia y se toman conjuntamente: mezclar el SCOP de
+// una temporada con las horas de otra no es defendible ante el verificador.
+// Por eso la temporada no se ofrece en la interfaz; el parámetro existe para
+// documentar de dónde sale el número, no para elegir a conveniencia.
 // ============================================================================
-export const EQUIVALENT_HOURS = {
-    A3: 2228, A4: 2228,
-    B3: 2736, B4: 2720,
-    C1: 3208, C2: 3186, C3: 3195, C4: 3192,
-    D1: 3510, D2: 3500, D3: 3503,
-    E1: 5335
+export const HE_ACTIVE_MODE_HOURS = {
+    medio: 2066,
+    frio: 2465,
+    calido: 1336,
 };
+
+export const HE_DEFAULT_SEASON = 'medio';
+
+/** Normaliza la temporada de referencia (tolerante a null, mayúsculas y tildes). */
+export function normalizeClimateSeason(season) {
+    const s = String(season || '')
+        .trim()
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[̀-ͯ]/g, ''); // frío → frio, cálido → calido
+    return HE_ACTIVE_MODE_HOURS[s] ? s : HE_DEFAULT_SEASON;
+}
 
 export const BIVALENCE_TABLE = [
     { coverage: 0.20, cb: 0.3946 },
@@ -78,9 +112,9 @@ export function getCb(coverage) {
 // ============================================================================
 // MÉTODOS DE CÁLCULO DE LA COBERTURA (y por tanto del Cb)
 // ----------------------------------------------------------------------------
-// 'demanda' (histórico): la cobertura es la fracción de la POTENCIA DE DISEÑO
-//     (demanda anual de calefacción / horas equivalentes de la zona) que aporta
-//     la bomba de calor. Necesita demanda anual + zona climática.
+// 'demanda' (histórico): la cobertura es la fracción de la CARGA DE DISEÑO PARA
+//     CALEFACCIÓN P_designh (demanda anual de calor / H_HE, ver arriba) que
+//     aporta la bomba de calor. Solo necesita la demanda anual.
 // 'caldera': la cobertura es la fracción de la POTENCIA NOMINAL de la caldera
 //     existente que aporta la bomba de calor — P_BdC / P_caldera. No usa ni la
 //     demanda ni las horas equivalentes; la potencia de la caldera se introduce
@@ -103,21 +137,32 @@ export function normalizeHybridMethod(method) {
  * Calcula los parámetros de hibridación
  * @param {string} method - HYBRID_METHODS.DEMANDA (defecto) | HYBRID_METHODS.CALDERA
  * @param {number} boilerPower - Potencia nominal (kW) de la caldera existente. Solo en método 'caldera'.
- * @returns {{method,th,pDesign,boilerPower,refPower,coverage,cb,demandAnnual}}
- *          `refPower` es el denominador realmente usado para la cobertura.
+ * @param {string} climateSeason - Temporada de calefacción de referencia ('medio' por defecto).
+ *          No se expone en la interfaz: debe ser la misma en la que se declara el SCOP.
+ * @returns {{method,climateSeason,hHE,th,pDesign,boilerPower,refPower,coverage,cb,demandAnnual}}
+ *          `hHE` son las horas anuales equivalentes en modo activo aplicadas (`th` es
+ *          su alias histórico). `refPower` es el denominador realmente usado para la cobertura.
  */
-export function calculateHybridization({ demandAnnual, zone, heatPumpPower, method, boilerPower }) {
+export function calculateHybridization({ demandAnnual, heatPumpPower, method, boilerPower, climateSeason }) {
     const hybridMethod = normalizeHybridMethod(method);
-    const th = EQUIVALENT_HOURS[zone] || EQUIVALENT_HOURS['D3'] || 3503;
+    const season = normalizeClimateSeason(climateSeason);
+    // Horas anuales equivalentes en modo activo — Rgto. (UE) 813/2013, Anexo III,
+    // punto 4, letra c). NO depende de la zona climática española: los llamantes
+    // siguen pasando `zone` (se ignora a propósito, se usa solo para rótulos).
+    const hHE = HE_ACTIVE_MODE_HOURS[season];
     const hpPower = parseFloat(heatPumpPower) || 0;
     const pBoiler = parseFloat(boilerPower) || 0;
-    const pDesignRaw = (parseFloat(demandAnnual) || 0) / th;
+    // Carga de diseño para calefacción: P_designh = Q_H / H_HE.
+    const pDesignRaw = (parseFloat(demandAnnual) || 0) / hHE;
     const pDesign = pDesignRaw > 0 ? pDesignRaw : 0;
 
     // Denominador de la cobertura según el método elegido.
     const refPower = hybridMethod === HYBRID_METHODS.CALDERA ? pBoiler : pDesign;
 
-    const base = { method: hybridMethod, th, pDesign, boilerPower: pBoiler, refPower, demandAnnual };
+    const base = {
+        method: hybridMethod, climateSeason: season, hHE, th: hHE,
+        pDesign, boilerPower: pBoiler, refPower, demandAnnual,
+    };
 
     // Sin denominador (falta la demanda, o falta la potencia de la caldera) → no penalizamos.
     if (!refPower || refPower <= 0) {
@@ -844,6 +889,7 @@ export function calculateRes080({
         superficieAplicada: supIni,
         superficieInicialAplicada: supIni,
         superficieFinalAplicada: supFin,
+        metodoAhorro: 'detallado',
         // Detalles para la tabla de eficiencia
         details: {
             acs: {
@@ -913,7 +959,7 @@ export function calculateRes080FromEmissions({
         emisionesRefrigeracion: num(ref),
         superficieHabitable: s,
     });
-    return calculateRes080({
+    const res = calculateRes080({
         xmlInicial: mk(emiAcsIni, emiCalIni, emiRefIni, supIni),
         xmlFinal:   mk(emiAcsFin, emiCalFin, emiRefFin, supFin),
         combAcsInicial, combAcsFinal,
@@ -922,6 +968,314 @@ export function calculateRes080FromEmissions({
         superficieInicial: supIni,
         superficieFinal: supFin,
     });
+    if (res) res.metodoAhorro = 'detallado';
+    return res;
+}
+
+// ============================================================================
+// CÁLCULO DE AHORRO RES080 — MÉTODO SIMPLIFICADO (POR VECTOR ENERGÉTICO)
+// ============================================================================
+// El desglose por USO (ACS/Calefacción/Refrigeración) de calculateRes080FromEmissions
+// no se puede aplicar cuando, para un mismo uso, el CEE declara DOS generadores con
+// combustibles distintos (p.ej. calefacción con bomba de calor eléctrica + caldera de
+// gasóleo) sin decir qué porcentaje corresponde a cada uno.
+//
+// El propio certificado trae, en el apartado "Calificación energética del edificio en
+// emisiones", un TOTAL del edificio partido por VECTOR (no por uso): "Emisiones CO2 por
+// consumo eléctrico" y "Emisiones CO2 por otros combustibles" (kgCO2/m²·año). Cuando en
+// TODO el edificio solo hay un combustible no eléctrico (todo gasóleo, o todo gas, o todo
+// biomasa, o todo carbón — nunca una mezcla), esos dos totales bastan para calcular la
+// energía final SIN necesidad de saber el reparto por uso: misma física que calculateRes080
+// (consumo = emisiones / factor_paso), aplicada a 2 vectores en vez de 3 usos.
+export function calculateRes080Simplificado({
+    emiElecIni, emiElecFin, emiOtrosIni, emiOtrosFin,
+    combOtrosIni, combOtrosFin,
+    superficie, superficieInicial, superficieFinal
+}) {
+    const num = (v) => {
+        if (typeof v === 'number') return isNaN(v) ? 0 : v;
+        if (v === null || v === undefined) return 0;
+        let s = String(v).trim();
+        if (s.includes(',')) s = s.replace(/\./g, '').replace(',', '.');
+        const n = parseFloat(s);
+        return isNaN(n) ? 0 : n;
+    };
+    const supIni = num(superficieInicial ?? superficie) || 120;
+    const supFin = num(superficieFinal ?? superficie) || supIni;
+
+    const fElec = getFactorPaso('Electricidad peninsular');
+    // Si no hay combustible FINAL declarado (caso típico: la reforma deja el edificio
+    // 100 % eléctrico), se usa el mismo que el inicial para poder convertir la emisión
+    // residual que quede; si no queda ninguna, esa energía sale 0 igualmente.
+    const combOtrosFinReal = combOtrosFin || combOtrosIni;
+    const fOtrosIni = combOtrosIni ? getFactorPaso(combOtrosIni) : 1;
+    const fOtrosFin = combOtrosFinReal ? getFactorPaso(combOtrosFinReal) : 1;
+
+    const emiElecIniN = num(emiElecIni);
+    const emiElecFinN = num(emiElecFin);
+    const emiOtrosIniN = num(emiOtrosIni);
+    const emiOtrosFinN = num(emiOtrosFin);
+
+    const energiaElecIniM2 = emiElecIniN / fElec;
+    const energiaElecFinM2 = emiElecFinN / fElec;
+    const energiaOtrosIniM2 = combOtrosIni ? (emiOtrosIniN / fOtrosIni) : 0;
+    const energiaOtrosFinM2 = combOtrosFinReal ? (emiOtrosFinN / fOtrosFin) : 0;
+
+    const totalEnergiaInicialM2 = energiaElecIniM2 + energiaOtrosIniM2;
+    const totalEnergiaFinalM2 = energiaElecFinM2 + energiaOtrosFinM2;
+    const ahorroEnergiaFinalM2 = Math.max(0, totalEnergiaInicialM2 - totalEnergiaFinalM2);
+
+    const totalEnergiaInicialAno = totalEnergiaInicialM2 * supIni;
+    const totalEnergiaFinalAno = totalEnergiaFinalM2 * supFin;
+    const ahorroEnergiaFinalAno = Math.max(0, totalEnergiaInicialAno - totalEnergiaFinalAno);
+
+    return {
+        totalEnergiaInicialM2,
+        totalEnergiaFinalM2,
+        totalEnergiaInicialAno,
+        totalEnergiaFinalAno,
+        ahorroEnergiaFinalTotal: ahorroEnergiaFinalAno,
+        ahorroM2: ahorroEnergiaFinalM2,
+        superficieAplicada: supIni,
+        superficieInicialAplicada: supIni,
+        superficieFinalAplicada: supFin,
+        metodoAhorro: 'simplificado',
+        fuenteDatos: 'emisiones',
+        details: {
+            electrico: {
+                fuelIni: 'Electricidad peninsular',
+                fuelFin: 'Electricidad peninsular',
+                factorIni: fElec,
+                factorFin: fElec,
+                emissionsIni: emiElecIniN,
+                emissionsFin: emiElecFinN,
+                energyIni: energiaElecIniM2,
+                energyFin: energiaElecFinM2,
+            },
+            otros: {
+                fuelIni: combOtrosIni || '—',
+                fuelFin: combOtrosFinReal || '—',
+                // Sin emisiones de otros combustibles en el FINAL, el edificio ya no quema
+                // nada. El CERTIFICADO lo imprime como "No aplica" en vez de arrastrar el
+                // combustible inicial: con el nombre a la vista, el verificador podría
+                // multiplicar por su factor un consumo que ya no existe (mismo criterio que
+                // la ficha TER100). En la tabla editable sí se deja el combustible real,
+                // porque ahí es el valor de un <select> que el usuario puede cambiar.
+                fuelFinAplica: emiOtrosFinN > 0,
+                factorIni: fOtrosIni,
+                factorFin: fOtrosFin,
+                emissionsIni: emiOtrosIniN,
+                emissionsFin: emiOtrosFinN,
+                energyIni: energiaOtrosIniM2,
+                energyFin: energiaOtrosFinM2,
+            },
+        },
+    };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LA ENERGÍA FINAL, LEÍDA DEL CEE (no reconstruida)
+// ─────────────────────────────────────────────────────────────────────────────
+// <EnergiaFinalVectores> declara el consumo de energía final en kWh/m²·año por VECTOR
+// energético y, dentro de cada uno, por uso. Es EXACTAMENTE la magnitud que pide la
+// ficha, así que cuando el XML la trae no se divide nada: se suma lo declarado.
+//
+// Eso quita de en medio la limitación del método por emisiones. Allí, «otros
+// combustibles» venía como UNA cifra de CO₂ que había que dividir por UN factor de
+// paso, así que con dos combustibles no eléctricos la suma era indeshacible. Aquí cada
+// vector viene por separado y en energía: sumar gasóleo + gas natural es legítimo,
+// porque los kWh son kWh vengan de donde vengan.
+//
+// El factor de paso se sigue usando, pero solo para CONTRASTAR: energía × factor tiene
+// que reproducir la tabla de emisiones del propio certificado. Medido sobre un CEE real:
+// 36,91 × 0,331 = 12,22 y 26,91 × 0,311 = 8,37, las dos filas exactas del PDF.
+function res080DesdeEnergiaFinal({ vecIni, vecFin, supIni, supFin, emiDeclaradas }) {
+    // Agrega los vectores de un lado en los dos grupos que pinta la tabla.
+    const agrupa = (vec) => {
+        const lista = Object.values(vec || {});
+        const grupo = (esElectrico) => {
+            const items = lista.filter((v) => !!v.esElectrico === esElectrico);
+            const energia = items.reduce((a, v) => a + (v.global || 0), 0);
+            // Emisiones reconstruidas vector a vector (cada uno con SU factor). Si algún
+            // combustible no está en FACTORES_PASO no se inventa: el contraste no aplica.
+            const conocidos = items.every((v) => FACTORES_PASO[canonCombustible(v.nombre)] !== undefined);
+            const emisiones = conocidos
+                ? items.reduce((a, v) => a + (v.global || 0) * getFactorPaso(v.nombre), 0)
+                : null;
+            return {
+                items,
+                energia,
+                emisiones,
+                nombres: items.map((v) => v.nombre),
+                // Con varios combustibles el "factor" que se enseña es el EFECTIVO
+                // (emisiones ÷ energía), no el de ninguno de ellos en particular.
+                factor: energia > 0 && emisiones != null ? emisiones / energia : null,
+            };
+        };
+        return { elec: grupo(true), otros: grupo(false) };
+    };
+
+    const gIni = agrupa(vecIni);
+    const gFin = agrupa(vecFin);
+
+    const totalEnergiaInicialM2 = gIni.elec.energia + gIni.otros.energia;
+    const totalEnergiaFinalM2 = gFin.elec.energia + gFin.otros.energia;
+    const ahorroEnergiaFinalM2 = Math.max(0, totalEnergiaInicialM2 - totalEnergiaFinalM2);
+    const totalEnergiaInicialAno = totalEnergiaInicialM2 * supIni;
+    const totalEnergiaFinalAno = totalEnergiaFinalM2 * supFin;
+
+    const nombreDe = (g) => g.nombres.length === 0 ? '—' : g.nombres.join(' + ');
+    const lado = (g) => ({
+        fuelIni: nombreDe(g), factorIni: g.factor, emissionsIni: g.emisiones, energyIni: g.energia,
+    });
+
+    // Contraste con la tabla de emisiones que imprime el propio certificado. Que los dos
+    // números concuerden es la mejor prueba de que la lectura es correcta; se expone para
+    // que el certificado lo pueda enseñar y para detectar un XML incoherente.
+    const cuadra = (calc, declarado) => {
+        if (calc == null || declarado == null || !isFinite(Number(declarado))) return null;
+        return Math.abs(calc - Number(declarado)) <= Math.max(0.05, Math.abs(calc) * 0.02);
+    };
+
+    return {
+        totalEnergiaInicialM2,
+        totalEnergiaFinalM2,
+        totalEnergiaInicialAno,
+        totalEnergiaFinalAno,
+        ahorroEnergiaFinalTotal: Math.max(0, totalEnergiaInicialAno - totalEnergiaFinalAno),
+        ahorroM2: ahorroEnergiaFinalM2,
+        superficieAplicada: supIni,
+        superficieInicialAplicada: supIni,
+        superficieFinalAplicada: supFin,
+        metodoAhorro: 'simplificado',
+        // De dónde salen los kWh: leídos del certificado o reconstruidos desde el CO₂.
+        fuenteDatos: 'energia_final_declarada',
+        details: {
+            electrico: {
+                fuelIni: nombreDe(gIni.elec) === '—' ? 'Electricidad peninsular' : nombreDe(gIni.elec),
+                fuelFin: nombreDe(gFin.elec) === '—' ? 'Electricidad peninsular' : nombreDe(gFin.elec),
+                factorIni: gIni.elec.factor ?? getFactorPaso('Electricidad peninsular'),
+                factorFin: gFin.elec.factor ?? getFactorPaso('Electricidad peninsular'),
+                emissionsIni: gIni.elec.emisiones,
+                emissionsFin: gFin.elec.emisiones,
+                energyIni: gIni.elec.energia,
+                energyFin: gFin.elec.energia,
+            },
+            otros: {
+                fuelIni: nombreDe(gIni.otros),
+                fuelFin: nombreDe(gFin.otros),
+                fuelFinAplica: gFin.otros.energia > 0,
+                factorIni: gIni.otros.factor,
+                factorFin: gFin.otros.factor,
+                emissionsIni: gIni.otros.emisiones,
+                emissionsFin: gFin.otros.emisiones,
+                energyIni: gIni.otros.energia,
+                energyFin: gFin.otros.energia,
+            },
+        },
+        // Desglose completo (vector × uso) para que el certificado lo pueda enseñar.
+        vectores: {
+            inicial: Object.values(vecIni || {}),
+            final: Object.values(vecFin || {}),
+        },
+        contraste: {
+            electricoIni: cuadra(gIni.elec.emisiones, emiDeclaradas?.elecIni),
+            otrosIni: cuadra(gIni.otros.emisiones, emiDeclaradas?.otrosIni),
+            electricoFin: cuadra(gFin.elec.emisiones, emiDeclaradas?.elecFin),
+            otrosFin: cuadra(gFin.otros.emisiones, emiDeclaradas?.otrosFin),
+            declaradas: emiDeclaradas,
+        },
+    };
+}
+
+// Variante que toma los DOS objetos de parseCeeXml() (o la forma equivalente que produce
+// ceeToXmlShape para un CEE leído por OCR) en vez de valores sueltos. Es el espejo de
+// calculateRes080 para el método simplificado, y elige la mejor fuente disponible:
+//
+//   1. <EnergiaFinalVectores> → la energía final DECLARADA, sin reconstruir nada (exacta,
+//      y admite varios combustibles no eléctricos).
+//   2. Si no está (OCR de un PDF, o un XML antiguo) → emisiones ÷ factor de paso, que
+//      necesita saber cuál es el único combustible no eléctrico del edificio.
+export function calculateRes080SimplificadoFromXml({
+    xmlInicial, xmlFinal,
+    combOtrosIni, combOtrosFin,
+    superficieCustom, superficieInicial, superficieFinal
+}) {
+    if (!xmlInicial || !xmlFinal) return null;
+    const supBase = parseFloat(superficieCustom) || xmlInicial.superficieHabitable || 120;
+    const supIni = parseFloat(superficieInicial) || supBase;
+    const supFin = parseFloat(superficieFinal) || parseFloat(superficieCustom) || xmlFinal.superficieHabitable || supBase;
+
+    if (xmlInicial.energiaFinalVectores && xmlFinal.energiaFinalVectores) {
+        return res080DesdeEnergiaFinal({
+            vecIni: xmlInicial.energiaFinalVectores,
+            vecFin: xmlFinal.energiaFinalVectores,
+            supIni, supFin,
+            emiDeclaradas: {
+                elecIni: xmlInicial.emisionesConsumoElectrico, otrosIni: xmlInicial.emisionesConsumoOtros,
+                elecFin: xmlFinal.emisionesConsumoElectrico, otrosFin: xmlFinal.emisionesConsumoOtros,
+            },
+        });
+    }
+
+    const res = calculateRes080Simplificado({
+        emiElecIni: xmlInicial.emisionesConsumoElectrico,
+        emiElecFin: xmlFinal.emisionesConsumoElectrico,
+        emiOtrosIni: xmlInicial.emisionesConsumoOtros,
+        emiOtrosFin: xmlFinal.emisionesConsumoOtros,
+        combOtrosIni: combOtrosIni || xmlInicial.combustibleOtros,
+        combOtrosFin: combOtrosFin || xmlFinal.combustibleOtros || '',
+        superficieInicial: supIni,
+        superficieFinal: supFin,
+    });
+    if (res) res.fuenteDatos = 'emisiones';
+    return res;
+}
+
+// ¿Trae este CEE lo que necesita el método simplificado? Vale cualquiera de las dos
+// fuentes: la energía final declarada por vector (la buena) o el reparto de emisiones.
+export function tieneDatosSimplificado(xml) {
+    if (xml?.energiaFinalVectores && Object.keys(xml.energiaFinalVectores).length > 0) return true;
+    const n = (v) => { const x = Number(v); return Number.isFinite(x) ? x : null; };
+    return n(xml?.emisionesConsumoElectrico) !== null || n(xml?.emisionesConsumoOtros) !== null;
+}
+
+// ¿La energía final sale LEÍDA del certificado (y no reconstruida desde el CO₂)?
+export function esEnergiaFinalDeclarada(results) {
+    return results?.fuenteDatos === 'energia_final_declarada';
+}
+
+// Canoniza un combustible a su clave EXACTA de FACTORES_PASO. El backend (normalizeData)
+// guarda los strings del JSONB en MAYÚSCULAS, así que "GASOLEO CALEFACCIÓN" y
+// "Gasoleo Calefacción" son el mismo combustible y no pueden contarse como dos.
+export function canonCombustible(val) {
+    if (!val) return null;
+    if (FACTORES_PASO[val] !== undefined) return val;
+    const lower = String(val).toLowerCase().trim();
+    return Object.keys(FACTORES_PASO).find(k => k.toLowerCase() === lower) || String(val).trim();
+}
+
+// Combustibles NO eléctricos ya cargados entre los servicios ACS/Calefacción/Refrigeración
+// (se admite cualquier objeto plano de valores: { acs, cal, ref }, { acsIni, calIni, … }…).
+//
+// El método SIMPLIFICADO solo es válido cuando en TODO el edificio hay UN único combustible
+// no eléctrico: con dos (p.ej. gasóleo + biomasa), la fila "otros combustibles" del CEE
+// mezcla dos factores de paso distintos y no se puede deshacer esa suma. Devuelve el
+// combustible único (para preseleccionarlo) y si hay mezcla (para AVISAR — no bloquea:
+// el dato final lo confirma una persona).
+export function combustiblesNoElectricos(valores) {
+    const esElectrico = (c) => !c || /electric/i.test(String(c));
+    const lista = Array.from(new Set(
+        Object.values(valores || {})
+            .filter((c) => c && !esElectrico(c))
+            .map(canonCombustible)
+            .filter(Boolean)
+    ));
+    return {
+        lista,
+        unico: lista.length === 1 ? lista[0] : null,
+        mixto: lista.length > 1,
+    };
 }
 
 // ============================================================================

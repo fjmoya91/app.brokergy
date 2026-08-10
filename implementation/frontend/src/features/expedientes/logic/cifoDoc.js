@@ -381,6 +381,9 @@ export function deriveCifoData({ expediente, results }) {
     let thZone = 0, pbdcKw = 0, pbdcKwStr = '—', demandaAnualKwhStr = '—', appliedCovStr = '—';
     // Método de cálculo de la cobertura: 'demanda' (P_diseño) o 'caldera' (P nominal caldera).
     let hybridMethod = HYBRID_METHODS.DEMANDA, pCalderaKwStr = '—', refPowerKwStr = '—';
+    // Horas anuales equivalentes en modo activo (H_HE) y comprobación de coherencia
+    // de la carga de diseño en potencia específica (W/m²).
+    let pDesignWStr = '—', pEspecificaStr = '—', pEspecificaNum = 0;
     if (isHybrid) {
         const demandaAnual = dcalRaw * sRaw;
         const hybridIn = resolveHybridInputs(inst, opInputs);
@@ -397,10 +400,13 @@ export function deriveCifoData({ expediente, results }) {
         const rawCoveragePct = refPowerRaw > 0 ? (pbdcKw / refPowerRaw) * 100 : 0;
         coveragePct = rawCoveragePct;
         coveragePctStr = rawCoveragePct.toFixed(0);
-        thZone = hybridData?.th || 0;
+        thZone = hybridData?.hHE || 0;
         pbdcKwStr = pbdcKw.toFixed(2).replace('.', ',');
         demandaAnualKwhStr = demandaAnual.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         appliedCovStr = (coveragePct >= 95 ? 95 : coveragePct).toFixed(0);
+        pDesignWStr = Math.round(pDesignRaw * 1000).toLocaleString('es-ES');
+        pEspecificaNum = sRaw > 0 ? (pDesignRaw * 1000) / sRaw : 0;
+        pEspecificaStr = pEspecificaNum > 0 ? pEspecificaNum.toFixed(1).replace('.', ',') : '—';
     }
 
     return {
@@ -435,7 +441,7 @@ export function deriveCifoData({ expediente, results }) {
         empNombre, empCif, empDir, empCp, empMun, empProv, empCargo, empEmail, empTlf, empResponsable,
         // hibridación (RES093)
         cbStr, pDesignKwStr, coveragePct, coveragePctStr, thZone, pbdcKw, pbdcKwStr, demandaAnualKwhStr, appliedCovStr,
-        hybridMethod, pCalderaKwStr, refPowerKwStr,
+        hybridMethod, pCalderaKwStr, refPowerKwStr, pDesignWStr, pEspecificaStr, pEspecificaNum,
     };
 }
 
@@ -467,7 +473,7 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
         metodoCal, metodoAcs, emiLabel,
         empNombre, empCif, empDir, empCp, empMun, empProv, empCargo, empEmail, empTlf, empResponsable,
         cbStr, pDesignKwStr, coveragePct, coveragePctStr, thZone, pbdcKwStr, demandaAnualKwhStr, appliedCovStr,
-        hybridMethod, pCalderaKwStr, refPowerKwStr,
+        hybridMethod, pCalderaKwStr, refPowerKwStr, pDesignWStr, pEspecificaStr, pEspecificaNum,
     } = data;
 
     const pages = [];
@@ -483,10 +489,12 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
         ? TER100_FICHA_COMPLETA
         : 'RES060: Sustitución de caldera de combustión por una bomba de calor tipo aire-aire, aire-agua, agua-agua o combinadas';
 
+    // Cabecera y pie van en la MISMA tipografía que el cuerpo del documento
+    // ('Instrument Sans', heredada de .doc-page): no llevan font-family propia.
     const pageHeader = `
         <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;background:#1A1A1A;border-radius:14px;">
-            <span style="font-family:'Archivo';font-weight:700;font-size:10px;letter-spacing:2.5px;color:#93C01F;">CERTIFICADO CIFO · ${cifoLabel}</span>
-            <span style="font-family:'Archivo';font-weight:600;font-size:11px;letter-spacing:1px;color:#93C01F;">Expte: ${numexpte}</span>
+            <span style="font-weight:700;font-size:10.5px;letter-spacing:.6px;color:#93C01F;">CERTIFICADO CIFO · ${cifoLabel}</span>
+            <span style="font-weight:600;font-size:11px;color:#93C01F;">Expte: ${numexpte}</span>
         </div>`;
     const sectionTitle = (t, mt = '13px') => `
         <div style="display:flex;align-items:center;gap:11px;margin:${mt} 0 8px;">
@@ -968,63 +976,145 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
             ? obsBox(`<p style="margin:0;"><b>Nota:</b> El porcentaje de cobertura calculado (${coveragePctStr}%) es superior al 95%. Conforme al Anexo III de la ficha RES093, el valor máximo aplicable es el 95% (límite de la tabla de bivalencia).</p>`, '10px')
             : '';
 
-        // La cobertura admite dos determinaciones: por POTENCIA DE DISEÑO (demanda
-        // anual / horas equivalentes) o por POTENCIA NOMINAL DE LA CALDERA existente.
-        // El número de pasos cambia (3 frente a 4), por eso se arma el bloque aparte.
+        // La cobertura admite dos determinaciones: por CARGA DE DISEÑO PARA CALEFACCIÓN
+        // (P_designh = Q_H / H_HE, procedimiento del Reglamento (UE) 813/2013) o por
+        // POTENCIA NOMINAL DE LA CALDERA existente. El desarrollo es muy distinto:
+        // el primero necesita justificar de dónde salen las horas equivalentes y ocupa
+        // dos páginas; el segundo cabe en una. Por eso se arman por separado.
         const esPorCaldera = hybridMethod === HYBRID_METHODS.CALDERA;
 
         const formulaBox = (html) => `<div style="text-align:center;margin:6px 0;font-family:'Archivo';font-weight:800;font-size:13px;background:#FBF6EE;border-radius:10px;padding:8px;">${html}</div>`;
+        const quoteBox = (html) => `<div style="margin:8px 0 2px;padding:10px 16px;border-left:3px solid #93C01F;background:#F7F7F1;border-radius:0 10px 10px 0;font-size:11.5px;line-height:1.55;color:#4a4a44;font-style:italic;">${html}</div>`;
+        const cite = (t) => `<p style="margin:0 0 8px;font-size:9.5px;color:#8a8a80;">${t}</p>`;
+        const par = (html) => `<p style="margin:0 0 6px;font-size:12px;line-height:1.55;color:#4a4a44;">${html}</p>`;
+        // Enlace al texto oficial. El verificador tiene que poder abrir la norma desde
+        // el propio certificado: en PDF el <a> es clicable, y la URL se imprime aparte
+        // en la lista de referencias para que también sirva en papel.
+        const link = (url, txt) => `<a href="${url}" style="color:#4d6a12;text-decoration:underline;">${txt}</a>`;
+        // Boletín Oficial del Estado — recopilación del DOUE L 239 de 6.9.2013, donde
+        // se publicaron los dos reglamentos (811/2013 en L 239/1-82, 813/2013 en
+        // L 239/136-161). Verificado sobre el propio PDF: la letra c) del Anexo III
+        // del 813/2013 está en la pág. L 239/153 y la del Anexo VII del 811/2013 en
+        // la pág. L 239/72.
+        const URL_813 = 'https://www.boe.es/doue/2013/239/L00136-00161.pdf';
+        const URL_811 = 'https://www.boe.es/doue/2013/239/L00001-00082.pdf';
 
-        const pasosCobertura = esPorCaldera
-            ? `
+        // Condiciones en las que se declara el SCOP adoptado. Tienen que ser las de la
+        // MISMA temporada de referencia que las horas equivalentes (clima medio): un
+        // SCOP de una temporada con las horas de otra no es defendible.
+        const emiTemp = getEmitterTemp(inst.tipo_emisor);
+        const parAgua = emiTemp === 35 ? '30/35' : emiTemp === 55 ? '47/55' : `${emiTemp - 5}/${emiTemp}`;
+        const condScop = esEmisorAire(inst.tipo_emisor)
+            ? 'condiciones climáticas promedio'
+            : `condiciones climáticas promedio; temperatura de agua entrada/salida ${parAgua} °C`;
+        const fuenteScop = metodoCal === 'eprel'
+            ? 'el registro EPREL del equipo declara'
+            : 'la ficha técnica del fabricante declara';
+        const condPotencia = esEmisorAire(inst.tipo_emisor) ? 'UNE-EN 14511' : `UNE-EN 14511, A7/W${emiTemp}`;
+        // "2.066" con separador de millar: es-ES no agrupa los números de 4 cifras.
+        const hHEStr = String(thZone).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+        // La comprobación de coherencia solo AFIRMA algo cuando el resultado cae en el
+        // rango propio de vivienda existente. Fuera de él se da el dato y nada más:
+        // un certificado no puede sostener una conclusión que sus propios números
+        // desmienten — es lo primero que el verificador cruza.
+        const coherenciaTxt = pEspecificaNum >= 40 && pEspecificaNum <= 130
+            ? `, orden de magnitud propio de una vivienda existente sin actuación sobre la envolvente, lo que confirma la representatividad del resultado`
+            : '';
+
+        const cbTable = `
+                <div style="border-radius:16px;overflow:hidden;border:1px solid #E9E9E1;">
+                    <table class="cmp" style="width:100%;border-collapse:collapse;font-size:12px;"><tbody>
+                        <tr><td colspan="2" style="padding:8px 16px;background:#1A1A1A;color:#fff;font-family:'Archivo';font-weight:700;font-size:10.5px;letter-spacing:.5px;text-transform:uppercase;">Coeficiente de cobertura por bivalencia — valor aplicado</td></tr>
+                        <tr><td style="text-align:center;padding:6px 10px;background:#F7F7F1;color:#6E6E66;font-weight:700;font-size:10px;text-transform:uppercase;">${esPorCaldera ? 'Cobertura potencia térmica BdC sobre caldera existente' : 'Cobertura de la BdC sobre la carga de diseño para calefacción'}</td><td style="text-align:center;padding:6px 10px;background:#F7F7F1;color:#6E6E66;font-weight:700;font-size:10px;text-transform:uppercase;">C<sub>b</sub></td></tr>
+                        <tr><td style="text-align:center;font-family:'Archivo';font-weight:800;font-size:15px;background:#FBF6EE;padding:10px;">${appliedCovStr}%${coveragePct >= 95 ? ' · valor aplicado' : ''}</td><td style="text-align:center;font-family:'Archivo';font-weight:900;font-size:16px;background:#F3F8E6;color:#4d6a12;">${cbStr}</td></tr>
+                    </tbody></table>
+                </div>`;
+
+        if (esPorCaldera) {
+            pages.push(`
+            <div class="doc-page">
+                ${pageHeader}
+                ${subLabel('8. Coeficiente de cobertura por bivalencia C<sub>b</sub>', '#6E6E66', '20px')}
+                ${par('La ficha técnica RES093 establece que el ahorro de energía se pondera mediante el coeficiente de cobertura por bivalencia (C<sub>b</sub>), que refleja la fracción de la demanda de energía térmica anual cubierta por la bomba de calor cuando ésta opera combinada con el generador auxiliar de combustión (caldera) formando un sistema híbrido. En esta actuación dicha fracción se determina por la relación entre la potencia térmica de la bomba de calor instalada y la potencia nominal de la caldera existente, obteniéndose el valor de C<sub>b</sub> de la tabla del Anexo III de la ficha RES093:')}
+
                 ${subLabel('Paso 1 — Potencia nominal de la caldera existente (P<sub>caldera</sub>)', '#6E6E66', '16px')}
-                <p style="margin:0 0 6px;font-size:12px;color:#4a4a44;">La caldera de combustión existente permanece en la instalación como generador auxiliar del sistema híbrido. Su potencia nominal, según la placa de características del equipo, es:</p>
+                ${par('La caldera de combustión existente permanece en la instalación como generador auxiliar del sistema híbrido. Su potencia nominal, según la placa de características del equipo, es:')}
                 ${formulaBox(`P<sub>caldera</sub> = <span style="color:#4d6a12;">${pCalderaKwStr} kW</span>`)}
 
                 ${subLabel('Paso 2 — Porcentaje de cobertura de la bomba de calor', '#6E6E66', '16px')}
-                <p style="margin:0 0 6px;font-size:12px;color:#4a4a44;">El porcentaje de cobertura expresa la fracción de la potencia térmica del generador sustituido que aporta la bomba de calor instalada:</p>
+                ${par('El porcentaje de cobertura expresa la fracción de la potencia térmica del generador sustituido que aporta la bomba de calor instalada:')}
                 ${formulaBox(`% cobertura = ${pbdcKwStr} kW / ${pCalderaKwStr} kW = <span style="color:#4d6a12;">${coveragePctStr}%</span>`)}
                 ${cappedNote}
 
                 ${subLabel('Paso 3 — Valor de C<sub>b</sub> aplicado', '#6E6E66', '16px')}
-                <p style="margin:0 0 8px;font-size:12px;color:#4a4a44;">Aplicando el ${appliedCovStr}% en la tabla del Anexo III de la ficha RES093:</p>`
-            : `
-                ${subLabel('Paso 1 — Horas equivalentes de calefacción (t<sub>h</sub>)', '#6E6E66', '16px')}
-                <p style="margin:0 0 6px;font-size:12px;color:#4a4a44;">Conforme a los valores recogidos en el Anexo de las fichas <b>RES220</b> y <b>RES230</b>, incluidas en la <i>Resolución de 3 de julio de 2024</i> de la Dirección General de Planificación y Coordinación Energética (por la que se actualiza el Anexo I de la <i>Orden TED/845/2023, de 18 de julio</i>), las horas equivalentes de calefacción para la zona climática <b>${zoneStr}</b> son:</p>
-                <div style="text-align:center;margin:6px 0;font-family:'Archivo';font-weight:800;font-size:14px;background:#FBF6EE;border-radius:10px;padding:8px;">t<sub>h</sub> = ${thZone.toLocaleString('es-ES')} h/año</div>
-
-                ${subLabel('Paso 2 — Potencia de diseño (P<sub>diseño</sub>)', '#6E6E66', '16px')}
-                <p style="margin:0 0 6px;font-size:12px;color:#4a4a44;">La potencia de diseño se obtiene dividiendo la demanda anual de calefacción entre las horas equivalentes:</p>
-                ${formulaBox(`P<sub>diseño</sub> = ${demandaAnualKwhStr} kWh / ${thZone.toLocaleString('es-ES')} h = <span style="color:#4d6a12;">${pDesignKwStr} kW</span>`)}
-
-                ${subLabel('Paso 3 — Porcentaje de cobertura de la bomba de calor', '#6E6E66', '16px')}
-                <p style="margin:0 0 6px;font-size:12px;color:#4a4a44;">El porcentaje de cobertura expresa la fracción de la potencia de diseño que cubre la bomba de calor:</p>
-                ${formulaBox(`% cobertura = ${pbdcKwStr} kW / ${pDesignKwStr} kW = <span style="color:#4d6a12;">${coveragePctStr}%</span>`)}
-                ${cappedNote}
-
-                ${subLabel('Paso 4 — Valor de C<sub>b</sub> aplicado', '#6E6E66', '16px')}
-                <p style="margin:0 0 8px;font-size:12px;color:#4a4a44;">Aplicando el ${appliedCovStr}% en la tabla del Anexo III de la ficha RES093:</p>`;
-
-        const introCb = esPorCaldera
-            ? 'La ficha técnica RES093 establece que el ahorro de energía se pondera mediante el coeficiente de cobertura por bivalencia (C<sub>b</sub>), que refleja la fracción de la demanda de energía térmica anual cubierta por la bomba de calor cuando ésta opera combinada con el generador auxiliar de combustión (caldera) formando un sistema híbrido. En esta actuación dicha fracción se determina por la relación entre la potencia térmica de la bomba de calor instalada y la potencia nominal de la caldera existente, obteniéndose el valor de C<sub>b</sub> de la tabla del Anexo III de la ficha RES093:'
-            : 'La ficha técnica RES093 establece que el ahorro de energía se pondera mediante el coeficiente de cobertura por bivalencia (C<sub>b</sub>), que refleja la fracción de la demanda de calefacción cubierta por la bomba de calor en modo de funcionamiento bivalente paralelo. Su valor se determina conforme al Anexo III de la ficha RES093 siguiendo el procedimiento que se indica a continuación:';
-
-        pages.push(`
-            <div class="doc-page">
-                ${pageHeader}
-                ${subLabel('8. Coeficiente de cobertura por bivalencia C<sub>b</sub>', '#6E6E66', '20px')}
-                <p style="margin:0 0 6px;font-size:12.5px;color:#4a4a44;">${introCb}</p>
-                ${pasosCobertura}
-                <div style="border-radius:16px;overflow:hidden;border:1px solid #E9E9E1;">
-                    <table class="cmp" style="width:100%;border-collapse:collapse;font-size:12px;"><tbody>
-                        <tr><td colspan="2" style="padding:8px 16px;background:#1A1A1A;color:#fff;font-family:'Archivo';font-weight:700;font-size:10.5px;letter-spacing:.5px;text-transform:uppercase;">Coeficiente de cobertura por bivalencia — valor aplicado</td></tr>
-                        <tr><td style="text-align:center;padding:6px 10px;background:#F7F7F1;color:#6E6E66;font-weight:700;font-size:10px;text-transform:uppercase;">${esPorCaldera ? 'Cobertura potencia térmica BdC sobre caldera existente' : `Cobertura potencia térmica BdC — Zona ${zoneStr}`}</td><td style="text-align:center;padding:6px 10px;background:#F7F7F1;color:#6E6E66;font-weight:700;font-size:10px;text-transform:uppercase;">C<sub>b</sub></td></tr>
-                        <tr><td style="text-align:center;font-family:'Archivo';font-weight:800;font-size:15px;background:#FBF6EE;padding:10px;">${appliedCovStr}%${coveragePct >= 95 ? ' · valor aplicado' : ''}</td><td style="text-align:center;font-family:'Archivo';font-weight:900;font-size:16px;background:#F3F8E6;color:#4d6a12;">${cbStr}</td></tr>
-                    </tbody></table>
-                </div>
+                ${par(`Aplicando el ${appliedCovStr}% en la tabla del Anexo III de la ficha RES093:`)}
+                ${cbTable}
                 ${footer}
             </div>
         `);
+        } else {
+            // Determinación por CARGA DE DISEÑO. El procedimiento se apoya en el
+            // Reglamento (UE) 813/2013 (Q_H = P_designh × H_HE), que es la norma de
+            // aplicación directa y el marco al que remiten las propias fichas: las
+            // "horas equivalentes por zona climática" de las fichas RES220/RES230 que
+            // se usaban antes no son la H_HE de este procedimiento.
+            pages.push(`
+            <div class="doc-page">
+                ${pageHeader}
+                ${subLabel('8. Coeficiente de cobertura por bivalencia C<sub>b</sub>', '#6E6E66', '20px')}
+                ${par('La ficha RES093 <b>[R4]</b> establece que el ahorro de energía se pondera mediante el coeficiente de cobertura por bivalencia (C<sub>b</sub>), definido como <i>«el porcentaje de la demanda de energía térmica anual cubierta por bombas de calor cuando está combinada con generadores auxiliares (calderas) formando un sistema híbrido»</i>. Su valor se obtiene de la tabla del <b>Anexo III</b> de la ficha, cuya variable de entrada es el <i>«porcentaje de potencia térmica nominal de bomba de calor sobre la potencia térmica total necesaria en proyecto»</i>, interpolando linealmente entre los valores más próximos de la tabla.')}
+                ${par(`Para determinar la <b>potencia térmica total necesaria en proyecto</b> se aplica el procedimiento establecido en el <b>${link(URL_813, 'Reglamento (UE) n.º 813/2013')} [R1]</b>, norma de aplicación directa que define tanto la carga de diseño para calefacción como las horas anuales equivalentes en modo activo, y que constituye el marco al que remiten expresamente el Anexo II de la propia ficha RES093 <b>[R4]</b> y el Anexo V de la ficha RES060 <b>[R5]</b>.`)}
+
+                ${subLabel('Paso 1 — Horas anuales equivalentes en modo activo (H<sub>HE</sub>)', '#6E6E66', '18px')}
+                ${par(`El ${link(URL_813, 'Reglamento (UE) n.º 813/2013')} <b>[R1]</b>, <b>Anexo III, punto 4, letra c)</b>, establece literalmente:`)}
+                ${quoteBox('«La demanda anual de calor de referencia Q<sub>H</sub> será la carga de diseño para calefacción P<sub>designh</sub> multiplicada por las horas anuales equivalentes en modo activo H<sub>HE</sub> de 2 066.»')}
+                ${cite(`— Reglamento (UE) n.º 813/2013, Anexo III, punto 4, letra c) — ${link(URL_813, 'DOUE L 239 de 6.9.2013, pág. L 239/153')} [R1]`)}
+                ${par(`El ${link(URL_811, 'Reglamento Delegado (UE) n.º 811/2013')} <b>[R2]</b>, Anexo VII, punto 4, letra c) (pág. L 239/72), recoge la misma relación para las tres temporadas de calefacción de referencia, con valores de H<sub>HE</sub> de <b>2.066 h</b> (condiciones medias), <b>2.465 h</b> (más frías) y <b>1.336 h</b> (más cálidas).`)}
+                ${par(`Corresponde a la temporada de calefacción de referencia europea en <b>condiciones climáticas medias</b>, que es la que el propio Anexo III del Reglamento (UE) n.º 813/2013 <b>[R1]</b> fija para el cálculo del rendimiento estacional (cuadro 5) y en la que ${fuenteScop} el SCOP = ${scopCalStr} adoptado en el apartado ${nScopCal} de este anexo (<i>${condScop}</i>), condición mínima que exige a su vez el Anexo V de la ficha RES060 <b>[R5]</b>. El rendimiento estacional y las horas anuales equivalentes son parámetros de una misma temporada de referencia y se toman conjuntamente.`)}
+                ${formulaBox(`H<sub>HE</sub> = <span style="color:#4d6a12;">${hHEStr} h/año</span>`)}
+
+                ${subLabel('Paso 2 — Demanda anual de calor (Q<sub>H</sub>)', '#6E6E66', '18px')}
+                ${par('La demanda anual de calor es la demanda de calefacción del edificio por la superficie útil habitable calefactada, ambas tomadas del certificado de eficiencia energética registrado que impone la ficha RES093 <b>[R4]</b> como fuente de la demanda:')}
+                ${formulaBox(`Q<sub>H</sub> = D<sub>CAL</sub> × S = ${dcal} kWh/m²·año × ${sStr} m² = <span style="color:#4d6a12;">${demandaAnualKwhStr} kWh/año</span>`)}
+                ${footer}
+            </div>
+        `);
+
+            pages.push(`
+            <div class="doc-page">
+                ${pageHeader}
+                ${subLabel('8. Coeficiente de cobertura por bivalencia C<sub>b</sub> <span style="text-transform:none;letter-spacing:0;font-weight:400;">(continuación)</span>', '#6E6E66', '20px')}
+
+                ${subLabel('Paso 3 — Carga de diseño para calefacción (P<sub>designh</sub>)', '#6E6E66', '16px')}
+                ${par('Despejando de la relación establecida en el paso 1:')}
+                ${formulaBox(`P<sub>designh</sub> = Q<sub>H</sub> / H<sub>HE</sub> = ${demandaAnualKwhStr} kWh / ${hHEStr} h = <span style="color:#4d6a12;">${pDesignKwStr} kW</span>`)}
+                ${par(`<b>Comprobación de coherencia.</b> La potencia específica resultante es ${pDesignWStr} W / ${sStr} m² = <b>${pEspecificaStr} W/m²</b>${coherenciaTxt}.`)}
+
+                ${subLabel('Paso 4 — Porcentaje de cobertura de la bomba de calor', '#6E6E66', '16px')}
+                ${par(`Potencia térmica nominal de la bomba de calor en las condiciones que exige el Anexo III de la ficha RES093 —${condPotencia} <b>[R3]</b>—, según la ficha técnica del fabricante: <b>${pbdcKwStr} kW</b>.`)}
+                ${formulaBox(`% cobertura = ${pbdcKwStr} kW / ${pDesignKwStr} kW = <span style="color:#4d6a12;">${coveragePctStr}%</span>`)}
+                ${cappedNote}
+
+                ${subLabel('Paso 5 — Valor de C<sub>b</sub> aplicado', '#6E6E66', '16px')}
+                ${par(`Aplicando el ${appliedCovStr}% en la tabla del Anexo III de la ficha RES093, con interpolación lineal entre los valores más próximos:`)}
+                ${cbTable}
+
+                ${obsBox(`
+                    <b style="font-size:11px;">Referencias</b>
+                    <div style="margin-top:6px;">
+                        <b>[R1]</b> Reglamento (UE) n.º 813/2013 de la Comisión, de 2 de agosto de 2013, por el que se desarrolla la Directiva 2009/125/CE del Parlamento Europeo y del Consejo respecto de los requisitos de diseño ecológico aplicables a los aparatos de calefacción y a los calefactores combinados — DOUE L 239 de 6.9.2013, págs. L 239/136 a L 239/161 (la letra c) citada, en la pág. L 239/153).<br>
+                        <span style="font-size:9px;">Texto oficial: ${link(URL_813, URL_813)}</span><br>
+                        <b>[R2]</b> Reglamento Delegado (UE) n.º 811/2013 de la Comisión, de 18 de febrero de 2013, por el que se complementa la Directiva 2010/30/UE en lo relativo al etiquetado energético de los aparatos de calefacción — DOUE L 239 de 6.9.2013, págs. L 239/1 a L 239/82 (la letra c) citada, en la pág. L 239/72).<br>
+                        <span style="font-size:9px;">Texto oficial: ${link(URL_811, URL_811)}</span><br>
+                        <b>[R3]</b> UNE-EN 14511 (condiciones de ensayo de potencia térmica) y UNE-EN 14825 (condiciones de cálculo del rendimiento estacional SCOP por temporada de calefacción).<br>
+                        <b>[R4]</b> Ficha RES093 del Anexo I de la Orden TED/845/2023, de 18 de julio, actualizado por la Resolución de 3 de julio de 2024 de la Dirección General de Planificación y Coordinación Energética.<br>
+                        <b>[R5]</b> Ficha RES060, misma fuente que [R4].
+                    </div>
+                `, '14px')}
+                ${footer}
+            </div>
+        `);
+        }
     }
 
     // SEPARADOR ANEXOS — solo si hay al menos un anexo con driveId.
