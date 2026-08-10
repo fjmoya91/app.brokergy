@@ -563,7 +563,8 @@ export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }
                     // Co-branding: siempre la EMPRESA, nunca el nombre del contacto
                     brand: p.acronimo || p.razon_social || null,
                     logo: p.logo_empresa || null,
-                    cif: p.cif || null
+                    cif: p.cif || null,
+                    tipo: p.tipo_empresa || null
                 };
                 console.log('[PARTNER-DEBUG] Raw Data:', p);
                 console.log('[PARTNER-DEBUG] Redirección activa:', useContact);
@@ -586,7 +587,8 @@ export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }
                                 redirectionActive: useContact,
                                 brand: found.acronimo || found.razon_social || null,
                                 logo: found.logo_empresa || null,
-                                cif: found.cif || null
+                                cif: found.cif || null,
+                                tipo: found.tipo_empresa || null
                             });
                             console.log('[PARTNER] Cargado desde listado:', found.acronimo || found.razon_social);
                         } else {
@@ -612,7 +614,8 @@ export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }
                     email: uc ? (p.email_contacto || p.email || null) : (p.email || null),
                     brand: p.acronimo || p.razon_social || null,
                     logo: p.logo_empresa || null,
-                    cif: p.cif || null
+                    cif: p.cif || null,
+                    tipo: p.tipo_empresa || null
                 });
             })
             .catch(() => setInstaladorInfo({ name: 'Instalador', phone: null, email: null }));
@@ -630,7 +633,15 @@ export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }
         };
         for (const src of [instaladorInfo, partnerInfo]) {
             if (!src || esBrokergy(src)) continue;
-            if (src.logo || src.brand) return { logo: src.logo || null, name: src.brand || null };
+            if (src.logo || src.brand) {
+                // No todo prescriptor con el que se co-marca ejecuta la obra: hay
+                // distribuidores y otros colaboradores. Llamar "instalador" a quien
+                // no lo es queda mal delante del cliente, así que solo se dice
+                // cuando viene por el vínculo de instalador o su ficha lo declara.
+                const esInstalador = src === instaladorInfo
+                    || String(src.tipo || '').toUpperCase() === 'INSTALADOR';
+                return { logo: src.logo || null, name: src.brand || null, esInstalador };
+            }
         }
         return null;
     }, [instaladorInfo, partnerInfo]);
@@ -1525,7 +1536,19 @@ info@brokergy.es · 623 926 179`;
     }, [inputs, result, displayId, urlId, proposalRef]);
 
     // Comparativa "con tu CEE vs. CEE nuevo BROKERGY" — solo si el cliente aportó CEE.
-    const ceeComparison = useMemo(() => (inputs?.cee_previo ? computeCeeComparison(inputs) : null), [inputs]);
+    const ceeComparisonRaw = useMemo(() => (inputs?.cee_previo ? computeCeeComparison(inputs) : null), [inputs]);
+
+    // Si el CEE aportado y uno nuevo dan EL MISMO bono no hay nada que elegir, y
+    // sacar la comparativa ("Con tu CEE: 1.795 € · con un CEE nuevo: 1.795 €")
+    // solo confunde. Pasa cuando el certificado aportado arroja prácticamente
+    // las mismas emisiones que nuestra estimación. A partir de aquí la propuesta
+    // y los mensajes usan esta versión filtrada, no la cruda.
+    const ceeComparison = useMemo(() => {
+        if (!ceeComparisonRaw) return null;
+        const conCee = Math.round(ceeComparisonRaw.conCee?.cae || 0);
+        const nuevo = Math.round(ceeComparisonRaw.ceeNuevo?.cae || 0);
+        return conCee === nuevo ? null : ceeComparisonRaw;
+    }, [ceeComparisonRaw]);
 
     const buildCaption = useCallback((mode, targetName, opts = {}) => {
         const f = result || {};
@@ -2319,7 +2342,7 @@ info@brokergy.es · 623 926 179`;
                                                 {cobrand.logo && <div className="prop-cochip"><img src={cobrand.logo} alt={cobrand.name || ''} /></div>}
                                                 <div className="prop-cobrand-txt">
                                                     {cobrand.name && <div className="prop-cobrand-name">{cobrand.name}</div>}
-                                                    <div className="prop-cobrand-sub">Instalador colaborador de la red BROKERGY · propuesta conjunta</div>
+                                                    <div className="prop-cobrand-sub">{cobrand.esInstalador ? 'Instalador colaborador' : 'Colaborador'} de la red BROKERGY · propuesta conjunta</div>
                                                 </div>
                                             </>
                                         ) : (
