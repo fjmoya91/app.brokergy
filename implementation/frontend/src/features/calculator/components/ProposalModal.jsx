@@ -76,6 +76,24 @@ const baseCss = `
         /* Caja de contenido de cada página. 48px = margen del diseño original. */
         .prop-pb { padding: 0 48px; }
 
+        /* ── Huecos elásticos de la portada ─────────────────────────────────
+           La portada es una hoja A4 de altura FIJA con contenido muy variable.
+           Estos son los espacios que se estiran o encogen para que el contenido
+           llene la hoja exactamente (ver ajustarPortada): son MÁRGENES, así que
+           al tocarlos no cambia la altura intrínseca de nada y la cuenta sale
+           clavada a la primera medición. El valor de aquí es el de reposo. */
+        .prop-page {
+            --e-top: 20px;
+            --e-h1sub: 7px;
+            --e-cobrand: 12px;
+            --e-kpis: 16px;
+            --e-meta: 10px;
+            --e-sec: 12px;
+            --e-nsm: 10px;
+            --e-row: 13px;
+            --e-cta: 13px;
+        }
+
         /* ── Barra superior negra ───────────────────────────────────────────── */
         .prop-bar { background: var(--dark); padding: 16px 48px; display: flex; justify-content: space-between; align-items: center; }
         .prop-bar-slim { padding: 14px 48px; }
@@ -91,15 +109,15 @@ const baseCss = `
         .prop-eyebrow { font-size: 8.5px; font-weight: 800; letter-spacing: 2.4px; text-transform: uppercase; color: var(--orange-dark); }
         .prop-h1 { margin: 6px 0 0; padding: 0; font-size: 25px; font-weight: 800; color: var(--dark); letter-spacing: -0.7px; line-height: 1.22; }
         .prop-h1 em { font-style: normal; color: var(--orange); }
-        .prop-h1sub { color: var(--g500); font-size: 11px; margin-top: 7px; }
+        .prop-h1sub { color: var(--g500); font-size: 11px; margin-top: var(--e-h1sub); }
         /* Bloque del desglose económico, separado de la ficha de datos. */
-        .prop-sec { margin-top: 12px; }
+        .prop-sec { margin-top: var(--e-sec); }
 
         /* Co-branding con el instalador/prescriptor. El chip es blanco porque no
            controlamos lo que sube el partner (PNG transparente, logo oscuro, logo
            con fondo propio). El nombre se escribe SIEMPRE: hay instaladores sin
            logo subido y el chip vacío no decía con quién se colabora. */
-        .prop-cobrand { margin-top: 12px; border: 1px solid var(--g200); border-radius: 12px; padding: 11px 18px; display: flex; align-items: center; gap: 22px; background: var(--g50); }
+        .prop-cobrand { margin-top: var(--e-cobrand); border: 1px solid var(--g200); border-radius: 12px; padding: 11px 18px; display: flex; align-items: center; gap: 22px; background: var(--g50); }
         /* A la misma altura que el chip del instalador: la tarjeta no crece. */
         .prop-cobrand-logo { width: 92px; height: 92px; flex: none; }
         .prop-cobrand-logo img { width: 100%; height: 100%; object-fit: contain; display: block; }
@@ -119,8 +137,7 @@ const baseCss = `
         .prop-cobrand-cta a { color: var(--orange-dark); font-weight: 700; text-decoration: none; }
 
         /* Trío de indicadores: ayuda total · % cubierto · inversión neta */
-        .prop-kpis { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-top: 16px; }
-        .prop-compact .prop-kpis { margin-top: 12px; }
+        .prop-kpis { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-top: var(--e-kpis); }
         .prop-kpi { border: 1px solid var(--g200); border-top: 4px solid var(--g300); border-radius: 10px; padding: 12px; }
         .prop-kpi.ky { border-top-color: var(--yellow); }
         .prop-kpi.kg { border-top-color: var(--green); display: flex; align-items: center; gap: 14px; }
@@ -137,7 +154,7 @@ const baseCss = `
         .prop-donut-in { width: 48px; height: 48px; border-radius: 50%; background: var(--white); display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 900; color: var(--green-dark); }
 
         /* Cabecera de datos: cliente · referencia catastral · dirección */
-        .prop-meta { display: grid; grid-template-columns: 1fr 1.4fr 2.4fr; gap: 18px; margin-top: 10px; padding: 8px 0; border-top: 1px solid var(--g200); border-bottom: 1px solid var(--g200); }
+        .prop-meta { display: grid; grid-template-columns: 1fr 1.4fr 2.4fr; gap: 18px; margin-top: var(--e-meta); padding: 8px 0; border-top: 1px solid var(--g200); border-bottom: 1px solid var(--g200); }
         .prop-meta-l { font-size: 7px; text-transform: uppercase; letter-spacing: 1.4px; color: var(--g400); font-weight: 800; }
         .prop-meta-v { font-weight: 700; font-size: 11.5px; color: var(--dark); line-height: 1.3; overflow-wrap: break-word; }
 
@@ -162,13 +179,12 @@ const baseCss = `
         .prop-fcol { flex: 1; min-width: 0; }
         .prop-fth { background: var(--g100); padding: 8px 20px; display: flex; justify-content: space-between; }
         .prop-fth span { color: var(--g500); font-weight: 800; font-size: 9px; text-transform: uppercase; letter-spacing: 1.5px; }
-        .prop-ftr { display: flex; justify-content: space-between; align-items: center; gap: 14px; padding: 13px 20px; border-bottom: 1px solid var(--g100); }
+        .prop-ftr { display: flex; justify-content: space-between; align-items: center; gap: 14px; padding: var(--e-row) 20px; border-bottom: 1px solid var(--g100); }
         .prop-ftr:last-child { border-bottom: none; }
         .prop-ftr .prop-fl { font-size: 12.5px; color: var(--g700); }
         .prop-ftr .prop-fl small { color: var(--g400); font-size: 10.5px; }
         .prop-ftr .prop-fv { font-weight: 800; font-size: 15px; text-align: right; white-space: nowrap; }
         .prop-ftr .prop-fv.grn { color: var(--green-dark); }
-        .prop-compact .prop-ftr { padding: 10px 20px; }
         .prop-compact .prop-ftr .prop-fl { font-size: 11.5px; }
         .prop-compact .prop-ftr .prop-fv { font-size: 14px; }
         /* Resumen dentro de la tabla. Solo se usa en la comparativa a dos columnas:
@@ -183,8 +199,7 @@ const baseCss = `
         .prop-ftfin .prop-fl { color: var(--white); font-weight: 800; font-size: 11px; text-transform: uppercase; letter-spacing: 0.8px; }
         .prop-ftfin .prop-fv { color: var(--orange); font-weight: 900; font-size: 22px; white-space: nowrap; }
 
-        .prop-nsm { margin-top: 10px; display: flex; flex-direction: column; gap: 2px; }
-        .prop-compact .prop-nsm { margin-top: 8px; }
+        .prop-nsm { margin-top: var(--e-nsm); display: flex; flex-direction: column; gap: 2px; }
         .prop-nsm p { font-size: 9.5px; color: var(--g400); line-height: 1.5; margin: 0; }
         .prop-compact .prop-nsm p { font-size: 8.5px; line-height: 1.4; }
         .prop-nsm p b { color: var(--g600); }
@@ -192,7 +207,7 @@ const baseCss = `
         .prop-compact .prop-avl { margin-top: 5px; padding-top: 5px; font-size: 8px; }
 
         /* ── Llamada a la acción (pie de portada y de condiciones) ──────────── */
-        .prop-cta { background: linear-gradient(145deg, var(--dark) 0%, var(--dark-mid) 100%); padding: 13px 48px; text-align: center; position: absolute; bottom: 0; left: 0; right: 0; }
+        .prop-cta { background: linear-gradient(145deg, var(--dark) 0%, var(--dark-mid) 100%); padding: var(--e-cta) 48px; text-align: center; position: absolute; bottom: 0; left: 0; right: 0; }
         .prop-cta h3 { color: var(--white); font-size: 15px; font-weight: 800; margin: 0; padding: 0; }
         .prop-csub { color: rgba(255,255,255,0.45); font-size: 10.5px; margin: 2px 0 9px; padding: 0; }
         .prop-cta-btn { display: inline-flex; align-items: center; gap: 12px; background: var(--orange); color: var(--white); font-weight: 800; font-size: 14px; padding: 11px 18px 11px 26px; border-radius: 50px; text-decoration: none; line-height: 1; box-shadow: 0 6px 18px rgba(255,109,0,0.35); border-bottom: 3px solid var(--orange-dark); }
@@ -303,12 +318,25 @@ const baseCss = `
            fotovoltaica, ITP, impuestos del CAE, un propietario o cuatro, la
            comparativa de CEE, las dos columnas de la comparativa de reforma y
            la tabla de ahorro anual. Cuando el contenido no cabe se aplica esta
-           variante (ver page1Compact), que aprieta el interlineado sin tocar
+           variante (ver el ajuste de la portada), que aprieta el interlineado sin tocar
            la jerarquía ni recortar información. */
+        /* Último recurso, solo si estirar/encoger los huecos no basta: baja el
+           reposo de cada hueco y aprieta tipografías. Hace falta para la
+           comparativa a dos columnas con ahorro anual, que se pasa >200px. */
+        .prop-compact {
+            --e-top: 16px;
+            --e-h1sub: 5px;
+            --e-cobrand: 8px;
+            --e-kpis: 10px;
+            --e-meta: 8px;
+            --e-sec: 9px;
+            --e-nsm: 6px;
+            --e-row: 8px;
+            --e-cta: 10px;
+        }
         .prop-compact .prop-h1 { font-size: 21px; }
-        .prop-compact .prop-h1sub { font-size: 10px; margin-top: 5px; }
-        .prop-compact .prop-cobrand { margin-top: 8px; padding: 7px 16px; gap: 16px; }
-        .prop-compact .prop-nsm { margin-top: 6px; }
+        .prop-compact .prop-h1sub { font-size: 10px; }
+        .prop-compact .prop-cobrand { padding: 7px 16px; gap: 16px; }
         .prop-compact .prop-avl { margin-top: 4px; padding-top: 4px; }
         .prop-compact .prop-cobrand-logo { width: 72px; height: 72px; }
         .prop-compact .prop-cobrand-cta .t { font-size: 11.5px; margin-bottom: 3px; }
@@ -318,22 +346,19 @@ const baseCss = `
         .prop-compact .prop-cochip img { max-width: 120px; max-height: 60px; }
         .prop-compact .prop-cobrand-name { font-size: 15px; }
         .prop-compact .prop-cobrand-sub { font-size: 9.5px; margin-top: 2px; }
-        .prop-compact .prop-kpis { margin-top: 10px; gap: 10px; }
+        .prop-compact .prop-kpis { gap: 10px; }
         .prop-compact .prop-kpi { padding: 9px 10px; }
         .prop-compact .prop-kpi-v { font-size: 26px; margin-top: 4px; }
         .prop-compact .prop-donut { width: 56px; height: 56px; }
         .prop-compact .prop-donut-in { width: 40px; height: 40px; font-size: 12px; }
-        .prop-compact .prop-meta { margin-top: 8px; padding: 6px 0; }
-        .prop-compact .prop-sec { margin-top: 9px; }
+        .prop-compact .prop-meta { padding: 6px 0; }
         .prop-compact .prop-ftable-title { min-height: 20px; margin-bottom: 6px; }
         .prop-compact .prop-fth { padding: 7px 18px; }
-        .prop-compact .prop-ftr { padding: 8px 18px; }
         .prop-compact .prop-ftaids, .prop-compact .prop-ftpct { padding: 7px 18px; }
         .prop-compact .prop-ftfin { padding: 9px 18px; }
         .prop-compact .prop-ftaids .prop-fv { font-size: 16px; }
         .prop-compact .prop-ftpct .prop-fv { font-size: 14px; }
         .prop-compact .prop-ftfin .prop-fv { font-size: 19px; }
-        .prop-compact .prop-cta { padding: 10px 48px; }
         .prop-compact .prop-cta h3 { font-size: 14px; }
         .prop-compact .prop-csub { font-size: 10px; margin: 2px 0 7px; }
         .prop-compact .prop-cta-btn { font-size: 13px; padding: 9px 16px 9px 22px; }
@@ -373,12 +398,23 @@ export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }
     const proposalRef = useRef(null);
     const containerRef = useRef(null);
     const page1Ref = useRef(null);
-    // La portada tiene altura fija y contenido variable (filas opcionales de la
-    // tabla, co-branding, comparativa a dos columnas, ahorro anual). Se mide una
-    // vez en tamaño normal y, si el contenido pisa el pie negro, se conmuta a la
-    // variante compacta. Solo se escala hacia abajo: sin vuelta atrás no hay
-    // bucle de medición. Va en el DOM, así que el PDF hereda la misma clase.
-    const [page1Compact, setPage1Compact] = useState(false);
+    // ── Ajuste de la portada ────────────────────────────────────────────────
+    // Hoja A4 de altura FIJA con contenido muy variable (filas opcionales de la
+    // tabla, co-branding, comparativa a dos columnas, ahorro anual). Se mide en
+    // reposo y se reparte la diferencia entre unos pocos huecos elásticos, de
+    // forma que el contenido llene la hoja exactamente: ni desborda sobre el pie
+    // negro ni deja un agujero blanco encima.
+    //
+    // Antes esto era un interruptor "compacto" que recortaba ~226px de golpe: una
+    // propuesta que se pasaba por 2px se llevaba el paquete entero y acababa con
+    // 224px en blanco al final. El compacto sigue existiendo, pero solo como
+    // último recurso cuando estirar/encoger no alcanza.
+    //
+    // `pass`: 0 = pendiente de medir · 1 = medir ya en compacto · 2 = fijado.
+    // Nunca vuelve atrás, así que no hay bucle de medición. Los estilos van en el
+    // DOM, de modo que el PDF hereda exactamente la misma portada que la vista.
+    const [fit, setFit] = useState({ pass: 0, compact: false, vars: null, reposo: null });
+    const [fontsReady, setFontsReady] = useState(false);
     const [brokergyLogo, setBrokergyLogo] = useState(`${APP_URL}${BROKERGY_LOGO_PATH}`);
     // Enlace público de subida (/subir-docs/:uuid?token=) — el MISMO que se le
     // manda al cliente por WhatsApp para pedirle las fotos.
@@ -672,21 +708,93 @@ export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }
         return () => { cancelado = true; };
     }, [isOpen, inputs?.id_oportunidad]);
 
-    // Vuelta al tamaño normal cuando cambia lo que ocupa la portada, para no
-    // arrastrar un "compacto" heredado de otra propuesta.
-    useLayoutEffect(() => { setPage1Compact(false); }, [isOpen, includeCeeComp, cobrand]);
+    // Medir antes de que las webfonts estén listas da métricas de la tipografía
+    // de reserva y decide el ajuste sobre una portada que no es la definitiva.
+    useEffect(() => {
+        if (!isOpen) return;
+        let cancelado = false;
+        const listo = () => { if (!cancelado) setFontsReady(true); };
+        if (document.fonts?.ready) document.fonts.ready.then(listo).catch(listo);
+        else listo();
+        return () => { cancelado = true; };
+    }, [isOpen]);
 
-    // Medición de la portada. Se compara en píxeles de maquetación (offsetTop /
-    // offsetHeight, no getBoundingClientRect) porque la vista previa va dentro
-    // de un `transform: scale()` y el rect vendría escalado.
+    // Vuelta a reposo cuando cambia lo que ocupa la portada, para no arrastrar el
+    // ajuste calculado para otra propuesta.
     useLayoutEffect(() => {
-        if (!isOpen || page1Compact) return;
+        setFit({ pass: 0, compact: false, vars: null, reposo: null });
+    }, [isOpen, includeCeeComp, cobrand]);
+
+    // Huecos que se estiran o encogen, en orden de aparición. `encoge` es la
+    // fracción del valor de reposo que se puede quitar; `estira`, los píxeles
+    // que se pueden añadir. `filas` marca el que se aplica al padding vertical
+    // de cada fila de tabla (arriba y abajo).
+    const HUECOS = [
+        { v: '--e-top', encoge: 0.35, estira: 40 },
+        { v: '--e-h1sub', encoge: 0.40, estira: 10 },
+        { v: '--e-cobrand', encoge: 0.40, estira: 30 },
+        { v: '--e-kpis', encoge: 0.40, estira: 26 },
+        { v: '--e-meta', encoge: 0.40, estira: 24 },
+        { v: '--e-sec', encoge: 0.40, estira: 26 },
+        { v: '--e-nsm', encoge: 0.40, estira: 20 },
+        { v: '--e-row', encoge: 0.35, estira: 16, filas: true },
+        // El pie negro también respira: se come parte del hueco de abajo.
+        { v: '--e-cta', encoge: 0.25, estira: 34, doble: true },
+    ];
+    const AIRE = 10;          // el contenido nunca roza el pie negro
+    const TOLERANCIA = 14;    // sobra aceptable: por debajo, se da por bueno
+    const MAX_PASADAS = 4;
+
+    // Se mide en píxeles de maquetación (offsetTop / offsetHeight, no
+    // getBoundingClientRect) porque la vista previa va dentro de un
+    // `transform: scale()` y el rect vendría escalado.
+    //
+    // ITERATIVO a propósito, en vez de resolver la ecuación de una vez: en la
+    // comparativa a dos columnas las filas de las DOS tablas cambian de alto
+    // pero solo manda la columna más alta, así que un cálculo directo se pasa o
+    // se queda corto. Medir → corregir → volver a medir no necesita saber nada
+    // de la maquetación. Converge en 2-3 pasadas y está topado por MAX_PASADAS.
+    useLayoutEffect(() => {
+        if (!isOpen || !fontsReady || fit.pass >= MAX_PASADAS) return;
         const page = page1Ref.current;
         const body = page?.querySelector('.prop-pb');
         const cta = page?.querySelector('.prop-cta');
         if (!body || !cta) return;
-        // 6px de guarda: el contenido no debe llegar a rozar el pie negro.
-        if (body.offsetTop + body.offsetHeight > cta.offsetTop - 6) setPage1Compact(true);
+
+        const sobra = cta.offsetTop - (body.offsetTop + body.offsetHeight) - AIRE;
+        if (sobra >= 0 && sobra <= TOLERANCIA) {           // ya llena la hoja
+            setFit(prev => ({ ...prev, pass: MAX_PASADAS }));
+            return;
+        }
+
+        const estilo = getComputedStyle(page);
+        const leer = () => Object.fromEntries(HUECOS.map(h => [h.v, parseFloat(estilo.getPropertyValue(h.v)) || 0]));
+        const actual = leer();
+        // El reposo se congela en la primera pasada: los topes son absolutos y
+        // no se recalculan sobre unos valores ya movidos.
+        const reposo = fit.reposo || actual;
+        const nFilas = page.querySelectorAll('.prop-ftr').length;
+        const veces = h => (h.filas ? nFilas * 2 : h.doble ? 2 : 1);
+        const holgura = h => sobra >= 0
+            ? (reposo[h.v] + h.estira) - actual[h.v]          // cuánto queda por estirar
+            : actual[h.v] - reposo[h.v] * (1 - h.encoge);     // cuánto queda por encoger
+
+        const margen = HUECOS.reduce((a, h) => a + Math.max(0, holgura(h)) * veces(h), 0);
+        if (margen < 0.5) {
+            // Agotado. Si aún desborda, queda el compacto (que baja el reposo de
+            // todos los huecos y aprieta tipografías) y se vuelve a medir.
+            if (sobra < 0 && !fit.compact) setFit({ pass: fit.pass + 1, compact: true, vars: null, reposo: null });
+            else setFit(prev => ({ ...prev, pass: MAX_PASADAS }));
+            return;
+        }
+
+        const t = Math.min(1, Math.abs(sobra) / margen);
+        const vars = {};
+        for (const h of HUECOS) {
+            const delta = Math.max(0, holgura(h)) * t * (sobra >= 0 ? 1 : -1);
+            vars[h.v] = `${Math.round((actual[h.v] + delta) * 10) / 10}px`;
+        }
+        setFit(prev => ({ pass: prev.pass + 1, compact: prev.compact, vars, reposo }));
     });
 
     // -- ANEXOS LOGIC --
@@ -2141,7 +2249,7 @@ info@brokergy.es · 623 926 179`;
                             {anexoPosition === 'before' && renderAnexos()}
 
                             {/* <!-- PAGINA 1 --> */}
-                            <div ref={page1Ref} className={`prop-page${(showAnnualSavings || page1Compact) ? ' prop-compact' : ''}`}>
+                            <div ref={page1Ref} className={`prop-page${fit.compact ? ' prop-compact' : ''}`} style={fit.vars || undefined}>
                                 <div className="prop-bar">
                                     <div>
                                         <div className="prop-bar-logo">BROKER<span>GY</span></div>
@@ -2153,7 +2261,7 @@ info@brokergy.es · 623 926 179`;
                                     </div>
                                 </div>
 
-                                <div className="prop-pb" style={{ paddingTop: showAnnualSavings ? '16px' : '20px' }}>
+                                <div className="prop-pb" style={{ paddingTop: 'var(--e-top)' }}>
                                     <div className="prop-eyebrow">Propuesta de Bono Energético CAE</div>
                                     <h2 className="prop-h1">Propuesta de <em>Bono Energético CAE</em> y servicios de eficiencia energética</h2>
                                     <div className="prop-h1sub">Resumen personalizado de ayudas, subvenciones y deducciones fiscales</div>

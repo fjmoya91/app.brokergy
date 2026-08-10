@@ -20,6 +20,7 @@ import axios from 'axios';
 import { IconCard } from '../components/IconCard';
 import { StepLayout } from '../components/StepLayout';
 import { DocsManager } from '../../docs/DocsManager';
+import { esCaptadorDeLeads } from '../../../components/PrescriptorPicker';
 import { useAuth } from '../../../context/AuthContext';
 import { Step3_EdadCaldera } from '../steps/Step3_EdadCaldera';
 import { Step4_Emisores } from '../steps/Step4_Emisores';
@@ -79,7 +80,7 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
         axios.get('/api/prescriptores')
             .then(r => setPrescriptores(
                 (r.data || [])
-                    .filter(p => ['INSTALADOR', 'DISTRIBUIDOR', 'PRESCRIPTOR'].includes(p.tipo_empresa))
+                    .filter(esCaptadorDeLeads)
                     .sort((a, b) => (a.razon_social || '').localeCompare(b.razon_social || ''))
             ))
             .catch(() => setPrescriptores([]));

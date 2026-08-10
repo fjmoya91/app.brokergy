@@ -9,6 +9,16 @@ import { useState, useMemo, useRef, useEffect } from 'react';
 // y muestra el logo a la izquierda para reconocerlo de un vistazo.
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Tipos de empresa a los que SÍ se puede atribuir una oportunidad. Fuente única:
+// el picker es la superficie de atribución, así que la lista vive aquí y no
+// suelta en cada pantalla. Quedan fuera SUJETO_OBLIGADO y VERIFICADOR — son la
+// contraparte del CAE, no traen leads.
+// CERTIFICADOR entra porque los certificadores también nos pasan clientes; que
+// además certifiquen expedientes es otro papel distinto (cee.certificador_id).
+export const TIPOS_CAPTADORES = ['INSTALADOR', 'DISTRIBUIDOR', 'CERTIFICADOR', 'OTRO'];
+
+export const esCaptadorDeLeads = (p) => TIPOS_CAPTADORES.includes(p?.tipo_empresa);
+
 const norm = (s) => (s || '').toString().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 
 // Coincide si TODAS las palabras escritas aparecen en algún campo del partner:
