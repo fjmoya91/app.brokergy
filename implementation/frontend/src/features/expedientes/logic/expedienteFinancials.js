@@ -91,7 +91,7 @@ export function computeExpedienteFinancials(exp) {
 
                 // Sincronizar parámetros financieros con ExpedienteDetailView
                 const overrides = inst.economico_override || {};
-                const includeCommission = overrides.include_commission ?? !!opInputs.include_commission;
+                const includeCommission = overrides.include_commission ?? !!(opInputs.include_commission ?? opInputs.includeCommission);
 
                 const finArgs = {
                     presupuesto: overrides.presupuesto ?? (parseFloat(inst.presupuesto_final) || parseFloat(opInputs.presupuesto || opInputs.importe_total) || 0),
@@ -128,7 +128,7 @@ export function computeExpedienteFinancials(exp) {
         const ter = deriveTer100Vars(exp);
         if (ter.savingsKwh > 0) {
             const overrides = inst.economico_override || {};
-            const includeCommission = overrides.include_commission ?? !!opInputs.include_commission;
+            const includeCommission = overrides.include_commission ?? !!(opInputs.include_commission ?? opInputs.includeCommission);
 
             const finArgs = {
                 presupuesto: overrides.presupuesto ?? (parseFloat(inst.presupuesto_final) || parseFloat(opInputs.presupuesto || opInputs.importe_total) || 0),

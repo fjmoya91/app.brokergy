@@ -1,5 +1,6 @@
 // CalculatorForm v2.2 - Dynamic Aerotermia Integration (2026-03-27)
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import axios from 'axios';
 
 const norm = s => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 import { SectionCard, Button, Input, Label, Select, Divider } from './UIComponents';
@@ -41,6 +42,38 @@ export function CalculatorForm({
     const [xmlFinalError, setXmlFinalError] = useState(null);
     const [isDragging, setIsDragging] = useState(false);
     const [isDraggingFinal, setIsDraggingFinal] = useState(false);
+
+    // ── Comisión por defecto del partner ────────────────────────────────────
+    // Al seleccionar un prescriptor que la tiene activada en su ficha, la
+    // simulación arranca ya con su comisión, descontada del CLIENTE. A partir de
+    // ahí manda el usuario: puede quitarla o cambiar el importe, y no se le
+    // vuelve a imponer mientras siga el mismo prescriptor (por eso el ref).
+    // Si se pactó en %, se traduce con el precio del S.O. de ESTA simulación.
+    const comisionAplicadaRef = useRef(null);
+    useEffect(() => {
+        const pid = inputs?.prescriptor_id;
+        if (!pid) { comisionAplicadaRef.current = null; return; }
+        if (comisionAplicadaRef.current === pid) return;
+        comisionAplicadaRef.current = pid;
+
+        let cancelado = false;
+        axios.get(`/api/prescriptores/${pid}`)
+            .then(r => {
+                const p = r.data || {};
+                const valor = parseFloat(p.comision_valor) || 0;
+                if (cancelado || !p.comision_activa || valor <= 0) return;
+                onInputChange(prev => {
+                    const precioSO = parseFloat(prev.caePriceSO) || 0;
+                    const eurMwh = p.comision_tipo === 'pct'
+                        ? Math.round(precioSO * valor) / 100
+                        : valor;
+                    if (!eurMwh) return prev;
+                    return { ...prev, includeCommission: true, caePricePrescriptor: eurMwh, prescriptorMode: 'client' };
+                });
+            })
+            .catch(() => { /* sin comisión por defecto: se sigue como siempre */ });
+        return () => { cancelado = true; };
+    }, [inputs?.prescriptor_id]);
 
     // "Por emisiones" pone el modo y abre el modal de desglose RES080 (que vive en
     // ResultsPanel, elevado a CalculatorView) donde se editan emisiones/combustible.

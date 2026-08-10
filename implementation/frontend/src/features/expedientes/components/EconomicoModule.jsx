@@ -18,7 +18,7 @@ export function EconomicoModule({ expediente, liveInst, results, onSave, onLiveU
         presupuesto: economico.presupuesto ?? (parseFloat(opInputs.presupuesto || opInputs.importe_total) || 0),
         cae_client_rate: economico.cae_client_rate ?? (parseFloat(opInputs.caePriceClient || opInputs.cae_client_rate) || 95),
         cae_so_rate: economico.cae_so_rate ?? (parseFloat(opInputs.caePriceSO || opInputs.cae_so_rate) || 160),
-        include_commission: economico.include_commission ?? false,
+        include_commission: economico.include_commission ?? !!(opInputs.include_commission ?? opInputs.includeCommission),
         cae_prescriptor_rate: economico.cae_prescriptor_rate ?? (parseFloat(opInputs.caePricePrescriptor || opInputs.cae_prescriptor_rate) || 0),
         cae_prescriptor_mode: economico.cae_prescriptor_mode ?? opInputs.prescriptorMode ?? 'brokergy',
         discount_certificates: economico.discount_certificates ?? false,

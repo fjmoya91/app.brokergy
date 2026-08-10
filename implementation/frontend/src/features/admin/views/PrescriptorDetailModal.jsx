@@ -350,6 +350,7 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
         tipo_empresa: 'DISTRIBUIDOR', marca_referencia: '', marca_secundaria: '',
         tiene_carnet_rite: false, numero_carnet_rite: '', instalador_rite_id: '', cargo: '',
         nombre_responsable: '', apellidos_responsable: '', nif_responsable: '', precio_referencia: '', codigo_identificacion: '',
+        comision_activa: false, comision_tipo: 'eur', comision_valor: '',
         ccaa: '', provincia: '', provincia_cod: '', municipio: '',
         codigo_postal: '', direccion: '', es_autonomo: false, logo_empresa: '',
         marcas_aerotermia: [],
@@ -538,6 +539,9 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                 apellidos_responsable:p.apellidos_responsable || p.usuarios?.apellidos || '',
                 nif_responsable:      p.nif_responsable || '',
                 precio_referencia:    p.precio_referencia ?? '',
+                comision_activa:      !!p.comision_activa,
+                comision_tipo:        p.comision_tipo || 'eur',
+                comision_valor:       p.comision_valor ?? '',
                 codigo_identificacion: p.codigo_identificacion ?? '',
                 ccaa:                 p.ccaa || '',
                 provincia:            p.provincia || '',
@@ -729,6 +733,13 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                 ...(isAdmin ? {
                     landing_slug:   form.landing_slug.trim().toLowerCase() || null,
                     landing_activa: !!form.landing_activa,
+                } : {}),
+
+                // Comisión por defecto del partner: SOLO admin (es dinero).
+                ...(isAdmin ? {
+                    comision_activa: !!form.comision_activa,
+                    comision_tipo:   form.comision_tipo || 'eur',
+                    comision_valor:  (form.comision_valor === '' || form.comision_valor == null) ? 0 : Number(form.comision_valor),
                 } : {}),
 
                 // Escaparate de instaladores: publicación/consentimiento SOLO admin.
@@ -1438,6 +1449,64 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                                         <FI label="Código identificación (MITERD)">
                                             <Inp value={form.codigo_identificacion} uppercase onChange={e => upd({ codigo_identificacion: e.target.value })} placeholder="SO-A13035266" />
                                         </FI>
+                                    )}
+
+                                    {/* ── Comisión por defecto ────────────────────────────────────
+                                        Al elegir este partner en una propuesta, la simulación arranca
+                                        con esta comisión aplicada (descontada del cliente), y se
+                                        arrastra al expediente. Solo ADMIN: es dinero, y esta ficha la
+                                        puede abrir el propio partner. El backend lo repite. */}
+                                    {isAdmin && (
+                                        <div className="sm:col-span-2 p-4 rounded-2xl bg-white/[0.03] border border-white/10 space-y-3">
+                                            <label className="flex items-center gap-4 cursor-pointer w-full">
+                                                <div className="relative h-6 w-11 shrink-0">
+                                                    <input type="checkbox" checked={!!form.comision_activa}
+                                                        onChange={e => upd({ comision_activa: e.target.checked })}
+                                                        className="sr-only peer" />
+                                                    <div className="w-full h-full bg-transparent border border-orange-500 peer-focus:ring-2 peer-focus:ring-brand/50 rounded-full peer peer-checked:after:translate-x-[20px] peer-checked:after:bg-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-orange-500 after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-orange-500 shadow-inner"></div>
+                                                </div>
+                                                <div>
+                                                    <span className="font-black text-white text-xs uppercase tracking-wider block">Comisión por defecto</span>
+                                                    <span className="text-[10px] text-white/30 block mt-0.5">Al seleccionar este partner en una propuesta se aplica sola. Se puede quitar en cada simulación.</span>
+                                                </div>
+                                            </label>
+
+                                            {form.comision_activa && (() => {
+                                                // El % se pacta sobre el precio que paga el Sujeto Obligado.
+                                                // Aquí no hay simulación, así que se enseña el equivalente
+                                                // sobre el precio de referencia; en cada propuesta se
+                                                // recalcula con el precio real de esa simulación.
+                                                const REF_SO = 160;
+                                                const v = parseFloat(form.comision_valor) || 0;
+                                                const esPct = form.comision_tipo === 'pct';
+                                                const eur = esPct ? Math.round(REF_SO * v) / 100 : v;
+                                                const pct = esPct ? v : Math.round((v / REF_SO) * 10000) / 100;
+                                                const marca = activo => activo
+                                                    ? 'ring-1 ring-orange-500/60 rounded-lg'
+                                                    : 'opacity-70';
+                                                return (
+                                                    <>
+                                                        <div className="grid grid-cols-2 gap-3">
+                                                            <div className={marca(!esPct)}>
+                                                                <FI label="Comisión (€/MWh)">
+                                                                    <Inp type="number" value={eur || ''} placeholder="Ej: 16"
+                                                                        onChange={e => upd({ comision_tipo: 'eur', comision_valor: e.target.value })} />
+                                                                </FI>
+                                                            </div>
+                                                            <div className={marca(esPct)}>
+                                                                <FI label={`Comisión (%) s/ ${REF_SO} €/MWh`}>
+                                                                    <Inp type="number" value={pct || ''} placeholder="Ej: 10"
+                                                                        onChange={e => upd({ comision_tipo: 'pct', comision_valor: e.target.value })} />
+                                                                </FI>
+                                                            </div>
+                                                        </div>
+                                                        <p className="text-[10px] text-white/30 leading-relaxed">
+                                                            Se guarda como <strong className="text-white/60">{esPct ? `${pct} % del precio del S.O.` : `${eur} €/MWh fijos`}</strong> (el campo con borde). Si se pacta en %, la comisión sigue al precio del S.O. de cada simulación; si se pacta en €/MWh, no se mueve.
+                                                        </p>
+                                                    </>
+                                                );
+                                            })()}
+                                        </div>
                                     )}
                                     
                                     {form.tipo_empresa === 'DISTRIBUIDOR' && (

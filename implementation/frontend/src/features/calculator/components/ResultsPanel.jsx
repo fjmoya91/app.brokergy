@@ -1380,6 +1380,7 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
 
             <SaveOpportunityModal
                 isOpen={showSaveOpportunity}
+                onInputChange={onInputChange}
                 onClose={() => {
                     setShowSaveOpportunity(false);
                     // Tras guardar con éxito, reanudar la acción pendiente (PDF/Tabla)

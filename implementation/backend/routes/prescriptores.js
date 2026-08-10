@@ -881,6 +881,35 @@ router.patch('/:id', enforceAuth, async (req, res) => {
         if (payload.landing_telefono_contacto !== undefined) prescriptorPayload.landing_telefono_contacto = (payload.landing_telefono_contacto || '').toString().trim() || null;
         if (payload.landing_email_contacto !== undefined)    prescriptorPayload.landing_email_contacto = (payload.landing_email_contacto || '').toString().trim().toLowerCase() || null;
 
+        // ── Comisión por defecto del prescriptor ────────────────────────────
+        // SOLO ADMIN: esta ruta deja a un partner editar su propia ficha, y la
+        // comisión es dinero — se la subiría él mismo. Mismo criterio que el
+        // slug de la landing.
+        if (isAdminReq) {
+            if (payload.comision_activa !== undefined) {
+                prescriptorPayload.comision_activa = !!payload.comision_activa;
+            }
+            if (payload.comision_tipo !== undefined) {
+                const t = (payload.comision_tipo || 'eur').toString().trim().toLowerCase();
+                if (!['eur', 'pct'].includes(t)) {
+                    return res.status(400).json({ error: 'El tipo de comisión debe ser "eur" o "pct".', code: 'INVALID_COMISION_TIPO' });
+                }
+                prescriptorPayload.comision_tipo = t;
+            }
+            if (payload.comision_valor !== undefined) {
+                const v = parseFloat(payload.comision_valor);
+                if (!Number.isFinite(v) || v < 0) {
+                    return res.status(400).json({ error: 'La comisión no puede ser negativa.', code: 'INVALID_COMISION_VALOR' });
+                }
+                // Un % por encima de 100 se llevaría más de lo que paga el S.O.
+                const tipoFinal = prescriptorPayload.comision_tipo || payload.comision_tipo || 'eur';
+                if (tipoFinal === 'pct' && v > 100) {
+                    return res.status(400).json({ error: 'El porcentaje de comisión no puede superar el 100 %.', code: 'INVALID_COMISION_VALOR' });
+                }
+                prescriptorPayload.comision_valor = Math.round(v * 100) / 100;
+            }
+        }
+
         if (isAdminReq) {
             if (payload.landing_slug !== undefined) {
                 const raw = (payload.landing_slug || '').toString().trim().toLowerCase();

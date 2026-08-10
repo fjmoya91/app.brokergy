@@ -9,7 +9,7 @@ import { PrescriptorPicker } from '../../../components/PrescriptorPicker';
 // Búsqueda insensible a tildes (la usa aún el desplegable de instaladores).
 const norm = s => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 
-export function SaveOpportunityModal({ isOpen, onClose, onSaveSuccess, onClientLinked, inputs, result }) {
+export function SaveOpportunityModal({ isOpen, onClose, onSaveSuccess, onClientLinked, inputs, result, onInputChange }) {
     const { user } = useAuth();
     const isAdmin = user?.rol?.toUpperCase() === 'ADMIN';
 
@@ -316,6 +316,10 @@ export function SaveOpportunityModal({ isOpen, onClose, onSaveSuccess, onClientL
                                                     onChange={(id) => {
                                                         setPrescriptorId(id || '');
                                                         setInstaladorId(''); // Limpiar instalador al cambiar de partner
+                                                        // El prescriptor sube a los inputs para que la simulación se
+                                                        // rehaga con su comisión por defecto ANTES de guardar. Si no,
+                                                        // se guardaría un `result` calculado sin ella.
+                                                        if (onInputChange) onInputChange(prev => ({ ...prev, prescriptor_id: id || '' }));
                                                     }}
                                                     sinPartnerLabel={null}
                                                     placeholder="— Selecciona Partner —"
