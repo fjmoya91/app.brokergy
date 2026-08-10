@@ -385,6 +385,8 @@ export function deriveCifoData({ expediente, results }) {
     // Horas anuales equivalentes en modo activo (H_HE) y comprobación de coherencia
     // de la carga de diseño en potencia específica (W/m²).
     let pDesignWStr = '—', pEspecificaStr = '—', pEspecificaNum = 0;
+    // Temporada de referencia del SCOP aplicado: manda sobre las horas equivalentes.
+    let climateSeason = 'medio';
     if (isHybrid) {
         const demandaAnual = dcalRaw * sRaw;
         const hybridIn = resolveHybridInputs(inst, opInputs);
@@ -402,6 +404,7 @@ export function deriveCifoData({ expediente, results }) {
         coveragePct = rawCoveragePct;
         coveragePctStr = rawCoveragePct.toFixed(0);
         thZone = hybridData?.hHE || 0;
+        climateSeason = hybridData?.climateSeason || climateSeason;
         pbdcKwStr = pbdcKw.toFixed(2).replace('.', ',');
         demandaAnualKwhStr = demandaAnual.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         appliedCovStr = (coveragePct >= 95 ? 95 : coveragePct).toFixed(0);
@@ -442,7 +445,7 @@ export function deriveCifoData({ expediente, results }) {
         empNombre, empCif, empDir, empCp, empMun, empProv, empCargo, empEmail, empTlf, empResponsable,
         // hibridación (RES093)
         cbStr, pDesignKwStr, coveragePct, coveragePctStr, thZone, pbdcKw, pbdcKwStr, demandaAnualKwhStr, appliedCovStr,
-        hybridMethod, pCalderaKwStr, refPowerKwStr, pDesignWStr, pEspecificaStr, pEspecificaNum,
+        hybridMethod, pCalderaKwStr, refPowerKwStr, pDesignWStr, pEspecificaStr, pEspecificaNum, climateSeason,
     };
 }
 
@@ -474,7 +477,7 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
         metodoCal, metodoAcs, emiLabel,
         empNombre, empCif, empDir, empCp, empMun, empProv, empCargo, empEmail, empTlf, empResponsable,
         cbStr, pDesignKwStr, coveragePct, coveragePctStr, thZone, pbdcKwStr, demandaAnualKwhStr, appliedCovStr,
-        hybridMethod, pCalderaKwStr, refPowerKwStr, pDesignWStr, pEspecificaStr, pEspecificaNum,
+        hybridMethod, pCalderaKwStr, refPowerKwStr, pDesignWStr, pEspecificaStr, pEspecificaNum, climateSeason,
     } = data;
 
     const pages = [];
@@ -1003,11 +1006,13 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
         // Condiciones en las que se declara el SCOP adoptado. Tienen que ser las de la
         // MISMA temporada de referencia que las horas equivalentes (clima medio): un
         // SCOP de una temporada con las horas de otra no es defendible.
+        const esCalido = climateSeason === 'calido';
+        const tempLabel = esCalido ? 'condiciones climáticas más cálidas' : 'condiciones climáticas medias';
         const emiTemp = getEmitterTemp(inst.tipo_emisor);
         const parAgua = emiTemp === 35 ? '30/35' : emiTemp === 55 ? '47/55' : `${emiTemp - 5}/${emiTemp}`;
         const condScop = esEmisorAire(inst.tipo_emisor)
-            ? 'condiciones climáticas promedio'
-            : `condiciones climáticas promedio; temperatura de agua entrada/salida ${parAgua} °C`;
+            ? tempLabel
+            : `${tempLabel}; temperatura de agua entrada/salida ${parAgua} °C`;
         const fuenteScop = metodoCal === 'eprel'
             ? 'el registro EPREL del equipo declara'
             : 'la ficha técnica del fabricante declara';
@@ -1071,7 +1076,9 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
                 ${quoteBox('«La demanda anual de calor de referencia Q<sub>H</sub> será la carga de diseño para calefacción P<sub>designh</sub> multiplicada por las horas anuales equivalentes en modo activo H<sub>HE</sub> de 2 066.»')}
                 ${cite(`— Reglamento (UE) n.º 813/2013, Anexo III, punto 4, letra c) — ${link(URL_813, 'DOUE L 239 de 6.9.2013, pág. L 239/153')} [R1]`)}
                 ${par(`El ${link(URL_811, 'Reglamento Delegado (UE) n.º 811/2013')} <b>[R2]</b>, Anexo VII, punto 4, letra c) (pág. L 239/72), recoge la misma relación para las tres temporadas de calefacción de referencia, con valores de H<sub>HE</sub> de <b>2.066 h</b> (condiciones medias), <b>2.465 h</b> (más frías) y <b>1.336 h</b> (más cálidas).`)}
-                ${par(`Corresponde a la temporada de calefacción de referencia europea en <b>condiciones climáticas medias</b>, que es la que el propio Anexo III del Reglamento (UE) n.º 813/2013 <b>[R1]</b> fija para el cálculo del rendimiento estacional (cuadro 5) y en la que ${fuenteScop} el SCOP = ${scopCalStr} adoptado en el apartado ${nScopCal} de este anexo (<i>${condScop}</i>), condición mínima que exige a su vez el Anexo V de la ficha RES060 <b>[R5]</b>. El rendimiento estacional y las horas anuales equivalentes son parámetros de una misma temporada de referencia y se toman conjuntamente.`)}
+                ${esCalido
+                    ? par(`Se aplica la temporada de <b>condiciones climáticas más cálidas</b>: es la temporada en la que ${fuenteScop} el SCOP = ${scopCalStr} adoptado en el apartado ${nScopCal} de este anexo (<i>${condScop}</i>) y la que corresponde a la zona climática <b>${zoneStr}</b> en la que se ubica la instalación. El rendimiento estacional y las horas anuales equivalentes son parámetros de una <b>misma</b> temporada de calefacción de referencia y se toman conjuntamente: determinar la carga de diseño con las horas de una temporada distinta de aquella en la que se declara el SCOP dejaría de comparar en igualdad de condiciones.`)
+                    : par(`Se aplica la temporada de <b>condiciones climáticas medias</b>, que es la que el propio Anexo III del Reglamento (UE) n.º 813/2013 <b>[R1]</b> fija para el cálculo del rendimiento estacional (cuadro 5) y en la que ${fuenteScop} el SCOP = ${scopCalStr} adoptado en el apartado ${nScopCal} de este anexo (<i>${condScop}</i>), condición mínima que exige a su vez el Anexo V de la ficha RES060 <b>[R5]</b>. No se dispone del rendimiento estacional del equipo para condiciones más cálidas, de modo que la carga de diseño se determina con las horas equivalentes de esa <b>misma</b> temporada: rendimiento estacional y carga de diseño quedan así establecidos en igualdad de condiciones.`)}
                 ${formulaBox(`H<sub>HE</sub> = <span style="color:#4d6a12;">${hHEStr} h/año</span>`)}
 
                 ${subLabel('Paso 2 — Demanda anual de calor (Q<sub>H</sub>)', '#6E6E66', '18px')}

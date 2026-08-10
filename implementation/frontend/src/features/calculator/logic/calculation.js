@@ -192,6 +192,12 @@ export function resolveHybridInputs(inst = {}, opSource = {}) {
         method: normalizeHybridMethod(inst?.hibridacion_metodo || fromOp('hibridacionMetodo')),
         heatPumpPower: num(inst?.potencia_bomba, fromOp('potenciaBomba')),
         boilerPower: num(inst?.potencia_caldera, fromOp('potenciaCaldera')),
+        // Temporada del SCOP aplicado — la sella `scop_temporada` al elegir el
+        // modelo (getScopSeason). Sin sellar, 'medio': es lo que hay que declarar
+        // cuando no consta que el SCOP sea de clima cálido.
+        climateSeason: normalizeClimateSeason(
+            inst?.aerotermia_cal?.scop_temporada || fromOp('scopTemporada')
+        ),
     };
 }
 
@@ -1596,25 +1602,61 @@ export function calculateAnnualSavingsFromSpending({
  * @param {string} method - Método de obtención: 'ficha' (directo) o 'eprel' (calculado por eta_s)
  */
 export function getScopFromModel(model, zone, temp, method = 'ficha') {
-    if (!model) return 3.2;
+    return resolveScop(model, zone, temp, method).value;
+}
 
-    const normalizedZone = zone?.toUpperCase() || 'D3';
-    // Regla de negocio: Todo es clima CALIDO excepto E1 que es MEDIO
-    const isWarm = normalizedZone !== 'E1';
+/**
+ * Temporada de calefacción de referencia de la que sale el SCOP que devuelve
+ * `getScopFromModel` con esos MISMOS argumentos: 'calido' | 'medio'.
+ *
+ * Existe para que el Cb (RES093) calcule la carga de diseño con las horas
+ * equivalentes de esa misma temporada. Si el certificado declara un SCOP de
+ * clima cálido y la potencia se obtiene con las horas del clima medio, el
+ * rendimiento y la carga de diseño salen de temporadas distintas y la
+ * comparación deja de estar en igualdad de condiciones.
+ */
+export function getScopSeason(model, zone, temp, method = 'ficha') {
+    return resolveScop(model, zone, temp, method).season;
+}
+
+/**
+ * Temporada de referencia que corresponde a la ZONA climática española.
+ * Regla de negocio de la app: todo es clima CÁLIDO excepto E1, que es MEDIO.
+ */
+export function zoneClimateSeason(zone) {
+    return String(zone || 'D3').toUpperCase() === 'E1' ? 'medio' : 'calido';
+}
+
+// Núcleo compartido: el VALOR del SCOP y la TEMPORADA de la que sale tienen que
+// salir de la MISMA decisión, o acabarán divergiendo. La temporada solo es
+// 'calido' si TODOS los valores usados vienen de las columnas de clima cálido;
+// en cuanto uno cae al dato medio (columna vacía o dato basura del catálogo),
+// es 'medio' — que es justo lo que hay que declarar en el certificado.
+function resolveScop(model, zone, temp, method = 'ficha') {
+    if (!model) return { value: 3.2, season: HE_DEFAULT_SEASON };
+
+    const warmZone = zoneClimateSeason(zone) === 'calido';
+    const season = (warm) => (warm ? 'calido' : HE_DEFAULT_SEASON);
 
     // CASO 1: Cálculo mediante EPREL (eficiencia estacional eta_s)
     if (method === 'eprel') {
-        const eta35 = isWarm ? (model.eta_calida_35 || model.eta_media_35) : model.eta_media_35;
-        const eta55 = isWarm ? (model.eta_calida_55 || model.eta_media_55) : model.eta_media_55;
+        const pickEta = (calida, media) => {
+            const c = warmZone ? parseFloat(calida) : NaN;
+            if (Number.isFinite(c) && c > 0) return { raw: c, warm: true };
+            const m = parseFloat(media);
+            return Number.isFinite(m) && m > 0 ? { raw: m, warm: false } : null;
+        };
+        const e35 = pickEta(model.eta_calida_35, model.eta_media_35);
+        const e55 = pickEta(model.eta_calida_55, model.eta_media_55);
 
-        if (eta35 && eta55) {
+        if (e35 && e55) {
             // Según EPREL: SCOP = 2.5 * ( (eta_s / 100) + 0.03 )  (Donde 0.03 es el factor F1 para aerotermia)
-            const s35 = ((parseFloat(eta35) + 3) / 100) * 2.5;
-            const s55 = ((parseFloat(eta55) + 3) / 100) * 2.5;
-            if (temp <= 35) return parseFloat(s35.toFixed(2));
-            if (temp >= 55) return parseFloat(s55.toFixed(2));
+            const s35 = ((e35.raw + 3) / 100) * 2.5;
+            const s55 = ((e55.raw + 3) / 100) * 2.5;
+            if (temp <= 35) return { value: parseFloat(s35.toFixed(2)), season: season(e35.warm) };
+            if (temp >= 55) return { value: parseFloat(s55.toFixed(2)), season: season(e55.warm) };
             // Interpolación simple para 45ºC
-            return parseFloat(((s35 + s55) / 2).toFixed(2));
+            return { value: parseFloat(((s35 + s55) / 2).toFixed(2)), season: season(e35.warm && e55.warm) };
         }
     }
     // CASO 2: Dato directo de Ficha Técnica (comportamiento actual)
@@ -1622,23 +1664,26 @@ export function getScopFromModel(model, zone, temp, method = 'ficha') {
     // umbral mínimo (catálogo con dato basura), se hace fallback a scop_cal_medio_*.
     const SCOP_MIN = 2;
     const pickScop = (calido, medio) => {
-        const c = parseFloat(calido);
-        if (Number.isFinite(c) && c >= SCOP_MIN) return c;
-        return parseFloat(medio);
+        const c = warmZone ? parseFloat(calido) : NaN;
+        if (Number.isFinite(c) && c >= SCOP_MIN) return { value: c, warm: true };
+        return { value: parseFloat(medio), warm: false };
     };
 
-    let scop35 = isWarm ? pickScop(model.scop_cal_calido_35, model.scop_cal_medio_35) : parseFloat(model.scop_cal_medio_35);
-    let scop55 = isWarm ? pickScop(model.scop_cal_calido_55, model.scop_cal_medio_55) : parseFloat(model.scop_cal_medio_55);
+    let scop35 = pickScop(model.scop_cal_calido_35, model.scop_cal_medio_35);
+    let scop55 = pickScop(model.scop_cal_calido_55, model.scop_cal_medio_55);
 
     // Fallbacks finales si ni cálido ni medio están disponibles
-    if (!Number.isFinite(scop35)) scop35 = parseFloat(model.scop35) || 4.5;
-    if (!Number.isFinite(scop55)) scop55 = parseFloat(model.scop55) || 3.2;
+    if (!Number.isFinite(scop35.value)) scop35 = { value: parseFloat(model.scop35) || 4.5, warm: false };
+    if (!Number.isFinite(scop55.value)) scop55 = { value: parseFloat(model.scop55) || 3.2, warm: false };
 
-    if (temp <= 35) return parseFloat(scop35);
-    if (temp >= 55) return parseFloat(scop55);
-    
+    if (temp <= 35) return { value: scop35.value, season: season(scop35.warm) };
+    if (temp >= 55) return { value: scop55.value, season: season(scop55.warm) };
+
     // Interpolación para 45ºC (Baja temperatura / Fancoils)
-    return parseFloat(((parseFloat(scop35) + parseFloat(scop55)) / 2).toFixed(2));
+    return {
+        value: parseFloat(((scop35.value + scop55.value) / 2).toFixed(2)),
+        season: season(scop35.warm && scop55.warm),
+    };
 }
 
 // Factores de corrección Fc por zona climática CTE (Anexo VI RES060, Caso 3)

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { BOILER_EFFICIENCIES, getScopFromModel, getScopAcsFromModel, calculateHybridization, resolveHybridInputs, HYBRID_METHODS } from '../../calculator/logic/calculation';
+import { BOILER_EFFICIENCIES, getScopFromModel, getScopSeason, getScopAcsFromModel, calculateHybridization, resolveHybridInputs, HYBRID_METHODS } from '../../calculator/logic/calculation';
 import { PROVINCE_CODE_TO_CCAA, PROVINCE_CODE_TO_NAME } from '../utils/docGenerators';
 import { withScopAplicado, cloneAero, potenciaTotal, countUnidades, scopPropioUnidad1, scopAplicado, tipoEquipoNuevo, datosAcumulador, EQUIPO_NUEVO, RENDIMIENTO_JOULE } from '../logic/aerotermiaUnits';
 import { EMITTER_OPTIONS, getEmitterTemp } from '../logic/cifoDoc';
@@ -560,6 +560,8 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
             ? getScopAcsFromModel(found, found.zona_climatica || 'D3', method)
             : getScopFromModel(found, found.zona_climatica || 'D3', getEmitterTemp(tipoEmisor), method);
         handleExtraChange(idx, {
+            // Temporada de la que sale ese SCOP: viaja con el número (ver abajo).
+            scop_temporada: isAcs ? null : getScopSeason(found, found.zona_climatica || 'D3', getEmitterTemp(tipoEmisor), method),
             aerotermia_db_id: found.id,
             modelo: found.modelo_comercial || found.modelo_conjunto || found.modelo_exterior || '',
             modelo_ud_exterior: found.modelo_ud_exterior || '',
@@ -587,9 +589,15 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
                 const temp = getEmitterTemp(tipoEmisor);
                 scop = getScopFromModel(found, found.zona_climatica || 'D3', temp, method);
             }
-            
+
             emit({
                 ...data,
+                // La TEMPORADA de referencia del SCOP se sella junto al valor: el
+                // Cb del RES093 calcula la carga de diseño con las horas
+                // equivalentes de esa misma temporada, y el CIFO la declara. Se
+                // guarda aquí, en el mismo sitio y con los mismos argumentos que
+                // el número, para que no puedan divergir.
+                scop_temporada: isAcs ? null : getScopSeason(found, found.zona_climatica || 'D3', getEmitterTemp(tipoEmisor), method),
                 aerotermia_db_id: found.id,
                 modelo: found.modelo_comercial || found.modelo_conjunto || found.modelo_exterior || '',
                 // Snapshot de las referencias del catálogo en el expediente: el CIFO y
@@ -629,6 +637,7 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
                 ...data,
                 metodo_scop: method,
                 scop,
+                scop_temporada: isAcs ? null : getScopSeason(found, found.zona_climatica || 'D3', getEmitterTemp(tipoEmisor), method),
                 // El enlace EPREL/KEYMARK/ficha se persiste también al cambiar de
                 // método (no solo al elegir modelo): el certificado los lee del
                 // snapshot del expediente, no del catálogo. Sin esto, poner método
@@ -1547,7 +1556,11 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
                 const found = modelos.find(m => m.id === u.aerotermia_db_id);
                 if (!found) return u;
                 const scop = getScopFromModel(found, found.zona_climatica || 'D3', temp);
-                return { ...u, ...Object.fromEntries(scopKeys.map(k => [k, scop])) };
+                // El emisor cambia la temperatura de impulsión y con ella la columna
+                // del catálogo: un modelo puede tener dato de clima cálido a 35 °C y
+                // no a 55 °C. La temporada se vuelve a sellar con el SCOP nuevo.
+                const scop_temporada = getScopSeason(found, found.zona_climatica || 'D3', temp);
+                return { ...u, scop_temporada, ...Object.fromEntries(scopKeys.map(k => [k, scop])) };
             };
             // En cascada hay que recalcular TODAS las unidades y volver a derivar el
             // SCOP aplicado (el menor), no solo el de la unidad 1.
@@ -1556,7 +1569,16 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
                 const extras = Array.isArray(aero.equipos_extra) ? aero.equipos_extra : [];
                 const base = recalcUnidad(aero, extras.length ? ['scop', 'scop_propio'] : ['scop']);
                 if (!extras.length) return base;
-                return withScopAplicado({ ...base, equipos_extra: extras.map(u => recalcUnidad(u, ['scop'])) });
+                const unidades = extras.map(u => recalcUnidad(u, ['scop']));
+                // En cascada el SCOP aplicado es el MENOR de las unidades. Basta con
+                // que una no tenga dato de clima cálido para no poder declarar la
+                // temporada cálida en el conjunto.
+                const todasCalido = [base, ...unidades].every(u => u?.scop_temporada === 'calido');
+                return withScopAplicado({
+                    ...base,
+                    scop_temporada: todasCalido ? 'calido' : 'medio',
+                    equipos_extra: unidades,
+                });
             };
             const newCal = recalcScop(p.aerotermia_cal);
             const newAcs = p.misma_aerotermia_acs ? cloneAero(newCal) : recalcScop(p.aerotermia_acs);
