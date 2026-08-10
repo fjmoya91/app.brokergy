@@ -29,7 +29,10 @@ const APP_URL = import.meta.env.VITE_APP_URL || (typeof window !== 'undefined' ?
 
 const DOC_WIDTH = '794px';
 
-// Fuentes del diseño (Archivo + Instrument Sans) auto-alojadas en /public/fonts.
+// Fuente del diseño (Instrument Sans) auto-alojada en /public/fonts. El documento
+// va entero en la MISMA familia, igual que el CIFO: la jerarquía la marcan el peso,
+// el tamaño y el color. Ojo: este bloque está DUPLICADO a propósito en res080Doc.js
+// (el PDF) — tocar uno obliga a tocar el otro.
 // Subsets latin + latin-ext descargados de Google Fonts. document.fonts.ready en el
 // backend espera a que carguen antes de imprimir, así que no hace falta CDN externa.
 const FONT_LATIN = 'U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD';
@@ -37,7 +40,6 @@ const FONT_LATINEXT = 'U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02D
 
 function buildFontFaces(appUrl) {
     const fams = [
-        ['Archivo', 'Archivo', [400, 500, 600, 700, 800, 900]],
         ['Instrument Sans', 'InstrumentSans', [400, 500, 600, 700]],
     ];
     let out = '';
@@ -59,7 +61,7 @@ const FONT_FACES = buildFontFaces(APP_URL);
 const DESIGN_SHARED = `
     * { box-sizing: border-box; }
     .doc-page { font-family: 'Instrument Sans', Arial, sans-serif; font-size: 12.5px; color: #1A1A1A; background: #fff; text-align: left; }
-    .doc-page h1, .doc-page h2, .doc-page h3 { font-family: 'Archivo', sans-serif; margin: 0; }
+    .doc-page h1, .doc-page h2, .doc-page h3 { margin: 0; }
     .doc-page table { break-inside: avoid; }
     .doc-page tr { break-inside: avoid; }
     .cmp { table-layout: fixed; }
@@ -1068,9 +1070,9 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, r
             <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;background:#1A1A1A;border-radius:14px;">
                 <div style="display:flex;align-items:center;gap:12px;">
                     <img src="${APP_URL}/logo_brokergy_white.png" alt="Brokergy" style="height:19px;">
-                    <span style="font-family:'Archivo';font-weight:700;font-size:10px;letter-spacing:2.5px;color:#93C01F;border-left:1px solid rgba(255,255,255,.28);padding-left:12px;">CERTIFICADO CAE · RES080</span>
+                    <span style="font-weight:700;font-size:10px;letter-spacing:2.5px;color:#93C01F;border-left:1px solid rgba(255,255,255,.28);padding-left:12px;">CERTIFICADO CAE · RES080</span>
                 </div>
-                <span style="font-family:'Archivo';font-weight:600;font-size:11px;letter-spacing:1px;color:#93C01F;">Expte: ${numExpte}</span>
+                <span style="font-weight:600;font-size:11px;letter-spacing:1px;color:#93C01F;">Expte: ${numExpte}</span>
             </div>`;
         const sectionTitle = (t, mt = '13px') => `
             <div style="display:flex;align-items:center;gap:11px;margin:${mt} 0 8px;">
@@ -1081,19 +1083,19 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, r
         const footer = `<div class="doc-foot"><span>BROKERGY · Ingeniería Energética · www.brokergy.es</span><span>PAGE_X_OF_Y · Expte ${numExpte}</span></div>`;
         const obsBox = (inner, mt = '16px') => `
             <div style="margin-top:${mt};padding:14px 18px;background:#FBF6EE;border:1px solid #F1E4CF;border-radius:14px;font-size:10.5px;line-height:1.5;color:#6b5a3e;">
-                <div style="font-family:'Archivo';font-weight:800;font-size:11px;letter-spacing:1px;color:#B5730A;text-transform:uppercase;margin-bottom:6px;">Observaciones</div>
+                <div style="font-weight:800;font-size:11px;letter-spacing:1px;color:#B5730A;text-transform:uppercase;margin-bottom:6px;">Observaciones</div>
                 ${inner}
             </div>`;
         const rowsBox = (inner) => `<div style="border:1px solid #E9E9E1;border-radius:16px;overflow:hidden;font-size:12.5px;">${inner}</div>`;
         const kv = (label, value, last = false) => `<div style="display:grid;grid-template-columns:34% 66%;"><div style="padding:7px 16px;background:#F7F7F1;color:#6E6E66;font-weight:600;${last ? '' : 'border-bottom:1px solid #ECECE4;'}">${label}</div><div style="padding:7px 16px;font-weight:600;${last ? '' : 'border-bottom:1px solid #ECECE4;'}">${value}</div></div>`;
         // Tabla comparativa Existente/Nueva (calefacción, ACS, ventanas)
         const cmpHead = (col1 = 'Comparativa', ex = 'Existente', nu = 'Nueva') => `<thead><tr>
-            <th style="text-align:left;padding:8px 16px;background:#1A1A1A;color:#fff;font-family:'Archivo';font-weight:700;font-size:11px;letter-spacing:1px;text-transform:uppercase;width:34%;">${col1}</th>
-            <th style="text-align:left;padding:8px 16px;background:#33332F;color:#C9C9C4;font-family:'Archivo';font-weight:700;font-size:11px;letter-spacing:1px;text-transform:uppercase;">${ex}</th>
-            <th style="text-align:left;padding:8px 16px;background:#93C01F;color:#1A1A1A;font-family:'Archivo';font-weight:800;font-size:11px;letter-spacing:1px;text-transform:uppercase;">${nu}</th>
+            <th style="text-align:left;padding:8px 16px;background:#1A1A1A;color:#fff;font-weight:700;font-size:11px;letter-spacing:1px;text-transform:uppercase;width:34%;">${col1}</th>
+            <th style="text-align:left;padding:8px 16px;background:#33332F;color:#C9C9C4;font-weight:700;font-size:11px;letter-spacing:1px;text-transform:uppercase;">${ex}</th>
+            <th style="text-align:left;padding:8px 16px;background:#93C01F;color:#1A1A1A;font-weight:800;font-size:11px;letter-spacing:1px;text-transform:uppercase;">${nu}</th>
         </tr></thead>`;
         const cmpRow = (label, ex, nu) => `<tr><td style="padding:6px 16px;background:#FAFAF6;color:#4a4a44;font-weight:600;">${label}</td><td style="padding:6px 16px;color:#7a7a72;">${ex}</td><td style="padding:6px 16px;background:#F3F8E6;font-weight:700;">${nu}</td></tr>`;
-        const cmpGroup = (t) => `<tr><td colspan="3" style="padding:7px 16px;background:#EFEFE8;font-family:'Archivo';font-weight:700;font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:#6E6E66;">${t}</td></tr>`;
+        const cmpGroup = (t) => `<tr><td colspan="3" style="padding:7px 16px;background:#EFEFE8;font-weight:700;font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:#6E6E66;">${t}</td></tr>`;
         const cmpBox = (headHtml, bodyRows) => `<div style="border-radius:16px;overflow:hidden;border:1px solid #E9E9E1;"><table class="cmp" style="width:100%;border-collapse:collapse;font-size:12.5px;">${headHtml}<tbody>${bodyRows}</tbody></table></div>`;
 
         // PÁGINA 0: PORTADA (No se numera)
@@ -1112,13 +1114,13 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, r
                 <div style="position:absolute;top:96mm;left:0;right:0;z-index:3;padding:0 20mm;">
                     <div style="display:inline-flex;align-items:center;gap:9px;background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.16);padding:6px 16px;border-radius:999px;margin-bottom:20px;">
                         <span style="width:8px;height:8px;border-radius:50%;background:#93C01F;"></span>
-                        <span style="font-family:'Archivo';font-weight:700;font-size:12px;letter-spacing:4px;color:#fff;">CERTIFICADO CAE · RES080</span>
+                        <span style="font-weight:700;font-size:12px;letter-spacing:4px;color:#fff;">CERTIFICADO CAE · RES080</span>
                     </div>
                     <h1 style="font-weight:900;font-size:74px;line-height:.92;letter-spacing:-1.5px;color:#fff;text-transform:uppercase;text-shadow:0 4px 26px rgba(0,0,0,.5);max-width:12ch;">Certificado <span style="color:#F18A00;">final</span> de <span style="color:#93C01F;">obra</span></h1>
-                    <p style="font-family:'Archivo';font-weight:600;font-size:20px;color:#EDEDE8;margin:20px 0 0;max-width:24ch;text-shadow:0 2px 14px rgba(0,0,0,.6);">Rehabilitación profunda de edificios de viviendas</p>
+                    <p style="font-weight:600;font-size:20px;color:#EDEDE8;margin:20px 0 0;max-width:24ch;text-shadow:0 2px 14px rgba(0,0,0,.6);">Rehabilitación profunda de edificios de viviendas</p>
                     <div style="display:flex;gap:10px;margin-top:22px;flex-wrap:wrap;">
-                        <span style="font-family:'Archivo';font-weight:700;font-size:13px;letter-spacing:1px;color:#1A1A1A;background:#fff;padding:6px 16px;border-radius:10px;">Expte: ${numExpte}</span>
-                        <span style="font-family:'Archivo';font-weight:700;font-size:13px;letter-spacing:1px;color:#1A1A1A;background:linear-gradient(90deg,#F5A21E,#A9C63A);padding:6px 16px;border-radius:10px;">RES080 · Rehabilitación profunda</span>
+                        <span style="font-weight:700;font-size:13px;letter-spacing:1px;color:#1A1A1A;background:#fff;padding:6px 16px;border-radius:10px;">Expte: ${numExpte}</span>
+                        <span style="font-weight:700;font-size:13px;letter-spacing:1px;color:#1A1A1A;background:linear-gradient(90deg,#F5A21E,#A9C63A);padding:6px 16px;border-radius:10px;">RES080 · Rehabilitación profunda</span>
                     </div>
                 </div>
 
@@ -1126,15 +1128,15 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, r
                     <div style="padding:0 20mm 22px;">
                         <div style="display:inline-flex;align-items:center;gap:20px;background:rgba(12,12,11,.78);border:1px solid rgba(255,255,255,.14);border-radius:20px;padding:16px 26px;">
                             <div>
-                                <div style="font-family:'Archivo';font-weight:700;font-size:11px;letter-spacing:2.5px;color:#93C01F;text-transform:uppercase;">Ahorro anual certificado</div>
-                                <div style="font-family:'Archivo';font-weight:900;font-size:40px;line-height:1;color:#fff;margin-top:4px;">${formatNum(aeTotal)} <span style="font-size:18px;font-weight:700;color:#F18A00;">kWh/año</span></div>
+                                <div style="font-weight:700;font-size:11px;letter-spacing:2.5px;color:#93C01F;text-transform:uppercase;">Ahorro anual certificado</div>
+                                <div style="font-weight:900;font-size:40px;line-height:1;color:#fff;margin-top:4px;">${formatNum(aeTotal)} <span style="font-size:18px;font-weight:700;color:#F18A00;">kWh/año</span></div>
                             </div>
                             <div style="width:1px;height:44px;background:rgba(255,255,255,.2);"></div>
-                            <div style="font-family:'Archivo';font-weight:800;font-size:26px;color:#fff;">${formatNum(aeTotal)} <span style="font-size:13px;font-weight:700;color:#B9B9B4;">CAEs</span></div>
+                            <div style="font-weight:800;font-size:26px;color:#fff;">${formatNum(aeTotal)} <span style="font-size:13px;font-weight:700;color:#B9B9B4;">CAEs</span></div>
                         </div>
                     </div>
                     <div style="background:#0C0C0B;padding:16px 20mm;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;border-top:3px solid;border-image:linear-gradient(90deg,#F18A00,#93C01F) 1;">
-                        <div style="font-family:'Archivo';font-weight:800;font-size:16px;color:#fff;">BROKERGY <span style="color:#93C01F;font-weight:600;font-size:13px;">· Ingeniería Energética</span></div>
+                        <div style="font-weight:800;font-size:16px;color:#fff;">BROKERGY <span style="color:#93C01F;font-weight:600;font-size:13px;">· Ingeniería Energética</span></div>
                         <div style="display:flex;gap:22px;font-size:12.5px;color:#EDEDE8;font-weight:500;">
                             <span><b style="color:#F18A00;">Tel</b>&nbsp; 623 926 179</span>
                             <span><b style="color:#F18A00;">Web</b>&nbsp; www.brokergy.es</span>
@@ -1200,16 +1202,16 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, r
                 <div style="border-radius:20px;background:linear-gradient(135deg,#1A1A1A,#242422);color:#fff;padding:15px 22px;overflow:hidden;">
                     <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:16px;">
                         <div>
-                            <div style="font-family:'Archivo';font-weight:700;font-size:11px;letter-spacing:2px;color:#93C01F;text-transform:uppercase;">AE<sub>TOTAL</sub> = FP · (EF<sub>i</sub> − EF<sub>f</sub>)</div>
+                            <div style="font-weight:700;font-size:11px;letter-spacing:2px;color:#93C01F;text-transform:uppercase;">AE<sub>TOTAL</sub> = FP · (EF<sub>i</sub> − EF<sub>f</sub>)</div>
                             <div style="display:flex;gap:26px;margin-top:14px;">
-                                <div><div style="font-size:11px;color:#B9B9B4;">Consumo inicial · EF<sub>i</sub></div><div style="font-family:'Archivo';font-weight:800;font-size:22px;">${formatNum(ef_i)} <span style="font-size:12px;font-weight:600;color:#B9B9B4;">kWh/año</span></div></div>
+                                <div><div style="font-size:11px;color:#B9B9B4;">Consumo inicial · EF<sub>i</sub></div><div style="font-weight:800;font-size:22px;">${formatNum(ef_i)} <span style="font-size:12px;font-weight:600;color:#B9B9B4;">kWh/año</span></div></div>
                                 <div style="align-self:center;color:#F18A00;font-size:22px;font-weight:800;">→</div>
-                                <div><div style="font-size:11px;color:#B9B9B4;">Consumo final · EF<sub>f</sub></div><div style="font-family:'Archivo';font-weight:800;font-size:22px;color:#93C01F;">${formatNum(ef_f)} <span style="font-size:12px;font-weight:600;color:#B9B9B4;">kWh/año</span></div></div>
+                                <div><div style="font-size:11px;color:#B9B9B4;">Consumo final · EF<sub>f</sub></div><div style="font-weight:800;font-size:22px;color:#93C01F;">${formatNum(ef_f)} <span style="font-size:12px;font-weight:600;color:#B9B9B4;">kWh/año</span></div></div>
                             </div>
                         </div>
                         <div style="text-align:right;">
                             <div style="font-size:11px;color:#B9B9B4;text-transform:uppercase;letter-spacing:1px;">Ahorro anual total</div>
-                            <div style="font-family:'Archivo';font-weight:900;font-size:46px;line-height:1;color:#F18A00;">${formatNum(aeTotal)}</div>
+                            <div style="font-weight:900;font-size:46px;line-height:1;color:#F18A00;">${formatNum(aeTotal)}</div>
                             <div style="font-size:13px;color:#fff;font-weight:600;">kWh/año</div>
                         </div>
                     </div>
@@ -1282,8 +1284,8 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, r
         `);
 
         // Celdas de tabla antes/después (cerramientos y huecos) — nuevo estilo
-        const thDark = (t, align = 'left', w = '') => `<th style="text-align:${align};padding:6px 10px;background:#33332F;color:#fff;font-family:'Archivo';font-weight:700;font-size:10px;letter-spacing:.5px;text-transform:uppercase;${w}">${t}</th>`;
-        const thGreen = (t, align = 'left', w = '') => `<th style="text-align:${align};padding:6px 10px;background:#93C01F;color:#1A1A1A;font-family:'Archivo';font-weight:800;font-size:10px;letter-spacing:.5px;text-transform:uppercase;${w}">${t}</th>`;
+        const thDark = (t, align = 'left', w = '') => `<th style="text-align:${align};padding:6px 10px;background:#33332F;color:#fff;font-weight:700;font-size:10px;letter-spacing:.5px;text-transform:uppercase;${w}">${t}</th>`;
+        const thGreen = (t, align = 'left', w = '') => `<th style="text-align:${align};padding:6px 10px;background:#93C01F;color:#1A1A1A;font-weight:800;font-size:10px;letter-spacing:.5px;text-transform:uppercase;${w}">${t}</th>`;
         const tdC = (v, extra = '') => `<td style="padding:6px 10px;text-align:center;${extra}">${v}</td>`;
         const tdG = (v, extra = '') => `<td style="padding:6px 10px;text-align:center;background:#F8FBEF;${extra}">${v}</td>`;
 
@@ -1299,9 +1301,9 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, r
                     <div style="border-radius:16px;overflow:hidden;border:1px solid #E9E9E1;">
                         <table class="cmp" style="width:100%;border-collapse:collapse;font-size:12.5px;">
                             <thead><tr>
-                                <th style="text-align:left;padding:8px 16px;background:#1A1A1A;color:#fff;font-family:'Archivo';font-weight:700;font-size:11px;letter-spacing:1px;text-transform:uppercase;width:34%;">Elemento</th>
-                                <th style="text-align:center;padding:8px 16px;background:#33332F;color:#C9C9C4;font-family:'Archivo';font-weight:700;font-size:11px;letter-spacing:1px;text-transform:uppercase;">Muros</th>
-                                <th style="text-align:center;padding:8px 16px;background:#33332F;color:#C9C9C4;font-family:'Archivo';font-weight:700;font-size:11px;letter-spacing:1px;text-transform:uppercase;">Cubierta</th>
+                                <th style="text-align:left;padding:8px 16px;background:#1A1A1A;color:#fff;font-weight:700;font-size:11px;letter-spacing:1px;text-transform:uppercase;width:34%;">Elemento</th>
+                                <th style="text-align:center;padding:8px 16px;background:#33332F;color:#C9C9C4;font-weight:700;font-size:11px;letter-spacing:1px;text-transform:uppercase;">Muros</th>
+                                <th style="text-align:center;padding:8px 16px;background:#33332F;color:#C9C9C4;font-weight:700;font-size:11px;letter-spacing:1px;text-transform:uppercase;">Cubierta</th>
                             </tr></thead>
                             <tbody>
                                 <tr><td style="padding:6px 16px;background:#FAFAF6;color:#4a4a44;font-weight:600;">¿Se añade aislamiento térmico?</td>${tdC(eb('aislamiento_muros_sn'), 'font-weight:700;')}${tdC(eb('aislamiento_cubierta_sn'), 'font-weight:700;')}</tr>
@@ -1416,8 +1418,8 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, r
         const scopBox = (headTitle, formula, rowsHtml) => `
             <div style="border-radius:16px;overflow:hidden;border:1px solid #E9E9E1;margin-top:12px;">
                 <table class="cmp" style="width:100%;border-collapse:collapse;font-size:12px;"><tbody>
-                    <tr><td colspan="3" style="padding:8px 16px;background:#1A1A1A;color:#fff;font-family:'Archivo';font-weight:700;font-size:10.5px;letter-spacing:.5px;text-transform:uppercase;">${headTitle}</td></tr>
-                    <tr><td colspan="3" style="text-align:center;font-family:'Archivo';font-weight:800;font-size:15px;background:#FBF6EE;padding:8px;color:#1A1A1A;">${formula}</td></tr>
+                    <tr><td colspan="3" style="padding:8px 16px;background:#1A1A1A;color:#fff;font-weight:700;font-size:10.5px;letter-spacing:.5px;text-transform:uppercase;">${headTitle}</td></tr>
+                    <tr><td colspan="3" style="text-align:center;font-weight:800;font-size:15px;background:#FBF6EE;padding:8px;color:#1A1A1A;">${formula}</td></tr>
                     <tr>
                         <td style="width:15%;text-align:center;padding:6px 10px;background:#F7F7F1;color:#6E6E66;font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:.5px;">Variable</td>
                         <td style="padding:6px 12px;background:#F7F7F1;color:#6E6E66;font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:.5px;">Descripción</td>
@@ -1427,7 +1429,7 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, r
                 </tbody></table>
             </div>`;
         const svRow = (v, desc, val) => `<tr><td style="text-align:center;font-weight:700;padding:6px 10px;">${v}</td><td style="padding:6px 12px;color:#4a4a44;">${desc}</td><td style="text-align:center;padding:6px 10px;font-weight:700;">${val}</td></tr>`;
-        const scopResult = (calcText, scopVal) => `<tr><td colspan="2" style="padding:8px 12px;font-weight:700;color:#1A1A1A;">${calcText}</td><td style="text-align:center;font-family:'Archivo';font-weight:900;font-size:16px;background:#F3F8E6;color:#4d6a12;">${scopVal}</td></tr>`;
+        const scopResult = (calcText, scopVal) => `<tr><td colspan="2" style="padding:8px 12px;font-weight:700;color:#1A1A1A;">${calcText}</td><td style="text-align:center;font-weight:900;font-size:16px;background:#F3F8E6;color:#4d6a12;">${scopVal}</td></tr>`;
         const scopCallout = (html) => `<div style="margin-top:12px;padding:14px 18px;background:#F3F8E6;border:1px solid #D5E6A8;border-radius:14px;font-size:12.5px;font-weight:700;color:#1A1A1A;line-height:1.5;">${html}</div>`;
         const renderEprelJustification = (isAcs = false) => {
             const label = isAcs ? 'ACS' : 'Calefacción';
@@ -1488,10 +1490,10 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, r
                 const ftLink = acsFtUrl ? `<li style="margin-top:3px;">Ficha técnica: <a href="${acsFtUrl}" style="color:#0000EE;text-decoration:underline;">Acceder a la ficha técnica del fabricante</a></li>` : '';
                 return `
                     <div style="margin-top:12px;padding:16px 20px;border:1px solid #E9E9E1;border-radius:16px;font-size:12.5px;line-height:1.5;color:#4a4a44;">
-                        <div style="font-family:'Archivo';font-weight:800;font-size:13px;text-transform:uppercase;color:#1A1A1A;margin-bottom:8px;">Cálculo del SCOP en ACS</div>
+                        <div style="font-weight:800;font-size:13px;text-transform:uppercase;color:#1A1A1A;margin-bottom:8px;">Cálculo del SCOP en ACS</div>
                         <div style="font-weight:700;color:#1A1A1A;margin-bottom:4px;">Fórmula aplicada</div>
                         <p style="margin:0 0 6px;">Según el Anexo VI de la ficha RES060 (Caso 3: bomba de calor aerotérmica con depósito de ACS no suministrado como conjunto), para la zona climática ${zoneStr}:</p>
-                        <div style="text-align:center;font-family:'Archivo';font-weight:800;font-size:15px;background:#FBF6EE;border-radius:10px;padding:8px;margin:10px 0;color:#1A1A1A;">SCOP<sub>dhw</sub> = COP · F<sub>c</sub></div>
+                        <div style="text-align:center;font-weight:800;font-size:15px;background:#FBF6EE;border-radius:10px;padding:8px;margin:10px 0;color:#1A1A1A;">SCOP<sub>dhw</sub> = COP · F<sub>c</sub></div>
                         <div style="font-weight:700;color:#1A1A1A;margin-bottom:4px;">Donde</div>
                         <ul style="list-style:none;margin:0 0 10px;padding-left:0;">
                             <li>· COP: coeficiente de rendimiento según ficha técnica y placa de características del equipo</li>
@@ -1505,7 +1507,7 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, r
                         </ul>
                         <div style="display:flex;justify-content:space-between;align-items:center;background:#F3F8E6;border:1px solid #D5E6A8;border-radius:12px;padding:10px 16px;margin-top:10px;">
                             <span style="font-weight:700;color:#1A1A1A;">SCOP<sub>dhw</sub> = ${copCalc} × ${fcStr} = ${scopAcsStr}</span>
-                            <span style="font-family:'Archivo';font-weight:900;font-size:18px;color:#4d6a12;">${scopAcsStr}</span>
+                            <span style="font-weight:900;font-size:18px;color:#4d6a12;">${scopAcsStr}</span>
                         </div>
                     </div>`;
             }
@@ -1557,7 +1559,7 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, r
         if (annexList.length > 0) {
             const items = annexList.map((a, i) => `
                 <div style="display:flex;align-items:center;gap:16px;border:1px solid #E9E9E1;border-radius:16px;padding:14px 18px;background:#fff;">
-                    <span style="flex:none;width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,#F18A00,#93C01F);color:#fff;font-family:'Archivo';font-weight:800;font-size:15px;display:flex;align-items:center;justify-content:center;">${i + 1}</span>
+                    <span style="flex:none;width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,#F18A00,#93C01F);color:#fff;font-weight:800;font-size:15px;display:flex;align-items:center;justify-content:center;">${i + 1}</span>
                     <div style="font-weight:700;font-size:13.5px;">${a.label}</div>
                 </div>
             `).join('');
@@ -1569,7 +1571,7 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, r
                     <div style="display:grid;gap:10px;">${items}</div>
                     <div style="margin-top:22px;background:linear-gradient(120deg,#1A1A1A,#242422);border-radius:20px;padding:20px 24px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:14px;">
                         <div>
-                            <div style="font-family:'Archivo';font-weight:800;font-size:16px;color:#fff;">BROKERGY <span style="color:#93C01F;font-weight:600;font-size:13px;">· Ingeniería Energética</span></div>
+                            <div style="font-weight:800;font-size:16px;color:#fff;">BROKERGY <span style="color:#93C01F;font-weight:600;font-size:13px;">· Ingeniería Energética</span></div>
                             <div style="font-size:12px;color:#B9B9B4;margin-top:4px;">Tel 623 926 179 · www.brokergy.es · info@brokergy.es</div>
                         </div>
                         <img src="${APP_URL}/logo-brokergy-circular.png" alt="Brokergy" style="height:56px;">
