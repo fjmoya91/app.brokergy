@@ -189,7 +189,12 @@ function funnelToCalculatorInputs(funnel, catastro, options = {}) {
     inputs.gastoAnualReal = gasto;
 
     // 11. Presupuesto
-    inputs.presupuesto = funnel.presupuesto_modo === 'tengo' && funnel.presupuesto_eur > 0
+    //   'tengo'     → cifra tecleada por el cliente/partner
+    //   'documento' → base imponible leída del presupuesto o de las facturas aportadas
+    //                 (pantalla `docs_obra` del flujo interno). Es el mejor dato posible:
+    //                 es literalmente la inversión que declarará el Anexo.
+    const presupuestoAportado = ['tengo', 'documento'].includes(funnel.presupuesto_modo);
+    inputs.presupuesto = presupuestoAportado && funnel.presupuesto_eur > 0
         ? Number(funnel.presupuesto_eur)
         : 15000;
 

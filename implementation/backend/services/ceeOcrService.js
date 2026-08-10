@@ -99,11 +99,16 @@ QUÉ EXTRAER Y DÓNDE:
 - demandas.calefaccion_kwh_m2_ano: "Demanda de calefacción [kWh/m² año]" (Anexo II, calificación parcial de la demanda).
 - demandas.refrigeracion_kwh_m2_ano: "Demanda de refrigeración [kWh/m² año]".
 - emisiones.calefaccion / acs / refrigeracion: "Emisiones calefacción/ACS/refrigeración [kgCO2/m² año]" (Anexo II, calificación en EMISIONES). OJO: son las EMISIONES (kgCO2/m² año), NO la energía primaria (kWh/m² año).
+- emisiones.consumo_electrico_m2 y emisiones.consumo_otros_m2: en el MISMO apartado de calificación en emisiones, DEBAJO del cuadro de indicadores, hay una tabla pequeña de dos filas con las cabeceras "kgCO2/m² año" y "kgCO2/año":
+    · fila "Emisiones CO2 por consumo eléctrico"    → consumo_electrico_m2
+    · fila "Emisiones CO2 por otros combustibles"   → consumo_otros_m2
+  Coge SIEMPRE el valor de la columna "kgCO2/m² año" (el primero), NUNCA el de la columna "kgCO2/año" (el absoluto, que es mucho mayor). Si esa tabla no aparece, devuelve null en los dos.
 - acs_litros_dia: "Demanda diaria de ACS a 60° (litros/día)" (Instalaciones de Agua Caliente Sanitaria, Anexo I).
 - servicios.calefaccion / acs / refrigeracion: para cada servicio, del generador correspondiente (Generadores de calefacción, Generadores de refrigeración, Instalaciones de ACS) extrae:
     - combustible: el "Tipo de Energía" (ej. "Electricidad", "Gas natural", "Gasóleo C", "GLP", "Biomasa"...).
     - rendimiento_estacional_pct: el "Rendimiento Estacional [%]" (ej. 623.0). Es un porcentaje, devuélvelo tal cual (623.0, no 6.23).
-  Si un servicio no tiene generador (p.ej. no hay refrigeración), pon combustible y rendimiento a null.`;
+  Si un servicio no tiene generador (p.ej. no hay refrigeración), pon combustible y rendimiento a null.
+- combustible_otros_detectado: recorre TODOS los generadores del apartado de instalaciones térmicas (calefacción, ACS y refrigeración, incluidos los que comparten fila como "Calefacción y ACS") y mira su "Tipo de Energía". Si entre todos ellos hay EXACTAMENTE UN tipo de energía que no sea electricidad (p.ej. solo "Gasóleo-C", o solo "Gas Natural", o solo "Biomasa"), devuelve ese combustible. Si no hay ninguno no eléctrico, o si hay DOS O MÁS distintos, devuelve null.`;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Esquema de salida (subset OpenAPI que acepta Gemini responseSchema)
@@ -145,6 +150,11 @@ const GEMINI_SCHEMA = {
         calefaccion: { type: 'NUMBER', nullable: true },
         acs: { type: 'NUMBER', nullable: true },
         refrigeracion: { type: 'NUMBER', nullable: true },
+        // Totales del edificio por VECTOR energético (no por uso). Alimentan el método
+        // SIMPLIFICADO de ahorro RES080, el único aplicable cuando un mismo uso mezcla
+        // dos generadores de combustibles distintos. Ver calculateRes080Simplificado.
+        consumo_electrico_m2: { type: 'NUMBER', nullable: true },
+        consumo_otros_m2: { type: 'NUMBER', nullable: true },
       },
     },
     acs_litros_dia: { type: 'NUMBER', nullable: true },
@@ -152,6 +162,9 @@ const GEMINI_SCHEMA = {
       type: 'OBJECT',
       properties: { calefaccion: _serv, acs: _serv, refrigeracion: _serv },
     },
+    // Único combustible no eléctrico del edificio, o null si hay ninguno o varios.
+    // Null es la señal de que el método simplificado NO aplica (ver el prompt).
+    combustible_otros_detectado: { type: 'STRING', nullable: true },
   },
 };
 

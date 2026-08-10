@@ -13,6 +13,8 @@ import {
     calculateRes080,
     calculateRes080Estimated,
     calculateRes080FromEmissions,
+    calculateRes080Simplificado,
+    calculateRes080SimplificadoFromXml,
     calculateHybridization,
     normalizeHybridMethod,
     FUEL_PRICES,
@@ -20,7 +22,8 @@ import {
     getVentanaYACHByYear,
     AEROTHERMIA_MODELS
 } from '../logic/calculation';
-import { ceeToEmisionesInputs } from '../logic/ceeSeed';
+import { ceeToEmisionesInputs, ceeFinalToEmisionesInputs } from '../logic/ceeSeed';
+import { demandaDeCalculo } from '../../cee/ceeAvisos';
 import { calculateRes060FC } from '../logic/res060fc';
 import { Res060FCModal } from '../components/Res060FCModal';
 import axios from 'axios';
@@ -92,6 +95,12 @@ const INITIAL_INPUTS = {
     // Modo de demanda y datos (real o estimado)
     demandMode: 'estimated',
     xmlDemandData: null,
+    // Certificados aportados por el cliente (objeto normalizado de ceeExtract).
+    // `cee_final` solo existe si la obra YA está hecha; cuando existe, el ahorro deja
+    // de ser una estimación y `cee_ahorro_origen` pasa a 'medido'.
+    cee_previo: null,
+    cee_final: null,
+    cee_ahorro_origen: null,   // null | 'estimado' | 'medido'
     // Datos de Reforma (RES080)
     isReforma: false,
     comparativaReforma: true,
@@ -128,6 +137,20 @@ const INITIAL_INPUTS = {
     manualEmisionesCalefaccionFinal: 0,
     manualEmisionesRefrigeracionInicial: 0,
     manualEmisionesRefrigeracionFinal: 0,
+
+    // Método de cálculo del ahorro RES080:
+    //   'detallado'    → por USO (ACS/Calefacción/Refrigeración), cada uno con su combustible.
+    //   'simplificado' → por VECTOR (consumo eléctrico / otros combustibles), leyendo los dos
+    //                    totales del edificio que declara el CEE. Es el único aplicable cuando
+    //                    un mismo uso mezcla dos generadores de combustibles distintos, y solo
+    //                    vale si en todo el edificio hay UN único combustible no eléctrico.
+    metodoAhorroRes080: 'detallado',
+    manualEmisionesElectricoInicial: 0,
+    manualEmisionesElectricoFinal: 0,
+    manualEmisionesOtrosInicial: 0,
+    manualEmisionesOtrosFinal: 0,
+    combustibleOtrosInicial: '',
+    combustibleOtrosFinal: '',
 
     // UI State (Persistente)
     showBuildingData: false,
@@ -219,6 +242,17 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
                 changeAcs: base.changeAcs || base.incluir_acs,
                 manualDemandAcs: base.manualDemandAcs,
             }));
+        }
+        // CEE FINAL aportado: su columna es REAL, no estimada. Se vuelve a aplicar
+        // SIEMPRE (aunque ya hubiera siembra) porque el bloque de arriba escribe un
+        // final ESTIMADO (demanda/SCOP) y aquí lo sustituye el medido. Y la demanda
+        // del cálculo pasa a ser la del final (ver ceeAvisos.demandaDeCalculo).
+        if (base.cee_final) {
+            if (base.isReforma) Object.assign(base, ceeFinalToEmisionesInputs(base.cee_final));
+            const { demanda, superficie } = demandaDeCalculo(base.cee_previo, base.cee_final);
+            if (demanda > 0) base.manualDemand = demanda;
+            if (superficie > 0) base.manualSuperficie = superficie;
+            base.cee_ahorro_origen = 'medido';
         }
 
         // RES060 (sin reforma): unificamos "Cálculo Real (CEE)" [demandMode='real', XML
@@ -463,19 +497,37 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
             manualEmisionesCalefaccionFinal: parseFloat(inputs.manualEmisionesCalefaccionFinal) || 0,
             manualEmisionesRefrigeracionInicial: parseFloat(inputs.manualEmisionesRefrigeracionInicial) || 0,
             manualEmisionesRefrigeracionFinal: parseFloat(inputs.manualEmisionesRefrigeracionFinal) || 0,
+
+            // Método simplificado (por vector energético)
+            metodoAhorroRes080: String(inputs.metodoAhorroRes080 || '').toLowerCase() === 'simplificado' ? 'simplificado' : 'detallado',
+            manualEmisionesElectricoInicial: parseFloat(inputs.manualEmisionesElectricoInicial) || 0,
+            manualEmisionesElectricoFinal: parseFloat(inputs.manualEmisionesElectricoFinal) || 0,
+            manualEmisionesOtrosInicial: parseFloat(inputs.manualEmisionesOtrosInicial) || 0,
+            manualEmisionesOtrosFinal: parseFloat(inputs.manualEmisionesOtrosFinal) || 0,
+            combustibleOtrosInicial: inputs.combustibleOtrosInicial || '',
+            combustibleOtrosFinal: inputs.combustibleOtrosFinal || '',
         };
 
         // 1. Calcular Demanda
         let demandRes;
         const currentDemandMode = inputs.demandMode || 'estimated';
 
-        if (currentDemandMode === 'real' && inputs.xmlDemandData?.demandaCalefaccion) {
-            // Modo REAL: usar la demanda del XML (kWh/m²·año) × superficie calefactable
-            const xmlDemandTotal = inputs.xmlDemandData.demandaCalefaccion * sanitizedInputs.superficieCalefactable;
+        if (currentDemandMode === 'real' && (inputs.xmlDemandDataFinal?.demandaCalefaccion || inputs.xmlDemandData?.demandaCalefaccion)) {
+            // Modo REAL: demanda del XML (kWh/m²·año) × superficie calefactable.
+            //
+            // CON CEE FINAL MANDA EL FINAL. La demanda es una propiedad de la ENVOLVENTE,
+            // no del generador: si existe certificado POSTERIOR a la obra, la demanda que
+            // la bomba de calor tiene que cubrir de verdad es la suya. Usar la del inicial
+            // cuando la envolvente ha mejorado infla el ahorro con una parte que la ficha
+            // RES060 no cubre (eso es un RES080, y exige fotos y facturas — lo avisa la
+            // puerta de carga). Misma regla que `ceeAvisos.demandaDeCalculo`.
+            const demandaXml = inputs.xmlDemandDataFinal?.demandaCalefaccion || inputs.xmlDemandData.demandaCalefaccion;
+            const supXml = sanitizedInputs.superficieCalefactable;
             demandRes = {
-                Q_net: xmlDemandTotal,
-                q_net: inputs.xmlDemandData.demandaCalefaccion,
-                fromXml: true
+                Q_net: demandaXml * supXml,
+                q_net: demandaXml,
+                fromXml: true,
+                desdeCeeFinal: !!inputs.xmlDemandDataFinal?.demandaCalefaccion
             };
         } else if (currentDemandMode === 'manual') {
             // Modo MANUAL/CÁLCULO REAL: demanda introducida a mano o cargada de un CEE.
@@ -626,7 +678,18 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
         if (inputs.isReforma && inputs.reformaType !== 'none') {
             if (inputs.demandMode === 'real') {
                 // MODO REAL: Siempre usar lógica XML si el archivo final está cargado
-                if (inputs.xmlDemandDataFinal) {
+                if (inputs.xmlDemandDataFinal && sanitizedInputs.metodoAhorroRes080 === 'simplificado') {
+                    // El .xml publica el reparto por vector energético en
+                    // <EmisionesCO2><ConsumoElectrico>/<ConsumoOtros>: con él, el método
+                    // simplificado sale exacto sin tener que teclear nada.
+                    res080Data = calculateRes080SimplificadoFromXml({
+                        xmlInicial: inputs.xmlDemandData,
+                        xmlFinal: inputs.xmlDemandDataFinal,
+                        combOtrosIni: sanitizedInputs.combustibleOtrosInicial,
+                        combOtrosFin: sanitizedInputs.combustibleOtrosFinal,
+                        superficieCustom: sanitizedInputs.superficieCalefactable
+                    });
+                } else if (inputs.xmlDemandDataFinal) {
                     res080Data = calculateRes080({
                         xmlInicial: inputs.xmlDemandData,
                         xmlFinal: inputs.xmlDemandDataFinal,
@@ -641,6 +704,20 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
                         superficieCustom: sanitizedInputs.superficieCalefactable
                     });
                 }
+            } else if (inputs.demandMode === 'manual' && inputs.isReforma && sanitizedInputs.metodoAhorroRes080 === 'simplificado') {
+                // MODO SIMPLIFICADO: el CEE no permite repartir un uso entre sus dos
+                // generadores (p.ej. calefacción con bomba de calor + caldera de gasóleo),
+                // pero sí declara el total del edificio partido por VECTOR energético.
+                res080Data = calculateRes080Simplificado({
+                    emiElecIni: sanitizedInputs.manualEmisionesElectricoInicial,
+                    emiElecFin: sanitizedInputs.manualEmisionesElectricoFinal,
+                    emiOtrosIni: sanitizedInputs.manualEmisionesOtrosInicial,
+                    emiOtrosFin: sanitizedInputs.manualEmisionesOtrosFinal,
+                    combOtrosIni: sanitizedInputs.combustibleOtrosInicial,
+                    combOtrosFin: sanitizedInputs.combustibleOtrosFinal,
+                    superficieInicial: sanitizedInputs.manualSupInicial || sanitizedInputs.superficieCalefactable,
+                    superficieFinal: sanitizedInputs.manualSupFinal || sanitizedInputs.manualSupInicial || sanitizedInputs.superficieCalefactable
+                });
             } else if (inputs.demandMode === 'manual' && inputs.isReforma) {
                 // MODO CEE APORTADO + REFORMA → SIEMPRE por emisiones del CEE
                 // No tenemos el .xml pero sí las emisiones de CO2 por consumo (del CEE

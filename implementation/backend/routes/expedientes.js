@@ -19,6 +19,7 @@ const emailService = require('../services/emailService');
 const whatsappService = require('../services/whatsappService');
 const reformaUploadService = require('../services/reformaUploadService');
 const revisionPendienteNotifier = require('../services/revisionPendienteNotifier');
+const recordatorios = require('../services/recordatorios');
 const { mergeDocumentacion } = require('../utils/mergeDocumentacion');
 const anexoFotograficoService = require('../services/anexoFotograficoService');
 const cifoService = require('../services/cifoService');
@@ -63,6 +64,10 @@ const PUBLIC_EXPEDIENTE_ROUTES = [
     // por el MCP con la clave interna (flujo "revisar → pedir al cliente/instalador").
     { method: 'GET',  re: /^\/[^/]+\/solicitud-info\/?$/ },
     { method: 'POST', re: /^\/[^/]+\/solicitar-faltantes\/?$/ },
+    // Recordatorio al certificador: mismo patrón. Lo llama la página de acción del
+    // parte diario de seguimiento (routes/acciones.js) con la clave interna, para no
+    // duplicar el envío ni el sellado del historial. Su middleware es internalKeyOrAuth.
+    { method: 'POST', re: /^\/[^/]+\/notify-certificador\/?$/ },
 ];
 const PARTNER_ALLOWED_ROUTES = [
     { method: 'POST', re: /^\/?$/ }, // POST /api/expedientes → aceptar oportunidad (crea expediente)
@@ -4784,7 +4789,7 @@ router.get('/proxy/pdf', enforceAuth, async (req, res) => {
 // "12. DOCUMENTOS PARA CEE" del Drive del expediente, persiste el folder ID en
 // Notificar al certificador asignado (multi-canal, multi-plantilla, trazabilidad)
 // Body: { certificador_id?, sendEmail?, sendWhatsApp?, phase?, template? }
-router.post('/:id/notify-certificador', enforceAuth, async (req, res) => {
+router.post('/:id/notify-certificador', internalKeyOrAuth, async (req, res) => {
     const driveService = require('../services/driveService');
     const crypto = require('crypto');
     const CEE_FOLDER_NAME = '12. DOCUMENTOS PARA CEE';
@@ -5044,11 +5049,14 @@ router.post('/:id/notify-certificador', enforceAuth, async (req, res) => {
                     const subirExtra = (subirWa && !customMessage.includes('/subir-cee/')) ? subirWa : '';
                     waMsg = `${customMessage}${carpetaWa}${subirExtra}\n\n*BROKERGY · Ingeniería Energética*`;
                 } else if (template === 'reminder' && esRegistro) {
-                    waMsg = `¡Hola *${certName}*! 👋\n\nEl *${phaseLabel}* del expediente *${expedienteNum}*${clienteName ? ` (${clienteName})` : ''} tiene nuestro visto bueno y sigue *pendiente de registrar* en Industria.\n\nEn cuanto lo presentes, súbenos la etiqueta y el justificante de registro.${adminMsgWa}${subirWa}\n\n¡Gracias!\n*BROKERGY · Ingeniería Energética*`;
+                    // Plantilla compartida con el parte diario de seguimiento: el
+                    // certificador debe recibir el mismo texto le escribas desde aquí
+                    // o desde el enlace del parte (services/recordatorios.js).
+                    waMsg = recordatorios.certRegistroWa({ certName, phaseLabel, expedienteNum, clienteName, adminMsgWa, subirWa });
                 } else if (template === 'urgent' && esRegistro) {
                     waMsg = `🚨 *URGENTE* 🚨\n\nHola *${certName}*, el *${phaseLabel}* del expediente *${expedienteNum}*${clienteName ? ` (${clienteName})` : ''} tiene nuestro visto bueno y todavía *no consta registrado* en Industria.\n\nEl expediente está bloqueado hasta que nos subas la etiqueta y el justificante de registro.${adminMsgWa}${subirWa}\n\n*BROKERGY · Ingeniería Energética*`;
                 } else if (template === 'reminder') {
-                    waMsg = `¡Hola *${certName}*! 👋\n\nTe recordamos que tienes pendiente el *${phaseLabel}* del expediente *${expedienteNum}*${clienteName ? ` (${clienteName})` : ''}.\n\n¿Podrías darnos una estimación de fecha de entrega?${adminMsgWa}\n\n${ceeFolderLink ? '📁 Carpeta: ' + ceeFolderLink + '\n' : ''}${portalLink ? '🔗 Portal: ' + portalLink + '\n' : ''}\n¡Gracias!\n*BROKERGY · Ingeniería Energética*`;
+                    waMsg = recordatorios.certEmisionWa({ certName, phaseLabel, expedienteNum, clienteName, adminMsgWa, ceeFolderLink, portalLink });
                 } else if (template === 'urgent') {
                     waMsg = `*⚠️ AVISO URGENTE*\n\nHola *${certName}*, necesitamos con urgencia el *${phaseLabel}* del expediente *${expedienteNum}*${clienteName ? ` (${clienteName})` : ''}.\n\nEs importante que lo priorices para cumplir con los plazos del programa.${adminMsgWa}\n\n${ceeFolderLink ? '📁 Carpeta: ' + ceeFolderLink + '\n' : ''}${portalLink ? '🔗 Portal: ' + portalLink + '\n' : ''}\nQuedamos a la espera.\n*BROKERGY · Ingeniería Energética*`;
                 } else if (phase === 'final') {
@@ -5073,9 +5081,13 @@ router.post('/:id/notify-certificador', enforceAuth, async (req, res) => {
             try {
                 const docObj = exp.documentacion || {};
                 const historial = docObj.historial || [];
-                const userName = req.user?.rol_nombre === 'ADMIN'
-                    ? 'ADMINISTRADOR'
-                    : (req.user?.acronimo || req.user?.razon_social || 'SISTEMA');
+                // `origen` distingue en el historial un envío hecho desde el expediente
+                // de uno disparado con un clic desde el parte diario.
+                const userName = req.internalCall
+                    ? (req.body?.origen === 'parte' ? 'PARTE DE SEGUIMIENTO' : 'AGENTE IA')
+                    : (req.user?.rol_nombre === 'ADMIN'
+                        ? 'ADMINISTRADOR'
+                        : (req.user?.acronimo || req.user?.razon_social || 'SISTEMA'));
 
                 const priorityTag = priority === 'urgent' ? ' · 🚨 URGENTE' : '';
                 // Qué se le estaba reclamando: sin esto el historial no distingue un

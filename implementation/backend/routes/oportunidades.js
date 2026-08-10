@@ -62,7 +62,7 @@ router.get('/test-router', (req, res) => {
 //     atendidas por la landing pública)
 router.post('/internal-simulation', enforceAuth, async (req, res) => {
     try {
-        const { contacto, catastro, funnel, calculatorInputs, precomputedResult, demandaCalefaccionPorM2 } = req.body || {};
+        const { contacto, catastro, funnel, calculatorInputs, precomputedResult, demandaCalefaccionPorM2, docs_ocr } = req.body || {};
 
         // Un partner siempre se atribuye a sí mismo el lead. Solo un ADMIN (que no
         // tiene prescriptor propio) puede elegir de quién viene; null = BROKERGY.
@@ -91,7 +91,11 @@ router.post('/internal-simulation', enforceAuth, async (req, res) => {
             partnerSlug: null,
             prescriptorId,
             mode: 'internal',
-            creatorUser: req.user
+            creatorUser: req.user,
+            // Presupuesto/facturas leídos con OCR durante la toma de datos (solo staff:
+            // llevan importes). Se guardan en datos_calculo.docs_ocr para que el
+            // expediente nazca con ellos.
+            docsOcr: (req.user?.rol_nombre === 'ADMIN' || req.user?.rol_nombre === 'TRABAJADOR') ? (docs_ocr || null) : null
         });
 
         console.log(`[oportunidades/internal-simulation] Creada: ${result.id_oportunidad} (rol=${req.user?.rol_nombre})`);
@@ -1006,7 +1010,7 @@ router.get('/:id/anexos/:fileId', async (req, res) => {
 router.post('/:id/anexos', async (req, res) => {
     try {
         const { id } = req.params;
-        const { fileName, mimeType, base64, driveFolderId, isBudget } = req.body;
+        const { fileName, mimeType, base64, driveFolderId, isBudget, budgetSlot } = req.body;
 
         if (!base64) return res.status(400).json({ error: 'Falta el contenido del archivo.' });
 
@@ -1038,8 +1042,19 @@ router.post('/:id/anexos', async (req, res) => {
 
         // LÓGICA DE PRESUPUESTO
         if (isBudget) {
-            finalFileName = "PRESUPUESTO DE LA INSTALACIÓN.pdf";
-            const oldFileName = "PRESUPUESTO DE LA INSTALACIÓN_old.pdf";
+            // En una reforma cada partida (aerotermia, ventanas, cubierta…) trae su
+            // propio presupuesto, a menudo de gremios distintos. Se distinguen por
+            // sufijo; AEROTERMIA conserva el nombre de siempre para no romper lo ya
+            // subido ni el reconocimiento en el frontend.
+            const SLOTS_VALIDOS = ['AEROTERMIA', 'VENTANAS', 'CUBIERTA', 'SUELO', 'FACHADA'];
+            const slot = SLOTS_VALIDOS.includes(String(budgetSlot || '').toUpperCase())
+                ? String(budgetSlot).toUpperCase()
+                : 'AEROTERMIA';
+            const base = slot === 'AEROTERMIA'
+                ? "PRESUPUESTO DE LA INSTALACIÓN"
+                : `PRESUPUESTO DE LA INSTALACIÓN_${slot}`;
+            finalFileName = `${base}.pdf`;
+            const oldFileName = `${base}_old.pdf`;
             finalMimeType = "application/pdf";
             
             // 1. Manejar sustitución (Versioning simple)

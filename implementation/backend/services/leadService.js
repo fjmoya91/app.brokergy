@@ -203,7 +203,7 @@ async function generateOpportunityId(fichaType) {
  * @param {string|null} params.prescriptorId UUID del prescriptor (resuelto en la ruta).
  * @returns {Promise<{ id_oportunidad: string, oportunidad_uuid: string, cliente_id: string, lead_score: number }>}
  */
-async function createLead({ contacto, catastro, funnel, calculatorInputs, precomputedResult, demandaCalefaccionPorM2, geoContext, partnerSlug, prescriptorId, mode = 'public', creatorUser = null }) {
+async function createLead({ contacto, catastro, funnel, calculatorInputs, precomputedResult, demandaCalefaccionPorM2, geoContext, partnerSlug, prescriptorId, mode = 'public', creatorUser = null, docsOcr = null }) {
     // 1. Validaciones mínimas — fail-fast antes de tocar BD
     const isInternal = mode === 'internal';
 
@@ -303,6 +303,14 @@ async function createLead({ contacto, catastro, funnel, calculatorInputs, precom
 
         // Respuestas raw del funnel para auditoría / reprocesado futuro
         landing_funnel: funnel || {},
+
+        // Presupuesto / facturas ya LEÍDOS (OCR) en la toma de datos: importes, nº de
+        // documento, fechas, partidas y los equipos citados (marca/modelo/nº de serie).
+        // Aunque esto todavía sea una oportunidad, al aceptarla el expediente nace ya
+        // con `documentacion.facturas` puestas en vez de tener que releer los mismos
+        // PDF semanas después (ver expedienteService.createExpedienteFromOportunidad).
+        // SOLO metadatos y enlaces — nunca el fichero (regla 21: nada de base64 en JSONB).
+        docs_ocr: docsOcr || null,
 
         // Historial inicial
         historial: [{

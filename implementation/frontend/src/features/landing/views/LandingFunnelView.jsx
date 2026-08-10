@@ -197,7 +197,10 @@ export default function LandingFunnelView({ route, mode = 'public', variant = 'd
     const ceePrefillRan = useRef(false);
     useEffect(() => {
         if (!isInternal || ceePrefillRan.current) return;
-        const rc = initialCeeData?.referencia_catastral;
+        // `initialCeeData` es { inicial, final }: la RC vale igual de cualquiera de
+        // los dos certificados (son de la misma vivienda; si no lo fueran, la puerta
+        // ya lo ha avisado antes de llegar aquí).
+        const rc = initialCeeData?.inicial?.referencia_catastral || initialCeeData?.final?.referencia_catastral;
         if (!rc) return;
         ceePrefillRan.current = true;
         handleSearch(String(rc).trim());

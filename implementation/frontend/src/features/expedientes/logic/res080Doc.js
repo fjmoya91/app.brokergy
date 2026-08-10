@@ -486,6 +486,203 @@ export function buildCe3xPages({ ce3x = {}, ed, eb, isForPdf, pageHeader, sectio
 }
 
 // ============================================================================
+// buildJustificacionAhorroPages — páginas donde se JUSTIFICA el ahorro de energía final.
+//
+// FUENTE ÚNICA de estas páginas: las usan tanto este builder (el PDF que se archiva)
+// como el modal CertificadoRes080Modal (la vista previa), que mantiene su propia copia
+// del resto del documento. Mismo patrón que buildCe3xPages. Si se tocan los textos aquí,
+// cambian en los dos sitios a la vez — que es lo que interesa: el verificador compara
+// lo que vio en pantalla con lo que le llega firmado.
+//
+// Salen una o dos páginas según el método y la fuente de los datos:
+//   · Tabla de justificación (siempre). Por USO en el método detallado, por VECTOR
+//     energético en el simplificado.
+//   · Desglose de la energía final declarada (solo cuando sale del .xml): la tabla
+//     vector × uso con los kWh que declara el certificado. Es lo que permite al
+//     verificador reproducir el total sumando.
+// ============================================================================
+export function buildJustificacionAhorroPages({ results, pageHeader, sectionTitle, footer, obsBox }) {
+    if (!results || !results.details) return [];
+    const pages = [];
+    const d = results.details;
+    const fN = (v, dec = 2) => v !== null && v !== undefined
+        ? Number(v).toLocaleString('es-ES', { minimumFractionDigits: dec, maximumFractionDigits: dec })
+        : '—';
+    const fI = (v) => v !== null && v !== undefined ? Math.round(Number(v)).toLocaleString('es-ES') : '—';
+    const aeTot = results.ahorroEnergiaFinalTotal || 0;
+    const aeMwh = (aeTot / 1000).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+    const jCell = (v, final = false) => `<td style="padding:8px 12px;text-align:center;border-bottom:1px solid #ECECE4;${final ? 'background:#F3F8E6;font-weight:700;' : 'color:#7a7a72;'}">${v}</td>`;
+    const jLabel = (t) => `<td style="padding:6px 16px;color:#4a4a44;border-bottom:1px solid #ECECE4;">${t}</td>`;
+    const renderCategory = (label, dd) => `
+        <tr><td colspan="3" style="padding:7px 16px;background:#EFEFE8;font-family:'Archivo';font-weight:700;font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:#6E6E66;">${label}</td></tr>
+        <tr>${jLabel('Tipo de combustible')}${jCell(dd.fuelIni || '—')}${jCell(dd.fuelFin || '—', true)}</tr>
+        <tr>${jLabel('Factor de paso')}${jCell(fN(dd.factorIni, 3))}${jCell(fN(dd.factorFin, 3), true)}</tr>
+        <tr>${jLabel('Emisiones CO₂ (kgCO₂/m²·año)')}${jCell(fN(dd.emissionsIni))}${jCell(fN(dd.emissionsFin), true)}</tr>
+        <tr>${jLabel('Consumo energía final (kWh/m²·año)')}${jCell(fN(dd.energyIni))}${jCell(fN(dd.energyFin), true)}</tr>`;
+
+    const esSimplificado = results.metodoAhorro === 'simplificado';
+    // ¿Los kWh se LEEN del certificado (<EnergiaFinalVectores>) o se reconstruyen
+    // dividiendo las emisiones de CO₂ entre su factor de paso? Cambia la explicación:
+    // no se le puede decir al verificador que un número está medido si está derivado.
+    const declarada = results.fuenteDatos === 'energia_final_declarada';
+    const combOtros = d.otros?.fuelIni && d.otros.fuelIni !== '—' ? d.otros.fuelIni : 'el combustible declarado';
+    // Si tras la obra ya no se quema nada, la columna FINAL dice "No aplica" en vez de
+    // arrastrar el combustible inicial (ver fuelFinAplica en calculation.js).
+    const otrosDoc = d.otros && d.otros.fuelFinAplica === false
+        ? { ...d.otros, fuelFin: 'No aplica' }
+        : d.otros;
+
+    const notaDeclarada = `
+        <b>El ahorro se obtiene de la energía final que declara el propio certificado.</b>
+        El certificado de eficiencia energética publica el consumo de energía final del edificio
+        (kWh/m²·año) desglosado por <i>vector energético</i> y, dentro de cada vector, por servicio.
+        Esa es exactamente la magnitud que exige la ficha, de modo que no se estima ni se deriva
+        nada: el consumo total es la suma de los vectores declarados, y el ahorro es la diferencia
+        entre el certificado anterior y el posterior a la actuación, multiplicada por la superficie.
+        <br><br>
+        Se recurre a este desglose porque el reparto por servicio no basta: hay servicios atendidos
+        por más de un generador —con combustibles distintos— y el certificado no dice qué parte del
+        consumo corresponde a cada uno. Por vector energético sí queda determinado.
+        <br><br>
+        Las emisiones de CO₂ que figuran en la tabla se han obtenido multiplicando cada consumo por
+        su factor de paso, y <b>reproducen las que declara el propio certificado</b> en su apartado
+        de calificación en emisiones. Esa coincidencia es la comprobación de que la lectura es
+        correcta.`;
+
+    const notaEmisiones = `
+        <b>Método simplificado de cálculo.</b> El certificado de eficiencia energética no
+        desglosa, para cada servicio, qué parte del consumo corresponde a la electricidad y
+        cuál a ${combOtros}: hay servicios atendidos por más de un generador y el certificado
+        no reparte su consumo entre ellos. Por eso el ahorro se obtiene de la calificación
+        <i>global</i> en emisiones que declara el propio certificado (apartado «Calificación
+        energética del edificio en emisiones»), que sí viene separada en sus dos vectores
+        energéticos: <i>emisiones de CO₂ por consumo eléctrico</i> y <i>emisiones de CO₂ por
+        otros combustibles</i>. Cada una se divide por su factor de paso para obtener el
+        consumo de energía final, y el ahorro es la diferencia entre la situación inicial y
+        la final. El método es aplicable porque el edificio emplea un único combustible no
+        eléctrico (${combOtros}).`;
+
+    const notaMetodo = !esSimplificado ? '' : obsBox(declarada ? notaDeclarada : notaEmisiones, '0px');
+
+    pages.push(`
+        <div class="doc-page">
+            ${pageHeader}
+            ${sectionTitle('Justificación del cálculo de ahorro inicial y final', '20px')}
+            ${notaMetodo ? `<div style="margin-bottom:14px;">${notaMetodo}</div>` : ''}
+            <div style="border-radius:16px;overflow:hidden;border:1px solid #E9E9E1;">
+                <table class="just" style="width:100%;border-collapse:collapse;font-size:12px;">
+                    <thead><tr>
+                        <th style="text-align:left;padding:8px 16px;background:#1A1A1A;color:#fff;font-family:'Archivo';font-weight:700;font-size:11px;letter-spacing:1px;text-transform:uppercase;width:52%;">Parámetro energético</th>
+                        <th style="text-align:center;padding:8px 12px;background:#33332F;color:#C9C9C4;font-family:'Archivo';font-weight:700;font-size:11px;text-transform:uppercase;">Inicial</th>
+                        <th style="text-align:center;padding:8px 12px;background:#93C01F;color:#1A1A1A;font-family:'Archivo';font-weight:800;font-size:11px;text-transform:uppercase;">Final</th>
+                    </tr></thead>
+                    <tbody>
+                        ${d.electrico ? renderCategory('Consumo eléctrico', d.electrico) : ''}
+                        ${d.otros ? renderCategory('Otros combustibles', otrosDoc) : ''}
+                        ${d.acs ? renderCategory('Agua caliente sanitaria (ACS)', d.acs) : ''}
+                        ${d.cal ? renderCategory('Calefacción', d.cal) : ''}
+                        ${d.ref ? renderCategory('Refrigeración', d.ref) : ''}
+                        <tr><td style="padding:8px 16px;background:#1A1A1A;color:#fff;font-family:'Archivo';font-weight:700;">Consumo total de energía final (kWh/m²·año)</td><td style="padding:8px 12px;text-align:center;background:#1A1A1A;color:#C9C9C4;font-weight:700;">${fN(results.totalEnergiaInicialM2)}</td><td style="padding:8px 12px;text-align:center;background:#0f0f0e;color:#93C01F;font-family:'Archivo';font-weight:800;">${fN(results.totalEnergiaFinalM2)}</td></tr>
+                        <tr><td style="padding:8px 16px;background:#1A1A1A;color:#fff;font-family:'Archivo';font-weight:700;border-top:1px solid #333;">Consumo total de energía final (kWh/año)</td><td style="padding:8px 12px;text-align:center;background:#1A1A1A;color:#C9C9C4;font-weight:700;border-top:1px solid #333;">${fI(results.totalEnergiaInicialAno)}</td><td style="padding:8px 12px;text-align:center;background:#0f0f0e;color:#93C01F;font-family:'Archivo';font-weight:800;border-top:1px solid #333;">${fI(results.totalEnergiaFinalAno)}</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div style="margin-top:16px;border-radius:20px;background:linear-gradient(120deg,#F18A00,#A9C63A);padding:3px;">
+                <div style="border-radius:17px;background:#fff;padding:18px 24px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;">
+                    <div style="font-family:'Archivo';font-weight:800;font-size:15px;letter-spacing:.3px;text-transform:uppercase;color:#1A1A1A;">Ahorro de energía final</div>
+                    <div style="font-family:'Archivo';font-weight:900;font-size:40px;line-height:1;color:#1A1A1A;">${aeMwh} <span style="font-size:16px;color:#B5730A;">MWh/año</span></div>
+                </div>
+            </div>
+            <p style="margin:12px 2px 0;font-size:11px;color:#6E6E66;">${declarada
+                ? 'Los consumos de energía final son los que declaran los certificados de eficiencia energética del edificio anterior y posterior a la actuación.'
+                : esSimplificado
+                ? 'Los valores de emisiones son los que declaran los certificados de eficiencia energética del edificio anterior y posterior a la actuación.'
+                : 'Este desglose corresponde a la comparativa técnica entre los certificados energéticos (XML) aportados para la situación inicial y la propuesta de reforma.'}</p>
+            ${footer}
+        </div>
+    `);
+
+    // ── PÁGINA 2: el desglose completo vector × uso, tal cual lo declara el CEE ──
+    // Solo cuando los datos SON del certificado. Es la página que permite al verificador
+    // rehacer el total sumando, y la que enseña el reparto que el resumen por servicio
+    // escondía (p. ej. una calefacción cubierta a la vez por electricidad y por gasóleo).
+    if (declarada && results.vectores) {
+        const USOS = [
+            { key: 'calefaccion', label: 'Calefacción' },
+            { key: 'acs', label: 'ACS' },
+            { key: 'refrigeracion', label: 'Refrigeración' },
+            { key: 'iluminacion', label: 'Iluminación' },
+        ];
+        const cero = (v) => !(Number(v) > 0);
+        // Solo se imprimen las columnas de uso con consumo en alguno de los dos lados:
+        // una columna entera de ceros no aporta y engorda la tabla.
+        const todos = [...(results.vectores.inicial || []), ...(results.vectores.final || [])];
+        const usos = USOS.filter((u) => todos.some((v) => !cero(v[u.key])));
+
+        const th = (t, w = '') => `<th style="text-align:center;padding:7px 8px;background:#33332F;color:#C9C9C4;font-family:'Archivo';font-weight:700;font-size:10px;letter-spacing:.5px;text-transform:uppercase;${w}">${t}</th>`;
+        const tablaVectores = (lista, titulo, acento) => {
+            const filas = (lista || []).map((v) => `
+                <tr>
+                    <td style="padding:6px 12px;border-bottom:1px solid #ECECE4;font-weight:600;color:#1A1A1A;">${v.nombre}</td>
+                    ${usos.map((u) => `<td style="padding:6px 8px;text-align:center;border-bottom:1px solid #ECECE4;color:${cero(v[u.key]) ? '#B9B9B4' : '#4a4a44'};">${cero(v[u.key]) ? '—' : fN(v[u.key])}</td>`).join('')}
+                    <td style="padding:6px 8px;text-align:center;border-bottom:1px solid #ECECE4;font-weight:700;background:#FAFAF6;">${fN(v.global)}</td>
+                </tr>`).join('');
+            const total = (lista || []).reduce((a, v) => a + (Number(v.global) || 0), 0);
+            return `
+                <div style="border-radius:16px;overflow:hidden;border:1px solid #E9E9E1;margin-top:12px;">
+                    <table style="width:100%;border-collapse:collapse;font-size:11.5px;">
+                        <thead>
+                            <tr><td colspan="${usos.length + 2}" style="padding:8px 14px;background:${acento};color:${acento === '#93C01F' ? '#1A1A1A' : '#fff'};font-family:'Archivo';font-weight:800;font-size:10.5px;letter-spacing:1px;text-transform:uppercase;">${titulo}</td></tr>
+                            <tr>
+                                <th style="text-align:left;padding:7px 12px;background:#33332F;color:#C9C9C4;font-family:'Archivo';font-weight:700;font-size:10px;letter-spacing:.5px;text-transform:uppercase;width:30%;">Vector energético</th>
+                                ${usos.map((u) => th(u.label)).join('')}
+                                ${th('Total', 'background:#1A1A1A;color:#fff;')}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${filas || `<tr><td colspan="${usos.length + 2}" style="padding:10px 12px;color:#9A9A92;">Sin consumos declarados.</td></tr>`}
+                            <tr>
+                                <td colspan="${usos.length + 1}" style="padding:8px 12px;background:#1A1A1A;color:#fff;font-family:'Archivo';font-weight:700;font-size:11px;">Consumo total de energía final (kWh/m²·año)</td>
+                                <td style="padding:8px 8px;text-align:center;background:#0f0f0e;color:#93C01F;font-family:'Archivo';font-weight:800;">${fN(total)}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>`;
+        };
+
+        pages.push(`
+            <div class="doc-page">
+                ${pageHeader}
+                ${sectionTitle('Energía final declarada por el certificado, por vector energético', '20px')}
+                <p style="margin:0 0 2px 2px;font-size:11.5px;color:#4a4a44;line-height:1.55;">
+                    Consumo de energía final en kWh/m²·año que declara cada certificado de eficiencia
+                    energética, desglosado por vector energético y por servicio. Un vector sin consumo
+                    no aparece: la relación de vectores con valores es, por tanto, la de las fuentes de
+                    energía realmente empleadas en el edificio en cada situación. El total de cada
+                    situación es la suma de sus vectores, y es el que se traslada al cuadro de
+                    justificación del ahorro.
+                </p>
+                ${tablaVectores(results.vectores.inicial, 'Situación inicial · antes de la actuación', '#33332F')}
+                ${tablaVectores(results.vectores.final, 'Situación final · después de la actuación', '#93C01F')}
+                ${obsBox(`
+                    La sustitución de los generadores de combustión por equipos eléctricos de alta
+                    eficiencia se aprecia en el propio desglose: los vectores de combustible presentes
+                    en la situación inicial desaparecen o se reducen en la final, y el consumo eléctrico
+                    no crece en la misma proporción porque la bomba de calor aporta varias unidades de
+                    energía térmica por cada unidad de electricidad consumida. La diferencia entre los
+                    dos totales, multiplicada por la superficie, es el ahorro de energía final
+                    certificado.`)}
+                ${footer}
+            </div>
+        `);
+    }
+
+    return pages;
+}
+
+// ============================================================================
 // buildRes080Html — documento HTML completo. `isForPdf` true (backend) → sin
 // contenteditable. `attachments`: slots de anexos con { id, label, file:{driveId} }.
 // ============================================================================
@@ -845,57 +1042,8 @@ export function buildRes080Html({ data, appUrl, attachments = [], isForPdf = tru
         pages.push(...buildCe3xPages({ ce3x, ed, eb, isForPdf, pageHeader, sectionTitle, footer }));
     }
 
-    // PÁGINA: JUSTIFICACIÓN DEL CÁLCULO DE AHORRO (solo si hay results.details)
-    if (results && results.details) {
-        const d = results.details;
-        const fN = (v, dec = 2) => v !== null && v !== undefined
-            ? Number(v).toLocaleString('es-ES', { minimumFractionDigits: dec, maximumFractionDigits: dec })
-            : '—';
-        const fI = (v) => v !== null && v !== undefined ? Math.round(Number(v)).toLocaleString('es-ES') : '—';
-        const aeTot = results.ahorroEnergiaFinalTotal || 0;
-        const aeMwh = (aeTot / 1000).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-
-        const jCell = (v, final = false) => `<td style="padding:8px 12px;text-align:center;border-bottom:1px solid #ECECE4;${final ? 'background:#F3F8E6;font-weight:700;' : 'color:#7a7a72;'}">${v}</td>`;
-        const jLabel = (t) => `<td style="padding:6px 16px;color:#4a4a44;border-bottom:1px solid #ECECE4;">${t}</td>`;
-        const renderCategory = (label, dd) => `
-            <tr><td colspan="3" style="padding:7px 16px;background:#EFEFE8;font-family:'Archivo';font-weight:700;font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:#6E6E66;">${label}</td></tr>
-            <tr>${jLabel('Tipo de combustible')}${jCell(dd.fuelIni || '—')}${jCell(dd.fuelFin || '—', true)}</tr>
-            <tr>${jLabel('Factor de paso')}${jCell(fN(dd.factorIni, 3))}${jCell(fN(dd.factorFin, 3), true)}</tr>
-            <tr>${jLabel('Emisiones CO₂ (kgCO₂/m²·año)')}${jCell(fN(dd.emissionsIni))}${jCell(fN(dd.emissionsFin), true)}</tr>
-            <tr>${jLabel('Consumo energía final (kWh/m²·año)')}${jCell(fN(dd.energyIni))}${jCell(fN(dd.energyFin), true)}</tr>`;
-
-        pages.push(`
-            <div class="doc-page">
-                ${pageHeader}
-                ${sectionTitle('Justificación del cálculo de ahorro inicial y final', '20px')}
-                <div style="border-radius:16px;overflow:hidden;border:1px solid #E9E9E1;">
-                    <table class="just" style="width:100%;border-collapse:collapse;font-size:12px;">
-                        <thead><tr>
-                            <th style="text-align:left;padding:8px 16px;background:#1A1A1A;color:#fff;font-family:'Archivo';font-weight:700;font-size:11px;letter-spacing:1px;text-transform:uppercase;width:52%;">Parámetro energético</th>
-                            <th style="text-align:center;padding:8px 12px;background:#33332F;color:#C9C9C4;font-family:'Archivo';font-weight:700;font-size:11px;text-transform:uppercase;">Inicial</th>
-                            <th style="text-align:center;padding:8px 12px;background:#93C01F;color:#1A1A1A;font-family:'Archivo';font-weight:800;font-size:11px;text-transform:uppercase;">Final</th>
-                        </tr></thead>
-                        <tbody>
-                            ${d.acs ? renderCategory('Agua caliente sanitaria (ACS)', d.acs) : ''}
-                            ${d.cal ? renderCategory('Calefacción', d.cal) : ''}
-                            ${d.ref ? renderCategory('Refrigeración', d.ref) : ''}
-                            <tr><td style="padding:8px 16px;background:#1A1A1A;color:#fff;font-family:'Archivo';font-weight:700;">Consumo total de energía final (kWh/m²·año)</td><td style="padding:8px 12px;text-align:center;background:#1A1A1A;color:#C9C9C4;font-weight:700;">${fN(results.totalEnergiaInicialM2)}</td><td style="padding:8px 12px;text-align:center;background:#0f0f0e;color:#93C01F;font-family:'Archivo';font-weight:800;">${fN(results.totalEnergiaFinalM2)}</td></tr>
-                            <tr><td style="padding:8px 16px;background:#1A1A1A;color:#fff;font-family:'Archivo';font-weight:700;border-top:1px solid #333;">Consumo total de energía final (kWh/año)</td><td style="padding:8px 12px;text-align:center;background:#1A1A1A;color:#C9C9C4;font-weight:700;border-top:1px solid #333;">${fI(results.totalEnergiaInicialAno)}</td><td style="padding:8px 12px;text-align:center;background:#0f0f0e;color:#93C01F;font-family:'Archivo';font-weight:800;border-top:1px solid #333;">${fI(results.totalEnergiaFinalAno)}</td></tr>
-                        </tbody>
-                    </table>
-                </div>
-
-                <div style="margin-top:16px;border-radius:20px;background:linear-gradient(120deg,#F18A00,#A9C63A);padding:3px;">
-                    <div style="border-radius:17px;background:#fff;padding:18px 24px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;">
-                        <div style="font-family:'Archivo';font-weight:800;font-size:15px;letter-spacing:.3px;text-transform:uppercase;color:#1A1A1A;">Ahorro de energía final</div>
-                        <div style="font-family:'Archivo';font-weight:900;font-size:40px;line-height:1;color:#1A1A1A;">${aeMwh} <span style="font-size:16px;color:#B5730A;">MWh/año</span></div>
-                    </div>
-                </div>
-                <p style="margin:12px 2px 0;font-size:11px;color:#6E6E66;">Este desglose corresponde a la comparativa técnica entre los certificados energéticos (XML) aportados para la situación inicial y la propuesta de reforma.</p>
-                ${footer}
-            </div>
-        `);
-    }
+    // PÁGINAS: JUSTIFICACIÓN DEL CÁLCULO DE AHORRO (solo si hay results.details)
+    pages.push(...buildJustificacionAhorroPages({ results, pageHeader, sectionTitle, footer, obsBox }));
 
     // PÁGINA: JUSTIFICACIÓN DEL SCOP (calefacción + ACS)
     const scopBox = (headTitle, formula, rowsHtml) => `

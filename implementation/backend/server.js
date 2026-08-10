@@ -80,6 +80,13 @@ app.use('/api', require('./routes/afirmaStorage'));
 app.use('/api/landing', require('./routes/landing'));
 app.use('/api/settings', require('./routes/settings'));
 app.use('/api/cee-ocr', require('./routes/ceeOcr'));
+// Lectura de facturas/presupuestos ANTES de que exista expediente (toma de datos de
+// una nueva simulación). El gemelo con expediente vive en routes/expedientes.
+app.use('/api/factura-ocr', require('./routes/facturaOcr'));
+// Acciones del parte diario de seguimiento: páginas PÚBLICAS firmadas con HMAC
+// (utils/accionToken) que preparan el recordatorio al certificador / cliente /
+// instalador sin tener que entrar en la app. Validan su propio token.
+app.use('/api/acciones', require('./routes/acciones'));
 
 // WhatsApp (opcional): cargar e inicializar de forma automática al arrancar
 try {
@@ -129,17 +136,24 @@ app.get('/api/debug-direct', (req, res) => {
 if (require.main === module) {
   app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
+    // Puerto REAL de escucha, para las llamadas que el backend se hace a sí mismo
+    // (routes/acciones delega en /api/expedientes con la clave interna). En desarrollo
+    // el puerto puede no ser el del .env si el 3000 estaba ocupado, y sin esto la
+    // llamada interna acabaría en OTRO backend.
+    process.env.PORT_EFECTIVO = String(PORT);
     // Refresco periódico de stats del escaparate de instaladores (no bloqueante).
     try {
       require('./services/marketplaceStatsRefresher').start();
     } catch (err) {
       console.warn('[marketplaceStats] no se pudo iniciar el refrescador:', err.message);
     }
-    // Recordatorio de CEE entregados por el certificador y sin revisar.
+    // Parte diario de seguimiento: un solo aviso al día con TODO lo atascado
+    // (CEE sin revisar, sin registrar, obras sin cerrar, firmas sin devolver…).
+    // Absorbe al antiguo `revisionPendienteNotifier`, que ahora es uno de sus bloques.
     try {
-      require('./services/revisionPendienteNotifier').start();
+      require('./services/seguimientoDiario').start();
     } catch (err) {
-      console.warn('[RevisionPendiente] no se pudo iniciar la vigilancia:', err.message);
+      console.warn('[Parte] no se pudo iniciar la vigilancia:', err.message);
     }
   });
 }

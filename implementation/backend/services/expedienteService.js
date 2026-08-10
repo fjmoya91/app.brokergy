@@ -191,6 +191,32 @@ async function createExpediente(uuid_oportunidad, id_cliente, manualNumber = nul
             fecha_prevista_fin: op.datos_calculo?.fecha_prevista_fin || null,
         };
 
+        // ── Equipos leídos en la factura/presupuesto de la simulación ──────────
+        // El nº de serie de la bomba de calor va al CIFO y al Anexo I, y hoy se teclea
+        // a mano mirando la placa o la factura. Si el OCR ya lo leyó, se hereda —pero
+        // SOLO para rellenar huecos: nunca pisa lo que trae el catálogo (marca/modelo
+        // del modelo elegido en la calculadora, que es el dato bueno).
+        try {
+            const equipos = op.datos_calculo?.docs_ocr?.equipos || [];
+            const aero = equipos.find(e => e.partida === 'AEROTERMIA' && e.numero_serie);
+            const acs = equipos.find(e => e.partida === 'ACS' && e.numero_serie);
+            if (aero) {
+                if (!instalacion.aerotermia_cal.numero_serie) instalacion.aerotermia_cal.numero_serie = aero.numero_serie;
+                if (!instalacion.aerotermia_cal.marca && aero.marca) instalacion.aerotermia_cal.marca = aero.marca;
+                if (!instalacion.aerotermia_cal.modelo && aero.modelo) instalacion.aerotermia_cal.modelo = aero.modelo;
+            }
+            // El bloque de ACS solo es independiente si se cambia el ACS; si no, es una
+            // copia del de calefacción y escribirle otro nº de serie lo desincronizaría.
+            if (acs && cambioAcs && !instalacion.aerotermia_acs.numero_serie) {
+                instalacion.aerotermia_acs.numero_serie = acs.numero_serie;
+            }
+            if (aero || (acs && cambioAcs)) {
+                console.log('[ExpedienteService] Nº de serie heredado de la factura leída en la simulación.');
+            }
+        } catch (e) {
+            console.warn('[ExpedienteService] equipos desde docs_ocr:', e.message);
+        }
+
         console.log(`[ExpedienteService] Instalación pre-rellenada desde oportunidad → ` +
             `cal=${aerotermiaCal.marca}/${aerotermiaCal.modelo}/SCOP=${aerotermiaCal.scop} ` +
             `cambio_acs=${cambioAcs} ` +
@@ -212,12 +238,61 @@ async function createExpediente(uuid_oportunidad, id_cliente, manualNumber = nul
             tipo: opInputs.demandMode === 'real' ? 'xml' : 'aportado',
             is_reforma: programa === 'RES080',
             cee_inicial: opInputs.xmlDemandData || null,
-            cee_final: null,
+            // CEE FINAL aportado por el cliente en la simulación (obra ya ejecutada).
+            // Llega ya en forma de parseCeeXml porque la puerta de carga lo convierte
+            // con `ceeToXmlShape` (ceeExtract.js) antes de guardarlo, así que el
+            // expediente nace con los dos certificados puestos y el módulo CEE los
+            // pinta igual que si se hubieran subido sus .xml a mano.
+            cee_final: opInputs.xmlDemandDataFinal || null,
             demanda_calefaccion_manual: opInputs.demandaCalefaccionManual || null,
             cee_decision: ceeDecision,
             cliente_aporta_cee: clienteAportaCee,
-            cee_previo_data: clienteAportaCee ? (opInputs.cee_previo || null) : null
+            cee_previo_data: clienteAportaCee ? (opInputs.cee_previo || null) : null,
+            cee_final_data: opInputs.cee_final || null
         };
+
+        // ── Facturas ya leídas en la simulación ────────────────────────────────
+        // Si en la toma de datos se soltaron las facturas, `datos_calculo.docs_ocr`
+        // trae ya el nº, la fecha, la base imponible y las partidas de cada una, y los
+        // ficheros están en "5. FACTURAS" (los subió subirDocsPendientes al slot
+        // DOC_FACTURAS). Aquí se casan las dos mitades para que el expediente nazca
+        // con `documentacion.facturas` puesto en vez de tener que releer los mismos
+        // PDF semanas después.
+        //
+        // El emparejamiento es SECUENCIAL consumiendo `files_count` entradas por
+        // documento: una misma factura puede haber entrado como varias fotos, así que
+        // no hay una correspondencia 1:1 entre documentos leídos y ficheros subidos.
+        const facturasIniciales = (() => {
+            try {
+                const docs = (op.datos_calculo?.docs_ocr?.documentos || []).filter(d => d?.tipo === 'factura');
+                if (!docs.length) return [];
+                const subidas = Array.isArray(op.datos_calculo?.reforma_uploads?.DOC_FACTURAS)
+                    ? op.datos_calculo.reforma_uploads.DOC_FACTURAS
+                    : [];
+                let cursor = 0;
+                return docs.map((d) => {
+                    const n = Math.max(1, Number(d.files_count) || 1);
+                    const principal = subidas[cursor] || null;   // el primer fichero del documento
+                    cursor += n;
+                    return {
+                        numero_factura: d.numero_factura || '',
+                        fecha_factura: d.fecha_factura || null,
+                        importe_sin_iva: Number(d.importe_sin_iva) || 0,
+                        drive_link: principal?.link || null,
+                        drive_id: principal?.driveId || null,
+                        partidas: Array.isArray(d.partidas) ? d.partidas : [],
+                        origen: d.origen || 'ocr',
+                        validada: false
+                    };
+                }).filter(f => f.drive_link || f.importe_sin_iva > 0);
+            } catch (e) {
+                console.warn('[ExpedienteService] facturas desde docs_ocr:', e.message);
+                return [];
+            }
+        })();
+        if (facturasIniciales.length) {
+            console.log(`[ExpedienteService] ${facturasIniciales.length} factura(s) heredadas de la simulación (OCR).`);
+        }
 
         // 4. Generar Número de Expediente Oficial (YYPROGRAMA_XXXX) o usar el manual
         let numeroExpediente = manualNumber;
@@ -274,7 +349,7 @@ async function createExpediente(uuid_oportunidad, id_cliente, manualNumber = nul
                 fecha_visita_cee_final: null,
                 fecha_firma_cee_final: null,
                 fecha_registro_cee_final: null,
-                facturas: [],
+                facturas: facturasIniciales,
                 fecha_pruebas_cert_instalacion: null,
                 fecha_firma_cert_instalacion: null,
                 fecha_inicio_cifo: null,

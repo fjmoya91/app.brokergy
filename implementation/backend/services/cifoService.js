@@ -172,11 +172,23 @@ async function loadCe3xCapturas(exp) {
 // Resultado energético RES080 (details + EFi/EFf + AETOTAL) — espejo de la rama
 // RES080 de calcResults en ExpedienteDetailView.
 async function computeRes080Results(exp) {
-    const { calculateRes080, calculateRes080FromEmissions } = await loadCalc();
+    const { calculateRes080, calculateRes080FromEmissions, calculateRes080Simplificado, calculateRes080SimplificadoFromXml } = await loadCalc();
     const cee = exp.cee || {};
     const ceeSourceManual = String(cee.cee_source || '').toLowerCase() === 'manual';
+    // Método SIMPLIFICADO: por VECTOR energético en vez de por uso. Ver calculation.js.
+    const esSimplificado = String(cee.metodo_ahorro || '').toLowerCase() === 'simplificado';
     let res080 = null;
-    if (ceeSourceManual && cee.emisiones_manual) {
+    if (ceeSourceManual && esSimplificado && cee.emisiones_manual) {
+        const em = cee.emisiones_manual;
+        const supFallback = cee.superficie_manual || exp.oportunidades?.datos_calculo?.surface;
+        res080 = calculateRes080Simplificado({
+            emiElecIni: em.electrico_ini, emiElecFin: em.electrico_fin,
+            emiOtrosIni: em.otros_ini, emiOtrosFin: em.otros_fin,
+            combOtrosIni: cee.comb_otros_inicial, combOtrosFin: cee.comb_otros_final,
+            superficieInicial: cee.superficie_manual_inicial || supFallback,
+            superficieFinal: cee.superficie_manual_final || cee.superficie_manual_inicial || supFallback,
+        });
+    } else if (ceeSourceManual && cee.emisiones_manual) {
         const em = cee.emisiones_manual;
         const supFallback = cee.superficie_manual || exp.oportunidades?.datos_calculo?.surface;
         res080 = calculateRes080FromEmissions({
@@ -187,6 +199,14 @@ async function computeRes080Results(exp) {
             combRefrigeracionInicial: cee.comb_ref_inicial, combRefrigeracionFinal: cee.comb_ref_final,
             superficieInicial: cee.superficie_manual_inicial || supFallback,
             superficieFinal: cee.superficie_manual_final || cee.superficie_manual_inicial || supFallback,
+        });
+    } else if (cee.cee_inicial && cee.cee_final && esSimplificado) {
+        // Con los dos .xml el simplificado sale exacto: el reparto por vector lo publica
+        // el propio certificado (<EmisionesCO2><ConsumoElectrico>/<ConsumoOtros>).
+        res080 = calculateRes080SimplificadoFromXml({
+            xmlInicial: cee.cee_inicial, xmlFinal: cee.cee_final,
+            combOtrosIni: cee.comb_otros_inicial, combOtrosFin: cee.comb_otros_final,
+            superficieCustom: cee.superficie_custom,
         });
     } else if (cee.cee_inicial && cee.cee_final) {
         res080 = calculateRes080({

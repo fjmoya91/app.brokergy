@@ -28,10 +28,13 @@ import { Step5_ACS } from '../steps/Step5_ACS';
 import { Step7_Gasto } from '../steps/Step7_Gasto';
 import { Step8_Presupuesto } from '../steps/Step8_Presupuesto';
 import { Step9_Contacto } from '../steps/Step9_Contacto';
+import { StepDocsObra } from '../steps/StepDocsObra';
 import { LandingResultView } from './LandingResultView';
 import { LeadDeliveryView } from './LeadDeliveryView';
 import { funnelToCalculatorInputs } from '../data/funnelToInputs';
-import { ceeToEmisionesInputs } from '../../calculator/logic/ceeSeed';
+import { efficiencyFor, sugerirEdadDesdeRendimiento } from '../data/boilerMapping';
+import { seedInputsFromCees, ceeCombustibleToFunnel } from '../../calculator/logic/ceeSeed';
+import { avisosCee, demandaDeCalculo, demandaCal, esReformaSegunCee, rendimientoCalefaccion } from '../../cee/ceeAvisos';
 import { computeFullCalculatorResult, computeLandingResult } from '../data/landingCalculation';
 
 const BOILER_COMBUSTIBLE = ['gas', 'gasoleo', 'carbon', 'biomasa'];
@@ -44,7 +47,9 @@ const SCREEN_PROGRESS = {
     elementos: 0.68, aviso_no_cae: 0.68,
     facturas: 0.68, factura_fecha: 0.73, cee_previo: 0.76,
     fotos: 0.8, cee_ambos: 0.83,
-    gasto: 0.86, presupuesto: 0.92,
+    gasto: 0.86, docs_obra: 0.9, presupuesto: 0.92,
+    // Atajo con certificados aportados: el resumen deja el recorrido casi hecho.
+    cee_resumen: 0.55,
 };
 
 // Hitos de dinero que marcan el recorrido visual del formulario en móvil.
@@ -86,8 +91,21 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
             .catch(() => setPrescriptores([]));
     }, [isInternal, isAdminUser]);
 
+    // ── Certificados aportados en la puerta previa (solo ADMIN) ─────────────
+    // `initialCeeData` = { inicial, final }. Se admite también el objeto suelto de
+    // versiones anteriores (un único CEE) para no romper una sesión a medias.
+    const ceeIni = initialCeeData?.inicial || (initialCeeData?.demandas ? initialCeeData : null) || null;
+    const ceeFin = initialCeeData?.final || null;
+    const hayCee = !!(ceeIni || ceeFin);
+
     // Arranca preguntando el ESTADO de la obra (primera pregunta del funnel /reforma).
-    const [stack, setStack] = useState(['estado']);
+    // Si venimos con certificados, arranca confirmando lo que ya sabemos por ellos:
+    // preguntar "¿en qué punto está la obra?" a quien acaba de aportar el certificado
+    // POSTERIOR es hacerle teclear algo que el propio documento ya contesta.
+    const [stack, setStack] = useState(hayCee ? ['cee_resumen'] : ['estado']);
+    // Presupuesto / facturas leídos con OCR en la pantalla `docs_obra`. Se suben a
+    // Drive en cuanto existe la oportunidad (subirDocsPendientes).
+    const [docsObra, setDocsObra] = useState([]);
     const [noTieneState, setNoTieneState] = useState(null); // null | 'warning' | 'dead_end'
     const [contacto, setContacto] = useState({
         nombre: '', email: '', tlf: '',
@@ -118,8 +136,12 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
     const ej = funnel.obra_estado === 'ejecutada';
 
     // En modo internal saltamos la pregunta de gasto anual (el partner la afina
-    // luego en la calculadora, igual que el funnel interno clásico).
-    const gastoStep = () => (isInternal ? 'presupuesto' : 'gasto');
+    // luego en la calculadora, igual que el funnel interno clásico) y en vez de
+    // preguntar el presupuesto "a ojo" ofrecemos soltar el presupuesto/las facturas
+    // y leerlos. El flujo PÚBLICO no cambia: ahí sigue el gasto y el Step8 de siempre.
+    const gastoStep = () => (isInternal ? 'docs_obra' : 'gasto');
+    // Cierre del tramo económico en internal (tras fotos/cee_ambos).
+    const presupuestoStep = () => (isInternal ? 'docs_obra' : 'presupuesto');
 
     // ---------- Elegibilidad (lenguaje claro, sin jerga) ----------
     const calc = () => {
@@ -162,6 +184,10 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
     // - no_empezada → directo a gasto (no hay facturas ni fotos previas relevantes)
     const nextAfterElementos = () => {
         if (funnel.obra_estado === 'no_empezada') return gastoStep();
+        // Atajo del resumen de certificados: las fotos y los certificados ya están
+        // contestados, así que de los elementos se va directo al dinero. Sin esto, el
+        // atajo desembocaba otra vez en las dos preguntas que acababa de saltarse.
+        if (ej && funnel.reforma_fotos && funnel.reforma_cee_ambos) return presupuestoStep();
         return ej ? 'fotos' : 'facturas';
     };
 
@@ -288,6 +314,42 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
         }
     };
 
+    // ---------- Subida de los ficheros que traíamos en la mano ----------
+    // Los certificados los soltó el admin en la puerta previa y el presupuesto/las
+    // facturas en `docs_obra`, pero hasta ahora no había oportunidad (ni carpeta de
+    // Drive) donde ponerlos. Antes se DESCARTABAN: el admin arrastraba el PDF del CEE,
+    // se leía por OCR y luego tenía que volver a subirlo a mano en la pantalla de
+    // documentación. Se suben aquí, cada uno a su slot:
+    //
+    //   CEE inicial → DOC_CEE_EXISTENTE   ·   CEE final  → DOC_CEE_POSTERIOR
+    //   presupuesto → DOC_PRESUPUESTO     ·   facturas   → DOC_FACTURAS ("5. FACTURAS")
+    //
+    // Va SECUENCIAL a propósito: el nombre de fichero de un slot múltiple se numera
+    // contando lo que ya hay en Drive, y en paralelo dos subidas pueden calcular el
+    // mismo índice y pisarse. Nunca lanza: subir documentación no puede tumbar la
+    // creación de la oportunidad, que ya está hecha.
+    const subirDocsPendientes = async (oportunidadUuid) => {
+        const pendientes = [];
+        if (ceeIni?._files?.length) ceeIni._files.forEach(f => pendientes.push({ slot: 'DOC_CEE_EXISTENTE', file: f }));
+        if (ceeFin?._files?.length) ceeFin._files.forEach(f => pendientes.push({ slot: 'DOC_CEE_POSTERIOR', file: f }));
+        docsObra.forEach(d => (d.files || []).forEach(f => pendientes.push({ slot: d.slot, file: f })));
+        if (!pendientes.length) return;
+
+        for (const { slot, file } of pendientes) {
+            try {
+                const form = new FormData();
+                form.append('file', file);
+                // Sesión de staff: el endpoint público acepta la cookie de sesión sin token.
+                await axios.post(`/api/public/reforma-docs/${oportunidadUuid}/${slot}`, form, {
+                    headers: { 'Content-Type': 'multipart/form-data' },
+                });
+            } catch (e) {
+                console.warn(`[ReformaSubFlow] no se pudo subir ${file.name} a ${slot}:`,
+                    e?.response?.data?.error || e.message);
+            }
+        }
+    };
+
     // ---------- Submit INTERNAL (partner/admin nueva simulación) ----------
     // Mismo payload que LandingFunnelView.handleSubmit (rama internal): crea la
     // oportunidad vía /api/oportunidades/internal-simulation y delega en onCreated
@@ -302,35 +364,35 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
                 timeline: contacto.timeline || 'explorando'
             };
             const calculatorInputs = funnelToCalculatorInputs(funnelConContacto, catastro, { mode: 'internal' });
-            // CEE anterior aportado (admin): lo guardamos en calculatorInputs y ACTIVAMOS el
-            // modo real correspondiente para que la calculadora abra ya con los datos del CEE
-            // rellenos (sin que el admin tenga que ir a activarlo a mano). El pdfBase64 (pesado)
-            // no va a la BD; el PDF se sube al slot DOC_CEE_PREVIO aparte.
-            if (initialCeeData && (initialCeeData.referencia_catastral || initialCeeData.demandas || initialCeeData.emisiones)) {
-                const { pdfBase64, ...ceeFields } = initialCeeData;
-                calculatorInputs.cee_previo = ceeFields;
-                if (calculatorInputs.isReforma) {
-                    // RES080: sembrar el modo "CEE aportado" (por emisiones) — columna INICIAL
-                    // con los datos reales del CEE + un FINAL estimado (demanda/SCOP).
-                    // demandMode='manual' activa automáticamente la tabla de emisiones
-                    // (ver ResultsPanel.isEmisionesMode = demandMode==='manual' && isReforma).
-                    Object.assign(calculatorInputs, ceeToEmisionesInputs(ceeFields, {
-                        scopHeating: calculatorInputs.scopHeating,
-                        scopAcs: calculatorInputs.scopAcs,
-                        changeAcs: calculatorInputs.changeAcs || calculatorInputs.incluir_acs,
-                        manualDemandAcs: calculatorInputs.manualDemandAcs,
-                    }));
-                    calculatorInputs.demandMode = 'manual';
-                } else {
-                    // RES060/RES093: activar directamente "Cálculo Real" con la demanda y la
-                    // superficie REALES del CEE (no la estimada del precálculo/catastro).
-                    const dem = Number(ceeFields?.demandas?.calefaccion_kwh_m2_ano);
-                    const sup = Number(ceeFields?.superficie_habitable_m2);
-                    calculatorInputs.demandMode = 'manual';
-                    if (isFinite(dem) && dem > 0) calculatorInputs.manualDemand = dem;
-                    if (isFinite(sup) && sup > 0) calculatorInputs.manualSuperficie = sup;
-                }
+            // Certificados aportados en la puerta (admin): la siembra completa —qué
+            // demanda manda, qué columna de emisiones se rellena y con qué— vive en
+            // `seedInputsFromCees` (ceeSeed.js). Aquí solo se aplica el parche, para que
+            // esta vista y CalculatorView no puedan divergir. El pdfBase64 y los ficheros
+            // NO viajan a la BD: van a Drive en subirDocsPendientes().
+            if (ceeIni || ceeFin) {
+                const { _files: _fi, ...ini } = ceeIni || {};
+                const { _files: _ff, ...fin } = ceeFin || {};
+                Object.assign(calculatorInputs, seedInputsFromCees({
+                    inicial: ceeIni ? ini : null,
+                    final: ceeFin ? fin : null,
+                    inputs: calculatorInputs,
+                }));
             }
+
+            // Presupuesto / facturas leídos con OCR. Se guardan con la MISMA forma que
+            // `expedientes.documentacion.facturas[]` para poder volcarlos tal cual al
+            // aceptar, y con los equipos detectados para pre-rellenar Instalación.
+            // Solo metadatos: ni un byte de PDF en el JSONB (regla 21).
+            // `files_count` es lo que permite volver a casar cada documento leído con
+            // los ficheros que subió: un mismo documento puede haber entrado como varias
+            // fotos, así que el emparejamiento con reforma_uploads[slot] es secuencial
+            // consumiendo tantas entradas como ficheros tuviera (ver expedienteService).
+            const docsOcr = docsObra.length ? {
+                documentos: docsObra.map(d => ({ ...d.doc, slot: d.slot, files_count: (d.files || []).length || 1 })),
+                equipos: docsObra.flatMap(d => d.equipos || []),
+                leido_at: new Date().toISOString(),
+            } : null;
+
             let precomputedResult = null;
             let demandaCalefaccionPorM2 = null;
             try {
@@ -356,11 +418,17 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
                 funnel: { ...funnel, timeline: contacto.timeline, titular_type: contacto.titular_type },
                 calculatorInputs,
                 precomputedResult,
-                demandaCalefaccionPorM2
+                demandaCalefaccionPorM2,
+                docs_ocr: docsOcr
             };
 
             const res = await axios.post('/api/oportunidades/internal-simulation', payload);
             setSubmitting(false);
+            // Los ficheros que traíamos en la mano (certificados, presupuesto, facturas)
+            // se suben ahora, que ya hay carpeta de Drive. NO bloquea el paso a la
+            // pantalla de fotos: si alguno falla, se ve ahí mismo como slot vacío.
+            const uuid = res.data?.oportunidad_uuid || res.data?.id;
+            if (uuid) subirDocsPendientes(uuid);
             // En vez de abrir la calculadora directamente, llevamos al instalador a
             // la pantalla de documentación (la misma del enlace) para que suba las
             // fotos del ANTES in-situ. El "Finalizar" de esa pantalla llama a onCreated.
@@ -546,6 +614,303 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
                 </div>
             </div>
         );
+    }
+
+    // ---- Resumen de los certificados aportados (atajo del flujo interno) ----
+    //
+    // Con los dos certificados en la mano, el funnel largo pregunta ocho cosas que el
+    // propio documento ya contesta. Aquí se dan por contestadas y se enseñan para
+    // confirmar, y se piden EN LA MISMA PANTALLA las dos únicas que ningún CEE puede
+    // responder. El recorrido queda en: este resumen → [elementos, si es RES080] →
+    // presupuesto/facturas → identificación.
+    //
+    // Lo que el certificado SÍ contesta (y por qué):
+    //   · estado de la obra  → si hay CEE POSTERIOR, la obra está hecha. No existe un
+    //                          certificado final de una reforma sin ejecutar.
+    //   · fecha de la obra   → la del propio certificado final.
+    //   · ¿hay certificados? → los acabamos de leer.
+    //   · combustible previo → `servicios.calefaccion.combustible` del CEE inicial.
+    //   · rendimiento (η)    → `rendimiento_estacional_pct`, MEDIDO por el certificador
+    //                          sobre esta instalación. Mejor que deducirlo de la edad.
+    //   · RES060 vs RES080   → la demanda solo baja si se tocó la ENVOLVENTE; cambiar
+    //                          el generador no la mueve (esReformaSegunCee).
+    //
+    // Lo que NO contesta y por eso sigue preguntándose:
+    //   · el EMISOR, que fija la temperatura de impulsión y con ella el SCOP declarado.
+    //   · si la aerotermia asume también el ACS: es una decisión, no un dato.
+    if (screen === 'cee_resumen') {
+        const calculo = demandaDeCalculo(ceeIni, ceeFin);
+        const avisos = avisosCee(ceeIni, ceeFin);
+        const combustible = ceeCombustibleToFunnel(
+            ceeIni?.servicios?.calefaccion?.combustible || ceeFin?.servicios?.calefaccion?.combustible
+        );
+        const eff = rendimientoCalefaccion(ceeIni);
+        const COMB_LABEL = { gas: 'Gas natural o butano', gasoleo: 'Gasóleo', electrica: 'Electricidad', carbon: 'Carbón', biomasa: 'Biomasa' };
+        // El η del CEE elige la casilla de la tabla de calderas en vez de pisarla
+        // (ver el comentario en ceeSeed.seedInputsFromCees). La eléctrica no tiene
+        // casillas: su rendimiento es 1 sea cual sea la edad.
+        const sugerido = combustible && combustible !== 'electrica'
+            ? sugerirEdadDesdeRendimiento(combustible, eff)
+            : null;
+        const pideEdad = !!combustible && combustible !== 'electrica';
+        const EDADES = [
+            { v: '<10', label: 'Menos de 10 años' },
+            { v: '10-20', label: 'Entre 10 y 20' },
+            { v: '>20', label: 'Más de 20 años' },
+        ];
+        const edadElegida = funnel.edad_caldera || sugerido?.edad_caldera || null;
+        const elegirEdad = (v) => updateFunnel({
+            edad_caldera: v,
+            // La condensación se infiere igual que hace Step3 cuando no la pregunta:
+            // una caldera de más de 20 años no es de condensación.
+            condensacion: v === '>20' ? 'no' : (sugerido?.edad_caldera === v ? sugerido.condensacion : 'no_se'),
+        });
+        const obraHecha = !!ceeFin;
+        const esReforma = esReformaSegunCee(ceeIni, ceeFin);   // true | false | null
+        // Sin los dos certificados no se puede decidir la ficha: se pregunta como siempre.
+        const atajoCompleto = obraHecha && esReforma !== null;
+
+        // ACS actual: del combustible que declara el CEE. Solo alimenta el modo
+        // estimado del RES080, que con dos certificados no se usa (van por emisiones),
+        // así que deducirlo aquí no compromete ningún número.
+        const acsActual = (() => {
+            const c = ceeCombustibleToFunnel(ceeIni?.servicios?.acs?.combustible);
+            if (!c) return 'no_tengo';
+            if (c === 'electrica') return 'termo';
+            return c === combustible ? 'misma_caldera' : 'butano';
+        })();
+
+        // El emisor y el ACS solo se piden aquí cuando el atajo es completo. Si el
+        // recorrido va a seguir por el funnel largo, esas dos preguntas llegan luego
+        // en sus propias pantallas (`emisores` y `acs`) y pedirlas aquí sería pedirlas
+        // dos veces.
+        const listo = !atajoCompleto || (!!funnel.emisor_tipo && (funnel.incluir_acs === true || funnel.incluir_acs === false));
+
+        const confirmar = () => {
+            const updates = { boiler_acs_type: acsActual };
+            // Si el admin no tocó la casilla de caldera, se guarda la que sugirió el
+            // rendimiento del CEE (que es lo que está viendo marcado en pantalla).
+            if (pideEdad && !funnel.edad_caldera && sugerido) {
+                updates.edad_caldera = sugerido.edad_caldera;
+                updates.condensacion = sugerido.condensacion;
+            }
+            if (combustible) {
+                updates.combustible_actual = combustible;
+                updates.reforma_sin_caldera = false;
+            }
+            if (obraHecha) {
+                updates.obra_estado = 'ejecutada';
+                updates.reforma_cee_ambos = 'si';
+                updates.reforma_cee_previo = 'si';
+                updates.reforma_fotos = 'si';   // se suben acto seguido, tras crear
+                // Obra ya pagada: el gasto anual previo deja de tener sentido (lo mismo
+                // que hace la pantalla cee_ambos cuando la obra está ejecutada).
+                updates.gasto_anual_eur = 0;
+            } else {
+                updates.reforma_cee_previo = 'si';
+            }
+            if (esReforma !== null) {
+                updates.isReforma = esReforma;
+                updates.reforma_elementos = {
+                    // La caldera se sustituye siempre: es la actuación de la que va todo
+                    // esto, y el CEE inicial confirma que había un generador que cambiar.
+                    caldera: true,
+                    ventanas: false, cubierta: false, suelo: false, paredes: false,
+                    placas: false, aires: false,
+                };
+            }
+            updateFunnel(updates);
+
+            // Sin CEE final no sabemos en qué punto está la obra: esa sí hay que
+            // preguntarla. Con él: si tocó la envolvente hace falta saber QUÉ elementos
+            // (de ahí salen los apartados de foto del expediente); si no, al dinero.
+            if (!atajoCompleto) { push('estado'); return; }
+            push(esReforma ? 'elementos' : 'docs_obra');
+        };
+
+        const Dato = ({ k, v, resaltado }) => (
+            <div className="flex items-baseline justify-between gap-3 border-b border-white/[0.06] py-2">
+                <span className="text-white/35 text-[10px] uppercase tracking-widest font-bold">{k}</span>
+                <span className={`text-right truncate ${resaltado ? 'text-amber-400 font-bold' : 'text-white/75 text-sm'}`}>{v}</span>
+            </div>
+        );
+        const Opt = ({ activo, onClick, children, sub }) => (
+            <button
+                type="button"
+                onClick={onClick}
+                className={`px-3 py-2.5 rounded-xl border-2 text-left transition-all ${
+                    activo ? 'border-amber-400 bg-amber-500/10' : 'border-white/10 bg-white/[0.02] hover:border-white/25'
+                }`}
+            >
+                <div className={`text-[12px] font-bold leading-tight ${activo ? 'text-amber-300' : 'text-white/80'}`}>{children}</div>
+                {sub && <div className="text-white/35 text-[10px] mt-0.5 leading-tight">{sub}</div>}
+            </button>
+        );
+
+        return (
+            <div className="animate-fade-in max-w-2xl mx-auto">
+                <div className="text-center mb-8">
+                    <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 mb-4">
+                        <span className="text-sm">📑</span>
+                        <span className="text-[10px] font-black uppercase tracking-[0.18em] text-emerald-300">
+                            {ceeIni && ceeFin ? 'Dos certificados leídos' : 'Certificado leído'}
+                        </span>
+                    </div>
+                    <h1 className="text-3xl md:text-4xl font-black text-white tracking-tight leading-tight">
+                        Esto es lo que <span className="text-amber-400">ya sabemos</span>
+                    </h1>
+                    <p className="text-white/55 text-sm md:text-base mt-3">
+                        {atajoCompleto
+                            ? 'Los certificados contestan casi todo. Solo faltan dos cosas que ningún CEE dice.'
+                            : 'Damos por contestado lo que dicen los certificados; el resto se pregunta a continuación.'}
+                    </p>
+                </div>
+
+                {avisos.filter(a => a.nivel !== 'info').length > 0 && (
+                    <div className="space-y-2 mb-5">
+                        {avisos.filter(a => a.nivel !== 'info').map(a => (
+                            <div key={a.codigo} className={`rounded-2xl border px-4 py-3 ${
+                                a.nivel === 'alto' ? 'bg-red-500/10 border-red-500/40 text-red-100' : 'bg-amber-500/10 border-amber-500/40 text-amber-100'
+                            }`}>
+                                <div className="font-bold text-sm">{a.nivel === 'alto' ? '⛔' : '⚠️'} {a.titulo}</div>
+                                <p className="text-[12px] leading-relaxed opacity-85 mt-1">{a.detalle}</p>
+                            </div>
+                        ))}
+                    </div>
+                )}
+
+                <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-5 py-4 mb-5">
+                    <Dato k="Estado de la obra" v={obraHecha ? 'Ya ejecutada' : 'Por confirmar'} />
+                    {esReforma !== null && (
+                        <Dato
+                            k="Tipo de actuación"
+                            v={esReforma ? 'Reforma integral (RES080)' : 'Solo cambio de caldera (RES060)'}
+                        />
+                    )}
+                    {combustible && <Dato k="Calefacción anterior" v={COMB_LABEL[combustible]} />}
+                    {eff && <Dato k="Rendimiento que declara el CEE" v={`${Math.round(eff * 100)} %`} />}
+                    {calculo.demanda > 0 && (
+                        <Dato
+                            k={`Demanda (CEE ${calculo.origen === 'final' ? 'final' : 'inicial'})`}
+                            v={`${calculo.demanda} kWh/m²·año`}
+                            resaltado
+                        />
+                    )}
+                    {calculo.superficie > 0 && <Dato k="Superficie" v={`${calculo.superficie} m²`} />}
+                    {ceeIni && ceeFin && demandaCal(ceeIni) > 0 && (
+                        <Dato k="Demanda del CEE inicial" v={`${demandaCal(ceeIni)} kWh/m²·año`} />
+                    )}
+                </div>
+
+                {/* Lo único que ningún certificado puede contestar */}
+                {atajoCompleto && (
+                <div className="rounded-2xl border-2 border-amber-500/30 bg-amber-500/[0.05] px-5 py-4 mb-5">
+                    <div className="text-[10px] font-black uppercase tracking-widest text-amber-300/80 mb-3">
+                        Esto no lo dice el certificado
+                    </div>
+
+                    <div className="mb-4">
+                        <div className="text-white/70 text-[12px] font-bold mb-2">
+                            ¿Qué calienta cada habitación?
+                            <span className="text-white/30 font-normal"> — fija la temperatura de impulsión y con ella el SCOP</span>
+                        </div>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                            <Opt activo={funnel.emisor_tipo === 'radiadores_convencionales'} onClick={() => updateFunnel({ emisor_tipo: 'radiadores_convencionales' })} sub="55 °C">🪜 Radiadores</Opt>
+                            <Opt activo={funnel.emisor_tipo === 'suelo_radiante'} onClick={() => updateFunnel({ emisor_tipo: 'suelo_radiante' })} sub="35 °C · ideal">♨️ Suelo radiante</Opt>
+                            <Opt activo={funnel.emisor_tipo === 'fancoils'} onClick={() => updateFunnel({ emisor_tipo: 'fancoils' })} sub="45 °C">💨 Fancoils / split</Opt>
+                        </div>
+                    </div>
+
+                    <div className="mb-4">
+                        <div className="text-white/70 text-[12px] font-bold mb-2">
+                            ¿La aerotermia da también el agua caliente?
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                            <Opt activo={funnel.incluir_acs === true} onClick={() => updateFunnel({ incluir_acs: true })} sub="Una máquina para todo">🚿 Sí, también el ACS</Opt>
+                            <Opt activo={funnel.incluir_acs === false} onClick={() => updateFunnel({ incluir_acs: false })} sub="Se mantiene lo que hay">🔥 No, solo calefacción</Opt>
+                        </div>
+                    </div>
+
+                    {pideEdad && (
+                        <div>
+                            <div className="text-white/70 text-[12px] font-bold mb-2">
+                                Antigüedad de la caldera que se sustituyó
+                                {sugerido && eff && (
+                                    <span className="text-white/30 font-normal">
+                                        {' '}— sugerida por el rendimiento del CEE ({Math.round(eff * 100)} %)
+                                    </span>
+                                )}
+                            </div>
+                            <div className="grid grid-cols-3 gap-2">
+                                {EDADES.map(e => (
+                                    <Opt
+                                        key={e.v}
+                                        activo={edadElegida === e.v}
+                                        onClick={() => elegirEdad(e.v)}
+                                        sub={`η ${Math.round(efficiencyFor(combustible, e.v, e.v === '>20' ? 'no' : 'no_se') * 100)} %`}
+                                    >
+                                        {e.label}
+                                    </Opt>
+                                ))}
+                            </div>
+                            {sugerido && sugerido.desvio > 0.08 && (
+                                <p className="text-amber-300/70 text-[11px] mt-2 leading-relaxed">
+                                    El CEE declara un {Math.round(eff * 100)} % y la casilla más cercana de nuestra tabla
+                                    es el {Math.round(sugerido.boilerEff * 100)} %. Se usará la de la tabla: es la que el
+                                    CIFO tendrá que reproducir después.
+                                </p>
+                            )}
+                        </div>
+                    )}
+                </div>
+                )}
+
+                {ceeFin && (
+                    <p className="text-white/40 text-[12px] leading-relaxed mb-6 px-1">
+                        Como hay certificado posterior a la obra, el ahorro se calculará con <b className="text-white/70">su</b> demanda:
+                        es la que la bomba de calor tiene que cubrir de verdad.
+                    </p>
+                )}
+
+                <div className="flex flex-col items-center gap-3">
+                    <button onClick={confirmar} disabled={!listo} className={`${primaryBtn} disabled:opacity-25 disabled:cursor-not-allowed`}>
+                        {atajoCompleto
+                            ? (esReforma ? 'Continuar — ¿qué incluyó la obra?' : 'Continuar al presupuesto')
+                            : 'Es correcto, continuar'}
+                    </button>
+                    {!listo && (
+                        <p className="text-white/25 text-[11px]">Elige el emisor y si la aerotermia da el agua caliente.</p>
+                    )}
+                    {atajoCompleto && (
+                        <p className="text-white/25 text-[11px] text-center max-w-sm">
+                            {esReforma
+                                ? 'Después: qué incluyó la obra, el presupuesto o las facturas, y quién es el cliente.'
+                                : 'Después solo quedan el presupuesto o las facturas y quién es el cliente.'}
+                        </p>
+                    )}
+                    <button
+                        onClick={() => push('estado')}
+                        className="text-white/30 hover:text-white/70 text-[11px] font-black uppercase tracking-widest transition-colors"
+                    >
+                        Prefiero responder a mano
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
+    // ---- INTERNAL: presupuesto / facturas de la obra leídos con OCR ----
+    if (screen === 'docs_obra') {
+        const alTerminar = (total) => {
+            if (total > 0) {
+                updateFunnel({ presupuesto_modo: 'documento', presupuesto_eur: Math.round(total) });
+                push('identificacion');
+            } else {
+                // Sin documentos: la pregunta de siempre ("¿hay un presupuesto orientativo?").
+                push('presupuesto');
+            }
+        };
+        return (<><BackBtn /><StepDocsObra docs={docsObra} setDocs={setDocsObra} onNext={alTerminar} /></>);
     }
 
     if (screen === 'estado') {
@@ -909,7 +1274,15 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
         return (<><BackBtn /><StepLayout
             question={t('¿Tienes fotos de ANTES de la reforma?', '¿Hay fotos de ANTES de la reforma?')}
             subtitle="Imprescindible: hacen falta fotos del estado anterior (caldera antigua y su placa, ventanas viejas, etc.) de todo lo que entre en la ayuda. Sin fotos del ANTES no se puede justificar la reforma y no hay ayuda posible.">
-            <IconCard icon="📸" title="Sí, las tengo" subtitle="Fotos del estado anterior (caldera, placa, ventanas…)" onClick={() => { updateFunnel({ reforma_fotos: 'si' }); push(ej ? 'cee_ambos' : gastoStep()); }} />
+            {/* Con obra ejecutada toca preguntar por los certificados… salvo que ya los
+                hayamos leído en la puerta previa: `reforma_cee_ambos` ya está contestado
+                y volver a preguntarlo es el clásico "¿tienes CEE?" a quien acaba de
+                soltar el PDF del CEE. */}
+            <IconCard icon="📸" title="Sí, las tengo" subtitle="Fotos del estado anterior (caldera, placa, ventanas…)" onClick={() => {
+                updateFunnel({ reforma_fotos: 'si' });
+                if (!ej) { push(gastoStep()); return; }
+                push(funnel.reforma_cee_ambos ? presupuestoStep() : 'cee_ambos');
+            }} />
             <IconCard icon="🚫" title="No las tengo y no las puedo conseguir" subtitle="Sin fotos del ANTES no se pueden tramitar las ayudas" onClick={() => { updateFunnel({ reforma_fotos: 'no' }); push('block_fotos'); }} />
         </StepLayout></>);
     }
@@ -923,7 +1296,7 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
     if (screen === 'cee_ambos') {
         const afterCee = (val) => {
             updateFunnel({ reforma_cee_ambos: val, ...(ej ? { gasto_anual_eur: 0 } : {}) });
-            push(ej ? 'presupuesto' : gastoStep());
+            push(ej ? presupuestoStep() : gastoStep());
         };
         return (<><BackBtn /><StepLayout question={t('¿Tienes certificados de eficiencia energética?', '¿Hay certificados de eficiencia energética?')} subtitle="Para valorar la reforma completa y la deducción de IRPF necesitamos certificado previo (registrado) y posterior a la reforma.">
             <IconCard icon="📑" title={t('Sí, tengo ambos (antes y después)', 'Sí, ambos (antes y después)')} subtitle="Registrados — los revisamos" onClick={() => afterCee('si')} />

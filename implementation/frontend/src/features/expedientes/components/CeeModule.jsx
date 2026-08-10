@@ -2,11 +2,11 @@ import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import axios from 'axios';
 import { parseCeeXml } from '../../calculator/logic/xmlCeeParser';
-import { FACTORES_PASO, calculateRes080, calculateRes080FromEmissions } from '../../calculator/logic/calculation';
+import { FACTORES_PASO, calculateRes080, calculateRes080FromEmissions, calculateRes080Simplificado, calculateRes080SimplificadoFromXml, combustiblesNoElectricos } from '../../calculator/logic/calculation';
 import { ceeToColumn } from '../../calculator/logic/ceeSeed';
 import CeeUploadModal from '../../cee/CeeUploadModal';
 import { ceeToXmlShape } from '../../cee/ceeExtract';
-import { EfficiencyTable } from '../../calculator/components/EfficiencyTable';
+import { EfficiencyTable, CATEGORIES_SIMPLIFICADO } from '../../calculator/components/EfficiencyTable';
 import { CeeDocumentsGrid } from './CeeDocumentsGrid';
 import { buildCertApproveMessage, buildCertDefaultMessage } from '../logic/certMessages';
 import { fireSuccessConfetti } from '../utils/successConfetti';
@@ -349,6 +349,13 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
             // El backend puede haber guardado el string en MAYÚSCULAS → comparar en minúsculas.
             cee_source: (String(saved.cee_source || '').toLowerCase() === 'manual') ? 'manual' : 'xml',
             emisiones_manual: saved.emisiones_manual || { acs_ini: '', acs_fin: '', cal_ini: '', cal_fin: '', ref_ini: '', ref_fin: '' },
+            // Método del ahorro RES080: 'detallado' (por uso) | 'simplificado' (por vector
+            // energético: consumo eléctrico / otros combustibles). El simplificado es el único
+            // aplicable cuando un mismo uso mezcla dos generadores de combustibles distintos.
+            // Mismo gotcha de MAYÚSCULAS que cee_source → comparar en minúsculas.
+            metodo_ahorro: (String(saved.metodo_ahorro || '').toLowerCase() === 'simplificado') ? 'simplificado' : 'detallado',
+            comb_otros_inicial: normalizeCombKey(saved.comb_otros_inicial) || '',
+            comb_otros_final:   normalizeCombKey(saved.comb_otros_final)   || '',
             // Superficie inicial y final (pueden diferir; CEEs de técnicos distintos).
             // Compat: si había una sola `superficie_manual`, se usa para ambas.
             superficie_manual: saved.superficie_manual ?? '',
@@ -774,8 +781,23 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
     // Fuente manual (sin .xml): comparar en minúsculas por la normalización del backend.
     const isManualSource = String(local.cee_source || '').toLowerCase() === 'manual';
 
+    // Método del ahorro: por USO (detallado) o por VECTOR energético (simplificado).
+    const esSimplificado = String(local.metodo_ahorro || '').toLowerCase() === 'simplificado';
+
     const res080Data = (() => {
         if (!isReforma) return null;
+        if (isManualSource && esSimplificado) {
+            const em = local.emisiones_manual || {};
+            const supFallback = local.superficie_manual || expediente?.oportunidades?.datos_calculo?.surface;
+            return calculateRes080Simplificado({
+                emiElecIni: em.electrico_ini, emiElecFin: em.electrico_fin,
+                emiOtrosIni: em.otros_ini, emiOtrosFin: em.otros_fin,
+                combOtrosIni: local.comb_otros_inicial,
+                combOtrosFin: local.comb_otros_final,
+                superficieInicial: local.superficie_manual_inicial || supFallback,
+                superficieFinal: local.superficie_manual_final || local.superficie_manual_inicial || supFallback
+            });
+        }
         if (isManualSource) {
             const em = local.emisiones_manual || {};
             const supFallback = local.superficie_manual || expediente?.oportunidades?.datos_calculo?.surface;
@@ -794,6 +816,17 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
             });
         }
         if (local.cee_inicial && local.cee_final) {
+            // Con los dos .xml, el simplificado sale EXACTO: el propio certificado publica
+            // el reparto por vector en <EmisionesCO2><ConsumoElectrico>/<ConsumoOtros>.
+            if (esSimplificado) {
+                return calculateRes080SimplificadoFromXml({
+                    xmlInicial: local.cee_inicial,
+                    xmlFinal: local.cee_final,
+                    combOtrosIni: local.comb_otros_inicial,
+                    combOtrosFin: local.comb_otros_final,
+                    superficieCustom: local.superficie_custom,
+                });
+            }
             return calculateRes080({
                 xmlInicial: local.cee_inicial,
                 xmlFinal: local.cee_final,
@@ -814,13 +847,20 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
 
     // Draft crudo para los inputs de emisiones (modo manual): lo que se teclea, sin
     // recalcular, para que el input no pelee con el re-render del motor (con coma decimal).
-    const emissionDraft = {
+    // Las claves del draft son las mismas `type` que usa EfficiencyTable en sus onChange,
+    // así que cada método declara las suyas: acs/cal/ref (detallado) o electrico/otros
+    // (simplificado). Ambas viven en el MISMO `emisiones_manual`, con prefijos distintos:
+    // cambiar de método y volver no puede borrar lo ya tecleado en el otro.
+    const emissionDraft = esSimplificado ? {
+        electrico: { ini: ceeComma(local.emisiones_manual?.electrico_ini), fin: ceeComma(local.emisiones_manual?.electrico_fin) },
+        otros: { ini: ceeComma(local.emisiones_manual?.otros_ini), fin: ceeComma(local.emisiones_manual?.otros_fin) },
+    } : {
         acs: { ini: ceeComma(local.emisiones_manual?.acs_ini), fin: ceeComma(local.emisiones_manual?.acs_fin) },
         cal: { ini: ceeComma(local.emisiones_manual?.cal_ini), fin: ceeComma(local.emisiones_manual?.cal_fin) },
         ref: { ini: ceeComma(local.emisiones_manual?.ref_ini), fin: ceeComma(local.emisiones_manual?.ref_fin) },
     };
 
-    // type ∈ 'acs'|'cal'|'ref' (igual que EfficiencyTable.onFuelChange)
+    // type ∈ 'acs'|'cal'|'ref' (detallado) o 'electrico'|'otros' (simplificado)
     const handleEmissionChange = (type, isFinal, value) => {
         const key = `${type}_${isFinal ? 'fin' : 'ini'}`;
         const nextLocal = {
@@ -842,6 +882,23 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
         ini: ceeComma(local.superficie_manual_inicial),
         fin: ceeComma(local.superficie_manual_final),
     };
+
+    // ¿La energía final se LEE del certificado (<EnergiaFinalVectores>) o se reconstruye
+    // dividiendo emisiones entre su factor de paso?
+    const esDeclarada = res080Data?.fuenteDatos === 'energia_final_declarada';
+    // La restricción de "un único combustible no eléctrico" es de la vía por EMISIONES:
+    // allí «otros combustibles» es UNA cifra de CO₂ que hay que dividir por UN factor.
+    // Leyendo la energía final cada vector viene por separado y en kWh, así que sumar dos
+    // combustibles es legítimo y no hay nada que avisar.
+    const mezclaCombustibles = esDeclarada ? null : combustiblesNoElectricos({
+        acs: local.comb_acs_inicial, cal: local.comb_cal_inicial, ref: local.comb_ref_inicial,
+    });
+    // Con .xml pero SIN energía final declarada, las emisiones salen del certificado pero el
+    // COMBUSTIBLE no siempre: si el XML declara dos no eléctricos, `combustibleOtros` viene
+    // null y no hay factor que aplicar. Se avisa y se elige en la fila «Otros combustibles».
+    const faltaCombOtros = esSimplificado && !isManualSource && !esDeclarada
+        && !(local.comb_otros_inicial || local.cee_inicial?.combustibleOtros)
+        && Number(local.cee_inicial?.emisionesConsumoOtros) > 0;
 
     // Cargar un CEE por fichero (XML exacto u OCR IA) y volcarlo a la columna (inicial/final)
     // del expediente.
@@ -887,6 +944,12 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
             next[`comb_cal_${sufComb}`] = col.combCal || 'Gas Natural';
             next[`comb_ref_${sufComb}`] = col.combRef || 'Electricidad peninsular';
             if (has(col.sup)) next[`superficie_manual_${sufComb}`] = ceeComma(col.sup);
+            // Celdas del método SIMPLIFICADO (solo llegan por OCR: el .xml no publica el
+            // reparto por vector). Se vuelcan siempre, esté activo el método o no — así el
+            // dato está listo si luego se cambia de método.
+            if (has(col.emiElec)) em[`electrico_${side}`] = ceeComma(col.emiElec);
+            if (has(col.emiOtros)) em[`otros_${side}`] = ceeComma(col.emiOtros);
+            if (has(col.combOtros)) next[`comb_otros_${sufComb}`] = col.combOtros;
         };
         // Emisiones de una columna a partir de un objeto XML ya cargado (parseCeeXml).
         const colFromXml = (xmlObj) => xmlObj ? {
@@ -1171,10 +1234,51 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                     <h4 className="text-sm font-black text-white uppercase tracking-widest mb-8 flex items-center gap-2">
                         <span className="w-2 h-2 bg-brand rounded-full" /> Resultados Comparativos
                     </h4>
+                    {esSimplificado && (
+                        <p className="-mt-5 mb-6 text-[11px] text-white/40 leading-relaxed">
+                            {esDeclarada ? (
+                                <>Método <b className="text-white/70">simplificado</b>: se lee la <b className="text-white/70">energía
+                                final que declara el propio certificado</b> por vector energético (<i>EnergiaFinalVectores</i> del
+                                .xml). No se estima nada — el ahorro es la diferencia entre los kWh del CEE anterior y el
+                                posterior. Vectores con consumo:{' '}
+                                <b className="text-white/70">{(res080Data?.vectores?.inicial || []).map(v => v.nombre).join(' · ') || '—'}</b>.</>
+                            ) : (
+                                <>Método <b className="text-white/70">simplificado</b>: el ahorro sale de las emisiones globales del
+                                edificio que declara el CEE, separadas en <b className="text-white/70">consumo eléctrico</b> y
+                                <b className="text-white/70"> otros combustibles</b>, divididas por su factor de paso. Se usa cuando
+                                un mismo servicio tiene dos generadores y el certificado no dice qué parte consume cada uno. Solo
+                                vale si en todo el edificio hay un único combustible no eléctrico.</>
+                            )}
+                        </p>
+                    )}
+                    {faltaCombOtros && (
+                        <div className="-mt-2 mb-6 p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30">
+                            <div className="text-[10px] font-black text-amber-300 uppercase tracking-widest mb-1">⚠️ Falta saber qué combustible es</div>
+                            <p className="text-[11px] text-white/50 leading-relaxed">
+                                El certificado declara emisiones por otros combustibles, pero no un único combustible no
+                                eléctrico del que deducirlas. Elígelo en la fila <b className="text-white/70">«Otros
+                                combustibles»</b> de la tabla: sin él no hay factor de paso que aplicar y ese consumo
+                                cuenta como cero.
+                            </p>
+                        </div>
+                    )}
+                    {/* Aviso (no bloquea): con dos combustibles no eléctricos distintos, la fila
+                        "otros combustibles" del CEE suma dos factores de paso y no se puede deshacer. */}
+                    {esSimplificado && mezclaCombustibles?.mixto && (
+                        <div className="-mt-2 mb-6 p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30">
+                            <div className="text-[10px] font-black text-amber-300 uppercase tracking-widest mb-1">⚠️ Más de un combustible no eléctrico</div>
+                            <p className="text-[11px] text-white/50 leading-relaxed">
+                                En los usos ya cargados aparecen <b className="text-white/70">{mezclaCombustibles.lista.join(' y ')}</b>.
+                                Compruébalo antes de dar el ahorro por bueno: si de verdad solo hay uno, corrige el combustible del otro uso.
+                            </p>
+                        </div>
+                    )}
                     <EfficiencyTable
                         res080={res080Data}
                         editable={editMode}
+                        categories={esSimplificado ? CATEGORIES_SIMPLIFICADO : undefined}
                         onFuelChange={(type, isFinal, value) => {
+                            // 'otros' (simplificado) → comb_otros_*; el resto → comb_acs/cal/ref_*.
                             const key = `comb_${type}_${isFinal ? 'final' : 'inicial'}`;
                             const nextLocal = { ...local, [key]: value };
                             setLocal(nextLocal);
@@ -1576,6 +1680,30 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                                     }}
                                     className={`px-4 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all cursor-pointer ${
                                         (String(local.cee_source || '').toLowerCase() === t.id) ? 'bg-brand text-black' : 'text-white/30'
+                                    }`}
+                                >
+                                    {t.label}
+                                </button>
+                            ))}
+                        </div>
+                    )}
+                    {/* Reforma RES080: MÉTODO del ahorro — por uso (detallado) o por vector
+                        energético (simplificado). El simplificado es el único que se puede
+                        aplicar cuando un mismo uso mezcla dos generadores de combustibles
+                        distintos y el CEE no dice qué porcentaje es cada uno. Vale con .xml y
+                        a mano: el reparto por vector lo publica el propio XML. */}
+                    {isReforma && (
+                        <div className="flex items-center gap-1 bg-white/[0.03] p-1 rounded-xl border border-white/[0.06]">
+                            {[{ id: 'detallado', label: 'Por uso' }, { id: 'simplificado', label: 'Por vector' }].map(t => (
+                                <button
+                                    key={t.id}
+                                    onClick={() => {
+                                        const nextLocal = { ...local, metodo_ahorro: t.id };
+                                        setLocal(nextLocal);
+                                        onSave({ cee: nextLocal });
+                                    }}
+                                    className={`px-4 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all cursor-pointer ${
+                                        (String(local.metodo_ahorro || 'detallado').toLowerCase() === t.id) ? 'bg-brand text-black' : 'text-white/30'
                                     }`}
                                 >
                                     {t.label}

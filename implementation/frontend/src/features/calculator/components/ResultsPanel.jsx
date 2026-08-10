@@ -11,9 +11,9 @@ import { SaveOpportunityModal } from './SaveOpportunityModal';
 import { ClienteFormModal } from '../../clientes/components/ClienteFormModal';
 import { ClienteDetailModal } from '../../clientes/components/ClienteDetailModal';
 import { generateBrokergyReport } from '../logic/pdfGenerator';
-import { calculateSavings, calculateFinancials, calculateRes080FromEmissions, calculateRes080Estimated, getFactorPaso } from '../logic/calculation';
+import { calculateSavings, calculateFinancials, calculateRes080FromEmissions, calculateRes080Simplificado, calculateRes080Estimated, getFactorPaso, combustiblesNoElectricos, tieneDatosSimplificado } from '../logic/calculation';
 import { PROVINCE_CLIMATE_MAP } from '../data/provinceMapping';
-import { EfficiencyTable } from './EfficiencyTable';
+import { EfficiencyTable, CATEGORIES_SIMPLIFICADO, FUEL_OPTIONS_SIN_ELECTRICIDAD } from './EfficiencyTable';
 import ComparativaCeeModal from '../../cee/ComparativaCeeModal';
 import CeeUploadModal from '../../cee/CeeUploadModal';
 import { ceeToColumn } from '../logic/ceeSeed';
@@ -300,6 +300,23 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
                 },
                 supIni: toCommaStr(inputs.manualSupInicial || supBase),
                 supFin: toCommaStr(inputs.manualSupFinal || inputs.manualSupInicial || supBase),
+                // Método de cálculo del ahorro: 'detallado' (por uso) | 'simplificado' (por vector).
+                metodo: String(inputs.metodoAhorroRes080 || '').toLowerCase() === 'simplificado' ? 'simplificado' : 'detallado',
+                // Celdas del método simplificado (los dos totales del edificio por vector).
+                vec: {
+                    electricoIni: toCommaStr(inputs.manualEmisionesElectricoInicial), electricoFin: toCommaStr(inputs.manualEmisionesElectricoFinal),
+                    otrosIni: toCommaStr(inputs.manualEmisionesOtrosInicial), otrosFin: toCommaStr(inputs.manualEmisionesOtrosFinal),
+                },
+                // El combustible "otros" no se pregunta dos veces: si no se ha elegido aún,
+                // se propone el único no eléctrico que ya haya entre los usos cargados.
+                combOtros: {
+                    ini: inputs.combustibleOtrosInicial || combustiblesNoElectricos({
+                        acs: inputs.combustibleAcsInicial, cal: inputs.combustibleCalefaccionInicial, ref: inputs.combustibleRefrigeracionInicial,
+                    }).unico || FUEL_OPTIONS_SIN_ELECTRICIDAD[0],
+                    fin: inputs.combustibleOtrosFinal || combustiblesNoElectricos({
+                        acs: inputs.combustibleAcsFinal, cal: inputs.combustibleCalefaccionFinal, ref: inputs.combustibleRefrigeracionFinal,
+                    }).unico || inputs.combustibleOtrosInicial || FUEL_OPTIONS_SIN_ELECTRICIDAD[0],
+                },
                 // Datos para estimar el CEE FINAL (demanda del CEE inicial + SCOP de la aerotermia).
                 est: {
                     demCal: toCommaStr(inputs.manualDemand || ''),
@@ -381,6 +398,17 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
                     [isFinal ? 'calFin' : 'calIni']: c.combCal,
                     [isFinal ? 'refFin' : 'refIni']: c.combRef,
                 },
+                // Celdas del método SIMPLIFICADO: solo llegan por OCR (el .xml no publica
+                // el reparto por vector), así que si no vienen se deja lo que hubiera.
+                vec: {
+                    ...base.vec,
+                    [isFinal ? 'electricoFin' : 'electricoIni']: c.emiElec !== '' ? toCommaStr(c.emiElec) : base.vec?.[isFinal ? 'electricoFin' : 'electricoIni'],
+                    [isFinal ? 'otrosFin' : 'otrosIni']: c.emiOtros !== '' ? toCommaStr(c.emiOtros) : base.vec?.[isFinal ? 'otrosFin' : 'otrosIni'],
+                },
+                combOtros: {
+                    ...base.combOtros,
+                    [isFinal ? 'fin' : 'ini']: c.combOtros || base.combOtros?.[isFinal ? 'fin' : 'ini'],
+                },
                 [isFinal ? 'supFin' : 'supIni']: supStr,
                 // La demanda del CEE inicial alimenta el estimador de FINAL (demanda/SCOP).
                 est: !isFinal && c.demCal !== '' ? { ...(base.est || {}), demCal: toCommaStr(c.demCal) } : base.est,
@@ -404,6 +432,13 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
             // La superficie INICIAL (vivienda real) sincroniza con el resto del cálculo.
             superficieCalefactable: supIniNum, superficie: supIniNum,
             manualCeeMode: 'emisiones',
+            // Método simplificado (por vector energético). Se persiste SIEMPRE lo tecleado
+            // en las dos tablas, aunque solo una esté activa: cambiar de método y volver no
+            // puede borrar lo ya introducido en la otra.
+            metodoAhorroRes080: d.metodo === 'simplificado' ? 'simplificado' : 'detallado',
+            manualEmisionesElectricoInicial: toNumEmi(d.vec?.electricoIni), manualEmisionesElectricoFinal: toNumEmi(d.vec?.electricoFin),
+            manualEmisionesOtrosInicial: toNumEmi(d.vec?.otrosIni), manualEmisionesOtrosFinal: toNumEmi(d.vec?.otrosFin),
+            combustibleOtrosInicial: d.combOtros?.ini || '', combustibleOtrosFinal: d.combOtros?.fin || '',
         }));
         // El recálculo (presupuestos/CAE) lo dispara el useEffect([inputs]) del padre.
         setShowEfficiency(false);
@@ -816,13 +851,29 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
                         <div className="mt-3">
                             <Divider />
 
-                            {inputs?.cee_previo && (
-                                <div className="mb-5 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 flex flex-col sm:flex-row items-center justify-between gap-3">
+                            {inputs?.cee_previo && (() => {
+                              // Un ahorro calculado con los DOS certificados registrados está
+                              // MEDIDO; uno con el final estimado (demanda/SCOP) no. Presentarlos
+                              // igual es lo que hace que alguien prometa como cierto un número
+                              // que todavía es una hipótesis.
+                              const medido = !!inputs?.cee_final;
+                              return (
+                                <div className={`mb-5 rounded-2xl border p-4 flex flex-col sm:flex-row items-center justify-between gap-3 ${
+                                    medido ? 'border-emerald-500/35 bg-emerald-500/10' : 'border-amber-500/30 bg-amber-500/10'
+                                }`}>
                                     <div className="flex items-center gap-3">
-                                        <svg className="w-7 h-7 text-amber-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9 17V7m4 10V11m4 6V4M4 21h16" /></svg>
+                                        <svg className={`w-7 h-7 flex-shrink-0 ${medido ? 'text-emerald-400' : 'text-amber-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9 17V7m4 10V11m4 6V4M4 21h16" /></svg>
                                         <div>
-                                            <div className="text-sm font-bold text-white">Este cliente aportó un CEE inicial</div>
-                                            <div className="text-xs text-white/50">Genera la comparativa "con tu CEE" vs. "CEE nuevo BROKERGY" para enviársela.</div>
+                                            <div className="text-sm font-bold text-white">
+                                                {medido
+                                                    ? 'Ahorro MEDIDO — certificados inicial y final aportados'
+                                                    : 'Este cliente aportó un CEE inicial'}
+                                            </div>
+                                            <div className="text-xs text-white/50">
+                                                {medido
+                                                    ? 'El cálculo usa la demanda del CEE final. La columna FINAL de la tabla no es una estimación.'
+                                                    : 'Genera la comparativa "con tu CEE" vs. "CEE nuevo BROKERGY" para enviársela.'}
+                                            </div>
                                         </div>
                                     </div>
                                     <button
@@ -833,7 +884,8 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
                                         Comparativa para el cliente →
                                     </button>
                                 </div>
-                            )}
+                              );
+                            })()}
 
                             <button
                                 type="button"
@@ -1211,7 +1263,10 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
                         </div>
                         {result.res080 && inputs?.isReforma && (
                             <div className="mt-8 px-8 pb-8 bg-slate-100">
-                                 <EfficiencyTable res080={result.res080} />
+                                 <EfficiencyTable
+                                     res080={result.res080}
+                                     categories={result.res080.metodoAhorro === 'simplificado' ? CATEGORIES_SIMPLIFICADO : undefined}
+                                 />
                             </div>
                         )}
                         {/* Comparativa: ahorro con el CEE aportado (baseline real) vs método estimado.
@@ -1451,22 +1506,84 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
                 // (no del resultado), para no recalcular todo en cada tecla. Al confirmar
                 // se vuelca a inputs. En el resto de modos, tabla de solo lectura.
                 const editable = isEmisionesMode && !!emiDraft;
-                const draftRes = editable ? calculateRes080FromEmissions({
-                    emiAcsIni: emiDraft.emi.acsIni, emiAcsFin: emiDraft.emi.acsFin,
-                    emiCalIni: emiDraft.emi.calIni, emiCalFin: emiDraft.emi.calFin,
-                    emiRefIni: emiDraft.emi.refIni, emiRefFin: emiDraft.emi.refFin,
-                    combAcsInicial: emiDraft.comb.acsIni, combAcsFinal: emiDraft.comb.acsFin,
-                    combCalefaccionInicial: emiDraft.comb.calIni, combCalefaccionFinal: emiDraft.comb.calFin,
-                    combRefrigeracionInicial: emiDraft.comb.refIni, combRefrigeracionFinal: emiDraft.comb.refFin,
-                    superficieInicial: emiDraft.supIni, superficieFinal: emiDraft.supFin
-                }) : result.res080;
-                const setComb = (type, isFinal, value) => setEmiDraft(d => ({ ...d, comb: { ...d.comb, [type + (isFinal ? 'Fin' : 'Ini')]: value } }));
-                const setEmi = (type, isFinal, value) => setEmiDraft(d => ({ ...d, emi: { ...d.emi, [type + (isFinal ? 'Fin' : 'Ini')]: normComma(value) } }));
-                const eDraft = editable ? {
+                const esSimplificado = editable
+                    ? emiDraft.metodo === 'simplificado'
+                    : result.res080?.metodoAhorro === 'simplificado';
+                const draftRes = !editable ? result.res080
+                    : esSimplificado ? calculateRes080Simplificado({
+                        emiElecIni: emiDraft.vec?.electricoIni, emiElecFin: emiDraft.vec?.electricoFin,
+                        emiOtrosIni: emiDraft.vec?.otrosIni, emiOtrosFin: emiDraft.vec?.otrosFin,
+                        combOtrosIni: emiDraft.combOtros?.ini, combOtrosFin: emiDraft.combOtros?.fin,
+                        superficieInicial: emiDraft.supIni, superficieFinal: emiDraft.supFin
+                    }) : calculateRes080FromEmissions({
+                        emiAcsIni: emiDraft.emi.acsIni, emiAcsFin: emiDraft.emi.acsFin,
+                        emiCalIni: emiDraft.emi.calIni, emiCalFin: emiDraft.emi.calFin,
+                        emiRefIni: emiDraft.emi.refIni, emiRefFin: emiDraft.emi.refFin,
+                        combAcsInicial: emiDraft.comb.acsIni, combAcsFinal: emiDraft.comb.acsFin,
+                        combCalefaccionInicial: emiDraft.comb.calIni, combCalefaccionFinal: emiDraft.comb.calFin,
+                        combRefrigeracionInicial: emiDraft.comb.refIni, combRefrigeracionFinal: emiDraft.comb.refFin,
+                        superficieInicial: emiDraft.supIni, superficieFinal: emiDraft.supFin
+                    });
+                // Los onChange de la tabla se enrutan al bloque del método activo: el
+                // simplificado escribe en `vec`/`combOtros` y el detallado en `emi`/`comb`.
+                const setComb = (type, isFinal, value) => setEmiDraft(d => (
+                    type === 'otros'
+                        ? { ...d, combOtros: { ...d.combOtros, [isFinal ? 'fin' : 'ini']: value } }
+                        : { ...d, comb: { ...d.comb, [type + (isFinal ? 'Fin' : 'Ini')]: value } }
+                ));
+                const setEmi = (type, isFinal, value) => setEmiDraft(d => (
+                    (type === 'electrico' || type === 'otros')
+                        ? { ...d, vec: { ...d.vec, [type + (isFinal ? 'Fin' : 'Ini')]: normComma(value) } }
+                        : { ...d, emi: { ...d.emi, [type + (isFinal ? 'Fin' : 'Ini')]: normComma(value) } }
+                ));
+                const eDraft = !editable ? null : esSimplificado ? {
+                    electrico: { ini: emiDraft.vec?.electricoIni, fin: emiDraft.vec?.electricoFin },
+                    otros: { ini: emiDraft.vec?.otrosIni, fin: emiDraft.vec?.otrosFin },
+                } : {
                     acs: { ini: emiDraft.emi.acsIni, fin: emiDraft.emi.acsFin },
                     cal: { ini: emiDraft.emi.calIni, fin: emiDraft.emi.calFin },
                     ref: { ini: emiDraft.emi.refIni, fin: emiDraft.emi.refFin },
-                } : null;
+                };
+                // ¿La energía final se LEE del certificado (<EnergiaFinalVectores>) o se
+                // reconstruye dividiendo emisiones entre su factor de paso?
+                const esDeclarada = draftRes?.fuenteDatos === 'energia_final_declarada';
+                // La restricción de "un único combustible no eléctrico" es de la vía por
+                // EMISIONES: allí «otros combustibles» es UNA cifra de CO₂ que hay que dividir
+                // por UN factor. Leyendo la energía final cada vector viene por separado y en
+                // kWh, así que sumar dos combustibles es legítimo y no hay nada que avisar.
+                const mezclaCombustibles = (!esSimplificado || esDeclarada) ? null : combustiblesNoElectricos(editable
+                    ? { acsIni: emiDraft.comb.acsIni, calIni: emiDraft.comb.calIni, refIni: emiDraft.comb.refIni }
+                    : {
+                        acsIni: inputs?.xmlDemandData?.combustibleACS,
+                        calIni: inputs?.xmlDemandData?.combustibleCalefaccion,
+                        refIni: inputs?.xmlDemandData?.combustibleRefrigeracion,
+                    });
+                // El método se puede elegir a mano (va con el borrador) y también con los .xml
+                // cargados, donde el reparto por vector lo publica el propio certificado.
+                const modoXml = !editable && inputs?.isReforma && inputs?.demandMode === 'real' && !!inputs?.xmlDemandDataFinal;
+                const puedeElegirMetodo = editable || modoXml;
+                const setMetodoAhorro = (id) => editable
+                    ? setEmiDraft(d => ({ ...d, metodo: id }))
+                    : onInputChange(prev => ({ ...prev, metodoAhorroRes080: id }));
+                // Con los .xml, si el certificado no trae el reparto por vector no hay nada que
+                // calcular: se avisa en vez de enseñar un ahorro construido sobre ceros.
+                const hayDatosVector = editable || (
+                    tieneDatosSimplificado(inputs?.xmlDemandData) && tieneDatosSimplificado(inputs?.xmlDemandDataFinal)
+                );
+                // El .xml resuelve las emisiones, pero NO siempre el combustible: si declara
+                // dos no eléctricos, `combustibleOtros` viene null y no hay factor de paso que
+                // aplicar. Por eso en modo XML+simplificado se deja editable ESA sola celda
+                // (las emisiones y la superficie siguen siendo las del certificado).
+                // Solo hace falta elegir el combustible si el ahorro se reconstruye desde el
+                // CO₂; leyendo la energía final, el vector viene nombrado en el propio XML.
+                const soloCombOtros = modoXml && esSimplificado && !esDeclarada;
+                const setCombOtrosXml = (type, isFinal, value) => {
+                    if (type !== 'otros') return;
+                    onInputChange(prev => ({ ...prev, [isFinal ? 'combustibleOtrosFinal' : 'combustibleOtrosInicial']: value }));
+                };
+                const faltaCombOtros = soloCombOtros
+                    && !(inputs?.combustibleOtrosInicial || inputs?.xmlDemandData?.combustibleOtros)
+                    && Number(inputs?.xmlDemandData?.emisionesConsumoOtros) > 0;
                 return (
                 <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-fade-in"
                     onClick={() => { if (!editable) setShowEfficiency(false); }}
@@ -1489,10 +1606,76 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
                             </button>
                         </div>
                         <div className="p-8 bg-white overflow-auto flex-1">
+                             {/* MÉTODO DE CÁLCULO. Por uso (detallado) o por vector energético
+                                 (simplificado). El simplificado existe porque hay CEEs en los que
+                                 un mismo uso tiene dos generadores de combustibles distintos y el
+                                 certificado no dice qué porcentaje es cada uno.
+                                 Se ofrece en los DOS modos: a mano (se confirma con el resto del
+                                 borrador) y con los .xml cargados, donde el reparto por vector lo
+                                 publica el propio certificado y basta con cambiar el método. */}
+                             {puedeElegirMetodo && (
+                                <div className="mb-5">
+                                    <div className="inline-flex p-1 rounded-xl bg-slate-100 border border-slate-200">
+                                        {[
+                                            { id: 'detallado', label: 'Detallado · por uso' },
+                                            { id: 'simplificado', label: 'Simplificado · por vector' },
+                                        ].map(m => (
+                                            <button
+                                                key={m.id}
+                                                onClick={() => setMetodoAhorro(m.id)}
+                                                className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${
+                                                    ((esSimplificado ? 'simplificado' : 'detallado') === m.id) ? 'bg-slate-900 text-white shadow' : 'text-slate-500 hover:text-slate-700'
+                                                }`}
+                                            >
+                                                {m.label}
+                                            </button>
+                                        ))}
+                                    </div>
+                                    <p className="mt-2 text-[11px] text-slate-500 leading-relaxed">
+                                        {!esSimplificado
+                                            ? <>Se desglosa por uso: ACS, calefacción y refrigeración, cada uno con su combustible.</>
+                                            : esDeclarada
+                                            ? <>Se lee la <b>energía final que declara el propio certificado</b> por vector energético (<i>EnergiaFinalVectores</i> del .xml). No se estima nada: el ahorro es la diferencia entre los kWh del CEE anterior y el posterior. Úsalo cuando un mismo servicio tenga dos generadores y el desglose por uso no se pueda repartir.</>
+                                            : <>Se usan los dos totales del edificio que declara el CEE: <b>emisiones por consumo eléctrico</b> y <b>por otros combustibles</b>, divididas por su factor de paso. Solo vale si en todo el edificio hay <b>un único combustible no eléctrico</b>.</>}
+                                    </p>
+                                    {esSimplificado && esDeclarada && (
+                                        <p className="mt-2 text-[11px] text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2 leading-relaxed">
+                                            <b>Energía final leída del certificado.</b> Vectores con consumo:{' '}
+                                            {(draftRes?.vectores?.inicial || []).map(v => v.nombre).join(' · ') || '—'}.
+                                            {draftRes?.contraste?.electricoIni && draftRes?.contraste?.otrosIni !== false
+                                                ? ' Las emisiones reconstruidas coinciden con las que declara el CEE.'
+                                                : ''}
+                                        </p>
+                                    )}
+                                    {esSimplificado && !editable && !hayDatosVector && (
+                                        <p className="mt-2 text-[11px] text-amber-700 bg-amber-50 border border-amber-300 rounded-lg px-3 py-2 leading-relaxed">
+                                            Los certificados cargados no traen el reparto por vector energético
+                                            (<i>emisiones por consumo eléctrico</i> / <i>por otros combustibles</i>). Vuelve a subir
+                                            el <b>.xml</b> del CEE, que sí lo publica, o mete los dos valores a mano.
+                                        </p>
+                                    )}
+                                </div>
+                             )}
                              {editable && (
                                 <p className="mb-4 text-[11px] text-slate-500 leading-relaxed">
                                     Edita combustible, <b>emisiones</b> y <b>superficie</b> (inicial/final) en la tabla. La superficie es la base del ahorro (emisiones × superficie) y puede diferir entre el CEE inicial y el final. Al confirmar se actualiza todo el cálculo.
                                 </p>
+                             )}
+                             {/* Aviso (no bloquea): el simplificado no puede deshacer la suma de
+                                 dos combustibles no eléctricos distintos en la fila "otros". */}
+                             {mezclaCombustibles?.mixto && (
+                                <div className="mb-5 p-4 rounded-xl bg-amber-50 border border-amber-300 flex items-start gap-3">
+                                    <span className="text-amber-500 text-lg leading-none mt-0.5">⚠️</span>
+                                    <div>
+                                        <div className="text-[11px] font-black text-slate-800 uppercase tracking-widest">Más de un combustible no eléctrico</div>
+                                        <p className="text-[10px] text-slate-600 leading-relaxed mt-0.5">
+                                            En los usos ya cargados aparecen <b>{mezclaCombustibles.lista.join(' y ')}</b>. La fila
+                                            «otros combustibles» del CEE los suma con factores de paso distintos y esa suma no se
+                                            puede deshacer, así que el método simplificado no aplica tal cual. Compruébalo antes
+                                            de confirmar: si de verdad solo hay uno, corrige el combustible del otro uso.
+                                        </p>
+                                    </div>
+                                </div>
                              )}
                              {/* Cargar CEE por fichero (XML exacto u OCR IA) para rellenar la columna */}
                              {editable && (
@@ -1513,8 +1696,37 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
                                     </button>
                                 </div>
                              )}
-                             {/* Estimar el CEE FINAL si aún no lo tenemos (con la aerotermia) */}
-                             {editable && emiDraft?.est && (
+                             {/* CEE FINAL real ya aportado: la columna FINAL está MEDIDA. */}
+                             {editable && inputs?.cee_final && (
+                                <div className="mb-5 p-4 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center gap-3">
+                                    <span className="text-emerald-500 text-lg">🏁</span>
+                                    <div>
+                                        <div className="text-[11px] font-black text-slate-800 uppercase tracking-widest">Columna FINAL medida</div>
+                                        <p className="text-[10px] text-slate-500 leading-relaxed mt-0.5">
+                                            Viene del certificado posterior a la obra que aportó el cliente. No hay nada que estimar
+                                            — si necesitas rehacerla, vuelve a cargar el CEE final con el botón de arriba.
+                                        </p>
+                                    </div>
+                                </div>
+                             )}
+                             {/* En SIMPLIFICADO no se puede estimar el FINAL: el estimador parte
+                                 de la demanda POR USO y su resultado habría que repartirlo otra vez
+                                 entre los dos vectores, que es justo el reparto que aquí no se
+                                 conoce. Inventarlo daría un ahorro que el certificado no respalda. */}
+                             {editable && esSimplificado && !inputs?.cee_final && (
+                                <div className="mb-5 p-4 rounded-xl bg-slate-50 border border-slate-200 flex items-start gap-3">
+                                    <span className="text-slate-400 text-lg leading-none mt-0.5">ℹ️</span>
+                                    <p className="text-[10px] text-slate-600 leading-relaxed">
+                                        Con el método simplificado la columna <b>FINAL</b> se rellena leyendo el CEE posterior
+                                        a la obra (botón «Cargar CEE final») o a mano. No se estima: el estimador reparte por
+                                        uso, y ese reparto entre eléctrico y otros combustibles es justo el que aquí no se conoce.
+                                    </p>
+                                </div>
+                             )}
+                             {/* Estimar el CEE FINAL si aún no lo tenemos (con la aerotermia).
+                                 Con un CEE final REAL cargado se oculta: pulsar "Rellenar FINAL"
+                                 sustituiría datos medidos por una estimación demanda/SCOP. */}
+                             {editable && !esSimplificado && emiDraft?.est && !inputs?.cee_final && (
                                 <div className="mb-5 p-4 rounded-xl bg-blue-50 border border-blue-200">
                                     <div className="flex items-center gap-2 mb-3">
                                         <span className="text-blue-500 text-lg">⚡</span>
@@ -1554,10 +1766,25 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
                                     </div>
                                 </div>
                              )}
+                             {faltaCombOtros && (
+                                <div className="mb-5 p-4 rounded-xl bg-amber-50 border border-amber-300 flex items-start gap-3">
+                                    <span className="text-amber-500 text-lg leading-none mt-0.5">⚠️</span>
+                                    <div>
+                                        <div className="text-[11px] font-black text-slate-800 uppercase tracking-widest">Falta saber qué combustible es</div>
+                                        <p className="text-[10px] text-slate-600 leading-relaxed mt-0.5">
+                                            El certificado declara emisiones por otros combustibles, pero no un único
+                                            combustible no eléctrico del que deducirlas — o hay varios, o no lo dice.
+                                            Elígelo en la fila <b>«Otros combustibles»</b> de la tabla: sin él no hay factor
+                                            de paso que aplicar y ese consumo cuenta como cero.
+                                        </p>
+                                    </div>
+                                </div>
+                             )}
                              <EfficiencyTable
                                 res080={draftRes}
-                                editable={editable}
-                                onFuelChange={editable ? setComb : null}
+                                editable={editable || soloCombOtros}
+                                categories={esSimplificado ? CATEGORIES_SIMPLIFICADO : undefined}
+                                onFuelChange={editable ? setComb : (soloCombOtros ? setCombOtrosXml : null)}
                                 onEmissionChange={editable ? setEmi : null}
                                 emissionDraft={eDraft}
                                 superficieDraft={editable ? { ini: emiDraft.supIni, fin: emiDraft.supFin } : null}
@@ -1567,7 +1794,9 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
                              {!editable && (
                                 <div className="mt-8 p-4 bg-slate-50 rounded-xl border border-slate-200">
                                    <p className="text-[11px] text-slate-500 italic leading-relaxed text-center font-medium">
-                                       {inputs?.demandMode === 'real'
+                                       {esSimplificado
+                                           ? 'Método simplificado: el ahorro sale de las emisiones globales que declara el propio certificado, separadas en consumo eléctrico y otros combustibles, dividiendo cada una por su factor de paso.'
+                                           : inputs?.demandMode === 'real'
                                            ? 'Este desglose corresponde a la comparativa técnica entre los certificados energéticos (XML) aportados para la situación inicial y propuesta de reforma.'
                                            : 'Este desglose es una estimación técnica a partir de los datos introducidos (sistema actual, aerotermia y mejoras de envolvente). Las emisiones se derivan del consumo estimado y el factor de paso de cada combustible.'}
                                    </p>
@@ -1682,7 +1911,20 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
                 subtitle={ceeLoadTarget === 'final'
                     ? 'Sube el CEE FINAL real para rellenar la columna FINAL. El CEE inicial aportado se mantiene; se recalcula el ahorro real medido.'
                     : 'Sube el CEE (situación inicial) para rellenar la columna INICIAL: emisiones, combustible, superficie y demanda.'}
-                onLoaded={(data) => { applyCeeToColumn(data, ceeLoadTarget); setCeeLoadTarget(null); }}
+                onLoaded={(data) => {
+                    applyCeeToColumn(data, ceeLoadTarget);
+                    // Registrar el certificado en los inputs, no solo en el borrador de la
+                    // tabla: `cee_final` es lo que hace que el ahorro pase a MEDIDO, que la
+                    // demanda del cálculo sea la suya y que el expediente nazca con él.
+                    const { pdfBase64, _files, ...limpio } = data || {};
+                    onInputChange(prev => ({
+                        ...prev,
+                        ...(ceeLoadTarget === 'final'
+                            ? { cee_final: limpio, cee_ahorro_origen: 'medido' }
+                            : { cee_previo: limpio }),
+                    }));
+                    setCeeLoadTarget(null);
+                }}
             />
         </div>
 

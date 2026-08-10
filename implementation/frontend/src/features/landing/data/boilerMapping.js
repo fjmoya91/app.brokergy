@@ -131,4 +131,43 @@ function shouldWarnBiomasa({ combustible_actual }) {
     return combustible_actual === 'biomasa';
 }
 
-export { mapBoiler, mapAcsType, shouldWarnBiomasa };
+/** Eficiencia de la tabla para una combinación concreta (sin el resto del mapeo). */
+function efficiencyFor(combustible, edad, condensacion) {
+    return mapBoilerIdAndEff(combustible, edad, condensacion).boilerEff;
+}
+
+/**
+ * Sugiere (edad, condensación) a partir del rendimiento estacional que declara el CEE.
+ *
+ * El CEE trae el η MEDIDO de la caldera antigua, que es mejor dato que "¿cuántos años
+ * tiene?". Pero el expediente no guarda el η: guarda `rendimiento_id` (el `boilerId` de
+ * esta tabla) y vuelve a leer de ella. Si la simulación usara el η del certificado y el
+ * expediente el de la tabla, el ahorro prometido al cliente y el que reproduce el CIFO
+ * no coincidirían — y eso es justo lo que mira un verificador.
+ *
+ * Así que en vez de pisar el η, el certificado ELIGE la casilla: se busca la combinación
+ * de la tabla cuya eficiencia queda más cerca de la medida. Sigue mandando la tabla, y
+ * la respuesta deja de ser una conjetura sobre la edad.
+ *
+ * @returns {{ edad_caldera, condensacion, boilerEff, desvio }|null}
+ *          `desvio` = diferencia absoluta con el η del CEE, para poder avisar si es grande.
+ */
+function sugerirEdadDesdeRendimiento(combustible, effCee) {
+    if (!combustible || !(effCee > 0)) return null;
+    const combos = [
+        { edad_caldera: '<10', condensacion: 'si' },
+        { edad_caldera: '<10', condensacion: 'no' },
+        { edad_caldera: '10-20', condensacion: 'si' },
+        { edad_caldera: '10-20', condensacion: 'no' },
+        { edad_caldera: '>20', condensacion: 'no' },
+    ];
+    let mejor = null;
+    for (const c of combos) {
+        const eff = efficiencyFor(combustible, c.edad_caldera, c.condensacion);
+        const desvio = Math.abs(eff - effCee);
+        if (!mejor || desvio < mejor.desvio) mejor = { ...c, boilerEff: eff, desvio };
+    }
+    return mejor;
+}
+
+export { mapBoiler, mapAcsType, shouldWarnBiomasa, efficiencyFor, sugerirEdadDesdeRendimiento };

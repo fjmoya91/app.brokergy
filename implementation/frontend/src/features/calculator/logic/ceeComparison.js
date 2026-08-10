@@ -12,6 +12,7 @@
 
 import { calculateRes080FromEmissions, calculateFinancials, calculateSavings } from './calculation';
 import { computeFullCalculatorResult } from '../../landing/data/landingCalculation';
+import { demandaDeCalculo } from '../../cee/ceeAvisos';
 
 const num = (v) => { const n = Number(v); return isFinite(n) ? n : 0; };
 
@@ -58,8 +59,13 @@ export function computeCeeComparison(inputs) {
     // pantalla, para que el importe coincida exactamente con el "Bono CAE" mostrado y con el
     // mensaje al cliente. (Usar el rendimiento del CEE en vez del de la calculadora daba una
     // cifra distinta y confundía.)
-    const sup = num(inputs.superficie || inputs.superficieCalefactable || cee.superficie_habitable_m2);
-    const qNetCee = num(cee.demandas?.calefaccion_kwh_m2_ano) * sup;
+    // Con CEE FINAL manda su demanda (misma regla que el motor de cálculo: ver
+    // ceeAvisos.demandaDeCalculo). Si la comparativa siguiera usando la del inicial,
+    // el "con tu CEE" que se le enseña al cliente no coincidiría con el bono CAE que
+    // muestra la pantalla, que es lo peor que puede pasar en un documento comercial.
+    const { demanda: demCee, superficie: supCee } = demandaDeCalculo(cee, inputs.cee_final);
+    const sup = num(supCee || inputs.superficie || inputs.superficieCalefactable || cee.superficie_habitable_m2);
+    const qNetCee = num(demCee) * sup;
     const boilerEffCee = num(inputs.boilerEff) || 0.85;
     let ceeCae = estCae; let ceeAhorro = null;
     if (qNetCee > 0) {

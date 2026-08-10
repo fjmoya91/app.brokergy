@@ -20,13 +20,21 @@ export function emptyCeeData() {
     fecha_certificado: '',
     superficie_habitable_m2: '',
     demandas: { calefaccion_kwh_m2_ano: '', refrigeracion_kwh_m2_ano: '' },
-    emisiones: { calefaccion: '', acs: '', refrigeracion: '' },
+    // Emisiones por USO (calefaccion/acs/refrigeracion) → método DETALLADO, y los dos
+    // totales del edificio por VECTOR energético (consumo_electrico_m2/consumo_otros_m2)
+    // → método SIMPLIFICADO. Ver calculateRes080Simplificado en logic/calculation.js.
+    emisiones: { calefaccion: '', acs: '', refrigeracion: '', consumo_electrico_m2: '', consumo_otros_m2: '' },
     acs_litros_dia: '',
     servicios: {
       calefaccion: { combustible: '', rendimiento_estacional_pct: '' },
       acs: { combustible: '', rendimiento_estacional_pct: '' },
       refrigeracion: { combustible: '', rendimiento_estacional_pct: '' },
     },
+    // Único combustible no eléctrico del edificio ('' si hay ninguno o varios): preselecciona
+    // el desplegable "otros combustibles" del método simplificado.
+    combustible_otros_detectado: '',
+    // Energía final por vector energético y uso (kWh/m²·año), solo desde .xml. Ver ceeFromXml.
+    energia_final_vectores: null,
     pdfBase64: null,
   };
 }
@@ -49,11 +57,23 @@ export function ceeFromXml(xml) {
     calefaccion_kwh_m2_ano: xml?.demandaCalefaccion ?? '',
     refrigeracion_kwh_m2_ano: xml?.demandaRefrigeracion ?? '',
   };
+  // El XML trae tanto las emisiones por USO como el reparto por VECTOR energético
+  // (<EmisionesCO2><ConsumoElectrico>/<ConsumoOtros>), que es lo mismo que imprime el PDF
+  // bajo la calificación en emisiones. Por esta vía el método simplificado sale EXACTO,
+  // sin OCR de por medio.
   d.emisiones = {
+    ...d.emisiones,
     calefaccion: xml?.emisionesCalefaccion ?? '',
     acs: xml?.emisionesACS ?? '',
     refrigeracion: xml?.emisionesRefrigeracion ?? '',
+    consumo_electrico_m2: xml?.emisionesConsumoElectrico ?? '',
+    consumo_otros_m2: xml?.emisionesConsumoOtros ?? '',
   };
+  d.combustible_otros_detectado = xml?.combustibleOtros || '';
+  // La energía final por vector, tal cual la declara el certificado. Es la fuente EXACTA
+  // del ahorro (no hay que dividir emisiones entre su factor de paso), y solo existe por
+  // la vía del .xml — el PDF no la imprime, así que el OCR no la puede sacar.
+  d.energia_final_vectores = xml?.energiaFinalVectores || null;
   d.acs_litros_dia = xml?.acsLitrosDia ?? '';
   d.servicios.calefaccion.combustible = xml?.combustibleCalefaccion || '';
   d.servicios.calefaccion.rendimiento_estacional_pct = xml?.rendimientoCalefaccion ?? '';
@@ -85,9 +105,10 @@ export function ceeFromOcr(ocr, pdfBase64) {
   merged.referencia_catastral = nz(merged.referencia_catastral);
   merged.superficie_habitable_m2 = nz(merged.superficie_habitable_m2);
   merged.acs_litros_dia = nz(merged.acs_litros_dia);
+  merged.combustible_otros_detectado = nz(merged.combustible_otros_detectado);
   ['direccion', 'municipio', 'provincia', 'cp', 'zona_climatica'].forEach((k) => (merged.identificacion[k] = nz(merged.identificacion[k])));
   ['calefaccion_kwh_m2_ano', 'refrigeracion_kwh_m2_ano'].forEach((k) => (merged.demandas[k] = nz(merged.demandas[k])));
-  ['calefaccion', 'acs', 'refrigeracion'].forEach((k) => (merged.emisiones[k] = nz(merged.emisiones[k])));
+  ['calefaccion', 'acs', 'refrigeracion', 'consumo_electrico_m2', 'consumo_otros_m2'].forEach((k) => (merged.emisiones[k] = nz(merged.emisiones[k])));
   ['calefaccion', 'acs', 'refrigeracion'].forEach((k) => {
     merged.servicios[k].combustible = nz(merged.servicios[k].combustible);
     merged.servicios[k].rendimiento_estacional_pct = nz(merged.servicios[k].rendimiento_estacional_pct);
@@ -161,6 +182,16 @@ export function ceeToXmlShape(data) {
     emisionesCalefaccion: num(data.emisiones?.calefaccion),
     emisionesACS: num(data.emisiones?.acs),
     emisionesRefrigeracion: num(data.emisiones?.refrigeracion),
+    // Reparto por vector energético (método simplificado del ahorro RES080). Van aquí
+    // para que un CEE leído por OCR alimente ese cálculo igual que un .xml: los tres
+    // consumidores leen `cee_inicial`/`cee_final` sin saber de dónde vinieron.
+    emisionesConsumoElectrico: num(data.emisiones?.consumo_electrico_m2),
+    emisionesConsumoOtros: num(data.emisiones?.consumo_otros_m2),
+    combustibleOtros: data.combustible_otros_detectado || null,
+    // Solo lo trae el .xml (<EnergiaFinalVectores>). Un CEE leído por OCR no lo tiene y
+    // cae en la vía de emisiones ÷ factor de paso, que es la que se puede reconstruir
+    // desde lo que imprime el PDF.
+    energiaFinalVectores: data.energia_final_vectores || null,
     superficieHabitable: num(data.superficie_habitable_m2),
     zonaClimatica: data.identificacion?.zona_climatica || null,
     identificacion: {

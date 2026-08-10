@@ -65,6 +65,12 @@ export function parseCeeXml(xmlString) {
         emisionesCalefaccion: null,  // kgCO2/m²·año
         emisionesACS: null,          // kgCO2/m²·año
         emisionesRefrigeracion: null,// kgCO2/m²·año
+        // Totales del edificio por VECTOR energético (no por uso). Alimentan el método
+        // SIMPLIFICADO del ahorro RES080 — ver calculateRes080Simplificado en calculation.js.
+        emisionesConsumoElectrico: null, // kgCO2/m²·año  (<ConsumoElectrico>)
+        emisionesConsumoOtros: null,     // kgCO2/m²·año  (<ConsumoOtros>)
+        emisionesTotalElectrico: null,   // kgCO2/año     (<TotalConsumoElectrico>)
+        emisionesTotalOtros: null,       // kgCO2/año     (<TotalConsumoOtros>)
         superficieHabitable: null,   // m²
         zonaClimatica: null,
         identificacion: null,
@@ -75,6 +81,12 @@ export function parseCeeXml(xmlString) {
         rendimientoACS: null,           // % (RendimientoEstacional × 100)
         rendimientoRefrigeracion: null, // % (RendimientoEstacional × 100)
         combustibleRefrigeracion: null,
+        // Único combustible NO eléctrico declarado entre TODOS los generadores, o null si
+        // hay ninguno o más de uno. Null es la señal de que el método simplificado no aplica.
+        combustibleOtros: null,
+        // Energía final (kWh/m²·año) por VECTOR energético y por uso, tal cual la declara
+        // <EnergiaFinalVectores>. Solo los vectores con consumo (>0). Ver más abajo.
+        energiaFinalVectores: null,
     };
 
     // Intentar extraer datos de <Demanda><EdificioObjeto>
@@ -100,6 +112,53 @@ export function parseCeeXml(xmlString) {
         result.emisionesCalefaccion = getValidNumber(emisionesNode, 'Calefaccion');
         result.emisionesACS = getValidNumber(emisionesNode, 'ACS');
         result.emisionesRefrigeracion = getValidNumber(emisionesNode, 'Refrigeracion');
+        // Reparto por VECTOR energético. Es lo mismo que imprime el PDF bajo la
+        // calificación en emisiones ("Emisiones CO2 por consumo eléctrico" / "por otros
+        // combustibles"): <ConsumoElectrico>/<ConsumoOtros> son los kgCO2/m²·año y
+        // <TotalConsumo*> los kgCO2/año absolutos. Verificado contra un CEE real.
+        result.emisionesConsumoElectrico = getValidNumber(emisionesNode, 'ConsumoElectrico');
+        result.emisionesConsumoOtros = getValidNumber(emisionesNode, 'ConsumoOtros');
+        result.emisionesTotalElectrico = getValidNumber(emisionesNode, 'TotalConsumoElectrico');
+        result.emisionesTotalOtros = getValidNumber(emisionesNode, 'TotalConsumoOtros');
+    }
+
+    // ── <EnergiaFinalVectores> — LA ENERGÍA FINAL, DECLARADA ─────────────────────
+    // El CEE publica el consumo de energía final (kWh/m²·año) desglosado por VECTOR
+    // energético y, dentro de cada uno, por USO. No hay que reconstruirlo dividiendo
+    // emisiones entre su factor de paso: se lee. Verificado contra un CEE real —
+    // ElectricidadPeninsular.Global 36,91 × 0,331 = 12,22 y GasoleoC.Global 26,91 ×
+    // 0,311 = 8,37, exactamente las dos filas de emisiones que imprime el PDF.
+    //
+    // Un vector con TODO a cero simplemente no se consume: el XML los lista todos.
+    // Por eso solo se guardan los que tienen consumo — la lista resultante ES el
+    // inventario de combustibles reales del edificio.
+    const efvNodes = xmlDoc.getElementsByTagName('EnergiaFinalVectores');
+    if (efvNodes.length > 0) {
+        const vectores = {};
+        const hijos = efvNodes[0].childNodes;
+        for (let i = 0; i < hijos.length; i++) {
+            const el = hijos[i];
+            if (el.nodeType !== 1) continue; // saltar texto/espacios
+            const tag = el.localName || el.nodeName;
+            const n = (t) => getValidNumber(el, t) || 0;
+            const calefaccion = n('Calefaccion');
+            const acs = n('ACS');
+            const refrigeracion = n('Refrigeracion');
+            const iluminacion = n('Iluminacion');
+            // `Global` es el total del vector (incluida iluminación) y es lo que casa con
+            // <ConsumoElectrico>/<ConsumoOtros>. Si faltara, se suma a mano.
+            const global = getValidNumber(el, 'Global') ?? (calefaccion + acs + refrigeracion + iluminacion);
+            if (!(global > 0) && !(calefaccion + acs + refrigeracion + iluminacion > 0)) continue;
+            const nombre = mapVectorEnergetico(tag);
+            vectores[nombre] = {
+                nombre,
+                vectorXml: tag,
+                esElectrico: /electric/i.test(nombre),
+                calefaccion, acs, refrigeracion, iluminacion,
+                global: global || (calefaccion + acs + refrigeracion + iluminacion),
+            };
+        }
+        if (Object.keys(vectores).length > 0) result.energiaFinalVectores = vectores;
     }
 
     // Intentar extraer demanda diaria de ACS (litros/día)
@@ -190,6 +249,20 @@ export function parseCeeXml(xmlString) {
             const generador = ref[0].getElementsByTagName('Generador');
             if (generador.length > 0) result.rendimientoRefrigeracion = getRendimientoPct(generador[0]);
         }
+
+        // Combustible NO eléctrico del edificio, para el método SIMPLIFICADO. Se barren
+        // TODOS los <VectorEnergetico>, no solo el primero de cada servicio: el caso que
+        // justifica ese método es justamente el de un servicio con dos generadores (bomba
+        // de calor eléctrica + caldera de gasóleo), donde `combustibleCalefaccion` se queda
+        // con el que aparezca primero. Si hay más de uno distinto, se devuelve null: el
+        // método no es aplicable y quien decide es una persona, no este parser.
+        const vectores = thermal.getElementsByTagName('VectorEnergetico');
+        const noElectricos = [];
+        for (let i = 0; i < vectores.length; i++) {
+            const v = mapVectorEnergetico(vectores[i].textContent.trim());
+            if (v && !/electric/i.test(v) && !noElectricos.includes(v)) noElectricos.push(v);
+        }
+        result.combustibleOtros = noElectricos.length === 1 ? noElectricos[0] : null;
     }
 
 
@@ -249,11 +322,20 @@ function mapVectorEnergetico(xmlValue) {
         'ElectricidadCeutaMelilla': 'Electricidad peninsular', // Simplificado
         'Butano': 'GLP',
         'Propano': 'GLP',
+        'GLP': 'GLP',
+        // Las etiquetas de <EnergiaFinalVectores> no son idénticas a las de
+        // <VectorEnergetico>: allí es "BiomasaPellet" (sin la -e final). Sin esta entrada
+        // caía al `|| xmlValue`, quedaba fuera de FACTORES_PASO y getFactorPaso devolvía 1.
         'BiomasaPellete': 'Biomasa densificada (pelets)',
+        'BiomasaPellet': 'Biomasa densificada (pelets)',
         'BiomasaOtros': 'Biomasa no densificada',
         'Carbon': 'Carbón',
         'Gasoil': 'Gasoleo Calefacción',
         'Diesel': 'Gasoleo Calefacción'
+        // OJO: 'Biocarburante' NO se mapea a propósito — no está en FACTORES_PASO y no
+        // vamos a inventarle un factor de emisión. Se queda con su nombre del XML; la
+        // energía final sí se lee (no necesita factor) y el contraste de emisiones se
+        // marca como no disponible.
     };
     return map[xmlValue] || xmlValue;
 }

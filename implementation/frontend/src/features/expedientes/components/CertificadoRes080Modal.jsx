@@ -16,7 +16,7 @@ import {
 import AnexoPaginasModal from './AnexoPaginasModal';
 // La página de capturas del CE3X NO se duplica aquí: vive en res080Doc.js, que es
 // lo que usa el backend para generar el mismo certificado server-side.
-import { buildCe3xPages } from '../logic/res080Doc';
+import { buildCe3xPages, buildJustificacionAhorroPages } from '../logic/res080Doc';
 import { postEmail } from '../../../utils/emailFallback';
 
 // ─── CONSTANTES Y ESTILOS ────────────────────────────────────────────────────
@@ -1404,59 +1404,10 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, r
             }));
         }
 
-        // PÁGINA: JUSTIFICACIÓN DEL CÁLCULO DE AHORRO (solo si hay datos de results)
-        if (results && results.details) {
-            const d = results.details;
-            const fN = (v, dec = 2) => v !== null && v !== undefined
-                ? Number(v).toLocaleString('es-ES', { minimumFractionDigits: dec, maximumFractionDigits: dec })
-                : '—';
-            const fI = (v) => v !== null && v !== undefined
-                ? Math.round(Number(v)).toLocaleString('es-ES')
-                : '—';
-            const aeTotal = results.ahorroEnergiaFinalTotal || 0;
-            const aeMwh = (aeTotal / 1000).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-
-            const jCell = (v, final = false) => `<td style="padding:8px 12px;text-align:center;border-bottom:1px solid #ECECE4;${final ? 'background:#F3F8E6;font-weight:700;' : 'color:#7a7a72;'}">${v}</td>`;
-            const jLabel = (t) => `<td style="padding:6px 16px;color:#4a4a44;border-bottom:1px solid #ECECE4;">${t}</td>`;
-            const renderCategory = (label, data) => `
-                <tr><td colspan="3" style="padding:7px 16px;background:#EFEFE8;font-family:'Archivo';font-weight:700;font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:#6E6E66;">${label}</td></tr>
-                <tr>${jLabel('Tipo de combustible')}${jCell(data.fuelIni || '—')}${jCell(data.fuelFin || '—', true)}</tr>
-                <tr>${jLabel('Factor de paso')}${jCell(fN(data.factorIni, 3))}${jCell(fN(data.factorFin, 3), true)}</tr>
-                <tr>${jLabel('Emisiones CO₂ (kgCO₂/m²·año)')}${jCell(fN(data.emissionsIni))}${jCell(fN(data.emissionsFin), true)}</tr>
-                <tr>${jLabel('Consumo energía final (kWh/m²·año)')}${jCell(fN(data.energyIni))}${jCell(fN(data.energyFin), true)}</tr>`;
-
-            pages.push(`
-                <div class="doc-page">
-                    ${pageHeader}
-                    ${sectionTitle('Justificación del cálculo de ahorro inicial y final', '20px')}
-                    <div style="border-radius:16px;overflow:hidden;border:1px solid #E9E9E1;">
-                        <table class="just" style="width:100%;border-collapse:collapse;font-size:12px;">
-                            <thead><tr>
-                                <th style="text-align:left;padding:8px 16px;background:#1A1A1A;color:#fff;font-family:'Archivo';font-weight:700;font-size:11px;letter-spacing:1px;text-transform:uppercase;width:52%;">Parámetro energético</th>
-                                <th style="text-align:center;padding:8px 12px;background:#33332F;color:#C9C9C4;font-family:'Archivo';font-weight:700;font-size:11px;text-transform:uppercase;">Inicial</th>
-                                <th style="text-align:center;padding:8px 12px;background:#93C01F;color:#1A1A1A;font-family:'Archivo';font-weight:800;font-size:11px;text-transform:uppercase;">Final</th>
-                            </tr></thead>
-                            <tbody>
-                                ${d.acs ? renderCategory('Agua caliente sanitaria (ACS)', d.acs) : ''}
-                                ${d.cal ? renderCategory('Calefacción', d.cal) : ''}
-                                ${d.ref ? renderCategory('Refrigeración', d.ref) : ''}
-                                <tr><td style="padding:8px 16px;background:#1A1A1A;color:#fff;font-family:'Archivo';font-weight:700;">Consumo total de energía final (kWh/m²·año)</td><td style="padding:8px 12px;text-align:center;background:#1A1A1A;color:#C9C9C4;font-weight:700;">${fN(results.totalEnergiaInicialM2)}</td><td style="padding:8px 12px;text-align:center;background:#0f0f0e;color:#93C01F;font-family:'Archivo';font-weight:800;">${fN(results.totalEnergiaFinalM2)}</td></tr>
-                                <tr><td style="padding:8px 16px;background:#1A1A1A;color:#fff;font-family:'Archivo';font-weight:700;border-top:1px solid #333;">Consumo total de energía final (kWh/año)</td><td style="padding:8px 12px;text-align:center;background:#1A1A1A;color:#C9C9C4;font-weight:700;border-top:1px solid #333;">${fI(results.totalEnergiaInicialAno)}</td><td style="padding:8px 12px;text-align:center;background:#0f0f0e;color:#93C01F;font-family:'Archivo';font-weight:800;border-top:1px solid #333;">${fI(results.totalEnergiaFinalAno)}</td></tr>
-                            </tbody>
-                        </table>
-                    </div>
-
-                    <div style="margin-top:16px;border-radius:20px;background:linear-gradient(120deg,#F18A00,#A9C63A);padding:3px;">
-                        <div style="border-radius:17px;background:#fff;padding:18px 24px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;">
-                            <div style="font-family:'Archivo';font-weight:800;font-size:15px;letter-spacing:.3px;text-transform:uppercase;color:#1A1A1A;">Ahorro de energía final</div>
-                            <div style="font-family:'Archivo';font-weight:900;font-size:40px;line-height:1;color:#1A1A1A;">${aeMwh} <span style="font-size:16px;color:#B5730A;">MWh/año</span></div>
-                        </div>
-                    </div>
-                    <p style="margin:12px 2px 0;font-size:11px;color:#6E6E66;">Este desglose corresponde a la comparativa técnica entre los certificados energéticos (XML) aportados para la situación inicial y la propuesta de reforma.</p>
-                    ${footer}
-                </div>
-            `);
-        }
+        // PÁGINAS: JUSTIFICACIÓN DEL AHORRO — fuente única en logic/res080Doc.js
+        // (mismo patrón que buildCe3xPages). La vista previa y el PDF que se archiva tienen
+        // que decir LO MISMO: el verificador compara lo que vio en pantalla con lo firmado.
+        pages.push(...buildJustificacionAhorroPages({ results, pageHeader, sectionTitle, footer, obsBox }));
 
         // PÁGINA: JUSTIFICACIÓN DEL SCOP (calefacción + ACS) — igual que RES060 (restyled)
         // Se conserva la justificación legal completa (Anexo IV/VI RES060, EPREL) con el

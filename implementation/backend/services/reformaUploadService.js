@@ -395,6 +395,13 @@ function buildDocChecklist(datosCalculo = {}) {
     // todas, el cliente/admin pulsa "Unir en un PDF" y el backend las funde en un único PDF.
     push({ key: 'DOC_CEE_EXISTENTE', fase: PHASE.ANTES, required: false, multiple: true, optionalAlways: true, mergePdf: true, accept: ACCEPT_DOC,
            label: 'Certificado de Eficiencia Energética existente', help: 'El CEE actual de la vivienda, si ya tienes uno. Puede ser un PDF o varias fotos de sus páginas: cuando estén todas, pulsa “Unir en un PDF” para juntarlas en un único documento.' });
+    // PRESUPUESTO de la obra. Es la pareja "antes" de DOC_FACTURAS: la inversión que
+    // el Anexo declara sale de la FACTURA, pero mientras no la haya el presupuesto es
+    // lo que fija el importe de la simulación (y de él se leen ya los equipos).
+    // optionalAlways: no toda obra llega con presupuesto formal, y reclamárselo a un
+    // cliente que ya tiene la factura no tiene sentido.
+    push({ key: 'DOC_PRESUPUESTO', fase: PHASE.ANTES, required: false, multiple: true, optionalAlways: true, accept: ACCEPT_DOC,
+           label: 'Presupuesto de la obra', help: 'El presupuesto del instalador (PDF o foto). De él sacamos el importe de la inversión y los equipos previstos.' });
     if (want('FOTO_VENTANAS_ANTES', sel.reforma.ventanas)) push({ key: 'FOTO_VENTANAS_ANTES', fase: PHASE.ANTES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Ventanas a sustituir (antes)', help: 'Las que vais a cambiar.' });
     if (want('FOTO_CUBIERTA_ANTES', sel.reforma.cubierta)) push({ key: 'FOTO_CUBIERTA_ANTES', fase: PHASE.ANTES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Cubierta / tejado (antes)' });
     if (want('FOTO_FACHADA_ANTES', sel.reforma.paredes))  push({ key: 'FOTO_FACHADA_ANTES', fase: PHASE.ANTES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Fachada a aislar (antes)' });
@@ -442,6 +449,12 @@ function buildDocChecklist(datosCalculo = {}) {
     if (want('FOTO_PLACAS_SOLARES', sel.reforma.placas))  push({ key: 'FOTO_PLACAS_SOLARES', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Placas solares instaladas', help: 'Las placas fotovoltaicas o solares térmicas ya montadas.' });
     push({ key: 'VIDEO_REFORMA', fase: PHASE.DESPUES, required: false, optionalAlways: true, multiple: false, accept: ACCEPT_VIDEO, label: 'Vídeo de la reforma (opcional)', help: 'Recorrido en vídeo de la instalación ya terminada.' });
     push({ key: 'DOC_FACTURAS', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_DOC, label: 'Facturas de la instalación', help: 'Las facturas de los materiales y de la instalación (en PDF o foto).' });
+    // CEE POSTERIOR a la obra. Existía en los slots del enlace público de /reforma
+    // (getReformaSlots) pero NO en este checklist, que es contra el que valida el POST
+    // de subida: subir aquí el certificado final daba "Tipo de documento no válido".
+    // optionalAlways: solo lo tienen las obras ya ejecutadas.
+    push({ key: 'DOC_CEE_POSTERIOR', fase: PHASE.DESPUES, required: false, multiple: true, optionalAlways: true, mergePdf: true, accept: ACCEPT_CEE,
+           label: 'Certificado de Eficiencia Energética posterior', help: 'El CEE emitido una vez terminada la reforma (PDF y, si lo tienes, el .xml/.cex).' });
     push({ key: 'DOC_RITE', fase: PHASE.DESPUES, required: false, multiple: false, accept: ACCEPT_DOC, label: 'Certificado RITE', help: 'Lo emite el instalador: es el certificado de la instalación térmica (RITE) que debe entregar al terminar la obra.' });
     push({ key: 'OTROS_DESPUES', fase: PHASE.DESPUES, required: false, optionalAlways: true, multiple: true, named: true, accept: ACCEPT_CUALQUIERA,
            label: 'Otros (después de la obra)', help: 'PDF, fotos, vídeos u otros archivos que no encajen en las categorías anteriores. Al subirlos se te pedirá un nombre para guardarlos identificados.' });

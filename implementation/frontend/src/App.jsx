@@ -246,8 +246,9 @@ function App() {
   }, [user?.id, user?.rol, user?.id_rol, activeTab]);
 
   const [showSearchModal, setShowSearchModal] = useState(false);
-  // Nueva simulación (admin): puerta previa "¿Tienes el CEE anterior?".
+  // Nueva simulación (admin): puerta previa "¿Qué certificados energéticos tienes?".
   // ceeResolved=false → mostramos la puerta; true → pasamos al funnel normal.
+  // ceePrevioData = { inicial, final } (cualquiera de los dos puede ser null).
   const [ceeResolved, setCeeResolved] = useState(false);
   const [ceePrevioData, setCeePrevioData] = useState(null);
   const openNewSimulation = () => { newSimulationOpen = true; setCeeResolved(false); setCeePrevioData(null); setShowSearchModal(true); };
@@ -1145,7 +1146,10 @@ function App() {
               <CeePrevioGate
                 onCancel={closeNewSimulation}
                 onSkip={() => { setCeePrevioData(null); setCeeResolved(true); }}
-                onDone={(cee) => { setCeePrevioData(cee); setCeeResolved(true); }}
+                onDone={({ inicial, final }) => {
+                  setCeePrevioData(inicial || final ? { inicial: inicial || null, final: final || null } : null);
+                  setCeeResolved(true);
+                }}
               />
             ) : (
             <LandingFunnelView

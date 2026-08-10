@@ -405,9 +405,34 @@ const formatNumber = (val) => {
 // El backend guarda el presupuesto en Drive con este nombre exacto y versiona el
 // anterior añadiéndole "_old" (ver POST /api/oportunidades/:id/anexos).
 const BUDGET_LABEL = 'PRESUPUESTO DE LA INSTALACIÓN';
+
+// En una reforma la obra la presupuestan partidas distintas (a menudo gremios
+// distintos): la aerotermia por un lado y cada mejora de envolvente por otro.
+// Cada una tiene su propio hueco, y su fichero se distingue por el sufijo.
+// AEROTERMIA conserva el nombre de siempre para no romper lo ya subido.
+const BUDGET_SLOTS = [
+    { key: 'AEROTERMIA', label: 'Aerotermia', input: null },
+    { key: 'VENTANAS', label: 'Ventanas', input: 'reformaVentanas' },
+    { key: 'CUBIERTA', label: 'Cubierta', input: 'reformaCubierta' },
+    { key: 'SUELO', label: 'Suelo', input: 'reformaSuelo' },
+    { key: 'FACHADA', label: 'Fachada', input: 'reformaParedes' },
+];
+const budgetFileLabel = (slot) => (!slot || slot === 'AEROTERMIA') ? BUDGET_LABEL : `${BUDGET_LABEL}_${slot}`;
+
 const stripExt = (name) => (name || '').replace(/\.[^.]+$/, '').trim();
-const isBudgetFileName = (name) => stripExt(name).toUpperCase() === BUDGET_LABEL;
-const isBudgetOldFileName = (name) => stripExt(name).toUpperCase() === `${BUDGET_LABEL}_OLD`;
+// Devuelve el slot al que pertenece un fichero de Drive, o null si no es presupuesto.
+const budgetSlotOfFileName = (name) => {
+    const n = stripExt(name).toUpperCase();
+    if (n === BUDGET_LABEL) return 'AEROTERMIA';
+    const s = BUDGET_SLOTS.find(x => x.key !== 'AEROTERMIA' && n === `${BUDGET_LABEL}_${x.key}`);
+    return s ? s.key : null;
+};
+const isBudgetFileName = (name) => !!budgetSlotOfFileName(name);
+// Cubre tanto "…INSTALACIÓN_old" como "…INSTALACIÓN_VENTANAS_old".
+const isBudgetOldFileName = (name) => {
+    const n = stripExt(name).toUpperCase();
+    return n.startsWith(BUDGET_LABEL) && n.endsWith('_OLD');
+};
 
 export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }) {
     const { showAlert, showConfirm } = useModal();
@@ -453,7 +478,8 @@ export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }
     const [attachments, setAttachments] = useState([]);
     const [loadingAnnexes, setLoadingAnnexes] = useState(false);
     const [isGlobalDragging, setIsGlobalDragging] = useState(false);
-    const [isBudgetDragging, setIsBudgetDragging] = useState(false);
+    // Qué hueco de presupuesto tiene el fichero encima (o null). Uno por partida.
+    const [budgetDragSlot, setBudgetDragSlot] = useState(null);
     const [draggedIndex, setDraggedIndex] = useState(null);
 
     // Cargar anexos desde Drive al abrir el modal
@@ -494,20 +520,24 @@ export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }
                         // El presupuesto llega de Drive con su nombre de fichero
                         // ("PRESUPUESTO DE LA INSTALACIÓN.pdf"): hay que reconocerlo para
                         // que caiga en su slot y no en "otros anexos".
-                        const isBudget = isBudgetFileName(file.name);
+                        const budgetSlot = budgetSlotOfFileName(file.name);
+                        const isBudget = !!budgetSlot;
 
                         loadedAttachments.push({
                             id: file.id,
-                            label: isBudget ? BUDGET_LABEL : file.name,
+                            label: isBudget ? budgetFileLabel(budgetSlot) : file.name,
                             file: { name: file.name, data: finalData, type: file.mimeType },
                             isDrive: true,
                             isBudget,
+                            budgetSlot,
                             isOther: !isBudget
                         });
                     }
 
                     // El presupuesto va siempre el primero (portada).
-                    loadedAttachments.sort((a, b) => (b.isBudget ? 1 : 0) - (a.isBudget ? 1 : 0));
+                    // Presupuestos delante, y entre ellos en el orden de las partidas.
+                    const ordenSlot = a => (a.isBudget ? BUDGET_SLOTS.findIndex(x => x.key === a.budgetSlot) : 99);
+                    loadedAttachments.sort((a, b) => ordenSlot(a) - ordenSlot(b));
                     setAttachments(loadedAttachments);
                 }
             } catch (err) {
@@ -896,7 +926,7 @@ export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }
         }
     };
 
-    const handleFileChange = async (targetIdOrIndex, file, isOther = false, isBudget = false) => {
+    const handleFileChange = async (targetIdOrIndex, file, isOther = false, isBudget = false, budgetSlot = null) => {
         if (!file) return;
         return new Promise((resolve) => {
             const reader = new FileReader();
@@ -913,7 +943,8 @@ export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }
                         mimeType: file.type,
                         base64: dataUrl,
                         driveFolderId: inputs?.drive_folder_id,
-                        isBudget
+                        isBudget,
+                        budgetSlot: isBudget ? (budgetSlot || 'AEROTERMIA') : null
                     });
 
                     if (!uploadResp.data.success) throw new Error("Error al subir a Drive");
@@ -943,16 +974,22 @@ export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }
 
                     const newAttachment = {
                         id: driveFile.id,
-                        label: isBudget ? BUDGET_LABEL : file.name,
+                        label: isBudget ? budgetFileLabel(budgetSlot) : file.name,
                         file: { name: driveFile.name, data: finalData, type: driveFile.mimeType },
                         isOther: !isBudget,
                         isDrive: true,
-                        isBudget
+                        isBudget,
+                        budgetSlot: isBudget ? (budgetSlot || 'AEROTERMIA') : null
                     };
 
                     setAttachments(prev => {
-                        const filtered = isBudget ? prev.filter(a => !a.isBudget) : [...prev];
-                        // Si es presupuesto, lo ponemos al principio (o según la lógica de orden)
+                        // Solo sustituye el presupuesto DE SU PARTIDA: subir el de
+                        // ventanas no puede llevarse por delante el de aerotermia.
+                        const slot = budgetSlot || 'AEROTERMIA';
+                        const filtered = isBudget
+                            ? prev.filter(a => !(a.isBudget && (a.budgetSlot || 'AEROTERMIA') === slot))
+                            : [...prev];
+                        // Los presupuestos van delante (portada), los demás detrás.
                         return isBudget ? [newAttachment, ...filtered] : [...filtered, newAttachment];
                     });
                 } catch (err) {
@@ -994,9 +1031,80 @@ export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }
         });
     };
 
+    // Partidas con hueco propio de presupuesto: la aerotermia siempre, y cada
+    // mejora de envolvente que esté activada en la reforma.
+    const budgetSlotsActivos = useMemo(
+        () => BUDGET_SLOTS.filter(s => !s.input || !!inputs?.[s.input]),
+        [inputs?.reformaVentanas, inputs?.reformaCubierta, inputs?.reformaSuelo, inputs?.reformaParedes]
+    );
+
     const AnexosModal = () => {
-        const budgetAttachment = attachments.find(a => a.isBudget || a.label === BUDGET_LABEL);
-        const otherAttachments = attachments.filter(a => !a.isBudget && a.label !== BUDGET_LABEL);
+        const budgetDe = (slot) => attachments.find(a => a.isBudget && (a.budgetSlot || 'AEROTERMIA') === slot);
+        const otherAttachments = attachments.filter(a => !a.isBudget);
+
+        // Un hueco por partida: arrastrar o pulsar, y si ya hay fichero se
+        // sustituye solo el de esa partida.
+        const ZonaPresupuesto = ({ slot, label }) => {
+            const adjunto = budgetDe(slot);
+            const arrastrando = budgetDragSlot === slot;
+            const elegir = () => {
+                const input = document.createElement('input');
+                input.type = 'file';
+                input.accept = 'image/*,.pdf';
+                input.onchange = (e) => handleFileChange(null, e.target.files[0], false, true, slot);
+                input.click();
+            };
+            const dnd = {
+                onDragOver: (e) => { e.preventDefault(); setBudgetDragSlot(slot); },
+                onDragEnter: (e) => { e.preventDefault(); setBudgetDragSlot(slot); },
+                onDragLeave: (e) => { e.preventDefault(); setBudgetDragSlot(s => (s === slot ? null : s)); },
+                onDrop: (e) => {
+                    e.preventDefault();
+                    setBudgetDragSlot(null);
+                    if (e.dataTransfer.files?.length > 0) handleFileChange(null, e.dataTransfer.files[0], false, true, slot);
+                },
+            };
+
+            if (adjunto) {
+                return (
+                    <div {...dnd}
+                        title={`Arrastra un PDF o imagen aquí para sustituir el presupuesto de ${label}`}
+                        className={`group flex items-center justify-between p-4 rounded-2xl border transition-all duration-300 ${arrastrando ? 'bg-brand/10 border-brand' : 'bg-brand/5 border-brand/30'}`}>
+                        <div className="flex items-center gap-4 pointer-events-none">
+                            <div className="w-10 h-10 rounded-xl bg-brand/20 flex items-center justify-center text-brand shrink-0">
+                                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                            </div>
+                            <div className="flex flex-col gap-0.5 min-w-0">
+                                <span className="text-[11px] font-black uppercase tracking-wider text-brand">{label}</span>
+                                <span className="text-[9px] text-white/40 font-bold uppercase truncate">{adjunto.file.name}</span>
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                            <button onClick={elegir}
+                                className="p-2 text-white/20 hover:text-white hover:bg-white/5 rounded-lg transition-all" title="Sustituir presupuesto">
+                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                            </button>
+                            <button onClick={() => removeAttachment(attachments.indexOf(adjunto))} className="p-2 text-red-500/40 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-all" title="Quitar">
+                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                            </button>
+                        </div>
+                    </div>
+                );
+            }
+
+            return (
+                <button onClick={elegir} {...dnd}
+                    className={`w-full p-5 border-2 border-dashed rounded-2xl flex flex-col items-center justify-center gap-1.5 transition-all group ${arrastrando ? 'border-brand bg-brand/5 scale-[1.02]' : 'border-white/5 bg-white/[0.02] hover:bg-brand/5 hover:border-brand/40'}`}>
+                    <div className={`w-10 h-10 rounded-full flex items-center justify-center transition-all pointer-events-none ${arrastrando ? 'bg-brand/20' : 'bg-white/5 group-hover:bg-brand/20'}`}>
+                        <svg className={`w-5 h-5 ${arrastrando ? 'text-brand' : 'text-white/20 group-hover:text-brand'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>
+                    </div>
+                    <span className="text-[10px] font-black uppercase tracking-widest text-white/50 group-hover:text-white/80 pointer-events-none">{label}</span>
+                    <span className="text-[9px] font-bold uppercase tracking-wider text-white/25 group-hover:text-white/40 pointer-events-none">
+                        {arrastrando ? 'Suelta aquí' : 'Arrastra o pulsa'}
+                    </span>
+                </button>
+            );
+        };
 
         return (
             <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/95 backdrop-blur-xl" onClick={() => setIsAnexosOpen(false)}>
@@ -1032,74 +1140,14 @@ export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }
                         
                         {/* SECCIÓN PRESUPUESTO */}
                         <div className="mb-4">
-                            <p className="text-white/30 text-[10px] uppercase font-bold tracking-widest mb-3">Presupuesto del Instalador</p>
-                            {budgetAttachment ? (
-                                <div
-                                    onDragOver={(e) => { e.preventDefault(); setIsBudgetDragging(true); }}
-                                    onDragLeave={() => setIsBudgetDragging(false)}
-                                    onDrop={(e) => {
-                                        e.preventDefault();
-                                        setIsBudgetDragging(false);
-                                        // Soltar encima sustituye el presupuesto actual.
-                                        if (e.dataTransfer.files?.length > 0) {
-                                            handleFileChange(null, e.dataTransfer.files[0], false, true);
-                                        }
-                                    }}
-                                    title="Arrastra un PDF o imagen aquí para sustituir el presupuesto"
-                                    className={`group flex items-center justify-between p-4 rounded-2xl border transition-all duration-300 ${isBudgetDragging ? 'bg-brand/10 border-brand' : 'bg-brand/5 border-brand/30'}`}>
-                                    <div className="flex items-center gap-4">
-                                        <div className="w-10 h-10 rounded-xl bg-brand/20 flex items-center justify-center text-brand">
-                                            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-                                        </div>
-                                        <div className="flex flex-col gap-0.5">
-                                            <span className="text-[11px] font-black uppercase tracking-wider text-brand">PRESUPUESTO DE LA INSTALACIÓN</span>
-                                            <span className="text-[9px] text-white/40 font-bold uppercase">{budgetAttachment.file.name}</span>
-                                        </div>
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                        <button 
-                                            onClick={() => {
-                                                const input = document.createElement('input');
-                                                input.type = 'file';
-                                                input.accept = 'image/*,.pdf';
-                                                input.onchange = (e) => handleFileChange(null, e.target.files[0], false, true);
-                                                input.click();
-                                            }}
-                                            className="p-2 text-white/20 hover:text-white hover:bg-white/5 rounded-lg transition-all" title="Sustituir presupuesto">
-                                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
-                                        </button>
-                                        <button onClick={() => removeAttachment(attachments.indexOf(budgetAttachment))} className="p-2 text-red-500/40 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-all">
-                                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
-                                        </button>
-                                    </div>
-                                </div>
-                            ) : (
-                                <button
-                                    onClick={() => {
-                                        const input = document.createElement('input');
-                                        input.type = 'file';
-                                        input.accept = 'image/*,.pdf';
-                                        input.onchange = (e) => handleFileChange(null, e.target.files[0], false, true);
-                                        input.click();
-                                    }}
-                                    onDragOver={(e) => { e.preventDefault(); setIsBudgetDragging(true); }}
-                                    onDragLeave={() => setIsBudgetDragging(false)}
-                                    onDrop={(e) => {
-                                        e.preventDefault();
-                                        setIsBudgetDragging(false);
-                                        if (e.dataTransfer.files?.length > 0) {
-                                            handleFileChange(null, e.dataTransfer.files[0], false, true);
-                                        }
-                                    }}
-                                    className={`w-full p-6 border-2 border-dashed rounded-2xl flex flex-col items-center justify-center gap-2 transition-all group ${isBudgetDragging ? 'border-brand bg-brand/5 scale-[1.02]' : 'border-white/5 bg-white/[0.02] hover:bg-brand/5 hover:border-brand/40'}`}>
-                                    <div className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${isBudgetDragging ? 'bg-brand/20' : 'bg-white/5 group-hover:bg-brand/20'}`}>
-                                        <svg className={`w-6 h-6 ${isBudgetDragging ? 'text-brand' : 'text-white/20 group-hover:text-brand'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>
-                                    </div>
-                                    <span className="text-[10px] font-black uppercase tracking-widest text-white/30 group-hover:text-white/60">
-                                        {isBudgetDragging ? 'Suelta el presupuesto aquí' : 'Arrastra o pulsa para subir el presupuesto del instalador'}
-                                    </span>
-                                </button>
-                            )}
+                            <p className="text-white/30 text-[10px] uppercase font-bold tracking-widest mb-3">
+                                {budgetSlotsActivos.length > 1 ? "Presupuestos del Instalador (por partida)" : "Presupuesto del Instalador"}
+                            </p>
+                            <div className={budgetSlotsActivos.length > 1 ? "grid grid-cols-1 sm:grid-cols-2 gap-3" : ""}>
+                                {budgetSlotsActivos.map(s => (
+                                    <ZonaPresupuesto key={s.key} slot={s.key} label={s.label} />
+                                ))}
+                            </div>
                         </div>
 
                         <div className="w-full h-px bg-white/5 my-2" />

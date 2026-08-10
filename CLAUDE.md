@@ -554,6 +554,304 @@ desarrollar: `REVISION_ALERTA_ENABLED=false` en el `.env`.
 
 ---
 
+## Parte diario de seguimiento — que no se pierda ningún expediente (2026-08-10)
+
+UN solo aviso al día (WhatsApp `WHATSAPP_ADMIN_CHAT` + email `ADMIN_EMAIL`) con TODO
+lo atascado, y en cada línea el enlace que lo desbloquea. Sustituye al aviso suelto de
+"CEE pendientes de revisión", que ahora es uno de sus bloques.
+
+**Un aviso, no siete.** Los vigilantes separados compiten entre sí y acaban ignorados
+todos. El parte es una lista de trabajo. Si añades un caso nuevo, va como bloque
+del parte — no como un `setInterval` propio.
+
+### Los ocho bloques — [seguimientoRadar.js](implementation/backend/services/seguimientoRadar.js)
+
+Cada detector responde a lo mismo: *¿de quién es la pelota y desde cuándo?* Los
+umbrales y la reinsistencia viven en el mapa `BLOQUES` (todos con variable de entorno).
+
+| Bloque | Criterio | Pelota | Botón |
+|---|---|---|---|
+| `RECHAZO_SIN_REENVIAR` | `rechazoBorrador().obsoleto` >2 d | BROKERGY | — (corregir y regenerar) |
+| `REVISION` | `cee_* ∈ PRESENTADO/PTE_REVISION` >2 d | BROKERGY | — |
+| `OBRA_SIN_CERRAR` | obra ejecutada + `cee_final` sin encargar >5 d | BROKERGY | — |
+| `REGISTRO` | `cee_* = REVISADO` >2 d | CERTIFICADOR | Recordar el registro |
+| `CERT_SIN_ENTREGAR` | `ASIGNADO/EN_TRABAJO/PTE_PRESENTACION` >10 d | CERTIFICADOR | Pedir fecha |
+| `SIN_ENCARGAR` | sin certificador >7 d | BROKERGY | — |
+| `MIGRADO_SIN_REVISAR` | `PENDIENTE REVISAR EXPTE` >15 d | BROKERGY | — |
+| `FIRMA_PENDIENTE` | `_sent_at` sin `_signed_link` >7 d | CLIENTE/INSTALADOR | Recordar la firma |
+| `FIN_OBRA` | CEE ini. registrado, sin señales de obra >30 d | CLIENTE/INSTALADOR | ¿Cómo va la obra? |
+
+**REGLA — "sin fin de obra" NO es un solo caso.** Si hay factura, CIFO o RITE, la obra
+está HECHA y lo que falta es encargar el CEE final (`OBRA_SIN_CERRAR`, pelota nuestra).
+Preguntarle "¿cómo va la obra?" a quien ya facturó es quedar mal con quien cumplió y
+además esconde el atasco verdadero. Medido: 9 de 25 estaban así.
+
+**REGLA — un MIGRADO no necesita encargo de CEE**: el suyo se hizo en el sistema
+antiguo. Lo que le falta es que alguien lo audite (`MIGRADO_SIN_REVISAR`). Sin esta
+salida, 15 migrados pedían un CEE que ya existe.
+
+**REGLA — las firmas se agrupan por FIRMANTE, no por documento.** Al cliente le faltan
+a la vez el Anexo I y la Cesión y los firma de una sentada en el mismo enlace: una fila
+por documento son dos recordatorios el mismo día diciéndole cada uno que le falta "un"
+documento.
+
+**REGLA — UNA consulta para los ocho detectores, con campos CONCRETOS del JSONB.**
+Nunca `cee` ni `documentacion` enteros (regla 22): `cee.xml_inicial` son megas.
+
+### Los enlaces de acción — [accionToken.js](implementation/backend/utils/accionToken.js) + [routes/acciones.js](implementation/backend/routes/acciones.js)
+
+Firma HMAC stateless, como `approveCeeSignature`, pero **con caducidad** (14 días, y la
+fecha va DENTRO de lo firmado). Aquel solo se aprueba algo a uno mismo; estos disparan
+un mensaje a un tercero que no se puede retirar, así que un parte viejo reenviado no
+puede seguir siendo un gatillo vivo.
+
+**El enlace abre una PÁGINA con el mensaje editable; no envía de un clic.** Autoriza a
+preparar el envío, no a ejecutarlo a ciegas.
+
+**REGLA — el envío NO se implementa en `acciones.js`**: se delega en `notify-certificador`
+y `solicitar-faltantes` llamándolas con `x-internal-key` (igual que el MCP), para que el
+texto, el sellado del seguimiento y el historial sean los mismos que si hubieras escrito
+desde el expediente. Los TEXTOS son fuente única en
+[recordatorios.js](implementation/backend/services/recordatorios.js), del que tira
+también `notify-certificador`.
+
+**REGLA — `/parte/global` se declara ANTES que `/:tipo/:expId`** o Express lo toma por
+un tipo de acción (mismo gotcha que `/fin-obra` en las subidas públicas).
+
+**Anti-insistencia**: al enviar se sella `documentacion.recordatorios` con la RPC de
+MERGE `merge_expediente_doc_json`. Mientras esté dentro de la ventana de reinsistencia
+del bloque, el parte muestra "avisado hace N días" en vez del botón. Sin esto, el mismo
+cliente recibe el mismo mensaje cada mañana. Para el certificador cuenta además
+`cee_*_last_contacto_at`, así que escribirle desde la app también silencia el botón.
+
+**WhatsApp y email NO llevan lo mismo**: el WhatsApp lleva el titular por bloque y solo
+las 8 primeras acciones (`PARTE_WA_MAX_ACCIONES`); el email lleva el parte entero. Por
+eso los tokens se truncan a 32 hex y la caducidad va en minutos epoch: con la URL larga
+el mensaje pasaba de 4.000 caracteres y el móvil lo pliega tras un "Leer más".
+
+⚠️ En LOCAL el primer chequeo salta a los 90 s del arranque y **manda avisos de verdad**:
+`REVISION_ALERTA_ENABLED=false` en el `.env`.
+
+---
+
+## Nueva simulación con CEE inicial y final (2026-08-10)
+
+La puerta previa a "Nueva simulación" (solo ADMIN) ya no pregunta un sí/no: pregunta **qué
+certificados hay** — *ninguno* · *solo el anterior* · *los dos, la obra ya está hecha* — y admite
+cargarlos a la vez, cada uno en su zona de suelta.
+[CeePrevioGate.jsx](implementation/frontend/src/features/cee/CeePrevioGate.jsx) solo orquesta: la
+extracción es [ceeExtract.js](implementation/frontend/src/features/cee/ceeExtract.js) (`.xml`/`.cex`
+exacto, PDF/fotos por OCR), compartida con `CeeUploadModal`.
+
+### REGLA — con CEE FINAL manda la demanda del FINAL
+
+La demanda de calefacción es una propiedad de la **envolvente**, no del generador. Si existe
+certificado posterior a la obra, la demanda que la bomba de calor cubre de verdad es la suya, así que
+el ahorro se calcula con ella **aunque también tengamos el inicial**. Fuente única:
+`demandaDeCalculo()` en [ceeAvisos.js](implementation/frontend/src/features/cee/ceeAvisos.js), aplicada
+en `seedInputsFromCees` (ceeSeed.js), en las dos ramas de `CalculatorView.handleCalculate`
+(`demandMode` `manual` y `real`) y en `ceeComparison`. No volver a decidirlo en una vista.
+
+De ahí salen los dos avisos cruzados:
+- **demanda inicial > final** → la envolvente mejoró: **eso es un RES080**, y para tramitarlo hacen
+  falta FOTOS del antes/después y FACTURAS. Sin el aviso se prometería por RES060 un ahorro que la
+  ficha no cubre.
+- **demanda final > inicial** → aviso a secas (los certificados suelen estar intercambiados o ser de
+  otra vivienda). No bloquea; el cálculo sigue usando el final.
+- También se cruzan referencia catastral, fechas (el final debe ser posterior) y superficies.
+
+`cee_final` en los inputs es lo que marca el ahorro como **MEDIDO** (`cee_ahorro_origen`): la columna
+FINAL de la tabla de emisiones se rellena con el certificado real en vez de estimarse `demanda/SCOP`,
+el estimador "¿Aún no tienes el CEE FINAL?" **se oculta** (pulsarlo sustituiría datos medidos por una
+hipótesis) y `ResultsPanel` lo dice en verde.
+
+### El funnel da por contestado lo que dice el certificado
+
+Con certificados aportados, `ReformaSubFlow` arranca en **`cee_resumen`**. Con los **dos** CEE el
+recorrido queda en **3-4 pantallas** (antes 8-9):
+
+```
+ficha de la vivienda → cee_resumen → [elementos, solo si RES080] → docs_obra → identificacion
+```
+
+**Lo que el certificado contesta** (y por eso deja de preguntarse): estado de la obra (existe CEE
+posterior ⇒ está ejecutada), fecha, "¿tienes certificados?", combustible anterior
+(`servicios.calefaccion.combustible`), y **RES060 vs RES080** — `esReformaSegunCee()`: la demanda solo
+baja si se tocó la ENVOLVENTE, cambiar el generador no la mueve (margen del 2 % para el ruido del
+certificador).
+
+**Lo que ningún CEE contesta** y se pide *en la misma pantalla*, no en cuatro seguidas: el **emisor**
+(fija la temperatura de impulsión y con ella el SCOP), si la **aerotermia asume el ACS** (es una
+decisión, no un dato) y la **antigüedad de la caldera**.
+
+**REGLA — el η del CEE ELIGE la casilla de la tabla, no la sustituye.** El certificado trae el
+rendimiento medido de la caldera antigua, pero el expediente no guarda η: guarda `rendimiento_id` (el
+`boilerId` de `boilerMapping`) y vuelve a leer de la tabla. Pisar `boilerEff` con el del certificado
+daría un ahorro que el CIFO no puede reproducir, y esa discrepancia es lo primero que mira un
+verificador. Por eso `sugerirEdadDesdeRendimiento()` preselecciona la casilla cuya η queda más cerca
+de la medida, y si la distancia supera 8 puntos se dice en pantalla.
+
+Salida siempre disponible: **"Prefiero responder a mano"** cae en el funnel de siempre. Con un solo
+certificado (sin final) no se puede decidir la ficha ni el estado de la obra: el resumen solo confirma
+datos y el recorrido sigue por el camino largo — ahí el bloque de emisor/ACS **no** se muestra, para no
+preguntarlo dos veces.
+
+### Los ficheros ya NO se pierden
+
+Antes el `pdfBase64` del CEE se descartaba en `doSubmitInternal` y había que volver a subirlo a mano.
+Ahora los `File` originales viajan con el CEE (`_files`) y `subirDocsPendientes()` los sube en cuanto
+existe carpeta de Drive: CEE inicial → `DOC_CEE_EXISTENTE`, CEE final → `DOC_CEE_POSTERIOR`,
+presupuesto → `DOC_PRESUPUESTO`, facturas → `DOC_FACTURAS` ("5. FACTURAS"). Los tres slots nuevos se
+declaran en `buildDocChecklist` — **el POST de subida valida contra ese checklist**, no contra
+`getReformaSlots`, y subir a un slot que solo existe allí da "Tipo de documento no válido".
+Va SECUENCIAL: el índice de un slot múltiple se calcula contando Drive y en paralelo dos subidas
+calculan el mismo.
+
+### Presupuesto y facturas leídos en la toma de datos
+
+Pantalla **`docs_obra`** ([StepDocsObra.jsx](implementation/frontend/src/features/landing/steps/StepDocsObra.jsx)),
+solo flujo interno: sustituye a "¿tienes un presupuesto orientativo?" por soltar el PDF.
+`POST /api/factura-ocr/extract` ([routes/facturaOcr.js](implementation/backend/routes/facturaOcr.js))
+es el gemelo **sin expediente** del OCR de facturas: mismo `facturaOcrService`, pero no guarda en Drive
+(aún no hay carpeta) ni levanta incidencias (no hay expediente contra el que cruzar). `staffOnly`:
+lleva importes.
+
+**REGLA — facturas y presupuesto no se suman.** Si hay facturas, la inversión son ellas; el presupuesto
+solo manda mientras no haya factura. Sumar los dos duplica la inversión del Anexo y el tope de
+sobrefinanciación. El importe es siempre la **base imponible**.
+
+`funnel.presupuesto_modo = 'documento'` (nuevo, junto a `'tengo'`) hace que `funnelToInputs` use esa
+cifra: es literalmente la inversión que declarará el Anexo.
+
+### Aunque sea una oportunidad, se prepara el expediente
+
+Lo leído se guarda en `datos_calculo.docs_ocr` (**solo metadatos y enlaces** — regla 21) y
+`expedienteService` lo vuelca al aceptar:
+- `documentacion.facturas[]` ← `docs_ocr.documentos` casado con `reforma_uploads.DOC_FACTURAS`.
+  El emparejamiento es **secuencial consumiendo `files_count`**: una misma factura puede haber entrado
+  como varias fotos, así que no hay correspondencia 1:1 entre documentos leídos y ficheros subidos.
+- `cee.cee_inicial` / `cee.cee_final` ← `xmlDemandData` / `xmlDemandDataFinal`, que la puerta rellena
+  con `ceeToXmlShape()`; el módulo CEE los pinta igual que si se hubieran subido los `.xml`.
+- nº de serie de la bomba de calor ← `docs_ocr.equipos`, **solo para rellenar huecos**: nunca pisa la
+  marca/modelo del catálogo, que es el dato bueno.
+
+---
+
+## Ahorro RES080 — método SIMPLIFICADO, por vector energético (2026-08-10)
+
+Segunda forma de calcular el ahorro de energía final, junto a la histórica. Se elige y se guarda;
+**por defecto sigue siendo el detallado**, así que nada de lo ya existente cambia.
+
+| Método | Se parte en | Función |
+|---|---|---|
+| **DETALLADO** (el de siempre) | 3 USOS: ACS · calefacción · refrigeración, cada uno con su combustible | `calculateRes080` / `calculateRes080FromEmissions` |
+| **SIMPLIFICADO** (nuevo) | 2 VECTORES: consumo eléctrico · otros combustibles | `calculateRes080Simplificado` |
+
+Misma física en los dos (`consumo = emisiones / factor_paso`; ahorro = ΣEi − ΣEf): solo cambia en
+cuántas categorías se divide.
+
+### El `.xml` del CEE trae la energía final YA CALCULADA — no hay que derivarla
+
+El simplificado tiene **dos fuentes**, y `results.fuenteDatos` dice cuál se usó:
+
+| `fuenteDatos` | De dónde | Cuándo |
+|---|---|---|
+| `energia_final_declarada` | **`<EnergiaFinalVectores>`** del `.xml`: kWh/m²·año por vector energético y, dentro de cada uno, por uso | Siempre que haya `.xml` de los dos CEE |
+| `emisiones` | `<EmisionesCO2><ConsumoElectrico>/<ConsumoOtros>` ÷ factor de paso | Sin `.xml` (OCR de PDF/fotos) o a mano |
+
+**La primera es la buena y es la que manda**: la ficha pide *energía final* y el certificado la
+declara tal cual, así que no se estima ni se divide nada — se suman los vectores. Medido contra un
+CEE real: `ElectricidadPeninsular.Global 36,91 × 0,331 = 12,22` y `GasoleoC.Global 26,91 × 0,311 =
+8,37`, que son exactamente las dos filas de emisiones que imprime el PDF. Ese contraste se calcula
+(`results.contraste`) y **se enseña en el certificado**: dos números independientes del mismo
+documento que concuerdan es la mejor prueba de que la lectura es correcta.
+
+**REGLA — leyendo la energía final NO hay restricción de un solo combustible.** Esa limitación es
+de la vía por emisiones: allí «otros combustibles» es UNA cifra de CO₂ que hay que dividir por UN
+factor de paso, y con dos combustibles la suma es indeshacible. Con `<EnergiaFinalVectores>` cada
+vector viene por separado **y en kWh**, así que sumar gasóleo + gas natural es legítimo. Por eso el
+aviso de mezcla y el selector de combustible se ocultan cuando `fuenteDatos === 'energia_final_declarada'`.
+
+**Un vector con todo a cero no se consume**: el XML los lista los ocho siempre, así que el parser
+guarda solo los que tienen consumo — y esa lista **es** el inventario de combustibles reales del
+edificio. También es donde se ve el reparto que el resumen por servicio escondía: en el CEE medido,
+la calefacción sale cubierta a la vez por electricidad (33,26) y gasóleo (5,58).
+
+⚠️ Las etiquetas de `<EnergiaFinalVectores>` **no** coinciden con las de `<VectorEnergetico>`:
+allí es `BiomasaPellet` (sin la -e) frente a `BiomasaPellete`. Sin las dos entradas en
+`mapVectorEnergetico` el vector caía fuera de `FACTORES_PASO` y `getFactorPaso` devolvía **1**.
+`Biocarburante` se deja sin mapear a propósito: no tiene factor en la tabla y no se le inventa uno
+— su energía final sí se lee (no necesita factor) y el contraste de emisiones se marca no disponible.
+
+**Por qué existe**: hay CEEs en los que un mismo servicio tiene DOS generadores de combustibles
+distintos (visto: bomba de calor eléctrica 420 % + caldera de gasóleo 77,9 % para calefacción y
+ACS) y el certificado **no dice qué porcentaje del consumo va por cada uno**. Por uso no se puede
+repartir; por vector el certificado ya trae la separación hecha.
+
+**REGLA — solo con UN combustible no eléctrico en todo el edificio.** Con dos (gasóleo + gas), la
+fila «otros combustibles» los suma con factores de paso distintos y esa suma no se puede deshacer.
+`combustiblesNoElectricos()` lo detecta y la UI **avisa, no bloquea**: el dato lo confirma una
+persona. Canoniza contra `FACTORES_PASO` para que las MAYÚSCULAS de `normalizeData` no cuenten dos
+veces el mismo combustible.
+
+**REGLA — el combustible se busca en TODOS los generadores, no en el primero de cada servicio.**
+`combustibleCalefaccion` se queda con el primer `<VectorEnergetico>` que encuentra, y el caso que
+justifica este método es justamente el de un servicio con dos generadores: medido sobre un CEE
+real, devolvía "Electricidad peninsular" y se perdía el gasóleo. `parseCeeXml` barre todos los
+vectores de `<InstalacionesTermicas>` y deja `combustibleOtros` = el único no eléctrico, o **null
+si hay varios** — null es la señal de que el método no aplica. Si el XML no lo resuelve pero sí
+declara emisiones por otros combustibles, la fila «Otros combustibles» de la tabla queda editable
+para elegirlo a mano (es el único campo editable en modo XML) y se avisa: sin combustible no hay
+factor de paso y ese consumo contaría como cero.
+
+**REGLA — en simplificado NO se estima la columna FINAL.** El estimador «¿Aún no tienes el CEE
+FINAL?» parte de la demanda POR USO, y su resultado habría que repartirlo otra vez entre los dos
+vectores: justo el reparto que aquí no se conoce. Se oculta y se explica por qué; el FINAL se lee
+del CEE posterior o se teclea.
+
+**REGLA — el certificado RES080 tiene que EXPLICAR el método.** El verificador espera tres filas y
+ve dos: sin la nota no puede reproducir el cálculo. Y el texto **cambia según la fuente** — no se
+le puede decir que un número está declarado si está derivado del CO₂. Con
+`energia_final_declarada` el certificado añade además una **página con el desglose completo vector
+× uso** de los dos CEE: es la que permite rehacer el total sumando y la que enseña el reparto que
+el resumen por servicio escondía.
+
+Las dos páginas son **fuente única**: `buildJustificacionAhorroPages()` en
+[res080Doc.js](implementation/frontend/src/features/expedientes/logic/res080Doc.js), que llaman
+tanto el PDF que se archiva como `CertificadoRes080Modal.jsx` (la vista previa, que mantiene su
+propia copia del RESTO del documento). Mismo patrón que `buildCe3xPages`. Antes estaba duplicado y
+había que tocar los dos sitios a la vez; ya no.
+
+**Dónde se guarda** (sin migración — JSONB que ya existía). Los dos métodos conviven en el MISMO
+`emisiones_manual` con prefijos distintos: cambiar de método y volver no borra lo ya tecleado.
+- Oportunidad (`datos_calculo.inputs`, plano): `metodoAhorroRes080`,
+  `manualEmisionesElectricoInicial/Final`, `manualEmisionesOtrosInicial/Final`,
+  `combustibleOtrosInicial/Final`.
+- Expediente (`cee`, anidado): `metodo_ahorro`,
+  `emisiones_manual.electrico_ini/_fin` + `otros_ini/_fin`, `comb_otros_inicial/final`.
+
+**Las CUATRO ramas del mismo cálculo** (hay que tocarlas a la vez): `CalculatorView.handleCalculate`
+· `ExpedienteDetailView.calcResults` · `CeeModule.res080Data` · `cifoService.computeRes080Results`
+(server-side, lo usa la skill `generar-anexo-cifo`). Cada una tiene DOS entradas al simplificado:
+`calculateRes080SimplificadoFromXml` (con los dos `.xml`) y `calculateRes080Simplificado` (valores
+sueltos, modo manual). El resultado marca `metodoAhorro` ('detallado'|'simplificado'): **ese campo
+es el que ramea a los consumidores**, no el JSONB.
+
+**OCR** (solo cuando no hay `.xml`): `ceeOcrService.js` lee los dos totales
+(`emisiones.consumo_electrico_m2` / `consumo_otros_m2`) y `combustible_otros_detectado`. Un CEE
+leído por OCR alimenta el cálculo igual que un `.xml` porque `ceeToXmlShape()` los mapea a
+`emisionesConsumoElectrico` / `emisionesConsumoOtros` / `combustibleOtros`: los consumidores leen
+`cee_inicial`/`cee_final` sin saber de dónde vinieron. `ceeToColumn()` los propaga además a las
+dos superficies de «Cargar CEE». Lo que el OCR **no** puede dar es `energiaFinalVectores`: el PDF
+no imprime esa tabla, solo está en el `.xml` — por eso un CEE por OCR cae siempre en la vía de
+emisiones.
+
+`EfficiencyTable` acepta `categories` (por defecto las 3 de siempre, sin cambios). Los rótulos van
+EXPLÍCITOS por fila porque los dos métodos no comparten redacción: uno habla de usos y el otro de
+vectores. `CATEGORIES_SIMPLIFICADO` es la fuente única de las dos filas nuevas.
+
+---
+
 ## Facturas de la obra — OCR y filtro previo de incidencias (2026-08-03)
 
 Modal **FACTURAS DE LA OBRA** (pestaña Documentación → "Gestionar"). Sueltas el PDF y la app lo
@@ -618,6 +916,7 @@ del Anexo y de la solicitud). Además:
 6. **Seguridad de rutas**: Todas las rutas del backend usan `requireAuth` o `enforceAuth`.
 7. **Diseño de Anexos**: El padding superior de 90px en `AnexoIModal` es sagrado para evitar cortes en la cabecera al imprimir a PDF.
 8. **Expedientes — SCOP según emisor**: `suelo_radiante`→35°C, `radiadores_baja_temp`→45°C, `radiadores_convencionales`→55°C. En **RES080** la unidad terminal puede ser **aire-aire**: `splits` y `conductos`. No tienen temperatura de impulsión de agua — la ficha da un único SCOP, así que en el catálogo `aerotermia` esos modelos llevan el MISMO valor en `scop_cal_medio_35` y `_55` (`tipo = 'AIRE-AIRE'`) y el certificado imprime "unidad terminal …" en vez de "impulsión N°C". La lista de emisores es **fuente única** en [cifoDoc.js](implementation/frontend/src/features/expedientes/logic/cifoDoc.js) (`EMITTER_OPTIONS` / `getEmitterTemp` / `emitterScopContext`); no volver a duplicarla en los modales. Splits y conductos solo se ofrecen si el nº de expediente es RES080.
+8.b **Cb (RES093) — la carga de diseño sale del REGLAMENTO EUROPEO, no de la zona climática**: en el método `demanda`, `P_designh = Q_H / H_HE` con **H_HE = 2.066 h/año** (Rgto. (UE) 813/2013, Anexo III, punto 4, letra c); el Rgto. Delegado (UE) 811/2013, Anexo VII, punto 4, letra c) da las tres temporadas: medio 2.066 · frío 2.465 · cálido 1.336). Se aplica **clima medio** porque es la temporada en la que se declara el SCOP que exige el Anexo V de la RES060 — SCOP y horas equivalentes son de la MISMA temporada y se toman juntos. Fuente única: `HE_ACTIVE_MODE_HOURS` en [calculation.js](implementation/frontend/src/features/calculator/logic/calculation.js). **No volver a dividir por "horas equivalentes" de la zona** (las tablas RES220/RES230, 3.503 h en D3): son horas de funcionamiento, daban una carga de diseño ~40 % baja y con ella un Cb inflado. El apartado 8 del CIFO desarrolla el procedimiento en 5 pasos con las referencias [R1]-[R5] y ocupa DOS páginas; el método `caldera` no usa horas y sigue en una.
 9. **DNI único**: La columna `clientes.dni` tiene constraint `UNIQUE`.
 10. **Modales de Clientes / Partners**: Nunca cerrar al clicar fuera. Solo "X" o "Cancelar".
 11. **XML Upload**: Parseo automático de demandas y también de `fechaFirma` y `fechaVisita`.
