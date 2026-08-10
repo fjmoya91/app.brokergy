@@ -13,6 +13,7 @@ import {
     AEROTHERMIA_MODELS,
     FACTORES_PASO,
     getScopFromModel,
+    getScopSeason,
     getScopAcsFromModel,
     calculateRes080FromEmissions
 } from '../logic/calculation';
@@ -224,6 +225,10 @@ export function CalculatorForm({
             const power = parseFloat(selectedModel.potencia_calefaccion) || parseFloat(selectedModel.potencia_nominal_35) || 0;
 
             const updates = {};
+            // La temporada de la que sale el SCOP viaja con él: el Cb de la RES093 usa
+            // las horas equivalentes de esa misma temporada, y el expediente la hereda.
+            const newSeason = getScopSeason(selectedModel, inputs.zona, temp);
+            if (newSeason !== inputs.scopTemporada) updates.scopTemporada = newSeason;
             if (!dirtyScopHeating && newScop !== inputs.scopHeating) updates.scopHeating = newScop;
             if (!dirtyPotenciaBomba && power > 0 && power !== inputs.potenciaBomba) updates.potenciaBomba = power;
 
@@ -1532,16 +1537,20 @@ export function CalculatorForm({
                                                     let newScop = 3.2;
                                                     if (type === 'radiadores_baja_temp') newScop = 3.6;
                                                     if (type === 'suelo_radiante') newScop = 4.5;
+                                                    // Sin modelo del catálogo no se puede acreditar la temporada.
+                                                    let newScopTemporada = null;
 
                                                     if (selectedModel && currentModelId !== 'custom') {
                                                         const temp = type === 'radiadores_convencionales' ? 55 : (type === 'radiadores_baja_temp' ? 45 : 35);
                                                         newScop = getScopFromModel(selectedModel, inputs.zona, temp);
+                                                        newScopTemporada = getScopSeason(selectedModel, inputs.zona, temp);
                                                     }
 
                                                     onInputChange(prev => ({
                                                         ...prev,
                                                         emitterType: type,
-                                                        scopHeating: newScop
+                                                        scopHeating: newScop,
+                                                        scopTemporada: newScopTemporada
                                                     }));
                                                 }}
                                                 className="h-12 bg-slate-900/50 border-slate-700/50 rounded-xl"
@@ -1667,6 +1676,7 @@ export function CalculatorForm({
                                                             if (selectedModel && modelId !== 'custom') {
                                                                 const temp = currentEmitter === 'radiadores_convencionales' ? 55 : (currentEmitter === 'radiadores_baja_temp' ? 45 : 35);
                                                                 updates.scopHeating = getScopFromModel(selectedModel, inputs.zona, temp);
+                                                                updates.scopTemporada = getScopSeason(selectedModel, inputs.zona, temp);
                                                                 updates.scopAcs = getScopAcsFromModel(selectedModel, inputs.zona);
                                                                 updates.potenciaBomba = selectedModel.potencia_calefaccion || selectedModel.potencia_nominal_35 || 0;
                                                                 setDirtyScopHeating(false);

@@ -448,7 +448,12 @@ function EquipoRefLinks({ model, data, metodoScop = null }) {
 }
 
 // ─── Sección Aerotermia Nueva ─────────────────────────────────────────────────
-function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tipoEmisor, isAcs = false, readOnly = false, calData = null }) {
+function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tipoEmisor, zona = 'D3', isAcs = false, readOnly = false, calData = null }) {
+    // Zona climática REAL de la instalación (la de la oportunidad). El Anexo III de
+    // la ficha RES060 la equipara a la temporada europea del Rgto. 813/2013: A3-D3
+    // → cálidas, E1 → medias. De ahí sale qué columna del catálogo se aplica, así
+    // que NO puede quedarse en un 'D3' por defecto: en E1 tocaría el SCOP medio.
+    const zonaCE = zona || 'D3';
     const brandOptions = marcas.map(m => ({ value: m.nombre, label: m.nombre, logo: m.logo, acronimo: m.nombre }));
     const availableModels = data?.marca ? (modelosPorMarca[data.marca.toUpperCase()] || []) : [];
     // La etiqueta principal es el nombre comercial + potencia, pero muchos modelos
@@ -557,11 +562,11 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
         }
         const method = extras[idx]?.metodo_scop || data?.metodo_scop || 'ficha';
         const scop = isAcs
-            ? getScopAcsFromModel(found, found.zona_climatica || 'D3', method)
-            : getScopFromModel(found, found.zona_climatica || 'D3', getEmitterTemp(tipoEmisor), method);
+            ? getScopAcsFromModel(found, zonaCE, method)
+            : getScopFromModel(found, zonaCE, getEmitterTemp(tipoEmisor), method);
         handleExtraChange(idx, {
             // Temporada de la que sale ese SCOP: viaja con el número (ver abajo).
-            scop_temporada: isAcs ? null : getScopSeason(found, found.zona_climatica || 'D3', getEmitterTemp(tipoEmisor), method),
+            scop_temporada: isAcs ? null : getScopSeason(found, zonaCE, getEmitterTemp(tipoEmisor), method),
             aerotermia_db_id: found.id,
             modelo: found.modelo_comercial || found.modelo_conjunto || found.modelo_exterior || '',
             modelo_ud_exterior: found.modelo_ud_exterior || '',
@@ -584,10 +589,10 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
             const method = data?.metodo_scop || 'ficha';
             let scop;
             if (isAcs) {
-                scop = getScopAcsFromModel(found, found.zona_climatica || 'D3', method);
+                scop = getScopAcsFromModel(found, zonaCE, method);
             } else {
                 const temp = getEmitterTemp(tipoEmisor);
-                scop = getScopFromModel(found, found.zona_climatica || 'D3', temp, method);
+                scop = getScopFromModel(found, zonaCE, temp, method);
             }
 
             emit({
@@ -597,7 +602,7 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
                 // equivalentes de esa misma temporada, y el CIFO la declara. Se
                 // guarda aquí, en el mismo sitio y con los mismos argumentos que
                 // el número, para que no puedan divergir.
-                scop_temporada: isAcs ? null : getScopSeason(found, found.zona_climatica || 'D3', getEmitterTemp(tipoEmisor), method),
+                scop_temporada: isAcs ? null : getScopSeason(found, zonaCE, getEmitterTemp(tipoEmisor), method),
                 aerotermia_db_id: found.id,
                 modelo: found.modelo_comercial || found.modelo_conjunto || found.modelo_exterior || '',
                 // Snapshot de las referencias del catálogo en el expediente: el CIFO y
@@ -628,16 +633,16 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
         if (found) {
             let scop;
             if (isAcs) {
-                scop = getScopAcsFromModel(found, found.zona_climatica || 'D3', method);
+                scop = getScopAcsFromModel(found, zonaCE, method);
             } else {
                 const temp = getEmitterTemp(tipoEmisor);
-                scop = getScopFromModel(found, found.zona_climatica || 'D3', temp, method);
+                scop = getScopFromModel(found, zonaCE, temp, method);
             }
             emit({
                 ...data,
                 metodo_scop: method,
                 scop,
-                scop_temporada: isAcs ? null : getScopSeason(found, found.zona_climatica || 'D3', getEmitterTemp(tipoEmisor), method),
+                scop_temporada: isAcs ? null : getScopSeason(found, zonaCE, getEmitterTemp(tipoEmisor), method),
                 // El enlace EPREL/KEYMARK/ficha se persiste también al cambiar de
                 // método (no solo al elegir modelo): el certificado los lee del
                 // snapshot del expediente, no del catálogo. Sin esto, poner método
@@ -704,7 +709,7 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
             // sale de su COP A7/55 por el Anexo VI, y su ficha técnica es la que lo
             // justifica en el CIFO.
             const scop = calModel
-                ? getScopAcsFromModel(calModel, calModel.zona_climatica || 'D3', 'independiente')
+                ? getScopAcsFromModel(calModel, zonaCE, 'independiente')
                 : base?.scop ?? null;
             emit({
                 ...base,
@@ -1394,6 +1399,12 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
     }, [expediente?.id]);
 
     const opDatos = expediente?.oportunidades?.datos_calculo || {};
+    // Zona climática del CTE de la instalación. El Anexo III de la ficha la equipara
+    // a la temporada europea del Rgto. 813/2013 (A3-D3 → cálidas · E1 → medias), y de
+    // ahí sale la columna de SCOP del catálogo. Antes se pasaba `zona_climatica` del
+    // modelo, columna que NO existe en la tabla `aerotermia`: siempre caía en 'D3' y
+    // un expediente en E1 acababa con el SCOP de clima cálido.
+    const zonaInstalacion = (opDatos.zona || opDatos.inputs?.zona || 'D3').toUpperCase();
     const opRC = expediente?.oportunidades?.ref_catastral || '';
 
     // Cargar marcas, modelos y todos los prescriptores
@@ -1555,11 +1566,11 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
                 const modelos = modelosPorMarca[u.marca?.toUpperCase()] || [];
                 const found = modelos.find(m => m.id === u.aerotermia_db_id);
                 if (!found) return u;
-                const scop = getScopFromModel(found, found.zona_climatica || 'D3', temp);
+                const scop = getScopFromModel(found, zonaInstalacion, temp);
                 // El emisor cambia la temperatura de impulsión y con ella la columna
                 // del catálogo: un modelo puede tener dato de clima cálido a 35 °C y
                 // no a 55 °C. La temporada se vuelve a sellar con el SCOP nuevo.
-                const scop_temporada = getScopSeason(found, found.zona_climatica || 'D3', temp);
+                const scop_temporada = getScopSeason(found, zonaInstalacion, temp);
                 return { ...u, scop_temporada, ...Object.fromEntries(scopKeys.map(k => [k, scop])) };
             };
             // En cascada hay que recalcular TODAS las unidades y volver a derivar el
@@ -1888,7 +1899,7 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
                                     if (model) {
                                         next.aerotermia_acs = {
                                             ...p.aerotermia_acs,
-                                            scop: getScopAcsFromModel(model, model.zona_climatica || 'D3', p.aerotermia_acs?.metodo_scop || 'independiente'),
+                                            scop: getScopAcsFromModel(model, zonaInstalacion, p.aerotermia_acs?.metodo_scop || 'independiente'),
                                             url_eprel: model.eprel ?? null,
                                             url_keymark: model.url_keymark ?? null,
                                             url_ficha: model.ficha_tecnica ?? null,
@@ -1901,6 +1912,7 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
                         marcas={marcas}
                         modelosPorMarca={modelosPorMarca}
                         tipoEmisor={local.tipo_emisor}
+                        zona={zonaInstalacion}
                     />
                     {local.cambio_acs && (
                         <AerotermiaSection
@@ -1911,6 +1923,7 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
                             marcas={marcas}
                             modelosPorMarca={modelosPorMarca}
                             tipoEmisor={local.tipo_emisor}
+                            zona={zonaInstalacion}
                             isAcs={true}
                             // El acumulador lo calienta la BdC de calefacción: de ahí
                             // sale su SCOP_dhw (Anexo VI) y su ficha justificante.

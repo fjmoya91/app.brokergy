@@ -554,7 +554,10 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
             zone: sanitizedInputs.zona,
             heatPumpPower: sanitizedInputs.potenciaBomba,
             method: sanitizedInputs.hibridacionMetodo,
-            boilerPower: sanitizedInputs.potenciaCaldera
+            boilerPower: sanitizedInputs.potenciaCaldera,
+            // Las horas equivalentes son las de la temporada del SCOP elegido: si la
+            // simulación usara otra, el ahorro cambiaría al crear el expediente.
+            climateSeason: sanitizedInputs.scopTemporada
         }) : null;
         const cb = hybridizationRes?.cb ?? 1.0;
 
