@@ -179,6 +179,27 @@ export function DashboardLayout({ children, activeTab, onTabChange }) {
                         </button>
                     )}
 
+                    {/* Seguimiento — la cola de trabajo del día. Va ARRIBA a propósito:
+                        es lo primero que se abre por la mañana. No lleva importes, así
+                        que la ve el TRABAJADOR igual que el ADMIN (a diferencia del
+                        cuadro de mando, que sí agrega margen). */}
+                    {isStaff && (
+                        <button
+                            onClick={() => go('seguimiento')}
+                            title="Todo lo que lleva parado más de la cuenta, y a quién hay que escribir"
+                            className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all ${
+                                activeTab === 'seguimiento'
+                                    ? 'bg-gradient-to-r from-brand to-brand-700 text-bkg-deep shadow-lg shadow-brand/20'
+                                    : 'text-white/50 hover:bg-bkg-hover hover:text-white border border-transparent'
+                            } ${isSidebarCollapsed ? 'justify-center px-0' : ''}`}
+                        >
+                            <svg className="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            {!isSidebarCollapsed && <span>Seguimiento</span>}
+                        </button>
+                    )}
+
                     {!isCertificador && (
                         <button
                             onClick={() => go('oportunidades')}

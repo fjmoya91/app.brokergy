@@ -20,6 +20,9 @@ const { rankEstado } = require('../utils/expedienteEstados');
 
 const num = (v, def) => { const n = Number(v); return Number.isFinite(n) ? n : def; };
 
+// Días que una línea desaparece del parte al pulsar "ahora no" en su página de acción.
+const POSPONER_DIAS = num(process.env.RADAR_POSPONER_DIAS, 15);
+
 // ─── Los bloques del parte ────────────────────────────────────────────────────
 // `dias`      → a partir de cuántos días parado entra en el parte.
 // `reinsistir`→ tras avisar, cuántos días se calla antes de volver a ofrecer el botón.
@@ -104,7 +107,7 @@ function ultimoAviso(recordatorios, claveAviso) {
     const r = recordatorios?.[claveAviso];
     if (!r?.at) return null;
     const d = dias(r.at);
-    return d === null ? null : { dias: d, target: r.target || null };
+    return d === null ? null : { dias: d, target: r.target || null, pospuesto: !!r.pospuesto };
 }
 
 // ─── Los detectores ───────────────────────────────────────────────────────────
@@ -443,18 +446,83 @@ async function rellenarNombres(filas) {
         }
     }
 
-    const certIds = [...new Set(filas.map(f => f.certificador_id).filter(Boolean))];
-    if (certIds.length) {
+    // Certificadores e instaladores viven en la MISMA tabla: una sola consulta.
+    const partnerIds = [...new Set(filas.flatMap(f => [f.certificador_id, f.instalador_id]).filter(Boolean))];
+    if (partnerIds.length) {
         const { data } = await supabase
             .from('prescriptores')
             .select('id_empresa, razon_social, acronimo')
-            .in('id_empresa', certIds);
+            .in('id_empresa', partnerIds);
         const map = new Map((data || []).map(p => [String(p.id_empresa), p]));
+        const nombre = (id) => { const p = map.get(String(id)); return p?.razon_social || p?.acronimo || null; };
         for (const f of filas) {
-            const p = map.get(String(f.certificador_id));
-            f.certificador_nombre = p?.razon_social || p?.acronimo || null;
+            if (f.certificador_id) f.certificador_nombre = nombre(f.certificador_id);
+            if (f.instalador_id) f.instalador_nombre = nombre(f.instalador_id);
         }
     }
+}
+
+/**
+ * Agrupa lo ACCIONABLE por (tipo de acción + persona concreta a la que hay que
+ * escribir). Es la vista de "despachar", frente a `agruparPorBloque`, que es la de
+ * "diagnosticar".
+ *
+ * Por qué importa: un certificador con cuatro expedientes sin registrar no necesita
+ * cuatro WhatsApps idénticos con un número distinto cada uno — necesita UNO con la
+ * lista. Mandarle cuatro es ruido para él y cuatro confirmaciones para nosotros, y
+ * encima invita a que conteste solo al último.
+ *
+ * La clave incluye el TIPO porque a un mismo certificador se le puede deber una cosa
+ * de registro y otra de emisión: son mensajes distintos y no se pueden fundir.
+ * El cliente casi siempre sale en grupos de uno; se agrupa igual por uniformidad.
+ *
+ * @returns {Array<{clave, tipo, bloque, def, destinatario:{tipo,id,nombre}, filas}>}
+ */
+function agruparPorDestinatario(filas) {
+    const g = new Map();
+    for (const f of filas) {
+        if (!f.accion || f.accion.tipo === 'ver') continue;   // no hay nada que enviar
+        if (silenciadaPor(f)) continue;                        // ya reclamado o pospuesto
+
+        const dest = f.responsable === 'CERTIFICADOR'
+            ? { tipo: 'CERTIFICADOR', id: f.certificador_id, nombre: f.certificador_nombre }
+            : f.responsable === 'INSTALADOR'
+                ? { tipo: 'INSTALADOR', id: f.instalador_id, nombre: f.instalador_nombre }
+                : { tipo: 'CLIENTE', id: f.cliente_id, nombre: f.cliente_nombre };
+        // Sin destinatario identificable no se puede agrupar ni escribir: se queda
+        // fuera de esta vista (sigue estando en la de bloques, que es diagnóstica).
+        if (!dest.id) continue;
+
+        // La clave NO lleva el `scope`: al mismo certificador se le reclama de una vez
+        // el CEE inicial de una obra y el final de otra — es la misma petición
+        // ("regístralos") y cada línea del mensaje ya dice de cuál se trata y lleva su
+        // propio enlace. Sí separa por TIPO: pedir un registro y pedir una entrega son
+        // mensajes distintos y no se pueden fundir.
+        const clave = `${f.accion.tipo}:${dest.tipo}:${dest.id}`;
+        if (!g.has(clave)) {
+            g.set(clave, {
+                clave, tipo: f.accion.tipo,
+                bloque: f.bloque, def: BLOQUES[f.bloque],
+                etiqueta: f.accion.label, destinatario: dest, filas: [],
+            });
+        }
+        g.get(clave).filas.push(f);
+    }
+
+    return [...g.values()]
+        .map(x => {
+            const scopes = [...new Set(x.filas.map(f => f.scope).filter(Boolean))];
+            return {
+                ...x,
+                // `scope` solo cuando todas las filas coinciden. Si el grupo mezcla,
+                // manda el de cada fila (ver `enviarLote`): sellar todo el grupo con
+                // uno solo marcaría la fase equivocada en la mitad de ellos.
+                scope: scopes.length === 1 ? scopes[0] : null,
+                dias: Math.max(...x.filas.map(f => f.dias ?? 0)),
+            };
+        })
+        // Primero el bloque más grave y, dentro, el grupo que más lleva esperando.
+        .sort((a, b) => (a.def.orden - b.def.orden) || (b.dias - a.dias));
 }
 
 /** Agrupa por bloque, en el orden del parte. Devuelve [{ bloque, def, filas }]. */
@@ -470,14 +538,21 @@ function agruparPorBloque(filas) {
 }
 
 /**
- * ¿Se le ofrece el botón a esta fila, o se acaba de avisar?
+ * ¿Se le ofrece el botón a esta fila, o ya se ha reclamado / se ha pospuesto?
  * Devuelve null si toca ofrecerlo; si no, el texto de por qué no.
  */
 function silenciadaPor(f) {
-    const reinsistir = BLOQUES[f.bloque]?.reinsistir;
-    if (!reinsistir || !f.aviso) return null;
-    if (f.aviso.dias >= reinsistir) return null;
+    if (!f.aviso) return null;
+    // Posponer ("ahora no") silencia su propia ventana, más larga que la de
+    // reinsistencia: es una decisión explícita de no reclamar todavía, no el rastro
+    // de haber reclamado.
+    const ventana = f.aviso.pospuesto ? POSPONER_DIAS : BLOQUES[f.bloque]?.reinsistir;
+    if (!ventana || f.aviso.dias >= ventana) return null;
+    if (f.aviso.pospuesto) return `pospuesto, quedan ${ventana - f.aviso.dias} días`;
     return f.aviso.dias === 0 ? 'avisado hoy' : `avisado hace ${f.aviso.dias} día${f.aviso.dias === 1 ? '' : 's'}`;
 }
 
-module.exports = { escanear, agruparPorBloque, silenciadaPor, BLOQUES, dias };
+module.exports = {
+    escanear, agruparPorBloque, agruparPorDestinatario, silenciadaPor,
+    BLOQUES, dias, POSPONER_DIAS,
+};

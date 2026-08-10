@@ -17,6 +17,7 @@ import { AerotermiaView } from './features/aerotermia/views/AerotermiaView';
 import { ExpedientesView } from './features/expedientes/views/ExpedientesView';
 import { LotesView } from './features/lotes/views/LotesView';
 import { DashboardView } from './features/dashboard/views/DashboardView';
+import { SeguimientoView } from './features/seguimiento/views/SeguimientoView';
 import { ResetPasswordView } from './features/auth/views/ResetPasswordView';
 import { AceptarPropuestaView } from './features/public/views/AceptarPropuestaView';
 import { CertAckView } from './features/public/views/CertAckView';
@@ -241,6 +242,12 @@ function App() {
     // partner llega a la pestaña (p.ej. abriendo una URL ?exp=<id> a mano), lo
     // devolvemos a su vista por defecto. El backend además rechaza con 403.
     if (user && activeTab === 'expedientes' && !isStaff && !isCertificador) {
+      setActiveTab('oportunidades');
+    }
+    // Seguimiento es la cola de trabajo del equipo interno: ADMIN y TRABAJADOR. No
+    // lleva importes (por eso no es admin-only como el cuadro de mando), pero enseña
+    // la cartera entera, así que el certificador y los partners quedan fuera.
+    if (user && activeTab === 'seguimiento' && !isStaff) {
       setActiveTab('oportunidades');
     }
   }, [user?.id, user?.rol, user?.id_rol, activeTab]);
@@ -974,6 +981,8 @@ function App() {
             )}
             {step === 'ADMIN' && activeTab === 'dashboard' && isAdminUser ? (
               <DashboardView key={`dash-${navNonce}`} />
+            ) : step === 'ADMIN' && activeTab === 'seguimiento' && isStaffUser ? (
+              <SeguimientoView key={`seg-${navNonce}`} />
             ) : step === 'ADMIN' && activeTab === 'whatsapp' && isAdminUser ? (
               <WhatsappSettingsView key={`wwa-${navNonce}`} />
             ) : step === 'ADMIN' && activeTab === 'usuarios' && isAdminUser ? (

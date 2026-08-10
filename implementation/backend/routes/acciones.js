@@ -20,7 +20,7 @@ const express = require('express');
 const router = express.Router();
 const axios = require('axios');
 const supabase = require('../services/supabaseClient');
-const { verificarAccion } = require('../utils/accionToken');
+const { verificarAccion, firmarAccion } = require('../utils/accionToken');
 const recordatorios = require('../services/recordatorios');
 const seguimientoDiario = require('../services/seguimientoDiario');
 const { dias: diasDesde } = require('../services/seguimientoRadar');
@@ -64,44 +64,85 @@ const DOCS_FIRMA = {
 const clavesBarrido = (target) => Object.values(DOCS_FIRMA)
     .filter(s => s.target === target).map(s => s.barrido);
 
+// Días que desaparece del parte al pulsar "ahora no". Existe porque hay casos en los
+// que sabes que no toca reclamar (el cliente está de obra, el certificador avisó de que
+// va la semana que viene) y sin una salida así la línea vuelve mañana y todos los días
+// siguientes, hasta que dejas de mirar el parte entero.
+const POSPONER_DIAS = Number(process.env.RADAR_POSPONER_DIAS || 15);
+
 // ─── Chapa y pintura ──────────────────────────────────────────────────────────
 
-const pagina = (res, { ok = true, titulo, cuerpo, ancho = 620 }) => {
+// La página se usa DE PIE Y CON EL MÓVIL, entrando desde un WhatsApp. De ahí las
+// decisiones de diseño, que no son cosméticas:
+//  · Un destinatario NO marcado ocupa una línea, no media pantalla. Con el cliente y
+//    el instalador desplegados a la vez había que hacer scroll para descubrir que
+//    existía el segundo.
+//  · El mensaje viene PLEGADO con las primeras líneas a la vista. Casi nunca se
+//    edita; enseñarlo entero solo servía para alejar el botón de enviar.
+//  · El botón va pegado abajo (sticky) y dice a quién y por dónde va. Es la única
+//    acción irreversible de la página: tiene que estar siempre visible y ser explícita.
+const pagina = (res, { ok = true, titulo, cuerpo, ancho = 560 }) => {
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.send(`<!DOCTYPE html>
 <html lang="es"><head><meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>BROKERGY · ${escapar(titulo)}</title>
 <style>
-  *{box-sizing:border-box;margin:0;padding:0}
-  body{background:#0a0e1a;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#e2e8f0;padding:20px;min-height:100vh}
-  .card{background:#111827;border:1px solid #334155;border-radius:18px;padding:26px;max-width:${ancho}px;margin:0 auto}
-  h1{font-size:19px;color:#fff;margin-bottom:6px}
-  h2{font-size:15px;color:${ok ? '#10b981' : '#ef4444'};margin-bottom:10px}
-  p{color:#94a3b8;line-height:1.55;font-size:14px;margin-bottom:12px}
-  .exp{display:inline-block;background:#1e293b;border:1px solid #334155;border-radius:8px;padding:5px 11px;color:#fb923c;font-weight:bold;font-size:13px;margin-bottom:14px}
-  .dest{background:#0f172a;border:1px solid #334155;border-radius:12px;padding:14px;margin-bottom:14px}
-  .dest h3{font-size:13px;color:#fff;margin-bottom:4px}
-  .dest .who{font-size:12px;color:#64748b;margin-bottom:10px}
-  textarea{width:100%;min-height:230px;background:#0a0e1a;border:1px solid #334155;border-radius:10px;color:#e2e8f0;padding:12px;font-family:inherit;font-size:13px;line-height:1.5;resize:vertical}
-  label.ch{display:inline-flex;align-items:center;gap:7px;color:#cbd5e1;font-size:13px;margin-right:16px;margin-top:10px;cursor:pointer}
-  input[type=checkbox]{width:17px;height:17px;accent-color:#FF6D00;cursor:pointer}
-  button{background:#FF6D00;color:#fff;border:0;border-radius:11px;padding:14px 24px;font-weight:bold;font-size:15px;cursor:pointer;width:100%;margin-top:18px}
-  button:disabled{opacity:.5;cursor:not-allowed}
-  .sec{background:transparent;border:1px solid #334155;color:#94a3b8;font-weight:normal;font-size:13px;padding:10px}
-  .warn{background:#422006;border:1px solid #854d0e;color:#fde68a;border-radius:10px;padding:11px;font-size:12.5px;margin-bottom:14px}
-  .brand{color:#475569;font-size:11px;margin-top:24px;text-align:center;letter-spacing:.05em}
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+  body{background:#0a0e1a;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#e2e8f0;min-height:100vh;font-size:15px}
+  .wrap{max-width:${ancho}px;margin:0 auto;padding:18px 16px 0}
+  h1{font-size:20px;color:#fff;line-height:1.25}
+  h2{font-size:16px;color:${ok ? '#10b981' : '#ef4444'};margin-bottom:10px}
+  p{color:#94a3b8;line-height:1.5;font-size:14px}
+  .sub{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:8px 0 16px;font-size:13px}
+  .exp{background:#1e293b;border:1px solid #334155;border-radius:7px;padding:3px 9px;color:#fb923c;font-weight:700}
+  .sub .txt{color:#64748b}
+  .hint{color:#64748b;font-size:13px;line-height:1.5;margin-bottom:16px}
+
+  /* Destinatario: colapsado = una línea; marcado = se abre. */
+  .dest{background:#0f172a;border:1px solid #334155;border-radius:14px;margin-bottom:10px;overflow:hidden;transition:border-color .15s}
+  .dest.on{border-color:#FF6D00}
+  .head{display:flex;align-items:center;gap:11px;padding:13px 14px;cursor:pointer;user-select:none}
+  .head input{width:20px;height:20px;accent-color:#FF6D00;flex:0 0 auto;cursor:pointer}
+  .head .rol{font-weight:700;color:#fff;font-size:14px}
+  .head .nom{color:#64748b;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
+  .body{display:none;padding:0 14px 14px}
+  .dest.on .body{display:block}
+
+  /* Canales como píldoras: el dato de contacto se ve sin abrir nada. */
+  .canales{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
+  .pill{display:inline-flex;align-items:center;gap:7px;background:#0a0e1a;border:1px solid #334155;border-radius:999px;padding:8px 13px;font-size:13px;color:#94a3b8;cursor:pointer}
+  .pill input{width:16px;height:16px;accent-color:#FF6D00;cursor:pointer}
+  .pill:has(input:checked){border-color:#FF6D00;color:#fed7aa;background:#1c1207}
+
+  /* Vista previa plegada, con degradado que insinúa que hay más. */
+  .prev{position:relative;background:#0a0e1a;border:1px solid #1e293b;border-radius:11px;padding:12px;font-size:13px;line-height:1.55;color:#cbd5e1;white-space:pre-wrap;word-break:break-word;max-height:118px;overflow:hidden}
+  .prev::after{content:'';position:absolute;left:0;right:0;bottom:0;height:44px;background:linear-gradient(transparent,#0a0e1a)}
+  .prev.full{max-height:none}
+  .prev.full::after{display:none}
+  .acts{display:flex;gap:16px;margin-top:9px}
+  .link{background:none;border:0;color:#fb923c;font-size:13px;cursor:pointer;padding:4px 0;width:auto;margin:0;font-weight:600}
+  textarea{width:100%;min-height:300px;background:#0a0e1a;border:1px solid #FF6D00;border-radius:11px;color:#e2e8f0;padding:12px;font-family:inherit;font-size:14px;line-height:1.55;resize:vertical}
+
+  /* Barra de acción fija: la acción irreversible siempre a mano. */
+  .barra{position:sticky;bottom:0;background:linear-gradient(transparent,#0a0e1a 22%);padding:20px 16px calc(16px + env(safe-area-inset-bottom));max-width:${ancho}px;margin:0 auto}
+  button{background:#FF6D00;color:#fff;border:0;border-radius:13px;padding:16px;font-weight:700;font-size:16px;cursor:pointer;width:100%;display:block}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  .sec{background:transparent;border:1px solid #334155;color:#94a3b8;font-weight:500;font-size:14px;padding:12px;margin-top:9px}
+  .brand{color:#475569;font-size:11px;padding:10px 0 24px;text-align:center;letter-spacing:.05em}
   a{color:#fb923c}
-  #out{margin-top:14px;font-size:14px}
-</style></head><body><div class="card">${cuerpo}
-<div class="brand">BROKERGY · Ingeniería Energética</div></div></body></html>`);
+  #out{margin-top:11px;font-size:14px;text-align:center;line-height:1.5}
+  .ok{text-align:center;padding:26px 0}
+  .ok .ico{font-size:52px;margin-bottom:14px}
+</style></head><body>${cuerpo}
+<div class="brand">BROKERGY · Ingeniería Energética</div></body></html>`);
 };
 
 const paginaError = (res, titulo, mensaje) =>
     pagina(res, { ok: false, titulo, ancho: 440, cuerpo:
-        `<div style="text-align:center"><div style="font-size:44px;margin-bottom:12px">⚠️</div>
+        `<div class="wrap"><div class="ok"><div class="ico">⚠️</div>
          <h2>${escapar(titulo)}</h2><p>${escapar(mensaje)}</p>
-         <p><a href="${FRONTEND()}/?tab=expedientes">Abrir la app</a></p></div>` });
+         <p style="margin-top:14px"><a href="${FRONTEND()}/?tab=expedientes">Abrir la app</a></p></div></div>` });
 
 /** Valida la firma del enlace y deja `req.scope` listo. */
 function comprobarFirma(req, res, next) {
@@ -306,58 +347,133 @@ router.get('/:tipo/:expId', comprobarFirma, async (req, res) => {
         if (prep.error) return paginaError(res, 'No se puede preparar el mensaje', prep.error);
 
         const bloques = prep.destinatarios.map((d, i) => {
+            // El teléfono y el email se ven en la propia píldora: saber A QUÉ NÚMERO va
+            // el mensaje es justo lo que se comprueba antes de pulsar.
             const canales = [
-                d.tlf   ? `<label class="ch"><input type="checkbox" data-canal="whatsapp" data-i="${i}" checked> WhatsApp <span style="color:#475569">${escapar(d.tlf)}</span></label>` : '',
-                d.email ? `<label class="ch"><input type="checkbox" data-canal="email" data-i="${i}" ${d.tlf ? '' : 'checked'}> Email <span style="color:#475569">${escapar(d.email)}</span></label>` : '',
+                d.tlf   ? `<label class="pill"><input type="checkbox" data-canal="whatsapp" data-i="${i}" checked>📱 ${escapar(d.tlf)}</label>` : '',
+                d.email ? `<label class="pill"><input type="checkbox" data-canal="email" data-i="${i}" ${d.tlf ? '' : 'checked'}>✉️ ${escapar(d.email)}</label>` : '',
             ].filter(Boolean).join('');
-            return `<div class="dest">
-                <label class="ch" style="margin:0 0 8px"><input type="checkbox" data-dest="${i}" ${d.marcado ? 'checked' : ''}>
-                  <strong style="color:#fff">Enviar a ${escapar(d.rol)}</strong></label>
-                <div class="who">${escapar(d.nombre || '—')}</div>
-                <textarea data-msg="${i}">${escapar(d.mensaje)}</textarea>
-                <div>${canales}</div>
+            return `<div class="dest${d.marcado ? ' on' : ''}" data-card="${i}">
+                <label class="head">
+                  <input type="checkbox" data-dest="${i}" ${d.marcado ? 'checked' : ''}>
+                  <span class="rol">${escapar(d.rol)}</span>
+                  <span class="nom">${escapar(d.nombre || '—')}</span>
+                </label>
+                <div class="body">
+                  <div class="canales">${canales}</div>
+                  <div class="prev" data-prev="${i}">${escapar(d.mensaje)}</div>
+                  <textarea data-msg="${i}" hidden>${escapar(d.mensaje)}</textarea>
+                  <div class="acts">
+                    <button type="button" class="link" data-ver="${i}">Ver mensaje completo</button>
+                    <button type="button" class="link" data-edit="${i}">✏️ Editar</button>
+                  </div>
+                </div>
               </div>`;
         }).join('');
 
-        const payloadDest = prep.destinatarios.map(d => ({ id: d.id, tlf: d.tlf, email: d.email }));
+        const payloadDest = prep.destinatarios.map(d => ({ id: d.id, rol: d.rol }));
+        const parteUrl = `${FRONTEND()}/api/acciones/parte/global?${firmarAccion('parte', 'global').query}`;
 
         pagina(res, { titulo: def.titulo, cuerpo: `
+          <div class="wrap">
             <h1>${escapar(def.titulo)}</h1>
-            <div class="exp">${escapar(prep.numExp || expId)}${prep.subtitulo ? ` · ${escapar(prep.subtitulo)}` : ''}</div>
-            <p>${escapar(def.entradilla)}</p>
-            <div class="warn">Revisa el texto antes de enviarlo. Sale desde el WhatsApp y el correo de Brokergy, y no se puede retirar.</div>
+            <div class="sub"><span class="exp">${escapar(prep.numExp || expId)}</span>${prep.subtitulo ? `<span class="txt">${escapar(prep.subtitulo)}</span>` : ''}</div>
+            <div class="hint">${escapar(def.entradilla)}</div>
             ${bloques}
-            <button id="go">Enviar</button>
-            <button class="sec" onclick="location.href='${FRONTEND()}/?exp=${escapar(expId)}'">Prefiero abrir el expediente</button>
             <div id="out"></div>
-            <script>
-              const DEST = ${JSON.stringify(payloadDest)};
-              const btn = document.getElementById('go'), out = document.getElementById('out');
-              btn.onclick = async () => {
-                const envios = [];
-                DEST.forEach((d, i) => {
-                  if (!document.querySelector('[data-dest="' + i + '"]').checked) return;
-                  const canales = [...document.querySelectorAll('[data-i="' + i + '"]')]
-                    .filter(c => c.checked).map(c => c.dataset.canal);
-                  if (!canales.length) return;
-                  envios.push({ target: d.id, canales, mensaje: document.querySelector('[data-msg="' + i + '"]').value });
-                });
-                if (!envios.length) { out.innerHTML = '<span style="color:#fbbf24">Marca al menos un destinatario y un canal.</span>'; return; }
-                btn.disabled = true; btn.textContent = 'Enviando…'; out.textContent = '';
-                try {
-                  const r = await fetch(location.pathname + location.search, {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ envios })
-                  });
-                  const j = await r.json();
-                  if (!r.ok || !j.ok) throw new Error(j.error || 'No se pudo enviar');
-                  out.innerHTML = '<span style="color:#10b981">✅ ' + j.resumen + '</span>';
-                  btn.textContent = 'Enviado';
-                } catch (err) {
-                  out.innerHTML = '<span style="color:#ef4444">❌ ' + err.message + '</span>';
-                  btn.disabled = false; btn.textContent = 'Reintentar';
-                }
+          </div>
+          <div class="barra">
+            <button id="go">Enviar</button>
+            <button class="sec" id="posponer">Ahora no · posponer ${POSPONER_DIAS} días</button>
+            <button class="sec" onclick="location.href='${FRONTEND()}/?exp=${escapar(expId)}'">Abrir el expediente</button>
+          </div>
+          <script>
+            const DEST = ${JSON.stringify(payloadDest)};
+            const $ = (s) => document.querySelector(s);
+            const btn = $('#go'), out = $('#out');
+
+            // Marcar/desmarcar despliega o pliega la tarjeta: un destinatario que no
+            // recibe nada no tiene por qué ocupar pantalla.
+            DEST.forEach((d, i) => {
+              const card = $('[data-card="' + i + '"]'), chk = $('[data-dest="' + i + '"]');
+              chk.addEventListener('change', () => { card.classList.toggle('on', chk.checked); pintar(); });
+              $('[data-ver="' + i + '"]').onclick = (ev) => {
+                const p = $('[data-prev="' + i + '"]'); const abierto = p.classList.toggle('full');
+                ev.target.textContent = abierto ? 'Plegar mensaje' : 'Ver mensaje completo';
               };
-            </script>` });
+              $('[data-edit="' + i + '"]').onclick = (ev) => {
+                const ta = $('[data-msg="' + i + '"]'), p = $('[data-prev="' + i + '"]');
+                if (ta.hidden) { ta.hidden = false; p.style.display = 'none'; ev.target.textContent = '✔️ Listo'; ta.focus(); }
+                else { ta.hidden = true; p.style.display = ''; p.textContent = ta.value; ev.target.textContent = '✏️ Editar'; }
+              };
+              [...document.querySelectorAll('[data-i="' + i + '"]')].forEach(c => c.addEventListener('change', pintar));
+            });
+
+            // El botón dice SIEMPRE a quién y por dónde: es la última pantalla antes de
+            // que salga un mensaje que no se puede retirar.
+            function seleccion() {
+              return DEST.map((d, i) => {
+                if (!$('[data-dest="' + i + '"]').checked) return null;
+                const canales = [...document.querySelectorAll('[data-i="' + i + '"]')].filter(c => c.checked).map(c => c.dataset.canal);
+                if (!canales.length) return null;
+                return { target: d.id, rol: d.rol, canales, mensaje: $('[data-msg="' + i + '"]').value };
+              }).filter(Boolean);
+            }
+            function pintar() {
+              const sel = seleccion();
+              btn.disabled = !sel.length;
+              if (!sel.length) {
+                const alguno = DEST.some((d, i) => $('[data-dest="' + i + '"]').checked);
+                btn.textContent = alguno ? 'Elige WhatsApp o email' : 'Elige a quién enviar';
+                return;
+              }
+              const via = [...new Set(sel.flatMap(s => s.canales))].map(c => c === 'whatsapp' ? 'WhatsApp' : 'email').join(' y ');
+              btn.textContent = 'Enviar a ' + sel.map(s => s.rol).join(' y ') + ' por ' + via;
+            }
+            pintar();
+
+            btn.onclick = async () => {
+              const envios = seleccion();
+              if (!envios.length) return;
+              btn.disabled = true; btn.textContent = 'Enviando…'; out.textContent = '';
+              try {
+                const r = await fetch(location.pathname + location.search, {
+                  method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ envios })
+                });
+                const j = await r.json();
+                if (!r.ok || !j.ok) throw new Error(j.error || 'No se pudo enviar');
+                hecho('✅', j.resumen);
+              } catch (err) {
+                out.innerHTML = '<span style="color:#ef4444">❌ ' + err.message + '</span>';
+                btn.disabled = false; pintar();
+              }
+            };
+
+            $('#posponer').onclick = async () => {
+              const b = $('#posponer'); b.disabled = true; b.textContent = 'Posponiendo…';
+              try {
+                const r = await fetch(location.pathname + location.search, {
+                  method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ posponer: true })
+                });
+                const j = await r.json();
+                if (!r.ok || !j.ok) throw new Error(j.error || 'No se pudo posponer');
+                hecho('😴', j.resumen);
+              } catch (err) {
+                out.innerHTML = '<span style="color:#ef4444">❌ ' + err.message + '</span>';
+                b.disabled = false; b.textContent = 'Ahora no · posponer ${POSPONER_DIAS} días';
+              }
+            };
+
+            function hecho(ico, txt) {
+              document.body.innerHTML =
+                '<div class="wrap"><div class="ok"><div class="ico">' + ico + '</div>' +
+                '<h2 style="color:#10b981">' + txt + '</h2>' +
+                '<p>${escapar(prep.numExp || '')}</p></div>' +
+                '<a href="${parteUrl}"><button>Volver al parte</button></a>' +
+                '<button class="sec" onclick="location.href=\\'${FRONTEND()}/?exp=${escapar(expId)}\\'">Abrir el expediente</button>' +
+                '</div><div class="brand">BROKERGY · Ingeniería Energética</div>';
+            }
+          </script>` });
     } catch (err) {
         console.error('[acciones GET]', err.message);
         paginaError(res, 'Error', 'No se ha podido preparar la acción. Inténtalo desde la app.');
@@ -370,6 +486,12 @@ router.post('/:tipo/:expId', express.json(), comprobarFirma, async (req, res) =>
     const { tipo, expId } = req.params;
     const def = TIPOS[tipo];
     if (!def) return res.status(400).json({ error: 'Acción desconocida' });
+
+    // "Ahora no": no manda nada, solo silencia la línea en el parte.
+    if (req.body?.posponer === true) {
+        await sellarRecordatorio(expId, tipo, req.scope, [], { pospuesto: true });
+        return res.json({ ok: true, resumen: `Pospuesto ${POSPONER_DIAS} días` });
+    }
 
     const envios = Array.isArray(req.body?.envios) ? req.body.envios : [];
     if (!envios.length) return res.status(400).json({ error: 'No hay nada que enviar' });
@@ -436,7 +558,7 @@ router.post('/:tipo/:expId', express.json(), comprobarFirma, async (req, res) =>
  * Se escribe con la RPC de MERGE, nunca por reemplazo: en `documentacion.recordatorios`
  * conviven las marcas de todos los tipos y se sellan en momentos distintos.
  */
-async function sellarRecordatorio(expId, tipo, scope, envios) {
+async function sellarRecordatorio(expId, tipo, scope, envios, { pospuesto = false } = {}) {
     const clave = tipo === 'fin-obra' ? 'fin-obra' : `${tipo}:${scope || 'inicial'}`;
     try {
         const { error } = await supabase.rpc('merge_expediente_doc_json', {
@@ -447,6 +569,10 @@ async function sellarRecordatorio(expId, tipo, scope, envios) {
                     at: new Date().toISOString(),
                     target: envios.map(e => e.target).filter(Boolean).join('+') || null,
                     canales: [...new Set(envios.flatMap(e => e.canales || []))],
+                    // Un "pospuesto" silencia más tiempo que un "ya avisado", y el parte
+                    // lo dice con otras palabras: no es lo mismo haber reclamado que
+                    // haber decidido no reclamar todavía.
+                    pospuesto: pospuesto || undefined,
                     origen: 'parte',
                 },
             },

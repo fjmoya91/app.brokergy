@@ -128,8 +128,56 @@ function firmaMsg({ destinatario, docs = [], numExp, obra, dias, url, esInstalad
     return `${hola}\n\n${cabecera}\n\nEs lo que nos falta para poder seguir con la tramitación de la ayuda.\n\n✍️ ${varios ? 'Fírmalos' : 'Fírmalo'} aquí (se ${varios ? 'hacen' : 'hace'} en 2 minutos desde el móvil):\n${url}\n\nSi tienes cualquier duda, respóndenos por aquí mismo.\n\n¡Gracias!\n${FIRMA}`;
 }
 
+// ─── Mensajes de LOTE: un destinatario, varios expedientes ────────────────────
+//
+// Un certificador con cuatro CEE sin registrar no necesita cuatro mensajes idénticos
+// con un número distinto cada uno. Necesita uno con la lista: es más fácil de
+// responder, más fácil de trabajar contra ella y deja de invitar a que conteste solo
+// al último.
+//
+// El bloque de la lista es común a todos los tipos; lo que cambia es el encabezado.
+
+/** `items`: [{ numExp, cliente, detalle?, dias?, url?, urlLabel? }] */
+function listaExpedientes(items) {
+    return items.map(i => {
+        const cab = `• *${i.numExp}*${i.cliente ? ` — ${capitalizar(i.cliente)}` : ''}`;
+        const det = [i.detalle, i.dias != null ? `${i.dias} días` : null].filter(Boolean).join(' · ');
+        const url = i.url ? `\n  ${i.urlLabel ? i.urlLabel + ' ' : ''}${i.url}` : '';
+        return `${cab}${det ? `\n  _${det}_` : ''}${url}`;
+    }).join('\n\n');
+}
+
+const plural = (n, sing, pl) => (n === 1 ? sing : pl);
+
+/** Varios CEE con visto bueno y sin registrar, del mismo certificador. */
+function certRegistroLoteWa({ certName, items }) {
+    const n = items.length;
+    return `¡Hola *${certName}*! 👋\n\nTienes *${n} ${plural(n, 'certificado', 'certificados')}* con nuestro visto bueno ${plural(n, 'pendiente', 'pendientes')} de registrar en Industria:\n\n${listaExpedientes(items)}\n\nEn cuanto ${plural(n, 'lo presentes', 'los presentes')}, súbenos la etiqueta y el justificante de registro en el enlace de cada uno.\n\n¡Gracias!\n${FIRMA}`;
+}
+
+/** Varios encargos del mismo certificador sin entregar. */
+function certEmisionLoteWa({ certName, items }) {
+    const n = items.length;
+    return `¡Hola *${certName}*! 👋\n\nTe recordamos que tienes *${n} ${plural(n, 'certificado pendiente', 'certificados pendientes')}* de entregar:\n\n${listaExpedientes(items)}\n\n¿Nos puedes dar una estimación de fecha para ${plural(n, 'él', 'ellos')}?\n\n¡Gracias!\n${FIRMA}`;
+}
+
+/** Varias obras del mismo instalador sin terminar. */
+function finObraLoteWa({ destinatario, items }) {
+    const hola = nombrePila(destinatario) ? `¡Hola ${nombrePila(destinatario)}! 👋` : '¡Hola! 👋';
+    const n = items.length;
+    return `${hola}\n\nTenemos *${n} ${plural(n, 'obra tuya', 'obras tuyas')}* con el certificado energético inicial registrado desde hace tiempo y sin constancia de que ${plural(n, 'esté terminada', 'estén terminadas')}:\n\n${listaExpedientes(items)}\n\n¿Cómo ${plural(n, 'va', 'van')}? ¿Nos puedes decir fechas aproximadas?\n\n*De cada una necesitamos, para tramitar la ayuda:*\n· Las *fotos de la instalación terminada* (equipo, placa de características y unidad interior).\n· La *factura* de la obra.\n\nEn el enlace de cada obra puedes subirlo todo y avisarnos con el botón *"He terminado la obra"*.\n\n¡Gracias!\n${FIRMA}`;
+}
+
+/** Varios documentos sin firmar, del mismo firmante, en varios expedientes. */
+function firmaLoteWa({ destinatario, items, esInstalador }) {
+    const hola = nombrePila(destinatario) ? `¡Hola ${nombrePila(destinatario)}! 👋` : '¡Hola! 👋';
+    const n = items.length;
+    return `${hola}\n\nTienes documentación *pendiente de firma* en *${n} ${plural(n, 'expediente', 'expedientes')}*${esInstalador ? '' : ''}:\n\n${listaExpedientes(items)}\n\nEs lo que nos falta para poder seguir con la tramitación. Se firma en 2 minutos desde el móvil, en el enlace de cada uno.\n\n¡Gracias!\n${FIRMA}`;
+}
+
 module.exports = {
     certRegistroWa, certEmisionWa,
     finObraMsg, firmaMsg, bloqueAcciones,
+    certRegistroLoteWa, certEmisionLoteWa, finObraLoteWa, firmaLoteWa, listaExpedientes,
     capitalizar, nombrePila, direccionLimpia, FIRMA,
 };

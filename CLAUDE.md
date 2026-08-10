@@ -608,6 +608,60 @@ puede seguir siendo un gatillo vivo.
 **El enlace abre una PÁGINA con el mensaje editable; no envía de un clic.** Autoriza a
 preparar el envío, no a ejecutarlo a ciegas.
 
+**La página se usa DE PIE Y CON EL MÓVIL**, entrando desde un WhatsApp. Las decisiones
+de diseño no son cosméticas y no conviene deshacerlas:
+- Un destinatario **no marcado ocupa una línea** (48 px), no media pantalla. Con el
+  cliente y el instalador desplegados a la vez había que hacer scroll para descubrir
+  que existía el segundo. Con esto la pantalla completa cabe en un móvil.
+- El mensaje viene **plegado** con las primeras líneas y un degradado; se despliega o
+  se edita a demanda. Casi nunca se edita: enseñarlo entero solo alejaba el botón.
+- El botón va **pegado abajo (sticky)** y dice a quién y por dónde va ("Enviar a
+  Instalador y Cliente por WhatsApp y email"). Es la única acción irreversible.
+- El teléfono y el email se leen **en la propia píldora del canal**: comprobar a qué
+  número va el mensaje es justo lo que se hace antes de pulsar.
+
+### El parte DENTRO de la app — pestaña "Seguimiento"
+
+`features/seguimiento/views/SeguimientoView.jsx` + `components/EnvioLoteModal.jsx`,
+sobre [routes/seguimiento.js](implementation/backend/routes/seguimiento.js)
+(`staffOnly`). Es el gemelo INTERNO de `/api/acciones`: comparten servicios, no rutas.
+
+**NO va dentro del cuadro de mando**, aunque fuera lo primero que se pensó:
+- El cuadro de mando responde *"cómo va el negocio"* (GWh, margen, embudo); esto
+  responde *"qué hago yo ahora"*. Dos modos mentales y dos frecuencias.
+- El cuadro de mando es **ADMIN-only** porque agrega importes. El parte no lleva ni un
+  euro, así que lo ve también el **TRABAJADOR** — que es quien más lo necesita.
+- El cuadro de mando ya carga expedientes + oportunidades + partners + lotes.
+
+Tiene **dos lecturas** de los mismos datos, y el orden importa: **DESPACHAR** (por
+destinatario, por defecto — se entra a trabajar) y **REVISAR** (por bloque, el
+diagnóstico).
+
+### Envío en BLOQUE — [seguimientoLote.js](implementation/backend/services/seguimientoLote.js)
+
+`radar.agruparPorDestinatario()` junta lo accionable por **(tipo de acción + persona)**.
+Un certificador con 7 CEE sin registrar recibe **UN** mensaje con la lista. Medido:
+39 expedientes accionables → 25 mensajes.
+
+**REGLA — la clave de grupo NO lleva el `scope`.** Al mismo certificador se le reclama
+de una vez el CEE inicial de una obra y el final de otra: es la misma petición y cada
+línea del mensaje lleva su propio enlace. Sí separa por TIPO (registro ≠ emisión).
+Como consecuencia, `enviarLote` sella la fase y la clave del recordatorio **por FILA**,
+nunca por grupo: con un grupo mezclado, sellar todo con una sola fase deja la mitad
+marcada donde no toca.
+
+**REGLA — el envío en bloque NO puede delegar en `notify-certificador`**: esa ruta manda
+un mensaje por llamada, así que N llamadas serían N mensajes — justo lo que se evita.
+Aquí el mensaje sale UNA vez y luego se sella expediente por expediente (historial +
+`markCertContact` + `recordatorios`). Los textos siguen siendo fuente única en
+`recordatorios.js`.
+
+**"Ahora no · posponer N días"** (`RADAR_POSPONER_DIAS`, 15) sella el recordatorio con
+`pospuesto: true` sin enviar nada. Silencia su propia ventana, más larga que la de
+reinsistencia, y el parte lo dice con otras palabras: no es lo mismo haber reclamado
+que haber decidido no reclamar todavía. Sin esta salida, la línea que sabes que no toca
+reclamar vuelve mañana y todos los días, hasta que dejas de mirar el parte entero.
+
 **REGLA — el envío NO se implementa en `acciones.js`**: se delega en `notify-certificador`
 y `solicitar-faltantes` llamándolas con `x-internal-key` (igual que el MCP), para que el
 texto, el sellado del seguimiento y el historial sean los mismos que si hubieras escrito

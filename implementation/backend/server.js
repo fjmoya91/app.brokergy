@@ -87,6 +87,9 @@ app.use('/api/factura-ocr', require('./routes/facturaOcr'));
 // (utils/accionToken) que preparan el recordatorio al certificador / cliente /
 // instalador sin tener que entrar en la app. Validan su propio token.
 app.use('/api/acciones', require('./routes/acciones'));
+// El mismo parte, dentro de la app (con sesión de staff): cola de trabajo por bloque
+// y por destinatario + envío en bloque. Gemelo INTERNO de /api/acciones.
+app.use('/api/seguimiento', require('./routes/seguimiento'));
 
 // WhatsApp (opcional): cargar e inicializar de forma automática al arrancar
 try {
