@@ -142,6 +142,11 @@ const baseCss = `
         .prop-kpi.ky { border-top-color: var(--yellow); }
         .prop-kpi.kg { border-top-color: var(--green); display: flex; align-items: center; gap: 14px; }
         .prop-kpi.ko { border-top-color: var(--orange); background: var(--dark); }
+        .prop-kpi.ki { border-top-color: var(--green); background: var(--green-light); }
+        /* Sin coste de obra el trío se queda en una o dos tarjetas. */
+        .prop-kpis.k1 { grid-template-columns: 1fr; }
+        .prop-kpis.k2 { grid-template-columns: 1fr 1fr; }
+        .prop-kpi-v.hip { color: var(--green-dark); font-size: 26px; }
         .prop-kpi-l { font-size: 8px; font-weight: 800; letter-spacing: 1.8px; text-transform: uppercase; color: var(--g400); }
         .prop-kpi.ko .prop-kpi-l { color: rgba(255,255,255,0.45); }
         .prop-kpi-v { font-size: 32px; font-weight: 900; color: var(--dark); letter-spacing: -1.2px; margin-top: 6px; white-space: nowrap; }
@@ -199,6 +204,12 @@ const baseCss = `
         .prop-ftfin .prop-fl { color: var(--white); font-weight: 800; font-size: 11px; text-transform: uppercase; letter-spacing: 0.8px; }
         .prop-ftfin .prop-fv { color: var(--orange); font-weight: 900; font-size: 22px; white-space: nowrap; }
 
+        /* Hipótesis de la deducción cuando no se muestra el coste de la obra. */
+        .prop-hip { margin-top: 10px; border: 1px solid var(--g200); border-top: 4px solid var(--green); border-radius: 10px; padding: 12px 16px; background: var(--green-light); }
+        .prop-hip h4 { margin: 0 0 5px; padding: 0; font-size: 11px; font-weight: 800; color: var(--dark); letter-spacing: -0.1px; }
+        .prop-hip p { margin: 0; padding: 0; font-size: 10px; color: var(--g600); line-height: 1.55; }
+        .prop-hip p + p { margin-top: 5px; }
+        .prop-hip strong { color: var(--dark); }
         .prop-nsm { margin-top: var(--e-nsm); display: flex; flex-direction: column; gap: 2px; }
         .prop-nsm p { font-size: 9.5px; color: var(--g400); line-height: 1.5; margin: 0; }
         .prop-compact .prop-nsm p { font-size: 8.5px; line-height: 1.4; }
@@ -1893,11 +1904,42 @@ info@brokergy.es · 623 926 179`;
     // URL de firma sin protocolo: en el pie del CTA se lee, no se pulsa.
     const signUrlPlain = `${APP_URL}/firma/${urlId}`.replace(/^https?:\/\//, '');
 
+    // Propuesta SIN coste de obra: cuando aún no hay presupuesto, o la obra ya
+    // está ejecutada y solo se quiere enseñar la ayuda a la que se puede optar.
+    // El Bono CAE se calcula sobre el ahorro de energía certificado, así que no
+    // depende del presupuesto y se puede dar cerrado; la deducción del IRPF sí
+    // depende de él, y por eso pasa de cifra a hipótesis.
+    const hideBudget = !!inputs?.hideBudget;
+
     // Trío de indicadores de la portada (ayuda total · % cubierto · inversión neta).
     // Solo se pinta cuando hay UNA opción: en la comparativa a dos columnas esos tres
     // datos siguen viviendo en el pie de cada tabla, que es donde se comparan.
     const renderKpis = (fin) => {
         if (!fin) return null;
+
+        // Sin coste de obra no hay "% cubierto" ni "inversión neta" que enseñar:
+        // los dos se calculan sobre el presupuesto. Queda el bono, que es la cifra
+        // de la propuesta, y la deducción como horquilla.
+        if (hideBudget) {
+            const conIrpf = fin.irpfCap > 0;
+            return (
+                <div className={`prop-kpis ${conIrpf ? 'k2' : 'k1'}`}>
+                    <div className="prop-kpi ko">
+                        <div className="prop-kpi-l">Bono Energético CAE</div>
+                        <div className="prop-kpi-v">{formatNumber(fin.caeBonus)} €</div>
+                        <div className="prop-kpi-n">ayuda estimada para su actuación</div>
+                    </div>
+                    {conIrpf && (
+                        <div className="prop-kpi ki">
+                            <div className="prop-kpi-l">Deducción en el IRPF</div>
+                            <div className="prop-kpi-v hip">hasta {formatNumber(fin.irpfCap)} €</div>
+                            <div className="prop-kpi-n">por propietario · sujeta a requisitos</div>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
         const inversion = (fin.presupuesto || 0) + (fin.presupuestoFotovoltaica || 0);
         const irpfTotal = fin.irpfCap > 0
             ? (fin.irpfDeductionPerOwner || fin.irpfDeduction || 0) * Math.max(1, fin.numOwners || 1)
@@ -2303,11 +2345,13 @@ info@brokergy.es · 623 926 179`;
                                     <div className="prop-stag"><span className="prop-sn">1</span><span className="prop-st">Desglose</span></div>
                                     <div className="prop-stitle">Análisis de subvenciones y deducciones</div>
                                     <p className="prop-sintro">
-                                        {isBoth 
-                                            ? 'Hemos comparado su inversión actual en aerotermia frente a una reforma energética integral. Aquí tiene el desglose de ambas opciones:' 
-                                            : isReforma
-                                                ? 'Hemos analizado su proyecto de reforma energética y calculado las ayudas máximas a las que puede acceder. Este es el desglose personalizado de su propuesta.'
-                                                : 'Hemos analizado su proyecto de mejora energética y calculado las ayudas máximas a las que puede acceder. Este es el desglose personalizado de su propuesta.'
+                                        {hideBudget
+                                            ? 'Hemos analizado su actuación de mejora energética y calculado la ayuda a la que puede optar. El Bono Energético CAE se calcula sobre el ahorro de energía certificado, no sobre el coste de la obra, por eso podemos darle el importe con independencia del presupuesto.'
+                                            : isBoth
+                                                ? 'Hemos comparado su inversión actual en aerotermia frente a una reforma energética integral. Aquí tiene el desglose de ambas opciones:'
+                                                : isReforma
+                                                    ? 'Hemos analizado su proyecto de reforma energética y calculado las ayudas máximas a las que puede acceder. Este es el desglose personalizado de su propuesta.'
+                                                    : 'Hemos analizado su proyecto de mejora energética y calculado las ayudas máximas a las que puede acceder. Este es el desglose personalizado de su propuesta.'
                                         }
                                     </p>
 
@@ -2318,11 +2362,11 @@ info@brokergy.es · 623 926 179`;
                                                 {isBoth && <div className="prop-ftable-title"><i style={{background:'var(--orange)'}}></i> OPCIÓN 1: AEROTERMIA</div>}
                                                     <div className="prop-ftable">
                                                         <div className="prop-fth"><span>Concepto</span><span>Importe</span></div>
-                                                        <div className="prop-ftr"><span className="prop-fl">Inversión sustitución de caldera por aerotermia {ivaSuffix(f)}</span><span className="prop-fv">{formatNumber(f.presupuesto)} €</span></div>
-                                                        {f.presupuestoFotovoltaica > 0 && (
+                                                        {!hideBudget && <div className="prop-ftr"><span className="prop-fl">Inversión sustitución de caldera por aerotermia {ivaSuffix(f)}</span><span className="prop-fv">{formatNumber(f.presupuesto)} €</span></div>}
+                                                        {!hideBudget && f.presupuestoFotovoltaica > 0 && (
                                                             <div className="prop-ftr"><span className="prop-fl">Instalación fotovoltaica {ivaSuffix(f)}</span><span className="prop-fv">{formatNumber(f.presupuestoFotovoltaica)} €</span></div>
                                                         )}
-                                                        <div className="prop-ftr"><span className="prop-fl">Bono Energético CAE <small>(Ingreso Bruto)</small> {ivaSuffixCae(f)}{ceeComparison && includeCeeComp && !inputs?.isReforma && (<><br /><small style={{ color: 'var(--orange)', fontWeight: 700 }}>Con tu CEE: {formatNumber(Math.round(ceeComparison.conCee.cae))} € · con un CEE nuevo BROKERGY: {formatNumber(Math.round(ceeComparison.ceeNuevo.cae))} € (tú eliges)</small></>)}</span><span className="prop-fv grn">– {formatNumber(f.caeBonus)} €</span></div>
+                                                        <div className="prop-ftr"><span className="prop-fl">Bono Energético CAE <small>(Ingreso Bruto)</small> {ivaSuffixCae(f)}{ceeComparison && includeCeeComp && !inputs?.isReforma && (<><br /><small style={{ color: 'var(--orange)', fontWeight: 700 }}>Con tu CEE: {formatNumber(Math.round(ceeComparison.conCee.cae))} € · con un CEE nuevo BROKERGY: {formatNumber(Math.round(ceeComparison.ceeNuevo.cae))} € (tú eliges)</small></>)}</span><span className="prop-fv grn">{hideBudget ? '' : '– '}{formatNumber(f.caeBonus)} €</span></div>
 
                                                         {f.irpfCaeAmount > 0 && (
                                                             <div className="prop-ftr">
@@ -2345,14 +2389,14 @@ info@brokergy.es · 623 926 179`;
                                                         </div>
                                                     )}
 
-                                                    {f.irpfCap > 0 && Array.from({ length: Math.max(1, f.numOwners || 1) }).map((_, index) => (
+                                                    {!hideBudget && f.irpfCap > 0 && Array.from({ length: Math.max(1, f.numOwners || 1) }).map((_, index) => (
                                                         <div key={`owner-${index}`} className="prop-ftr">
                                                             <span className="prop-fl">Deducción en el IRPF Propietario {index + 1} <small>({f.irpfRate}%, Límite {formatNumber(f.irpfCap)} €)</small></span>
                                                             <span className="prop-fv grn">– {formatNumber(f.irpfDeductionPerOwner || f.irpfDeduction)} €</span>
                                                         </div>
                                                     ))}
 
-                                                    {isBoth && (
+                                                    {isBoth && !hideBudget && (
                                                         <>
                                                             <div className="prop-ftaids">
                                                                 <span className="prop-fl">AYUDA TOTAL ESTIMADA</span>
@@ -2378,11 +2422,11 @@ info@brokergy.es · 623 926 179`;
                                                 {isBoth && <div className="prop-ftable-title"><i style={{background:'var(--green)'}}></i> OPCIÓN 2: AEROTERMIA + REFORMA</div>}
                                                     <div className="prop-ftable">
                                                         <div className="prop-fth"><span>Concepto</span><span>Importe</span></div>
-                                                        <div className="prop-ftr"><span className="prop-fl">Inversión Reforma de Vivienda + Aerotermia {ivaSuffix(f80)}</span><span className="prop-fv">{formatNumber(f80.presupuesto)} €</span></div>
-                                                        {f80.presupuestoFotovoltaica > 0 && (
+                                                        {!hideBudget && <div className="prop-ftr"><span className="prop-fl">Inversión Reforma de Vivienda + Aerotermia {ivaSuffix(f80)}</span><span className="prop-fv">{formatNumber(f80.presupuesto)} €</span></div>}
+                                                        {!hideBudget && f80.presupuestoFotovoltaica > 0 && (
                                                             <div className="prop-ftr"><span className="prop-fl">Instalación fotovoltaica {ivaSuffix(f80)}</span><span className="prop-fv">{formatNumber(f80.presupuestoFotovoltaica)} €</span></div>
                                                         )}
-                                                        <div className="prop-ftr"><span className="prop-fl">Bono Energético CAE <small>(Ingreso Bruto)</small> {ivaSuffixCae(f80)}{ceeComparison && includeCeeComp && inputs?.isReforma && (<><br /><small style={{ color: 'var(--orange)', fontWeight: 700 }}>Con tu CEE: {formatNumber(Math.round(ceeComparison.conCee.cae))} € · con un CEE nuevo BROKERGY: {formatNumber(Math.round(ceeComparison.ceeNuevo.cae))} € (tú eliges)</small></>)}</span><span className="prop-fv grn">– {formatNumber(f80.caeBonus)} €</span></div>
+                                                        <div className="prop-ftr"><span className="prop-fl">Bono Energético CAE <small>(Ingreso Bruto)</small> {ivaSuffixCae(f80)}{ceeComparison && includeCeeComp && inputs?.isReforma && (<><br /><small style={{ color: 'var(--orange)', fontWeight: 700 }}>Con tu CEE: {formatNumber(Math.round(ceeComparison.conCee.cae))} € · con un CEE nuevo BROKERGY: {formatNumber(Math.round(ceeComparison.ceeNuevo.cae))} € (tú eliges)</small></>)}</span><span className="prop-fv grn">{hideBudget ? '' : '– '}{formatNumber(f80.caeBonus)} €</span></div>
                                                         
                                                         {f80.irpfCaeAmount > 0 && (
                                                             <div className="prop-ftr">
@@ -2405,14 +2449,14 @@ info@brokergy.es · 623 926 179`;
                                                         </div>
                                                     )}
 
-                                                    {f80.irpfCap > 0 && Array.from({ length: Math.max(1, f80.numOwners || 1) }).map((_, index) => (
+                                                    {!hideBudget && f80.irpfCap > 0 && Array.from({ length: Math.max(1, f80.numOwners || 1) }).map((_, index) => (
                                                         <div key={`owner80-${index}`} className="prop-ftr">
                                                             <span className="prop-fl">Deducción en el IRPF Propietario {index + 1} <small>({f80.irpfRate}%, Límite {formatNumber(f80.irpfCap)} €)</small></span>
                                                             <span className="prop-fv grn">– {formatNumber(f80.irpfDeductionPerOwner || f80.irpfDeduction)} €</span>
                                                         </div>
                                                     ))}
 
-                                                    {isBoth && (
+                                                    {isBoth && !hideBudget && (
                                                         <>
                                                             <div className="prop-ftaids">
                                                                 <span className="prop-fl">AYUDA TOTAL ESTIMADA</span>
@@ -2432,6 +2476,17 @@ info@brokergy.es · 623 926 179`;
                                             </div>
                                         )}
                                     </div>
+                                    {/* Sin coste de obra la deducción no se puede cifrar: depende del
+                                        importe de la obra y de tener un CEE previo. Se explica la
+                                        horquilla en vez de dar un número que no podríamos sostener. */}
+                                    {hideBudget && f.irpfCap > 0 && (
+                                        <div className="prop-hip">
+                                            <h4>Además: deducción en el IRPF de hasta {formatNumber(f.irpfCap)} € por propietario</h4>
+                                            <p>Como contribuyente del IRPF puede deducirse hasta el {f.irpfRate}% de la inversión en rehabilitación energética, con un máximo de <strong>{formatNumber(f.irpfCap)} € por cada propietario</strong> de la vivienda.</p>
+                                            <p>No podemos concretar el importe en esta propuesta porque depende de dos cosas: de que exista un <strong>Certificado de Eficiencia Energética realizado y registrado ANTES de las obras</strong> y del <strong>importe final de la obra</strong>. En cuanto tengamos el presupuesto se lo calculamos exactamente.</p>
+                                        </div>
+                                    )}
+
                                     <div className="prop-nsm">
                                         {ceeComparison && includeCeeComp && (
                                             <p style={{ background: 'rgba(255,157,77,0.10)', borderLeft: '3px solid var(--orange)', padding: '6px 10px', borderRadius: '4px' }}><b>OPCIÓN CEE:</b> Has aportado un CEE inicial. Según cuál usemos, el Bono Energético y la ayuda total serían: <b>con tu CEE</b> {formatNumber(Math.round(ceeComparison.conCee.cae))} € de bono (ayuda total {formatNumber(Math.round(ceeComparison.conCee.total))} €); <b>con un CEE nuevo BROKERGY</b> {formatNumber(Math.round(ceeComparison.ceeNuevo.cae))} € de bono (ayuda total {formatNumber(Math.round(ceeComparison.ceeNuevo.total))} €). La deducción del IRPF es la misma en ambos casos. Elegirás qué CEE usar al aceptar la propuesta.</p>
@@ -2439,6 +2494,9 @@ info@brokergy.es · 623 926 179`;
                                         <p><b>NOTA 1:</b> La ayuda Bono Energético CAE está garantizada por Brokergy. El importe es una estimación técnica que se ajustará tras emitir los CEE inicial y final.</p>
                                         {f.irpfCap > 0 && (
                                             <p><b>NOTA 2:</b> Las deducciones en el IRPF no suponen un descuento directo, sino un derecho a deducción en la renta. El ahorro dependerá de la situación fiscal del contribuyente.</p>
+                                        )}
+                                        {hideBudget && (
+                                            <p><b>NOTA {f.irpfCap > 0 ? '3' : '2'}:</b> Esta propuesta no recoge el coste de la obra. El importe del Bono Energético CAE no depende de él, así que se mantiene sea cual sea el presupuesto final de la instalación.</p>
                                         )}
                                         {showAnnualSavings && (
                                             <p><b>NOTA 3:</b> El análisis de ahorro anual es un cálculo teórico basado en datos climáticos zonales. Los resultados reales dependerán de los hábitos de uso.</p>
@@ -2514,7 +2572,9 @@ info@brokergy.es · 623 926 179`;
                                                 </div>
 
                                                 {(() => {
-                                                    const deduction = f.irpfDeductionPerOwner || f.irpfDeduction;
+                                                    // Sin coste de obra no se puede dar la deducción calculada (sale del
+                                                    // presupuesto): el ejemplo se plantea sobre el máximo deducible.
+                                                    const deduction = hideBudget ? f.irpfCap : (f.irpfDeductionPerOwner || f.irpfDeduction);
                                                     const maxPerYear = 3000;
                                                     const baseYear = new Date().getFullYear() + 1;
                                                     const years = [];
@@ -2527,7 +2587,7 @@ info@brokergy.es · 623 926 179`;
                                                     const prorrateo = deduction > maxPerYear;
                                                     return (
                                                         <div className="prop-ibox-wrap">
-                                                            <p className="prop-ibox-title">{prorrateo ? 'Ejemplo de prorrateo' : 'Ejemplo'} (deducción de {formatNumber(deduction)} €):</p>
+                                                            <p className="prop-ibox-title">{hideBudget ? `Ejemplo con la deducción máxima (${formatNumber(deduction)} €):` : `${prorrateo ? 'Ejemplo de prorrateo' : 'Ejemplo'} (deducción de ${formatNumber(deduction)} €):`}</p>
                                                             <div className="prop-irow">
                                                                 {(prorrateo ? years : [{ year: baseYear, amount: deduction }]).map(y => (
                                                                     <div key={y.year} className="prop-ibox"><div className="prop-iy">Renta {y.year}</div><div className="prop-ia">{formatNumber(y.amount)} €</div></div>

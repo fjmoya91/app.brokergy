@@ -2130,20 +2130,39 @@ export function CalculatorForm({
                                             <div className="w-1 h-3 bg-lime-500 rounded-full"></div>
                                             <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Presupuesto y Configuración</span>
                                         </div>
-                                        <label className="flex items-center gap-2 cursor-pointer group">
-                                            <span className={`text-[10px] font-bold uppercase tracking-wider transition-colors ${inputs.includeIVA ? 'text-lime-400' : 'text-slate-500'}`}>
-                                                {inputs.includeIVA ? 'IVA Incluido' : 'Sin IVA'}
-                                            </span>
-                                            <div className="relative flex items-center">
-                                                <input
-                                                    type="checkbox"
-                                                    className="peer sr-only"
-                                                    checked={inputs.includeIVA || false}
-                                                    onChange={e => toggleIVA(e.target.checked)}
-                                                />
-                                                <div className="w-8 h-4 bg-transparent rounded-full peer border border-orange-500 peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-orange-500 after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-orange-500 peer-checked:after:bg-white"></div>
-                                            </div>
-                                        </label>
+                                        <div className="flex items-center gap-4">
+                                            {/* Oculta el coste de la obra en la PROPUESTA (no en el cálculo).
+                                                Para cuando aún no hay presupuesto o la obra ya está hecha y
+                                                solo se quiere enseñar la ayuda a la que se puede optar. */}
+                                            <label className="flex items-center gap-2 cursor-pointer group" title="Oculta el importe de la obra en la propuesta: solo se muestra la ayuda. Útil si aún no hay presupuesto o la obra ya está ejecutada.">
+                                                <span className={`text-[10px] font-bold uppercase tracking-wider transition-colors ${inputs.hideBudget ? 'text-orange-400' : 'text-slate-500'}`}>
+                                                    Ocultar coste obra
+                                                </span>
+                                                <div className="relative flex items-center">
+                                                    <input
+                                                        type="checkbox"
+                                                        className="peer sr-only"
+                                                        checked={inputs.hideBudget || false}
+                                                        onChange={e => handleChange('hideBudget', e.target.checked)}
+                                                    />
+                                                    <div className="w-8 h-4 bg-transparent rounded-full peer border border-orange-500 peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-orange-500 after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-orange-500 peer-checked:after:bg-white"></div>
+                                                </div>
+                                            </label>
+                                            <label className="flex items-center gap-2 cursor-pointer group">
+                                                <span className={`text-[10px] font-bold uppercase tracking-wider transition-colors ${inputs.includeIVA ? 'text-lime-400' : 'text-slate-500'}`}>
+                                                    {inputs.includeIVA ? 'IVA Incluido' : 'Sin IVA'}
+                                                </span>
+                                                <div className="relative flex items-center">
+                                                    <input
+                                                        type="checkbox"
+                                                        className="peer sr-only"
+                                                        checked={inputs.includeIVA || false}
+                                                        onChange={e => toggleIVA(e.target.checked)}
+                                                    />
+                                                    <div className="w-8 h-4 bg-transparent rounded-full peer border border-orange-500 peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-orange-500 after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-orange-500 peer-checked:after:bg-white"></div>
+                                                </div>
+                                            </label>
+                                        </div>
                                     </div>
 
                                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
