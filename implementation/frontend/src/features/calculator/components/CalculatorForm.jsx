@@ -2706,19 +2706,51 @@ export function CalculatorForm({
 
                                             {inputs.includeCommission && (
                                                 <div className="animate-fade-in space-y-6 mb-6 p-4 rounded-xl bg-slate-950/40 border border-orange-500/20">
-                                                    <div className="space-y-2">
-                                                        <Label htmlFor="private-cae-prescriptor">Comisión Prescriptor (€/MWh)</Label>
-                                                        <Input
-                                                            id="private-cae-prescriptor"
-                                                            type="number"
-                                                            className="bg-slate-900 border-orange-500/40 text-orange-100 focus:border-orange-500 h-9"
-                                                            value={inputs.caePricePrescriptor}
-                                                            onChange={e => {
-                                                                const val = parseFloat(e.target.value) || 0;
-                                                                handleChange('caePricePrescriptor', val);
-                                                            }}
-                                                        />
-                                                    </div>
+                                                    {/* La comisión se pacta de las dos maneras: unos partners la
+                                                        piden en €/MWh y otros como un % del precio que paga el
+                                                        S.O. Se guarda SIEMPRE en €/MWh (es lo que consume el
+                                                        cálculo); el % es solo otra forma de teclear lo mismo, y
+                                                        por eso al escribir en un lado se recalcula el otro. */}
+                                                    {(() => {
+                                                        const precioSO = parseFloat(inputs.caePriceSO) || 0;
+                                                        const comision = parseFloat(inputs.caePricePrescriptor) || 0;
+                                                        const pct = precioSO > 0 ? (comision / precioSO) * 100 : 0;
+                                                        return (
+                                                            <div className="grid grid-cols-2 gap-3">
+                                                                <div className="space-y-2">
+                                                                    <Label htmlFor="private-cae-prescriptor">Comisión Prescriptor (€/MWh)</Label>
+                                                                    <Input
+                                                                        id="private-cae-prescriptor"
+                                                                        type="number"
+                                                                        className="bg-slate-900 border-orange-500/40 text-orange-100 focus:border-orange-500 h-9"
+                                                                        value={inputs.caePricePrescriptor}
+                                                                        onChange={e => handleChange('caePricePrescriptor', parseFloat(e.target.value) || 0)}
+                                                                    />
+                                                                </div>
+                                                                <div className="space-y-2">
+                                                                    <Label htmlFor="private-cae-prescriptor-pct">
+                                                                        Comisión (%) <span className="text-slate-500 font-normal normal-case">s/ {precioSO || '—'} €/MWh</span>
+                                                                    </Label>
+                                                                    <Input
+                                                                        id="private-cae-prescriptor-pct"
+                                                                        type="number"
+                                                                        step="0.1"
+                                                                        min="0"
+                                                                        disabled={precioSO <= 0}
+                                                                        title={precioSO > 0 ? 'Porcentaje sobre el precio CAE del Sujeto Obligado' : 'Introduce antes el precio CAE del S.O.'}
+                                                                        className="bg-slate-900 border-orange-500/40 text-orange-100 focus:border-orange-500 h-9 disabled:opacity-40"
+                                                                        // Se redondea a 2 decimales para que no salga 6.2500000001
+                                                                        // al teclear en el campo de euros.
+                                                                        value={pct ? Math.round(pct * 100) / 100 : (comision ? 0 : '')}
+                                                                        onChange={e => {
+                                                                            const p = parseFloat(e.target.value) || 0;
+                                                                            handleChange('caePricePrescriptor', Math.round(precioSO * p) / 100);
+                                                                        }}
+                                                                    />
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    })()}
 
                                                     <div className="space-y-3">
                                                         <Label>Restar la comisión del prescriptor de:</Label>

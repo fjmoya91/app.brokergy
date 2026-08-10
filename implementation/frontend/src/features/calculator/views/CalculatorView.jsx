@@ -20,7 +20,8 @@ import {
     getVentanaYACHByYear,
     AEROTHERMIA_MODELS
 } from '../logic/calculation';
-import { ceeToEmisionesInputs } from '../logic/ceeSeed';
+import { ceeToEmisionesInputs, ceeFinalToEmisionesInputs } from '../logic/ceeSeed';
+import { demandaDeCalculo } from '../../cee/ceeAvisos';
 import { calculateRes060FC } from '../logic/res060fc';
 import { Res060FCModal } from '../components/Res060FCModal';
 import axios from 'axios';
@@ -64,7 +65,10 @@ const INITIAL_INPUTS = {
     participation: 100,         // Porcentaje de participación
     caePricePrescriptor: 0,
     includeCommission: false,
-    prescriptorMode: 'brokergy',   // 'client', 'brokergy', 'both'
+    // La comisión del prescriptor se resta por defecto del CLIENTE, no del margen
+    // de Brokergy: es la forma en que se pacta habitualmente y así el margen no se
+    // come la comisión sin que nadie lo haya decidido.
+    prescriptorMode: 'client',   // 'client', 'brokergy', 'both'
     emitterType: 'radiadores_convencionales',
     includeAnnualSavings: false,
     hibridacion: false,
@@ -89,6 +93,12 @@ const INITIAL_INPUTS = {
     // Modo de demanda y datos (real o estimado)
     demandMode: 'estimated',
     xmlDemandData: null,
+    // Certificados aportados por el cliente (objeto normalizado de ceeExtract).
+    // `cee_final` solo existe si la obra YA está hecha; cuando existe, el ahorro deja
+    // de ser una estimación y `cee_ahorro_origen` pasa a 'medido'.
+    cee_previo: null,
+    cee_final: null,
+    cee_ahorro_origen: null,   // null | 'estimado' | 'medido'
     // Datos de Reforma (RES080)
     isReforma: false,
     comparativaReforma: true,
@@ -216,6 +226,17 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
                 changeAcs: base.changeAcs || base.incluir_acs,
                 manualDemandAcs: base.manualDemandAcs,
             }));
+        }
+        // CEE FINAL aportado: su columna es REAL, no estimada. Se vuelve a aplicar
+        // SIEMPRE (aunque ya hubiera siembra) porque el bloque de arriba escribe un
+        // final ESTIMADO (demanda/SCOP) y aquí lo sustituye el medido. Y la demanda
+        // del cálculo pasa a ser la del final (ver ceeAvisos.demandaDeCalculo).
+        if (base.cee_final) {
+            if (base.isReforma) Object.assign(base, ceeFinalToEmisionesInputs(base.cee_final));
+            const { demanda, superficie } = demandaDeCalculo(base.cee_previo, base.cee_final);
+            if (demanda > 0) base.manualDemand = demanda;
+            if (superficie > 0) base.manualSuperficie = superficie;
+            base.cee_ahorro_origen = 'medido';
         }
 
         // RES060 (sin reforma): unificamos "Cálculo Real (CEE)" [demandMode='real', XML
@@ -466,13 +487,22 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
         let demandRes;
         const currentDemandMode = inputs.demandMode || 'estimated';
 
-        if (currentDemandMode === 'real' && inputs.xmlDemandData?.demandaCalefaccion) {
-            // Modo REAL: usar la demanda del XML (kWh/m²·año) × superficie calefactable
-            const xmlDemandTotal = inputs.xmlDemandData.demandaCalefaccion * sanitizedInputs.superficieCalefactable;
+        if (currentDemandMode === 'real' && (inputs.xmlDemandDataFinal?.demandaCalefaccion || inputs.xmlDemandData?.demandaCalefaccion)) {
+            // Modo REAL: demanda del XML (kWh/m²·año) × superficie calefactable.
+            //
+            // CON CEE FINAL MANDA EL FINAL. La demanda es una propiedad de la ENVOLVENTE,
+            // no del generador: si existe certificado POSTERIOR a la obra, la demanda que
+            // la bomba de calor tiene que cubrir de verdad es la suya. Usar la del inicial
+            // cuando la envolvente ha mejorado infla el ahorro con una parte que la ficha
+            // RES060 no cubre (eso es un RES080, y exige fotos y facturas — lo avisa la
+            // puerta de carga). Misma regla que `ceeAvisos.demandaDeCalculo`.
+            const demandaXml = inputs.xmlDemandDataFinal?.demandaCalefaccion || inputs.xmlDemandData.demandaCalefaccion;
+            const supXml = sanitizedInputs.superficieCalefactable;
             demandRes = {
-                Q_net: xmlDemandTotal,
-                q_net: inputs.xmlDemandData.demandaCalefaccion,
-                fromXml: true
+                Q_net: demandaXml * supXml,
+                q_net: demandaXml,
+                fromXml: true,
+                desdeCeeFinal: !!inputs.xmlDemandDataFinal?.demandaCalefaccion
             };
         } else if (currentDemandMode === 'manual') {
             // Modo MANUAL/CÁLCULO REAL: demanda introducida a mano o cargada de un CEE.

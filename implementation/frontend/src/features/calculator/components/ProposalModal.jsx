@@ -314,6 +314,12 @@ const baseCss = `
         .prop-cnet { background: var(--green-light); border: 1px solid rgba(0,200,83,0.25); border-radius: 8px; display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 9px 14px; margin-top: 7px; }
         .prop-cnet-l { font-size: 11px; font-weight: 800; color: var(--green-dark); }
         .prop-cnet-v { font-size: 17px; font-weight: 900; color: var(--green-dark); white-space: nowrap; }
+        /* Comparativa: los dos netos en paralelo. Uno debajo del otro se comía
+           los 24px de holgura que tiene esta página y desbordaba sobre el pie. */
+        .prop-cnet2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 7px; }
+        .prop-cnet2 .prop-cnet { margin-top: 0; flex-direction: column; align-items: flex-start; gap: 1px; padding: 7px 12px; }
+        .prop-cnet2 .prop-cnet-l { font-size: 9.5px; }
+        .prop-cnet2 .prop-cnet-v { font-size: 15px; }
         .prop-cnote { margin: 5px 0 0; font-size: 9px; color: var(--g500); font-style: italic; }
         .prop-ptable { background: var(--red-light); border: 1px solid rgba(239,68,68,0.14); border-radius: 8px; overflow: hidden; margin-top: 10px; }
         .prop-pthead { background: rgba(239,68,68,0.06); padding: 7px 14px; font-size: 8.5px; font-weight: 800; color: var(--red); text-transform: uppercase; letter-spacing: 0.5px; }
@@ -1893,18 +1899,24 @@ info@brokergy.es · 623 926 179`;
 
     const totalPages = 4 + attachments.reduce((acc, a) => acc + (a.file?.data?.length || 0), 0);
 
+    const f80 = result.financialsRes080;
+    const isReforma = !!inputs?.isReforma;
+    const isBoth = isReforma && inputs?.comparativaReforma !== false;
+    const isOnlyReforma = isReforma && inputs?.comparativaReforma === false;
+
     // Costs - conditional on discount toggle
     const costeCEE = discountCerts ? 0 : 220;
     const costeTasas = discountCerts ? 0 : 32.78;
     const costeGestion = 0; // Always 100% DTO
     const totalDescuentoGestion = costeCEE + costeTasas + costeGestion;
-    const caeBonus = f.caeBonus || 0;
-    const caeNeto = Math.max(0, caeBonus - totalDescuentoGestion);
 
-    const f80 = result.financialsRes080;
-    const isReforma = !!inputs?.isReforma;
-    const isBoth = isReforma && inputs?.comparativaReforma !== false;
-    const isOnlyReforma = isReforma && inputs?.comparativaReforma === false;
+    // El neto de la cláusula 2 sale del MISMO bono que se imprime en la portada.
+    // Leía siempre `result.financials` (la rama de aerotermia), así que en una
+    // propuesta de SOLO reforma imprimía el bono de la otra opción: 2.330 € de
+    // neto frente a los 1.795 € de la tabla, y el cliente llamaba preguntando
+    // cuál era el bueno (26RES080_OP46).
+    const caeNetoDe = (fin) => Math.max(0, (fin?.caeBonus || 0) - totalDescuentoGestion);
+    const caeNeto = caeNetoDe(isOnlyReforma ? (f80 || f) : f);
 
     // Etiquetas de IVA. Para empresa/autónomo en modo "Sin IVA" las cifras van en neto,
     // así que el presupuesto y el CAE deben rotularse como "(IVA NO INCLUIDO)".
@@ -2767,10 +2779,25 @@ info@brokergy.es · 623 926 179`;
                                             <div className="prop-crow"><span>Gestión técnica y adm. expediente CAE <em>(PROMOCIÓN BROKERGY 100% DTO.)</em></span><strong><span style={{ color: 'var(--g400)', fontWeight: 'normal', fontSize: '10px', marginRight: '6px' }}>(Coste sin dto: 450,00 €)</span>0,00 €</strong></div>
                                             <div className="prop-crow prop-ctot"><span>Total a descontar del importe del CAE</span><span>{formatNumber(totalDescuentoGestion)} € + IVA</span></div>
                                         </div>
-                                        <div className="prop-cnet">
-                                            <span className="prop-cnet-l">Importe CAE neto que recibirá el cliente</span>
-                                            <span className="prop-cnet-v">{formatNumber(caeNeto)} €*</span>
-                                        </div>
+                                        {/* En la comparativa hay DOS bonos: un único neto no diría de
+                                            cuál de las dos opciones es. */}
+                                        {isBoth && f80 ? (
+                                            <div className="prop-cnet2">
+                                                <div className="prop-cnet">
+                                                    <span className="prop-cnet-l">Neto opción 1: Aerotermia</span>
+                                                    <span className="prop-cnet-v">{formatNumber(caeNetoDe(f))} €*</span>
+                                                </div>
+                                                <div className="prop-cnet">
+                                                    <span className="prop-cnet-l">Neto opción 2: Aerotermia + Reforma</span>
+                                                    <span className="prop-cnet-v">{formatNumber(caeNetoDe(f80))} €*</span>
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <div className="prop-cnet">
+                                                <span className="prop-cnet-l">Importe CAE neto que recibirá el cliente</span>
+                                                <span className="prop-cnet-v">{formatNumber(caeNeto)} €*</span>
+                                            </div>
+                                        )}
                                         <p className="prop-cnote">* Importe estimado resultante de descontar los costes de gestión del Bono Energético CAE.</p>
                                     </div>
 
