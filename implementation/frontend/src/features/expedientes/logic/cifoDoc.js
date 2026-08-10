@@ -73,13 +73,14 @@ export function formatDateSpanish(isoStr) {
     } catch { return '—'; }
 }
 
-// ─── Fuentes del diseño (Archivo + Instrument Sans), auto-alojadas en /public/fonts.
+// ─── Fuente del diseño (Instrument Sans), auto-alojada en /public/fonts.
+// TODO el CIFO va en la MISMA familia: el documento no mezcla tipografías,
+// la jerarquía la marcan el peso, el tamaño y el color.
 const FONT_LATIN = 'U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD';
 const FONT_LATINEXT = 'U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF';
 
 function buildFontFaces(appUrl) {
     const fams = [
-        ['Archivo', 'Archivo', [400, 500, 600, 700, 800, 900]],
         ['Instrument Sans', 'InstrumentSans', [400, 500, 600, 700]],
     ];
     let out = '';
@@ -96,7 +97,7 @@ function buildFontFaces(appUrl) {
 const DESIGN_SHARED = `
     * { box-sizing: border-box; }
     .doc-page { font-family: 'Instrument Sans', Arial, sans-serif; font-size: 12.5px; color: #1A1A1A; background: #fff; text-align: left; }
-    .doc-page h1, .doc-page h2, .doc-page h3 { font-family: 'Archivo', sans-serif; margin: 0; }
+    .doc-page h1, .doc-page h2, .doc-page h3 { margin: 0; }
     .doc-page table { break-inside: avoid; }
     .doc-page tr { break-inside: avoid; }
     .cmp { table-layout: fixed; }
@@ -507,17 +508,17 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
     const rowsBox = (inner) => `<div style="border:1px solid #E9E9E1;border-radius:16px;overflow:hidden;font-size:12.5px;">${inner}</div>`;
     const kv = (label, value, last = false) => `<div style="display:grid;grid-template-columns:34% 66%;"><div style="padding:7px 16px;background:#F7F7F1;color:#6E6E66;font-weight:600;${last ? '' : 'border-bottom:1px solid #ECECE4;'}">${label}</div><div style="padding:7px 16px;font-weight:600;${last ? '' : 'border-bottom:1px solid #ECECE4;'}">${value}</div></div>`;
     const cmpHead = (col1 = 'Comparativa', ex = 'Existente', nu = 'Nueva') => `<thead><tr>
-        <th style="text-align:left;padding:8px 16px;background:#1A1A1A;color:#fff;font-family:'Archivo';font-weight:700;font-size:11px;letter-spacing:1px;text-transform:uppercase;width:34%;">${col1}</th>
-        <th style="text-align:left;padding:8px 16px;background:#33332F;color:#C9C9C4;font-family:'Archivo';font-weight:700;font-size:11px;letter-spacing:1px;text-transform:uppercase;">${ex}</th>
-        <th style="text-align:left;padding:8px 16px;background:#93C01F;color:#1A1A1A;font-family:'Archivo';font-weight:800;font-size:11px;letter-spacing:1px;text-transform:uppercase;">${nu}</th>
+        <th style="text-align:left;padding:8px 16px;background:#1A1A1A;color:#fff;font-weight:700;font-size:11px;letter-spacing:1px;text-transform:uppercase;width:34%;">${col1}</th>
+        <th style="text-align:left;padding:8px 16px;background:#33332F;color:#C9C9C4;font-weight:700;font-size:11px;letter-spacing:1px;text-transform:uppercase;">${ex}</th>
+        <th style="text-align:left;padding:8px 16px;background:#93C01F;color:#1A1A1A;font-weight:800;font-size:11px;letter-spacing:1px;text-transform:uppercase;">${nu}</th>
     </tr></thead>`;
     const cmpRow = (label, ex, nu) => `<tr><td style="padding:5px 16px;background:#FAFAF6;color:#4a4a44;font-weight:600;">${label}</td><td style="padding:5px 16px;color:#7a7a72;">${ex}</td><td style="padding:5px 16px;background:#F3F8E6;font-weight:700;">${nu}</td></tr>`;
     const cmpBox = (headHtml, bodyRows) => `<div style="border-radius:16px;overflow:hidden;border:1px solid #E9E9E1;"><table class="cmp" style="width:100%;border-collapse:collapse;font-size:12.5px;">${headHtml}<tbody>${bodyRows}</tbody></table></div>`;
     const scopBox = (headTitle, formula, rowsHtml) => `
         <div style="border-radius:16px;overflow:hidden;border:1px solid #E9E9E1;margin-top:12px;">
             <table class="cmp" style="width:100%;border-collapse:collapse;font-size:12px;"><tbody>
-                <tr><td colspan="3" style="padding:8px 16px;background:#1A1A1A;color:#fff;font-family:'Archivo';font-weight:700;font-size:10.5px;letter-spacing:.5px;text-transform:uppercase;">${headTitle}</td></tr>
-                <tr><td colspan="3" style="text-align:center;font-family:'Archivo';font-weight:800;font-size:15px;background:#FBF6EE;padding:8px;color:#1A1A1A;">${formula}</td></tr>
+                <tr><td colspan="3" style="padding:8px 16px;background:#1A1A1A;color:#fff;font-weight:700;font-size:10.5px;letter-spacing:.5px;text-transform:uppercase;">${headTitle}</td></tr>
+                <tr><td colspan="3" style="text-align:center;font-weight:800;font-size:15px;background:#FBF6EE;padding:8px;color:#1A1A1A;">${formula}</td></tr>
                 <tr>
                     <td style="width:15%;text-align:center;padding:6px 10px;background:#F7F7F1;color:#6E6E66;font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:.5px;">Variable</td>
                     <td style="padding:6px 12px;background:#F7F7F1;color:#6E6E66;font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:.5px;">Descripción</td>
@@ -527,7 +528,7 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
             </tbody></table>
         </div>`;
     const svRow = (v, desc, val) => `<tr><td style="text-align:center;font-weight:700;padding:6px 10px;">${v}</td><td style="padding:6px 12px;color:#4a4a44;">${desc}</td><td style="text-align:center;padding:6px 10px;font-weight:700;">${val}</td></tr>`;
-    const scopResult = (calcText, scopVal) => `<tr><td colspan="2" style="padding:8px 12px;font-weight:700;color:#1A1A1A;">${calcText}</td><td style="text-align:center;font-family:'Archivo';font-weight:900;font-size:16px;background:#F3F8E6;color:#4d6a12;">${scopVal}</td></tr>`;
+    const scopResult = (calcText, scopVal) => `<tr><td colspan="2" style="padding:8px 12px;font-weight:700;color:#1A1A1A;">${calcText}</td><td style="text-align:center;font-weight:900;font-size:16px;background:#F3F8E6;color:#4d6a12;">${scopVal}</td></tr>`;
     const scopCallout = (html) => `<div style="margin-top:12px;padding:14px 18px;background:#F3F8E6;border:1px solid #D5E6A8;border-radius:14px;font-size:12.5px;font-weight:700;color:#1A1A1A;line-height:1.5;">${html}</div>`;
 
     // Si la calefacción está fuera del alcance (solo posible en TER100), D_CAL y S se
@@ -564,7 +565,7 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
                        'AE<sub>ACS</sub><br><span style="font-weight:500;font-size:8.5px;">Agua caliente sanitaria</span>',
                        'AE<sub>CAP</sub><br><span style="font-weight:500;font-size:8.5px;">Calentamiento de piscina</span>',
                        'AE<sub>TOTAL</sub><br><span style="font-weight:500;font-size:8.5px;">kWh/año</span>']
-                        .map(t => `<th style="padding:7px 4px;background:#1A1A1A;color:#fff;font-family:'Archivo';font-weight:700;font-size:9.5px;text-align:center;line-height:1.35;">${t}</th>`).join('')}
+                        .map(t => `<th style="padding:7px 4px;background:#1A1A1A;color:#fff;font-weight:700;font-size:9.5px;text-align:center;line-height:1.35;">${t}</th>`).join('')}
                 </tr></thead>
                 <tbody><tr>
                     ${[[aeCalStr, false], [aeAcsStr, false], [aeCapStr, false], [aeKwhVal, true]]
@@ -575,7 +576,7 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
     const varTableBox = `
         <div style="border-radius:16px;overflow:hidden;border:1px solid #E9E9E1;">
             <table style="width:100%;border-collapse:collapse;">
-                <thead><tr>${varCols.map(c => `<th style="padding:8px 4px;background:#1A1A1A;color:#fff;font-family:'Archivo';font-weight:700;font-size:9.5px;text-align:center;">${c.th}</th>`).join('')}</tr></thead>
+                <thead><tr>${varCols.map(c => `<th style="padding:8px 4px;background:#1A1A1A;color:#fff;font-weight:700;font-size:9.5px;text-align:center;">${c.th}</th>`).join('')}</tr></thead>
                 <tbody><tr>${varCols.map(c => `<td style="padding:8px 4px;text-align:center;font-weight:${c.hi ? 800 : 600};font-size:${c.hi ? '12px' : '11px'};background:${c.hi ? '#F3F8E6' : '#FAFAF6'};color:${c.hi ? '#4d6a12' : '#1A1A1A'};">${c.td}</td>`).join('')}</tr></tbody>
             </table>
         </div>`;
@@ -600,8 +601,8 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
     })();
     const dondeBox = `<div style="border:1px solid #E9E9E1;border-radius:16px;overflow:hidden;">${donde.map((d, i) => `
         <div style="display:flex;align-items:center;gap:14px;padding:5px 16px;${i === donde.length - 1 ? '' : 'border-bottom:1px solid #ECECE4;'}">
-            <span style="flex:none;width:26px;height:26px;border-radius:8px;background:linear-gradient(135deg,#F18A00,#93C01F);color:#fff;font-family:'Archivo';font-weight:800;font-size:12px;display:flex;align-items:center;justify-content:center;">${d.n}</span>
-            <span style="flex:none;width:56px;font-family:'Archivo';font-weight:700;font-size:12px;color:#1A1A1A;">${d.sym}</span>
+            <span style="flex:none;width:26px;height:26px;border-radius:8px;background:linear-gradient(135deg,#F18A00,#93C01F);color:#fff;font-weight:800;font-size:12px;display:flex;align-items:center;justify-content:center;">${d.n}</span>
+            <span style="flex:none;width:56px;font-weight:700;font-size:12px;color:#1A1A1A;">${d.sym}</span>
             <span style="flex:1;color:#4a4a44;font-size:11.5px;">${d.desc}</span>
             <span style="flex:none;font-weight:700;font-size:12px;color:#1A1A1A;white-space:nowrap;">${d.val}</span>
         </div>`).join('')}</div>`;
@@ -615,13 +616,13 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
             <div style="position:absolute;top:96mm;left:0;right:0;z-index:3;padding:0 20mm;">
                 <div style="display:inline-flex;align-items:center;gap:9px;background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.16);padding:6px 16px;border-radius:999px;margin-bottom:20px;">
                     <span style="width:8px;height:8px;border-radius:50%;background:#93C01F;"></span>
-                    <span style="font-family:'Archivo';font-weight:700;font-size:12px;letter-spacing:4px;color:#fff;">CERTIFICADO CIFO · ${cifoLabel}</span>
+                    <span style="font-weight:700;font-size:12px;letter-spacing:4px;color:#fff;">CERTIFICADO CIFO · ${cifoLabel}</span>
                 </div>
                 <h1 style="font-weight:900;font-size:62px;line-height:.98;letter-spacing:-1.5px;color:#fff;text-transform:uppercase;text-shadow:0 4px 26px rgba(0,0,0,.5);max-width:14ch;">Certificado de <span style="color:#F18A00;">instalación</span></h1>
-                <p style="font-family:'Archivo';font-weight:600;font-size:18px;color:#EDEDE8;margin:20px 0 0;max-width:30ch;text-shadow:0 2px 14px rgba(0,0,0,.6);">${actuacionNombre}</p>
+                <p style="font-weight:600;font-size:18px;color:#EDEDE8;margin:20px 0 0;max-width:30ch;text-shadow:0 2px 14px rgba(0,0,0,.6);">${actuacionNombre}</p>
                 <div style="display:flex;gap:10px;margin-top:22px;flex-wrap:wrap;">
-                    <span style="font-family:'Archivo';font-weight:700;font-size:13px;letter-spacing:1px;color:#1A1A1A;background:#fff;padding:6px 16px;border-radius:10px;">Expte: ${numexpte}</span>
-                    <span style="font-family:'Archivo';font-weight:700;font-size:13px;letter-spacing:1px;color:#1A1A1A;background:linear-gradient(90deg,#F5A21E,#A9C63A);padding:6px 16px;border-radius:10px;">${cifoLabel}</span>
+                    <span style="font-weight:700;font-size:13px;letter-spacing:1px;color:#1A1A1A;background:#fff;padding:6px 16px;border-radius:10px;">Expte: ${numexpte}</span>
+                    <span style="font-weight:700;font-size:13px;letter-spacing:1px;color:#1A1A1A;background:linear-gradient(90deg,#F5A21E,#A9C63A);padding:6px 16px;border-radius:10px;">${cifoLabel}</span>
                 </div>
             </div>
 
@@ -629,15 +630,15 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
                 <div style="padding:0 20mm 22px;">
                     <div style="display:inline-flex;align-items:center;gap:20px;background:rgba(12,12,11,.78);border:1px solid rgba(255,255,255,.14);border-radius:20px;padding:16px 26px;">
                         <div>
-                            <div style="font-family:'Archivo';font-weight:700;font-size:11px;letter-spacing:2.5px;color:#93C01F;text-transform:uppercase;">Ahorro anual certificado</div>
-                            <div style="font-family:'Archivo';font-weight:900;font-size:36px;line-height:1;color:#fff;margin-top:4px;">${aeKwh} <span style="font-size:16px;font-weight:700;color:#F18A00;">kWh/año</span></div>
+                            <div style="font-weight:700;font-size:11px;letter-spacing:2.5px;color:#93C01F;text-transform:uppercase;">Ahorro anual certificado</div>
+                            <div style="font-weight:900;font-size:36px;line-height:1;color:#fff;margin-top:4px;">${aeKwh} <span style="font-size:16px;font-weight:700;color:#F18A00;">kWh/año</span></div>
                         </div>
                         <div style="width:1px;height:44px;background:rgba(255,255,255,.2);"></div>
-                        <div style="font-family:'Archivo';font-weight:800;font-size:24px;color:#fff;">${aeKwh} <span style="font-size:13px;font-weight:700;color:#B9B9B4;">CAEs</span></div>
+                        <div style="font-weight:800;font-size:24px;color:#fff;">${aeKwh} <span style="font-size:13px;font-weight:700;color:#B9B9B4;">CAEs</span></div>
                     </div>
                 </div>
                 <div style="background:#0C0C0B;padding:16px 20mm;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;border-top:3px solid;border-image:linear-gradient(90deg,#F18A00,#93C01F) 1;">
-                    <div style="font-family:'Archivo';font-weight:800;font-size:16px;color:#fff;">${empNombre} <span style="color:#93C01F;font-weight:600;font-size:13px;">· Empresa instaladora</span></div>
+                    <div style="font-weight:800;font-size:16px;color:#fff;">${empNombre} <span style="color:#93C01F;font-weight:600;font-size:13px;">· Empresa instaladora</span></div>
                     <div style="display:flex;gap:22px;font-size:12.5px;color:#EDEDE8;font-weight:500;flex-wrap:wrap;">
                         ${empCif && empCif !== '—' ? `<span><b style="color:#F18A00;">CIF</b>&nbsp; ${empCif}</span>` : ''}
                         ${empTlf ? `<span><b style="color:#F18A00;">Tel</b>&nbsp; ${empTlf}</span>` : ''}
@@ -694,7 +695,7 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
 
             ${sectionTitle('Firma y sello', '12px')}
             <div style="border:2px solid #1A1A1A;border-radius:16px;padding:12px 18px;min-height:104px;display:flex;flex-direction:column;break-inside:avoid;">
-                <div style="font-family:'Archivo';font-weight:800;font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:#6E6E66;">Espacio reservado para firma electrónica</div>
+                <div style="font-weight:800;font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:#6E6E66;">Espacio reservado para firma electrónica</div>
                 <div style="flex:1;"></div>
                 <div style="border-top:1px solid #ECECE4;padding-top:10px;font-size:12.5px;font-weight:700;color:#1A1A1A;">${empResponsable} <span style="font-weight:600;color:#6E6E66;">· ${empCargo}</span></div>
             </div>
@@ -812,7 +813,7 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
             ? `<p style="margin:0 0 6px;font-size:12.5px;color:#4a4a44;line-height:1.6;">La demanda de ACS ha sido calculada según el archivo .xml del certificado de eficiencia energética cuyo valor es <b style="color:#1A1A1A;">${parseFloat(ceeFinal.demandaACS || 0).toFixed(2).replace('.', ',')} kWh/m²·año</b>, que multiplicado por la superficie habitable (<b style="color:#1A1A1A;">${parseFloat(ceeFinal.superficieHabitable || 0).toFixed(2).replace('.', ',')} m²</b>) da como resultado <b style="color:#1A1A1A;">${dacsStr} kWh/año</b>.</p>`
             : `
             <p style="margin:0 0 10px;font-size:12.5px;color:#4a4a44;">Según el Anejo F del documento de Ahorro de Energía HE, del Código Técnico de la Edificación (año 2022):</p>
-            <div style="text-align:center;margin:10px 0;font-family:'Archivo';font-weight:800;font-size:15px;background:#FBF6EE;border-radius:10px;padding:8px;">D<sub>ACS</sub> = D<sub>L/D</sub> · N<sub>P</sub> · C<sub>e</sub> · 365 · ΔT</div>
+            <div style="text-align:center;margin:10px 0;font-weight:800;font-size:15px;background:#FBF6EE;border-radius:10px;padding:8px;">D<sub>ACS</sub> = D<sub>L/D</sub> · N<sub>P</sub> · C<sub>e</sub> · 365 · ΔT</div>
             ${rowsBox(`
                 ${kv('D<sub>ACS</sub>', 'Demanda de energía anual para ACS (kWh/año)')}
                 ${kv('D<sub>L/D</sub>', 'Ver tabla c · Anejo F Demanda orientativa de ACS para residencial privado')}
@@ -899,10 +900,10 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
             const ftLink = acsFtUrl ? `<li style="margin-top:3px;">Ficha técnica: <a href="${acsFtUrl}" style="color:#0000EE;text-decoration:underline;">Acceder a la ficha técnica del fabricante</a></li>` : '';
             return `
                 <div style="margin-top:12px;padding:16px 20px;border:1px solid #E9E9E1;border-radius:16px;font-size:12.5px;line-height:1.5;color:#4a4a44;">
-                    <div style="font-family:'Archivo';font-weight:800;font-size:13px;text-transform:uppercase;color:#1A1A1A;margin-bottom:8px;">Cálculo del SCOP en ACS</div>
+                    <div style="font-weight:800;font-size:13px;text-transform:uppercase;color:#1A1A1A;margin-bottom:8px;">Cálculo del SCOP en ACS</div>
                     <div style="font-weight:700;color:#1A1A1A;margin-bottom:4px;">Fórmula aplicada</div>
                     <p style="margin:0 0 6px;">Según el ${isTer100 ? 'Anexo VII de la ficha TER100 (condiciones generales para el cálculo del coeficiente de eficiencia estacional en el calentamiento de ACS)' : 'Anexo VI de la ficha RES060 (Caso 3: bomba de calor aerotérmica con depósito de ACS no suministrado como conjunto)'}, para la zona climática ${zoneStr}:</p>
-                    <div style="text-align:center;font-family:'Archivo';font-weight:800;font-size:15px;background:#FBF6EE;border-radius:10px;padding:8px;margin:10px 0;color:#1A1A1A;">SCOP<sub>dhw</sub> = COP · F<sub>c</sub></div>
+                    <div style="text-align:center;font-weight:800;font-size:15px;background:#FBF6EE;border-radius:10px;padding:8px;margin:10px 0;color:#1A1A1A;">SCOP<sub>dhw</sub> = COP · F<sub>c</sub></div>
                     <div style="font-weight:700;color:#1A1A1A;margin-bottom:4px;">Donde</div>
                     <ul style="list-style:none;margin:0 0 10px;padding-left:0;">
                         <li>· COP: coeficiente de rendimiento según ficha técnica y placa de características del equipo</li>
@@ -916,7 +917,7 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
                     </ul>
                     <div style="display:flex;justify-content:space-between;align-items:center;background:#F3F8E6;border:1px solid #D5E6A8;border-radius:12px;padding:10px 16px;margin-top:10px;">
                         <span style="font-weight:700;color:#1A1A1A;">SCOP<sub>dhw</sub> = ${copCalc} × ${fcStr} = ${scopAcsStr}</span>
-                        <span style="font-family:'Archivo';font-weight:900;font-size:18px;color:#4d6a12;">${scopAcsStr}</span>
+                        <span style="font-weight:900;font-size:18px;color:#4d6a12;">${scopAcsStr}</span>
                     </div>
                 </div>`;
         }
@@ -983,7 +984,7 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
         // dos páginas; el segundo cabe en una. Por eso se arman por separado.
         const esPorCaldera = hybridMethod === HYBRID_METHODS.CALDERA;
 
-        const formulaBox = (html) => `<div style="text-align:center;margin:6px 0;font-family:'Archivo';font-weight:800;font-size:13px;background:#FBF6EE;border-radius:10px;padding:8px;">${html}</div>`;
+        const formulaBox = (html) => `<div style="text-align:center;margin:6px 0;font-weight:800;font-size:13px;background:#FBF6EE;border-radius:10px;padding:8px;">${html}</div>`;
         const quoteBox = (html) => `<div style="margin:8px 0 2px;padding:10px 16px;border-left:3px solid #93C01F;background:#F7F7F1;border-radius:0 10px 10px 0;font-size:11.5px;line-height:1.55;color:#4a4a44;font-style:italic;">${html}</div>`;
         const cite = (t) => `<p style="margin:0 0 8px;font-size:9.5px;color:#8a8a80;">${t}</p>`;
         const par = (html) => `<p style="margin:0 0 6px;font-size:12px;line-height:1.55;color:#4a4a44;">${html}</p>`;
@@ -1024,9 +1025,9 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
         const cbTable = `
                 <div style="border-radius:16px;overflow:hidden;border:1px solid #E9E9E1;">
                     <table class="cmp" style="width:100%;border-collapse:collapse;font-size:12px;"><tbody>
-                        <tr><td colspan="2" style="padding:8px 16px;background:#1A1A1A;color:#fff;font-family:'Archivo';font-weight:700;font-size:10.5px;letter-spacing:.5px;text-transform:uppercase;">Coeficiente de cobertura por bivalencia — valor aplicado</td></tr>
+                        <tr><td colspan="2" style="padding:8px 16px;background:#1A1A1A;color:#fff;font-weight:700;font-size:10.5px;letter-spacing:.5px;text-transform:uppercase;">Coeficiente de cobertura por bivalencia — valor aplicado</td></tr>
                         <tr><td style="text-align:center;padding:6px 10px;background:#F7F7F1;color:#6E6E66;font-weight:700;font-size:10px;text-transform:uppercase;">${esPorCaldera ? 'Cobertura potencia térmica BdC sobre caldera existente' : 'Cobertura de la BdC sobre la carga de diseño para calefacción'}</td><td style="text-align:center;padding:6px 10px;background:#F7F7F1;color:#6E6E66;font-weight:700;font-size:10px;text-transform:uppercase;">C<sub>b</sub></td></tr>
-                        <tr><td style="text-align:center;font-family:'Archivo';font-weight:800;font-size:15px;background:#FBF6EE;padding:10px;">${appliedCovStr}%${coveragePct >= 95 ? ' · valor aplicado' : ''}</td><td style="text-align:center;font-family:'Archivo';font-weight:900;font-size:16px;background:#F3F8E6;color:#4d6a12;">${cbStr}</td></tr>
+                        <tr><td style="text-align:center;font-weight:800;font-size:15px;background:#FBF6EE;padding:10px;">${appliedCovStr}%${coveragePct >= 95 ? ' · valor aplicado' : ''}</td><td style="text-align:center;font-weight:900;font-size:16px;background:#F3F8E6;color:#4d6a12;">${cbStr}</td></tr>
                     </tbody></table>
                 </div>`;
 
@@ -1122,7 +1123,7 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
     if (annexList.length > 0) {
         const items = annexList.map((a, i) => `
             <div style="display:flex;align-items:center;gap:16px;border:1px solid #E9E9E1;border-radius:16px;padding:14px 18px;background:#fff;">
-                <span style="flex:none;width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,#F18A00,#93C01F);color:#fff;font-family:'Archivo';font-weight:800;font-size:15px;display:flex;align-items:center;justify-content:center;">${i + 1}</span>
+                <span style="flex:none;width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,#F18A00,#93C01F);color:#fff;font-weight:800;font-size:15px;display:flex;align-items:center;justify-content:center;">${i + 1}</span>
                 <div style="font-weight:700;font-size:13.5px;">${a.label}</div>
             </div>
         `).join('');
