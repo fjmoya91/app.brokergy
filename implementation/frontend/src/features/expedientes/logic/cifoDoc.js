@@ -540,12 +540,16 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
     // actuación. Mismo criterio que la Ficha TER100.
     const dcalCell = tieneCalefaccion ? dcal : 'no aplica';
     const sCell = tieneCalefaccion ? sStr : 'no aplica';
+    // Mismo criterio con el ACS fuera del alcance: D_ACS es un dato real del CEE,
+    // pero imprimirlo junto a un SCOP_dhw que ya dice "no aplica" invita a
+    // multiplicarlo y a obtener un AE_ACS que no forma parte de la actuación.
+    const dacsCell = tieneAcs ? dacsStr : 'no aplica';
 
     const varCols = [
         { th: 'F<sub>P</sub>', td: '1' },
         { th: 'D<sub>CAL</sub>', td: dcalCell },
         { th: 'S', td: sCell },
-        { th: 'D<sub>ACS</sub>', td: dacsStr },
+        { th: 'D<sub>ACS</sub>', td: dacsCell },
         // La demanda de piscina solo se lista si la actuación la incluye (TER100).
         ...(tienePiscina ? [{ th: 'D<sub>CAP</sub>', td: dcapStr }] : []),
         { th: 'η<sub>i</sub>', td: etaStr },
@@ -589,7 +593,7 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
             { sym: 'F<sub>P</sub>', desc: 'Factor de ponderación', val: '1' },
             { sym: 'D<sub>CAL</sub>', desc: isTer100 ? 'Demanda de energía en calefacción del edificio' : 'Demanda de energía en calefacción del edificio/vivienda', val: tieneCalefaccion ? `${dcal} kWh/m²·año` : 'no aplica' },
             { sym: 'S', desc: isTer100 ? 'Superficie útil habitable del edificio' : 'Superficie útil habitable del edificio o vivienda', val: tieneCalefaccion ? `${sStr} m²` : 'no aplica' },
-            { sym: 'D<sub>ACS</sub>', desc: 'Demanda de energía en agua caliente sanitaria', val: `${dacsStr} kWh/año` },
+            { sym: 'D<sub>ACS</sub>', desc: 'Demanda de energía en agua caliente sanitaria', val: tieneAcs ? `${dacsStr} kWh/año` : 'no aplica' },
             ...(tienePiscina ? [{ sym: 'D<sub>CAP</sub>', desc: 'Demanda anual de energía térmica para el calentamiento de agua de piscina', val: `${dcapStr} kWh/año` }] : []),
             { sym: 'η<sub>i</sub>', desc: 'Rendimiento de caldera de combustión(PCS)', val: etaStr },
             { sym: 'SCOP<sub>bdc</sub>', desc: 'Rendimiento estacional bomba calor calefacción', val: scopCalStr },

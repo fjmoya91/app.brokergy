@@ -7,6 +7,7 @@
 // ============================================================
 import { BOILER_EFFICIENCIES } from '../../calculator/logic/calculation';
 import { calcCifo } from './calcCifo';
+import { esTermoElectrico } from './aerotermiaUnits';
 
 const PAGE_PADDING = '93px 95px 19px 113px';
 
@@ -58,6 +59,13 @@ export function buildFichaRes060Html(expediente, results = {}, opts = {}) {
     const superficieAcs = parseFloat(ceeFinal.superficieHabitable) || 0;
     const sStr = superficieAcs.toFixed(2).replace('.', ',');
 
+    // ACS dentro del alcance — mismo criterio que el CIFO (cifoDoc.js): el toggle
+    // `cambio_acs` y, además, que el equipo nuevo sea una bomba de calor. Un termo
+    // eléctrico (efecto Joule, rendimiento 1) no computa en el ahorro CAE.
+    const acsAeroFicha = inst.misma_aerotermia_acs ? inst.aerotermia_cal : inst.aerotermia_acs;
+    const tieneAcs = inst.cambio_acs !== false
+        && !esTermoElectrico(acsAeroFicha) && !esTermoElectrico(inst.aerotermia_acs);
+
     // Demanda de ACS — DEBE coincidir con la del Certificado CIFO (CertificadoCifoModal.jsx).
     // Misma lógica: por defecto modo 'xml' (demandaACS · superficie); en modo CTE, fórmula por personas.
     const acsMode = cee.acs_method || 'xml';
@@ -68,7 +76,11 @@ export function buildFichaRes060Html(expediente, results = {}, opts = {}) {
     } else {
         dacsValue = 28 * numPeopleAcs * 0.001162 * 365 * 46;
     }
-    const dacsStr = dacsValue.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    // Fuera del alcance → "no aplica", nunca el valor ni 0: con la cifra a la vista
+    // el verificador podría multiplicarla y obtener un ahorro de ACS que no existe.
+    const dacsStr = tieneAcs
+        ? dacsValue.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+        : 'no aplica';
 
     const boilerEffId = inst.caldera_antigua_cal?.rendimiento_id || 'default';
     const etaBoiler = BOILER_EFFICIENCIES.find(b => b.id === boilerEffId)?.value || 0.92;
@@ -77,10 +89,8 @@ export function buildFichaRes060Html(expediente, results = {}, opts = {}) {
     const scopCal = parseFloat(inst.aerotermia_cal?.scop) || 0;
     const scopCalStr = scopCal ? scopCal.toFixed(2).replace('.', ',') : '—';
 
-    // SCOP_dhw — DEBE coincidir con el Certificado CIFO (CertificadoCifoModal.jsx):
-    // tieneAcs = solo el toggle cambio_acs; el SCOP se toma de la aerotermia de
-    // calefacción si es la misma, o de la de ACS en caso contrario.
-    const tieneAcs = inst.cambio_acs !== false;
+    // SCOP_dhw — DEBE coincidir con el Certificado CIFO (cifoDoc.js). El SCOP se toma
+    // de la aerotermia de calefacción si es la misma, o de la de ACS en caso contrario.
     const scopAcsRaw = tieneAcs ? parseFloat(inst.misma_aerotermia_acs ? inst.aerotermia_cal?.scop : inst.aerotermia_acs?.scop || 0) : 0;
     const scopAcsStr = tieneAcs ? (scopAcsRaw ? scopAcsRaw.toFixed(2).replace('.', ',') : '—') : 'no aplica';
 
