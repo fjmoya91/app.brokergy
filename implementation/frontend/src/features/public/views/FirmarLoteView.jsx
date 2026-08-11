@@ -31,8 +31,17 @@ function docFiltroDeUrl() {
     catch { return null; }
 }
 
+// `?r=<ronda>` acota la página a un REQUERIMIENTO: los documentos que se han
+// corregido y reenviado en ese envío. El filtro lo aplica el backend
+// (services/loteDocs.docsParaFirma) — aquí solo se pasa y se cambia el rótulo.
+function rondaDeUrl() {
+    try { return new URLSearchParams(window.location.search).get('r') || null; }
+    catch { return null; }
+}
+
 export function FirmarLoteView({ loteId }) {
     const [docFiltro] = useState(docFiltroDeUrl);
+    const [ronda] = useState(rondaDeUrl);
     const [info, setInfo] = useState(null);
     const [loadError, setLoadError] = useState(null);
     const [signQueue, setSignQueue] = useState([]);   // documentos que se están firmando (1 suelto o varios en cadena)
@@ -46,7 +55,7 @@ export function FirmarLoteView({ loteId }) {
     const [manualBusyKey, setManualBusyKey] = useState(null);
     const [manualKey, setManualKey] = useState(null); // fila con opciones manuales desplegadas
 
-    const loadInfo = () => axios.get(`${API_URL}/lote-firma/${loteId}`)
+    const loadInfo = () => axios.get(`${API_URL}/lote-firma/${loteId}`, { params: ronda ? { r: ronda } : {} })
         .then(r => setInfo(r.data))
         .catch(() => setLoadError('No se ha encontrado el lote o el enlace no es válido.'));
 
@@ -56,6 +65,8 @@ export function FirmarLoteView({ loteId }) {
     // sobre ese documento: el resto del lote no existe para esta visita.
     const docs = (info?.docs || []).filter(d => !docFiltro || d.key === docFiltro);
     const enfocado = !!docFiltro && docs.length === 1 ? docs[0] : null;
+    // Requerimiento: la lista ya viene acotada del backend; aquí solo cambia el texto.
+    const esReq = !!info?.requerimiento && !enfocado;
     const total = docFiltro ? docs.length : (info?.total || 0);
     const firmados = docFiltro ? docs.filter(d => d.firmado).length : (info?.firmados || 0);
     const todosFirmados = docFiltro ? (total > 0 && firmados === total) : !!info?.todos_firmados;
@@ -239,12 +250,14 @@ export function FirmarLoteView({ loteId }) {
                 <div className="text-center mb-8 relative">
                     <h1 className="flex items-baseline justify-center gap-x-2 md:gap-x-4 mb-2 relative z-10">
                         <span className="text-white text-2xl md:text-3xl font-medium tracking-tight">{enfocado ? 'Firma de la' : 'Firma del'}</span>
-                        <span className="text-3xl md:text-5xl font-black tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-brand via-brand to-brand-700 uppercase">{enfocado ? 'Oferta' : 'Lote'}</span>
+                        <span className="text-3xl md:text-5xl font-black tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-brand via-brand to-brand-700 uppercase">{enfocado ? 'Oferta' : esReq ? 'Requerimiento' : 'Lote'}</span>
                     </h1>
                     <p className="text-white/60 text-sm">
                         {enfocado
                             ? 'Solo tienes que firmar este documento. Lo demás del lote ya está hecho.'
-                            : 'Firma con tu certificado el Anexo I, las fichas RES y la solicitud de verificación.'}
+                            : esReq
+                                ? 'Estos son los documentos que hemos corregido. Solo tienes que volver a firmar estos.'
+                                : 'Firma con tu certificado el Anexo I, las fichas RES y la solicitud de verificación.'}
                     </p>
                 </div>
 
@@ -252,7 +265,7 @@ export function FirmarLoteView({ loteId }) {
                     <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-transparent via-brand/40 to-transparent"></div>
 
                     <div className="px-8 pt-8 pb-5 border-b border-white/[0.06] space-y-3">
-                        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-white/30 mb-3">{enfocado ? 'Documento a firmar' : 'Detalles del lote'}</p>
+                        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-white/30 mb-3">{enfocado ? 'Documento a firmar' : esReq ? 'Documentos corregidos' : 'Detalles del lote'}</p>
                         {[
                             enfocado ? ['Documento', enfocado.label, 'text-brand'] : null,
                             ['Lote', info.codigo, 'text-brand font-mono'],
@@ -264,8 +277,8 @@ export function FirmarLoteView({ loteId }) {
                                 <span className={`text-sm font-bold text-right ${cls}`}>{value || '—'}</span>
                             </div>
                         ))}
-                        {/* Progreso — con un solo documento la barra no aporta nada. */}
-                        {!enfocado && (
+                        {/* Progreso — con un solo documento (o ninguno) la barra no aporta nada. */}
+                        {!enfocado && docs.length > 0 && (
                             <div className="pt-2">
                                 <div className="flex items-center justify-between mb-1.5">
                                     <span className="text-[10px] text-white/30 uppercase tracking-widest font-bold">Firmados</span>
@@ -284,23 +297,25 @@ export function FirmarLoteView({ loteId }) {
                                 <div className="w-16 h-16 rounded-full bg-emerald-500/10 flex items-center justify-center mx-auto mb-4 border border-emerald-500/20">
                                     <svg className="w-8 h-8 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>
                                 </div>
-                                <h2 className="text-xl font-black text-emerald-400 uppercase tracking-widest mb-3">{enfocado ? '¡Oferta firmada!' : '¡Lote firmado!'}</h2>
+                                <h2 className="text-xl font-black text-emerald-400 uppercase tracking-widest mb-3">{enfocado ? '¡Oferta firmada!' : esReq ? '¡Documentos firmados!' : '¡Lote firmado!'}</h2>
                                 <p className="text-white/50 text-sm leading-relaxed">
                                     {enfocado
                                         ? <>Gracias. Hemos recibido la <strong className="text-brand">{enfocado.label}</strong> del lote <strong className="text-brand">{info.codigo}</strong> firmada. No tienes que hacer nada más.</>
-                                        : <>Gracias. Has firmado los <strong className="text-brand">{total}</strong> documentos del lote <strong className="text-brand">{info.codigo}</strong>. Brokergy continuará con la tramitación.</>}
+                                        : esReq
+                                            ? <>Gracias. Hemos recibido firmado{total === 1 ? '' : 's'} <strong className="text-brand">{total}</strong> documento{total === 1 ? '' : 's'} corregido{total === 1 ? '' : 's'} del lote <strong className="text-brand">{info.codigo}</strong>. No tienes que hacer nada más.</>
+                                            : <>Gracias. Has firmado los <strong className="text-brand">{total}</strong> documentos del lote <strong className="text-brand">{info.codigo}</strong>. Brokergy continuará con la tramitación.</>}
                                 </p>
                             </div>
-                        ) : docFiltro && !enfocado ? (
+                        ) : (docFiltro && !enfocado) || docs.length === 0 ? (
                             <p className="text-white/50 text-[13px] leading-relaxed text-center py-6">
-                                Este enlace apunta a un documento que ya no está disponible. Escríbenos y te mandamos uno nuevo.
+                                Este enlace apunta a {docFiltro ? 'un documento' : 'unos documentos'} que ya no está{docFiltro ? '' : 'n'} disponible{docFiltro ? '' : 's'}. Escríbenos y te mandamos uno nuevo.
                             </p>
                         ) : (
                             <>
                                 <p className="text-white/50 text-[13px] leading-relaxed text-center">
                                     {enfocado
                                         ? <>Pulsa el botón y fírmalo con tu certificado (Autofirma). Te marcamos dónde firmar y se guarda al instante — no tienes que descargar ni volver a subir nada.</>
-                                        : <>Tienes <strong className="text-white">{pendientes.length}</strong> documento{pendientes.length === 1 ? '' : 's'} pendiente{pendientes.length === 1 ? '' : 's'}. Firma cada uno con tu certificado (Autofirma) — te marcamos dónde firmar y se guarda al instante. Puedes firmarlos <strong className="text-white">uno a uno</strong> o <strong className="text-white">todos en cadena</strong>.</>}
+                                        : <>Tienes <strong className="text-white">{pendientes.length}</strong> documento{pendientes.length === 1 ? '' : 's'} {esReq ? 'corregido' : 'pendiente'}{pendientes.length === 1 ? '' : 's'}{esReq ? ` pendiente${pendientes.length === 1 ? '' : 's'} de firma` : ''}. Firma cada uno con tu certificado (Autofirma) — te marcamos dónde firmar y se guarda al instante. Puedes firmarlos <strong className="text-white">uno a uno</strong> o <strong className="text-white">todos en cadena</strong>.</>}
                                 </p>
 
                                 {/* Botón principal: el documento único (`?doc=`) o todos en cadena. */}

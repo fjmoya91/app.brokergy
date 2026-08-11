@@ -1248,6 +1248,10 @@ router.post('/:id/requerimiento', staffOnly, async (req, res) => {
         const attachments = [];
         const reenviados = [];
         const sentAt = nowIso();
+        // RONDA del requerimiento: se sella en cada documento reenviado y viaja en el
+        // enlace (`?r=`). Es lo que permite que la página de firma enseñe SOLO lo que
+        // se ha pedido en este envío, y no todo el papeleo del lote.
+        const ronda = String(Date.parse(sentAt) || Date.now());
 
         for (const d of docs) {
             if (!d.html && !d.pdfBase64) continue;
@@ -1285,6 +1289,7 @@ router.post('/:id/requerimiento', staffOnly, async (req, res) => {
                 signed_link: null, signed_file_id: null, signed_at: null,
                 sent_at: sentAt,
                 requerimiento_at: sentAt,
+                requerimiento_ronda: ronda,
             };
             if (idx >= 0) documentosSo[idx] = entry; else documentosSo.push(entry);
             reenviados.push(entry.label);
@@ -1292,10 +1297,11 @@ router.post('/:id/requerimiento', staffOnly, async (req, res) => {
 
         if (!attachments.length) return res.status(400).json({ error: 'No se regeneró ningún documento (falta HTML).' });
 
-        // Enlace de firma (el mismo de siempre): al resetear signed_link, los docs
-        // reenviados vuelven a aparecer como pendientes en la firma en cadena.
+        // Enlace de firma ACOTADO A LA RONDA (`?r=`): al S.O. se le pide volver a
+        // firmar estos documentos concretos, así que la página solo le enseña estos.
+        // El enlace sin `?r=` sigue mostrando todo lo que el lote tenga pendiente.
         const origin = (frontendOrigin || process.env.FRONTEND_URL || 'https://app.brokergy.es').replace(/\/$/, '');
-        const firmaUrl = `${origin}/firmar-lote/${lote.id}`;
+        const firmaUrl = `${origin}/firmar-lote/${lote.id}?r=${ronda}`;
         const msgConEnlace = `${customMessage || ''}\n\n${firmaUrl}`.trim();
 
         const warnings = [];

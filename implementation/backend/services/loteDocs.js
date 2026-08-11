@@ -53,6 +53,31 @@ function esDocDelSujetoObligado(entry) {
         || String(entry.key).startsWith('ficha_');
 }
 
+// ─── Qué documentos ve el S.O. en el enlace público de firma ──────────────────
+// `documentos_so` acumula TODO el papeleo del lote (fichas, oferta, informes de
+// inexactitudes, dictamen, facturas del verificador). El enlace de firma solo
+// puede enseñar lo que al S.O. le toca firmar AHORA. Fuente única del filtro:
+//   · el slot ha de ser FIRMABLE — un informe de inexactitudes no se firma;
+//   · se le ha de haber PEDIDO (`sent_at`) o estar ya firmado — un documento que
+//     hemos subido y todavía no le hemos remitido no es asunto suyo;
+//   · si el enlace viene de un REQUERIMIENTO (`ronda`), SOLO los de esa ronda: le
+//     pedimos que volviera a firmar unos documentos concretos, y enseñarle además
+//     lo que quedó suelto de envíos anteriores es pedirle otra cosa distinta.
+// Sin `ronda` (envío inicial y recordatorios) sigue viendo el lote entero.
+function esFirmablePorSo(entry) {
+    if (!entry || !entry.key) return false;
+    if (String(entry.key).startsWith('ficha_')) return true;
+    const slot = slotDeKey(entry.key);
+    return !!(slot && LOTE_DOC_SLOTS[slot]?.firmable);
+}
+
+function docsParaFirma(docs, { ronda = null } = {}) {
+    const list = (Array.isArray(docs) ? docs : [])
+        .filter(d => esFirmablePorSo(d) && (d.sent_at || d.signed_link));
+    if (!ronda) return list;
+    return list.filter(d => String(d.requerimiento_ronda || '') === String(ronda));
+}
+
 // Clave de una entrada nueva. Para los slots `multiple` busca el primer hueco libre
 // (informe_inexactitudes_1, _2, …) sin reutilizar claves ya usadas.
 function nextDocKey(docs, slot) {
@@ -301,6 +326,8 @@ module.exports = {
     nextDocKey,
     slotDeKey,
     esDocDelSujetoObligado,
+    esFirmablePorSo,
+    docsParaFirma,
     guardarDocFirmado,
     estadoSegunDocs,
     siguienteEstado,

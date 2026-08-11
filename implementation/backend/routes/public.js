@@ -2113,7 +2113,13 @@ router.get('/lote-firma/:loteId', async (req, res) => {
                 representante = [so.nombre_responsable, so.apellidos_responsable].filter(Boolean).join(' ') || null;
             }
         }
-        const docs = (Array.isArray(lote.documentos_so) ? lote.documentos_so : []).map(d => ({
+        // `?r=` acota la página a la RONDA de un requerimiento: solo los documentos
+        // que se regeneraron y se mandaron a firmar de nuevo en ese envío. El resto
+        // del papeleo del lote (y lo que quedó pendiente de envíos anteriores) no
+        // sale aquí. Filtro en services/loteDocs.docsParaFirma.
+        const ronda = String(req.query.r || '').trim() || null;
+        const { docsParaFirma } = require('../services/loteDocs');
+        const docs = docsParaFirma(lote.documentos_so, { ronda }).map(d => ({
             key: d.key, label: d.label, tipo: d.tipo, expediente_id: d.expediente_id || null,
             anchor: d.anchor || null,
             fixedBox: d.fixedBox || null,
@@ -2125,6 +2131,7 @@ router.get('/lote-firma/:loteId', async (req, res) => {
         res.json({
             codigo: lote.codigo, sujeto_obligado: soNombre, representante,
             docs, total, firmados, todos_firmados: total > 0 && firmados === total,
+            requerimiento: !!ronda,
         });
     } catch (e) {
         console.error('[lote-firma estado] Error:', e.message);
