@@ -312,7 +312,10 @@ def normalizar(raw: dict, fecha_firma: str = None, fecha_pruebas: str = None) ->
         #   'bdc_acs'         → bomba de calor de ACS INDEPENDIENTE (equipo aparte)
         # Un termo eléctrico no es una bomba de calor y no aparece en el esquema
         # de aerotermia: se dibuja el de "sin ACS".
+        # `cascada`: con 2+ bombas de calor el esquema es otro (colector con las
+        # unidades 1.1, 1.2… en paralelo), así que se elige un dibujo distinto.
         "_meta": {"emisor": emisor,
+                  "cascada": len(cal_uds) > 1,
                   "acs_modo": ("sin_acs" if not inst.get("cambio_acs") or _acs_es_termo
                                else "bdc_acs" if acs_distinto else "interacumulador")},
     }

@@ -67,6 +67,16 @@ def _elegir_esquema(datos):
     if familia in ("conductos", "splits") and modo == "interacumulador":
         modo = "bdc_acs"
 
+    # En CASCADA (2+ bombas de calor) el dibujo cambia: las unidades van en
+    # paralelo sobre un colector. Se prueba primero esa variante y, si no está
+    # dibujada, se cae a la de un solo equipo (el resto del circuito es igual).
+    if meta.get("cascada"):
+        en_cascada = os.path.join(ASSETS, f"esquema_cascada_{familia}_{modo}.png")
+        if os.path.exists(en_cascada):
+            return en_cascada
+        print(f"[WARN] Falta assets/esquema_cascada_{familia}_{modo}.png: "
+              "se usa el esquema de un solo equipo")
+
     especifico = os.path.join(ASSETS, f"esquema_{familia}_{modo}.png")
     if os.path.exists(especifico):
         return especifico
