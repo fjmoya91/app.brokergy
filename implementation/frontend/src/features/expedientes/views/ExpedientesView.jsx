@@ -70,6 +70,7 @@ function NuevoExpedienteModal({ onClose, onCreated, existingOportunidadIds = [] 
     const [clientes, setClientes] = useState([]);
     const [selectedOp, setSelectedOp] = useState('');
     const [opQuery, setOpQuery] = useState('');
+    const [cliQuery, setCliQuery] = useState('');
     const [selectedCliente, setSelectedCliente] = useState('');
     const [loading, setLoading] = useState(false);
     const [loadingData, setLoadingData] = useState(true);
@@ -186,6 +187,15 @@ function NuevoExpedienteModal({ onClose, onCreated, existingOportunidadIds = [] 
     const filteredOportunidades = opQuery.trim()
         ? oportunidades.filter(op => norm(`${op.id_oportunidad || ''} ${op.referencia_cliente || ''} ${op.direccion || ''}`).includes(norm(opQuery)))
         : oportunidades;
+    const aceptadasPendientes = filteredOportunidades.filter(op => op.datos_calculo?.estado === 'ACEPTADA');
+    const otrasPendientes     = filteredOportunidades.filter(op => op.datos_calculo?.estado !== 'ACEPTADA');
+
+    // Buscador del desplegable de clientes (son cientos). El ya seleccionado
+    // nunca se filtra fuera: dejaría el <select> vacío y el formulario muerto.
+    const filteredClientesSelect = cliQuery.trim()
+        ? clientes.filter(c => c.id_cliente === selectedCliente
+            || norm(`${c.nombre_razon_social || ''} ${c.apellidos || ''} ${c.dni || ''} ${c.municipio || ''}`).includes(norm(cliQuery)))
+        : clientes;
 
     // Al seleccionar oportunidad, preseleccionar cliente vinculado si existe
     const handleOpChange = (opId) => {
@@ -259,15 +269,13 @@ function NuevoExpedienteModal({ onClose, onCreated, existingOportunidadIds = [] 
                             <label className="block text-xs text-white/50 uppercase tracking-wider mb-1.5 font-bold">
                                 Oportunidad (sin expediente)
                             </label>
-                            {oportunidades.length > 10 && (
-                                <input
-                                    type="text"
-                                    value={opQuery}
-                                    onChange={e => setOpQuery(e.target.value)}
-                                    placeholder="Filtrar por nº, cliente o dirección..."
-                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2 mb-2 text-white text-xs focus:outline-none focus:border-brand/50 placeholder:text-white/20"
-                                />
-                            )}
+                            <input
+                                type="text"
+                                value={opQuery}
+                                onChange={e => setOpQuery(e.target.value)}
+                                placeholder="Buscar por nº, cliente o dirección..."
+                                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2 mb-2 text-white text-xs focus:outline-none focus:border-brand/50 placeholder:text-white/20"
+                            />
                             <select
                                 value={selectedOp}
                                 onChange={e => handleOpChange(e.target.value)}
@@ -275,11 +283,27 @@ function NuevoExpedienteModal({ onClose, onCreated, existingOportunidadIds = [] 
                                 required
                             >
                                 <option value="">— Selecciona oportunidad —</option>
-                                {filteredOportunidades.map(op => (
-                                    <option key={op.id} value={op.id}>
-                                        {op.id_oportunidad} — {op.referencia_cliente || 'Sin nombre'} · {op.datos_calculo?.estado || 'SIN ESTADO'}
-                                    </option>
-                                ))}
+                                {/* Las ACEPTADAS son las que están esperando expediente: van
+                                    aparte y arriba. El resto se acepta AL crear el expediente,
+                                    y mezclarlas escondería las que ya tocaba abrir. */}
+                                {aceptadasPendientes.length > 0 && (
+                                    <optgroup label={`Aceptadas — pendientes de expediente (${aceptadasPendientes.length})`}>
+                                        {aceptadasPendientes.map(op => (
+                                            <option key={op.id} value={op.id}>
+                                                {op.id_oportunidad} — {op.referencia_cliente || 'Sin nombre'}
+                                            </option>
+                                        ))}
+                                    </optgroup>
+                                )}
+                                {otrasPendientes.length > 0 && (
+                                    <optgroup label={`Aún sin aceptar — se aceptarán al crear el expediente (${otrasPendientes.length})`}>
+                                        {otrasPendientes.map(op => (
+                                            <option key={op.id} value={op.id}>
+                                                {op.id_oportunidad} — {op.referencia_cliente || 'Sin nombre'} · {op.datos_calculo?.estado || 'SIN ESTADO'}
+                                            </option>
+                                        ))}
+                                    </optgroup>
+                                )}
                             </select>
                             {oportunidades.length === 0 ? (
                                 <p className="text-amber-400/80 text-xs mt-1.5">
@@ -301,6 +325,13 @@ function NuevoExpedienteModal({ onClose, onCreated, existingOportunidadIds = [] 
                             <label className="block text-xs text-white/50 uppercase tracking-wider mb-1.5 font-bold">
                                 Cliente
                             </label>
+                            <input
+                                type="text"
+                                value={cliQuery}
+                                onChange={e => setCliQuery(e.target.value)}
+                                placeholder="Buscar por nombre, DNI o municipio..."
+                                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2 mb-2 text-white text-xs focus:outline-none focus:border-brand/50 placeholder:text-white/20"
+                            />
                             <select
                                 value={selectedCliente}
                                 onChange={e => setSelectedCliente(e.target.value)}
@@ -308,12 +339,18 @@ function NuevoExpedienteModal({ onClose, onCreated, existingOportunidadIds = [] 
                                 required
                             >
                                 <option value="">— Selecciona cliente —</option>
-                                {clientes.map(c => (
+                                {/* El cliente ya preseleccionado por la oportunidad se mantiene
+                                    siempre en la lista: si el filtro lo dejara fuera, el <select>
+                                    se quedaría en blanco y el formulario no se podría enviar. */}
+                                {filteredClientesSelect.map(c => (
                                     <option key={c.id_cliente} value={c.id_cliente}>
                                         {c.nombre_razon_social} {c.apellidos || ''} {c.municipio ? `· ${c.municipio}` : ''}
                                     </option>
                                 ))}
                             </select>
+                            {cliQuery.trim() && filteredClientesSelect.length === 0 && (
+                                <p className="text-amber-400/80 text-xs mt-1.5">Ningún cliente coincide con «{cliQuery}».</p>
+                            )}
                         </div>
 
                         {/* Selector de Modo de Numeración */}
