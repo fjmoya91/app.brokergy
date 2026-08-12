@@ -8,6 +8,7 @@ PEGUE cada valor en la plataforma de tramitación. NO tiene validez legal.
 
 Reutiliza la MISMA estructura de datos que la guía JE6 (ver _datos_guia()).
 """
+import io
 import json
 import sys
 from datetime import datetime
@@ -47,9 +48,41 @@ def _kw(x):
     return f"{int(f)}" if f == int(f) else f"{f:g}"
 
 
+# Escalas de espaciado que se prueban, de más holgada a más apretada. El
+# certificado TIENE que caber en UNA página: partido en dos, la mitad de los
+# apartados quedan huérfanos y quien lo copia a la plataforma se salta el que no
+# ve. Cuánto ocupa depende del expediente (un nombre largo parte una celda en dos
+# líneas), así que en vez de afinar el espaciado a ojo se renderiza y, si se ha
+# ido a dos páginas, se reintenta más apretado.
+_ESCALAS = (1.0, 0.8, 0.6, 0.45, 0.3)
+
+
 def build(datos, output):
-    doc = SimpleDocTemplate(output, pagesize=A4, topMargin=10 * mm,
-                            bottomMargin=9 * mm, leftMargin=14 * mm, rightMargin=14 * mm)
+    """Genera el borrador probando escalas hasta que quepa en una sola página."""
+    for esc in _ESCALAS:
+        buf = io.BytesIO()
+        paginas = _render(datos, buf, esc)
+        if paginas <= 1 or esc == _ESCALAS[-1]:
+            with open(output, "wb") as fh:
+                fh.write(buf.getvalue())
+            aviso = "" if paginas <= 1 else f" [WARN] no cabe en 1 pagina ({paginas})"
+            print(f"[OK] Borrador certificado: {output}{aviso}")
+            return output
+
+
+def _render(datos, output, esc=1.0):
+    """Dibuja el borrador con el espaciado a escala `esc`. Devuelve nº de páginas."""
+    # Los paddings y los huecos se encogen con la escala; el CUERPO de letra no se
+    # toca hasta el último recurso (esc < 0.5): un certificado apretado se sigue
+    # leyendo, uno en letra diminuta no.
+    pad = max(1, round(4 * esc))
+    secpad = max(1, round(3 * esc))
+    gap = max(1.0, 5 * esc)
+    escala_txt = 1.0 if esc >= 0.5 else 0.88
+
+    doc = SimpleDocTemplate(output, pagesize=A4, topMargin=max(5, 10 * esc) * mm,
+                            bottomMargin=max(5, 9 * esc) * mm,
+                            leftMargin=14 * mm, rightMargin=14 * mm)
     ss = getSampleStyleSheet()
     h_title = ParagraphStyle('t', parent=ss['Title'], fontSize=13.5,
                              textColor=colors.white, alignment=1, spaceAfter=0)
@@ -58,11 +91,13 @@ def build(datos, output):
     warn = ParagraphStyle('w', parent=h_sub, textColor=NARANJA)
     sec = ParagraphStyle('sec', parent=ss['Normal'], fontSize=9,
                          textColor=colors.white, fontName='Helvetica-Bold')
-    cell = ParagraphStyle('cell', parent=ss['Normal'], fontSize=9.5, leading=11.5)
+    cell = ParagraphStyle('cell', parent=ss['Normal'], fontSize=9.5 * escala_txt,
+                          leading=11.5 * escala_txt)
     nota = ParagraphStyle('n', parent=ss['Normal'], fontSize=7.6, textColor=VERDE)
     # Las diez pruebas van a cuerpo pequeño, como en el impreso: así cada una cabe
     # en UNA línea y la tabla se lee de un vistazo frente al original.
-    prueba_st = ParagraphStyle('pr', parent=ss['Normal'], fontSize=8, leading=9.5)
+    prueba_st = ParagraphStyle('pr', parent=ss['Normal'], fontSize=8 * escala_txt,
+                               leading=9.5 * escala_txt)
     fecha_st = ParagraphStyle('f', parent=prueba_st, alignment=2)  # fecha de la prueba, a la derecha
     pie = ParagraphStyle('p', parent=ss['Normal'], fontSize=7.6, textColor=colors.HexColor('#5A6673'))
 
@@ -86,7 +121,7 @@ def build(datos, output):
         tb = Table([[Paragraph(titulo, sec)]], colWidths=[ANCHO])
         tb.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (-1, -1), GRIS_CAB),
-            ('TOPPADDING', (0, 0), (-1, -1), 3), ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+            ('TOPPADDING', (0, 0), (-1, -1), secpad), ('BOTTOMPADDING', (0, 0), (-1, -1), secpad),
             ('LEFTPADDING', (0, 0), (-1, -1), 7)]))
         story.append(tb)
 
@@ -95,10 +130,10 @@ def build(datos, output):
         tb.setStyle(TableStyle([
             ('GRID', (0, 0), (-1, -1), 0.5, BORDE),
             ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            ('TOPPADDING', (0, 0), (-1, -1), 4), ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+            ('TOPPADDING', (0, 0), (-1, -1), pad), ('BOTTOMPADDING', (0, 0), (-1, -1), pad),
             ('LEFTPADDING', (0, 0), (-1, -1), 6), ('RIGHTPADDING', (0, 0), (-1, -1), 6)]))
         story.append(tb)
-        story.append(Spacer(1, 5))
+        story.append(Spacer(1, gap))
 
     # ── Cabecera ───────────────────────────────────────────────────────────
     banner = Table([[Paragraph("BORRADOR · CERTIFICADO DE INSTALACIÓN TÉRMICA", h_title)]],
@@ -116,7 +151,7 @@ def build(datos, output):
         f'Presentar aquí · eDICE (Trámite JE6) →</u></b></a>', h_sub))
     story.append(Paragraph(
         "Borrador para revisar y copiar en la plataforma de tramitación. Carece de validez legal.", warn))
-    story.append(Spacer(1, 5))
+    story.append(Spacer(1, gap))
 
     t = datos['titular']
     e = datos['emplazamiento']
@@ -200,7 +235,7 @@ def build(datos, output):
     story.append(Paragraph(
         "(Este apartado se deberá cumplimentar solo con las <b>fechas</b> de las pruebas "
         "que hayan sido realizadas):", pie))
-    story.append(Spacer(1, 3))
+    story.append(Spacer(1, max(1.0, gap - 2)))
 
     def marca(item):
         """Fecha de la prueba, o «--» si no procede (igual que en el impreso)."""
@@ -231,12 +266,13 @@ def build(datos, output):
         ('LINEAFTER', (0, 0), (0, -1), 0.6, colors.white),
         ('LINEAFTER', (3, 0), (3, -1), 0.6, colors.white),
         ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ('TOPPADDING', (0, 0), (-1, -1), 2), ('BOTTOMPADDING', (0, 0), (-1, -1), 2),
+        ('TOPPADDING', (0, 0), (-1, -1), max(1, pad - 2)),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), max(1, pad - 2)),
         ('LEFTPADDING', (0, 0), (-1, -1), 5), ('RIGHTPADDING', (0, 0), (-1, -1), 5),
         ('LEFTPADDING', (1, 0), (1, -1), 0), ('LEFTPADDING', (4, 0), (4, -1), 0),
         ('RIGHTPADDING', (0, 0), (0, -1), 0), ('RIGHTPADDING', (3, 0), (3, -1), 0)]))
     story.append(tb)
-    story.append(Spacer(1, 3))
+    story.append(Spacer(1, max(1.0, gap - 2)))
     grid([[C("Observaciones", "")]], [ANCHO])
 
     # ── Aviso ──────────────────────────────────────────────────────────────
@@ -246,8 +282,7 @@ def build(datos, output):
         "y datos del instalador antes de presentar el certificado en la plataforma.", nota))
 
     doc.build(story)
-    print(f"[OK] Borrador certificado: {output}")
-    return output
+    return doc.page
 
 
 if __name__ == "__main__":
