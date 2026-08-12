@@ -69,6 +69,7 @@ function NuevoExpedienteModal({ onClose, onCreated, existingOportunidadIds = [] 
     const [oportunidades, setOportunidades] = useState([]);
     const [clientes, setClientes] = useState([]);
     const [selectedOp, setSelectedOp] = useState('');
+    const [opQuery, setOpQuery] = useState('');
     const [selectedCliente, setSelectedCliente] = useState('');
     const [loading, setLoading] = useState(false);
     const [loadingData, setLoadingData] = useState(true);
@@ -163,20 +164,28 @@ function NuevoExpedienteModal({ onClose, onCreated, existingOportunidadIds = [] 
     };
 
     useEffect(() => {
+        // Candidatas = oportunidades SIN expediente, con el estado que sea. No se
+        // filtra por ACEPTADA: aceptar una oportunidad ya le crea el expediente,
+        // así que "ACEPTADA y sin expediente" nunca tiene a nadie y la lista salía
+        // siempre vacía. Crear el expediente desde aquí es lo que la acepta.
+        // El backend hace la proyección ligera y descarta las ya ocupadas.
         Promise.all([
-            axios.get('/api/oportunidades'),
+            axios.get('/api/oportunidades/sin-expediente'),
             axios.get('/api/clientes')
         ]).then(([opsRes, cliRes]) => {
-            // Solo mostrar oportunidades con estado ACEPTADA que no tengan expediente ya
-            const aceptadas = (opsRes.data || []).filter(
-                op => op.datos_calculo?.estado === 'ACEPTADA' && !existingOportunidadIds.includes(op.id)
-            );
-            setOportunidades(aceptadas);
+            setOportunidades((opsRes.data || []).filter(op => !existingOportunidadIds.includes(op.id)));
             setClientes(cliRes.data || []);
-        }).catch(() => {
-            setError('No se pudieron cargar los datos necesarios.');
+        }).catch((err) => {
+            setError(err.response?.data?.error || 'No se pudieron cargar los datos necesarios.');
         }).finally(() => setLoadingData(false));
     }, []);
+
+    // La lista puede pasar de 100 candidatas: sin filtro, encontrar la tuya en un
+    // <select> nativo es una lotería. Se busca sin tildes, como el resto de la app.
+    const selectedOpObj = oportunidades.find(o => o.id === selectedOp) || null;
+    const filteredOportunidades = opQuery.trim()
+        ? oportunidades.filter(op => norm(`${op.id_oportunidad || ''} ${op.referencia_cliente || ''} ${op.direccion || ''}`).includes(norm(opQuery)))
+        : oportunidades;
 
     // Al seleccionar oportunidad, preseleccionar cliente vinculado si existe
     const handleOpChange = (opId) => {
@@ -248,8 +257,17 @@ function NuevoExpedienteModal({ onClose, onCreated, existingOportunidadIds = [] 
                     <form onSubmit={handleSubmit} className="p-6 space-y-4">
                         <div>
                             <label className="block text-xs text-white/50 uppercase tracking-wider mb-1.5 font-bold">
-                                Oportunidad (estado ACEPTADA)
+                                Oportunidad (sin expediente)
                             </label>
+                            {oportunidades.length > 10 && (
+                                <input
+                                    type="text"
+                                    value={opQuery}
+                                    onChange={e => setOpQuery(e.target.value)}
+                                    placeholder="Filtrar por nº, cliente o dirección..."
+                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2 mb-2 text-white text-xs focus:outline-none focus:border-brand/50 placeholder:text-white/20"
+                                />
+                            )}
                             <select
                                 value={selectedOp}
                                 onChange={e => handleOpChange(e.target.value)}
@@ -257,15 +275,24 @@ function NuevoExpedienteModal({ onClose, onCreated, existingOportunidadIds = [] 
                                 required
                             >
                                 <option value="">— Selecciona oportunidad —</option>
-                                {oportunidades.map(op => (
+                                {filteredOportunidades.map(op => (
                                     <option key={op.id} value={op.id}>
-                                        {op.id_oportunidad} — {op.referencia_cliente || 'Sin nombre'}
+                                        {op.id_oportunidad} — {op.referencia_cliente || 'Sin nombre'} · {op.datos_calculo?.estado || 'SIN ESTADO'}
                                     </option>
                                 ))}
                             </select>
-                            {oportunidades.length === 0 && (
+                            {oportunidades.length === 0 ? (
                                 <p className="text-amber-400/80 text-xs mt-1.5">
-                                    No hay oportunidades en estado ACEPTADA.
+                                    No hay oportunidades libres: todas tienen ya su expediente.
+                                </p>
+                            ) : filteredOportunidades.length === 0 ? (
+                                <p className="text-amber-400/80 text-xs mt-1.5">
+                                    Ninguna oportunidad coincide con «{opQuery}».
+                                </p>
+                            ) : null}
+                            {selectedOpObj && selectedOpObj.datos_calculo?.estado !== 'ACEPTADA' && (
+                                <p className="text-white/40 text-[11px] mt-1.5 leading-relaxed">
+                                    Está en <span className="text-white/70 font-bold">{selectedOpObj.datos_calculo?.estado || 'sin estado'}</span>: al crear el expediente pasará a ACEPTADA.
                                 </p>
                             )}
                         </div>
@@ -327,7 +354,7 @@ function NuevoExpedienteModal({ onClose, onCreated, existingOportunidadIds = [] 
                                 <div className="bg-emerald-500/5 border border-emerald-500/10 rounded-2xl p-4 animate-in fade-in slide-in-from-top-2 duration-300">
                                     <p className="text-[10px] text-emerald-400/80 leading-relaxed font-black uppercase tracking-widest text-center">
                                         {(() => {
-                                            const op = oportunidades.find(o => o.id === selectedOp);
+                                            const op = selectedOpObj;
                                             const isReforma = op?.datos_calculo?.isReforma || op?.ficha === 'RES080';
                                             const isHybrid = !isReforma && (op?.datos_calculo?.hibridacion || op?.ficha === 'RES093');
                                             // TER100 (terciario) solo llega declarada en la oportunidad: la

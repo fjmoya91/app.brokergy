@@ -494,6 +494,67 @@ router.get('/captacion', staffOnly, async (req, res) => {
     }
 });
 
+// GET /api/oportunidades/sin-expediente — candidatas para abrir un expediente.
+//
+// El modal "Nuevo expediente" NO puede filtrar por estado ACEPTADA: aceptar una
+// oportunidad YA crea su expediente (`PUT /:id/estado` llama a createExpediente),
+// y un expediente existente fuerza a su vez el estado ACEPTADA. Así que
+// "ACEPTADA y sin expediente" es un conjunto estructuralmente vacío y la lista
+// salía siempre en blanco. Lo que hay que ofrecer es justo lo contrario: las que
+// AÚN no tienen expediente, sea cual sea su estado — crear el expediente es
+// precisamente lo que las acepta.
+//
+// Proyección ligera (regla 22): con `datos_calculo` entero son ~26 MB y la
+// consulta tarda tanto que el front se queda mirando "Cargando datos...".
+const ESTADOS_NO_CANDIDATOS = ['RECHAZADA'];
+
+router.get('/sin-expediente', staffOnly, async (req, res) => {
+    try {
+        const [{ data, error }, { data: conExp, error: expErr }] = await Promise.all([
+            supabase
+                .from('oportunidades')
+                .select(`id, id_oportunidad, referencia_cliente, ficha, cliente_id, updated_at,
+                         estado:datos_calculo->>estado,
+                         origen:datos_calculo->>origen,
+                         is_reforma:datos_calculo->>isReforma,
+                         hibridacion:datos_calculo->>hibridacion,
+                         direccion:datos_calculo->inputs->>direccion`)
+                .order('updated_at', { ascending: false }),
+            supabase.from('expedientes').select('oportunidad_id')
+        ]);
+
+        if (error)  return res.status(500).json({ error: error.message });
+        if (expErr) return res.status(500).json({ error: expErr.message });
+
+        const ocupadas = new Set((conExp || []).map(e => e.oportunidad_id).filter(Boolean));
+
+        const candidatas = (data || [])
+            // Las sintéticas de la migración desde XML ya nacen con su expediente.
+            .filter(o => o.origen !== 'migracion_xml')
+            .filter(o => !ESTADOS_NO_CANDIDATOS.includes(o.estado))
+            .filter(o => !ocupadas.has(o.id))
+            .map(o => ({
+                id: o.id,
+                id_oportunidad: o.id_oportunidad,
+                referencia_cliente: o.referencia_cliente,
+                ficha: o.ficha,
+                cliente_id: o.cliente_id,
+                direccion: o.direccion || null,
+                // Misma forma anidada que espera el modal para el correlativo.
+                datos_calculo: {
+                    estado: o.estado,
+                    isReforma: o.is_reforma === 'true',
+                    hibridacion: o.hibridacion === 'true'
+                }
+            }));
+
+        res.status(200).json(candidatas);
+    } catch (e) {
+        console.error('[GET /sin-expediente] fatal:', e.message);
+        res.status(500).json({ error: 'Error del servidor.' });
+    }
+});
+
 // Añadir un comentario (POST /api/oportunidades/:id/comentarios)
 router.post('/:id/comentarios', requireAuth, async (req, res) => {
     const { id } = req.params;
