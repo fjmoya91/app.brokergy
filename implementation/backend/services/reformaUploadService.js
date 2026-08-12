@@ -14,6 +14,7 @@
 
 const crypto = require('crypto');
 const supabase = require('./supabaseClient');
+const docsAlcance = require('./docsAlcance');
 const driveService = require('./driveService');
 const emailService = require('./emailService');
 const whatsappService = require('./whatsappService');
@@ -113,14 +114,22 @@ function getSlotDef(funnel, slotKey, origen = 'aerotermia') {
 const PHASE = { ANTES: 'ANTES', DESPUES: 'DESPUES' };
 
 // Material que se pide ÚNICAMENTE para que el certificador levante el CEE
-// inicial. Deja de exigirse en cuanto ese CEE está registrado (ver el final de
-// buildDocChecklist).
+// inicial y para cerrar la simulación. Con ese CEE ya REGISTRADO el material
+// cumplió su función y el slot DESAPARECE del checklist (ver el final de
+// buildDocChecklist): seguir enseñándolo manda al cliente a hacer fotos que
+// nadie va a mirar y esconde, entre casillas muertas, lo que sí falta.
+//
+// El PRESUPUESTO entra aquí: solo manda mientras no hay factura, y a estas
+// alturas la inversión que declara el Anexo sale ya de la factura.
+// La caldera y su placa NO entran: de ahí salen el Anexo Fotográfico y los
+// datos del equipo antiguo del CIFO.
 const CEE_CAPTACION_SLOTS = new Set([
     'FOTO_FACHADA_PRINCIPAL',
     'FOTO_PATIOS_INTERIORES',
     'VIDEO_VIVIENDA',
     'DOC_PLANOS',
     'DOC_CEE_EXISTENTE',
+    'DOC_PRESUPUESTO',
 ]);
 
 // Slots cuya foto se sube SIEMPRE a resolución original: son primeros planos de la
@@ -210,8 +219,13 @@ function conceptsFromInstalacion(instalacion) {
     const inst = instalacion || {};
     const emisor = String(inst.tipo_emisor || '').toLowerCase();
     const ids = [];
+    // Solo el SUELO RADIANTE genera apartado propio. Los RADIADORES dejaron de
+    // pedirse (2026-08-11): lo que justifica la temperatura de impulsión —y con
+    // ella el SCOP declarado— es `instalacion.tipo_emisor`, que ya viaja al CIFO;
+    // la foto no añadía nada al expediente y sí una casilla que rellenar. Sigue
+    // en ADDABLE_CONCEPTS para que el admin pueda reactivarla si un verificador
+    // llega a reclamarla.
     if (emisor === 'suelo_radiante') ids.push('suelo_radiante');
-    else if (emisor.startsWith('radiadores')) ids.push('emisores');
     if (inst.piscina?.activa === true) ids.push('piscina');
     return ids;
 }
@@ -260,7 +274,13 @@ async function enableConcepts(oportunidadUuid, conceptIds, datosCalculo = null) 
         const { data } = await supabase.from('oportunidades').select('datos_calculo').eq('id', oportunidadUuid).maybeSingle();
         dc = data?.datos_calculo || {};
     }
-    const yaVisibles = new Set(buildDocChecklist(dc).map(s => s.key));
+    // Contra el checklist CON alcance, que es el que se ve de verdad. Con el
+    // checklist crudo, un apartado que el alcance poda (p.ej. ACS en un
+    // expediente sin ACS) contaba como "ya visible" y el override no se llegaba a
+    // escribir: el admin lo añadía y no aparecía nada.
+    const yaVisibles = new Set(
+        (await checklistForOportunidad({ id: oportunidadUuid, datos_calculo: dc })).map(s => s.key)
+    );
     const pendientes = ADDABLE_CONCEPTS
         .filter(c => conceptIds.includes(c.id))
         .flatMap(c => c.slots)
@@ -298,32 +318,61 @@ const ACCEPT_CUALQUIERA = `image/*,${EXT_FOTO},application/pdf,.pdf,video/*,${EX
 // CEE: PDF/foto + los ficheros del certificado (.cex/.xml), que no tienen MIME propio.
 const ACCEPT_CEE = `application/pdf,.pdf,image/*,${EXT_FOTO},.cex,.xml`;
 
-/** Normaliza distintas fuentes (inputs del calculador o landing_funnel) a selectores de slot. */
+/**
+ * Normaliza distintas fuentes a selectores de slot, en este orden de prioridad:
+ *
+ *   1. `datosCalculo.alcance` — lo que declara el EXPEDIENTE (services/docsAlcance).
+ *   2. `inputs`               — la simulación del instalador.
+ *   3. `landing_funnel`       — las respuestas del funnel del lead.
+ *
+ * MANDA EL EXPEDIENTE. La oportunidad es el punto de partida: dice lo que se
+ * pensaba hacer el día de la simulación, y el expediente lo que se hace de
+ * verdad. Un alcance a `null` (el expediente no lo ha declarado todavía) NO es
+ * un `false`: solo entonces se cae al escalón siguiente, para que un expediente
+ * recién creado no apague apartados que la oportunidad sí pedía.
+ */
 function deriveSelectors(datosCalculo = {}) {
     const inputs = datosCalculo.inputs || {};
     const funnel = datosCalculo.landing_funnel || {};
+    const alc = datosCalculo.alcance || {};
 
+    // Primer valor no-null/undefined de la cascada.
+    const pick = (...vals) => { for (const v of vals) if (v !== null && v !== undefined) return v; return undefined; };
+
+    // ── Elementos de ENVOLVENTE ──────────────────────────────────────────────
+    // En un RES080 el alcance real lo declara la pestaña Envolvente del
+    // expediente; en las fichas de sustitución de caldera (RES060/093/TER100) no
+    // hay obra de envolvente que documentar, así que ninguno de estos apartados
+    // procede salvo que el admin lo añada a mano.
+    const env = alc.envolvente || null;
     const reforma = {
-        ventanas: inputs.reformaVentanas !== undefined ? !!inputs.reformaVentanas : !!funnel.reforma_elementos?.ventanas,
-        cubierta: inputs.reformaCubierta !== undefined ? !!inputs.reformaCubierta : !!funnel.reforma_elementos?.cubierta,
-        suelo:    inputs.reformaSuelo    !== undefined ? !!inputs.reformaSuelo    : !!funnel.reforma_elementos?.suelo,
-        paredes:  inputs.reformaParedes  !== undefined ? !!inputs.reformaParedes  : !!funnel.reforma_elementos?.paredes,
-        placas:   inputs.reformaPlacas   !== undefined ? !!inputs.reformaPlacas   : !!funnel.reforma_elementos?.placas,
+        ventanas: !!pick(env?.ventanas, inputs.reformaVentanas, funnel.reforma_elementos?.ventanas, false),
+        cubierta: !!pick(env?.cubierta, inputs.reformaCubierta, funnel.reforma_elementos?.cubierta, false),
+        suelo:    !!pick(env?.suelo,    inputs.reformaSuelo,    funnel.reforma_elementos?.suelo,    false),
+        paredes:  !!pick(env?.fachada,  inputs.reformaParedes,  funnel.reforma_elementos?.paredes,  false),
+        // Las placas solares no son envolvente y no las declara ninguna ficha CAE:
+        // siguen saliendo solo de la simulación.
+        placas:   !!pick(inputs.reformaPlacas, funnel.reforma_elementos?.placas, false),
     };
-    const changeAcs = inputs.changeAcs !== undefined ? !!inputs.changeAcs : !!funnel.incluir_acs;
+    // La ficha de sustitución de caldera no contempla obra de envolvente.
+    if (alc.esSustitucionCaldera === true) {
+        reforma.ventanas = reforma.cubierta = reforma.suelo = reforma.paredes = false;
+    }
 
-    // Emisor: el suelo radiante tiene ARMARIO DE COLECTORES, y esa foto (circuitos,
-    // válvulas y conexión con la bomba de calor) no la cubre ningún otro apartado.
-    // Si el expediente lo declara más tarde en la pestaña Instalación, llega por
-    // docs_overrides (syncInstalacionConcepts), no por aquí.
-    const emisorTipo = String(
-        inputs.emitterType !== undefined ? inputs.emitterType : (funnel.emisor_tipo || '')
-    ).toLowerCase();
+    // ── ACS ──────────────────────────────────────────────────────────────────
+    // Mismo criterio que el CIFO y las fichas (regla 12.b): fuera de alcance si
+    // `cambio_acs === false` o si el equipo nuevo es un termo eléctrico.
+    const changeAcs = !!pick(alc.acs, inputs.changeAcs, funnel.incluir_acs, false);
+
+    // ── Unidad terminal ──────────────────────────────────────────────────────
+    // El SUELO RADIANTE tiene ARMARIO DE COLECTORES, y esa foto (circuitos,
+    // válvulas y conexión con la bomba de calor) no la cubre ningún otro
+    // apartado. Los RADIADORES ya no se fotografían: ver conceptsFromInstalacion.
+    const emisorTipo = String(pick(alc.emisor, inputs.emitterType, funnel.emisor_tipo, '')).toLowerCase();
     const sueloRadiante = emisorTipo === 'suelo_radiante';
-    // Radiadores: la unidad terminal existente que hay que poder enseñar cuando NO
-    // hay suelo radiante. Los aire-aire (splits/conductos de un RES080) quedan
-    // fuera: esa foto es la de la unidad interior.
-    const radiadores = emisorTipo.startsWith('radiadores');
+
+    // ── Piscina (TER100) ─────────────────────────────────────────────────────
+    const piscina = alc.piscina === true;
 
     // ¿Hay caldera de combustión que se va a sustituir?
     const fuel = String(inputs.fuelType || '').toLowerCase();
@@ -342,9 +391,9 @@ function deriveSelectors(datosCalculo = {}) {
     // Hibridación (RES093): la caldera antigua NO se desmonta, se conserva y
     // trabaja en paralelo con la bomba de calor. Cambia el apartado "caldera
     // desmontada" del DESPUÉS por "depósito de ACS junto a la caldera antigua".
-    const hibridacion = inputs.hibridacion === true || datosCalculo.hibridacion === true;
+    const hibridacion = !!pick(alc.hibridacion, inputs.hibridacion, datosCalculo.hibridacion, false);
 
-    return { reforma, changeAcs, hayCaldera, hibridacion, sueloRadiante, radiadores };
+    return { reforma, changeAcs, hayCaldera, hibridacion, sueloRadiante, piscina };
 }
 
 /**
@@ -375,19 +424,21 @@ function buildDocChecklist(datosCalculo = {}) {
         push({ key: 'FOTO_PLACA_CALDERA_ANTES', fase: PHASE.ANTES, required: true, gating: 'pre_aceptacion', multiple: true, accept: ACCEPT_FOTO,
                label: 'Placa de la caldera', help: 'La etiqueta del fabricante. Acércate hasta que se lean marca, modelo y potencia.' });
     }
-    // Unidad terminal EXISTENTE con radiadores. Su pareja con suelo radiante es
-    // FOTO_ARMARIO_SUELO_RADIANTE (fase DESPUÉS, junto al equipo nuevo): nunca se
-    // piden las dos. Justifica la temperatura de impulsión con la que se declara
-    // el SCOP, así que no la cubre ninguna otra foto.
-    if (want('FOTO_EMISORES_ANTES', sel.radiadores)) push({ key: 'FOTO_EMISORES_ANTES', fase: PHASE.ANTES, required: false, multiple: true, accept: ACCEPT_FOTO,
+    // Unidad terminal EXISTENTE con radiadores. YA NO SE PIDE de oficio: la
+    // temperatura de impulsión con la que se declara el SCOP la fija
+    // `instalacion.tipo_emisor`, que ya viaja al CIFO, y la foto no añadía nada
+    // al expediente. Queda como apartado que el admin puede activar a mano
+    // ("Añadir apartado de obra") si un verificador llega a reclamarla — de ahí
+    // el selector fijo a `false`: solo entra por override.
+    if (want('FOTO_EMISORES_ANTES', false)) push({ key: 'FOTO_EMISORES_ANTES', fase: PHASE.ANTES, required: false, multiple: true, accept: ACCEPT_FOTO,
            label: 'Radiadores existentes', help: 'Una foto de un radiador tipo de la vivienda. Es la unidad terminal que se conserva y la que fija la temperatura de impulsión del equipo nuevo.' });
     push({ key: 'FOTO_FACHADA_PRINCIPAL', fase: PHASE.ANTES, required: false, multiple: true, accept: ACCEPT_FOTO,
            label: 'Fachada de la calle (completa)', help: 'Para ver cuántas ventanas hay y su tamaño.' });
     push({ key: 'FOTO_PATIOS_INTERIORES', fase: PHASE.ANTES, required: false, multiple: true, accept: ACCEPT_FOTO,
            label: 'Patios interiores', help: 'Paredes que dan a patios, con sus ventanas.' });
-    push({ key: 'VIDEO_VIVIENDA', fase: PHASE.ANTES, required: false, multiple: false, accept: ACCEPT_VIDEO,
+    push({ key: 'VIDEO_VIVIENDA', fase: PHASE.ANTES, required: false, multiple: false, prescindible: true, accept: ACCEPT_VIDEO,
            label: 'Vídeo recorriendo la vivienda', help: 'Un vídeo corto mostrando estancias, ventanas y accesos al exterior.' });
-    push({ key: 'DOC_PLANOS', fase: PHASE.ANTES, required: false, multiple: true, accept: ACCEPT_DOC,
+    push({ key: 'DOC_PLANOS', fase: PHASE.ANTES, required: false, multiple: true, prescindible: true, accept: ACCEPT_DOC,
            label: 'Planos o croquis', help: 'PDF o foto (.pdf, .png, .jpg…). Si no los tienes, con el vídeo nos vale.' });
     // CEE EXISTENTE: el certificado energético actual de la vivienda (si ya lo tiene).
     // optionalAlways → nunca pasa a obligatorio al ACEPTAR (no toda vivienda tiene CEE previo).
@@ -407,12 +458,12 @@ function buildDocChecklist(datosCalculo = {}) {
     if (want('FOTO_FACHADA_ANTES', sel.reforma.paredes))  push({ key: 'FOTO_FACHADA_ANTES', fase: PHASE.ANTES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Fachada a aislar (antes)' });
     if (want('FOTO_SUELO_ANTES', sel.reforma.suelo))    push({ key: 'FOTO_SUELO_ANTES', fase: PHASE.ANTES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Suelo (antes)' });
     if (want('FOTO_ACS_ANTES', sel.changeAcs))        push({ key: 'FOTO_ACS_ANTES', fase: PHASE.ANTES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Sistema de ACS actual', help: 'Termo eléctrico o conexión de ACS de la caldera.' });
-    // Piscina (TER100): el circuito se habilita desde la pestaña Instalación, nunca
-    // desde la simulación — de ahí que solo entre por docs_overrides.
-    if (want('FOTO_PISCINA_ANTES', false)) push({ key: 'FOTO_PISCINA_ANTES', fase: PHASE.ANTES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Calentamiento de piscina actual', help: 'El equipo que calienta hoy el agua de la piscina y su conexión con el circuito.' });
+    // Piscina (TER100): el circuito se declara en la pestaña Instalación, nunca
+    // en la simulación — llega por el alcance del expediente o por docs_overrides.
+    if (want('FOTO_PISCINA_ANTES', sel.piscina)) push({ key: 'FOTO_PISCINA_ANTES', fase: PHASE.ANTES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Calentamiento de piscina actual', help: 'El equipo que calienta hoy el agua de la piscina y su conexión con el circuito.' });
     // `optionalAlways` como su gemelo OTROS_DESPUES: es un cajón de sastre, no un
     // documento con nombre — reclamárselo a nadie ("súbeme otros") no significa nada.
-    push({ key: 'OTROS_ANTES', fase: PHASE.ANTES, required: false, multiple: true, named: true, optionalAlways: true, accept: ACCEPT_CUALQUIERA,
+    push({ key: 'OTROS_ANTES', fase: PHASE.ANTES, required: false, multiple: true, named: true, optionalAlways: true, prescindible: true, accept: ACCEPT_CUALQUIERA,
            label: 'Otros (antes de la obra)', help: 'PDF, fotos, vídeos u otros archivos que no encajen en las categorías anteriores. Al subirlos se te pedirá un nombre para guardarlos identificados.' });
 
     // ───────── DESPUÉS DE LA OBRA ─────────
@@ -435,7 +486,7 @@ function buildDocChecklist(datosCalculo = {}) {
            label: 'Armario del suelo radiante (colectores)', help: 'El armario de colectores abierto: que se vean los circuitos, las válvulas y la conexión con el equipo nuevo.' });
     if (want('FOTO_ACS_DEPOSITO', sel.changeAcs)) push({ key: 'FOTO_ACS_DEPOSITO', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO,
            label: 'Depósito de ACS / inercia', help: 'El depósito del agua caliente ya instalado. Incluye una foto donde se vea su etiqueta de datos.' });
-    if (want('FOTO_PISCINA_BDC', false)) push({ key: 'FOTO_PISCINA_BDC', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO,
+    if (want('FOTO_PISCINA_BDC', sel.piscina)) push({ key: 'FOTO_PISCINA_BDC', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO,
            label: 'Bomba de calor de piscina instalada', help: 'El equipo nuevo de piscina ya montado y conectado. Incluye una foto de su placa de características (marca, modelo y nº de serie).' });
     push({ key: 'FOTO_CALDERA_DESMONTADA', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO,
            label: sel.hibridacion ? 'Depósito de ACS junto a la caldera antigua' : 'Caldera antigua desmontada / hueco',
@@ -447,16 +498,23 @@ function buildDocChecklist(datosCalculo = {}) {
     if (want('FOTO_FACHADA_DESPUES', sel.reforma.paredes))  push({ key: 'FOTO_FACHADA_DESPUES', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Aislamiento de fachada terminado', help: 'La fachada ya aislada y terminada.' });
     if (want('FOTO_SUELO_DESPUES', sel.reforma.suelo))    push({ key: 'FOTO_SUELO_DESPUES', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Suelo terminado (después)', help: 'El suelo ya aislado y terminado.' });
     if (want('FOTO_PLACAS_SOLARES', sel.reforma.placas))  push({ key: 'FOTO_PLACAS_SOLARES', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Placas solares instaladas', help: 'Las placas fotovoltaicas o solares térmicas ya montadas.' });
-    push({ key: 'VIDEO_REFORMA', fase: PHASE.DESPUES, required: false, optionalAlways: true, multiple: false, accept: ACCEPT_VIDEO, label: 'Vídeo de la reforma (opcional)', help: 'Recorrido en vídeo de la instalación ya terminada.' });
+    push({ key: 'VIDEO_REFORMA', fase: PHASE.DESPUES, required: false, optionalAlways: true, prescindible: true, multiple: false, accept: ACCEPT_VIDEO, label: 'Vídeo de la reforma (opcional)', help: 'Recorrido en vídeo de la instalación ya terminada.' });
     push({ key: 'DOC_FACTURAS', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_DOC, label: 'Facturas de la instalación', help: 'Las facturas de los materiales y de la instalación (en PDF o foto).' });
     // CEE POSTERIOR a la obra. Existía en los slots del enlace público de /reforma
     // (getReformaSlots) pero NO en este checklist, que es contra el que valida el POST
     // de subida: subir aquí el certificado final daba "Tipo de documento no válido".
     // optionalAlways: solo lo tienen las obras ya ejecutadas.
-    push({ key: 'DOC_CEE_POSTERIOR', fase: PHASE.DESPUES, required: false, multiple: true, optionalAlways: true, mergePdf: true, accept: ACCEPT_CEE,
+    push({ key: 'DOC_CEE_POSTERIOR', fase: PHASE.DESPUES, required: false, multiple: true, optionalAlways: true, prescindible: true, mergePdf: true, accept: ACCEPT_CEE,
            label: 'Certificado de Eficiencia Energética posterior', help: 'El CEE emitido una vez terminada la reforma (PDF y, si lo tienes, el .xml/.cex).' });
-    push({ key: 'DOC_RITE', fase: PHASE.DESPUES, required: false, multiple: false, accept: ACCEPT_DOC, label: 'Certificado RITE', help: 'Lo emite el instalador: es el certificado de la instalación térmica (RITE) que debe entregar al terminar la obra.' });
-    push({ key: 'OTROS_DESPUES', fase: PHASE.DESPUES, required: false, optionalAlways: true, multiple: true, named: true, accept: ACCEPT_CUALQUIERA,
+    // Certificado RITE. `optionalAlways` a propósito: lo emite y lo entrega el
+    // INSTALADOR (con su habilitación de Industria), no el cliente. Marcárselo
+    // como "obligatorio" al cliente es reclamarle un documento que no puede
+    // emitir; se le ofrece por si ya lo tiene en la mano, y `aportaInstalador`
+    // hace que la UI lo diga en vez de dejarlo como una tarea suya pendiente.
+    // A Brokergy se lo pedimos al instalador por su propio canal (parte diario).
+    push({ key: 'DOC_RITE', fase: PHASE.DESPUES, required: false, optionalAlways: true, multiple: false, aportaInstalador: true, accept: ACCEPT_DOC,
+           label: 'Certificado RITE', help: 'Lo emite el instalador al terminar la obra. Si ya lo tienes, súbelo; si no, no te preocupes: se lo pedimos nosotros directamente.' });
+    push({ key: 'OTROS_DESPUES', fase: PHASE.DESPUES, required: false, optionalAlways: true, prescindible: true, multiple: true, named: true, accept: ACCEPT_CUALQUIERA,
            label: 'Otros (después de la obra)', help: 'PDF, fotos, vídeos u otros archivos que no encajen en las categorías anteriores. Al subirlos se te pedirá un nombre para guardarlos identificados.' });
 
     // Tras ACEPTAR (ya es expediente), la documentación pasa a ser obligatoria:
@@ -471,30 +529,140 @@ function buildDocChecklist(datosCalculo = {}) {
     }
 
     // ── El CEE inicial ya registrado cierra el material de CAPTACIÓN ──────────
-    // Fachada, patios, vídeo, planos y CEE previo no son documentación del
-    // expediente: son el material con el que el certificador levanta el CEE
-    // inicial. Una vez ese CEE está REGISTRADO ya cumplieron su función —
-    // seguir reclamándolos manda a molestar al cliente por fotos que nadie va a
-    // mirar. La caldera y su placa NO entran aquí: de ahí salen el Anexo
-    // Fotográfico y los datos del equipo antiguo del CIFO.
-    // Lo activa quien conoce el estado del expediente (el barrido), pasando
-    // `cee_inicial_registrado`: este servicio solo ve la oportunidad.
-    if (datosCalculo.cee_inicial_registrado === true) {
-        for (const s of slots) {
-            if (!CEE_CAPTACION_SLOTS.has(s.key)) continue;
-            s.required = false;
-            s.noRequeridoMotivo = 'Ya no hace falta — el CEE inicial está registrado';
-        }
-    }
+    // Fachada, patios, vídeo, planos, CEE previo y presupuesto no son
+    // documentación del expediente: son el material con el que el certificador
+    // levanta el CEE inicial y con el que se cierra la simulación. Una vez ese
+    // CEE está REGISTRADO ya cumplieron su función, así que el apartado
+    // DESAPARECE — dejarlo visible (aunque fuera como "opcional") llenaba la
+    // pantalla del móvil de casillas muertas y escondía lo que sí falta.
+    // La caldera y su placa NO entran aquí: de ahí salen el Anexo Fotográfico y
+    // los datos del equipo antiguo del CIFO.
+    //
+    // Lo que ya se hubiera subido a uno de estos apartados NO se pierde: sigue en
+    // Drive y `buildDocsView` lo enseña en el cajón "Otras fotos y documentos ya
+    // aportados", que lista la carpeta entera.
+    //
+    // El flag lo pone `docsAlcance` (o el barrido) porque este servicio solo ve
+    // la oportunidad, y el estado del CEE vive en el expediente.
+    const podados = datosCalculo.cee_inicial_registrado === true
+        ? slots.filter(s => !CEE_CAPTACION_SLOTS.has(s.key))
+        : slots;
 
     // El navegador reduce las fotos grandes antes de subirlas (una foto de móvil
     // ronda los 5-12 MB y por una línea normal tarda una eternidad). Los slots de
     // PLACA se marcan para que suban intactas: de ahí se lee el nº de serie.
-    for (const s of slots) {
+    for (const s of podados) {
         if (FULL_RES_SLOTS.has(s.key)) s.fullRes = true;
     }
 
+    // Nombre en lenguaje de cliente, junto al técnico (no lo sustituye).
+    conLabelCliente(podados);
+    // En una HIBRIDACIÓN la caldera antigua NO se desmonta: se conserva y trabaja
+    // en paralelo. Decirle ahí "La caldera vieja, ya quitada" le pediría una foto
+    // de algo que no va a pasar. El texto técnico ya lo contempla; aquí hay que
+    // repetir la excepción porque la tabla es plana, por clave de slot.
+    if (sel.hibridacion) {
+        const s = podados.find(x => x.key === 'FOTO_CALDERA_DESMONTADA');
+        if (s) {
+            s.labelCliente = 'El depósito nuevo, junto a tu caldera de siempre';
+            s.helpCliente = 'Tu caldera no se quita: se queda trabajando con la máquina nueva. Haz una foto donde salgan las dos.';
+        }
+    }
+
+    return podados;
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// LENGUAJE DE CASA — cómo se le nombra cada apartado AL CLIENTE.
+// ---------------------------------------------------------------------------
+// Las etiquetas de `buildDocChecklist` son las TÉCNICAS y no se tocan: con esos
+// mismos nombres trabaja el admin y con ellos casan el Anexo Fotográfico y el
+// CIFO. Pero "Placa de la unidad interior / DEPOSITO ACS" lo escribió un
+// ingeniero: un propietario no sabe qué es una placa, ni un hidrokit, ni la
+// inercia. Y el que no entiende lo que se le pide, no sube nada — o sube otra
+// cosa y hay que rechazársela.
+//
+// Aquí vive la traducción. Viaja como `labelCliente` / `helpCliente` y SOLO la
+// usa el enlace público; si un slot no está en la tabla, se cae a la etiqueta
+// técnica de siempre.
+//
+// Criterio de redacción:
+//   · Se nombra el objeto por lo que el cliente ve, no por su función
+//     ("la máquina nueva de fuera", no "unidad exterior").
+//   · "Pegatina" en vez de "placa de características": es lo que parece.
+//   · Se dice qué hacer, no qué documentar ("acércate hasta que se lean").
+//   · Lo que puede saltarse, se dice ("si no lo tienes, no pasa nada").
+const LABEL_CLIENTE = {
+    // ── ANTES ──
+    FOTO_CALDERA_ANTES:        { label: 'Tu caldera actual', help: 'Una foto de la caldera entera, en el sitio donde está puesta. Si puedes, sácala desde un par de ángulos.' },
+    FOTO_PLACA_CALDERA_ANTES:  { label: 'La pegatina de la caldera', help: 'La etiqueta con letras y números que lleva pegada. Acércate hasta que se lean bien: de ahí sacamos la marca y el modelo.' },
+    FOTO_EMISORES_ANTES:       { label: 'Un radiador de tu casa', help: 'Con uno cualquiera nos vale.' },
+    FOTO_FACHADA_PRINCIPAL:    { label: 'Tu casa vista desde la calle', help: 'Apártate lo suficiente para que salga entera, con todas sus ventanas.' },
+    FOTO_PATIOS_INTERIORES:    { label: 'Las paredes que dan a un patio', help: 'Si tu casa tiene patio, una foto de cada pared que dé a él.' },
+    VIDEO_VIVIENDA:            { label: 'Un vídeo andando por tu casa', help: 'Camina despacio por las habitaciones enseñando las ventanas y las puertas que dan a la calle. Un minuto basta.' },
+    DOC_PLANOS:                { label: 'Los planos de tu casa', help: 'Si los tienes a mano. Si no, no pasa nada: con el vídeo nos apañamos.' },
+    DOC_CEE_EXISTENTE:         { label: 'El certificado energético de tu casa', help: 'Es el papel con la letra de colores, de la A a la G. Si no lo tienes, sáltalo. Puedes mandarlo en PDF o fotografiar sus hojas.' },
+    DOC_PRESUPUESTO:           { label: 'El presupuesto del instalador', help: 'El papel donde te dice lo que cuesta la obra. Vale una foto.' },
+    FOTO_ACS_ANTES:            { label: 'Cómo calientas hoy el agua', help: 'El termo eléctrico, o el sitio por donde la caldera calienta el agua de la ducha.' },
+    FOTO_VENTANAS_ANTES:       { label: 'Las ventanas de ahora', help: 'Las que vais a cambiar, tal y como están hoy.' },
+    FOTO_CUBIERTA_ANTES:       { label: 'El tejado, antes de la obra' },
+    FOTO_FACHADA_ANTES:        { label: 'La fachada, antes de aislarla' },
+    FOTO_SUELO_ANTES:          { label: 'El suelo, antes de la obra' },
+    FOTO_PISCINA_ANTES:        { label: 'Cómo se calienta hoy la piscina', help: 'El aparato que calienta el agua y por dónde va conectado.' },
+    OTROS_ANTES:               { label: 'Cualquier otra cosa que quieras mandarnos', help: 'Fotos, papeles o vídeos que no encajen arriba. Te pediremos que le pongas un nombre.' },
+
+    // ── DESPUÉS ──
+    FOTO_UNIDAD_EXTERIOR:      { label: 'La máquina nueva de fuera', help: 'La que han colocado en la fachada, la terraza o el patio, ya instalada y conectada.' },
+    FOTO_UNIDAD_EXTERIOR_PLACA:{ label: 'La pegatina de la máquina de fuera', help: 'La etiqueta con letras y números. Acércate hasta que se lean: de ahí sale el número de serie, y sin él no podemos tramitar la ayuda.' },
+    FOTO_UNIDAD_INTERIOR:      { label: 'La máquina nueva de dentro', help: 'Lo que han puesto dentro de casa: un aparato colgado en la pared o un depósito grande.' },
+    FOTO_UNIDAD_INTERIOR_PLACA:{ label: 'La pegatina de la máquina de dentro', help: 'La etiqueta con letras y números del aparato de dentro o del depósito. Que se lean bien.' },
+    FOTO_ARMARIO_SUELO_RADIANTE:{ label: 'El armario del suelo radiante, abierto', help: 'El armario empotrado con los tubos y las llaves. Ábrelo para que se vea por dentro.' },
+    FOTO_ACS_DEPOSITO:         { label: 'El depósito del agua caliente', help: 'El depósito nuevo ya instalado. Haz también una foto de su pegatina, de cerca.' },
+    FOTO_CALDERA_DESMONTADA:   { label: 'La caldera vieja, ya quitada', help: 'La caldera antigua fuera, o el hueco que ha dejado en la pared.' },
+    FOTO_PISCINA_BDC:          { label: 'La máquina nueva de la piscina', help: 'El aparato ya montado y conectado. Y otra foto de su pegatina, de cerca.' },
+    FOTO_VENTANAS_DESPUES:     { label: 'Las ventanas nuevas, ya puestas' },
+    FOTO_CUBIERTA_DESPUES:     { label: 'El tejado, ya terminado' },
+    FOTO_FACHADA_DESPUES:      { label: 'La fachada, ya terminada' },
+    FOTO_SUELO_DESPUES:        { label: 'El suelo, ya terminado' },
+    FOTO_PLACAS_SOLARES:       { label: 'Las placas solares, ya puestas' },
+    VIDEO_REFORMA:             { label: 'Un vídeo de cómo ha quedado', help: 'Opcional. Un paseo corto por la instalación terminada.' },
+    DOC_FACTURAS:             { label: 'Las facturas de la obra', help: 'En PDF o en papel: si es papel, hazle una foto. Puedes mandarlas todas de una vez.' },
+    DOC_CEE_POSTERIOR:         { label: 'El certificado energético nuevo', help: 'El que se hace una vez terminada la obra, si ya lo tienes.' },
+    DOC_RITE:                  { label: 'El certificado de la instalación (RITE)', help: 'Es el papel que firma tu instalador al terminar. Si te lo ha dado, súbelo; si no, no te preocupes: se lo pedimos nosotros.' },
+    OTROS_DESPUES:             { label: 'Cualquier otra cosa que quieras mandarnos', help: 'Fotos, papeles o vídeos que no encajen arriba. Te pediremos que le pongas un nombre.' },
+};
+
+/**
+ * Añade a cada slot su nombre en lenguaje de cliente (`labelCliente`/`helpCliente`).
+ * No sustituye nada: el frontend elige cuál enseñar según quién esté mirando.
+ */
+function conLabelCliente(slots) {
+    for (const s of slots) {
+        const t = LABEL_CLIENTE[s.key];
+        if (!t) continue;
+        s.labelCliente = t.label;
+        // Una entrada sin `help` conserva la ayuda técnica: mejor la de siempre
+        // que ninguna. La hibridación cambia el texto de FOTO_CALDERA_DESMONTADA
+        // en tiempo de construcción, así que ahí tampoco se pisa.
+        if (t.help) s.helpCliente = t.help;
+    }
     return slots;
+}
+
+/**
+ * Checklist de una oportunidad CON el alcance del expediente ya resuelto.
+ *
+ * Es lo que deben usar las rutas que VALIDAN un slot (subir, borrar, unir en
+ * PDF): la vista poda apartados según el expediente, y si la validación se
+ * hiciera sobre el checklist "crudo" las dos superficies discreparían — subir a
+ * un slot que la vista ya no ofrece respondería 200, y peor aún, un slot podado
+ * seguiría siendo un destino válido para quien conserve la URL antigua.
+ *
+ * `opp` necesita al menos { id, datos_calculo }.
+ */
+async function checklistForOportunidad(opp) {
+    const { datosCalculo } = await docsAlcance.enriquecer(opp);
+    return buildDocChecklist(datosCalculo);
 }
 
 /**
@@ -699,25 +867,104 @@ async function driveSlotsPresentes(datosCalculo) {
     return presentes;
 }
 
+// ───────────────────────────────────────────────────────────────────────────
+// APARTADOS ATADOS A LA UNIDAD TERMINAL
+// ---------------------------------------------------------------------------
+// Cada familia de emisor tiene SU foto y son excluyentes: el suelo radiante
+// tiene armario de colectores, los radiadores se ven a simple vista y los
+// aire-aire (splits/conductos de un RES080) no tienen ninguna — esa foto ya es
+// la de la unidad interior.
+//
+// El problema es que `syncInstalacionConcepts` habilitaba estos apartados por
+// override y el override QUEDA PERSISTIDO: si luego cambia el emisor —o
+// simplemente el expediente viene de cuando la foto de radiadores se pedía de
+// oficio— el apartado sigue apareciendo en un expediente que no lo necesita.
+// Medido sobre 26RES080_63 (emisor `conductos`): pedía el armario del suelo
+// radiante, que ahí no existe.
+//
+// Se retira SOLO si el expediente declara un emisor DISTINTO (un emisor sin
+// declarar no decide nada) y SOLO si el apartado está vacío: si alguien llegó a
+// subir la foto, se conserva. Para volver a pedirlo está "Añadir apartado de obra".
+const SLOT_EMISOR = {
+    FOTO_ARMARIO_SUELO_RADIANTE: 'suelo_radiante',
+    // Los radiadores ya no se piden de oficio (ver conceptsFromInstalacion); esto
+    // barre además el override heredado de cuando sí se pedían.
+    FOTO_EMISORES_ANTES: null,
+};
+
+/** ¿Este apartado pertenece a un emisor que NO es el de este expediente? */
+function emisorDesencaja(slotKey, emisor) {
+    if (!(slotKey in SLOT_EMISOR)) return false;
+    if (!emisor) return false;                     // no consta → no se decide nada
+    return SLOT_EMISOR[slotKey] !== emisor;        // null !== cualquier emisor → siempre desencaja
+}
+
+// ---------------------------------------------------------------------------
+// Caché de IDs de subcarpeta de Drive.
+// ---------------------------------------------------------------------------
+// Buscar "12. DOCUMENTOS PARA CEE" dentro de la carpeta del expediente costaba
+// ~0,9 s y se repetía en CADA carga de la vista — para devolver siempre lo
+// mismo: una subcarpeta se crea una vez y ya no se mueve ni se renombra. Se
+// cachea el ID de por vida del proceso.
+//
+// Solo se cachea el ID, NUNCA el contenido: Drive sigue siendo la fuente de
+// verdad de qué ficheros hay (regla 20) y esa lista sí cambia a cada subida.
+// Un ID que dejara de valer (carpeta borrada a mano) se descarta al fallar el
+// listado, así que el siguiente intento la vuelve a buscar.
+const subfolderIdCache = new Map(); // `${folderId}::${nombre}` → id
+
+async function subfolderIdCached(folderId, nombre, normalizado = false) {
+    const key = `${folderId}::${nombre}`;
+    if (subfolderIdCache.has(key)) return subfolderIdCache.get(key);
+    const id = normalizado
+        ? await driveService.findSubfolderByNameNormalized(folderId, nombre)
+        : await driveService.findSubfolderByName(folderId, nombre);
+    if (id) subfolderIdCache.set(key, id); // un null no se cachea: la carpeta puede crearse después
+    return id;
+}
+
+/** Olvida el ID cacheado de una subcarpeta (si un listado falla, puede haber dejado de existir). */
+function olvidarSubfolder(folderId, nombre) {
+    subfolderIdCache.delete(`${folderId}::${nombre}`);
+}
+
 async function buildDocsView(opp, opts = {}) {
-    const dc = opp.datos_calculo || {};
+    // El ALCANCE del expediente manda sobre la simulación: qué ficha es, si se
+    // toca el ACS, qué unidad terminal hay, qué envolvente se rehabilita y si el
+    // CEE inicial ya está registrado. Sin esto la vista pedía material que el
+    // expediente ya no necesita. Ver services/docsAlcance.js.
+    const { datosCalculo: dc, alcance } = await docsAlcance.enriquecer(opp);
     const checklist = buildDocChecklist(dc);
     const uploads = dc.reforma_uploads || {};
     const overrides = dc.docs_overrides || {}; // { <slot>: { waived: bool } }
 
-    // Listar la carpeta de documentos una sola vez (reconciliación)
+    // Reconciliación con Drive. Eran CUATRO llamadas EN SERIE (buscar carpeta +
+    // listar, dos veces) ≈ 1,9 s con el cliente mirando una pantalla vacía. Ahora
+    // las dos cadenas van EN PARALELO y la búsqueda de carpeta sale de caché.
+    // Las FACTURAS viven en su propia carpeta "5. FACTURAS" (unificadas con el
+    // alta del admin), de ahí las dos cadenas.
     let driveFiles = [];
     let facturasFiles = [];
     try {
         const folderId = dc.drive_folder_id || dc.inputs?.drive_folder_id;
         if (folderId) {
-            const subId = await driveService.findSubfolderByName(folderId, SUBCARPETA_DOCS);
-            if (subId) driveFiles = await driveService.listFiles(subId);
-            // Las FACTURAS viven en su propia carpeta "5. FACTURAS" (unificadas con el
-            // alta del admin). Se reconcilian aparte para el slot DOC_FACTURAS.
-            // Búsqueda tolerante para no fallar si la carpeta tiene/omite el espacio.
-            const factId = await driveService.findSubfolderByNameNormalized(folderId, SUBCARPETA_FACTURAS);
-            if (factId) facturasFiles = await driveService.listFiles(factId);
+            const listarSub = async (nombre, normalizado) => {
+                const subId = await subfolderIdCached(folderId, nombre, normalizado);
+                if (!subId) return [];
+                try {
+                    return await driveService.listFiles(subId);
+                } catch (e) {
+                    // El ID cacheado ya no vale (carpeta movida o borrada a mano):
+                    // se olvida para que la próxima carga la vuelva a buscar.
+                    olvidarSubfolder(folderId, nombre);
+                    throw e;
+                }
+            };
+            [driveFiles, facturasFiles] = await Promise.all([
+                listarSub(SUBCARPETA_DOCS, false),
+                // Búsqueda tolerante: "5. FACTURAS" y "5.FACTURAS" son la misma carpeta.
+                listarSub(SUBCARPETA_FACTURAS, true),
+            ]);
         }
     } catch (e) { console.warn('[Docs] reconciliación Drive:', e.message); }
 
@@ -731,7 +978,34 @@ async function buildDocsView(opp, opts = {}) {
     // IDs de Drive ya "consumidos" por algún slot del checklist → para detectar huérfanos.
     const consumedDriveIds = new Set();
 
-    const slots = checklist.map(s => {
+    /** ¿Este apartado tiene ya algún fichero (en Drive o registrado en BD)? */
+    const tieneMaterial = (key) => (uploads[key]?.length > 0)
+        || driveFiles.some(f => fileBelongsToSlot(f.name, key));
+
+    // Limpieza de apartados heredados que ya no procede pedir.
+    // `syncInstalacionConcepts` habilitaba "emisores" automáticamente en todo
+    // expediente con radiadores, y ese override quedó persistido en
+    // `docs_overrides`. Ahora que la foto de radiadores no se pide, un override
+    // antiguo la resucitaría en expedientes que nunca la van a necesitar. Se
+    // quita SOLO si está vacía: si alguien llegó a subir la foto, se conserva
+    // (nunca escondemos material ya aportado).
+    // Apartados PRESCINDIBLES: vídeos, planos, "Otros" y el CEE posterior. No
+    // alimentan ningún documento del expediente (el CEE final lo emite NUESTRO
+    // certificador, no el cliente) y en un expediente EN CURSO solo alargan la
+    // pantalla del móvil con casillas que nadie va a reclamar.
+    //
+    // Se ocultan SOLO al cliente (`audience: 'cliente'`, que pasa la ruta pública)
+    // y SOLO si están vacíos: el admin los conserva —los usa para archivar
+    // material suelto— y lo ya subido no se esconde jamás.
+    const ocultarPrescindibles = opts.audience === 'cliente' && dc.estado === 'ACEPTADA';
+
+    const checklistVivo = checklist.filter(s => {
+        if (emisorDesencaja(s.key, alcance.emisor)) return tieneMaterial(s.key);
+        if (ocultarPrescindibles && s.prescindible) return tieneMaterial(s.key);
+        return true;
+    });
+
+    const slots = checklistVivo.map(s => {
         const dbByName = new Map((uploads[s.key] || []).map(it => [it.name, it]));
         // Las facturas se reconcilian contra "5.FACTURAS"; el resto contra "12. DOCUMENTOS PARA CEE".
         const folderFiles = s.key === 'DOC_FACTURAS' ? facturasFiles : driveFiles;
@@ -853,36 +1127,30 @@ async function buildDocsView(opp, opts = {}) {
         id: c.id,
         label: c.label,
         slots: c.slots,
-        shown: c.slots.some(k => checklist.some(s => s.key === k)),
+        shown: c.slots.some(k => checklistVivo.some(s => s.key === k)),
         enabled: c.slots.some(k => overrides[k]?.enabled === true),
         hasPhotos: c.slots.some(k => (slots.find(s => s.key === k)?.items?.length > 0)),
     }));
 
-    // Si la oportunidad ya ha sido ACEPTADA es un expediente: en la cabecera
-    // mostramos su número de expediente oficial (26RESxxx_NN) en vez del id de
-    // oportunidad (..._OPxx). El nombre del cliente ya viaja en `cliente`.
-    let numeroExpediente = null;
-    let finObra = null;
-    if (dc.estado === 'ACEPTADA') {
-        try {
-            const { data: exp } = await supabase
-                .from('expedientes')
-                .select('numero_expediente, fin:documentacion->>fecha_fin_obra_comunicada')
-                .eq('oportunidad_id', opp.id)
-                .maybeSingle();
-            numeroExpediente = exp?.numero_expediente || null;
-            finObra = exp?.fin || null;
-        } catch (e) { console.warn('[Docs] numero_expediente cabecera:', e.message); }
-    }
-
     return {
         id_oportunidad: opp.id_oportunidad,
-        numero_expediente: numeroExpediente,
+        // Con expediente, la cabecera enseña su número oficial (26RESxxx_NN) en vez
+        // del id de oportunidad (..._OPxx). Ambos salen ya del alcance resuelto:
+        // antes esto costaba una segunda consulta a `expedientes`.
+        numero_expediente: alcance.numero_expediente,
         cliente: opp.referencia_cliente || '',
         aceptada: dc.estado === 'ACEPTADA',
         // Fecha en que el cliente/instalador comunicó el fin de obra desde el enlace
         // (null = aún no lo ha hecho) → el botón "He terminado la obra".
-        fin_obra: finObra,
+        fin_obra: alcance.fin_obra,
+        // Contexto de por qué se pide lo que se pide. La UI lo usa para explicar
+        // el alcance ("RES060 · sin ACS") en vez de limitarse a enseñar una lista.
+        alcance: {
+            ficha: alcance.ficha,
+            acs: alcance.acs,
+            emisor: alcance.emisor,
+            cee_inicial_registrado: alcance.cee_inicial_registrado,
+        },
         slots,
         addableConcepts
     };
@@ -1082,6 +1350,7 @@ module.exports = {
     parseOtrosLabel,
     buildNamedFileBase,
     buildDocChecklist,
+    checklistForOportunidad,
     buildDocsView,
     conceptsFromEnvolvente,
     syncEnvolventeConcepts,

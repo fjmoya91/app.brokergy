@@ -31,6 +31,7 @@ from lib.generar_memoria import generar_memoria, _build_field_index
 from lib.mapeo import construir_relleno
 from lib import generar_guia_je6 as guia
 from lib import generar_borrador_certificado as borrador
+from lib import pruebas_rite
 from lib import supabase_client as sc
 
 ASSETS = os.path.join(os.path.dirname(__file__), "assets")
@@ -155,6 +156,7 @@ def generar(datos: dict, salida_dir: str):
 def _datos_guia(d: dict) -> dict:
     """Adapta el dict normalizado al formato que espera el generador de guía."""
     t = d["titular"]; ins = d["instalacion"]; inst = d["instalador"]; p = d["potencia"]
+    emisor = (d.get("_meta") or {}).get("emisor", "")
     return {
         "expediente": d["expediente"],
         "titular": {"nombre": t["nombre"], "ape1": t["ape1"], "ape2": t["ape2"], "nif": t["nif"]},
@@ -179,12 +181,13 @@ def _datos_guia(d: dict) -> dict:
             "carnet_personal": inst.get("carnet_personal") or "",
             "instalador_nombre": inst["nombre_firma"], "instalador_nif": inst.get("nif_firma", "")},
         "pruebas_fecha": d.get("pruebas_fecha"),
-        "pruebas": [
-            "Prueba de los equipos",
-            "Prueba de estanqueidad redes de tuberías de agua",
-            "Pruebas finales según UNE-EN 12599",
-            "Ajuste y equilibrado del sistema de distribución de agua",
-            "Eficiencia Energética"],
+        # Qué pruebas proceden depende del EMISOR (hay circuito de agua, red de
+        # conductos o ninguno). Fuente única: lib/pruebas_rite.py.
+        #   · `pruebas`       → solo las que proceden (guía JE6: una línea por casilla)
+        #   · `pruebas_tabla` → la tabla COMPLETA del impreso oficial, en su orden
+        #                       (borrador del certificado: se compara casilla a casilla)
+        "pruebas": pruebas_rite.pruebas_realizadas(emisor),
+        "pruebas_tabla": pruebas_rite.pruebas_tabla(emisor),
     }
 
 

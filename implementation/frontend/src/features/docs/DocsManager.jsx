@@ -14,6 +14,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import { prepararImagenParaSubir } from '../../utils/imageResize';
+import { SlotIlustracion } from './SlotIlustracion';
 
 const ESTADO_UI = {
     pendiente: { ring: 'border-white/10 bg-white/[0.03]', chip: null },
@@ -146,6 +147,12 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
     const [namePrompt, setNamePrompt] = useState(null); // { slot, files } al subir a un slot "Otros"
     const [nameValue, setNameValue] = useState('');     // texto del nombre que escribe el usuario
     const [bulkValidating, setBulkValidating] = useState(null); // slot.key | '__antes__' | '__despues__' en validación masiva
+    const [verHechos, setVerHechos] = useState(false); // cliente: desplegar "ya enviado"
+    // Modo GUIADO (solo cliente): un apartado en pantalla cada vez. Arranca activo
+    // — es el recorrido para quien no se maneja; "ver todos" lo apaga y ya no vuelve
+    // solo, porque quien lo apaga es justo quien prefiere la lista.
+    const [guiado, setGuiado] = useState(true);
+    const [saltados, setSaltados] = useState(() => new Set()); // apartados aplazados con "ahora no"
     const [conceptPanel, setConceptPanel] = useState(false); // panel "Añadir apartado" abierto
     const [conceptBusy, setConceptBusy] = useState(null);    // concept.id en proceso de habilitar/quitar
     const [conceptError, setConceptError] = useState(null);  // error al cambiar un apartado
@@ -510,6 +517,11 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
     const slots = info?.slots || [];
     const aceptada = !!info?.aceptada;
     const canSeeDespues = aceptada || mode === 'admin' || roleFase === 'DESPUES';
+    // Enlace público = se abre CON EL MÓVIL, de pie y desde un WhatsApp. Manda una
+    // sola lista priorizada ("qué me falta"), no dos pestañas que hay que descubrir.
+    // El admin trabaja con el PC sobre el expediente entero: conserva pestañas,
+    // densidad y los controles de validación.
+    const clientView = mode === 'token';
 
     // Un slot puede estar cubierto por un documento que ya está en el módulo de
     // Documentación del expediente (el RITE en cert_rite_drive_link, o facturas):
@@ -553,6 +565,52 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
     const antesPending = canValidate ? pendingItemsOf(antes) : [];
     const despuesPending = canValidate ? pendingItemsOf(despues) : [];
 
+    // ── Reparto para la vista del CLIENTE ───────────────────────────────────
+    // Un apartado pide acción si no tiene nada O si le rechazamos una foto (esa
+    // vuelve arriba: es lo más urgente que puede haber en la pantalla).
+    // Los "waived" (marcados no necesarios por el admin) y el cajón de material
+    // ya aportado no se le enseñan como tarea.
+    const necesitaAccion = (s) => !s.existing && !s.waived && (s.estado === 'rechazada' || !slotDone(s));
+    const cliVisibles = (roleFase ? slots.filter(s => s.fase === roleFase) : slots.filter(s => s.fase === 'ANTES' || canSeeDespues))
+        .filter(matchesNeed);
+    const cliPendientes = byTier(cliVisibles.filter(necesitaAccion));
+    const cliHechos = byTier(cliVisibles.filter(s => !necesitaAccion(s)));
+    const cliRechazadas = cliPendientes.filter(s => s.estado === 'rechazada').length;
+    // La barra mide apartados resueltos sobre los que se le piden de verdad.
+    const cliTotal = cliVisibles.filter(s => !s.existing && !s.waived).length;
+    const cliDone = Math.max(0, cliTotal - cliPendientes.length);
+    const cliPct = cliTotal > 0 ? Math.round((cliDone / cliTotal) * 100) : 100;
+
+    // Las dos fases NO se mezclan en una sola lista, aunque no haya pestañas.
+    // Pedirle hoy la "placa de la unidad exterior" a quien todavía no ha empezado
+    // la obra es darle una tarea imposible, y once tareas imposibles hacen que
+    // deje de mirar la lista entera. Se enseñan las dos, pero la que no toca va
+    // detrás y dice cuándo toca.
+    const obraEnMarcha = !!(finObra || info.fin_obra)
+        || cliVisibles.some(s => s.fase === 'DESPUES' && slotDone(s));
+    const pendAntes = cliPendientes.filter(s => s.fase === 'ANTES');
+    const pendDespues = cliPendientes.filter(s => s.fase === 'DESPUES');
+    // Bloque activo = donde está el trabajo de verdad ahora mismo.
+    const cliAhora = obraEnMarcha ? pendDespues : pendAntes;
+    const cliLuego = obraEnMarcha ? pendAntes : pendDespues;
+    const cliObligatorias = cliAhora.filter(s => s.required).length;
+    // ── Modo guiado: la COLA ────────────────────────────────────────────────
+    // Se enseña siempre el PRIMER pendiente. Al subirlo deja de estar pendiente y
+    // el siguiente aparece solo: no hace falta llevar un índice que se desajuste
+    // cuando la lista cambia bajo los pies. "Ahora no" lo aparta a `saltados`; si
+    // acaba apartando todos, la cola vuelve a empezar en vez de quedarse vacía —
+    // aplazar no puede convertirse en "ya no me lo pides nunca".
+    const colaGuiada = cliAhora.filter(s => !saltados.has(s.key));
+    const pasoSlot = colaGuiada[0] || cliAhora[0] || null;
+    const enGuiado = clientView && guiado && !!pasoSlot;
+
+    const tituloLuego = obraEnMarcha
+        ? 'Del estado anterior a la obra'
+        : 'Para cuando termine la obra';
+    const ayudaLuego = obraEnMarcha
+        ? 'Quedó pendiente de antes de empezar. Si ya no puedes hacerlo, dínoslo y lo resolvemos por otra vía.'
+        : 'No hace falta que lo hagas ahora: te lo dejamos aquí para cuando la instalación esté terminada.';
+
     // Comunicar el FIN DE OBRA: avisa a Brokergy (WhatsApp + email) y deja fecha en
     // el expediente. El backend ignora las repeticiones dentro de 24 h.
     const comunicarFinObra = async () => {
@@ -571,6 +629,30 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
         } finally {
             setFinBusy(false);
         }
+    };
+
+    // Cómo se NOMBRA el apartado según quién mira. El backend manda los dos: el
+    // técnico ("Placa de la unidad interior / DEPOSITO ACS"), con el que trabajan
+    // el admin, el Anexo Fotográfico y el CIFO, y el de cliente ("La pegatina de
+    // la máquina de dentro"). Un slot sin traducir cae al técnico.
+    const textoDe = (slot) => (clientView
+        ? { label: slot.labelCliente || slot.label, help: slot.helpCliente || slot.help }
+        : { label: slot.label, help: slot.help });
+
+    // Texto del botón de subida.
+    //
+    // NUNCA dice "Hacer foto": al pulsar, el móvil ofrece cámara Y galería, y
+    // muchas de estas fotos ya están hechas de antes. Decir "hacer" hacía pensar
+    // que había que estar delante del equipo en ese momento. Y va en PLURAL
+    // cuando el apartado admite varias, que es donde el selector deja marcar más
+    // de una: si el botón dice "foto" en singular, nadie prueba a marcar dos.
+    const uploadCta = (slot, done) => {
+        const varias = !!slot.multiple;
+        if (done) return varias ? '+ Añadir más' : 'Cambiar';
+        if (!clientView) return 'Subir';
+        if (slot.key.startsWith('VIDEO_')) return '🎥 Subir vídeo';
+        if (slot.key.startsWith('FOTO_')) return varias ? '📷 Subir fotos' : '📷 Subir foto';
+        return varias ? '📎 Subir archivos' : '📎 Subir archivo';
     };
 
     const renderSlot = (slot) => {
@@ -607,15 +689,22 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
                     </div>
                 </div>
             )}
-                <div className="flex items-start justify-between gap-4">
+                {/* En el enlace del cliente (móvil) el botón cae DEBAJO y a todo el
+                    ancho: con el botón a la derecha, un título de dos líneas lo
+                    empuja fuera del pulgar y la tarjeta deja de tener un objetivo
+                    táctil claro. En el panel del admin (ratón) sigue a la derecha. */}
+                <div className={`flex gap-4 ${clientView && !done ? 'flex-col items-stretch' : 'items-start justify-between'}`}>
                     <div className="flex-1 min-w-0">
                         <p className={`font-black text-sm md:text-base flex items-center gap-2 flex-wrap ${slot.waived ? 'text-white/50' : 'text-white'}`}>
-                            {slot.label}
+                            {textoDe(slot).label}
                             {slot.required && !done && <span className="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-400/15 text-amber-300">Obligatorio</span>}
                             {slot.waived && <span className="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-white/10 text-white/50">No necesario</span>}
+                            {/* Documento que emite el INSTALADOR (RITE). Se ofrece por si ya
+                                lo tiene, pero no es tarea del cliente: se lo pedimos nosotros. */}
+                            {slot.aportaInstalador && !done && <span className="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-sky-400/15 text-sky-300">Lo aporta el instalador</span>}
                             {ui.chip && !coveredExt && <span className={`text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full ${ui.chip.cls}`}>{ui.chip.txt}</span>}
                         </p>
-                        {slot.help && <p className="text-white/45 text-xs mt-1 leading-snug">{slot.help}</p>}
+                        {textoDe(slot).help && <p className="text-white/45 text-xs mt-1 leading-snug">{textoDe(slot).help}</p>}
                         {/* RITE unificado: ya aportado como enlace en el módulo de Documentación (admin) */}
                         {slot.externalRite && (
                             <a href={slot.externalRite.link} target="_blank" rel="noreferrer"
@@ -756,16 +845,23 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
                     </div>
 
                     {!slot.existing && (
-                        <label className={`shrink-0 cursor-pointer px-4 py-2.5 rounded-xl font-black uppercase tracking-widest text-[11px] transition-all ${busy ? 'bg-white/10 text-white/40' : done ? 'bg-white/[0.06] text-white/70 hover:bg-white/[0.1] border border-white/10' : 'bg-gradient-to-r from-amber-500 to-amber-400 text-black shadow-lg shadow-amber-500/20'}`}>
-                            {busy
-                                ? (uploadPct[slot.key] != null ? `${uploadPct[slot.key]}%` : '…')
-                                : done ? (slot.multiple ? '+ Añadir' : 'Cambiar') : 'Subir'}
-                            <input type="file" accept={slot.accept}
-                                {...(slot.multiple ? { multiple: true } : {})}
-                                disabled={busy}
-                                onChange={e => { requestUpload(slot, e.target.files); e.target.value = ''; }}
-                                className="hidden" />
-                        </label>
+                        <div className={clientView && !done ? 'w-full' : 'shrink-0'}>
+                            <label className={`block cursor-pointer rounded-xl font-black uppercase tracking-widest transition-all text-center ${clientView && !done ? 'w-full py-3.5 text-xs' : 'px-4 py-2.5 text-[11px]'} ${busy ? 'bg-white/10 text-white/40' : done ? 'bg-white/[0.06] text-white/70 hover:bg-white/[0.1] border border-white/10' : 'bg-gradient-to-r from-amber-500 to-amber-400 text-black shadow-lg shadow-amber-500/20'}`}>
+                                {busy
+                                    ? (uploadPct[slot.key] != null ? `${uploadPct[slot.key]}%` : '…')
+                                    : uploadCta(slot, done)}
+                                <input type="file" accept={slot.accept}
+                                    {...(slot.multiple ? { multiple: true } : {})}
+                                    disabled={busy}
+                                    onChange={e => { requestUpload(slot, e.target.files); e.target.value = ''; }}
+                                    className="hidden" />
+                            </label>
+                            {/* Sin decirlo, nadie prueba a marcar más de una: el selector del
+                                móvil no anuncia que admite selección múltiple. */}
+                            {clientView && !done && slot.multiple && !busy && (
+                                <p className="mt-1.5 text-center text-[11px] text-white/35">Puedes elegir varias a la vez</p>
+                            )}
+                        </div>
                     )}
                 </div>
             </div>
@@ -783,8 +879,243 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
                 </p>
             </div>
 
-            {/* Tabs — ocultas cuando el enlace está scoped por rol (solo una fase) */}
-            {!roleFase && (
+            {/* ════════ VISTA DEL CLIENTE (enlace público, móvil) ════════
+                Una sola lista: primero lo que hay que hacer, después —plegado— lo
+                ya entregado. Sin pestañas: la pestaña "Después de la obra" era un
+                sitio al que había que acordarse de entrar, y lo que falta ahí es
+                tan urgente como lo de antes. */}
+            {/* ════════ MODO GUIADO — un apartado en pantalla cada vez ════════
+                Siete tarjetas iguales producen parálisis en quien no se maneja:
+                busca lo primero que entiende y hace solo eso. Aquí hay UNA cosa,
+                un dibujo de lo que se espera y un botón. Salida siempre a mano
+                ("ver todos los apartados") para quien prefiera la lista. */}
+            {enGuiado && (() => {
+                const txt = textoDe(pasoSlot);
+                const busy = busySlot === pasoSlot.key;
+                const yaTiene = (pasoSlot.items || []).length;
+                const paso = Math.min(cliDone + 1, cliTotal);
+                return (
+                    <div>
+                        {/* Cabecera: dónde estoy y cuánto queda */}
+                        <div className="flex items-center justify-between gap-3 mb-3">
+                            <span className="text-[11px] font-black uppercase tracking-widest text-white/45">
+                                Paso {paso} de {cliTotal}
+                            </span>
+                            <button onClick={() => setGuiado(false)}
+                                className="text-[11px] font-bold text-amber-400/80 hover:text-amber-300 underline underline-offset-2">
+                                Ver todos los apartados
+                            </button>
+                        </div>
+                        <div className="h-2 rounded-full bg-white/10 overflow-hidden mb-5">
+                            <div className="h-full rounded-full bg-gradient-to-r from-amber-500 to-emerald-400 transition-all duration-500"
+                                style={{ width: `${cliPct}%` }} />
+                        </div>
+
+                        <div className={`rounded-3xl border-2 p-5 md:p-6 ${pasoSlot.estado === 'rechazada' ? 'border-red-400/40 bg-red-400/[0.06]' : 'border-amber-400/30 bg-amber-400/[0.04]'}`}>
+                            {pasoSlot.estado === 'rechazada' && (
+                                <p className="mb-4 text-center text-xs font-black uppercase tracking-widest text-red-300">
+                                    ⚠️ Hay que repetir esta foto
+                                </p>
+                            )}
+
+                            {/* El dibujo enseña el ENCUADRE, que es lo que se hace mal */}
+                            <div className="w-40 h-32 md:w-48 md:h-36 mx-auto mb-4">
+                                <SlotIlustracion slotKey={pasoSlot.key} />
+                            </div>
+
+                            <h2 className="text-center text-xl md:text-2xl font-black text-white leading-tight">{txt.label}</h2>
+                            {txt.help && <p className="mt-2.5 text-center text-sm text-white/55 leading-relaxed">{txt.help}</p>}
+
+                            {/* Motivo del rechazo: qué falló exactamente la vez anterior */}
+                            {pasoSlot.estado === 'rechazada' && (pasoSlot.items || []).filter(i => i.motivo).map((i, n) => (
+                                <p key={n} className="mt-3 text-center text-xs text-red-300/90 bg-red-400/10 border border-red-400/20 rounded-xl px-3 py-2">{i.motivo}</p>
+                            ))}
+
+                            {/* Lo ya subido a ESTE apartado, por si añade más */}
+                            {yaTiene > 0 && (
+                                <div className="mt-4 flex justify-center gap-2">
+                                    {(pasoSlot.items || []).slice(0, 4).map((it, n) => (
+                                        <div key={n} className="relative w-12 h-12 rounded-lg overflow-hidden border border-white/15">
+                                            <DriveImg localUrl={it.localUrl} proxySrc={thumbProxy(it.driveId, 200)} driveId={it.driveId} thumb={it.thumb} size={200} fit="cover" />
+                                        </div>
+                                    ))}
+                                    {yaTiene > 4 && <div className="w-12 h-12 rounded-lg border border-white/15 flex items-center justify-center text-[11px] font-black text-white/50">+{yaTiene - 4}</div>}
+                                </div>
+                            )}
+
+                            <label className={`mt-5 block cursor-pointer rounded-2xl py-4 text-center font-black uppercase tracking-widest text-sm transition-all ${busy ? 'bg-white/10 text-white/40' : 'bg-gradient-to-r from-amber-500 to-amber-400 text-black shadow-lg shadow-amber-500/25'}`}>
+                                {busy
+                                    ? (uploadPct[pasoSlot.key] != null ? `Subiendo… ${uploadPct[pasoSlot.key]}%` : 'Subiendo…')
+                                    : uploadCta(pasoSlot, false)}
+                                <input type="file" accept={pasoSlot.accept}
+                                    {...(pasoSlot.multiple ? { multiple: true } : {})}
+                                    disabled={busy}
+                                    onChange={e => { requestUpload(pasoSlot, e.target.files); e.target.value = ''; }}
+                                    className="hidden" />
+                            </label>
+                            {pasoSlot.multiple && !busy && (
+                                <p className="mt-2 text-center text-[11px] text-white/35">Puedes elegir varias a la vez</p>
+                            )}
+                            {slotError[pasoSlot.key] && <p className="mt-3 text-center text-red-400 text-xs">{slotError[pasoSlot.key]}</p>}
+
+                            {/* Aplazar. Nunca "omitir": no desaparece, vuelve al final. */}
+                            {!busy && cliAhora.length > 1 && (
+                                <button onClick={() => setSaltados(prev => new Set(prev).add(pasoSlot.key))}
+                                    className="mt-4 w-full py-2.5 text-xs font-bold uppercase tracking-widest text-white/40 hover:text-white/70 transition-colors">
+                                    Ahora no · pasar al siguiente
+                                </button>
+                            )}
+                        </div>
+
+                        {/* Lo que ya nos ha mandado: tranquiliza sin distraer */}
+                        {cliHechos.filter(s => !s.existing).length > 0 && (
+                            <p className="mt-5 text-center text-xs text-emerald-300/60 font-bold">
+                                ✓ Ya nos has enviado {cliHechos.filter(s => !s.existing).length} {cliHechos.filter(s => !s.existing).length === 1 ? 'cosa' : 'cosas'}
+                            </p>
+                        )}
+
+                        {/* Fin de obra: también disponible sin salir del recorrido */}
+                        {canSeeDespues && roleFase !== 'ANTES' && !(finObra || info.fin_obra) && !finConfirm && (
+                            <button onClick={() => { setFinConfirm(true); setFinError(null); setGuiado(false); }}
+                                className="mt-5 w-full py-3 rounded-2xl border border-emerald-400/30 bg-emerald-500/[0.07] text-emerald-300/90 font-black uppercase tracking-widest text-[11px] hover:bg-emerald-500/15 transition-all">
+                                🏁 He terminado la obra
+                            </button>
+                        )}
+                    </div>
+                );
+            })()}
+
+            {clientView && !enGuiado && (
+                <>
+                    {/* Volver al recorrido guiado */}
+                    {cliAhora.length > 0 && (
+                        <button onClick={() => { setGuiado(true); setSaltados(new Set()); }}
+                            className="mb-4 w-full py-2.5 rounded-xl border border-amber-400/30 bg-amber-400/[0.06] text-amber-300 text-[11px] font-black uppercase tracking-widest hover:bg-amber-400/[0.12] transition-all">
+                            ← Guíame paso a paso
+                        </button>
+                    )}
+                    {/* Progreso: cuánto queda, en una línea */}
+                    <div className="mb-5 p-4 rounded-2xl border border-white/10 bg-white/[0.03]">
+                        <div className="flex items-baseline justify-between gap-3">
+                            <span className="text-xs font-black uppercase tracking-widest text-white/55">
+                                {cliPendientes.length === 0
+                                    ? 'Todo entregado'
+                                    : cliAhora.length === 0 ? 'Nada pendiente ahora mismo'
+                                    : cliAhora.length === 1 ? 'Te falta 1 cosa' : `Te faltan ${cliAhora.length} cosas`}
+                            </span>
+                            <span className="text-xs font-black text-white/40 tabular-nums">{cliDone}/{cliTotal}</span>
+                        </div>
+                        <div className="mt-2 h-2 rounded-full bg-white/10 overflow-hidden">
+                            <div className="h-full rounded-full bg-gradient-to-r from-amber-500 to-emerald-400 transition-all duration-500"
+                                style={{ width: `${cliPct}%` }} />
+                        </div>
+                        {cliObligatorias > 0 && (
+                            <p className="mt-2.5 text-[11px] text-amber-300/90 font-bold leading-snug">
+                                {cliObligatorias === 1 ? 'Queda 1 imprescindible' : `Quedan ${cliObligatorias} imprescindibles`} para poder tramitar tu ayuda.
+                            </p>
+                        )}
+                    </div>
+
+                    {/* Lo rechazado va primero y se anuncia: es lo único que el
+                        cliente ya dio por hecho y sin embargo sigue pendiente. */}
+                    {cliRechazadas > 0 && (
+                        <div className="mb-4 p-4 rounded-2xl border border-red-400/30 bg-red-400/[0.08] text-sm text-red-200/90 leading-relaxed">
+                            ⚠️ <strong className="text-red-200">{cliRechazadas === 1 ? 'Hay 1 foto que repetir' : `Hay ${cliRechazadas} fotos que repetir`}.</strong>{' '}
+                            Está la primera de la lista, con el motivo debajo.
+                        </div>
+                    )}
+
+                    {cliAhora.length > 0 ? (
+                        <section>
+                            <p className="mb-3 text-sm text-white/60 leading-relaxed">
+                                {needSet
+                                    ? <>📋 Sube <strong className="text-white/85">solo lo que te pedimos</strong> aquí abajo. Puedes hacerlo desde el móvil, archivo a archivo.</>
+                                    : <>📷 Puedes hacerlo <strong className="text-white/85">desde el móvil, una foto cada vez</strong>. No hace falta terminarlo de una sentada: vuelve a este enlace cuando quieras y sigue por donde lo dejaste.</>}
+                            </p>
+                            <div className="space-y-3">{cliAhora.map(renderSlot)}</div>
+                        </section>
+                    ) : cliPendientes.length === 0 ? (
+                        <div className="p-6 rounded-2xl border border-emerald-400/30 bg-emerald-400/[0.08] text-center">
+                            <div className="text-4xl mb-2">✅</div>
+                            <p className="text-emerald-300 font-black">¡Listo! No nos falta nada por tu parte.</p>
+                            <p className="text-white/50 text-xs mt-2 leading-relaxed">
+                                Revisaremos lo que nos has enviado. Si alguna foto no se ve bien, te avisamos para repetirla.
+                            </p>
+                        </div>
+                    ) : (
+                        <div className="p-5 rounded-2xl border border-emerald-400/30 bg-emerald-400/[0.08] text-center">
+                            <p className="text-emerald-300 font-black text-sm">✓ Por ahora no necesitamos nada más de ti.</p>
+                            <p className="text-white/50 text-xs mt-2 leading-relaxed">Lo de aquí abajo es para más adelante.</p>
+                        </div>
+                    )}
+
+                    {/* La otra fase: visible, pero detrás y con su "cuándo toca". */}
+                    {cliLuego.length > 0 && (
+                        <section className="mt-6 pt-5 border-t border-white/10">
+                            <p className="text-[11px] font-black uppercase tracking-widest text-white/40">{tituloLuego} ({cliLuego.length})</p>
+                            <p className="mt-1.5 mb-3 text-xs text-white/45 leading-relaxed">{ayudaLuego}</p>
+                            <div className="space-y-3 opacity-80">{cliLuego.map(renderSlot)}</div>
+                        </section>
+                    )}
+
+                    {/* Ya entregado: plegado. Ocupa una línea hasta que se pide verlo. */}
+                    {cliHechos.length > 0 && (
+                        <section className="mt-6">
+                            <button onClick={() => setVerHechos(v => !v)}
+                                className="w-full flex items-center justify-between gap-3 py-3.5 px-4 rounded-2xl border border-white/10 bg-white/[0.02] hover:bg-white/[0.05] transition-all">
+                                <span className="text-xs font-black uppercase tracking-widest text-emerald-300/70">✓ Ya nos lo has enviado ({cliHechos.length})</span>
+                                <span className="text-white/35 text-[10px] font-black">{verHechos ? '▲ OCULTAR' : '▼ VER'}</span>
+                            </button>
+                            {verHechos && <div className="space-y-3 mt-3">{cliHechos.map(renderSlot)}</div>}
+                        </section>
+                    )}
+
+                    {!canSeeDespues && (
+                        <div className="mt-5 p-4 bg-white/[0.02] border border-white/10 rounded-2xl text-xs text-white/40 leading-relaxed text-center">
+                            🔒 Cuando aceptes la propuesta te pediremos aquí mismo las fotos de la instalación terminada.
+                        </div>
+                    )}
+
+                    {/* Fin de obra: el aviso del CEE inicial pide que nos lo comuniquen,
+                        así que el botón vive aquí (solo en el enlace público). No se
+                        ofrece en un enlace acotado al ANTES: quien lo recibe no está
+                        en obra. */}
+                    {canSeeDespues && roleFase !== 'ANTES' && (
+                        (finObra || info.fin_obra) ? (
+                            <div className="mt-6 p-4 bg-emerald-400/[0.08] border border-emerald-400/30 rounded-2xl text-sm text-emerald-300 text-center font-bold">
+                                🏁 Nos has comunicado el fin de obra. Ya estamos con el certificado final.
+                            </div>
+                        ) : !finConfirm ? (
+                            <button onClick={() => { setFinConfirm(true); setFinError(null); }}
+                                className="mt-6 w-full py-3.5 rounded-2xl border border-emerald-400/40 bg-emerald-500/10 text-emerald-300 font-black uppercase tracking-widest text-xs hover:bg-emerald-500/20 transition-all">
+                                🏁 He terminado la obra
+                            </button>
+                        ) : (
+                            <div className="mt-6 p-4 bg-white/[0.04] border border-emerald-400/30 rounded-2xl">
+                                <p className="text-sm text-white/70 leading-relaxed">
+                                    ¿Confirmas que la instalación está <strong className="text-white">terminada</strong>? Avisaremos a Brokergy para empezar con el certificado final.
+                                    Antes, asegúrate de haber subido <strong className="text-white">las fotos de la instalación acabada y la factura</strong>.
+                                </p>
+                                {finError && <p className="text-red-400 text-xs mt-2">{finError}</p>}
+                                <div className="mt-4 flex gap-2">
+                                    <button onClick={comunicarFinObra} disabled={finBusy}
+                                        className="flex-1 py-3 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-400 text-black font-black uppercase tracking-widest text-xs disabled:opacity-50">
+                                        {finBusy ? 'Enviando…' : 'Sí, avisar a Brokergy'}
+                                    </button>
+                                    <button onClick={() => setFinConfirm(false)} disabled={finBusy}
+                                        className="px-4 py-3 rounded-xl text-white/50 font-black uppercase tracking-widest text-xs hover:text-white/80 disabled:opacity-50">
+                                        Cancelar
+                                    </button>
+                                </div>
+                            </div>
+                        )
+                    )}
+                </>
+            )}
+
+            {/* Tabs — ocultas cuando el enlace está scoped por rol (solo una fase)
+                y en el enlace del cliente, que va en una sola lista. */}
+            {!clientView && !roleFase && (
                 <div className="grid grid-cols-2 gap-2 mb-6 p-1 bg-white/[0.03] rounded-2xl border border-white/10">
                     <button onClick={() => setTab('ANTES')}
                         className={`py-3 rounded-xl font-black uppercase tracking-widest text-xs transition-all ${tab === 'ANTES' ? 'bg-gradient-to-r from-amber-500 to-amber-400 text-black shadow-lg shadow-amber-500/20' : 'text-white/50 hover:text-white/80'}`}>
@@ -807,7 +1138,7 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
                 </button>
             )}
 
-            {tab === 'ANTES' ? (
+            {!clientView && (tab === 'ANTES' ? (
                 <section>
                     <div className="mb-4 p-4 bg-amber-400/[0.06] border border-amber-400/20 rounded-2xl text-sm text-white/70 leading-relaxed">
                         {needSet
@@ -839,43 +1170,10 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
                         </button>
                     )}
                     <div className="space-y-3">{despues.map(renderSlot)}</div>
-
-                    {/* Fin de obra: el aviso del CEE inicial pide que nos lo comuniquen,
-                        así que el botón vive aquí (solo en el enlace público). */}
-                    {mode === 'token' && (
-                        (finObra || info.fin_obra) ? (
-                            <div className="mt-6 p-4 bg-emerald-400/[0.08] border border-emerald-400/30 rounded-2xl text-sm text-emerald-300 text-center font-bold">
-                                🏁 Nos has comunicado el fin de obra. Ya estamos con el certificado final.
-                            </div>
-                        ) : !finConfirm ? (
-                            <button onClick={() => { setFinConfirm(true); setFinError(null); }}
-                                className="mt-6 w-full py-3.5 rounded-2xl border border-emerald-400/40 bg-emerald-500/10 text-emerald-300 font-black uppercase tracking-widest text-xs hover:bg-emerald-500/20 transition-all">
-                                🏁 He terminado la obra
-                            </button>
-                        ) : (
-                            <div className="mt-6 p-4 bg-white/[0.04] border border-emerald-400/30 rounded-2xl">
-                                <p className="text-sm text-white/70 leading-relaxed">
-                                    ¿Confirmas que la instalación está <strong className="text-white">terminada</strong>? Avisaremos a Brokergy para empezar con el certificado final.
-                                    Antes, asegúrate de haber subido <strong className="text-white">las fotos de la instalación acabada y la factura</strong>.
-                                </p>
-                                {finError && <p className="text-red-400 text-xs mt-2">{finError}</p>}
-                                <div className="mt-4 flex gap-2">
-                                    <button onClick={comunicarFinObra} disabled={finBusy}
-                                        className="flex-1 py-3 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-400 text-black font-black uppercase tracking-widest text-xs disabled:opacity-50">
-                                        {finBusy ? 'Enviando…' : 'Sí, avisar a Brokergy'}
-                                    </button>
-                                    <button onClick={() => setFinConfirm(false)} disabled={finBusy}
-                                        className="px-4 py-3 rounded-xl text-white/50 font-black uppercase tracking-widest text-xs hover:text-white/80 disabled:opacity-50">
-                                        Cancelar
-                                    </button>
-                                </div>
-                            </div>
-                        )
-                    )}
                 </section>
-            )}
+            ))}
 
-            {!roleFase && tab === 'ANTES' && !canSeeDespues && (
+            {!clientView && !roleFase && tab === 'ANTES' && !canSeeDespues && (
                 <div className="mt-4 p-4 bg-white/[0.02] border border-white/10 rounded-2xl text-xs text-white/40 leading-relaxed text-center">
                     🔒 La fase <strong className="text-white/60">Después de la obra</strong> se activará cuando se acepte la propuesta.
                 </div>

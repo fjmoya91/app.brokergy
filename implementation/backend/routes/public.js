@@ -6,6 +6,8 @@ const expedienteService = require('../services/expedienteService');
 const whatsappService = require('../services/whatsappService');
 const driveService = require('../services/driveService');
 const reformaUploadService = require('../services/reformaUploadService');
+const docsAlcance = require('../services/docsAlcance');
+const facturaAutoOcr = require('../services/facturaAutoOcr');
 const ceeUploadService = require('../services/ceeUploadService');
 const anexoFotograficoService = require('../services/anexoFotograficoService');
 const uploadNotifier = require('../services/uploadNotifier');
@@ -731,8 +733,10 @@ router.get('/reforma-docs/:uuid', async (req, res) => {
             return res.status(403).json({ error: 'Enlace inválido o caducado.' });
         }
 
-        // Vista unificada (checklist + estado por foto + miniaturas + flag aceptada)
-        return res.json(await reformaUploadService.buildDocsView(opp));
+        // Vista unificada (checklist + estado por foto + miniaturas + flag aceptada).
+        // `audience: 'cliente'` → en un expediente en curso no se le enseñan los
+        // apartados prescindibles (vídeos, planos, "Otros", CEE posterior).
+        return res.json(await reformaUploadService.buildDocsView(opp, { audience: 'cliente' }));
     } catch (e) {
         console.error('Error reforma-docs GET:', e);
         res.status(500).json({ error: 'Error interno' });
@@ -805,7 +809,10 @@ router.post('/reforma-docs/:uuid/:slot', requireAuth, uploadDocsSingle, async (r
         }
 
         const dc = opp.datos_calculo || {};
-        const checklist = reformaUploadService.buildDocChecklist(dc);
+        // MISMO checklist que ve el cliente: con el alcance del expediente resuelto.
+        // Si la vista poda un apartado (ACS fuera de alcance, CEE inicial ya
+        // registrado…), aquí tampoco es un destino válido.
+        const checklist = await reformaUploadService.checklistForOportunidad(opp);
         const slotDef = checklist.find(s => s.key === slot);
         if (!slotDef) return res.status(400).json({ error: 'Tipo de documento no válido' });
 
@@ -895,7 +902,21 @@ router.post('/reforma-docs/:uuid/:slot', requireAuth, uploadDocsSingle, async (r
         // (cert_rite_drive_link) para que Documentación, CIFO y el agente lo vean.
         if (slot === 'DOC_RITE') reformaUploadService.syncRiteToExpediente(uuid, saved.link);
         // FACTURAS unificadas: crea la entrada en documentacion.facturas del expediente.
-        if (slot === 'DOC_FACTURAS') reformaUploadService.addFacturaToExpediente(uuid, saved.link, saved.id);
+        if (slot === 'DOC_FACTURAS') {
+            reformaUploadService.addFacturaToExpediente(uuid, saved.link, saved.id);
+            // …y la LEE en segundo plano para que la fila no llegue al admin con el
+            // nº, la fecha y el importe en blanco. El cliente no espera ni lo ve:
+            // la respuesta ya se está devolviendo abajo. Ver services/facturaAutoOcr.
+            setImmediate(() => {
+                facturaAutoOcr.leerYCompletar({
+                    oportunidadId: uuid,
+                    driveId: saved.id,
+                    buffer: req.file.buffer,
+                    originalname: req.file.originalname,
+                    mimetype: req.file.mimetype,
+                }).catch(e => console.warn('[facturaAutoOcr] subida pública:', e.message));
+            });
+        }
 
         return res.json({
             success: true, slot, name: fileName, link: saved.link,
@@ -1098,7 +1119,7 @@ router.post('/reforma-docs/:uuid/:slot/merge-pdf', requireAuth, async (req, res)
         }
 
         const dc = opp.datos_calculo || {};
-        const checklist = reformaUploadService.buildDocChecklist(dc);
+        const checklist = await reformaUploadService.checklistForOportunidad(opp);
         const slotDef = checklist.find(s => s.key === slot);
         if (!slotDef) return res.status(400).json({ error: 'Tipo de documento no válido' });
         if (!slotDef.mergePdf) return res.status(400).json({ error: 'Este apartado no admite unir fotos en un PDF.' });
@@ -1293,7 +1314,11 @@ router.get('/anexo-photos/:id', async (req, res) => {
             .maybeSingle();
         if (error || !opp) return res.status(404).json({ error: 'Oportunidad no encontrada' });
 
-        const dc = opp.datos_calculo || {};
+        // Con el alcance del expediente resuelto: el Anexo no puede seguir
+        // listando como "pendiente" una foto de ACS en un expediente sin ACS, ni
+        // los apartados de envolvente en una ficha que no los contempla. Mismo
+        // criterio que el popup de documentación.
+        const { datosCalculo: dc } = await docsAlcance.enriquecer(opp);
 
         // Recopilación centralizada (misma lógica que usa la generación automática
         // server-side del anexo, en anexoFotograficoService).

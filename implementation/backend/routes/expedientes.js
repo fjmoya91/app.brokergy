@@ -18,6 +18,7 @@ const { resolveInstaladorFirmante } = require('../utils/instaladorFirmante');
 const emailService = require('../services/emailService');
 const whatsappService = require('../services/whatsappService');
 const reformaUploadService = require('../services/reformaUploadService');
+const docsAlcance = require('../services/docsAlcance');
 const revisionPendienteNotifier = require('../services/revisionPendienteNotifier');
 const recordatorios = require('../services/recordatorios');
 const { mergeDocumentacion } = require('../utils/mergeDocumentacion');
@@ -865,23 +866,25 @@ async function buildChecklistData(exp, cli, op) {
     const overridesInst = reformaUploadService.overridesFromInstalacion(exp.instalacion);
     const overridesConInst = { ...(datos.docs_overrides || {}) };
     for (const [k, v] of Object.entries(overridesInst)) overridesConInst[k] = { ...(overridesConInst[k] || {}), ...v };
-    // Material que solo servía para levantar el CEE inicial: registrado el CEE,
-    // deja de pedirse (lo aplica buildDocChecklist, ver CEE_CAPTACION_SLOTS).
-    const ceeIniRegistrado = present(doc.fecha_registro_cee_inicial) || exp.seguimiento?.cee_inicial === 'REGISTRADO';
+    // ALCANCE del expediente (ficha, ACS, emisor, envolvente, CEE inicial
+    // registrado). Es la MISMA función que usan el enlace del cliente y el panel
+    // del admin: el barrido no puede pedir cosas distintas de las que la app
+    // ofrece, o "lo que falta" deja de casar con lo que hay dónde subir.
+    // Se calcula sin volver a la BD: el expediente ya está en la mano.
+    const alcanceExp = docsAlcance.alcanceFromExpediente(exp, { datos_calculo: datos });
+    const datosChecklist = docsAlcance.conAlcance(
+        { ...datos, docs_overrides: overridesConInst, estado: 'ACEPTADA' },
+        alcanceExp
+    );
     try {
-        slots = reformaUploadService.buildDocChecklist({
-            ...datos,
-            docs_overrides: overridesConInst,
-            estado: 'ACEPTADA',
-            cee_inicial_registrado: !!ceeIniRegistrado,
-        }) || [];
+        slots = reformaUploadService.buildDocChecklist(datosChecklist) || [];
     } catch (e) { console.warn('[checklist] buildDocChecklist:', e.message); }
     // Reconciliación con Drive, IGUAL que hacen el popup de fotos (buildDocsView) y
     // el Anexo Fotográfico (collectPhotoGroups). Sin esto el barrido solo miraba
     // `reforma_uploads`, así que una foto que llegó a Drive por otra vía —expediente
     // migrado, o la skill del anexo copiando con el MCP de Drive— seguía saliendo
     // como pendiente aunque el anexo ya la estuviera usando. Drive manda (regla 20).
-    const enDrive = await reformaUploadService.driveSlotsPresentes(datos);
+    const enDrive = await reformaUploadService.driveSlotsPresentes(datosChecklist);
     const grupoFotos = slots
         .filter(s => s.key !== 'DOC_RITE' && s.key !== 'DOC_FACTURAS')
         .map(s => {

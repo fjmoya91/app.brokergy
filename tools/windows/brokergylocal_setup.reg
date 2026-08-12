@@ -3,32 +3,41 @@ Windows Registry Editor Version 5.00
 ; ─────────────────────────────────────────────────────────────────────────────
 ; Protocolo personalizado "brokergylocal:" para Brokergy-App.
 ;
-; Permite que el botón "Carpeta Local" del detalle de expediente abra la carpeta
-; del expediente en el Explorador de Windows. Sin esto, los navegadores bloquean
-; abrir rutas locales (file://) desde la web.
+; Permite que el botón "Carpeta Local" abra la carpeta del expediente en el
+; Explorador de Windows. Sin esto, los navegadores bloquean abrir rutas locales
+; (file://) desde la web.
 ;
 ; Se instala SOLO para el usuario actual (HKEY_CURRENT_USER), NO requiere admin.
 ;
-; INSTALACIÓN: doble clic en este archivo → "Sí" para confirmar.
-; La primera vez que pulses "Carpeta Local", el navegador preguntará si abrir
-; "brokergylocal": acepta y marca "Permitir siempre".
+; ⚠️ PREFERIBLE: usa "instalar-carpeta-local.cmd" (doble clic). Hace lo mismo que
+; este .reg pero además calcula la ruta del handler sola (vale aunque muevas el
+; repo), avisa al shell del cambio y VERIFICA el resultado. Este .reg se mantiene
+; como respaldo y solo sirve si el repo está en C:\Proyectos\app.brokergy.
 ;
 ; Cómo funciona: la app pasa la ruta local en base64url dentro de la URL
 ; (brokergylocal:<base64url>). El handler es un script .vbs lanzado con WSCRIPT,
-; que NO crea ventana de consola (a diferencia de PowerShell, que parpadeaba una
-; pantalla negra). El .vbs decodifica la ruta y abre el Explorador directamente.
+; que NO crea ventana de consola. PowerShell NO vale como handler: aunque se le
+; pase "-WindowStyle Hidden", powershell.exe reserva su consola ANTES de aplicar
+; el parámetro y parpadea una pantalla negra ~medio segundo.
 ;
-; IMPORTANTE: la ruta de abajo apunta a brokergylocal_handler.vbs dentro del repo.
-; Si mueves el repositorio de sitio, edita esta ruta y vuelve a importar el .reg.
+; La PRIMERA línea borra cualquier registro anterior del protocolo (p.ej. el
+; handler viejo de PowerShell). Sin ese borrado quedaban subclaves huérfanas de
+; instalaciones previas. regedit procesa el fichero en orden, así que borrar y
+; volver a crear en el mismo .reg es correcto.
 ; ─────────────────────────────────────────────────────────────────────────────
+
+[-HKEY_CURRENT_USER\Software\Classes\brokergylocal]
 
 [HKEY_CURRENT_USER\Software\Classes\brokergylocal]
 @="URL:Brokergy Local Folder"
 "URL Protocol"=""
+
+[HKEY_CURRENT_USER\Software\Classes\brokergylocal\DefaultIcon]
+@="%SystemRoot%\\System32\\imageres.dll,-112"
 
 [HKEY_CURRENT_USER\Software\Classes\brokergylocal\shell]
 
 [HKEY_CURRENT_USER\Software\Classes\brokergylocal\shell\open]
 
 [HKEY_CURRENT_USER\Software\Classes\brokergylocal\shell\open\command]
-@="wscript.exe \"C:\\Proyectos\\app.brokergy\\tools\\windows\\brokergylocal_handler.vbs\" \"%1\""
+@="\"C:\\Windows\\System32\\wscript.exe\" \"C:\\Proyectos\\app.brokergy\\tools\\windows\\brokergylocal_handler.vbs\" \"%1\""

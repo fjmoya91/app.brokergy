@@ -161,24 +161,28 @@ function esSustitucionGenerador(numExp) {
 }
 
 /**
- * Construye el bloque de instrucciones CE3X del CEE Final.
+ * Resuelve TODO lo que CE3X necesita saber del expediente: alcance, casillas del
+ * programa, rendimientos y demanda. Es la capa de DATOS; el texto del encargo lo
+ * monta `buildCe3xFinal` a partir de esto.
+ *
+ * Se extrajo aparte porque el popup "Datos del equipo" del expediente pide los
+ * MISMOS valores para copiarlos a mano en CE3X: si cada uno los dedujera por su
+ * cuenta, el certificador podría recibir por WhatsApp un criterio y ver otro en
+ * pantalla.
  *
  * @param {object} exp        expediente completo (con clientes, oportunidades, cee, instalacion)
  * @param {object} [opts]
  * @param {object} [opts.modelos]  mapa { [aerotermia_db_id]: fila del catálogo } — aporta el SEER
- * @returns {{ bloque: string, faltantes: Array, hibridacion: boolean }}
- *          `bloque` vacío si no hay equipo nuevo declarado (no se inventa nada).
+ * @returns {object|null}  null si no hay equipo nuevo declarado (no se inventa nada).
  */
-export function buildCe3xFinal(exp, { modelos = {} } = {}) {
+export function resolverCe3x(exp, { modelos = {} } = {}) {
     const inst = exp?.instalacion || {};
     const cee = exp?.cee || {};
     const opDatos = exp?.oportunidades?.datos_calculo || {};
     const cal = inst.aerotermia_cal;
     const faltantes = [];
 
-    if (!countUnidades(cal)) {
-        return { bloque: '', faltantes: [], hibridacion: false };
-    }
+    if (!countUnidades(cal)) return null;
 
     // ── Alcance ──────────────────────────────────────────────────────────────
     const conFrio = emisorDaFrio(inst.tipo_emisor);
@@ -235,6 +239,38 @@ export function buildCe3xFinal(exp, { modelos = {} } = {}) {
     // que probablemente esté mal.
     const repartoValido = hib && coberturaBdc != null && coberturaBdc > 0 && coberturaBdc < 100;
     const pctCal = repartoValido ? coberturaBdc : 100;
+
+    return {
+        faltantes, hibridacion: hib,
+        conFrio, aireAire, generadorBdc, prefijoNombre,
+        hayAcs, acsEnMismoEquipo, acsAparte, acsTipo, acsNode,
+        scopCal, scopAcs, seer, litros,
+        superficie, demandaCal,
+        coberturaBdc, repartoValido, pctCal,
+        tipoEquipo: tipoEquipoCe3x({ conAcs: acsEnMismoEquipo, conFrio }),
+        nombre: nombreEquipo(cal, prefijoNombre),
+        series: formatSeries(cal, { dash: '', sep: ' / ' }),
+        seriesAcs: formatSeries(inst.aerotermia_acs, { dash: '', sep: ' / ' }),
+    };
+}
+
+
+/**
+ * Construye el bloque de instrucciones CE3X del CEE Final.
+ *
+ * @returns {{ bloque: string, faltantes: Array, hibridacion: boolean }}
+ *          `bloque` vacío si no hay equipo nuevo declarado.
+ */
+export function buildCe3xFinal(exp, { modelos = {} } = {}) {
+    const d = resolverCe3x(exp, { modelos });
+    if (!d) return { bloque: '', faltantes: [], hibridacion: false };
+    const inst = exp?.instalacion || {};
+    const cal = inst.aerotermia_cal;
+    const {
+        faltantes, conFrio, generadorBdc, prefijoNombre,
+        acsEnMismoEquipo, acsAparte, acsTipo, scopCal, scopAcs, seer, litros,
+        superficie, demandaCal, repartoValido, pctCal, hibridacion: hib,
+    } = d;
 
     // ── Montaje del texto ────────────────────────────────────────────────────
     const L = [];

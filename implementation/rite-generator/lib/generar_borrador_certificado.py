@@ -48,8 +48,8 @@ def _kw(x):
 
 
 def build(datos, output):
-    doc = SimpleDocTemplate(output, pagesize=A4, topMargin=11 * mm,
-                            bottomMargin=11 * mm, leftMargin=14 * mm, rightMargin=14 * mm)
+    doc = SimpleDocTemplate(output, pagesize=A4, topMargin=10 * mm,
+                            bottomMargin=9 * mm, leftMargin=14 * mm, rightMargin=14 * mm)
     ss = getSampleStyleSheet()
     h_title = ParagraphStyle('t', parent=ss['Title'], fontSize=13.5,
                              textColor=colors.white, alignment=1, spaceAfter=0)
@@ -60,6 +60,11 @@ def build(datos, output):
                          textColor=colors.white, fontName='Helvetica-Bold')
     cell = ParagraphStyle('cell', parent=ss['Normal'], fontSize=9.5, leading=11.5)
     nota = ParagraphStyle('n', parent=ss['Normal'], fontSize=7.6, textColor=VERDE)
+    # Las diez pruebas van a cuerpo pequeño, como en el impreso: así cada una cabe
+    # en UNA línea y la tabla se lee de un vistazo frente al original.
+    prueba_st = ParagraphStyle('pr', parent=ss['Normal'], fontSize=8, leading=9.5)
+    fecha_st = ParagraphStyle('f', parent=prueba_st, alignment=2)  # fecha de la prueba, a la derecha
+    pie = ParagraphStyle('p', parent=ss['Normal'], fontSize=7.6, textColor=colors.HexColor('#5A6673'))
 
     story = []
 
@@ -185,16 +190,54 @@ def build(datos, output):
          [86 * mm, 36 * mm, 60 * mm])
 
     # ── 7. Pruebas ─────────────────────────────────────────────────────────
+    # La tabla se imprime ENTERA y en el orden del modelo oficial: quien la revisa
+    # la compara casilla a casilla con el impreso. La fecha va DENTRO de cada
+    # casilla —no en el título— porque así es como se rellena el certificado real:
+    # una fecha de cabecera daría por hecho que se hicieron las diez pruebas.
+    # Las que no proceden llevan "--", igual que en el impreso.
     fpr = fmt_fecha(datos.get('pruebas_fecha'))
-    seccion(f"PRUEBAS REALIZADAS CON RESULTADO SATISFACTORIO — FECHA: {fpr or '—'}")
-    pruebas = datos.get('pruebas', [])
-    filas = []
-    for i in range(0, len(pruebas), 2):
-        izq = Paragraph(f'<b>✔</b> {pruebas[i]}', cell)
-        der = Paragraph(f'<b>✔</b> {pruebas[i + 1]}', cell) if i + 1 < len(pruebas) else Paragraph("", cell)
-        filas.append([izq, der])
-    if filas:
-        grid(filas, [91 * mm, 91 * mm])
+    seccion("PRUEBAS REALIZADAS CON RESULTADO SATISFACTORIO")
+    story.append(Paragraph(
+        "(Este apartado se deberá cumplimentar solo con las <b>fechas</b> de las pruebas "
+        "que hayan sido realizadas):", pie))
+    story.append(Spacer(1, 3))
+
+    def marca(item):
+        """Fecha de la prueba, o «--» si no procede (igual que en el impreso)."""
+        if item['aplica']:
+            return Paragraph(f'<b>{fpr}</b>' if fpr else '<b>✔</b>', fecha_st)
+        return Paragraph('<font color="#7A8794">--</font>', fecha_st)
+
+    tabla = datos.get('pruebas_tabla')
+    if not tabla:
+        # Compatibilidad con un JSON antiguo (solo lista de nombres realizados).
+        nombres = datos.get('pruebas', [])
+        tabla = [[{'nombre': nombres[i], 'aplica': True},
+                  {'nombre': nombres[i + 1], 'aplica': True} if i + 1 < len(nombres)
+                  else {'nombre': '', 'aplica': False}]
+                 for i in range(0, len(nombres), 2)]
+
+    # Una sola tabla de 5 columnas (la del medio es el hueco entre las dos mitades)
+    # en vez de una mini-tabla por casilla: así las dos celdas de una fila salen a
+    # la MISMA altura, como en el impreso, aunque un nombre ocupe dos líneas.
+    filas = [[Paragraph(izq['nombre'], prueba_st), marca(izq), '',
+              Paragraph(der['nombre'], prueba_st), marca(der)]
+             for izq, der in tabla]
+    tb = Table(filas, colWidths=[68 * mm, 21 * mm, 4 * mm, 68 * mm, 21 * mm])
+    tb.setStyle(TableStyle([
+        ('GRID', (0, 0), (1, -1), 0.5, BORDE),
+        ('GRID', (3, 0), (4, -1), 0.5, BORDE),
+        # El nombre y su fecha son UNA casilla: se borra la línea que las separa.
+        ('LINEAFTER', (0, 0), (0, -1), 0.6, colors.white),
+        ('LINEAFTER', (3, 0), (3, -1), 0.6, colors.white),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('TOPPADDING', (0, 0), (-1, -1), 2), ('BOTTOMPADDING', (0, 0), (-1, -1), 2),
+        ('LEFTPADDING', (0, 0), (-1, -1), 5), ('RIGHTPADDING', (0, 0), (-1, -1), 5),
+        ('LEFTPADDING', (1, 0), (1, -1), 0), ('LEFTPADDING', (4, 0), (4, -1), 0),
+        ('RIGHTPADDING', (0, 0), (0, -1), 0), ('RIGHTPADDING', (3, 0), (3, -1), 0)]))
+    story.append(tb)
+    story.append(Spacer(1, 3))
+    grid([[C("Observaciones", "")]], [ANCHO])
 
     # ── Aviso ──────────────────────────────────────────────────────────────
     story.append(HRFlowable(width="100%", color=VERDE, thickness=1, spaceAfter=4))

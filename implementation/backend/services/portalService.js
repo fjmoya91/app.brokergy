@@ -94,8 +94,13 @@ function mapEstadoToHito(estadoActual) {
 // ---------------------------------------------------------------------------
 // Incluimos SOLO tareas que hace el cliente; excluimos las internas aunque
 // contengan "firma" (p.ej. "Fecha firma CEE inicial (certificador)").
+//
+// "Sin generar" es NUESTRO trabajo, no el suyo: el Anexo I y el Convenio de
+// Cesión los emite Brokergy y el cliente solo los firma cuando se los mandamos.
+// Listárselos como algo que le falta le pide un documento que no puede producir
+// —y, peor, entierra entre cuatro líneas las dos que sí dependen de él.
 const CLIENT_INCLUDE = /foto|fotograf|factura|anexo\s*i\b|cesi[oó]n|firma[^.]*(anexo|cesi)/i;
-const CLIENT_EXCLUDE = /certificador|\bcee\b|registro|revis|miteco|verificad|dictamen|\blote\b|industria|\.cex/i;
+const CLIENT_EXCLUDE = /certificador|\bcee\b|registro|revis|miteco|verificad|dictamen|\blote\b|industria|\.cex|sin\s+generar|sin\s+emitir|pendiente\s+de\s+generar/i;
 function clientPendings(camposPendientes) {
     if (!Array.isArray(camposPendientes)) return [];
     return camposPendientes.filter(s => {

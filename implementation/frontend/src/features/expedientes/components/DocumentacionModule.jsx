@@ -250,13 +250,16 @@ function FacturasSection({ expedienteId, facturas, onChange, onCommit, readOnly,
         // estado local por detrás de la BD.
         (onCommit || onChange)(facturas.filter((_, i) => i !== idx));
     };
+    // Tocar un campo (o validar la factura) es el visto bueno humano que le faltaba
+    // a lo que leyó el OCR solo: el aviso "leída automáticamente" desaparece.
+    const revisada = (f) => { const { ocr_pendiente_revision, ...rest } = f; return rest; };
     const updateFactura = (idx, field, val) => {
-        const updated = facturas.map((f, i) => i === idx ? { ...f, [field]: val || null } : f);
+        const updated = facturas.map((f, i) => i === idx ? { ...revisada(f), [field]: val || null } : f);
         onChange(updated);
     };
     // Toggle de "validada" (booleano; no usar updateFactura que fuerza null en falsy).
     const toggleValidada = (idx) => {
-        const updated = facturas.map((f, i) => i === idx ? { ...f, validada: !f.validada } : f);
+        const updated = facturas.map((f, i) => i === idx ? { ...revisada(f), validada: !f.validada } : f);
         onChange(updated);
     };
 
@@ -503,6 +506,20 @@ function FacturasSection({ expedienteId, facturas, onChange, onCommit, readOnly,
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                                     </svg>
                                 </button>
+                            )}
+                            {/* Factura que subió el CLIENTE por el enlace y leyó el OCR solo,
+                                sin que nadie la mirara. Los datos ya están puestos, pero salen
+                                de una máquina leyendo un fichero que podría ser cualquier cosa
+                                (un albarán, un presupuesto, una foto movida): hay que darles
+                                el visto bueno antes de fiarse del importe. */}
+                            {f.ocr_pendiente_revision && (
+                                <div className="mb-3 flex items-start gap-2 rounded-lg border border-sky-400/25 bg-sky-400/[0.07] px-3 py-2">
+                                    <span className="text-sm leading-none mt-0.5">🤖</span>
+                                    <p className="text-[11px] text-sky-200/80 leading-snug">
+                                        <strong className="text-sky-200">Leída automáticamente</strong> de la factura que subió el cliente.
+                                        Comprueba el nº, la fecha y el importe antes de darla por buena.
+                                    </p>
+                                </div>
                             )}
                             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pr-6">
                                 <TextField

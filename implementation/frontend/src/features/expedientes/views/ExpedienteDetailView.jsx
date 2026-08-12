@@ -5,6 +5,7 @@ import { useModal } from '../../../context/ModalContext';
 import { CeeModule } from '../components/CeeModule';
 
 import { InstalacionModule } from '../components/InstalacionModule';
+import { EquipoInfoModal } from '../components/EquipoInfoModal';
 import { EnvolventeModule } from '../components/EnvolventeModule';
 import { DocumentacionModule } from '../components/DocumentacionModule';
 import { ChecklistModule } from '../components/ChecklistModule';
@@ -259,6 +260,7 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, initial
     // Estado "Live" para monitorización en tiempo real sin guardar
     const [liveCee, setLiveCee] = useState(null);
     const [liveInst, setLiveInst] = useState(null);
+    const [infoEquipo, setInfoEquipo] = useState(false);
     const [liveDoc, setLiveDoc] = useState(null);
     const [liveSeguimiento, setLiveSeguimiento] = useState(null);
     const [showQuickNote, setShowQuickNote] = useState(false);
@@ -1555,7 +1557,26 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, initial
                     title="Instalación"
                     activeSection={activeSection}
                     onToggle={setActiveSection}
-                    headerAction={!isCertificador && <AutoSaveHint saving={saving} />}
+                    headerAction={
+                        <div className="flex items-center gap-2">
+                            {/* El CEE se teclea a mano en CE3X mirando esta pantalla, y sus
+                                datos están repartidos por todo el expediente (el SEER ni
+                                siquiera está aquí: vive en el catálogo del modelo). El popup
+                                los reúne y deja copiar cada uno con un clic, que es lo que
+                                evita la errata. Va en la CABECERA y no dentro del módulo
+                                para no gastar una fila entera de pantalla en un solo botón. */}
+                            <button
+                                type="button"
+                                onClick={() => setInfoEquipo(true)}
+                                title="Datos del equipo para el Certificado de Eficiencia Energética (CE3X)"
+                                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest border bg-brand/10 text-brand border-brand/25 hover:bg-brand/20 transition-colors"
+                            >
+                                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                <span className="hidden sm:inline">Info equipo (CE3X)</span>
+                            </button>
+                            {!isCertificador && <AutoSaveHint saving={saving} />}
+                        </div>
+                    }
                 >
                     <InstalacionModule
                         expediente={expediente}
@@ -1727,6 +1748,16 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, initial
                     onNavigateExpediente={() => setOpenLoteId(null)}
                 />
             )}
+
+            {/* `liveInst`, no `expediente.instalacion`: el guardado del módulo es
+                automático y se confirma un render más tarde. Copiar al CE3X un SCOP
+                que ya se ha corregido en pantalla es justo el error que este popup
+                viene a evitar. */}
+            <EquipoInfoModal
+                isOpen={infoEquipo}
+                onClose={() => setInfoEquipo(false)}
+                expediente={{ ...expediente, instalacion: liveInst || expediente.instalacion }}
+            />
         </div>
     );
 }
