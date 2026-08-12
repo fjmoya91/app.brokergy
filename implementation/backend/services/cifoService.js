@@ -718,6 +718,15 @@ async function generarCifo(numeroOrId, { force = false } = {}) {
     // el CIFO — un expediente es RES060/093 O RES080, nunca ambos).
     const targetFolderId = await driveService.getOrCreateSubfolder(folderId, SUBCARPETA_ANEXOS);
     const fileName = `${numexpte} - ${docLabel}.pdf`;
+    // El borrador anterior se archiva en OLD (mismo criterio que /api/pdf/save-to-drive
+    // con `replaceExisting`): Drive admite dos ficheros con el mismo nombre en la
+    // carpeta, y entonces deja de estar claro cuál es el que se firma.
+    try {
+        const previos = await driveService.findFilesByName(targetFolderId, fileName);
+        for (const prevId of (previos || [])) {
+            await driveService.archiveExistingToOld(targetFolderId, prevId, fileName);
+        }
+    } catch (e) { console.warn('[cifoService] no se pudo archivar el borrador previo:', e.message); }
     const driveResult = await driveService.saveFileToFolder(targetFolderId, fileName, 'application/pdf', pdfBuffer);
     if (!driveResult) return { ok: false, tipologia, expediente: numexpte, message: `No se pudo guardar el ${docLabel} en Drive.` };
 

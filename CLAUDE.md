@@ -339,6 +339,115 @@ Las dos superficies públicas de subida avisan al staff por **WhatsApp (`WHATSAP
 - El buffer vive en memoria: un reinicio del contenedor dentro de la ventana se come ese aviso (los
   ficheros ya están en Drive). Por eso el fin de obra, que sí es un hito, además se persiste.
 
+### Alcance documental — a cada expediente se le pide LO SUYO (2026-08-11)
+
+El checklist ya no es la lista completa de apartados: es la lista de **este** expediente.
+Fuente única: [docsAlcance.js](implementation/backend/services/docsAlcance.js), que lee el
+expediente y lo inyecta como `datos_calculo.alcance` en `buildDocChecklist`.
+
+**REGLA — manda el EXPEDIENTE; la oportunidad es el punto de partida.** `deriveSelectors`
+resuelve en cascada `alcance` → `inputs` → `landing_funnel`. Un campo del alcance a `null`
+(el expediente no lo ha declarado aún) **no es `false`**: solo entonces se cae al escalón
+siguiente. Sin eso, un expediente recién creado apagaría apartados que la oportunidad sí pedía.
+
+| Situación | Qué deja de pedirse |
+|---|---|
+| **CEE inicial REGISTRADO** | Fachada, patios, vídeo de la vivienda, planos, CEE anterior y **presupuesto** (`CEE_CAPTACION_SLOTS`) |
+| **ACS fuera de alcance** (`cambio_acs === false` o termo eléctrico) | `FOTO_ACS_ANTES`, `FOTO_ACS_DEPOSITO` |
+| **Ficha de sustitución de caldera** (RES060/093/TER100) | Ventanas, cubierta, fachada y suelo: la ficha no contempla obra de envolvente |
+| **RES080** | Solo los elementos que declara `documentacion.envolvente`, no los de la simulación |
+| **Emisor = radiadores** | `FOTO_EMISORES_ANTES` (ver abajo) |
+| **Emisor = suelo radiante** | — se pide `FOTO_ARMARIO_SUELO_RADIANTE` |
+
+**REGLA — el apartado que no procede DESAPARECE, no se queda "opcional".** Antes solo se le
+quitaba el `required`, y la pantalla del móvil se llenaba de casillas muertas que escondían lo
+que sí faltaba. **Nada se pierde**: lo ya subido a un apartado podado sigue en Drive y
+`buildDocsView` lo enseña en el cajón `OTROS_EXISTENTES`, que lista la carpeta entera (regla 20).
+
+**REGLA — los RADIADORES ya no se fotografían.** Lo que justifica la temperatura de impulsión —y
+con ella el SCOP declarado— es `instalacion.tipo_emisor`, que ya viaja al CIFO; la foto no añadía
+nada al expediente y sí una casilla más. `conceptsFromInstalacion` dejó de emitir el concepto
+`emisores`. Sigue en `ADDABLE_CONCEPTS` por si un verificador la reclama.
+
+**REGLA — un apartado de OTRO emisor se retira (`SLOT_EMISOR` / `emisorDesencaja`).** Cada familia
+de emisor tiene su foto y son excluyentes: suelo radiante → armario de colectores; radiadores → ya
+no se pide; aire-aire (splits/conductos de un RES080) → ninguna, porque esa foto ya es la de la
+unidad interior. Pero `syncInstalacionConcepts` habilitaba estos apartados por override y el
+override **queda persistido**: al cambiar el emisor después, el apartado seguía apareciendo.
+Medido sobre 26RES080_63 (emisor `conductos`): pedía el armario del suelo radiante, que allí no
+existe. Se retira solo si el expediente declara un emisor DISTINTO —uno sin declarar no decide
+nada— y solo si está VACÍO: lo ya subido no se esconde nunca.
+
+**REGLA — el checklist se pide SIEMPRE por `checklistForOportunidad(opp)`**, nunca por
+`buildDocChecklist(datos_calculo)` a pelo, en cualquier ruta que **valide** un slot (subir,
+borrar, unir en PDF). Si la vista poda un apartado y el POST no, subir a un slot que ya no existe
+responde 200 y queda un destino vivo para quien conserve la URL antigua. Las cuatro superficies
+—enlace del cliente, panel del admin, barrido de "qué falta" y `/anexo-photos`— comparten alcance.
+
+**El RITE lo aporta el INSTALADOR**: `optionalAlways` + `aportaInstalador`. Nunca se le marca al
+cliente como obligatorio (no puede emitirlo); se le ofrece por si lo tiene y se le dice que se lo
+pedimos nosotros.
+
+### El enlace del cliente se usa CON EL MÓVIL (2026-08-11)
+
+`DocsManager` tiene dos caras y `clientView = mode === 'token'` las separa. El admin (PC, expediente
+entero) conserva pestañas, densidad y validación. El cliente ve otra cosa:
+
+- **Una sola lista, sin pestañas.** "Después de la obra" era una pestaña a la que había que
+  acordarse de entrar, y lo que falta ahí es tan urgente como lo de antes.
+- **Pero las dos fases NO se mezclan**: pedirle hoy la placa de la unidad exterior a quien no ha
+  empezado la obra es darle una tarea imposible, y once tareas imposibles hacen que deje de mirar
+  la lista. La fase activa (`obraEnMarcha`) va primera; la otra, detrás y diciendo cuándo toca.
+- **Modo GUIADO por defecto: UN apartado en pantalla cada vez.** Siete tarjetas iguales producen
+  parálisis en quien no se maneja — coge lo primero que entiende y hace solo eso. El recorrido
+  enseña siempre el primer pendiente; al subirlo, el siguiente aparece solo (no hay índice que se
+  desajuste cuando la lista cambia bajo los pies). **"Ahora no" APLAZA, no omite**: vuelve al final,
+  y si acaba apartando todos la cola vuelve a empezar. Salida siempre visible con "Ver todos los
+  apartados", y desde la lista se vuelve con "Guíame paso a paso".
+- **Cada paso lleva un DIBUJO del encuadre** ([SlotIlustracion.jsx](implementation/frontend/src/features/docs/SlotIlustracion.jsx)):
+  pictogramas SVG, no fotos. La causa nº 1 de foto rechazada es que no se lee el nº de serie de la
+  pegatina, y el texto solo no lo arreglaba. Son SVG porque no pesan en una conexión móvil, se
+  adaptan al tema y no exponen la vivienda de ningún cliente (una foto real necesitaría su permiso).
+  El dibujo enseña el ENCUADRE, que es lo que se hace mal, no el aparato exacto.
+- **Lo ya entregado va plegado** en una línea. Ocupaba media pantalla sin ser accionable.
+- Botón **a todo el ancho y debajo** del texto: con el botón a la derecha, un título de dos líneas
+  lo empuja fuera del alcance del pulgar. Dice qué va a pasar ("📷 Hacer foto" abre la cámara).
+- Barra de progreso y **lo rechazado primero**, anunciado: es lo único que el cliente ya daba por
+  hecho y sigue pendiente.
+
+**REGLA — lo PRESCINDIBLE no se le pide a un expediente EN CURSO.** Vídeos, planos, "Otros" y el
+CEE posterior van marcados `prescindible: true`. Con la oportunidad ya ACEPTADA, la ruta pública
+pide la vista con `audience: 'cliente'` y esos apartados **no se le enseñan** — no alimentan ningún
+documento (el CEE final lo emite NUESTRO certificador) y solo alargaban la pantalla del móvil. El
+**admin los conserva** (los usa para archivar material suelto), y un apartado prescindible que YA
+tenga ficheros no se oculta nunca.
+
+**El botón NUNCA dice "Hacer foto"**: al pulsar, el móvil ofrece cámara *y* galería, y muchas de
+esas fotos ya están hechas. Va en PLURAL cuando el apartado admite varias (`slot.multiple`) y lleva
+debajo "Puedes elegir varias a la vez": el selector del móvil no anuncia la selección múltiple y sin
+decirlo nadie la prueba.
+
+**REGLA — al cliente se le habla en LENGUAJE DE CASA, y las etiquetas técnicas NO se tocan.** El
+backend manda las dos: `label`/`help` (técnicas — con ellas trabajan el admin, el Anexo Fotográfico
+y el CIFO) y `labelCliente`/`helpCliente`, que salen de la tabla `LABEL_CLIENTE` de
+[reformaUploadService.js](implementation/backend/services/reformaUploadService.js). "Placa de la
+unidad interior / DEPOSITO ACS" lo escribió un ingeniero; el cliente lee "La pegatina de la máquina
+de dentro". Un slot sin traducir cae a la etiqueta técnica. La **hibridación es la excepción** que
+hay que repetir a mano (la tabla es plana por slot): ahí la caldera no se quita, así que
+`FOTO_CALDERA_DESMONTADA` no puede decir "La caldera vieja, ya quitada".
+
+**Rendimiento de la vista**: la reconciliación con Drive eran CUATRO llamadas en serie (buscar
+carpeta + listar, dos veces) ≈ 1,9 s con el cliente ante una pantalla vacía. Ahora las dos cadenas
+van en `Promise.all` y el ID de subcarpeta sale de una caché de por vida del proceso
+(`subfolderIdCached`) — una subcarpeta se crea una vez y no se mueve. Queda en ~1,1 s en frío y
+**~0,4 s** después. Se cachea el ID, **nunca el contenido**: Drive sigue siendo la fuente de verdad
+de qué ficheros hay (regla 20) y esa lista cambia a cada subida.
+
+**El portal `/mi-expediente` no le pide lo que generamos nosotros.** `clientPendings`
+([portalService.js](implementation/backend/services/portalService.js)) excluye "sin generar" /
+"sin emitir": el Anexo I y el Convenio de Cesión los emite Brokergy y el cliente solo los firma.
+Listárselos enterraba entre cinco líneas las dos que sí dependían de él.
+
 ---
 
 ## Ficha TER100 — Sector TERCIARIO (2026-07-30)
@@ -940,6 +1049,22 @@ evidencia literal citada, para que cualquiera pueda reproducir por qué saltó.
 **Las incidencias se PROPONEN, no se registran solas.** El modal las lista con casilla, GRAVES
 primero; solo las marcadas se dan de alta vía `POST /:id/incidencias` con `procedencia: AGENTE_IA`.
 
+### La factura que sube el CLIENTE también se lee sola (2026-08-11)
+[facturaAutoOcr.js](implementation/backend/services/facturaAutoOcr.js), disparado en `setImmediate`
+desde la subida pública al slot `DOC_FACTURAS`. Antes esa fila llegaba al admin con nº, fecha e
+importe **en blanco** y había que abrir el PDF y teclearlos.
+
+- El cliente **no espera ni lo ve**: la respuesta ya se ha devuelto cuando arranca el OCR.
+- Completa la fila que `append_expediente_factura` dejó vacía, con la RPC
+  **`update_expediente_factura_by_driveid`** (MERGE `||` sobre el objeto, solo la fila de ese
+  `drive_id`). Un read-modify-write del array se pisaría con cualquier otra escritura sobre
+  `documentacion` — mismo motivo que la regla 19.
+- **Solo rellena huecos** y marca `origen: 'popup+ocr'` + `ocr_pendiente_revision: true`. En el modal
+  de Facturas sale el aviso "Leída automáticamente — comprueba nº, fecha e importe", que desaparece
+  en cuanto el admin toca cualquier campo o la valida. Lo ha leído una máquina de un fichero que
+  subió el cliente y que puede ser cualquier cosa (un albarán, un presupuesto, una foto movida).
+- **NO levanta incidencias**: eso sigue siendo del modal del admin, con una persona confirmando.
+
 ### PDF único de facturas — por qué salían duplicados
 **REGLA — el combinado se construye desde `documentacion.facturas[]`, NUNCA listando la carpeta.**
 Listar "5. FACTURAS" metía en el PDF cualquier fichero suelto. Caso real (26RES060_159): la misma
@@ -991,6 +1116,17 @@ del Anexo y de la solicitud). Además:
 23. **Cliente EMPRESA — firma el representante legal**: si `clientes.es_empresa`, `nombre_razon_social` es la razón social y `dni` es el CIF; quien comparece y firma es el **representante legal** (`representante_nombre` / `representante_apellidos` / `representante_dni`). El Convenio de Cesión redacta el bloque del Cedente igual que el del Cesionario ("actuando en nombre y representación de la entidad…") y el Anexo I rellena con esos datos el apartado 3 y el "Fdo.". Nunca presentar a una sociedad como "mayor de edad, con documento de identificación B…".
 24. **Rechazar un documento que generamos nosotros BLOQUEA su borrador**: el firmante no firma el PDF que le llegó por WhatsApp, firma el que le sirve su enlace público desde `{doc}_drive_link` (`/firmar-anexos` el cliente, `/subir-cifo` el instalador). Rechazar el firmado no toca ese borrador, así que sin bloqueo vuelve al enlace, se descarga el MISMO PDF erróneo y lo firma otra vez igual (26RES060_142: nº de serie mal en el Anexo I). Fuente única: `rechazoBorrador()` en [docValidacion.js](implementation/backend/utils/docValidacion.js) — un borrador está obsoleto mientras el rechazo sea POSTERIOR a `{doc}_sent_at` y a `{doc}_drive_at` (este último lo sella `mergeDocumentacion` al cambiar el enlace, venga la escritura de donde venga). Mientras lo esté, la vista pública no lo ofrece y el proxy de descarga responde 409. `BORRADORES_CLIENTE` cubre **Anexo I, Cesión y CIFO**; el Anexo Fotográfico no, porque no tiene página pública.
     La salida es siempre **corregir los datos y reenviar**: "Rechazar y reenviar corregido" encadena con la superficie de envío de CADA documento, declarada en el mapa `DOC_REGENERABLE` de [DocumentacionModule.jsx](implementation/frontend/src/features/expedientes/components/DocumentacionModule.jsx) — `EnviarAnexosModal` (Anexo I / Cesión), `AnexoFotograficoModal` y `CertificadoCifoModal` / `CertificadoRes080Modal`. Los tres modales reciben la prop `rechazo` y con ella enseñan el motivo en cabecera y mandan un mensaje que explica la corrección y anula la versión anterior. El borrador viejo se archiva en OLD (`replaceExisting` de `/api/pdf/save-to-drive`), y la subida pública del firmado (`/anexos-upload`) también **archiva el firmado rechazado en `6. ANEXOS CAE/OLD` en vez de borrarlo**. Un aviso de rechazo a secas solo manda al firmante a un enlace bloqueado.
+    **REGLA — ENVIAR un documento firmable GUARDA antes su borrador en Drive.** El mensaje lleva un
+    enlace, no el PDF que vale: la página de firma sirve `{doc}_drive_link`. Si el envío no re-guarda,
+    el firmante abre el enlace y firma la VERSIÓN ANTERIOR — medido en 25RES060_71, donde el slot
+    seguía apuntando al CIFO del expediente migrado (`CERTIF INSTALADOR_pte.pdf`, 11/08) y el
+    instalador lo firmó el 12/08 mientras por email le había llegado el corregido. `EnviarAnexosModal`
+    ya lo hacía; `CertificadoCifoModal` no. Ahora los dos guardan con `replaceExisting: true`
+    (`saveDraftToDrive`, fuente única con el botón de la nube) **antes** de enviar, y en el CIFO el
+    fallo de Drive ABORTA el envío: mandar un enlace sabiendo que sirve otro documento es peor que no
+    mandarlo. El RES080 no tiene enlace de firma, así que ahí es best-effort. `cert_cifo_drive_at` lo
+    sella solo `mergeDocumentacion` al cambiar el enlace, que es lo que además levanta el bloqueo del
+    rechazo.
     ⚠️ `cert_cifo_*` es el mismo slot para dos documentos distintos: el **CIFO** lo firma el INSTALADOR (enlace bloqueable) y el **Certificado RES080** lo firma Brokergy y solo se ENTREGA al cliente. `DOC_REGENERABLE` lo distingue por `isReforma`.
 
 ---

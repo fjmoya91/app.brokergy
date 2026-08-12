@@ -920,20 +920,31 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
         finally { setGenerating(false); }
     };
 
-    const handleSaveToDrive = async () => {
+    // Guarda ESTA versión del CIFO en "6. ANEXOS CAE" y enlaza el borrador del
+    // expediente. FUENTE ÚNICA del guardado: la usan el botón de la nube y el envío.
+    // El instalador NO firma el PDF que le llega adjunto: firma el que le sirve su
+    // enlace público desde `cert_cifo_drive_link` (ver GET /api/public/cifo-upload/
+    // :id/pdf). Si al enviar no se re-guarda, firma la versión anterior.
+    // `replaceExisting`: el borrador previo se archiva en OLD — Drive admite dos
+    // ficheros con el mismo nombre en la carpeta y entonces no se sabe cuál se firma.
+    const saveDraftToDrive = async () => {
         const folderId = op.drive_folder_id || op.datos_calculo?.drive_folder_id || op.datos_calculo?.inputs?.drive_folder_id;
-        if (!folderId) { alert('No se encontró el identificador de la carpeta de Drive.'); return; }
+        if (!folderId) throw new Error('El expediente no tiene carpeta de Drive.');
+        const { data } = await axios.post('/api/pdf/save-to-drive', {
+            html: buildHtml(), folderId, fileName: `${numexpte || 'DRAFT'} - Certificado CIFO`, subfolderName: '6. ANEXOS CAE',
+            annexes: getAnnexPayload(), replaceExisting: true
+        });
+        if (!data?.driveLink) throw new Error('Drive no devolvió el enlace del CIFO.');
+        if (onSaveDrive) onSaveDrive(data.driveLink);
+        return data.driveLink;
+    };
+
+    const handleSaveToDrive = async () => {
         setSavingDrive(true);
         try {
-            const { data } = await axios.post('/api/pdf/save-to-drive', {
-                html: buildHtml(), folderId, fileName: `${numexpte || 'DRAFT'} - Certificado CIFO`, subfolderName: '6. ANEXOS CAE',
-                annexes: getAnnexPayload()
-            });
-            if (data.driveLink) {
-                if (onSaveDrive) onSaveDrive(data.driveLink);
-                alert('✅ Guardado en Drive (carpeta 6. ANEXOS CAE)');
-            }
-        } catch { alert('Error al guardar en Drive.'); }
+            await saveDraftToDrive();
+            alert('✅ Guardado en Drive (carpeta 6. ANEXOS CAE)');
+        } catch (e) { alert('Error al guardar en Drive. ' + (e.response?.data?.message || e.message || '')); }
         finally { setSavingDrive(false); }
     };
 
@@ -1123,6 +1134,20 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
         setSendResults([]);
         setSendPhase('sending');
         const results = [];
+
+        // ANTES de enviar nada: el borrador de Drive tiene que ser ESTA versión.
+        // El mensaje lleva el enlace de firma, y esa página sirve el PDF de
+        // `cert_cifo_drive_link` — no el adjunto. Sin este guardado, el instalador
+        // abre el enlace y firma el CIFO anterior (el que había en el slot).
+        // Si falla, NO se envía: mandar el enlace sabiendo que sirve otro documento
+        // es peor que no mandarlo.
+        try {
+            await saveDraftToDrive();
+        } catch (e) {
+            setSendPhase(null);
+            setSendStatus({ ok: false, text: `No se ha enviado: no se pudo guardar esta versión del CIFO en Drive (${e.response?.data?.message || e.message}). El enlace de firma habría servido la versión anterior.` });
+            return;
+        }
 
         // WhatsApp: comprobar conexión y generar el PDF UNA sola vez (se reutiliza).
         let pdfBase64 = null, waOk = doWa;

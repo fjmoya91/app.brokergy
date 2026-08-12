@@ -1649,17 +1649,25 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, r
         }
     };
 
-    const handleSaveToDrive = async () => {
+    // Guarda ESTA versión en "6. ANEXOS CAE" y enlaza el borrador (mismo slot
+    // cert_cifo_drive_link que el CIFO). FUENTE ÚNICA: botón de la nube y entrega.
+    // `replaceExisting` archiva el anterior en OLD; si no, quedan dos ficheros con
+    // el mismo nombre en la carpeta y el slot deja de decir cuál es el bueno.
+    const saveDraftToDrive = async () => {
         const folderId = op.drive_folder_id || op.datos_calculo?.drive_folder_id || op.datos_calculo?.inputs?.drive_folder_id;
-        if (!folderId) { alert('No se encontró el identificador de la carpeta de Drive.'); return; }
+        if (!folderId) throw new Error('El expediente no tiene carpeta de Drive.');
+        const { data } = await axios.post('/api/pdf/save-to-drive', { html: buildFullHtml(true), folderId, fileName: `${numExpte} - Certificado Reforma RES080`, subfolderName: '6. ANEXOS CAE', annexes: getAnnexPayload(), replaceExisting: true });
+        if (!data?.driveLink) throw new Error('Drive no devolvió el enlace del certificado.');
+        if (onSaveDrive) onSaveDrive(data.driveLink);
+        return data.driveLink;
+    };
+
+    const handleSaveToDrive = async () => {
         setSavingDrive(true);
         try {
-            const { data } = await axios.post('/api/pdf/save-to-drive', { html: buildFullHtml(true), folderId, fileName: `${numExpte} - Certificado Reforma RES080`, subfolderName: '6. ANEXOS CAE', annexes: getAnnexPayload() });
-            if (data.driveLink) {
-                if (onSaveDrive) onSaveDrive(data.driveLink);
-                alert('✅ Guardado en Drive');
-            }
-        } catch (error) { console.error('Error Drive:', error); alert('Error al guardar en Drive.'); } finally { setSavingDrive(false); }
+            await saveDraftToDrive();
+            alert('✅ Guardado en Drive');
+        } catch (error) { console.error('Error Drive:', error); alert('Error al guardar en Drive. ' + (error.response?.data?.message || error.message || '')); } finally { setSavingDrive(false); }
     };
 
     // ── ENTREGA AL CLIENTE (contacto + canal Email/WhatsApp) ──────────────────
@@ -1789,6 +1797,13 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, r
         setSendResults([]);
         setSendPhase('sending');
         const results = [];
+
+        // El borrador del expediente debe ser SIEMPRE la versión entregada: el slot
+        // dice "Generado" y desde ahí se abre el PDF que el cliente ya tiene. Aquí
+        // no hay enlace de firma (lo firma Brokergy), así que si Drive falla la
+        // entrega sigue — best-effort, igual que en EnviarAnexosModal.
+        try { await saveDraftToDrive(); }
+        catch (e) { console.warn('[RES080] no se pudo actualizar el borrador en Drive:', e.message); }
 
         if (doEmail) {
             setSendingEmail(true);
