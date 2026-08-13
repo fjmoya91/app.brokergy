@@ -7,6 +7,9 @@ import { BOILER_EFFICIENCIES } from '../../calculator/logic/calculation';
 import { buildInstalacionAddress, empresaInstaladora } from '../utils/docGenerators';
 import { calcCifo } from '../logic/calcCifo';
 import { esTermoElectrico, esAcumuladorAcs } from '../logic/aerotermiaUnits';
+// Qué fichas técnicas lleva ESTE expediente: una por MODELO distinto de bomba de
+// calor, no una por hueco. FUENTE ÚNICA con las rutas y con cifoService.
+import { resolveFichaSlots, ftAttachmentSlots, ftSlotId, ftTypeFromSlotId } from '../logic/fichasTecnicas';
 import { postEmail } from '../../../utils/emailFallback';
 // FUENTE ÚNICA del documento CIFO (derivación + HTML + CSS). El mismo módulo lo
 // consume el backend (cifoService.js) por import() dinámico, así que el PDF sale
@@ -61,11 +64,7 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
 
     // El padre ahora pasa siempre los attachments fijos en su state efímero;
     // mantenemos el fallback por si llegan vacíos.
-    const initialAttachments = [
-        { id: 'aerotermia_cal', label: 'Ficha técnica aerotermia calefacción', file: null, required: true },
-        { id: 'aerotermia_acs', label: 'Ficha técnica aerotermia ACS', file: null, required: true }
-    ];
-    const attachments = externalAttachments || initialAttachments;
+    const attachments = externalAttachments || ftAttachmentSlots(expediente?.instalacion);
     // IMPORTANTE: pasamos el updater function tal cual al setter del padre
     // (que es un useState setter y sabe encadenarlos). Si resolvieramos aquí
     // con `newVal(attachments)` se introduciría un stale closure: cuando dos
@@ -171,7 +170,7 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
     // o ficha en BD, marca el slot como missing con razón clara.
     const loadFichaSlot = useCallback(async (type) => {
         if (!expediente?.id) return;
-        const slotId = type === 'cal' ? 'aerotermia_cal' : 'aerotermia_acs';
+        const slotId = ftSlotId(type);
         setLoadingFichas(p => ({ ...p, [type]: true }));
         try {
             const infoUrl = `/api/expedientes/${expediente.id}/fichas-tecnicas/${type}?info=1`;
@@ -217,7 +216,7 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
 
     const handleResync = async (type) => {
         if (!expediente?.id) return;
-        const slotId = type === 'cal' ? 'aerotermia_cal' : 'aerotermia_acs';
+        const slotId = ftSlotId(type);
         setResyncingType(type);
         try {
             const copyRes = await axios.post(
@@ -251,7 +250,8 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
     // vía POST /fichas-tecnicas/upload, luego recarga el slot por info=1.
     const handleManualFixedUpload = async (slotId, file) => {
         if (!file || !expediente?.id) return;
-        const type = slotId === 'aerotermia_cal' ? 'cal' : 'acs';
+        const type = ftTypeFromSlotId(slotId);
+        if (!type) return;
         setLoadingFichas(p => ({ ...p, [type]: true }));
         try {
             // Convertimos el File a buffer en cliente para reaprovecharlo en el
@@ -411,13 +411,10 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
     // Carga automática de fichas técnicas al abrir el modal.
     useEffect(() => {
         if (!isOpen || !expediente?.id) return;
-        const inst = expediente.instalacion || {};
-        const acsNode = inst.misma_aerotermia_acs ? inst.aerotermia_cal : inst.aerotermia_acs;
-        // Ni el termo ni el acumulador son aerotermia: no hay ficha de ACS que
-        // buscar (pedirla dejaría el slot en error permanente "sin modelo").
-        const tieneAcs = inst.cambio_acs !== false && !esTermoElectrico(acsNode) && !esAcumuladorAcs(acsNode);
-        loadFichaSlot('cal');
-        if (tieneAcs) loadFichaSlot('acs');
+        // Un hueco por MODELO distinto: la cascada con equipos distintos carga la
+        // ficha de cada uno, y el equipo que resuelve calefacción y ACS carga una
+        // sola (antes se copiaba la misma dos veces y el PDF la llevaba repetida).
+        resolveFichaSlots(expediente.instalacion).forEach(s => loadFichaSlot(s.type));
 
         // Hidratar el preview de los anexos extra que ya venían persistidos.
         // Para los extras descargamos el PDF de Drive vía el endpoint que sirve
@@ -638,15 +635,14 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
     // ── Anexos: orden y recorte de páginas ───────────────────────────────────
     // Lista completa en el orden en que saldrá en el PDF, y la filtrada que se
     // pinta (el slot de ACS se oculta si no se actúa sobre ACS).
-    const orderedAttachments = orderAttachments(attachments, annexPrefs);
-    // El slot de ACS se oculta si no se actúa sobre ACS, y también cuando el equipo
-    // nuevo no es una aerotermia: ni el termo eléctrico ni el acumulador tienen
-    // ficha técnica propia que justifique un SCOP (la del acumulador es la de la
-    // BdC de calefacción, que ya va en su propio slot).
-    const visibleAttachments = orderedAttachments.filter(a => a.id !== 'aerotermia_acs' || (tieneAcs && !acsEsTermo && !acsEsAcumulador));
+    // Los huecos de ficha que ESTE expediente pide. Lo que no está en la lista no
+    // se enseña ni viaja al PDF: un hueco heredado del estado anterior (p. ej. el
+    // de ACS cuando lo resuelve el mismo equipo) desaparece en vez de duplicar.
+    const fichaSlotIds = new Set(resolveFichaSlots(inst).map(s => s.id));
+    const docAttachments = attachments.filter(a => a.isExtra || fichaSlotIds.has(a.id));
+    const orderedAttachments = orderAttachments(docAttachments, annexPrefs);
 
-    // Reordena SOBRE LA LISTA COMPLETA (así las filas ocultas no se van al final)
-    // colocando `fromId` en el sitio de `toId`, y guarda el orden resultante.
+    // Coloca `fromId` en el sitio de `toId` y guarda el orden resultante.
     const applyMove = (fromId, toId) => {
         if (!fromId || !toId || fromId === toId) return;
         const list = [...orderedAttachments];
@@ -661,8 +657,8 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
 
     // Sube (-1) o baja (+1) un puesto respecto a la fila vecina VISIBLE.
     const moveAttachment = (id, dir) => {
-        const idx = visibleAttachments.findIndex(a => a.id === id);
-        const target = visibleAttachments[idx + dir];
+        const idx = orderedAttachments.findIndex(a => a.id === id);
+        const target = orderedAttachments[idx + dir];
         if (idx < 0 || !target) return;
         applyMove(id, target.id);
     };
@@ -722,8 +718,8 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
                     <p className="text-white/30 text-[10px] uppercase font-bold tracking-widest mb-2">Las fichas técnicas se concatenan al PDF automáticamente desde Drive</p>
                     <p className="text-white/20 text-[10px] -mt-2 mb-2">Con ↑ ↓ (o arrastrando) cambias el orden en el que salen. Con el botón de páginas eliges cuáles de ese PDF se anexan. Puedes soltar PDFs —varios a la vez— en cualquier punto de este cuadro. Todo queda guardado en el expediente.</p>
 
-                    {visibleAttachments.map((item, idx) => {
-                        const type = item.id === 'aerotermia_cal' ? 'cal' : item.id === 'aerotermia_acs' ? 'acs' : null;
+                    {orderedAttachments.map((item, idx) => {
+                        const type = ftTypeFromSlotId(item.id);
                         const isLoading = type && loadingFichas[type];
                         const isResyncing = type && resyncingType === type;
                         const badge = item.file ? sourceBadge(item.file.source) : null;
@@ -770,7 +766,7 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
                                                 className="p-1 rounded-md text-white/25 hover:text-brand hover:bg-white/5 transition-all disabled:opacity-10 disabled:hover:bg-transparent disabled:hover:text-white/25">
                                             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 15l7-7 7 7"/></svg>
                                         </button>
-                                        <button onClick={() => moveAttachment(item.id, 1)} disabled={idx === visibleAttachments.length - 1}
+                                        <button onClick={() => moveAttachment(item.id, 1)} disabled={idx === orderedAttachments.length - 1}
                                                 title="Bajar un puesto"
                                                 className="p-1 rounded-md text-white/25 hover:text-brand hover:bg-white/5 transition-all disabled:opacity-10 disabled:hover:bg-transparent disabled:hover:text-white/25">
                                             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M19 9l-7 7-7-7"/></svg>
@@ -782,6 +778,11 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
 
                                     <div className="flex flex-col gap-1 min-w-0">
                                         <span className={`text-[11px] font-black uppercase tracking-wider ${item.file ? 'text-white/80' : 'text-white/20'} truncate`}>{item.label}</span>
+                                        {/* Con varias fichas del mismo bloque hay que poder saber cuál es cuál
+                                            de un vistazo: "Ud. 1 y Ud. 3" es lo que las distingue. */}
+                                        {item.detalle && (
+                                            <span className="text-[9px] text-white/30 font-bold uppercase tracking-wider">{item.detalle}</span>
+                                        )}
                                         {isLoading || isResyncing ? (
                                             <span className="text-[10px] text-white/40 flex items-center gap-1.5">
                                                 <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
@@ -899,13 +900,13 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
         buildCifoHtml({
             data: deriveCifoData({ expediente, results }),
             appUrl: APP_URL,
-            attachments: prepareAnnexAttachments(attachments, annexPrefs),
+            attachments: prepareAnnexAttachments(docAttachments, annexPrefs),
             withAnnexPreview
         });
 
     // Anexos a concatenar al PDF principal: driveId + páginas a omitir, en el
     // orden final. Lo consumen /api/pdf/generate, save-to-drive y send-cifo.
-    const getAnnexPayload = () => buildAnnexPayload(attachments, annexPrefs, { tieneAcs: tieneAcs && !acsEsTermo });
+    const getAnnexPayload = () => buildAnnexPayload(docAttachments, annexPrefs);
 
 
     const handleDownloadPdf = async () => {

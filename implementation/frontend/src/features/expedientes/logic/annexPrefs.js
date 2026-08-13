@@ -82,12 +82,31 @@ export function orderFromAttachments(attachments) {
 }
 
 /**
+ * Un mismo PDF no se anexa dos veces. Red de seguridad por DRIVE ID: quién decide
+ * cuántas fichas técnicas lleva el documento es `resolveFichaSlots` (una por modelo
+ * distinto), pero si por lo que sea dos huecos acaban apuntando al mismo fichero
+ * —el caso clásico: el equipo que resuelve calefacción y ACS— el verificador
+ * recibiría las mismas treinta páginas repetidas. Los slots vacíos se conservan:
+ * el modal los pinta para decir qué falta.
+ */
+function dedupeByDriveId(list) {
+    const seen = new Set();
+    return list.filter(a => {
+        const id = a.file?.driveId;
+        if (!id) return true;
+        if (seen.has(id)) return false;
+        seen.add(id);
+        return true;
+    });
+}
+
+/**
  * Anexos ordenados y con las páginas excluidas ya fuera de `previewPages`, para
  * que la PREVISUALIZACIÓN del modal enseñe exactamente lo que saldrá en el PDF
  * (el backend recorta las mismas páginas al concatenar con pdf-lib).
  */
 export function prepareAnnexAttachments(attachments, prefs) {
-    return orderAttachments(attachments, prefs).map(a => {
+    return dedupeByDriveId(orderAttachments(attachments, prefs)).map(a => {
         const excluded = excludedPagesFor(prefs, a.file?.driveId);
         if (!a.file || excluded.length === 0) return a;
         const previewPages = Array.isArray(a.file.previewPages)
@@ -102,7 +121,7 @@ export function prepareAnnexAttachments(attachments, prefs) {
  * a omitir, en el orden final del documento.
  */
 export function buildAnnexPayload(attachments, prefs, { tieneAcs = true } = {}) {
-    return orderAttachments(attachments, prefs)
+    return dedupeByDriveId(orderAttachments(attachments, prefs))
         .filter(a => a.file?.driveId && (a.id !== 'aerotermia_acs' || tieneAcs))
         .map(a => {
             const excludedPages = excludedPagesFor(prefs, a.file.driveId);

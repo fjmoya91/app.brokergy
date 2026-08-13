@@ -7,6 +7,9 @@ import { buildInstalacionAddress, empresaInstaladora } from '../utils/docGenerat
 import { calcCifo } from '../logic/calcCifo';
 import { EMITTER_OPTIONS, emitterScopContext } from '../logic/cifoDoc';
 import { formatMarcas, formatModelos, formatSeries, countUnidades, tipoEquipoNuevoLabel, esTermoElectrico } from '../logic/aerotermiaUnits';
+// Qué fichas técnicas lleva ESTE expediente: una por MODELO distinto de bomba de
+// calor, no una por hueco. FUENTE ÚNICA con las rutas y con cifoService.
+import { resolveFichaSlots, ftAttachmentSlots, ftSlotId, ftTypeFromSlotId } from '../logic/fichasTecnicas';
 import FirmarConCertificadoModal from './FirmarConCertificadoModal';
 // Orden de los anexos + páginas excluidas de cada uno (documentacion.cifo_annex_prefs).
 import {
@@ -209,11 +212,7 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, r
     // Estado efímero de anexos: fichas de aerotermia (auto-copiadas del modelo) +
     // anexos extra (RITE, envolvente, etc.) que viven en Drive. Mismo modelo que el
     // CIFO RES060. El padre persiste los enlaces en documentacion.
-    const initialAttachments = [
-        { id: 'aerotermia_cal', label: 'Ficha técnica aerotermia calefacción', file: null, required: true },
-        { id: 'aerotermia_acs', label: 'Ficha técnica aerotermia ACS', file: null, required: true }
-    ];
-    const attachments = externalAttachments || initialAttachments;
+    const attachments = externalAttachments || ftAttachmentSlots(expediente?.instalacion);
     // IMPORTANTE: pasamos el updater tal cual al setter del padre (que es un
     // useState setter y sabe encadenar). Resolver aquí introduciría stale closures
     // cuando dos cargas async (cal+acs) corren en paralelo.
@@ -431,7 +430,7 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, r
 
     const loadFichaSlot = useCallback(async (type) => {
         if (!expediente?.id) return;
-        const slotId = type === 'cal' ? 'aerotermia_cal' : 'aerotermia_acs';
+        const slotId = ftSlotId(type);
         setLoadingFichas(p => ({ ...p, [type]: true }));
         try {
             const infoUrl = `/api/expedientes/${expediente.id}/fichas-tecnicas/${type}?info=1`;
@@ -473,7 +472,7 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, r
 
     const handleResync = async (type) => {
         if (!expediente?.id) return;
-        const slotId = type === 'cal' ? 'aerotermia_cal' : 'aerotermia_acs';
+        const slotId = ftSlotId(type);
         setResyncingType(type);
         try {
             const copyRes = await axios.post(
@@ -530,7 +529,8 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, r
 
     const handleManualFixedUpload = async (slotId, file) => {
         if (!file || !expediente?.id) return;
-        const type = slotId === 'aerotermia_cal' ? 'cal' : 'acs';
+        const type = ftTypeFromSlotId(slotId);
+        if (!type) return;
         setLoadingFichas(p => ({ ...p, [type]: true }));
         try {
             const arrayBuffer = await file.arrayBuffer();
@@ -658,10 +658,10 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, r
     // Carga automática de fichas técnicas + hidratación de previews al abrir.
     useEffect(() => {
         if (!isOpen || !expediente?.id) return;
-        const inst = expediente.instalacion || {};
-        const tieneAcs = inst.cambio_acs !== false;
-        loadFichaSlot('cal');
-        if (tieneAcs) loadFichaSlot('acs');
+        // Un hueco por MODELO distinto: la cascada con equipos distintos carga la
+        // ficha de cada uno, y el equipo que resuelve calefacción y ACS carga una
+        // sola (antes se copiaba la misma dos veces y el PDF la llevaba repetida).
+        resolveFichaSlots(expediente.instalacion).forEach(s => loadFichaSlot(s.type));
 
         const extras = (attachments || []).filter(a => a.isExtra && a.file?.driveId && !a.file.previewPages);
         extras.forEach(async (extra) => {
@@ -935,6 +935,12 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, r
     const acsNuScopStr = acsEsTermo ? '1,00' : acsNuScop;
     // ACS fuera del alcance de la actuación pero con equipo nuevo declarado.
     const acsTermoFuera = !acsSeActua && esTermoElectrico(inst.aerotermia_acs) ? inst.aerotermia_acs : null;
+
+    // Los anexos que van al documento: los huecos de ficha que ESTE expediente pide
+    // (uno por modelo distinto de bomba de calor) más los extras. Lo que no está en
+    // la lista no se enseña ni viaja al PDF.
+    const fichaSlotIds = new Set(resolveFichaSlots(inst).map(s => s.id));
+    const docAttachments = attachments.filter(a => a.isExtra || fichaSlotIds.has(a.id));
 
     // ─── JUSTIFICACIÓN DEL SCOP (igual que RES060) ──────────────────────────
     const zoneStr = (op.datos_calculo?.zona || 'D3').toUpperCase();
@@ -1554,8 +1560,8 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, r
         // añadimos imágenes rasterizadas (withAnnexPreview) para ver todo.
         // Van ya en el orden guardado y sin las páginas excluidas, para que el
         // preview enseñe exactamente lo que se descargará.
-        const annexList = prepareAnnexAttachments(attachments, annexPrefs)
-            .filter(a => a.file?.driveId && (a.id !== 'aerotermia_acs' || (tieneAcs && !acsEsTermo)));
+        const annexList = prepareAnnexAttachments(docAttachments, annexPrefs)
+            .filter(a => a.file?.driveId);
         if (annexList.length > 0) {
             const items = annexList.map((a, i) => `
                 <div style="display:flex;align-items:center;gap:16px;border:1px solid #E9E9E1;border-radius:16px;padding:14px 18px;background:#fff;">
@@ -1840,7 +1846,7 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, r
 
     // Anexos a concatenar al PDF principal: driveId + páginas a omitir, en el
     // orden final guardado en documentacion.cifo_annex_prefs.
-    const getAnnexPayload = () => buildAnnexPayload(attachments, annexPrefs, { tieneAcs: tieneAcs && !acsEsTermo });
+    const getAnnexPayload = () => buildAnnexPayload(docAttachments, annexPrefs);
 
     const missingReasonText = (item) => {
         switch (item.missingReason) {
@@ -1875,11 +1881,11 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, r
 
     // ── Anexos: orden y recorte de páginas ───────────────────────────────────
     // Lista completa en el orden en que saldrá en el PDF, y la que se pinta como
-    // filas reordenables (EPREL/KEYMARK tienen su propio bloque más abajo, y el
-    // slot de ACS se oculta si no se actúa sobre ACS).
-    const orderedAttachments = orderAttachments(attachments, annexPrefs);
+    // filas reordenables (EPREL/KEYMARK tienen su propio bloque más abajo).
+    // `docAttachments` deja fuera los huecos de ficha que este expediente NO pide:
+    // uno heredado del estado anterior duplicaría el PDF en vez de desaparecer.
+    const orderedAttachments = orderAttachments(docAttachments, annexPrefs);
     const visibleAttachments = orderedAttachments.filter(a =>
-        (a.id !== 'aerotermia_acs' || (tieneAcs && !acsEsTermo)) &&
         !(a.isExtra && (a.label === EPREL_LABEL || a.label === KEYMARK_LABEL))
     );
 
@@ -1960,7 +1966,7 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, r
                     <p className="text-white/20 text-[10px] -mt-2 mb-2">Con ↑ ↓ (o arrastrando) cambias el orden en el que salen. Con el botón de páginas eliges cuáles de ese PDF se anexan. Puedes soltar ficheros —varios a la vez— en cualquier punto de este cuadro. Todo queda guardado en el expediente.</p>
 
                     {visibleAttachments.map((item, idx) => {
-                        const type = item.id === 'aerotermia_cal' ? 'cal' : item.id === 'aerotermia_acs' ? 'acs' : null;
+                        const type = ftTypeFromSlotId(item.id);
                         const isLoading = type && loadingFichas[type];
                         const isResyncing = type && resyncingType === type;
                         const badge = item.file ? sourceBadge(item.file.source) : null;
@@ -2019,6 +2025,11 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, r
 
                                     <div className="flex flex-col gap-1 min-w-0">
                                         <span className={`text-[11px] font-black uppercase tracking-wider ${item.file ? 'text-white/80' : 'text-white/20'} truncate`}>{item.label}</span>
+                                        {/* Con varias fichas del mismo bloque hay que poder saber cuál es cuál
+                                            de un vistazo: "Ud. 1 y Ud. 3" es lo que las distingue. */}
+                                        {item.detalle && (
+                                            <span className="text-[9px] text-white/30 font-bold uppercase tracking-wider">{item.detalle}</span>
+                                        )}
                                         {isLoading || isResyncing ? (
                                             <span className="text-[10px] text-white/40 flex items-center gap-1.5">
                                                 <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>

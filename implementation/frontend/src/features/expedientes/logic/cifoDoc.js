@@ -1129,8 +1129,10 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
         }
     }
 
-    // SEPARADOR ANEXOS — solo si hay al menos un anexo con driveId.
-    const annexList = attachments.filter(a => a.file?.driveId && (a.id !== 'aerotermia_acs' || (tieneAcs && !acsEsTermo)));
+    // SEPARADOR ANEXOS — solo si hay al menos un anexo con driveId. Qué fichas
+    // técnicas entran lo decidió ya quien construyó `attachments` (resolveFichaSlots:
+    // una por modelo distinto de bomba de calor), aquí no se vuelve a filtrar.
+    const annexList = attachments.filter(a => a.file?.driveId);
     if (annexList.length > 0) {
         const items = annexList.map((a, i) => `
             <div style="display:flex;align-items:center;gap:16px;border:1px solid #E9E9E1;border-radius:16px;padding:14px 18px;background:#fff;">

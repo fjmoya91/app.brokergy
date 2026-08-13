@@ -22,6 +22,7 @@ import { SIGN_BOXES } from '../logic/signBoxes';
 import { clienteContacts, instaladorContacts, defaultContactId, phoneValid } from '../utils/docContacts';
 import { calcCifo } from '../logic/calcCifo';
 import { readAnnexPrefs, orderAttachments } from '../logic/annexPrefs';
+import { ftAttachmentSlots, ftDocFields } from '../logic/fichasTecnicas';
 
 // Cada documento firmado vive en su subcarpeta de Drive: el RITE en
 // "7. LEGALIZACION RITE", las facturas en "5. FACTURAS" y el resto en "6. ANEXOS CAE".
@@ -760,10 +761,12 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
 
     // Estado efímero del CIFO: NO se persiste en BD. Se reconstruye en cada
     // apertura del modal leyendo de Drive (driveId únicamente, sin blobs).
-    const [cifoAttachments, setCifoAttachments] = useState([
-        { id: 'aerotermia_cal', label: 'Ficha técnica aerotermia calefacción', file: null, required: true },
-        { id: 'aerotermia_acs', label: 'Ficha técnica aerotermia ACS', file: null, required: true }
-    ]);
+    // Los huecos de ficha técnica NO son dos fijos: son uno por MODELO distinto de
+    // bomba de calor (fichasTecnicas.js). Una cascada de equipos distintos pide una
+    // ficha por equipo, y el equipo que resuelve calefacción y ACS pide una sola.
+    const [cifoAttachments, setCifoAttachments] = useState(
+        () => ftAttachmentSlots(expediente?.instalacion)
+    );
 
     // Cuando cambia el expediente o se rehidrata documentacion, recargamos los
     // anexos extra persistidos como slots.
@@ -778,7 +781,14 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
     React.useEffect(() => {
         const extras = expediente?.documentacion?.cifo_extra_annexes || [];
         setCifoAttachments(prev => {
-            const fixed = prev.filter(a => a.required);
+            // Los huecos fijos se REDERIVAN de la instalación (al cambiar el equipo o
+            // añadir uno en cascada cambian), conservando el fichero ya cargado de
+            // cada uno por su id — si no, el preview se quedaría en blanco.
+            const prevById = new Map(prev.map(a => [a.id, a]));
+            const fixed = ftAttachmentSlots(expediente?.instalacion).map(slot => {
+                const before = prevById.get(slot.id);
+                return before ? { ...before, label: slot.label, detalle: slot.detalle } : slot;
+            });
             const prevByDriveId = new Map(
                 prev.filter(a => a.isExtra && a.file?.driveId).map(a => [a.file.driveId, a])
             );
@@ -797,7 +807,7 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
             // extras por antigüedad" y el usuario vería deshacerse su reordenación.
             return orderAttachments([...fixed, ...extraSlots], readAnnexPrefs(expediente?.documentacion));
         });
-    }, [expediente?.id, expediente?.documentacion?.cifo_extra_annexes, expediente?.documentacion?.cifo_annex_prefs]);
+    }, [expediente?.id, expediente?.instalacion, expediente?.documentacion?.cifo_extra_annexes, expediente?.documentacion?.cifo_annex_prefs]);
 
     React.useEffect(() => {
         if (expediente?.documentacion) {
@@ -1916,10 +1926,10 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                 onSaveDrive={(link) => handleModalSaveDrive('cert_cifo_drive_link', link)}
                 onMarkSent={() => handleModalSaveDrive('cert_cifo_sent_at', new Date().toISOString())}
                 onSaveFichaLink={(type, link, driveId) => {
-                    const linkField = type === 'cal' ? 'ft_aerotermia_cal_link' : 'ft_aerotermia_acs_link';
-                    const idField   = type === 'cal' ? 'ft_aerotermia_cal_id'   : 'ft_aerotermia_acs_id';
+                    const fields = ftDocFields(type);
+                    if (!fields) return;
                     setLocal(prev => {
-                        const next = { ...prev, [linkField]: link, [idField]: driveId };
+                        const next = { ...prev, [fields.link]: link, [fields.id]: driveId };
                         onSave({ documentacion: next });
                         return next;
                     });
@@ -1957,10 +1967,10 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                 onSaveDrive={(link) => handleModalSaveDrive('cert_cifo_drive_link', link)}
                 onMarkSent={() => handleModalSaveDrive('cert_cifo_sent_at', new Date().toISOString())}
                 onSaveFichaLink={(type, link, driveId) => {
-                    const linkField = type === 'cal' ? 'ft_aerotermia_cal_link' : 'ft_aerotermia_acs_link';
-                    const idField   = type === 'cal' ? 'ft_aerotermia_cal_id'   : 'ft_aerotermia_acs_id';
+                    const fields = ftDocFields(type);
+                    if (!fields) return;
                     setLocal(prev => {
-                        const next = { ...prev, [linkField]: link, [idField]: driveId };
+                        const next = { ...prev, [fields.link]: link, [fields.id]: driveId };
                         onSave({ documentacion: next });
                         return next;
                     });

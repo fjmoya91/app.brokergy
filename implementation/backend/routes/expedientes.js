@@ -32,6 +32,21 @@ const { avanzarEstado } = require('../utils/expedienteEstados');
 const { FICHAS } = require('../utils/fichas');
 const { syncExpedienteFolderAsync } = require('../services/expedienteFolderSync');
 
+// Qué fichas técnicas pide el CIFO de un expediente (una por MODELO distinto de
+// bomba de calor). FUENTE ÚNICA con la app y con cifoService: se importa el módulo
+// ESM del frontend, igual que hace cifoService.js con cifoDoc.js. Si esta decisión
+// se duplicara aquí, subir a un hueco que el modal ya no enseña respondería 200.
+let _fichasTecnicasPromise = null;
+function loadFichasTecnicas() {
+    if (!_fichasTecnicasPromise) {
+        const url = require('url').pathToFileURL(
+            require('path').join(__dirname, '../../frontend/src/features/expedientes/logic/fichasTecnicas.js')
+        ).href;
+        _fichasTecnicasPromise = import(url);
+    }
+    return _fichasTecnicasPromise;
+}
+
 // ─── Guard global del módulo Expedientes (INTERNO de Brokergy) ────────────────
 // Los expedientes son datos internos: VER y gestionar expedientes está reservado a
 // ADMIN y CERTIFICADOR (sus asignados). Los partners (PRESCRIPTOR / INSTALADOR /
@@ -5758,19 +5773,29 @@ router.post('/:id/resend-cee-notifications', enforceAuth, async (req, res) => {
 
 // ─── POST /api/expedientes/:id/fichas-tecnicas/upload ────────────────────────
 // Sube una ficha técnica PDF a "3. FICHAS TÉCNICAS Y CERTIFICACIONES" en Drive
-// Body: { base64: string, type: 'cal'|'acs', numexpte?: string }
+// Body: { base64: string, type: 'cal'|'acs'|'cal2'…, numexpte?: string }
+// El `type` es la clave del hueco que resuelve `resolveFichaSlots` (una ficha por
+// modelo distinto de bomba de calor); ver fichasTecnicas.js.
 router.post('/:id/fichas-tecnicas/upload', enforceAuth, async (req, res) => {
     const { base64, type, numexpte } = req.body;
     if (!base64 || !type) return res.status(400).json({ error: 'Faltan campos requeridos.' });
+    const { parseFtType, ftFileName, ftDocFields, findFichaSlot } = await loadFichasTecnicas();
+    if (!parseFtType(type)) return res.status(400).json({ error: 'Tipo de ficha técnica no válido.' });
     console.log(`[FT] Subiendo ficha técnica tipo=${type} para expediente ${req.params.id} (base64 len=${base64.length})`);
 
     try {
         const { data: exp, error: expErr } = await supabase
             .from('expedientes')
-            .select('id, oportunidad_id, numero_expediente, documentacion')
+            .select('id, oportunidad_id, numero_expediente, documentacion, instalacion')
             .eq('id', req.params.id)
             .single();
         if (expErr || !exp) return res.status(404).json({ error: 'Expediente no encontrado' });
+        // Mismo alcance que la vista: si el expediente no pide ESA ficha (p. ej. el
+        // ACS lo resuelve el mismo equipo que la calefacción), subirla dejaría un
+        // enlace que ningún documento va a usar y que sí confunde al siguiente.
+        if (!findFichaSlot(exp.instalacion, type)) {
+            return res.status(400).json({ error: 'Este expediente no lleva esa ficha técnica.' });
+        }
         console.log(`[FT] Expediente encontrado: ${exp.numero_expediente}, oportunidad_id=${exp.oportunidad_id}`);
 
         const { data: op } = await supabase
@@ -5790,8 +5815,7 @@ router.post('/:id/fichas-tecnicas/upload', enforceAuth, async (req, res) => {
         if (!ftFolderId) ftFolderId = await createSubfolder(driveFolderId, FOLDER_NAME);
 
         const expteNum = numexpte || exp.numero_expediente || req.params.id;
-        const suffix = type === 'acs' ? 'ACS' : 'CALEFACCION';
-        const fileName = `${expteNum} - FT AEROTERMIA ${suffix}.pdf`;
+        const fileName = ftFileName(expteNum, type);
 
         const fileBuffer = Buffer.from(base64.split(',')[1] || base64, 'base64');
         // Debug: verificar que el buffer empieza con %PDF-
@@ -5800,9 +5824,8 @@ router.post('/:id/fichas-tecnicas/upload', enforceAuth, async (req, res) => {
         const result = await saveFileToFolder(ftFolderId, fileName, 'application/pdf', fileBuffer);
         if (!result) return res.status(500).json({ error: 'Error al subir a Drive.' });
 
-        const linkField = type === 'acs' ? 'ft_aerotermia_acs_link' : 'ft_aerotermia_cal_link';
-        const idField   = type === 'acs' ? 'ft_aerotermia_acs_id'   : 'ft_aerotermia_cal_id';
-        const docObj = { ...(exp.documentacion || {}), [linkField]: result.link, [idField]: result.id };
+        const fields = ftDocFields(type);
+        const docObj = { ...(exp.documentacion || {}), [fields.link]: result.link, [fields.id]: result.id };
         await supabase.from('expedientes').update({ documentacion: docObj, updated_at: new Date().toISOString() }).eq('id', req.params.id);
         console.log(`[FT] Guardado en Drive: ${fileName} (id=${result.id})`);
 
@@ -5820,9 +5843,11 @@ router.post('/:id/fichas-tecnicas/upload', enforceAuth, async (req, res) => {
 // Si se pasa ?info=1, devuelve metadatos JSON en lugar del binario (más ligero
 // para que el frontend evite descargar el PDF y lo encadene como Drive ID).
 router.get('/:id/fichas-tecnicas/:type', async (req, res) => {
-    const { type } = req.params; // 'cal' | 'acs'
+    const { type } = req.params; // 'cal' | 'acs' | 'cal2' | 'acs2' …
     const wantInfo = req.query.info === '1' || req.query.info === 'true';
     try {
+        const { parseFtType, ftFileName } = await loadFichasTecnicas();
+        if (!parseFtType(type)) return res.status(404).send('Tipo de ficha técnica no válido');
         const { data: exp } = await supabase
             .from('expedientes')
             .select('oportunidad_id, numero_expediente')
@@ -5843,8 +5868,7 @@ router.get('/:id/fichas-tecnicas/:type', async (req, res) => {
         const ftFolderId = await findSubfolderByName(driveFolderId, '3. FICHAS TÉCNICAS Y CERTIFICACIONES');
         if (!ftFolderId) return res.status(404).send('Subcarpeta no encontrada');
 
-        const suffix = type === 'acs' ? 'ACS' : 'CALEFACCION';
-        const fileName = `${exp.numero_expediente} - FT AEROTERMIA ${suffix}.pdf`;
+        const fileName = ftFileName(exp.numero_expediente, type);
         const fileId = await findFileByName(ftFolderId, fileName);
         if (!fileId) return res.status(404).send('Archivo no encontrado en Drive');
 
@@ -5874,12 +5898,13 @@ router.get('/:id/fichas-tecnicas/:type', async (req, res) => {
 // ─── POST /api/expedientes/:id/fichas-tecnicas/auto-copy ─────────────────────
 // Copia la ficha técnica del modelo de aerotermia (campo aerotermia.ficha_tecnica)
 // a la subcarpeta "3. FICHAS TÉCNICAS Y CERTIFICACIONES" del expediente.
-// Body: { type: 'cal'|'acs', force?: boolean }
+// Body: { type: 'cal'|'acs'|'cal2'…, force?: boolean }
 // Responde 200 { link, driveId, copied, source } o 400 { error, model? }
 router.post('/:id/fichas-tecnicas/auto-copy', enforceAuth, async (req, res) => {
     const { type, force } = req.body;
-    if (!['cal', 'acs'].includes(type)) {
-        return res.status(400).json({ error: 'bad_type', message: 'type debe ser cal o acs' });
+    const { parseFtType, ftFileName, ftDocFields, findFichaSlot } = await loadFichasTecnicas();
+    if (!parseFtType(type)) {
+        return res.status(400).json({ error: 'bad_type', message: 'type debe ser cal, acs o su variante numerada (cal2, acs2…)' });
     }
     try {
         const { data: exp } = await supabase
@@ -5898,16 +5923,15 @@ router.post('/:id/fichas-tecnicas/auto-copy', enforceAuth, async (req, res) => {
         const driveFolderId = op?.datos_calculo?.drive_folder_id || op?.datos_calculo?.inputs?.drive_folder_id;
         if (!driveFolderId) return res.status(400).json({ error: 'no_drive_folder' });
 
-        // Resolver el modelo aerotermia que aplica a este "type"
-        const inst = exp.instalacion || {};
-        let aeroNode;
-        if (type === 'cal') {
-            aeroNode = inst.aerotermia_cal;
-        } else {
-            // Para ACS: si misma_aerotermia_acs, usar el de calefacción
-            aeroNode = inst.misma_aerotermia_acs ? inst.aerotermia_cal : inst.aerotermia_acs;
+        // Resolver el modelo aerotermia que aplica a este hueco. Manda el alcance
+        // documental del expediente: si este hueco no le corresponde (p. ej. el ACS
+        // lo resuelve el MISMO equipo que la calefacción, o es un termo eléctrico),
+        // no hay ficha que copiar — y no se inventa una copia del modelo de al lado.
+        const slot = findFichaSlot(exp.instalacion, type);
+        if (!slot) {
+            return res.status(400).json({ error: 'slot_no_aplica', message: 'Este expediente no lleva esa ficha técnica.' });
         }
-        const aeroDbId = aeroNode?.aerotermia_db_id;
+        const aeroDbId = slot.modelId;
         if (!aeroDbId) {
             return res.status(400).json({ error: 'no_model', message: 'Selecciona un modelo de aerotermia primero' });
         }
@@ -5929,8 +5953,7 @@ router.post('/:id/fichas-tecnicas/auto-copy', enforceAuth, async (req, res) => {
         let ftFolderId = await findSubfolderByName(driveFolderId, '3. FICHAS TÉCNICAS Y CERTIFICACIONES');
         if (!ftFolderId) ftFolderId = await createSubfolder(driveFolderId, '3. FICHAS TÉCNICAS Y CERTIFICACIONES');
 
-        const suffix = type === 'acs' ? 'ACS' : 'CALEFACCION';
-        const fileName = `${exp.numero_expediente} - FT AEROTERMIA ${suffix}.pdf`;
+        const fileName = ftFileName(exp.numero_expediente, type);
 
         // Si ya existe y no fuerzan, devolver el existente
         const existingId = await findFileByName(ftFolderId, fileName);
@@ -5991,9 +6014,8 @@ router.post('/:id/fichas-tecnicas/auto-copy', enforceAuth, async (req, res) => {
         }
         if (!result) return res.status(500).json({ error: 'copy_failed' });
 
-        const linkField = type === 'acs' ? 'ft_aerotermia_acs_link' : 'ft_aerotermia_cal_link';
-        const idField   = type === 'acs' ? 'ft_aerotermia_acs_id'   : 'ft_aerotermia_cal_id';
-        const docObj = { ...(exp.documentacion || {}), [linkField]: result.link, [idField]: result.id };
+        const fields = ftDocFields(type);
+        const docObj = { ...(exp.documentacion || {}), [fields.link]: result.link, [fields.id]: result.id };
         await supabase.from('expedientes')
             .update({ documentacion: docObj, updated_at: new Date().toISOString() })
             .eq('id', req.params.id);

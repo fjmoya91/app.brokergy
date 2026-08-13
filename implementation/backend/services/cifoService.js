@@ -56,6 +56,14 @@ function loadRes080Doc() {
     }
     return _res080DocPromise;
 }
+let _fichasTecnicasPromise = null;
+function loadFichasTecnicas() {
+    if (!_fichasTecnicasPromise) {
+        const url = pathToFileURL(path.join(__dirname, '../../frontend/src/features/expedientes/logic/fichasTecnicas.js')).href;
+        _fichasTecnicasPromise = import(url);
+    }
+    return _fichasTecnicasPromise;
+}
 let _annexPrefsPromise = null;
 function loadAnnexPrefs() {
     if (!_annexPrefsPromise) {
@@ -327,7 +335,11 @@ async function computeSavingsKwh(exp, op) {
     return savings?.savingsKwh || 0;
 }
 
-// ─── Anexos: FT de calefacción (+ ACS si aplica) + extras del CIFO ────────────
+// ─── Anexos: una FT por MODELO distinto + extras del CIFO ────────────────────
+// Los huecos de ficha técnica los decide `resolveFichaSlots` (fichasTecnicas.js),
+// la MISMA función que usa el modal: una ficha por modelo de bomba de calor, no
+// una por hueco. Así una cascada de modelos distintos lleva las suyas y un equipo
+// que resuelve calefacción y ACS no se adjunta dos veces.
 // Respeta las preferencias que el usuario dejó guardadas en el modal
 // (documentacion.cifo_annex_prefs): ORDEN de los anexos y PÁGINAS EXCLUIDAS de
 // cada uno. Misma lógica que la app — el helper es el módulo compartido
@@ -335,21 +347,15 @@ async function computeSavingsKwh(exp, op) {
 async function resolveAnnexAttachments(exp) {
     const doc = exp.documentacion || {};
     const inst = exp.instalacion || {};
-    // Un termo eléctrico de ACS (efecto Joule) no es aerotermia: no hay ficha
-    // técnica que adjuntar como justificación del SCOP.
-    const acsAero = inst.misma_aerotermia_acs ? inst.aerotermia_cal : inst.aerotermia_acs;
-    const tieneAcs = inst.cambio_acs !== false && !esTermoAero(acsAero);
+    const { resolveFichaSlots, ftDocFields } = await loadFichasTecnicas();
+    const slots = resolveFichaSlots(inst);
+    const tieneAcs = slots.some(s => s.cubreAcs);
     const attachments = [];
 
-    const ftCalId = doc.ft_aerotermia_cal_id || driveIdFromLink(doc.ft_aerotermia_cal_link);
-    if (ftCalId) {
-        attachments.push({ id: 'aerotermia_cal', label: 'Ficha técnica aerotermia calefacción', file: { driveId: ftCalId } });
-    }
-    if (tieneAcs) {
-        const ftAcsId = doc.ft_aerotermia_acs_id || driveIdFromLink(doc.ft_aerotermia_acs_link);
-        if (ftAcsId) {
-            attachments.push({ id: 'aerotermia_acs', label: 'Ficha técnica aerotermia ACS', file: { driveId: ftAcsId } });
-        }
+    for (const slot of slots) {
+        const fields = ftDocFields(slot.type);
+        const driveId = doc[fields.id] || driveIdFromLink(doc[fields.link]);
+        if (driveId) attachments.push({ id: slot.id, label: slot.label, file: { driveId } });
     }
     for (const ex of (Array.isArray(doc.cifo_extra_annexes) ? doc.cifo_extra_annexes : [])) {
         const id = ex.driveId || driveIdFromLink(ex.link);
@@ -366,7 +372,9 @@ async function resolveAnnexAttachments(exp) {
 }
 
 // ─── Ensamblado AUTOMÁTICO de los anexos que justifican el SCOP ───────────────
-// Antes de generar, para cada equipo (cal y ACS si aplica):
+// Antes de generar, para cada MODELO distinto que pide el expediente (los huecos
+// que devuelve `resolveFichaSlots`: cascada con equipos distintos → uno por cada
+// uno; equipo que cubre calefacción y ACS → uno solo):
 //   1) Si la ficha técnica NO está en su slot pero el modelo del catálogo la tiene,
 //      la copia a "3. FICHAS TÉCNICAS Y CERTIFICACIONES" y rellena el slot.
 //   2) Si el método de SCOP es EPREL y hay url_eprel, DESCARGA el Fiche (+Label) de
@@ -382,6 +390,8 @@ async function ensureScopAnnexes(exp) {
     const op = exp.oportunidades || {};
     const warnings = [];
     const catalogUpdates = [];
+    const { resolveFichaSlots, ftDocFields, ftFileName } = await loadFichasTecnicas();
+    const slots = resolveFichaSlots(inst);
 
     const driveFolderId = op.datos_calculo?.drive_folder_id || op.datos_calculo?.inputs?.drive_folder_id || exp.drive_folder_id || null;
     let ftFolderId;
@@ -396,11 +406,14 @@ async function ensureScopAnnexes(exp) {
     const extras = Array.isArray(doc.cifo_extra_annexes) ? doc.cifo_extra_annexes : (doc.cifo_extra_annexes = []);
     const hasExtra = (fileName) => extras.some(e => e.fileName === fileName);
 
-    const processNode = async (type, node) => {
+    // Un hueco de ficha (`slot`) = un MODELO. `slot.unidad` es la unidad de la que
+    // sale (su método de SCOP y su URL EPREL son los suyos, no los del bloque).
+    const processSlot = async (slot) => {
+        const node = slot.unidad;
         if (!node) return;
-        const slotLink = `ft_aerotermia_${type}_link`;
-        const slotId = `ft_aerotermia_${type}_id`;
+        const { link: slotLink, id: slotId } = ftDocFields(slot.type);
         const dbId = node.aerotermia_db_id;
+        const queEs = slot.cubreCal && slot.cubreAcs ? 'calefacción y ACS' : slot.cubreCal ? 'calefacción' : 'ACS';
 
         let catalog = null;
         if (dbId) {
@@ -413,9 +426,12 @@ async function ensureScopAnnexes(exp) {
             const fid = await ensureFtFolder();
             const catFtId = driveIdFromLink(catalog.ficha_tecnica);
             if (fid && catFtId) {
-                const copied = await driveService.copyFile(catFtId, fid, `FT_AEROTERMIA_${type.toUpperCase()}.pdf`);
+                // Nombre CANÓNICO (el mismo que usa la app): Drive es la fuente de
+                // verdad y la ficha se busca por nombre — si aquí se guardara con
+                // otro, el modal no la encontraría y volvería a copiarla.
+                const copied = await driveService.copyFile(catFtId, fid, ftFileName(exp.numero_expediente, slot.type));
                 if (copied) { doc[slotLink] = copied.link; doc[slotId] = copied.id; }
-                else warnings.push(`No se pudo copiar la ficha técnica del catálogo para ${type === 'cal' ? 'calefacción' : 'ACS'}.`);
+                else warnings.push(`No se pudo copiar la ficha técnica del catálogo para ${queEs}${slot.modeloLabel ? ` (${slot.modeloLabel})` : ''}.`);
             }
         }
 
@@ -448,7 +464,7 @@ async function ensureScopAnnexes(exp) {
                     }
                 }
             } else {
-                warnings.push(`La URL EPREL de ${type === 'cal' ? 'calefacción' : 'ACS'} no tiene el formato esperado (…/product/grupo/id).`);
+                warnings.push(`La URL EPREL de ${queEs}${slot.modeloLabel ? ` (${slot.modeloLabel})` : ''} no tiene el formato esperado (…/product/grupo/id).`);
             }
         }
 
@@ -464,10 +480,9 @@ async function ensureScopAnnexes(exp) {
         }
     };
 
-    await processNode('cal', inst.aerotermia_cal);
-    if (inst.cambio_acs !== false && !inst.misma_aerotermia_acs && inst.aerotermia_acs) {
-        await processNode('acs', inst.aerotermia_acs);
-    }
+    // Un modelo por hueco: la cascada con equipos distintos trae su propia ficha y
+    // el equipo que resuelve calefacción y ACS se procesa UNA vez.
+    for (const slot of slots) await processSlot(slot);
     return { warnings, catalogUpdates };
 }
 
@@ -515,9 +530,6 @@ function buildValidation(exp, data, savingsKwh, folderId) {
     if (data.tieneCalefaccion && data.metodoCal === 'eprel' && !inst.aerotermia_cal?.url_eprel) {
         warnings.push('El método de SCOP en calefacción es EPREL pero falta la URL EPREL de la unidad exterior.');
     }
-    if (data.tieneCalefaccion && !(doc.ft_aerotermia_cal_id || doc.ft_aerotermia_cal_link)) {
-        warnings.push('Falta la ficha técnica de la aerotermia de calefacción: el CIFO se genera sin ese anexo.');
-    }
     // Piscina (TER100): el SCOP_pwh se justifica con la ficha técnica del equipo, que
     // se adjunta como anexo extra del CIFO (no tiene slot propio en el catálogo).
     if (data.tienePiscina) {
@@ -546,12 +558,7 @@ function buildValidation(exp, data, savingsKwh, folderId) {
         }
     }
     if (data.tieneAcs) {
-        // Un termo eléctrico (efecto Joule) o un mero acumulador no llevan ficha
-        // técnica de aerotermia que justifique un SCOP: no se reclama.
         const acsAero = inst.misma_aerotermia_acs ? inst.aerotermia_cal : inst.aerotermia_acs;
-        if (!esTermoAero(acsAero) && !esAcumuladorAero(acsAero) && !(doc.ft_aerotermia_acs_id || doc.ft_aerotermia_acs_link)) {
-            warnings.push('La actuación incluye ACS pero falta la ficha técnica de la aerotermia de ACS: el CIFO se genera sin ese anexo.');
-        }
         const serieCal = inst.aerotermia_cal?.numero_serie || inst.aerotermia_cal?.n_serie_ext;
         const serieAcs = inst.misma_aerotermia_acs ? serieCal : (inst.aerotermia_acs?.numero_serie || inst.aerotermia_acs?.n_serie_ext);
         // El acumulador queda fuera: su serie es la del DEPÓSITO (dato distinto por
@@ -611,6 +618,7 @@ async function getEstadoCifo(numeroOrId) {
         const data = deriveCifoData({ expediente: exp, results: { savingsKwh } });
         ({ blocking, warnings } = buildValidation(exp, data, savingsKwh, folderId));
     }
+    warnings = [...warnings, ...await avisosFichasTecnicas(exp, tipologia === 'RES080' ? 'RES080' : 'CIFO')];
 
     return {
         ok: true, tipologia,
@@ -639,17 +647,24 @@ function buildValidationRes080(exp, results, folderId) {
     if (!(parseFloat(inst.aerotermia_cal?.scop) > 0)) {
         warnings.push('Falta el SCOP de la aerotermia de calefacción: la justificación del SCOP saldrá incompleta.');
     }
-    if (!(doc.ft_aerotermia_cal_id || doc.ft_aerotermia_cal_link)) {
-        warnings.push('Falta la ficha técnica de la aerotermia de calefacción: el RES080 se genera sin ese anexo.');
-    }
-    // Igual que en el CIFO: un termo eléctrico o un acumulador no tienen ficha
-    // técnica de aerotermia que justifique un SCOP.
-    const acsAeroRes080 = inst.misma_aerotermia_acs ? inst.aerotermia_cal : inst.aerotermia_acs;
-    if (inst.cambio_acs !== false && !esTermoAero(acsAeroRes080) && !esAcumuladorAero(acsAeroRes080)
-        && !(doc.ft_aerotermia_acs_id || doc.ft_aerotermia_acs_link)) {
-        warnings.push('La actuación incluye ACS pero falta la ficha técnica de la aerotermia de ACS: el RES080 se genera sin ese anexo.');
-    }
     return { blocking, warnings };
+}
+
+// Fichas técnicas que el expediente pide y no están: UNA por MODELO distinto de
+// bomba de calor (fichasTecnicas.js). Se comprueba fuera de buildValidation* porque
+// resolver los huecos exige el import ESM, y los dos validadores son síncronos.
+async function avisosFichasTecnicas(exp, docLabel) {
+    const doc = exp.documentacion || {};
+    const { resolveFichaSlots, ftDocFields } = await loadFichasTecnicas();
+    const out = [];
+    for (const slot of resolveFichaSlots(exp.instalacion)) {
+        const f = ftDocFields(slot.type);
+        if (doc[f.id] || doc[f.link]) continue;
+        const queEs = slot.cubreCal && slot.cubreAcs ? 'calefacción y ACS' : slot.cubreCal ? 'calefacción' : 'ACS';
+        const cual = slot.modeloLabel ? ` (${slot.modeloLabel}${slot.detalle ? ` — ${slot.detalle}` : ''})` : '';
+        out.push(`Falta la ficha técnica de la aerotermia de ${queEs}${cual}: el ${docLabel} se genera sin ese anexo.`);
+    }
+    return out;
 }
 
 // ─── Generación ───────────────────────────────────────────────────────────────
@@ -700,7 +715,13 @@ async function generarCifo(numeroOrId, { force = false } = {}) {
     }
 
     // Sumar los avisos del ensamblado de anexos (EPREL/FT) a los de validación.
-    warnings = [...(warnings || []), ...scopAnnex.warnings];
+    // Los de ficha FALTANTE se calculan DESPUÉS de ensureScopAnnexes: si la ha
+    // copiado del catálogo, ya no falta y no hay que decir que falta.
+    warnings = [
+        ...(warnings || []),
+        ...scopAnnex.warnings,
+        ...await avisosFichasTecnicas(exp, tipologia === 'RES080' ? 'RES080' : 'CIFO'),
+    ];
 
     // Bloqueantes → incidencia GRAVE y NO se genera.
     if (blocking.length > 0) {
