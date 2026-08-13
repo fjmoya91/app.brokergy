@@ -36,16 +36,27 @@ def _png_size(data: bytes):
 
 
 def _ajustar_esquema(xml: str, img_w: int, img_h: int) -> str:
-    """Reescala la altura del hueco del esquema para respetar el ratio de la nueva
-    imagen (mantiene el ancho en pt). Evita que el PNG salga deformado."""
+    """Reescala el hueco del esquema al ratio de la nueva imagen, SIN pasarse del
+    alto original de la plantilla.
+
+    Antes solo se ajustaba la altura manteniendo el ancho, y los esquemas mas
+    apaisados que el hueco (528x318 pt) se salian: el de cascada pedia 396 pt,
+    78 mas de los que hay, y empujaba el pie de firma a una pagina extra. Ahora,
+    si el alto calculado supera el del hueco, manda el alto y es el ancho el que
+    se reduce: la imagen sale mas pequena, pero entera y sin deformar.
+    """
     if not img_w or not img_h:
         return xml
     m = re.search(r'(<v:shape\b[^>]*style="width:)([\d.]+)(pt;height:)([\d.]+)(pt")', xml)
     if not m:
         return xml
-    width_pt = float(m.group(2))
-    new_h = round(width_pt * img_h / img_w, 1)
-    return xml[:m.start()] + f"{m.group(1)}{m.group(2)}{m.group(3)}{new_h}{m.group(5)}" + xml[m.end():]
+    width_pt, max_h_pt = float(m.group(2)), float(m.group(4))
+    new_w, new_h = width_pt, width_pt * img_h / img_w
+    if new_h > max_h_pt:
+        new_h, new_w = max_h_pt, max_h_pt * img_w / img_h
+    return (xml[:m.start()]
+            + f"{m.group(1)}{round(new_w, 1)}{m.group(3)}{round(new_h, 1)}{m.group(5)}"
+            + xml[m.end():])
 
 
 def _esc(s: str) -> str:
