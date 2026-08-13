@@ -175,8 +175,35 @@ def normalizar(raw: dict, fecha_firma: str = None, fecha_pruebas: str = None) ->
     _acs_es_acumulador = _acs_tipo == "acumulador" or bool(acs.get("es_acumulador"))
     _cal_mod = (cal.get("modelo") or "").strip().upper()
     _acs_mod = (acs.get("modelo") or "").strip().upper()
-    acs_distinto = bool(_acs_mod) and _acs_mod != _cal_mod and not _acs_es_termo and not _acs_es_acumulador
-    pot_acs = (sum(_f(u.get("potencia")) for u in acs_uds) or _f(acs.get("potencia"))) if acs_distinto else 0.0
+    _cal_ud = (cal.get("modelo_ud_exterior") or "").strip().upper()
+    _acs_ud = (acs.get("modelo_ud_exterior") or "").strip().upper()
+
+    # ¿El ACS lo da la MISMA máquina? Se compara por IDENTIDAD, no por el texto del
+    # modelo: en un all-in-one el usuario elige la misma ficha del catálogo en los
+    # dos bloques y cada uno guarda el nombre a su manera (medido en 26RES060_127:
+    # "WH-WDG16ME5" en calefacción y "AQUAREA HIGH PERFORMANCE SERIE M R290 ALL IN
+    # ONE" en ACS, ambos `aerotermia_db_id` 454). Comparando textos salían dos
+    # equipos donde hay uno, y el certificado declaraba 16 kW de calor + 16 kW de
+    # ACS = 32 kW de potencia instalada que no existe.
+    _cal_id, _acs_id = cal.get("aerotermia_db_id"), acs.get("aerotermia_db_id")
+    mismo_equipo = (
+        not _acs_mod                                                  # no hay equipo de ACS aparte
+        or (_acs_id is not None and _acs_id == _cal_id)               # misma ficha del catálogo
+        or (bool(_acs_ud) and _acs_ud == _cal_ud)                     # misma unidad exterior (la placa)
+        or _acs_mod == _cal_mod                                       # mismo nombre de modelo
+    )
+    acs_distinto = not mismo_equipo and not _acs_es_termo and not _acs_es_acumulador
+
+    # POTENCIA A.C.S: es la potencia de un generador de ACS PROPIO. Una sola bomba
+    # de calor no suma su potencia dos veces —da calor o ACS con los mismos kW—, así
+    # que con el mismo equipo la casilla va a 0. Si el depósito lleva RESISTENCIA de
+    # apoyo y su potencia consta, es la que se declara (hoy no hay campo para ella
+    # en el expediente; en cuanto lo haya, entra por aquí sin tocar nada más).
+    _resistencia = _f(acs.get("potencia_resistencia_acs") or acs.get("resistencia_apoyo_kw"))
+    if acs_distinto:
+        pot_acs = sum(_f(u.get("potencia")) for u in acs_uds) or _f(acs.get("potencia"))
+    else:
+        pot_acs = _resistencia
 
     # FIRMANTE del RITE (memoria + certificado). Si el instalador marca "técnico
     # firmante distinto", el que firma el RITE es el TÉCNICO habilitado (con su
@@ -249,8 +276,13 @@ def normalizar(raw: dict, fecha_firma: str = None, fecha_pruebas: str = None) ->
             "modelo": _modelos(cal_uds) or cal.get("modelo", ""),
             "num_serie": _series(cal_uds) or cal.get("numero_serie", ""),
             "potencia_cal": pot_cal,
-            "potencia_acs": (pot_acs if acs_distinto else ""),
-            "acumulacion_l": (_acumulacion(acs) if acs_distinto else ""),
+            "potencia_acs": (pot_acs if pot_acs else ""),
+            # La ACUMULACIÓN describe el DEPÓSITO, no un segundo generador: un
+            # all-in-one tiene sus litros aunque el ACS lo produzca la misma bomba
+            # de calor, así que NO comparte el gate con la potencia. Si el nodo de
+            # ACS no los declara, se miran los del equipo de calefacción (ahí es
+            # donde el catálogo precarga los litros de un equipo con depósito).
+            "acumulacion_l": (_acumulacion(acs) or (_acumulacion(cal) if not acs_distinto else "")),
             # Del catálogo del modelo; si no está, se intenta deducir del nombre
             # (casi nunca lo lleva, por eso ahora es un campo propio).
             "refrigerante": cal.get("refrigerante") or _refrigerante(cal.get("modelo", "")),
@@ -398,9 +430,13 @@ def _acumulacion(acs):
         v = acs.get(k)
         if v not in (None, "", 0, "0"):
             return str(v)
-    # 2) Si no, deducir del modelo ACS (ej. "TRADETERMIA ACS 110" -> 110)
+    # 2) Si no, deducir del modelo ACS (ej. "TRADETERMIA ACS 110" -> 110).
+    #    Se tacha antes el REFRIGERANTE: en "AQUAREA … R290 ALL IN ONE" el primer
+    #    número es el gas, y declarar un depósito de 290 litros que no existe es
+    #    peor que dejar la casilla en blanco.
     import re as _re
-    m = _re.search(r"(\d{2,4})", acs.get("modelo", "") or "")
+    modelo = _re.sub(r"\bR-?\d{2,4}\b", " ", acs.get("modelo", "") or "", flags=_re.I)
+    m = _re.search(r"(\d{2,4})", modelo)
     return m.group(1) if m else ""
 
 
