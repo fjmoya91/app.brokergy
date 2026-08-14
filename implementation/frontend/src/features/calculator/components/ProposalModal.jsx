@@ -820,7 +820,14 @@ export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }
         if (!body || !cta) return;
 
         const sobra = cta.offsetTop - (body.offsetTop + body.offsetHeight) - AIRE;
-        if (sobra >= 0 && sobra <= TOLERANCIA) {           // ya llena la hoja
+        // Una portada que CABE no se toca: se queda exactamente como está. El
+        // ajuste existe para rescatar la que se sale (muchas filas), no para
+        // repartir el aire de la que ya va bien.
+        //
+        // La excepción es haber tenido que escalar al compacto: ése aprieta de
+        // golpe y se pasa de frenada (medido: -93px de partida acababan en 136px
+        // de hueco). Ahí sí se devuelve el sobrante a los huecos.
+        if (sobra >= 0 && (!fit.compact || sobra <= TOLERANCIA)) {
             setFit(prev => ({ ...prev, pass: MAX_PASADAS }));
             return;
         }
@@ -838,9 +845,14 @@ export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }
             : actual[h.v] - reposo[h.v] * (1 - h.encoge);     // cuánto queda por encoger
 
         const margen = HUECOS.reduce((a, h) => a + Math.max(0, holgura(h)) * veces(h), 0);
-        if (margen < 0.5) {
-            // Agotado. Si aún desborda, queda el compacto (que baja el reposo de
-            // todos los huecos y aprieta tipografías) y se vuelve a medir.
+        // Si apretando los huecos NO se llega, se escala ya al compacto en vez de
+        // gastar pasadas en un apretón que no basta. El umbral no puede ser 0: el
+        // redondeo a una décima deja una holgura residual de céntimas que,
+        // multiplicada por las filas, nunca baja de cero — y el compacto no
+        // llegaba a entrar nunca (medido: se quedaba a -197px de la comparativa
+        // cargada). `vars: null` es imprescindible al escalar: los valores inline
+        // ganan a las variables que redefine .prop-compact y lo dejarían sin efecto.
+        if (margen < 1 || (sobra < 0 && -sobra > margen)) {
             if (sobra < 0 && !fit.compact) setFit({ pass: fit.pass + 1, compact: true, vars: null, reposo: null });
             else setFit(prev => ({ ...prev, pass: MAX_PASADAS }));
             return;
@@ -2283,6 +2295,32 @@ info@brokergy.es · 623 926 179`;
                         Vista Previa de Propuesta
                     </h3>
                     <div className="flex flex-wrap gap-2 sm:gap-3 justify-end max-md:w-full">
+                        {/* Comparativa de CEE: se decide aquí, viéndola. Ocupa dos
+                            líneas en la tabla más un párrafo en las notas, así que
+                            en una propuesta cargada es lo primero que se quita.
+                            Solo sale si hay comparativa que ofrecer (si el CEE
+                            aportado y uno nuevo dan lo mismo, ni aparece). */}
+                        {ceeComparison && (
+                            <button
+                                onClick={() => setIncludeCeeComp(v => !v)}
+                                title={includeCeeComp
+                                    ? 'Quitar de la propuesta la comparativa "con tu CEE / con un CEE nuevo"'
+                                    : 'Mostrar en la propuesta la comparativa "con tu CEE / con un CEE nuevo"'}
+                                className={`h-12 px-3 flex items-center gap-2 rounded-2xl border transition-all shrink-0 active:scale-95 ${
+                                    includeCeeComp
+                                        ? 'text-brand border-brand/40 bg-brand/10 hover:bg-brand/20'
+                                        : 'text-white/30 border-transparent hover:text-white/60 hover:bg-white/5 hover:border-white/10'
+                                }`}
+                            >
+                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.6}>
+                                    {includeCeeComp
+                                        ? <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                        : <path strokeLinecap="round" strokeLinejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.477 0-8.268-2.943-9.542-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.542 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />}
+                                </svg>
+                                <span className="text-[10px] font-black uppercase tracking-wider whitespace-nowrap max-md:hidden">Opción CEE</span>
+                            </button>
+                        )}
+
                         {/* Botón AÑADIR ANEXOS */}
                         <button
                             onClick={() => setIsAnexosOpen(true)}
