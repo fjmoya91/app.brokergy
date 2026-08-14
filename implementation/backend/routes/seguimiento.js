@@ -96,7 +96,16 @@ router.get('/lote/:clave', staffOnly, async (req, res) => {
         const grupo = await grupoPorClave(decodeURIComponent(req.params.clave));
         if (!grupo) return res.status(404).json({ error: 'Ese grupo ya no está pendiente (puede que se haya resuelto o avisado).' });
 
-        const prep = await lote.prepararLote(grupo);
+        // `?ids=` acota el borrador a los expedientes que siguen marcados. Sin esto,
+        // al desmarcar uno el mensaje seguía nombrándolo y anunciando "7 certificados"
+        // cuando iban 6: el destinatario recibiría una lista que no cuadra con nada.
+        const soloIds = String(req.query.ids || '').split(',').map(s => s.trim()).filter(Boolean);
+        const acotado = soloIds.length
+            ? { ...grupo, filas: grupo.filas.filter(f => soloIds.includes(f.expediente_id)) }
+            : grupo;
+        if (!acotado.filas.length) return res.status(400).json({ error: 'No has dejado ningún expediente seleccionado.' });
+
+        const prep = await lote.prepararLote(acotado);
         if (prep.error) return res.status(400).json({ error: prep.error });
 
         res.json({

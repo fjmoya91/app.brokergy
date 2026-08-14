@@ -216,14 +216,22 @@ function App() {
   //    La pestaña activa vive en la URL (?tab=), igual que el expediente abierto
   //    (?exp=), para que al RECARGAR la página sigamos donde estábamos. Un efecto
   //    más abajo mantiene la URL sincronizada con el estado.
-  const TABS_VALIDAS = ['dashboard', 'oportunidades', 'expedientes', 'clientes', 'prescriptores', 'lotes', 'aerotermia', 'usuarios', 'whatsapp'];
+  const TABS_VALIDAS = ['dashboard', 'seguimiento', 'oportunidades', 'expedientes', 'clientes', 'prescriptores', 'lotes', 'aerotermia', 'usuarios', 'whatsapp'];
   // Sin ?tab= no sabemos aún el rol (el usuario carga después), así que arrancamos
   // en 'dashboard' y el efecto de abajo redirige a quien no deba verlo. Al revés
   // —arrancar en oportunidades y saltar al panel— provocaría un parpadeo de vista.
   const [activeTab, setActiveTab] = useState(() => {
     if (initialExpediente) return 'expedientes';
     const tab = new URLSearchParams(window.location.search).get('tab');
-    return TABS_VALIDAS.includes(tab) ? tab : 'dashboard';
+    if (TABS_VALIDAS.includes(tab)) return tab;
+    // En el MÓVIL se entra a despachar, no a mirar indicadores: el cuadro de mando
+    // en una pantalla de 375 px es un muro de KPIs por el que hay que hacer scroll
+    // antes de llegar a nada accionable. Quien abre la app desde el teléfono quiere
+    // saber a quién tiene que escribir hoy. En el escritorio manda el cuadro de mando,
+    // que es donde se mira "cómo va el negocio". Si el rol no puede ver Seguimiento,
+    // el efecto de abajo lo reconduce igual que antes.
+    if (typeof window !== 'undefined' && window.matchMedia?.('(max-width: 767px)').matches) return 'seguimiento';
+    return 'dashboard';
   });
 
   // Ajustar pestaña inicial cuando el usuario carga
