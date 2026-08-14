@@ -1091,17 +1091,19 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, initial
                         <span className="text-xs font-bold uppercase tracking-widest">Expedientes</span>
                     </button>
 
-                    <div className="flex items-center gap-3 flex-wrap">
-                        <h1 className="text-2xl font-black text-white uppercase tracking-tight">
+                    <div className="flex items-center gap-3 flex-wrap max-md:gap-2 max-md:w-full max-md:min-w-0">
+                        {/* "Expediente" es redundante en un móvil: ya se ve dónde estás y
+                            se come una línea entera del titular. */}
+                        <h1 className="text-2xl font-black text-white uppercase tracking-tight max-md:hidden">
                             Expediente
                         </h1>
-                        <span className="font-mono text-brand font-bold text-lg">
+                        <span className="font-mono text-brand font-bold text-lg max-md:w-full max-md:text-sm max-md:leading-tight break-words min-w-0">
                             {expediente.numero_expediente || expediente.id_oportunidad_ref || op.id_oportunidad || '—'}
                             {cliente && ` - ${cliente.nombre_razon_social} ${cliente.apellidos || ''}`.toUpperCase()}
                         </span>
 
                          {/* Selector de Estado Global */}
-                         <div className="flex items-center gap-2 bg-white/[0.03] p-1 rounded-xl border border-white/[0.06] shadow-xl ml-2">
+                         <div className="flex items-center gap-2 bg-white/[0.03] p-1 rounded-xl border border-white/[0.06] shadow-xl ml-2 max-md:ml-0 max-md:w-full max-md:min-w-0">
                               <div className="pl-3 text-white/20">
                                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -1110,7 +1112,7 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, initial
                               <select
                                  value={expediente.estado || 'PTE. CEE INICIAL'}
                                  onChange={(e) => handleSave({ estado: e.target.value })}
-                                 className={`bg-transparent text-[10px] font-black uppercase tracking-widest focus:outline-none pr-4 py-1.5 appearance-none cursor-pointer transition-colors ${
+                                 className={`bg-transparent text-[10px] font-black uppercase tracking-widest focus:outline-none pr-4 py-1.5 appearance-none cursor-pointer transition-colors max-md:flex-1 max-md:min-w-0 max-md:w-full ${
                                      expediente.estado === 'FINALIZADO' ? 'text-emerald-400' : 
                                      expediente.estado?.includes('REQUERIMIENTO') ? 'text-red-400' : 'text-brand'
                                  }`}

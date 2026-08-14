@@ -778,7 +778,7 @@ export function AdminPanelView({
                 <div className="animate-fade-in w-full max-w-[1600px] mx-auto px-6 sm:px-10 py-10 relative z-10">
                     {/* ─── Header ─── */}
                     <header className="mb-8 flex flex-wrap items-center justify-between gap-4 pb-4">
-                            <div className="flex items-center gap-4 md:gap-6 min-w-0">
+                            <div className="flex items-center gap-4 md:gap-6 min-w-0 max-md:flex-wrap max-md:gap-y-3">
                                 <h2 className="text-2xl md:text-3xl font-black text-white flex items-center gap-3 whitespace-nowrap">
                                     <div className="p-2 bg-gradient-to-br from-brand/20 to-brand-700/10 rounded-xl border border-brand/20 text-brand shadow-lg shadow-brand/10">
                             <svg className="w-4 h-4 md:w-5 md:h-5 text-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -789,10 +789,10 @@ export function AdminPanelView({
                             </h2>
 
                     {user?.rol?.toUpperCase() === 'ADMIN' && (
-                        <div className="flex bg-bkg-surface p-1 rounded-xl border border-white/[0.06] ml-2">
+                        <div className="flex bg-bkg-surface p-1 rounded-xl border border-white/[0.06] ml-2 max-md:ml-0">
                             <button
                                 onClick={() => setViewMode('brokergy')}
-                                className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all ${
+                                className={`px-3 py-1.5 max-md:py-2.5 max-md:px-4 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all ${
                                     viewMode === 'brokergy'
                                         ? 'bg-brand text-black shadow-lg shadow-brand/20'
                                         : 'text-white/40 hover:text-white/60'
@@ -802,7 +802,7 @@ export function AdminPanelView({
                             </button>
                             <button
                                 onClick={() => setViewMode('prescriptor')}
-                                className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all ${
+                                className={`px-3 py-1.5 max-md:py-2.5 max-md:px-4 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all ${
                                     viewMode === 'prescriptor'
                                         ? 'bg-brand text-black shadow-lg shadow-brand/20'
                                         : 'text-white/40 hover:text-white/60'

@@ -464,6 +464,11 @@ export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }
     const [generating, setGenerating] = useState(false);
     const [savingToDrive, setSavingToDrive] = useState(false);
     const [scale, setScale] = useState(1);
+    // Zoom MANUAL, solo para la previsualización en móvil. La escala automática hace
+    // que la A4 (794px) quepa en la pantalla, pero en un móvil de 375px eso es un 42%:
+    // se ve la página entera y no se lee ni un número. Con esto se puede ampliar y
+    // desplazar, que es como se revisa de verdad una propuesta desde el teléfono.
+    const [zoomManual, setZoomManual] = useState(1);
     const [sendingEmail, setSendingEmail] = useState(false);
     const [sendingWhatsapp, setSendingWhatsapp] = useState(false);
     const [confirmConfig, setConfirmConfig] = useState(null);
@@ -2403,9 +2408,23 @@ info@brokergy.es · 623 926 179`;
                     </div>
                 </div>
 
-                <div ref={containerRef} className="flex-1 overflow-auto bg-neutral-900/50 p-4 sm:p-12 flex justify-center custom-scrollbar">
+                <div ref={containerRef} className="flex-1 overflow-auto bg-neutral-900/50 p-4 sm:p-12 flex justify-center custom-scrollbar relative">
 
-                    <div className="prop-wrapper" style={{ transform: `scale(${scale})`, transformOrigin: 'top center', marginBottom: scale < 1 ? `-${1123 * totalPages * (1 - scale)}px` : '0', height: `${1123 * totalPages + 100}px` }}>
+                    {/* Zoom de la vista previa — solo móvil. Flotante y abajo a la
+                        derecha para no tapar el documento ni la barra de acciones. */}
+                    <div className="md:hidden fixed bottom-24 right-4 z-30 flex flex-col gap-1 rounded-2xl border border-white/10 bg-black/70 backdrop-blur p-1 shadow-2xl">
+                        <button onClick={() => setZoomManual(z => Math.min(4, +(z + 0.5).toFixed(2)))}
+                            aria-label="Ampliar" className="w-11 h-11 rounded-xl text-white/70 active:bg-white/10 text-xl font-black leading-none">+</button>
+                        <button onClick={() => setZoomManual(1)}
+                            aria-label="Ajustar a la pantalla"
+                            className={`w-11 h-9 rounded-xl text-[9px] font-black uppercase tracking-wider ${zoomManual === 1 ? 'text-white/30' : 'text-brand'}`}>
+                            {Math.round(scale * zoomManual * 100)}%
+                        </button>
+                        <button onClick={() => setZoomManual(z => Math.max(1, +(z - 0.5).toFixed(2)))}
+                            aria-label="Reducir" className="w-11 h-11 rounded-xl text-white/70 active:bg-white/10 text-xl font-black leading-none">−</button>
+                    </div>
+
+                    <div className="prop-wrapper" style={{ transform: `scale(${scale * zoomManual})`, transformOrigin: 'top center', marginBottom: (scale * zoomManual) < 1 ? `-${1123 * totalPages * (1 - scale * zoomManual)}px` : '0', height: `${1123 * totalPages + 100}px` }}>
                         <div ref={proposalRef} className="prop-wrapper-inner" style={{ fontFamily: 'var(--font-family)' }}>
                             <style dangerouslySetInnerHTML={{ __html: baseCss }} />
 

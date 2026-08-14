@@ -998,3 +998,37 @@ input[autocomplete="new-password"] {
     background: rgba(255, 255, 255, 0.8) !important;
     color: rgba(17, 21, 28, 0.6) !important;
 }
+/* ===================================
+   MÓVIL — usabilidad táctil transversal
+   ===================================
+   Gateado a < md (768px): el escritorio queda BYTE-IDÉNTICO, que es la regla de
+   oro de la adaptación móvil de este CRM.
+
+   Estas dos reglas arreglan de una vez lo que estaba mal en TODAS las pestañas, y
+   se hacen aquí y no vista por vista porque el problema no es de ninguna vista:
+   es de todos los controles de formulario de la app (medidos: 490 selects y los
+   buscadores por debajo de 16px solo en Expedientes).
+
+   1) iOS Safari hace ZOOM automático al enfocar cualquier control cuyo texto mida
+      menos de 16px, y deja la página descolocada y desplazada — hay que pellizcar
+      para volver. Es el defecto de móvil más molesto de la app: aparecía al tocar
+      el buscador y al cambiar el estado de cualquier expediente. 16px es el umbral
+      exacto por debajo del cual Safari decide ampliar; no es una preferencia
+      estética.
+
+   2) 44px de alto es el objetivo táctil mínimo que se acierta con el pulgar sin
+      mirar. Los selects de estado venían con 36px y en marcha se fallaba el toque.
+      Se aplica solo a `select` (siempre son controles reales); los botones NO se
+      tocan en global porque muchos son chips o píldoras cuyo tamaño ES el diseño.
+*/
+@media (max-width: 767px) {
+  input:not([type='checkbox']):not([type='radio']):not([type='range']),
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+
+  select {
+    min-height: 44px;
+  }
+}
