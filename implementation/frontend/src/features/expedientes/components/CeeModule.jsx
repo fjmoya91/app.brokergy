@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { createPortal } from 'react-dom';
 import axios from 'axios';
 import { parseCeeXml } from '../../calculator/logic/xmlCeeParser';
 import { FACTORES_PASO, calculateRes080, calculateRes080FromEmissions, calculateRes080Simplificado, calculateRes080SimplificadoFromXml, combustiblesNoElectricos } from '../../calculator/logic/calculation';
@@ -8,6 +7,9 @@ import CeeUploadModal from '../../cee/CeeUploadModal';
 import { ceeToXmlShape } from '../../cee/ceeExtract';
 import { EfficiencyTable, CATEGORIES_SIMPLIFICADO } from '../../calculator/components/EfficiencyTable';
 import { CeeDocumentsGrid } from './CeeDocumentsGrid';
+import { TecnicoPicker } from './TecnicoPicker';
+import { telefonoDe, emailDe } from '../../../utils/contactoPrescriptor';
+import { MensajeEditable } from './MensajeEditable';
 import { buildCertApproveMessage, buildCertDefaultMessage } from '../logic/certMessages';
 import { fireSuccessConfetti } from '../utils/successConfetti';
 
@@ -173,145 +175,6 @@ function normalizeCombKey(val) {
     if (FACTORES_PASO[val] !== undefined) return val;
     const lower = val.toLowerCase();
     return Object.keys(FACTORES_PASO).find(k => k.toLowerCase() === lower) || null;
-}
-
-// ─── Combobox con búsqueda ────────────────────────────────────────────────────
-function SearchableSelect({ value, onChange, options, placeholder = '— Sin asignar —', disabled = false }) {
-    const [open, setOpen] = useState(false);
-    const [query, setQuery] = useState('');
-    const [coords, setCoords] = useState(null); // posición fixed del menú (portal)
-    const containerRef = useRef(null);
-    const inputRef = useRef(null);
-    const menuRef = useRef(null);
-
-    const selected = options.find(o => String(o.value) === String(value));
-    const filtered = query
-        ? options.filter(o => o.label.toLowerCase().includes(query.toLowerCase()))
-        : options;
-
-    useEffect(() => {
-        if (!open) setQuery('');
-    }, [open]);
-
-    // Cierra al hacer click fuera del botón Y fuera del menú (que vive en un portal a body).
-    useEffect(() => {
-        const handler = (e) => {
-            if (containerRef.current?.contains(e.target)) return;
-            if (menuRef.current?.contains(e.target)) return;
-            setOpen(false);
-        };
-        document.addEventListener('mousedown', handler);
-        return () => document.removeEventListener('mousedown', handler);
-    }, []);
-
-    // Calcula la posición del menú respecto al viewport (position:fixed). Como el menú
-    // se renderiza en un portal a document.body, ningún overflow/z-index de los paneles
-    // padre lo puede recortar ni tapar. Abre hacia abajo, o hacia arriba si no hay sitio.
-    useEffect(() => {
-        if (!open) return;
-        const update = () => {
-            const r = containerRef.current?.getBoundingClientRect();
-            if (!r) return;
-            const MENU_H = 300;
-            const spaceBelow = window.innerHeight - r.bottom;
-            const openUp = spaceBelow < MENU_H && r.top > spaceBelow;
-            setCoords({
-                left: r.left,
-                width: Math.max(r.width, 240),
-                top: openUp ? undefined : r.bottom + 4,
-                bottom: openUp ? (window.innerHeight - r.top + 4) : undefined,
-            });
-        };
-        update();
-        window.addEventListener('scroll', update, true);
-        window.addEventListener('resize', update);
-        return () => {
-            window.removeEventListener('scroll', update, true);
-            window.removeEventListener('resize', update);
-        };
-    }, [open]);
-
-    const handleOpen = () => {
-        if (disabled) return;
-        setOpen(true);
-        setTimeout(() => inputRef.current?.focus(), 0);
-    };
-
-    const handleSelect = (optValue) => {
-        onChange(optValue);
-        setOpen(false);
-    };
-
-    return (
-        <div ref={containerRef} className="relative">
-            <button
-                type="button"
-                onClick={handleOpen}
-                disabled={disabled}
-                className={`w-full flex items-center justify-between bg-white/[0.03] border rounded-xl px-4 py-2 text-[10px] font-black uppercase outline-none transition-all text-left ${
-                    disabled
-                        ? 'border-white/10 text-white/40 cursor-not-allowed'
-                        : 'border-brand/30 text-brand cursor-pointer hover:border-brand/50'
-                }`}
-            >
-                <span className="truncate">{selected ? selected.label : placeholder}</span>
-                <svg className={`w-3 h-3 ml-2 flex-shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7" />
-                </svg>
-            </button>
-
-            {open && coords && createPortal(
-                <div
-                    ref={menuRef}
-                    style={{
-                        position: 'fixed',
-                        left: coords.left,
-                        width: coords.width,
-                        top: coords.top,
-                        bottom: coords.bottom,
-                        zIndex: 9999,
-                    }}
-                    className="bg-bkg-elevated border border-white/10 rounded-xl shadow-2xl overflow-hidden"
-                >
-                    <div className="p-2 border-b border-white/5">
-                        <input
-                            ref={inputRef}
-                            type="text"
-                            value={query}
-                            onChange={e => setQuery(e.target.value)}
-                            placeholder="Buscar certificador..."
-                            className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white placeholder-white/30 outline-none focus:border-brand/40"
-                        />
-                    </div>
-                    <ul className="max-h-48 overflow-y-auto">
-                        <li
-                            onClick={() => handleSelect('')}
-                            className="px-4 py-2 text-[10px] font-black uppercase text-white/30 hover:bg-white/5 cursor-pointer tracking-widest"
-                        >
-                            {placeholder}
-                        </li>
-                        {filtered.length === 0 && (
-                            <li className="px-4 py-2 text-[10px] text-white/20 italic">Sin resultados</li>
-                        )}
-                        {filtered.map(o => (
-                            <li
-                                key={o.value}
-                                onClick={() => handleSelect(o.value)}
-                                className={`px-4 py-2 text-[10px] font-black uppercase tracking-widest cursor-pointer transition-colors ${
-                                    String(value) === String(o.value)
-                                        ? 'bg-brand/20 text-brand'
-                                        : 'text-white/70 hover:bg-white/5'
-                                }`}
-                            >
-                                {o.label}
-                            </li>
-                        ))}
-                    </ul>
-                </div>,
-                document.body
-            )}
-        </div>
-    );
 }
 
 // ─── Componente Principal ─────────────────────────────────────────────────────
@@ -1076,7 +939,7 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                     <button
                         type="button"
                         onClick={() => setCeeLoadTarget('inicial')}
-                        className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-white text-[9px] font-black uppercase tracking-widest transition-all active:scale-95"
+                        className="flex items-center gap-2 px-3 py-2 max-md:flex-1 max-md:justify-center max-md:py-3.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-white text-[9px] font-black uppercase tracking-widest transition-all active:scale-95"
                     >
                         <svg className="w-3.5 h-3.5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
                         CEE inicial
@@ -1084,7 +947,7 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                     <button
                         type="button"
                         onClick={() => setCeeLoadTarget('final')}
-                        className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-white text-[9px] font-black uppercase tracking-widest transition-all active:scale-95"
+                        className="flex items-center gap-2 px-3 py-2 max-md:flex-1 max-md:justify-center max-md:py-3.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-white text-[9px] font-black uppercase tracking-widest transition-all active:scale-95"
                     >
                         <svg className="w-3.5 h-3.5 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
                         CEE final
@@ -1212,7 +1075,7 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                         <button
                             type="button"
                             onClick={() => setCeeLoadTarget('inicial')}
-                            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-white text-[9px] font-black uppercase tracking-widest transition-all active:scale-95"
+                            className="flex items-center gap-2 px-3 py-2 max-md:flex-1 max-md:justify-center max-md:py-3.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-white text-[9px] font-black uppercase tracking-widest transition-all active:scale-95"
                         >
                             <svg className="w-3.5 h-3.5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
                             CEE inicial
@@ -1220,7 +1083,7 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                         <button
                             type="button"
                             onClick={() => setCeeLoadTarget('final')}
-                            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-white text-[9px] font-black uppercase tracking-widest transition-all active:scale-95"
+                            className="flex items-center gap-2 px-3 py-2 max-md:flex-1 max-md:justify-center max-md:py-3.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-white text-[9px] font-black uppercase tracking-widest transition-all active:scale-95"
                         >
                             <svg className="w-3.5 h-3.5 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
                             CEE final
@@ -1300,20 +1163,20 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
         </div>
     );
 
-    // Nombre del certificador seleccionado para mostrar en popup
-    const selectedCertName = (() => {
-        const c = certificadores.find(c => String(c.id_empresa) === String(local.certificador_id));
-        return c ? (c.razon_social || c.acronimo) : '';
-    })();
+    // Nombre y contacto del certificador seleccionado, para los popups.
+    const selectedCert = certificadores.find(c => String(c.id_empresa) === String(local.certificador_id)) || null;
+    const selectedCertName = selectedCert ? (selectedCert.razon_social || selectedCert.acronimo) : '';
+    const selectedCertTel = telefonoDe(selectedCert);
+    const selectedCertEmail = emailDe(selectedCert);
 
     return (
         <div className="space-y-6">
             {/* ─── Popup de validación CEE (approve-cee) ─────────────────── */}
             {showApprovePopup && (
-                <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/70 backdrop-blur-sm animate-fade-in" onClick={() => { if (!approveLoading) setShowApprovePopup(false); }}>
-                    <div className="bg-bkg-deep border border-white/10 rounded-2xl p-6 max-w-md md:max-w-2xl w-full mx-4 shadow-2xl max-h-[90vh] overflow-y-auto custom-scrollbar" onClick={e => e.stopPropagation()}>
+                <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/70 backdrop-blur-sm animate-fade-in max-md:items-end" onClick={() => { if (!approveLoading) setShowApprovePopup(false); }}>
+                    <div className="bg-bkg-deep border border-white/10 rounded-2xl p-6 max-w-md md:max-w-2xl w-full mx-4 shadow-2xl max-h-[90vh] overflow-y-auto custom-scrollbar max-md:mx-0 max-md:p-0 max-md:rounded-b-none max-md:rounded-t-3xl max-md:max-h-[92dvh] max-md:flex max-md:flex-col max-md:overflow-hidden" onClick={e => e.stopPropagation()}>
                         {approveResult ? (
-                            <div className="text-center py-4">
+                            <div className="text-center py-4 max-md:px-5 max-md:py-8">
                                 <div className={`w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-4 border ${approveResult.type === 'ok' ? 'bg-emerald-500/20 border-emerald-500/30' : 'bg-red-500/20 border-red-500/30'}`}>
                                     {approveResult.type === 'ok' ? (
                                         <svg className="w-7 h-7 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
@@ -1326,8 +1189,8 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                             </div>
                         ) : (
                             <>
-                                <div className="flex items-center gap-3 mb-5">
-                                    <div className={`w-10 h-10 rounded-full flex items-center justify-center ${approvePriority === 'urgent' ? 'bg-red-500/20' : 'bg-emerald-500/20'}`}>
+                                <div className="flex items-center gap-3 mb-5 max-md:shrink-0 max-md:mb-0 max-md:px-5 max-md:pt-4 max-md:pb-3 max-md:border-b max-md:border-white/[0.06]">
+                                    <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${approvePriority === 'urgent' ? 'bg-red-500/20' : 'bg-emerald-500/20'}`}>
                                         <svg className={`w-5 h-5 ${approvePriority === 'urgent' ? 'text-red-400' : 'text-emerald-400'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                                     </div>
                                     <div>
@@ -1343,6 +1206,7 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                                     </div>
                                 </div>
 
+                                <div className="max-md:flex-1 max-md:overflow-y-auto max-md:overscroll-contain max-md:px-5 max-md:py-4">
                                 {/* Prioridad: en urgente el mensaje lleva 🚨 y el email sale marcado. */}
                                 <p className="text-[9px] font-black text-white/30 uppercase tracking-widest mb-2">Prioridad</p>
                                 <div className="flex gap-2 mb-5">
@@ -1388,7 +1252,15 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                                                     : 'border-white/5 text-white/20 hover:text-white/40'
                                             }`}
                                         >
-                                            <span>{ch.icon}</span> {ch.label}
+                                            {/* En móvil, el número/email al que va el mensaje se lee
+                                                AQUÍ: comprobarlo es justo lo que se hace antes de
+                                                pulsar. En escritorio la píldora no cambia. */}
+                                            <span className="flex flex-col items-center leading-tight">
+                                                <span><span>{ch.icon}</span> {ch.label}</span>
+                                                <span className="hidden max-md:block text-[9px] font-bold normal-case tracking-normal opacity-70 max-w-[130px] truncate">
+                                                    {(ch.id === 'whatsapp' ? selectedCertTel : selectedCertEmail) || 'no consta en su ficha'}
+                                                </span>
+                                            </span>
                                         </button>
                                     ))}
                                 </div>
@@ -1420,14 +1292,15 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                                         title="Restaurar el texto por defecto"
                                     >↺ Restaurar plantilla</button>
                                 </div>
-                                <textarea
+                                <MensajeEditable
                                     value={approveMessage}
-                                    onChange={e => setApproveMessage(e.target.value)}
+                                    onChange={setApproveMessage}
                                     disabled={approveLoading}
                                     placeholder="Escribe el mensaje que se enviará al certificador…"
                                     rows={9}
                                     maxLength={2000}
-                                    className="w-full bg-black/30 border border-white/10 rounded-xl p-3 text-sm leading-relaxed text-white normal-case placeholder:text-white/20 focus:outline-none focus:border-emerald-500/40 resize-none mb-1"
+                                    focusClass="focus:border-emerald-500/40"
+                                    className="mb-1"
                                 />
                                 <div className="flex items-center justify-between mb-4">
                                     <p className="text-[9px] text-white/25 leading-snug">
@@ -1477,11 +1350,13 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                                     </div>
                                 </div>
 
-                                <div className="flex gap-3">
+                                </div>
+
+                                <div className="flex gap-3 max-md:shrink-0 max-md:px-5 max-md:pt-3 max-md:border-t max-md:border-white/[0.06] max-md:pb-[calc(1rem+env(safe-area-inset-bottom))]">
                                     <button
                                         onClick={() => setShowApprovePopup(false)}
                                         disabled={approveLoading}
-                                        className="flex-1 py-2.5 rounded-xl border border-white/10 text-white/50 text-[11px] font-black uppercase tracking-widest hover:text-white hover:border-white/20 transition-all"
+                                        className="flex-1 py-2.5 max-md:py-3.5 rounded-xl border border-white/10 text-white/50 text-[11px] font-black uppercase tracking-widest hover:text-white hover:border-white/20 transition-all"
                                     >Cancelar</button>
                                     <button
                                         onClick={handleApproveConfirm}
@@ -1507,10 +1382,14 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
 
             {/* ─── Popup de notificación al certificador ─────────────────── */}
             {showCertPopup && (
-                <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/70 backdrop-blur-sm animate-fade-in p-4" onClick={() => { if (!certNotifLoading) setShowCertPopup(false); }}>
-                    <div className="bg-bkg-deep border border-white/10 rounded-2xl p-6 max-w-md w-full mx-4 shadow-2xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+                <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/70 backdrop-blur-sm animate-fade-in p-4 max-md:items-end max-md:p-0" onClick={() => { if (!certNotifLoading) setShowCertPopup(false); }}>
+                    {/* En móvil es una hoja inferior: cabecera fija con el técnico al que
+                        asignas, UN solo eje de scroll y los dos botones pegados abajo
+                        respetando el área segura. Con el popup centrado, el teclado al
+                        editar el mensaje dejaba el botón de enviar fuera de la pantalla. */}
+                    <div className="bg-bkg-deep border border-white/10 rounded-2xl p-6 max-w-md w-full mx-4 shadow-2xl max-h-[90vh] overflow-y-auto max-md:mx-0 max-md:p-0 max-md:rounded-b-none max-md:rounded-t-3xl max-md:max-h-[92dvh] max-md:flex max-md:flex-col max-md:overflow-hidden" onClick={e => e.stopPropagation()}>
                         {certNotifResult ? (
-                            <div className="text-center py-4">
+                            <div className="text-center py-4 max-md:px-5 max-md:py-8">
                                 <div className={`w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-4 border ${certNotifResult.type === 'ok' ? 'bg-emerald-500/20 border-emerald-500/30' : 'bg-red-500/20 border-red-500/30'}`}>
                                     {certNotifResult.type === 'ok' ? (
                                         <svg className="w-7 h-7 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
@@ -1523,8 +1402,8 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                             </div>
                         ) : (
                             <>
-                                <div className="flex items-center gap-3 mb-5">
-                                    <div className="w-10 h-10 rounded-full bg-brand/20 flex items-center justify-center">
+                                <div className="flex items-center gap-3 mb-5 max-md:shrink-0 max-md:mb-0 max-md:px-5 max-md:pt-4 max-md:pb-3 max-md:border-b max-md:border-white/[0.06]">
+                                    <div className="w-10 h-10 rounded-full bg-brand/20 flex items-center justify-center shrink-0">
                                         <svg className="w-5 h-5 text-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
                                     </div>
                                     <div>
@@ -1532,6 +1411,7 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                                         <p className="text-[10px] text-white/40">Se asignará <span className="text-brand font-bold">{selectedCertName}</span> al expediente</p>
                                     </div>
                                 </div>
+                                <div className="max-md:flex-1 max-md:overflow-y-auto max-md:overscroll-contain max-md:px-5 max-md:py-4">
                                 <p className="text-xs text-white/60 mb-5">¿Deseas enviar un email de notificación al certificador con los datos del expediente y el enlace a la documentación?</p>
 
                                 {/* Prioridad */}
@@ -1541,7 +1421,7 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                                         type="button"
                                         onClick={() => setCertPriority('normal')}
                                         disabled={certNotifLoading}
-                                        className={`flex-1 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all border ${
+                                        className={`flex-1 py-2 max-md:py-3 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all border ${
                                             certPriority === 'normal'
                                                 ? 'bg-brand/10 border-brand/30 text-brand'
                                                 : 'border-white/5 text-white/20 hover:text-white/40'
@@ -1551,7 +1431,7 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                                         type="button"
                                         onClick={() => setCertPriority('urgent')}
                                         disabled={certNotifLoading}
-                                        className={`flex-1 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all border ${
+                                        className={`flex-1 py-2 max-md:py-3 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all border ${
                                             certPriority === 'urgent'
                                                 ? 'bg-red-500/10 border-red-500/40 text-red-400'
                                                 : 'border-white/5 text-white/20 hover:text-white/40'
@@ -1566,22 +1446,36 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                                         type="button"
                                         onClick={() => setCertChannels(prev => prev.includes('email') ? prev.filter(c => c !== 'email') : [...prev, 'email'])}
                                         disabled={certNotifLoading}
-                                        className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all border ${
+                                        className={`flex-1 flex items-center justify-center gap-2 py-2 max-md:py-3 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all border ${
                                             certChannels.includes('email')
                                                 ? 'bg-brand/10 border-brand/30 text-brand'
                                                 : 'border-white/5 text-white/20 hover:text-white/40'
                                         }`}
-                                    >✉️ Email</button>
+                                    >
+                                        <span className="flex flex-col items-center leading-tight">
+                                            <span>✉️ Email</span>
+                                            <span className="hidden max-md:block text-[9px] font-bold normal-case tracking-normal opacity-70 max-w-[130px] truncate">
+                                                {selectedCertEmail || 'no consta en su ficha'}
+                                            </span>
+                                        </span>
+                                    </button>
                                     <button
                                         type="button"
                                         onClick={() => setCertChannels(prev => prev.includes('whatsapp') ? prev.filter(c => c !== 'whatsapp') : [...prev, 'whatsapp'])}
                                         disabled={certNotifLoading}
-                                        className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all border ${
+                                        className={`flex-1 flex items-center justify-center gap-2 py-2 max-md:py-3 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all border ${
                                             certChannels.includes('whatsapp')
                                                 ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
                                                 : 'border-white/5 text-white/20 hover:text-white/40'
                                         }`}
-                                    >💬 WhatsApp</button>
+                                    >
+                                        <span className="flex flex-col items-center leading-tight">
+                                            <span>💬 WhatsApp</span>
+                                            <span className="hidden max-md:block text-[9px] font-bold normal-case tracking-normal opacity-70 max-w-[130px] truncate">
+                                                {selectedCertTel || 'no consta en su ficha'}
+                                            </span>
+                                        </span>
+                                    </button>
                                 </div>
 
                                 {/* Mensaje al certificador (previsualización editable, homogéneo con el popup de la campana) */}
@@ -1595,14 +1489,15 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                                         title="Restaurar el texto por defecto"
                                     >↺ Restaurar plantilla</button>
                                 </div>
-                                <textarea
+                                <MensajeEditable
                                     value={certAssignMessage}
-                                    onChange={e => setCertAssignMessage(e.target.value)}
+                                    onChange={setCertAssignMessage}
                                     disabled={certNotifLoading}
                                     placeholder="Mensaje que se enviará al certificador…"
                                     rows={8}
                                     maxLength={2000}
-                                    className="w-full bg-black/30 border border-white/10 rounded-xl p-3 text-sm leading-relaxed text-white normal-case placeholder:text-white/20 focus:outline-none focus:border-brand/40 resize-none mb-1"
+                                    focusClass="focus:border-brand/40"
+                                    className="mb-1"
                                 />
                                 <div className="flex items-center justify-between mb-4">
                                     <p className="text-[9px] text-white/25 leading-snug">Puedes editarlo libremente. Solo se envía si pulsas «Asignar y notificar».</p>
@@ -1620,16 +1515,18 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                                     className="w-full bg-black/30 border border-white/10 rounded-xl p-3 text-xs text-white placeholder:text-white/20 focus:outline-none focus:border-brand/40 resize-none mb-5"
                                 />
 
-                                <div className="flex gap-3">
+                                </div>
+
+                                <div className="flex gap-3 max-md:shrink-0 max-md:px-5 max-md:pt-3 max-md:pb-4 max-md:border-t max-md:border-white/[0.06] max-md:pb-[calc(1rem+env(safe-area-inset-bottom))]">
                                     <button
                                         onClick={() => handleCertConfirm(false)}
                                         disabled={certNotifLoading}
-                                        className="flex-1 py-2.5 rounded-xl border border-white/10 text-white/50 text-[11px] font-black uppercase tracking-widest hover:text-white hover:border-white/20 transition-all"
+                                        className="flex-1 py-2.5 max-md:py-3.5 rounded-xl border border-white/10 text-white/50 text-[11px] font-black uppercase tracking-widest hover:text-white hover:border-white/20 transition-all"
                                     >Solo asignar</button>
                                     <button
                                         onClick={() => handleCertConfirm(true)}
                                         disabled={certNotifLoading}
-                                        className={`flex-1 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest shadow-lg transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2 ${
+                                        className={`flex-1 py-2.5 max-md:py-3.5 rounded-xl text-[11px] font-black uppercase tracking-widest shadow-lg transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2 ${
                                             certPriority === 'urgent'
                                                 ? 'bg-red-500 text-white shadow-red-500/30'
                                                 : 'bg-brand text-black'
@@ -1645,11 +1542,16 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                     </div>
                 </div>
             )}
-            <div className="flex items-center justify-between flex-wrap gap-4">
-                <div className="flex items-center gap-5">
+            {/* Cabecera. En MÓVIL se apila y el selector de técnico sube a lo primero
+                (`max-md:order-first`): en una sola fila quedaba empujado fuera de la
+                pantalla por el título y los grupos de pestañas, y el módulo recorta,
+                así que asignar certificador desde el teléfono era imposible. El
+                escritorio no cambia: todas las reglas móviles van en `max-md:`. */}
+            <div className="flex items-center justify-between flex-wrap gap-4 max-md:flex-col max-md:items-stretch max-md:gap-3">
+                <div className="flex items-center gap-5 max-md:flex-col max-md:items-stretch max-md:gap-3 max-md:min-w-0">
                     <h3 className="text-xs font-black text-white uppercase tracking-widest border-l-2 border-brand pl-4">Certs. Energéticos</h3>
                     {!isReforma && (
-                        <div className="flex items-center gap-1 bg-white/[0.03] p-1 rounded-xl border border-white/[0.06]">
+                        <div className="flex items-center gap-1 bg-white/[0.03] p-1 rounded-xl border border-white/[0.06] max-md:w-full">
                             {['xml', 'aportado'].map(t => (
                                 <button
                                     key={t}
@@ -1658,7 +1560,7 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                                         setLocal(nextLocal);
                                         onSave({ cee: nextLocal });
                                     }}
-                                    className={`px-4 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all cursor-pointer ${
+                                    className={`px-4 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all cursor-pointer max-md:flex-1 max-md:py-3.5 max-md:text-[10px] ${
                                         local.tipo === t ? 'bg-brand text-black' : 'text-white/30'
                                     }`}
                                 >
@@ -1669,7 +1571,7 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                     )}
                     {/* Reforma RES080: fuente del cálculo — desde .xml o emisiones a mano */}
                     {isReforma && (
-                        <div className="flex items-center gap-1 bg-white/[0.03] p-1 rounded-xl border border-white/[0.06]">
+                        <div className="flex items-center gap-1 bg-white/[0.03] p-1 rounded-xl border border-white/[0.06] max-md:w-full">
                             {[{ id: 'xml', label: 'Auto XML' }, { id: 'manual', label: 'Manual' }].map(t => (
                                 <button
                                     key={t.id}
@@ -1678,7 +1580,7 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                                         setLocal(nextLocal);
                                         onSave({ cee: nextLocal });
                                     }}
-                                    className={`px-4 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all cursor-pointer ${
+                                    className={`px-4 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all cursor-pointer max-md:flex-1 max-md:py-3.5 max-md:text-[10px] ${
                                         (String(local.cee_source || '').toLowerCase() === t.id) ? 'bg-brand text-black' : 'text-white/30'
                                     }`}
                                 >
@@ -1693,7 +1595,7 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                         distintos y el CEE no dice qué porcentaje es cada uno. Vale con .xml y
                         a mano: el reparto por vector lo publica el propio XML. */}
                     {isReforma && (
-                        <div className="flex items-center gap-1 bg-white/[0.03] p-1 rounded-xl border border-white/[0.06]">
+                        <div className="flex items-center gap-1 bg-white/[0.03] p-1 rounded-xl border border-white/[0.06] max-md:w-full">
                             {[{ id: 'detallado', label: 'Por uso' }, { id: 'simplificado', label: 'Por vector' }].map(t => (
                                 <button
                                     key={t.id}
@@ -1702,7 +1604,7 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                                         setLocal(nextLocal);
                                         onSave({ cee: nextLocal });
                                     }}
-                                    className={`px-4 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all cursor-pointer ${
+                                    className={`px-4 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all cursor-pointer max-md:flex-1 max-md:py-3.5 max-md:text-[10px] ${
                                         (String(local.metodo_ahorro || 'detallado').toLowerCase() === t.id) ? 'bg-brand text-black' : 'text-white/30'
                                     }`}
                                 >
@@ -1711,12 +1613,13 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                             ))}
                         </div>
                     )}
-                    <SearchableSelect
-                        value={local.certificador_id || ''}
-                        onChange={handleCertificadorChange}
-                        placeholder="Certificador no asignado"
-                        options={certificadores.map(c => ({ value: c.id_empresa, label: c.razon_social || c.acronimo }))}
-                    />
+                    <div className="max-md:order-first max-md:w-full">
+                        <TecnicoPicker
+                            certificadores={certificadores}
+                            value={local.certificador_id || ''}
+                            onChange={handleCertificadorChange}
+                        />
+                    </div>
                 </div>
                 {saving && (
                     <span className="text-[10px] font-black uppercase tracking-widest text-white/30">Guardando…</span>

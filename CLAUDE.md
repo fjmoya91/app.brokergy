@@ -1084,6 +1084,49 @@ del Anexo y de la solicitud). Además:
 
 ---
 
+## El módulo CEE del expediente, en el MÓVIL — asignar técnico (2026-08-21)
+
+La pestaña CEE se abre desde el teléfono para hacer UNA cosa: ver cómo va el certificado y
+**mandárselo a un técnico**. Medido a 390 px sobre el DOM (no a ojo): el módulo pedía **538 px**
+de ancho, así que 148 px quedaban fuera de la pantalla —y el panel recorta con `overflow-hidden`,
+o sea que ni siquiera se podían arrastrar—. Justo ahí vivía el **selector de certificador**
+(x=334→538): asignar técnico desde el móvil era literalmente imposible.
+
+**REGLA — el escritorio no cambia; todo lo móvil va en `max-md:`.** Comprobado con capturas a
+1440 px antes y después: mismo hash MD5, y el selector conserva sus 204×33 px en la misma
+posición. Cuando el cambio no se puede expresar en CSS (montar otro componente) se usa el hook
+[useIsMobile](implementation/frontend/src/utils/useIsMobile.js), que corta en los mismos 767 px
+que `max-md:` para que CSS y JavaScript nunca se contradigan.
+
+### Asignar técnico — [TecnicoPicker.jsx](implementation/frontend/src/features/expedientes/components/TecnicoPicker.jsx)
+Un control con dos caras. En escritorio, el desplegable compacto de siempre (el antiguo
+`SearchableSelect` de `CeeModule`, movido tal cual). En móvil:
+- **Sube a lo primero de la cabecera** (`max-md:order-first`) y ocupa el ancho entero: es la tarea
+  por la que se entra, no un campo más de la fila del título.
+- Se abre como **hoja inferior a pantalla completa** con buscador de 16px (por palabras y sin
+  tildes, igual que `PrescriptorPicker`), filas de 56 px y área segura del iPhone.
+- **El teléfono y el email van EN la fila de cada técnico**, y bajo la tarjeta salen los botones de
+  llamar y escribir: se elige certificador por zona y por quién coge el teléfono, y desde el móvil
+  lo siguiente que se hace es llamarle.
+
+### Los dos popups del certificador (asignar/notificar y visto bueno)
+Pasan a **hoja inferior** en móvil: cabecera fija con el nombre del técnico, un solo eje de scroll
+y los botones **pegados abajo** con `env(safe-area-inset-bottom)`. Centrados, el teclado dejaba el
+botón de enviar fuera de la pantalla. El mensaje viene **plegado**
+([MensajeEditable](implementation/frontend/src/features/expedientes/components/MensajeEditable.jsx)):
+nueve renglones a 16 px son media pantalla de un texto que casi nunca se edita. Y el **email y el
+teléfono se leen dentro de la píldora del canal** — comprobarlos es lo que se hace justo antes de
+pulsar lo único irreversible. Mismo criterio que la página de acciones del parte diario.
+
+### La rejilla de los dos CEE
+Las cinco columnas (250+150+225+320+340 px) se apilan a ancho completo. Las **tres fechas pasan a
+tres filas** con el rótulo a la izquierda: un `input[type=date]` a 16 px —obligatorio para que iOS
+no amplíe la página— pide ~135 px y en tres columnas el navegador recortaba el formato a `mm/dd/`.
+Los rótulos de 7 px suben a 10 px y todos los controles llegan a los 44 px de objetivo táctil
+(medidos: 8 botones se quedaban entre 20 y 39 px).
+
+---
+
 ## Reglas Críticas — No Romper
 
 1. **Drive**: La creación de carpetas es **no bloqueante**. **REGLA DE ORO:** Los enlaces a Drive (`drive_folder_link`) solo se muestran en el frontend si `user.rol === 'ADMIN'`.
