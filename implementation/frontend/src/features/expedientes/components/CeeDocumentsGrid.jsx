@@ -122,7 +122,7 @@ function UploadItem({
             onDragOver={handleDragOver}
             onDrop={handleDrop}
         >
-            <span className={`text-[9px] font-black uppercase tracking-[0.15em] mb-1 transition-colors ${isDragOver ? 'text-brand' : 'text-white/30'}`}>
+            <span className={`text-[9px] font-black uppercase tracking-[0.15em] mb-1 transition-colors max-md:flex max-md:items-end max-md:justify-center max-md:text-center max-md:leading-[1.15] max-md:min-h-[26px] ${isDragOver ? 'text-brand' : 'text-white/30'}`}>
                 {isDragOver ? `↓ ${label}` : label}
             </span>
             <div className="relative group">
@@ -1082,10 +1082,10 @@ export function CeeDocumentsGrid({
     };
 
     return (
-        <div className="bg-[#0b0c11] border border-white/[0.06] rounded-[2.5rem] p-4 py-8 sm:p-10 shadow-[0_32px_120px_rgba(0,0,0,0.8)] relative overflow-hidden mb-12">
+        <div className="bg-[#0b0c11] border border-white/[0.06] rounded-[2.5rem] p-4 py-8 sm:p-10 shadow-[0_32px_120px_rgba(0,0,0,0.8)] relative overflow-hidden mb-12 max-md:rounded-2xl max-md:p-3 max-md:py-5 max-md:mb-6">
             <div className="absolute top-0 right-0 w-80 h-80 bg-brand/5 blur-[100px] rounded-full -translate-y-1/2 translate-x-1/2 pointer-events-none" />
             
-            <div className="relative z-10 flex flex-col gap-12">
+            <div className="relative z-10 flex flex-col gap-12 max-md:gap-8">
                 {['inicial', 'final'].map((section) => {
                     const showSlot = (slotId) => {
                         const slot = DOCUMENT_SLOTS.find(s => s.id === slotId);
@@ -1128,11 +1128,11 @@ export function CeeDocumentsGrid({
                         : (parseFloat(sectionDemand.demandaACS) || 0).toFixed(2);
 
                     return (
-                        <div key={section} className="flex flex-wrap items-center gap-x-5 gap-y-6 border-b border-white/[0.04] pb-12 last:border-0 last:pb-0">
+                        <div key={section} className="flex flex-wrap items-center gap-x-5 gap-y-6 border-b border-white/[0.04] pb-12 last:border-0 last:pb-0 max-md:gap-y-4 max-md:pb-8">
                             {/* 1. Título y XML */}
-                            <div className="flex items-center gap-3 w-[250px] shrink-0">
-                                <div className="flex flex-col">
-                                    <div className="flex items-center gap-3 mb-2">
+                            <div className="flex items-center gap-3 w-[250px] shrink-0 max-md:w-full">
+                                <div className="flex flex-col max-md:min-w-0 max-md:flex-1">
+                                    <div className="flex items-center gap-3 mb-2 max-md:flex-wrap max-md:gap-2">
                                         <h4 className="text-[14px] font-black uppercase text-white tracking-[0.2em] leading-tight">
                                             CEE {section === 'inicial' ? 'Inicial' : 'Final'}
                                         </h4>
@@ -1157,7 +1157,7 @@ export function CeeDocumentsGrid({
                                                     title={`Reenviar notificación de ${section === 'inicial' ? 'CEE Inicial' : 'CEE Final'} registrado a cliente/partner/admin`}
                                                     disabled={isResending}
                                                     onClick={() => handleResendCeeNotifications(section)}
-                                                    className="w-7 h-7 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 hover:bg-emerald-500/20 hover:border-emerald-500/40 transition-all active:scale-95 disabled:opacity-50"
+                                                    className="w-7 h-7 max-md:w-10 max-md:h-10 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 hover:bg-emerald-500/20 hover:border-emerald-500/40 transition-all active:scale-95 disabled:opacity-50"
                                                 >
                                                     {isResending ? (
                                                         <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
@@ -1178,7 +1178,7 @@ export function CeeDocumentsGrid({
                                                             <button
                                                                 title="Validar y autorizar registro (visto bueno)"
                                                                 onClick={() => onApproveCee(section)}
-                                                                className="w-7 h-7 rounded-lg bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 hover:bg-emerald-500 hover:text-white transition-all shadow-[0_0_10px_rgba(16,185,129,0.3)] active:scale-95"
+                                                                className="w-7 h-7 max-md:w-10 max-md:h-10 rounded-lg bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 hover:bg-emerald-500 hover:text-white transition-all shadow-[0_0_10px_rgba(16,185,129,0.3)] active:scale-95"
                                                             >
                                                                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>
                                                             </button>
@@ -1211,7 +1211,7 @@ export function CeeDocumentsGrid({
                                                                     : (!info.subestado || info.subestado === 'PTE_ENVIO_CERT') ? 'standard' : 'seguimiento';
                                                                 abrirCertModal(section, tpl);
                                                             }}
-                                                            className={`w-7 h-7 rounded-lg border flex items-center justify-center transition-all active:scale-95 ${bellClass}`}
+                                                            className={`w-7 h-7 max-md:w-10 max-md:h-10 rounded-lg border flex items-center justify-center transition-all active:scale-95 ${bellClass}`}
                                                         >
                                                             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
@@ -1225,7 +1225,7 @@ export function CeeDocumentsGrid({
                                             } else if (isCertificador) {
                                                 if (isPendingReview) {
                                                     return (
-                                                        <div title="Pendiente de revisión por Brokergy" className="w-7 h-7 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center text-brand/60 cursor-help">
+                                                        <div title="Pendiente de revisión por Brokergy" className="w-7 h-7 max-md:w-10 max-md:h-10 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center text-brand/60 cursor-help">
                                                             <svg className="w-4 h-4 animate-[spin_3s_linear_infinite]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                                                         </div>
                                                     );
@@ -1242,7 +1242,7 @@ export function CeeDocumentsGrid({
                                                             setReviewMessage('');
                                                             setNotifyReviewModal({ section });
                                                         }}
-                                                        className="w-7 h-7 rounded-lg bg-brand/10 border border-brand/20 flex items-center justify-center text-brand/80 hover:bg-brand hover:text-black transition-all shadow-[0_0_10px_rgba(238,143,31,0.2)] active:scale-95"
+                                                        className="w-7 h-7 max-md:w-10 max-md:h-10 rounded-lg bg-brand/10 border border-brand/20 flex items-center justify-center text-brand/80 hover:bg-brand hover:text-black transition-all shadow-[0_0_10px_rgba(238,143,31,0.2)] active:scale-95"
                                                     >
                                                         <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
@@ -1253,7 +1253,7 @@ export function CeeDocumentsGrid({
                                             return null;
                                         })()}
                                     </div>
-                                    <p className="text-[9px] text-white/20 font-bold uppercase tracking-widest leading-none">
+                                    <p className="text-[9px] text-white/20 font-bold uppercase tracking-widest leading-none max-md:hidden">
                                         Gestión técnica del activo
                                     </p>
                                     <CeeStatusPill expediente={expediente} section={section} />
@@ -1281,14 +1281,14 @@ export function CeeDocumentsGrid({
                                         </button>
                                     )}
                                 </div>
-                                <div className="ml-auto">
+                                <div className="ml-auto max-md:hidden">
                                     {showSlot('xml')}
                                 </div>
                             </div>
 
                             {/* 2. Demanda Calefacción */}
-                            <div className="flex flex-col items-center gap-2 w-[150px] border-l border-white/5 shrink-0">
-                                <span className="text-[9px] font-black uppercase text-white/30 tracking-[0.2em] mb-1 whitespace-nowrap">Demanda Calefacción</span>
+                            <div className="flex flex-col items-center gap-2 w-[150px] border-l border-white/5 shrink-0 max-md:w-full max-md:flex-row max-md:flex-wrap max-md:justify-between max-md:border-l-0">
+                                <span className="text-[9px] font-black uppercase text-white/30 tracking-[0.2em] mb-1 whitespace-nowrap max-md:mb-0">Demanda Calefacción</span>
                                 <div className="bg-white/[0.03] border border-white/5 px-4 py-2.5 rounded-2xl shadow-inner min-w-[84px] text-center">
                                     <span className="text-sm font-mono font-bold text-white/80">
                                         {sectionDemand.demandaCalefaccion || '—'}
@@ -1297,21 +1297,21 @@ export function CeeDocumentsGrid({
                             </div>
 
                             {/* 3. Demanda ACS (Con Toggle) */}
-                            <div className="flex flex-col items-center gap-2 w-[225px] border-l border-white/5 shrink-0">
-                                <span className="text-[9px] font-black uppercase text-white/30 tracking-[0.2em] mb-1">Demanda ACS</span>
-                                <div className="flex items-center gap-2.5">
+                            <div className="flex flex-col items-center gap-2 w-[225px] border-l border-white/5 shrink-0 max-md:w-full max-md:flex-row max-md:flex-wrap max-md:justify-between max-md:border-l-0">
+                                <span className="text-[9px] font-black uppercase text-white/30 tracking-[0.2em] mb-1 max-md:mb-0">Demanda ACS</span>
+                                <div className="flex items-center gap-2.5 max-md:flex-1 max-md:justify-between">
                                     {/* Toggles */}
                                     <div className="flex flex-col gap-1.5">
                                         <div className="flex p-0.5 bg-black/40 rounded-lg border border-white/5">
                                             <button 
                                                 onClick={() => onManualUpdate({ acs_method: 'xml' })}
-                                                className={`px-3 py-1 rounded-md text-[8px] font-black uppercase tracking-widest transition-all ${acsMethod === 'xml' ? 'bg-brand text-black' : 'text-white/30 hover:text-white'}`}
+                                                className={`px-3 py-1 max-md:px-4 max-md:py-2.5 rounded-md text-[8px] max-md:text-[10px] font-black uppercase tracking-widest transition-all ${acsMethod === 'xml' ? 'bg-brand text-black' : 'text-white/30 hover:text-white'}`}
                                             >
                                                 XML
                                             </button>
                                             <button
                                                 onClick={() => onManualUpdate({ acs_method: 'cte' })}
-                                                className={`px-3 py-1 rounded-md text-[8px] font-black uppercase tracking-widest transition-all ${acsMethod === 'cte' ? 'bg-brand text-black' : 'text-white/30 hover:text-white'}`}
+                                                className={`px-3 py-1 max-md:px-4 max-md:py-2.5 rounded-md text-[8px] max-md:text-[10px] font-black uppercase tracking-widest transition-all ${acsMethod === 'cte' ? 'bg-brand text-black' : 'text-white/30 hover:text-white'}`}
                                             >
                                                 HAB
                                             </button>
@@ -1319,7 +1319,7 @@ export function CeeDocumentsGrid({
                                                 <button
                                                     onClick={() => onManualUpdate({ acs_method: 'manual' })}
                                                     title="Demanda anual de ACS en kWh/año, según proyecto o el Anexo V de la ficha TER100"
-                                                    className={`px-3 py-1 rounded-md text-[8px] font-black uppercase tracking-widest transition-all ${isDacsManual ? 'bg-brand text-black' : 'text-white/30 hover:text-white'}`}
+                                                    className={`px-3 py-1 max-md:px-4 max-md:py-2.5 rounded-md text-[8px] max-md:text-[10px] font-black uppercase tracking-widest transition-all ${isDacsManual ? 'bg-brand text-black' : 'text-white/30 hover:text-white'}`}
                                                 >
                                                     MAN
                                                 </button>
@@ -1332,7 +1332,7 @@ export function CeeDocumentsGrid({
                                                     type="number"
                                                     value={numRooms}
                                                     onChange={e => onManualUpdate({ num_rooms: parseInt(e.target.value) || 0 })}
-                                                    className="w-8 bg-transparent text-[10px] text-brand font-mono font-bold focus:outline-none border-0 p-0 text-center"
+                                                    className="w-8 max-md:w-12 bg-transparent text-[10px] text-brand font-mono font-bold focus:outline-none border-0 p-0 text-center"
                                                 />
                                             </div>
                                         )}
@@ -1345,7 +1345,7 @@ export function CeeDocumentsGrid({
                                                     value={dacsManual ?? ''}
                                                     placeholder="0"
                                                     onChange={e => onManualUpdate({ dacs_manual: e.target.value })}
-                                                    className="w-16 bg-transparent text-[10px] text-brand font-mono font-bold focus:outline-none border-0 p-0 text-center"
+                                                    className="w-16 max-md:w-24 bg-transparent text-[10px] text-brand font-mono font-bold focus:outline-none border-0 p-0 text-center"
                                                 />
                                             </div>
                                         )}
@@ -1363,22 +1363,22 @@ export function CeeDocumentsGrid({
                             </div>
 
                             {/* 4. Fechas CEE (Visita/Firma auto del XML · Registro al subir slot REGISTRO; editables) */}
-                            <div className="flex flex-col items-center gap-2 w-[320px] border-l border-white/5 shrink-0">
-                                <span className="text-[9px] font-black uppercase text-white/30 tracking-[0.2em] mb-1">Fechas CEE</span>
-                                <div className="flex items-end gap-1.5">
+                            <div className="flex flex-col items-center gap-2 w-[320px] border-l border-white/5 shrink-0 max-md:w-full max-md:items-stretch max-md:border-l-0">
+                                <span className="text-[9px] font-black uppercase text-white/30 tracking-[0.2em] mb-1 max-md:mb-0 max-md:text-left">Fechas CEE</span>
+                                <div className="flex items-end gap-1.5 max-md:flex-col max-md:items-stretch max-md:gap-2">
                                     {[
                                         { label: 'Visita',   field: `fecha_visita_cee_${section}` },
                                         { label: 'Firma',    field: `fecha_firma_cee_${section}` },
                                         { label: 'Registro', field: `fecha_registro_cee_${section}` },
                                     ].map(({ label, field }) => (
-                                        <div key={field} className="flex flex-col items-center gap-1">
+                                        <div key={field} className="flex flex-col items-center gap-1 max-md:flex-row max-md:items-center max-md:justify-between max-md:gap-3">
                                             <span className="text-[7px] font-black uppercase text-white/25 tracking-[0.12em] whitespace-nowrap">{label}</span>
                                             <input
                                                 type="date"
                                                 value={ceeDate(field)}
                                                 onChange={e => setCeeDate(field, e.target.value)}
                                                 disabled={!editMode}
-                                                className={`no-uppercase bg-white/[0.03] border rounded-lg px-1.5 py-2 text-[10px] text-center font-mono w-[94px] focus:outline-none transition-colors ${editMode ? 'border-white/10 text-white/80 focus:border-brand/50 cursor-pointer hover:border-white/20' : 'border-white/5 text-white/45 cursor-not-allowed'}`}
+                                                className={`no-uppercase bg-white/[0.03] border rounded-lg px-1.5 py-2 text-[10px] text-center font-mono w-[94px] max-md:w-[160px] focus:outline-none transition-colors ${editMode ? 'border-white/10 text-white/80 focus:border-brand/50 cursor-pointer hover:border-white/20' : 'border-white/5 text-white/45 cursor-not-allowed'}`}
                                             />
                                         </div>
                                     ))}
@@ -1386,7 +1386,8 @@ export function CeeDocumentsGrid({
                             </div>
 
                             {/* 5. Documentos (slots) */}
-                            <div className="flex items-center justify-between gap-2 pl-4 border-l border-white/5 w-[340px] shrink-0">
+                            <div className="flex items-center justify-between gap-2 pl-4 border-l border-white/5 w-[340px] shrink-0 max-md:w-full max-md:grid max-md:grid-cols-3 max-md:gap-y-5 max-md:pl-0 max-md:border-l-0 max-md:pt-2">
+                                <div className="md:hidden">{showSlot('xml')}</div>
                                 {['pdf', 'cex', 'registro', 'etiqueta', 'otros'].map(sId => showSlot(sId))}
                             </div>
 
@@ -1428,11 +1429,11 @@ export function CeeDocumentsGrid({
             {/* MODAL GESTIÓN CEE */}
             {managing && (
                 <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-bkg-deep/90 backdrop-blur-xl animate-fade-in">
-                    <div className="bg-[#0b0c11] border border-white/10 rounded-[2.5rem] w-full max-w-5xl h-[85vh] flex flex-col shadow-2xl overflow-hidden relative">
+                    <div className="bg-[#0b0c11] border border-white/10 rounded-[2.5rem] max-md:rounded-3xl w-full max-w-5xl h-[85vh] max-md:h-[92vh] flex flex-col shadow-2xl overflow-hidden relative">
                         <div className="absolute top-0 right-0 w-80 h-80 bg-brand/5 blur-[100px] rounded-full -translate-y-1/2 translate-x-1/2 pointer-events-none" />
                         
                         {/* Header */}
-                        <div className="p-8 border-b border-white/5 flex items-center justify-between relative z-10">
+                        <div className="p-8 max-md:p-5 border-b border-white/5 flex items-center justify-between relative z-10">
                             <div>
                                 <h3 className="text-lg font-black text-white uppercase tracking-[0.2em]">CEE {managing.section} - {managing.slot.label}</h3>
                                 <p className="text-[10px] text-brand font-black uppercase tracking-[0.3em] mt-1.5 opacity-60">Gestión de Expediente Técnico</p>
@@ -1458,7 +1459,7 @@ export function CeeDocumentsGrid({
                             }}
                         >
                             {(!managing.link || managing.slot.isMultiple || isSubstituting || pendingFiles.length > 0) ? (
-                                <div className="w-full h-full flex flex-col items-center justify-center p-12 text-center animate-in fade-in duration-300">
+                                <div className="w-full h-full flex flex-col items-center justify-center p-12 max-md:p-5 text-center animate-in fade-in duration-300">
                                     {pendingFiles.length > 0 ? (
                                         <div className="w-full max-w-md animate-slide-up">
                                              <div className="w-20 h-20 rounded-3xl bg-brand/10 border border-brand/20 flex items-center justify-center mb-8 mx-auto">
@@ -1519,7 +1520,7 @@ export function CeeDocumentsGrid({
                                 </div>
                             ) : ['xml', 'cex'].includes(managing.slot.id) ? (
                                 // XML/CEX: Drive no los renderiza; mostramos pantalla "archivo cargado"
-                                <div className="w-full h-full flex flex-col items-center justify-center p-12 text-center">
+                                <div className="w-full h-full flex flex-col items-center justify-center p-12 max-md:p-5 text-center">
                                     <div className="w-24 h-24 rounded-3xl bg-brand/10 border border-brand/30 flex items-center justify-center mb-6 shadow-lg shadow-brand/20">
                                         <svg className="w-10 h-10 text-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
@@ -1551,7 +1552,7 @@ export function CeeDocumentsGrid({
                         </div>
 
                         {/* Footer */}
-                        <div className="p-8 border-t border-white/5 flex items-center justify-between bg-white/[0.01] relative z-10">
+                        <div className="p-8 max-md:p-4 border-t border-white/5 flex items-center justify-between bg-white/[0.01] relative z-10 max-md:flex-col max-md:items-stretch max-md:gap-2.5">
                             {managing.link && (
                                 <button
                                     onClick={async () => {
@@ -1567,7 +1568,7 @@ export function CeeDocumentsGrid({
                                             showAlert('El documento ha sido eliminado del expediente y de Drive.', 'Documento Eliminado', 'success');
                                         }
                                     }}
-                                    className="px-8 py-3.5 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-500 text-[11px] font-black uppercase tracking-[0.2em] hover:bg-red-500 hover:text-white transition-all shadow-lg shadow-red-500/5 group"
+                                    className="px-8 py-3.5 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-500 text-[11px] font-black uppercase tracking-[0.2em] hover:bg-red-500 hover:text-white transition-all shadow-lg shadow-red-500/5 group max-md:order-2"
                                 >
                                     <span className="flex items-center gap-2">
                                         <svg className="w-4 h-4 opacity-50 group-hover:opacity-100" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1578,7 +1579,7 @@ export function CeeDocumentsGrid({
                                 </button>
                             )}
 
-                            <div className="flex items-center gap-4">
+                            <div className="flex items-center gap-4 max-md:order-1 max-md:flex-col max-md:items-stretch max-md:gap-2.5">
                                 {(pendingFiles.length > 0 || isSubstituting || !managing.link) ? (
                                     <>
                                         <button
@@ -1600,7 +1601,7 @@ export function CeeDocumentsGrid({
                                         </button>
 
                                         {pendingFiles.length === 0 && (
-                                            <label className="px-10 py-3.5 rounded-2xl bg-white/5 border border-white/10 text-white/60 text-[11px] font-black uppercase tracking-[0.2em] hover:bg-white/10 hover:text-white transition-all cursor-pointer shadow-lg">
+                                            <label className="px-10 py-3.5 rounded-2xl bg-white/5 border border-white/10 text-white/60 text-[11px] font-black uppercase tracking-[0.2em] hover:bg-white/10 hover:text-white transition-all cursor-pointer shadow-lg max-md:text-center">
                                                 Seleccionar {managing.slot.isMultiple ? 'Archivos' : 'Archivo'}
                                                 <input 
                                                     type="file" 
@@ -1762,7 +1763,7 @@ export function CeeDocumentsGrid({
                     <div className="bg-bkg-deep border border-white/10 rounded-2xl p-6 max-w-md md:max-w-2xl w-full mx-4 shadow-2xl max-h-[90vh] overflow-y-auto custom-scrollbar" onClick={e => e.stopPropagation()}>
                         {/* Cabecera FIJA: enviar y cerrar siempre a mano, sin bajar al final. */}
                         <div className="sticky -top-6 z-20 -mx-6 px-6 pt-6 pb-3 mb-4 bg-bkg-deep border-b border-white/5">
-                            <div className="flex items-center gap-3">
+                            <div className="flex items-center gap-3 max-md:flex-wrap max-md:gap-y-2.5">
                                 <div className="w-10 h-10 rounded-full bg-brand/20 flex items-center justify-center shrink-0">
                                     <svg className="w-5 h-5 text-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
@@ -1780,7 +1781,7 @@ export function CeeDocumentsGrid({
                                     title={certChannels.length === 0
                                         ? 'Selecciona un canal'
                                         : `${certSendLabel} · ${certChannels.map(c => c === 'email' ? 'Email' : 'WhatsApp').join(' + ')}`}
-                                    className={`shrink-0 flex items-center gap-2 px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg transition-all active:scale-95 disabled:cursor-not-allowed ${certSendClass}`}
+                                    className={`shrink-0 flex items-center gap-2 px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg transition-all active:scale-95 disabled:cursor-not-allowed max-md:order-last max-md:basis-full max-md:justify-center max-md:py-3 ${certSendClass}`}
                                 >
                                     {sendingCertNotify ? (
                                         <div className="w-3.5 h-3.5 border-2 border-current/20 border-t-current rounded-full animate-spin" />

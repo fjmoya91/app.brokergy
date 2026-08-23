@@ -54,6 +54,62 @@ const AUTO_FIRMA_DOCS = {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+/**
+ * Puerta previa al Convenio de Cesión: ¿la obra está terminada?
+ *
+ * No es un detalle de redacción. El convenio de obra EJECUTADA afirma que la
+ * actuación se ha llevado a cabo y que el ahorro ya existe; firmado antes de la
+ * obra, el cliente declara como hecho algo que no ha pasado. El convenio PREVIO
+ * dice lo mismo en futuro y advierte de que el ahorro es estimado.
+ *
+ * Se propone la respuesta según haya facturas registradas, pero decide la
+ * persona: puede haber una factura suelta subida por el cliente con la obra a
+ * medias, o una obra acabada cuya factura aún no ha llegado.
+ */
+function CesionObraGate({ isOpen, sugerencia, onElegir, onCancel }) {
+    if (!isOpen) return null;
+    const Opcion = ({ activa, titulo, texto, onClick }) => (
+        <button onClick={onClick}
+            className={`w-full text-left px-4 py-3.5 rounded-xl border transition-all ${activa
+                ? 'border-brand/40 bg-brand/[0.06] hover:bg-brand/[0.1]'
+                : 'border-white/[0.07] bg-white/[0.02] hover:bg-white/[0.05] hover:border-white/20'}`}>
+            <div className="flex items-center gap-2">
+                <span className="text-sm font-black text-white">{titulo}</span>
+                {activa && <span className="text-[9px] font-black uppercase tracking-widest text-brand">Sugerido</span>}
+            </div>
+            <p className="text-[11px] text-white/45 leading-relaxed mt-1">{texto}</p>
+        </button>
+    );
+    return (
+        <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+            <div className="bg-[#0F1013] border border-white/[0.07] rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-200">
+                <div className="px-6 py-5 border-b border-white/[0.07]">
+                    <h2 className="text-lg font-black uppercase tracking-tight text-white">¿La obra está finalizada?</h2>
+                    <p className="text-[11px] text-white/40 mt-1">
+                        {sugerencia
+                            ? 'El expediente ya tiene facturas registradas.'
+                            : 'El expediente todavía no tiene ninguna factura registrada.'}
+                    </p>
+                </div>
+                <div className="px-6 py-5 space-y-3">
+                    <Opcion activa={!sugerencia} titulo="Todavía no, está en obra"
+                        texto="Convenio PREVIO: la actuación y el ahorro se describen como previstos y estimados. Es el que se firma mientras no haya facturas."
+                        onClick={() => onElegir(false)} />
+                    <Opcion activa={sugerencia} titulo="Sí, la obra está terminada"
+                        texto="Convenio de obra EJECUTADA: la actuación se describe como realizada."
+                        onClick={() => onElegir(true)} />
+                </div>
+                <div className="px-6 py-4 bg-white/[0.02] border-t border-white/[0.07]">
+                    <button onClick={onCancel}
+                        className="w-full px-4 py-2.5 rounded-xl border border-white/10 text-white/50 text-[10px] font-black uppercase tracking-widest hover:text-white hover:border-white/30 transition-all">
+                        Cancelar
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+}
+
 function ValidationModal({ isOpen, onClose, missingFields, onConfirm, docName }) {
     if (!isOpen) return null;
     return (
@@ -135,7 +191,7 @@ function DateField({ label, value, onChange, readOnly = false, hint = '' }) {
 // Sin onChange → display de solo lectura (p.ej. fechas CIFO calculadas).
 function InlineDate({ label, value, onChange, readOnly = false }) {
     return (
-        <div className="flex flex-col items-center gap-1 shrink-0">
+        <div className="flex flex-col items-center gap-1 shrink-0 max-md:flex-1 max-md:min-w-0">
             <span className="text-[8px] font-black uppercase text-white/30 tracking-[0.12em] whitespace-nowrap text-center leading-tight">{label}</span>
             {onChange ? (
                 <input
@@ -143,10 +199,10 @@ function InlineDate({ label, value, onChange, readOnly = false }) {
                     value={value || ''}
                     onChange={e => onChange(e.target.value || null)}
                     disabled={readOnly}
-                    className={`no-uppercase bg-bkg-elevated border rounded-lg px-2 py-2 text-[10px] text-center font-mono w-[122px] focus:outline-none transition-colors ${readOnly ? 'border-white/5 text-white/45 cursor-not-allowed' : 'border-white/10 text-white/80 focus:border-brand/50 cursor-pointer hover:border-white/20'}`}
+                    className={`no-uppercase bg-bkg-elevated border rounded-lg px-2 max-md:px-1 py-2 text-[10px] text-center font-mono w-[122px] max-md:w-full focus:outline-none transition-colors ${readOnly ? 'border-white/5 text-white/45 cursor-not-allowed' : 'border-white/10 text-white/80 focus:border-brand/50 cursor-pointer hover:border-white/20'}`}
                 />
             ) : (
-                <div className="bg-bkg-elevated border border-white/5 rounded-lg px-2 py-2 text-[10px] text-center font-bold text-white/55 w-[122px]">
+                <div className="bg-bkg-elevated border border-white/5 rounded-lg px-2 py-2 text-[10px] text-center font-bold text-white/55 w-[122px] max-md:w-full">
                     {value ? formatDateDisplay(value) : '—'}
                 </div>
             )}
@@ -919,6 +975,11 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
     // Escaneo del Anexo de Cesión firmado A MANO pendiente de montar (anexo + DNI del
     // cliente + DNI del representante). { file } — null si no hay ninguno en curso.
     const [cesionManuscrita, setCesionManuscrita] = useState(null);
+    // Puerta del Convenio de Cesión: obra terminada o no. `cesionPrevio` viaja al
+    // modal porque la decisión se acaba de guardar y el `expediente` de la vista
+    // va todavía un refetch por detrás.
+    const [cesionGate, setCesionGate] = useState(false);
+    const [cesionPrevio, setCesionPrevio] = useState(null);
     // Overlay de "subiendo a la nube → subido" de un documento firmado.
     // { phase: 'sending'|'done', ok, label, error }
     const [subidaDoc, setSubidaDoc] = useState(null);
@@ -933,7 +994,7 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
     // ── Validación ───────────────────────────────────────────────────────────
     const [validation, setValidation] = useState({ isOpen: false, fields: [], onConfirm: null, docName: '' });
 
-    const validateExpediente = (docType) => {
+    const validateExpediente = (docType, opts = {}) => {
         const missing = [];
         const cli = expediente.clientes || {};
         const inst = expediente.instalacion || {};
@@ -958,8 +1019,11 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
 
         // 2. Específicos
         if (docType === 'cesion') {
+            // En el convenio PREVIO el IBAN no falta: el propio texto dice que el
+            // ingreso irá a la cuenta que el Cedente aporte, acreditando su
+            // titularidad. Pedirlo aquí sería un aviso de algo que no es un hueco.
             const iban = cli.numero_cuenta || '';
-            if (!isPresent(iban) || iban.includes('__')) missing.push('Número de Cuenta (IBAN)');
+            if (!opts.cesionPrevia && (!isPresent(iban) || iban.includes('__'))) missing.push('Número de Cuenta (IBAN)');
             if (!isPresent(inst.coord_x)) missing.push('Coordenada UTM X');
             if (!isPresent(inst.coord_y)) missing.push('Coordenada UTM Y');
             if (!isPresent(op.datos_calculo?.inputs?.rc || cli.referencia_catastral || inst.ref_catastral)) missing.push('Referencia Catastral');
@@ -1046,10 +1110,10 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
         }
     };
 
-    const handleGenerateClick = async (docType, docName, openFn) => {
+    const handleGenerateClick = async (docType, docName, openFn, opts = {}) => {
         const missing = docType === 'memoria_rite'
             ? await validateMemoriaRiteRemoto()
-            : validateExpediente(docType);
+            : validateExpediente(docType, opts);
         if (missing.length > 0) {
             setValidation({
                 isOpen: true,
@@ -1063,6 +1127,16 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
         } else {
             openFn();
         }
+    };
+
+    // La respuesta se guarda en el expediente (`anexo_cesion_obra_finalizada`)
+    // para que el envío, que vuelve a generar el PDF, use la MISMA redacción que
+    // se revisó en pantalla.
+    const elegirEstadoObra = (finalizada) => {
+        setCesionGate(false);
+        setCesionPrevio(!finalizada);
+        commitField('anexo_cesion_obra_finalizada', finalizada);
+        handleGenerateClick('cesion', 'Anexo Cesión de Ahorro', () => setShowAnexoCesion(true), { cesionPrevia: !finalizada });
     };
 
     const setField = useCallback((field, val) => {
@@ -1852,6 +1926,12 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
 
     return (
         <div>
+            <CesionObraGate
+                isOpen={cesionGate}
+                sugerencia={(local.facturas || []).length > 0}
+                onElegir={elegirEstadoObra}
+                onCancel={() => setCesionGate(false)}
+            />
             <ValidationModal 
                 isOpen={validation.isOpen}
                 onClose={() => setValidation(prev => ({ ...prev, isOpen: false }))}
@@ -1873,6 +1953,7 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                 onClose={() => setShowAnexoCesion(false)}
                 expediente={expediente}
                 results={results}
+                previo={cesionPrevio ?? undefined}
                 onSaveDrive={(link) => handleModalSaveDrive('anexo_cesion_drive_link', link)}
                 onRequestSend={({ docs, overrides }) => setEnviarAnexos({ open: true, docs, overrides: overrides || null })}
             />
@@ -2301,13 +2382,13 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                         {/* Guard: un PDF soltado fuera de un slot NO debe abrirse en el navegador.
                             Cada SignedSlot hace stopPropagation, así que solo los drops perdidos llegan aquí. */}
                         <div
-                            className="bg-bkg-surface/60 rounded-xl p-6 border border-white/[0.06]"
+                            className="bg-bkg-surface/60 rounded-xl p-6 max-md:p-3 border border-white/[0.06]"
                             onDragOver={e => { if (e.dataTransfer?.types?.includes('Files')) e.preventDefault(); }}
                             onDrop={e => { if (e.dataTransfer?.types?.includes('Files')) e.preventDefault(); }}
                         >
-                            <div className="flex items-center justify-between mb-8 px-4">
+                            <div className="flex items-center justify-between mb-8 px-4 max-md:flex-col max-md:items-stretch max-md:gap-2 max-md:mb-4 max-md:px-1">
                                 <h4 className="text-[11px] font-black text-white/40 uppercase tracking-widest">Documentos Generables</h4>
-                                <div className="flex items-center gap-6">
+                                <div className="flex items-center gap-6 max-md:w-full max-md:justify-between max-md:gap-3">
                                     <div className="w-[100px] flex justify-center">
                                         <span className="text-[8px] font-black text-white/20 uppercase tracking-widest leading-none text-center">Borrador</span>
                                     </div>
@@ -2322,12 +2403,12 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
 
                             <div className="space-y-4">
                                 {/* FACTURAS DE LA OBRA */}
-                                <div className="flex items-center justify-between gap-6 p-4 rounded-2xl bg-white/[0.01] hover:bg-white/[0.03] transition-colors group">
+                                <div className="flex items-center justify-between gap-6 max-md:flex-col max-md:items-stretch max-md:gap-3 p-4 max-md:p-3 rounded-2xl bg-white/[0.01] hover:bg-white/[0.03] transition-colors group">
                                     <div className="flex-1 min-w-0">
                                         <p className="text-sm font-black text-white uppercase tracking-tight mb-0.5">Facturas de la Obra</p>
                                         <p className="text-white/30 text-[9px] font-bold uppercase tracking-widest leading-tight">{(local.facturas?.length || 0)} factura(s) · carpeta 5. FACTURAS</p>
                                     </div>
-                                    <div className="flex items-center gap-6">
+                                    <div className="flex items-center gap-6 max-md:w-full max-md:justify-between max-md:gap-3">
                                         <div className="w-[100px]">
                                             <button
                                                 onClick={() => setShowFacturasModal(true)}
@@ -2358,7 +2439,7 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                                 </div>
 
                                 {/* ANEXO I */}
-                                <div className={`flex items-center justify-between gap-6 p-4 rounded-2xl transition-all group ${dragRow === 'anexo_i' ? 'ring-2 ring-brand/40 bg-brand/[0.05]' : 'bg-white/[0.01] hover:bg-white/[0.03]'}`} {...rowDragProps('anexo_i', f => handleSignedUpload('anexo_i_signed_link', f))}>
+                                <div className={`flex items-center justify-between gap-6 max-md:flex-col max-md:items-stretch max-md:gap-3 p-4 max-md:p-3 rounded-2xl transition-all group ${dragRow === 'anexo_i' ? 'ring-2 ring-brand/40 bg-brand/[0.05]' : 'bg-white/[0.01] hover:bg-white/[0.03]'}`} {...rowDragProps('anexo_i', f => handleSignedUpload('anexo_i_signed_link', f))}>
                                     <div className="flex-1 min-w-0">
                                         <p className="text-sm font-black text-white uppercase tracking-tight mb-0.5">Anexo I</p>
                                         <p className="text-white/30 text-[9px] font-bold uppercase tracking-widest leading-tight">Declaración Responsable Beneficiario</p>
@@ -2366,7 +2447,7 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                                             <a href={local.anexo_i_drive_link} target="_blank" rel="noopener noreferrer" className="text-[9px] text-brand/60 hover:text-brand font-black uppercase underline decoration-1 underline-offset-4 tracking-[0.15em] transition-all mt-1.5 inline-block">Ver Borrador</a>
                                         )}
                                     </div>
-                                    <div className="flex items-center gap-6">
+                                    <div className="flex items-center gap-6 max-md:w-full max-md:justify-between max-md:gap-3">
                                         {/* 1. BORRADOR */}
                                         <div className="w-[100px]">
                                             <button 
@@ -2415,7 +2496,7 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                                 </div>
 
                                 {/* ANEXO CESIÓN */}
-                                <div className={`flex items-center justify-between gap-6 p-4 rounded-2xl transition-all group ${dragRow === 'cesion' ? 'ring-2 ring-brand/40 bg-brand/[0.05]' : 'bg-white/[0.01] hover:bg-white/[0.03]'}`} {...rowDragProps('cesion', f => handleSignedUpload('anexo_cesion_signed_link', f))}>
+                                <div className={`flex items-center justify-between gap-6 max-md:flex-col max-md:items-stretch max-md:gap-3 p-4 max-md:p-3 rounded-2xl transition-all group ${dragRow === 'cesion' ? 'ring-2 ring-brand/40 bg-brand/[0.05]' : 'bg-white/[0.01] hover:bg-white/[0.03]'}`} {...rowDragProps('cesion', f => handleSignedUpload('anexo_cesion_signed_link', f))}>
                                     <div className="flex-1 min-w-0">
                                         <p className="text-sm font-black text-white uppercase tracking-tight mb-0.5">Anexo Cesión de Ahorro</p>
                                         <p className="text-white/30 text-[9px] font-bold uppercase tracking-widest leading-tight">Convenio de Cesión CAE</p>
@@ -2423,11 +2504,11 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                                             <a href={local.anexo_cesion_drive_link} target="_blank" rel="noopener noreferrer" className="text-[9px] text-brand/60 hover:text-brand font-black uppercase underline decoration-1 underline-offset-4 tracking-[0.15em] transition-all mt-1.5 inline-block">Ver Borrador</a>
                                         )}
                                     </div>
-                                    <div className="flex items-center gap-6">
+                                    <div className="flex items-center gap-6 max-md:w-full max-md:justify-between max-md:gap-3">
                                         {/* 1. BORRADOR */}
                                         <div className="w-[100px]">
                                             <button 
-                                                onClick={() => handleGenerateClick('cesion', 'Anexo Cesión de Ahorro', () => setShowAnexoCesion(true))}
+                                                onClick={() => setCesionGate(true)}
                                                 className={`w-full py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all active:scale-95 ${
                                                     local.anexo_cesion_drive_link 
                                                     ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 hover:bg-emerald-500 hover:text-bkg-deep shadow-[0_0_15px_rgba(16,185,129,0.1)]' 
@@ -2473,7 +2554,7 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                                 </div>
 
                                 {/* FICHA RES060 */}
-                                <div className={`flex items-center justify-between gap-6 p-4 rounded-2xl transition-all group ${dragRow === 'res060' ? 'ring-2 ring-brand/40 bg-brand/[0.05]' : 'bg-white/[0.01] hover:bg-white/[0.03]'}`} {...rowDragProps('res060', f => handleSignedUpload('ficha_res060_signed_link', f))}>
+                                <div className={`flex items-center justify-between gap-6 max-md:flex-col max-md:items-stretch max-md:gap-3 p-4 max-md:p-3 rounded-2xl transition-all group ${dragRow === 'res060' ? 'ring-2 ring-brand/40 bg-brand/[0.05]' : 'bg-white/[0.01] hover:bg-white/[0.03]'}`} {...rowDragProps('res060', f => handleSignedUpload('ficha_res060_signed_link', f))}>
                                     <div className="flex-1 min-w-0">
                                         <p className="text-sm font-black text-white uppercase tracking-tight mb-0.5">{fichaLabel}</p>
                                         <p className="text-white/30 text-[9px] font-bold uppercase tracking-widest leading-tight">{isReforma ? 'Resultado del cálculo de ahorro — Reforma' : isHybrid ? 'Resultado del cálculo de ahorro — Hibridación' : isTer100 ? 'Resultado del cálculo de ahorro — Terciario (calefacción · ACS · piscina)' : 'Resultado del cálculo de ahorro energético'}</p>
@@ -2481,7 +2562,7 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                                             <a href={local.ficha_res060_drive_link} target="_blank" rel="noopener noreferrer" className="text-[9px] text-brand/60 hover:text-brand font-black uppercase underline decoration-1 underline-offset-4 tracking-[0.15em] transition-all mt-1.5 inline-block">Ver Borrador</a>
                                         )}
                                     </div>
-                                    <div className="flex items-center gap-6">
+                                    <div className="flex items-center gap-6 max-md:w-full max-md:justify-between max-md:gap-3">
                                         {/* 1. BORRADOR */}
                                         <div className="w-[100px]">
                                             <button 
@@ -2530,8 +2611,8 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                                 </div>
 
                                 {/* CIFO / RES080 */}
-                                <div className={`flex items-center justify-between gap-6 p-4 rounded-2xl transition-all group ${dragRow === 'cifo' ? 'ring-2 ring-brand/40 bg-brand/[0.05]' : 'bg-white/[0.01] hover:bg-white/[0.03]'}`} {...rowDragProps('cifo', f => handleSignedUpload('cert_cifo_signed_link', f))}>
-                                    <div className="w-[260px] min-w-0 shrink-0">
+                                <div className={`flex items-center justify-between gap-6 max-md:flex-col max-md:items-stretch max-md:gap-3 p-4 max-md:p-3 rounded-2xl transition-all group ${dragRow === 'cifo' ? 'ring-2 ring-brand/40 bg-brand/[0.05]' : 'bg-white/[0.01] hover:bg-white/[0.03]'}`} {...rowDragProps('cifo', f => handleSignedUpload('cert_cifo_signed_link', f))}>
+                                    <div className="w-[260px] min-w-0 shrink-0 max-md:w-full">
                                         <p className="text-sm font-black text-white uppercase tracking-tight mb-0.5">
                                             {isReforma ? 'Certificado CAE Reforma' : 'Certificado CIFO'}
                                         </p>
@@ -2548,12 +2629,12 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                                         Al editar se guarda un override manual (fecha_*_cifo_manual)
                                         que manda sobre el cálculo automático — útil para
                                         requerimientos. Vaciar el campo revierte al automático. */}
-                                    <div className="flex items-center gap-3 shrink-0">
+                                    <div className="flex items-center gap-3 shrink-0 max-md:w-full max-md:justify-between">
                                         <InlineDate label="Fecha Inicio CIFO" value={local.fecha_inicio_cifo} onChange={v => commitField('fecha_inicio_cifo_manual', v)} />
                                         <InlineDate label="Fecha Fin CIFO" value={local.fecha_fin_cifo} onChange={v => commitField('fecha_fin_cifo_manual', v)} />
                                     </div>
 
-                                    <div className="flex items-center gap-6">
+                                    <div className="flex items-center gap-6 max-md:w-full max-md:justify-between max-md:gap-3">
                                         {/* 1. BORRADOR */}
                                         <div className="w-[100px]">
                                             <button
@@ -2604,7 +2685,7 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                                 </div>
 
                                 {/* ANEXO FOTOGRÁFICO */}
-                                <div className={`flex items-center justify-between gap-6 p-4 rounded-2xl transition-all group ${dragRow === 'foto' ? 'ring-2 ring-brand/40 bg-brand/[0.05]' : 'bg-white/[0.01] hover:bg-white/[0.03]'}`} {...rowDragProps('foto', f => handleSignedUpload('anexo_fotografico_signed_link', f))}>
+                                <div className={`flex items-center justify-between gap-6 max-md:flex-col max-md:items-stretch max-md:gap-3 p-4 max-md:p-3 rounded-2xl transition-all group ${dragRow === 'foto' ? 'ring-2 ring-brand/40 bg-brand/[0.05]' : 'bg-white/[0.01] hover:bg-white/[0.03]'}`} {...rowDragProps('foto', f => handleSignedUpload('anexo_fotografico_signed_link', f))}>
                                     <div className="flex-1 min-w-0">
                                         <p className="text-sm font-black text-white uppercase tracking-tight mb-0.5">Anexo Fotográfico</p>
                                         <p className="text-white/30 text-[9px] font-bold uppercase tracking-widest leading-tight">
@@ -2614,7 +2695,7 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                                             <a href={local.anexo_fotografico_drive_link} target="_blank" rel="noopener noreferrer" className="text-[9px] text-brand/60 hover:text-brand font-black uppercase underline decoration-1 underline-offset-4 tracking-[0.15em] transition-all mt-1.5 inline-block">Ver Borrador</a>
                                         )}
                                     </div>
-                                    <div className="flex items-center gap-6">
+                                    <div className="flex items-center gap-6 max-md:w-full max-md:justify-between max-md:gap-3">
                                         {/* 1. BORRADOR */}
                                         <div className="w-[100px]">
                                             <button 
@@ -2663,20 +2744,20 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                                 </div>
 
                                 {/* CERTIFICADO RITE */}
-                                <div className={`flex flex-col gap-4 p-4 rounded-2xl border transition-all ${dragRow === 'rite_cert' ? 'ring-2 ring-brand/40 bg-brand/[0.05] border-brand/30' : 'bg-white/[0.02] border-white/[0.04]'}`} {...rowDragProps('rite_cert', f => handleSignedUpload('cert_rite_signed_link', f))}>
-                                    <div className="flex items-center justify-between gap-6">
-                                        <div className="w-[260px] min-w-0 shrink-0">
+                                <div className={`flex flex-col gap-4 p-4 max-md:p-3 rounded-2xl border transition-all ${dragRow === 'rite_cert' ? 'ring-2 ring-brand/40 bg-brand/[0.05] border-brand/30' : 'bg-white/[0.02] border-white/[0.04]'}`} {...rowDragProps('rite_cert', f => handleSignedUpload('cert_rite_signed_link', f))}>
+                                    <div className="flex items-center justify-between gap-6 max-md:flex-col max-md:items-stretch max-md:gap-3">
+                                        <div className="w-[260px] min-w-0 shrink-0 max-md:w-full">
                                             <p className="text-sm font-black text-white uppercase tracking-tight mb-1">Certificado RITE</p>
                                             <p className="text-white/30 text-[9px] font-bold uppercase tracking-widest mb-1">Gestión manual (Drive)</p>
                                         </div>
 
                                         {/* Fechas del Certificado de Instalación Térmica (editables en modo edición) */}
-                                        <div className="flex items-center gap-3 shrink-0">
+                                        <div className="flex items-center gap-3 shrink-0 max-md:w-full max-md:justify-between">
                                             <InlineDate label="Fecha Pruebas Cert. Inst." value={local.fecha_pruebas_cert_instalacion} onChange={v => commitField('fecha_pruebas_cert_instalacion', v)} />
                                             <InlineDate label="Fecha Firma Cert. Inst." value={local.fecha_firma_cert_instalacion} onChange={v => commitField('fecha_firma_cert_instalacion', v)} />
                                         </div>
 
-                                        <div className="flex items-center gap-6">
+                                        <div className="flex items-center gap-6 max-md:w-full max-md:justify-between max-md:gap-3">
                                             {/* 1. BORRADOR (Manual Drive Link) */}
                                             <div className="w-[100px]">
                                                 <button
@@ -2737,7 +2818,7 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                                 </div>
 
                                 {/* MEMORIA RITE + BORRADOR CERTIFICADO RITE (se generan y envían juntos) */}
-                                <div className={`flex items-center justify-between gap-6 p-4 rounded-2xl transition-all group ${dragRow === 'rite_memoria' ? 'ring-2 ring-brand/40 bg-brand/[0.05]' : 'bg-white/[0.01] hover:bg-white/[0.03]'}`} {...rowDragProps('rite_memoria', f => handleSignedUpload('cert_rite_signed_link', f))}>
+                                <div className={`flex items-center justify-between gap-6 max-md:flex-col max-md:items-stretch max-md:gap-3 p-4 max-md:p-3 rounded-2xl transition-all group ${dragRow === 'rite_memoria' ? 'ring-2 ring-brand/40 bg-brand/[0.05]' : 'bg-white/[0.01] hover:bg-white/[0.03]'}`} {...rowDragProps('rite_memoria', f => handleSignedUpload('cert_rite_signed_link', f))}>
                                     <div className="flex-1 min-w-0">
                                         <p className="text-sm font-black text-white uppercase tracking-tight mb-0.5">Memoria RITE + Borrador Certificado RITE</p>
                                         <p className="text-white/30 text-[9px] font-bold uppercase tracking-widest leading-tight">
@@ -2752,7 +2833,7 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                                             </div>
                                         )}
                                     </div>
-                                    <div className="flex items-center gap-6">
+                                    <div className="flex items-center gap-6 max-md:w-full max-md:justify-between max-md:gap-3">
                                         {/* 1. GENERAR / ACCIONES (abre el modal) */}
                                         <div className="w-[100px]">
                                             <button

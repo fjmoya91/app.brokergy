@@ -176,7 +176,7 @@ function normalizeCombKey(val) {
 }
 
 // ─── Combobox con búsqueda ────────────────────────────────────────────────────
-function SearchableSelect({ value, onChange, options, placeholder = '— Sin asignar —', disabled = false }) {
+function SearchableSelect({ value, onChange, options, placeholder = '— Sin asignar —', disabled = false, className = '' }) {
     const [open, setOpen] = useState(false);
     const [query, setQuery] = useState('');
     const [coords, setCoords] = useState(null); // posición fixed del menú (portal)
@@ -215,9 +215,19 @@ function SearchableSelect({ value, onChange, options, placeholder = '— Sin asi
             const MENU_H = 300;
             const spaceBelow = window.innerHeight - r.bottom;
             const openUp = spaceBelow < MENU_H && r.top > spaceBelow;
+            let left = r.left;
+            let width = Math.max(r.width, 240);
+            let maxH;
+            if (window.innerWidth < 768) {
+                width = Math.min(width, window.innerWidth - 16);
+                left = Math.min(Math.max(8, left), window.innerWidth - width - 8);
+                // 84px = barra de métricas fija al fondo en móvil.
+                maxH = Math.max(180, openUp ? r.top - 12 : window.innerHeight - r.bottom - 88);
+            }
             setCoords({
-                left: r.left,
-                width: Math.max(r.width, 240),
+                left,
+                width,
+                maxH,
                 top: openUp ? undefined : r.bottom + 4,
                 bottom: openUp ? (window.innerHeight - r.top + 4) : undefined,
             });
@@ -243,12 +253,12 @@ function SearchableSelect({ value, onChange, options, placeholder = '— Sin asi
     };
 
     return (
-        <div ref={containerRef} className="relative">
+        <div ref={containerRef} className={`relative ${className}`.trim()}>
             <button
                 type="button"
                 onClick={handleOpen}
                 disabled={disabled}
-                className={`w-full flex items-center justify-between bg-white/[0.03] border rounded-xl px-4 py-2 text-[10px] font-black uppercase outline-none transition-all text-left ${
+                className={`w-full flex items-center justify-between bg-white/[0.03] border rounded-xl px-4 py-2 max-md:py-3 text-[10px] max-md:text-[11px] font-black uppercase outline-none transition-all text-left ${
                     disabled
                         ? 'border-white/10 text-white/40 cursor-not-allowed'
                         : 'border-brand/30 text-brand cursor-pointer hover:border-brand/50'
@@ -269,11 +279,12 @@ function SearchableSelect({ value, onChange, options, placeholder = '— Sin asi
                         width: coords.width,
                         top: coords.top,
                         bottom: coords.bottom,
+                        maxHeight: coords.maxH,
                         zIndex: 9999,
                     }}
-                    className="bg-bkg-elevated border border-white/10 rounded-xl shadow-2xl overflow-hidden"
+                    className="bg-bkg-elevated border border-white/10 rounded-xl shadow-2xl overflow-hidden flex flex-col"
                 >
-                    <div className="p-2 border-b border-white/5">
+                    <div className="p-2 border-b border-white/5 shrink-0">
                         <input
                             ref={inputRef}
                             type="text"
@@ -283,10 +294,10 @@ function SearchableSelect({ value, onChange, options, placeholder = '— Sin asi
                             className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white placeholder-white/30 outline-none focus:border-brand/40"
                         />
                     </div>
-                    <ul className="max-h-48 overflow-y-auto">
+                    <ul className="max-h-48 max-md:max-h-none max-md:flex-1 max-md:min-h-0 overflow-y-auto">
                         <li
                             onClick={() => handleSelect('')}
-                            className="px-4 py-2 text-[10px] font-black uppercase text-white/30 hover:bg-white/5 cursor-pointer tracking-widest"
+                            className="px-4 py-2 max-md:py-3 text-[10px] max-md:text-[11px] font-black uppercase text-white/30 hover:bg-white/5 cursor-pointer tracking-widest"
                         >
                             {placeholder}
                         </li>
@@ -297,7 +308,7 @@ function SearchableSelect({ value, onChange, options, placeholder = '— Sin asi
                             <li
                                 key={o.value}
                                 onClick={() => handleSelect(o.value)}
-                                className={`px-4 py-2 text-[10px] font-black uppercase tracking-widest cursor-pointer transition-colors ${
+                                className={`px-4 py-2 max-md:py-3 text-[10px] max-md:text-[11px] font-black uppercase tracking-widest cursor-pointer transition-colors ${
                                     String(value) === String(o.value)
                                         ? 'bg-brand/20 text-brand'
                                         : 'text-white/70 hover:bg-white/5'
@@ -1291,7 +1302,7 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                     />
                 </div>
             ) : (
-                <div className="p-20 text-center bg-white/[0.01] border border-dashed border-white/10 rounded-[3rem]">
+                <div className="p-20 text-center bg-white/[0.01] border border-dashed border-white/10 rounded-[3rem] max-md:p-8 max-md:rounded-2xl">
                     <p className="text-white/20 font-black uppercase tracking-widest text-xs">
                         {isManualSource ? 'Activa "Editar Módulo" e introduce las emisiones del CEE' : 'Sube los archivos XML para ver resultados'}
                     </p>
@@ -1646,10 +1657,10 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                 </div>
             )}
             <div className="flex items-center justify-between flex-wrap gap-4">
-                <div className="flex items-center gap-5">
+                <div className="flex items-center gap-5 max-md:w-full max-md:flex-wrap max-md:gap-3">
                     <h3 className="text-xs font-black text-white uppercase tracking-widest border-l-2 border-brand pl-4">Certs. Energéticos</h3>
                     {!isReforma && (
-                        <div className="flex items-center gap-1 bg-white/[0.03] p-1 rounded-xl border border-white/[0.06]">
+                        <div className="flex items-center gap-1 bg-white/[0.03] p-1 rounded-xl border border-white/[0.06] max-md:w-full">
                             {['xml', 'aportado'].map(t => (
                                 <button
                                     key={t}
@@ -1658,7 +1669,7 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                                         setLocal(nextLocal);
                                         onSave({ cee: nextLocal });
                                     }}
-                                    className={`px-4 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all cursor-pointer ${
+                                    className={`px-4 py-2 max-md:flex-1 max-md:py-2.5 rounded-lg text-[9px] max-md:text-[10px] font-black uppercase tracking-widest transition-all cursor-pointer ${
                                         local.tipo === t ? 'bg-brand text-black' : 'text-white/30'
                                     }`}
                                 >
@@ -1669,7 +1680,7 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                     )}
                     {/* Reforma RES080: fuente del cálculo — desde .xml o emisiones a mano */}
                     {isReforma && (
-                        <div className="flex items-center gap-1 bg-white/[0.03] p-1 rounded-xl border border-white/[0.06]">
+                        <div className="flex items-center gap-1 bg-white/[0.03] p-1 rounded-xl border border-white/[0.06] max-md:w-full">
                             {[{ id: 'xml', label: 'Auto XML' }, { id: 'manual', label: 'Manual' }].map(t => (
                                 <button
                                     key={t.id}
@@ -1678,7 +1689,7 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                                         setLocal(nextLocal);
                                         onSave({ cee: nextLocal });
                                     }}
-                                    className={`px-4 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all cursor-pointer ${
+                                    className={`px-4 py-2 max-md:flex-1 max-md:py-2.5 rounded-lg text-[9px] max-md:text-[10px] font-black uppercase tracking-widest transition-all cursor-pointer ${
                                         (String(local.cee_source || '').toLowerCase() === t.id) ? 'bg-brand text-black' : 'text-white/30'
                                     }`}
                                 >
@@ -1693,7 +1704,7 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                         distintos y el CEE no dice qué porcentaje es cada uno. Vale con .xml y
                         a mano: el reparto por vector lo publica el propio XML. */}
                     {isReforma && (
-                        <div className="flex items-center gap-1 bg-white/[0.03] p-1 rounded-xl border border-white/[0.06]">
+                        <div className="flex items-center gap-1 bg-white/[0.03] p-1 rounded-xl border border-white/[0.06] max-md:w-full">
                             {[{ id: 'detallado', label: 'Por uso' }, { id: 'simplificado', label: 'Por vector' }].map(t => (
                                 <button
                                     key={t.id}
@@ -1702,7 +1713,7 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                                         setLocal(nextLocal);
                                         onSave({ cee: nextLocal });
                                     }}
-                                    className={`px-4 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all cursor-pointer ${
+                                    className={`px-4 py-2 max-md:flex-1 max-md:py-2.5 rounded-lg text-[9px] max-md:text-[10px] font-black uppercase tracking-widest transition-all cursor-pointer ${
                                         (String(local.metodo_ahorro || 'detallado').toLowerCase() === t.id) ? 'bg-brand text-black' : 'text-white/30'
                                     }`}
                                 >
@@ -1712,6 +1723,7 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                         </div>
                     )}
                     <SearchableSelect
+                        className="max-md:w-full"
                         value={local.certificador_id || ''}
                         onChange={handleCertificadorChange}
                         placeholder="Certificador no asignado"

@@ -12,7 +12,15 @@ import { estadoPlazoCeeInicial, COLOR_PLAZO } from '../logic/fechasPrevistas';
 // salir del campo). Solo el equipo interno puede cambiarlas.
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function FechasPrevistasEjecucion({ expediente, onSave, editable = true, saving = false }) {
+// `variant`:
+//   'header' (por defecto) — la píldora de la cabecera del módulo, oculta en móvil
+//                            porque ahí la cabecera no tiene ancho para nada más.
+//   'inline'               — la misma ficha DENTRO del módulo y SOLO en móvil, que
+//                            es donde sí hay ancho. Sin ella, desde el teléfono no
+//                            había forma de ver ni fijar la fecha que marca el plazo
+//                            del CEE inicial.
+export function FechasPrevistasEjecucion({ expediente, onSave, editable = true, saving = false, variant = 'header' }) {
+    const inline = variant === 'inline';
     const inst = expediente?.instalacion || {};
     const [inicio, setInicio] = useState(inst.fecha_prevista_inicio || '');
     const [fin, setFin] = useState(inst.fecha_prevista_fin || '');
@@ -41,16 +49,19 @@ export function FechasPrevistasEjecucion({ expediente, onSave, editable = true, 
         onSave({ instalacion: { ...(expediente?.instalacion || {}), [campo]: valor || null } });
     };
 
-    const inputCls = 'bg-black/30 border border-white/10 rounded-lg px-2 py-1 text-[11px] text-white focus:outline-none focus:border-brand/40 disabled:opacity-50';
+    const inputCls = 'no-uppercase bg-black/30 border border-white/10 rounded-lg px-2 py-1 text-[11px] text-white focus:outline-none focus:border-brand/40 disabled:opacity-50'
+        + (inline ? ' w-[160px] text-center' : '');
 
     return (
-        <div className="hidden md:flex flex-col gap-1 bg-white/[0.04] border border-white/10 px-3 py-1.5 rounded-xl ml-auto mr-2">
-            <div className="flex items-center gap-2">
+        <div className={inline
+            ? 'md:hidden flex flex-col gap-2.5 bg-white/[0.04] border border-white/10 px-4 py-3.5 rounded-2xl mb-5'
+            : 'hidden md:flex flex-col gap-1 bg-white/[0.04] border border-white/10 px-3 py-1.5 rounded-xl ml-auto mr-2'}>
+            <div className={inline ? 'flex flex-col gap-2.5' : 'flex items-center gap-2'}>
                 <span className="text-[9px] font-black text-white/30 uppercase tracking-widest whitespace-nowrap">
                     Prevista ejecución
                 </span>
 
-                <label className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
+                <label className={inline ? 'flex items-center justify-between gap-2' : 'flex items-center gap-1'} onClick={e => e.stopPropagation()}>
                     <span className="text-[8px] font-black text-white/25 uppercase">Inicio</span>
                     <input
                         type="date"
@@ -62,7 +73,7 @@ export function FechasPrevistasEjecucion({ expediente, onSave, editable = true, 
                     />
                 </label>
 
-                <label className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
+                <label className={inline ? 'flex items-center justify-between gap-2' : 'flex items-center gap-1'} onClick={e => e.stopPropagation()}>
                     <span className="text-[8px] font-black text-white/25 uppercase">Fin</span>
                     <input
                         type="date"

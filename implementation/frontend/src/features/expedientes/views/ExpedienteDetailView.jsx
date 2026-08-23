@@ -150,7 +150,7 @@ const ModuleTabs = React.forwardRef(function ModuleTabs({ tabs, active, onSelect
     return (
         <div
             ref={ref}
-            className="sticky top-14 md:top-[var(--exp-sum-h,0px)] z-[90] scroll-mt-14 md:scroll-mt-[var(--exp-sum-h,0px)] -mx-6 sm:-mx-8 lg:-mx-10 px-6 sm:px-8 lg:px-10 py-2 mb-3 bg-bkg-base/85 backdrop-blur-xl border-y border-white/[0.06]"
+            className="sticky top-14 md:top-[var(--exp-sum-h,0px)] z-[90] scroll-mt-14 md:scroll-mt-[var(--exp-sum-h,0px)] -mx-6 sm:-mx-8 lg:-mx-10 px-6 sm:px-8 lg:px-10 py-2 mb-3 max-md:-mx-3 max-md:px-3 bg-bkg-base/85 backdrop-blur-xl border-y border-white/[0.06]"
         >
             <div
                 role="tablist"
@@ -197,7 +197,7 @@ function ModuleSection({ id, title, activeSection, onToggle, children, badge, he
     if (!isOpen) return null;
     return (
         <div className="border border-white/[0.06] rounded-2xl">
-            <div className="sticky top-[calc(3.5rem_+_var(--exp-tabs-h,0px))] md:top-[calc(var(--exp-sum-h,0px)_+_var(--exp-tabs-h,0px))] z-[80] flex items-center bg-bkg-surface/95 backdrop-blur-xl border-b border-white/5 pr-6 rounded-t-2xl transition-all duration-300">
+            <div className="sticky top-[calc(3.5rem_+_var(--exp-tabs-h,0px))] md:top-[calc(var(--exp-sum-h,0px)_+_var(--exp-tabs-h,0px))] z-[80] flex items-center bg-bkg-surface/95 backdrop-blur-xl border-b border-white/5 pr-6 rounded-t-2xl transition-all duration-300 max-md:pr-1">
                 {leftAction && (
                     <div className="pl-6">
                         {leftAction}
@@ -205,13 +205,13 @@ function ModuleSection({ id, title, activeSection, onToggle, children, badge, he
                 )}
                 <button
                     onClick={() => onToggle(null)}
-                    className="flex-1 flex items-center justify-between px-6 py-4 hover:bg-bkg-hover transition-colors text-left rounded-tl-2xl"
+                    className="flex-1 min-w-0 flex items-center justify-between px-6 py-4 hover:bg-bkg-hover transition-colors text-left rounded-tl-2xl max-md:px-4 max-md:py-3"
                 >
-                    <div className="flex items-center gap-3">
-                        <span className="text-white/50"><ModuleIcon id={id} /></span>
-                        <span className="text-sm font-black text-white uppercase tracking-wider">{title}</span>
+                    <div className="flex items-center gap-3 min-w-0 max-md:gap-2">
+                        <span className="text-white/50 shrink-0"><ModuleIcon id={id} /></span>
+                        <span className="text-sm font-black text-white uppercase tracking-wider max-md:text-[11px] max-md:truncate">{title}</span>
                         {badge && (
-                            <span className="text-xs text-brand/80 bg-brand/10 px-2 py-0.5 rounded font-bold">{badge}</span>
+                            <span className="text-xs text-brand/80 bg-brand/10 px-2 py-0.5 rounded font-bold shrink-0 max-md:text-[9px]">{badge}</span>
                         )}
                     </div>
                 </button>
@@ -226,7 +226,7 @@ function ModuleSection({ id, title, activeSection, onToggle, children, badge, he
                     </svg>
                 </button>
             </div>
-            <div className="p-6 bg-bkg-base/40 rounded-b-2xl">
+            <div className="p-6 max-md:p-3 bg-bkg-base/40 rounded-b-2xl">
                 {children}
             </div>
         </div>
@@ -986,7 +986,7 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, initial
     })();
 
     return (
-        <div ref={rootRef} className="p-6 sm:p-8 lg:p-10 min-h-full max-md:pb-24">
+        <div ref={rootRef} className="p-6 sm:p-8 lg:p-10 min-h-full max-md:pb-24 max-md:px-3 max-md:pt-3">
             {/* Panel de Resumen Económico Sticky (Solo RES060) — ARRIBA DEL TODO.
                 Va como primer elemento y con -mt para quedar pegado al borde superior;
                 sticky top-0 lo mantiene fijo al hacer scroll. Importes = SOLO ADMIN. */}
@@ -1083,7 +1083,7 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, initial
                 <div>
                     <button
                         onClick={onBack}
-                        className="flex items-center gap-2 text-white/40 hover:text-white transition-colors group mb-3"
+                        className="flex items-center gap-2 text-white/40 hover:text-white transition-colors group mb-3 max-md:py-2 max-md:-my-1"
                     >
                         <svg className="w-4 h-4 group-hover:-translate-x-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
@@ -1099,7 +1099,11 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, initial
                         </h1>
                         <span className="font-mono text-brand font-bold text-lg max-md:w-full max-md:text-sm max-md:leading-tight break-words min-w-0">
                             {expediente.numero_expediente || expediente.id_oportunidad_ref || op.id_oportunidad || '—'}
-                            {cliente && ` - ${cliente.nombre_razon_social} ${cliente.apellidos || ''}`.toUpperCase()}
+                            {cliente && (
+                                <span className="max-md:hidden">
+                                    {` - ${cliente.nombre_razon_social} ${cliente.apellidos || ''}`.toUpperCase()}
+                                </span>
+                            )}
                         </span>
 
                          {/* Selector de Estado Global */}
@@ -1112,7 +1116,7 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, initial
                               <select
                                  value={expediente.estado || 'PTE. CEE INICIAL'}
                                  onChange={(e) => handleSave({ estado: e.target.value })}
-                                 className={`bg-transparent text-[10px] font-black uppercase tracking-widest focus:outline-none pr-4 py-1.5 appearance-none cursor-pointer transition-colors max-md:flex-1 max-md:min-w-0 max-md:w-full ${
+                                 className={`bg-transparent text-[10px] font-black uppercase tracking-widest focus:outline-none pr-4 py-1.5 appearance-none cursor-pointer transition-colors max-md:flex-1 max-md:min-w-0 max-md:w-full max-md:truncate ${
                                      expediente.estado === 'FINALIZADO' ? 'text-emerald-400' : 
                                      expediente.estado?.includes('REQUERIMIENTO') ? 'text-red-400' : 'text-brand'
                                  }`}
@@ -1295,7 +1299,9 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, initial
                                         title={isCertificador ? '' : 'Ir a oportunidad'}
                                     >
                                         {op.id_oportunidad || 'OP—'}
-                                        {op.referencia_cliente && ` · ${op.referencia_cliente}`}
+                                        {op.referencia_cliente && (
+                                            <span className="max-md:hidden">{` · ${op.referencia_cliente}`}</span>
+                                        )}
                                     </button>
                                     <span className="text-white/20 text-xs">·</span>
                                     <span className="text-white/30 text-[10px] font-black uppercase tracking-wider">
@@ -1529,6 +1535,17 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, initial
                         </>
                     }
                 >
+                    {/* La píldora de fechas previstas de la cabecera es `hidden md:flex`
+                        (ahí no cabe en un móvil), y es la que fija el plazo del CEE
+                        inicial. En móvil se repite aquí dentro, que es donde hay ancho. */}
+                    <FechasPrevistasEjecucion
+                        variant="inline"
+                        expediente={{ ...expediente, instalacion: liveInst || expediente.instalacion, seguimiento: liveSeguimiento || expediente.seguimiento }}
+                        onSave={handleSave}
+                        editable={isStaff}
+                        saving={saving}
+                    />
+
                     <CeeModule
                         expediente={expediente}
                         onSave={handleCeeSave}
