@@ -1128,9 +1128,14 @@ export function CeeDocumentsGrid({
                         : (parseFloat(sectionDemand.demandaACS) || 0).toFixed(2);
 
                     return (
-                        <div key={section} className="flex flex-wrap items-center gap-x-5 gap-y-6 border-b border-white/[0.04] pb-12 last:border-0 last:pb-0 max-md:gap-y-4 max-md:pb-8">
+                        // Las cinco columnas miden 250+150+225+320+340 px y el panel recorta:
+                        // en un teléfono de 390 px eso dejaba las fechas y los slots FUERA de
+                        // la pantalla, invisibles y sin forma de llegar a ellos. En `max-md`
+                        // cada bloque pasa a ocupar el ancho entero y se apilan; el escritorio
+                        // conserva sus anchos fijos y sus separadores.
+                        <div key={section} className="flex flex-wrap items-center gap-x-5 gap-y-6 border-b border-white/[0.04] pb-12 last:border-0 last:pb-0 max-md:flex-col max-md:items-stretch max-md:gap-y-5 max-md:pb-8">
                             {/* 1. Título y XML */}
-                            <div className="flex items-center gap-3 w-[250px] shrink-0 max-md:w-full">
+                            <div className="flex items-center gap-3 w-[250px] shrink-0 max-md:w-full max-md:min-w-0">
                                 <div className="flex flex-col max-md:min-w-0 max-md:flex-1">
                                     <div className="flex items-center gap-3 mb-2 max-md:flex-wrap max-md:gap-2">
                                         <h4 className="text-[14px] font-black uppercase text-white tracking-[0.2em] leading-tight">
@@ -1287,7 +1292,7 @@ export function CeeDocumentsGrid({
                             </div>
 
                             {/* 2. Demanda Calefacción */}
-                            <div className="flex flex-col items-center gap-2 w-[150px] border-l border-white/5 shrink-0 max-md:w-full max-md:flex-row max-md:flex-wrap max-md:justify-between max-md:border-l-0">
+                            <div className="flex flex-col items-center gap-2 w-[150px] border-l border-white/5 shrink-0 max-md:w-full max-md:flex-row max-md:flex-wrap max-md:items-center max-md:justify-between max-md:border-l-0 max-md:border-t max-md:border-white/[0.04] max-md:pt-4 max-md:mb-0">
                                 <span className="text-[9px] font-black uppercase text-white/30 tracking-[0.2em] mb-1 whitespace-nowrap max-md:mb-0">Demanda Calefacción</span>
                                 <div className="bg-white/[0.03] border border-white/5 px-4 py-2.5 rounded-2xl shadow-inner min-w-[84px] text-center">
                                     <span className="text-sm font-mono font-bold text-white/80">
@@ -1297,21 +1302,21 @@ export function CeeDocumentsGrid({
                             </div>
 
                             {/* 3. Demanda ACS (Con Toggle) */}
-                            <div className="flex flex-col items-center gap-2 w-[225px] border-l border-white/5 shrink-0 max-md:w-full max-md:flex-row max-md:flex-wrap max-md:justify-between max-md:border-l-0">
-                                <span className="text-[9px] font-black uppercase text-white/30 tracking-[0.2em] mb-1 max-md:mb-0">Demanda ACS</span>
-                                <div className="flex items-center gap-2.5 max-md:flex-1 max-md:justify-between">
+                            <div className="flex flex-col items-center gap-2 w-[225px] border-l border-white/5 shrink-0 max-md:w-full max-md:items-stretch max-md:border-l-0 max-md:border-t max-md:border-white/[0.04] max-md:pt-4">
+                                <span className="text-[9px] font-black uppercase text-white/30 tracking-[0.2em] mb-1 max-md:mb-0 max-md:text-left">Demanda ACS</span>
+                                <div className="flex items-center gap-2.5 max-md:justify-between">
                                     {/* Toggles */}
                                     <div className="flex flex-col gap-1.5">
-                                        <div className="flex p-0.5 bg-black/40 rounded-lg border border-white/5">
+                                        <div className="flex p-0.5 bg-black/40 rounded-lg border border-white/5 max-md:w-full">
                                             <button 
                                                 onClick={() => onManualUpdate({ acs_method: 'xml' })}
-                                                className={`px-3 py-1 max-md:px-4 max-md:py-2.5 rounded-md text-[8px] max-md:text-[10px] font-black uppercase tracking-widest transition-all ${acsMethod === 'xml' ? 'bg-brand text-black' : 'text-white/30 hover:text-white'}`}
+                                                className={`px-3 py-1 max-md:flex-1 max-md:flex max-md:items-center max-md:justify-center max-md:min-h-[44px] max-md:text-[10px] rounded-md text-[8px] font-black uppercase tracking-widest transition-all ${acsMethod === 'xml' ? 'bg-brand text-black' : 'text-white/30 hover:text-white'}`}
                                             >
                                                 XML
                                             </button>
                                             <button
                                                 onClick={() => onManualUpdate({ acs_method: 'cte' })}
-                                                className={`px-3 py-1 max-md:px-4 max-md:py-2.5 rounded-md text-[8px] max-md:text-[10px] font-black uppercase tracking-widest transition-all ${acsMethod === 'cte' ? 'bg-brand text-black' : 'text-white/30 hover:text-white'}`}
+                                                className={`px-3 py-1 max-md:flex-1 max-md:flex max-md:items-center max-md:justify-center max-md:min-h-[44px] max-md:text-[10px] rounded-md text-[8px] font-black uppercase tracking-widest transition-all ${acsMethod === 'cte' ? 'bg-brand text-black' : 'text-white/30 hover:text-white'}`}
                                             >
                                                 HAB
                                             </button>
@@ -1319,7 +1324,7 @@ export function CeeDocumentsGrid({
                                                 <button
                                                     onClick={() => onManualUpdate({ acs_method: 'manual' })}
                                                     title="Demanda anual de ACS en kWh/año, según proyecto o el Anexo V de la ficha TER100"
-                                                    className={`px-3 py-1 max-md:px-4 max-md:py-2.5 rounded-md text-[8px] max-md:text-[10px] font-black uppercase tracking-widest transition-all ${isDacsManual ? 'bg-brand text-black' : 'text-white/30 hover:text-white'}`}
+                                                    className={`px-3 py-1 max-md:flex-1 max-md:flex max-md:items-center max-md:justify-center max-md:min-h-[44px] max-md:text-[10px] rounded-md text-[8px] font-black uppercase tracking-widest transition-all ${isDacsManual ? 'bg-brand text-black' : 'text-white/30 hover:text-white'}`}
                                                 >
                                                     MAN
                                                 </button>
@@ -1357,28 +1362,28 @@ export function CeeDocumentsGrid({
                                                 {acsValue}
                                             </span>
                                         </div>
-                                        <span className="text-[7px] text-white/10 font-bold uppercase tracking-widest self-center">kWh/año</span>
+                                        <span className="text-[7px] max-md:text-[10px] max-md:text-white/25 text-white/10 font-bold uppercase tracking-widest self-center">kWh/año</span>
                                     </div>
                                 </div>
                             </div>
 
                             {/* 4. Fechas CEE (Visita/Firma auto del XML · Registro al subir slot REGISTRO; editables) */}
-                            <div className="flex flex-col items-center gap-2 w-[320px] border-l border-white/5 shrink-0 max-md:w-full max-md:items-stretch max-md:border-l-0">
+                            <div className="flex flex-col items-center gap-2 w-[320px] border-l border-white/5 shrink-0 max-md:w-full max-md:items-stretch max-md:border-l-0 max-md:border-t max-md:border-white/[0.04] max-md:pt-4">
                                 <span className="text-[9px] font-black uppercase text-white/30 tracking-[0.2em] mb-1 max-md:mb-0 max-md:text-left">Fechas CEE</span>
-                                <div className="flex items-end gap-1.5 max-md:flex-col max-md:items-stretch max-md:gap-2">
+                                <div className="flex items-end gap-1.5 max-md:grid max-md:grid-cols-1 max-md:gap-2 max-md:w-full">
                                     {[
                                         { label: 'Visita',   field: `fecha_visita_cee_${section}` },
                                         { label: 'Firma',    field: `fecha_firma_cee_${section}` },
                                         { label: 'Registro', field: `fecha_registro_cee_${section}` },
                                     ].map(({ label, field }) => (
                                         <div key={field} className="flex flex-col items-center gap-1 max-md:flex-row max-md:items-center max-md:justify-between max-md:gap-3">
-                                            <span className="text-[7px] font-black uppercase text-white/25 tracking-[0.12em] whitespace-nowrap">{label}</span>
+                                            <span className="text-[7px] max-md:text-[10px] font-black uppercase text-white/25 tracking-[0.12em] whitespace-nowrap">{label}</span>
                                             <input
                                                 type="date"
                                                 value={ceeDate(field)}
                                                 onChange={e => setCeeDate(field, e.target.value)}
                                                 disabled={!editMode}
-                                                className={`no-uppercase bg-white/[0.03] border rounded-lg px-1.5 py-2 text-[10px] text-center font-mono w-[94px] max-md:w-[160px] focus:outline-none transition-colors ${editMode ? 'border-white/10 text-white/80 focus:border-brand/50 cursor-pointer hover:border-white/20' : 'border-white/5 text-white/45 cursor-not-allowed'}`}
+                                                className={`no-uppercase bg-white/[0.03] border rounded-lg px-1.5 py-2 text-[10px] text-center font-mono w-[94px] focus:outline-none transition-colors max-md:w-3/5 max-md:min-w-0 max-md:py-2.5 max-md:text-left ${editMode ? 'border-white/10 text-white/80 focus:border-brand/50 cursor-pointer hover:border-white/20' : 'border-white/5 text-white/45 cursor-not-allowed'}`}
                                             />
                                         </div>
                                     ))}
@@ -1386,7 +1391,7 @@ export function CeeDocumentsGrid({
                             </div>
 
                             {/* 5. Documentos (slots) */}
-                            <div className="flex items-center justify-between gap-2 pl-4 border-l border-white/5 w-[340px] shrink-0 max-md:w-full max-md:grid max-md:grid-cols-3 max-md:gap-y-5 max-md:pl-0 max-md:border-l-0 max-md:pt-2">
+                            <div className="flex items-center justify-between gap-2 pl-4 border-l border-white/5 w-[340px] shrink-0 max-md:w-full max-md:grid max-md:grid-cols-3 max-md:gap-y-5 max-md:items-end max-md:pl-0 max-md:border-l-0 max-md:border-t max-md:border-white/[0.04] max-md:pt-4">
                                 <div className="md:hidden">{showSlot('xml')}</div>
                                 {['pdf', 'cex', 'registro', 'etiqueta', 'otros'].map(sId => showSlot(sId))}
                             </div>
@@ -1759,8 +1764,11 @@ export function CeeDocumentsGrid({
 
             {/* ── Modal de Notificación al Certificador ───────────────────────── */}
             {certNotifyModal && (
-                <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/70 backdrop-blur-sm animate-fade-in" onClick={() => { if (!sendingCertNotify) setCertNotifyModal(null); }}>
-                    <div className="bg-bkg-deep border border-white/10 rounded-2xl p-6 max-w-md md:max-w-2xl w-full mx-4 shadow-2xl max-h-[90vh] overflow-y-auto custom-scrollbar" onClick={e => e.stopPropagation()}>
+                <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/70 backdrop-blur-sm animate-fade-in max-md:items-end" onClick={() => { if (!sendingCertNotify) setCertNotifyModal(null); }}>
+                    {/* En móvil, hoja inferior a lo ancho: la cabecera pegajosa ya lleva el
+                        botón de enviar, así que basta con que el panel nazca abajo y
+                        respete el área segura del teléfono. */}
+                    <div className="bg-bkg-deep border border-white/10 rounded-2xl p-6 max-w-md md:max-w-2xl w-full mx-4 shadow-2xl max-h-[90vh] overflow-y-auto custom-scrollbar max-md:mx-0 max-md:rounded-b-none max-md:rounded-t-3xl max-md:max-h-[92dvh] max-md:pb-[calc(1.5rem+env(safe-area-inset-bottom))]" onClick={e => e.stopPropagation()}>
                         {/* Cabecera FIJA: enviar y cerrar siempre a mano, sin bajar al final. */}
                         <div className="sticky -top-6 z-20 -mx-6 px-6 pt-6 pb-3 mb-4 bg-bkg-deep border-b border-white/5">
                             <div className="flex items-center gap-3 max-md:flex-wrap max-md:gap-y-2.5">
