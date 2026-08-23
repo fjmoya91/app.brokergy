@@ -319,6 +319,40 @@ const ACCEPT_CUALQUIERA = `image/*,${EXT_FOTO},application/pdf,.pdf,video/*,${EX
 const ACCEPT_CEE = `application/pdf,.pdf,image/*,${EXT_FOTO},.cex,.xml`;
 
 /**
+ * Altas por CALCULADORA (sin funnel): qué aparato da el ACS, deducido del par
+ * calefacción/ACS de los inputs. Si los dos apuntan al mismo tipo, es la misma
+ * caldera y no hay nada aparte que fotografiar → cadena vacía.
+ */
+function tipoAcsDesdeInputs(inputs = {}) {
+    const acs = String(inputs.boilerAcsType || '').trim().toLowerCase();
+    const cal = String(inputs.boilerHeatingType || '').trim().toLowerCase();
+    if (!acs || !cal || acs === cal) return '';   // misma caldera (o no consta)
+    if (acs.includes('termo')) return 'termo';
+    if (acs.includes('butano') || acs.includes('glp') || acs.includes('propano')) return 'butano';
+    if (acs.includes('gasoil') || acs.includes('gasóleo') || acs.includes('gasoleo')) return 'gasoleo';
+    if (acs.includes('gas')) return 'gas';
+    return 'otro';
+}
+
+/**
+ * Etiquetas del apartado "ACS actual" según QUÉ aparato calienta hoy el agua.
+ * Nombrar el aparato es la diferencia entre que el cliente sepa qué fotografiar
+ * y que no: "Sistema de ACS actual" no significa nada fuera de una oficina.
+ */
+const ACS_INICIAL_LABEL = {
+    termo:   { label: 'Termo eléctrico actual', help: 'El termo eléctrico que hay hoy instalado.',
+               cliente: 'Tu termo eléctrico actual', helpCliente: 'El depósito del agua caliente que tienes ahora, entero. Si tiene una pegatina con los datos, hazle otra foto de cerca.' },
+    butano:  { label: 'Calentador de butano / GLP actual', help: 'El calentador de butano o propano que da hoy el agua caliente.',
+               cliente: 'Tu calentador de butano', helpCliente: 'El calentador que tienes ahora, con la bombona si está al lado.' },
+    solar:   { label: 'Placas solares térmicas actuales', help: 'Los captadores solares y su depósito.',
+               cliente: 'Tus placas solares del agua caliente', helpCliente: 'Los paneles del tejado y, si lo ves, el depósito al que van.' },
+    gas:     { label: 'Calentador de gas actual', cliente: 'Tu calentador de gas' },
+    gasoleo: { label: 'Calentador de gasóleo actual', cliente: 'Tu calentador de gasóleo' },
+    otro:    { label: 'Sistema de ACS actual (independiente de la caldera)',
+               cliente: 'El aparato que calienta hoy el agua', helpCliente: 'El que da el agua caliente, que no es la caldera de la calefacción.' },
+};
+
+/**
  * Normaliza distintas fuentes a selectores de slot, en este orden de prioridad:
  *
  *   1. `datosCalculo.alcance` — lo que declara el EXPEDIENTE (services/docsAlcance).
@@ -374,26 +408,71 @@ function deriveSelectors(datosCalculo = {}) {
     // ── Piscina (TER100) ─────────────────────────────────────────────────────
     const piscina = alc.piscina === true;
 
-    // ¿Hay caldera de combustión que se va a sustituir?
+    // ── El GENERADOR DE CALOR que se sustituye ───────────────────────────────
+    // Se documenta SIEMPRE que haya calefacción, sea del tipo que sea. Antes esto
+    // preguntaba "¿hay caldera de COMBUSTIÓN?" y, si no la había, el expediente
+    // se quedaba sin ninguna foto del estado inicial: medido en 26RES080_OP54
+    // (radiadores eléctricos) — no se le pedía una sola foto de lo que se iba a
+    // sustituir, que es justo lo que justifica el ahorro de un RES080.
+    //
+    // Solo se calla cuando la vivienda declara que NO tiene calefacción: ahí no
+    // hay nada que fotografiar.
     const fuel = String(inputs.fuelType || '').toLowerCase();
     const heating = String(inputs.boilerHeatingType || '');
-    let hayCaldera;
-    if (funnel.combustible_actual) {
-        hayCaldera = BOILER_COMBUSTIBLE.includes(funnel.combustible_actual);
-    } else if (heating) {
-        hayCaldera = heating !== 'No tiene Calefacción';
-    } else if (fuel) {
-        hayCaldera = !fuel.includes('elect'); // gas_natural, gasoleo, propano... = combustión
-    } else {
-        hayCaldera = true; // caso típico CAE: cambio de caldera por aerotermia
-    }
+    const hayCaldera = heating !== 'No tiene Calefacción'
+        && funnel.combustible_actual !== 'ninguno'
+        && funnel.combustible_actual !== 'sin_calefaccion';
+
+    // ¿Ese generador quema algo (caldera) o es eléctrico (radiadores, acumuladores,
+    // splits)? No decide SI se pide la foto, decide CÓMO se le llama: a nadie con
+    // radiadores eléctricos hay que pedirle "una foto de su caldera", y menos aún
+    // "la caldera vieja ya quitada" cuando nunca tuvo una.
+    const calderaEsCombustion = funnel.combustible_actual
+        ? BOILER_COMBUSTIBLE.includes(funnel.combustible_actual)
+        : (fuel ? !fuel.includes('elect') : true);
 
     // Hibridación (RES093): la caldera antigua NO se desmonta, se conserva y
     // trabaja en paralelo con la bomba de calor. Cambia el apartado "caldera
     // desmontada" del DESPUÉS por "depósito de ACS junto a la caldera antigua".
     const hibridacion = !!pick(alc.hibridacion, inputs.hibridacion, datosCalculo.hibridacion, false);
 
-    return { reforma, changeAcs, hayCaldera, hibridacion, sueloRadiante, piscina };
+    // ── El sistema de ACS EXISTENTE ──────────────────────────────────────────
+    // `changeAcs` dice si la ACTUACIÓN toca el ACS; esto dice si hay que
+    // documentar el que YA HABÍA, que no es lo mismo. En un RES080 el ahorro se
+    // justifica comparando el antes con el después y el ACS entra en esa tabla de
+    // emisiones (en 26RES080_OP54: 7,91 → 7,59 kg CO₂/m²), así que el aparato que
+    // hay hoy se fotografía aunque la obra no lo sustituya. En una ficha de
+    // sustitución de caldera, si el ACS queda fuera del alcance no cambia nada y
+    // no se pide (regla 12.b).
+    //
+    // QUÉ APARATO ES lo dice el paso 5 del funnel (`boiler_acs_type`):
+    //   misma_caldera → lo calienta la propia caldera → NO hay foto que hacer,
+    //                   la de la caldera ya está pedida más arriba.
+    //   termo | butano | solar | gas | gasoleo → es OTRO aparato: sí se pide, y
+    //                   se le llama por su nombre ("Tu termo eléctrico actual"),
+    //                   porque "sistema de ACS" no le dice nada a nadie.
+    //   no_tengo → no hay agua caliente que fotografiar.
+    const acsTipo = String(pick(funnel.boiler_acs_type, '')).toLowerCase();
+    // El toggle del expediente solo cuenta cuando dice `false` (ver docsAlcance):
+    // el `true` es el valor de siembra, no una declaración.
+    const acsOtroAparato = alc.acs_misma_caldera === false;
+    // Altas por CALCULADORA (sin funnel): que el aparato de ACS no coincida con el
+    // de calefacción ya dice que el agua la calienta otra cosa.
+    const acsTipoInputs = tipoAcsDesdeInputs(inputs);
+    const acsSinAgua = acsTipo === 'no_tengo';
+    const acsLoDaLaCaldera = !acsOtroAparato && !acsTipoInputs
+        && (acsTipo ? acsTipo === 'misma_caldera' : true);
+    const acsInicial = !acsLoDaLaCaldera && !acsSinAgua
+        && (changeAcs || alc.ficha === 'RES080' || acsOtroAparato || !!acsTipoInputs
+            || (!!acsTipo && acsTipo !== 'misma_caldera'));
+    // Nombre del aparato para la etiqueta. Si el expediente contradice al funnel
+    // (toggle a "no es la misma caldera"), el tipo del funnel ya no vale: se cae a
+    // "otro", que es lo único que se sabe con certeza.
+    const acsInicialTipo = (acsOtroAparato && (!acsTipo || acsTipo === 'misma_caldera'))
+        ? 'otro'
+        : (acsTipo && acsTipo !== 'misma_caldera' ? acsTipo : (acsTipoInputs || ''));
+
+    return { reforma, changeAcs, acsInicial, acsInicialTipo, hayCaldera, calderaEsCombustion, hibridacion, sueloRadiante, piscina };
 }
 
 /**
@@ -419,10 +498,15 @@ function buildDocChecklist(datosCalculo = {}) {
     // ("Añadir apartado de obra" → Caldera), útil en expedientes migrados/eléctricos
     // donde no se dedujo caldera pero sí hace falta documentarla para el Anexo Fotográfico.
     if (sel.hayCaldera || enabledSet.has('FOTO_CALDERA_ANTES') || enabledSet.has('FOTO_PLACA_CALDERA_ANTES')) {
+        const comb = sel.calderaEsCombustion;
         push({ key: 'FOTO_CALDERA_ANTES', fase: PHASE.ANTES, required: true, gating: 'pre_aceptacion', multiple: true, accept: ACCEPT_FOTO,
-               label: 'Caldera actual (instalada)', help: 'Vista general de la caldera en su sala. Puedes añadir varias perspectivas.' });
+               label: comb ? 'Caldera actual (instalada)' : 'Sistema de calefacción actual',
+               help: comb
+                   ? 'Vista general de la caldera en su sala. Puedes añadir varias perspectivas.'
+                   : 'El equipo de calefacción que se va a sustituir (radiadores eléctricos, acumuladores, splits…), instalado.' });
         push({ key: 'FOTO_PLACA_CALDERA_ANTES', fase: PHASE.ANTES, required: true, gating: 'pre_aceptacion', multiple: true, accept: ACCEPT_FOTO,
-               label: 'Placa de la caldera', help: 'La etiqueta del fabricante. Acércate hasta que se lean marca, modelo y potencia.' });
+               label: comb ? 'Placa de la caldera' : 'Placa del equipo de calefacción',
+               help: 'La etiqueta del fabricante. Acércate hasta que se lean marca, modelo y potencia.' });
     }
     // Unidad terminal EXISTENTE con radiadores. YA NO SE PIDE de oficio: la
     // temperatura de impulsión con la que se declara el SCOP la fija
@@ -432,6 +516,27 @@ function buildDocChecklist(datosCalculo = {}) {
     // el selector fijo a `false`: solo entra por override.
     if (want('FOTO_EMISORES_ANTES', false)) push({ key: 'FOTO_EMISORES_ANTES', fase: PHASE.ANTES, required: false, multiple: true, accept: ACCEPT_FOTO,
            label: 'Radiadores existentes', help: 'Una foto de un radiador tipo de la vivienda. Es la unidad terminal que se conserva y la que fija la temperatura de impulsión del equipo nuevo.' });
+    // ── Lo que define LA ACTUACIÓN va primero ────────────────────────────────
+    // El material de CONTEXTO (fachada de la calle, patios, vídeo, planos, CEE,
+    // presupuesto) se empuja detrás. Iba delante y el resultado era que en un
+    // RES080 de cubierta la foto del tejado caía en el paso 7 de 8, detrás de
+    // cuatro cosas opcionales: parecía que no se pedía. Lo que identifica la obra
+    // tiene que ser lo primero que se ve.
+    if (want('FOTO_ACS_ANTES', sel.acsInicial)) {
+        const t = ACS_INICIAL_LABEL[sel.acsInicialTipo] || null;
+        push({ key: 'FOTO_ACS_ANTES', fase: PHASE.ANTES, required: false, multiple: true, accept: ACCEPT_FOTO,
+               label: t?.label || 'Sistema de ACS actual',
+               help: t?.help || 'El termo eléctrico, el acumulador o el calentador que da hoy el agua caliente.' });
+    }
+    if (want('FOTO_VENTANAS_ANTES', sel.reforma.ventanas)) push({ key: 'FOTO_VENTANAS_ANTES', fase: PHASE.ANTES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Ventanas a sustituir (antes)', help: 'Las que vais a cambiar.' });
+    if (want('FOTO_CUBIERTA_ANTES', sel.reforma.cubierta)) push({ key: 'FOTO_CUBIERTA_ANTES', fase: PHASE.ANTES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Cubierta / tejado (antes)', help: 'El tejado tal y como está hoy, antes de aislarlo.' });
+    if (want('FOTO_FACHADA_ANTES', sel.reforma.paredes))  push({ key: 'FOTO_FACHADA_ANTES', fase: PHASE.ANTES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Fachada a aislar (antes)' });
+    if (want('FOTO_SUELO_ANTES', sel.reforma.suelo))    push({ key: 'FOTO_SUELO_ANTES', fase: PHASE.ANTES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Suelo (antes)' });
+    // Piscina (TER100): el circuito se declara en la pestaña Instalación, nunca
+    // en la simulación — llega por el alcance del expediente o por docs_overrides.
+    if (want('FOTO_PISCINA_ANTES', sel.piscina)) push({ key: 'FOTO_PISCINA_ANTES', fase: PHASE.ANTES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Calentamiento de piscina actual', help: 'El equipo que calienta hoy el agua de la piscina y su conexión con el circuito.' });
+
+    // ── Material de CONTEXTO (para que el certificador levante el CEE inicial) ──
     push({ key: 'FOTO_FACHADA_PRINCIPAL', fase: PHASE.ANTES, required: false, multiple: true, accept: ACCEPT_FOTO,
            label: 'Fachada de la calle (completa)', help: 'Para ver cuántas ventanas hay y su tamaño.' });
     push({ key: 'FOTO_PATIOS_INTERIORES', fase: PHASE.ANTES, required: false, multiple: true, accept: ACCEPT_FOTO,
@@ -453,14 +558,6 @@ function buildDocChecklist(datosCalculo = {}) {
     // cliente que ya tiene la factura no tiene sentido.
     push({ key: 'DOC_PRESUPUESTO', fase: PHASE.ANTES, required: false, multiple: true, optionalAlways: true, accept: ACCEPT_DOC,
            label: 'Presupuesto de la obra', help: 'El presupuesto del instalador (PDF o foto). De él sacamos el importe de la inversión y los equipos previstos.' });
-    if (want('FOTO_VENTANAS_ANTES', sel.reforma.ventanas)) push({ key: 'FOTO_VENTANAS_ANTES', fase: PHASE.ANTES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Ventanas a sustituir (antes)', help: 'Las que vais a cambiar.' });
-    if (want('FOTO_CUBIERTA_ANTES', sel.reforma.cubierta)) push({ key: 'FOTO_CUBIERTA_ANTES', fase: PHASE.ANTES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Cubierta / tejado (antes)' });
-    if (want('FOTO_FACHADA_ANTES', sel.reforma.paredes))  push({ key: 'FOTO_FACHADA_ANTES', fase: PHASE.ANTES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Fachada a aislar (antes)' });
-    if (want('FOTO_SUELO_ANTES', sel.reforma.suelo))    push({ key: 'FOTO_SUELO_ANTES', fase: PHASE.ANTES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Suelo (antes)' });
-    if (want('FOTO_ACS_ANTES', sel.changeAcs))        push({ key: 'FOTO_ACS_ANTES', fase: PHASE.ANTES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Sistema de ACS actual', help: 'Termo eléctrico o conexión de ACS de la caldera.' });
-    // Piscina (TER100): el circuito se declara en la pestaña Instalación, nunca
-    // en la simulación — llega por el alcance del expediente o por docs_overrides.
-    if (want('FOTO_PISCINA_ANTES', sel.piscina)) push({ key: 'FOTO_PISCINA_ANTES', fase: PHASE.ANTES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Calentamiento de piscina actual', help: 'El equipo que calienta hoy el agua de la piscina y su conexión con el circuito.' });
     // `optionalAlways` como su gemelo OTROS_DESPUES: es un cajón de sastre, no un
     // documento con nombre — reclamárselo a nadie ("súbeme otros") no significa nada.
     push({ key: 'OTROS_ANTES', fase: PHASE.ANTES, required: false, multiple: true, named: true, optionalAlways: true, prescindible: true, accept: ACCEPT_CUALQUIERA,
@@ -488,11 +585,19 @@ function buildDocChecklist(datosCalculo = {}) {
            label: 'Depósito de ACS / inercia', help: 'El depósito del agua caliente ya instalado. Incluye una foto donde se vea su etiqueta de datos.' });
     if (want('FOTO_PISCINA_BDC', sel.piscina)) push({ key: 'FOTO_PISCINA_BDC', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO,
            label: 'Bomba de calor de piscina instalada', help: 'El equipo nuevo de piscina ya montado y conectado. Incluye una foto de su placa de características (marca, modelo y nº de serie).' });
-    push({ key: 'FOTO_CALDERA_DESMONTADA', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO,
-           label: sel.hibridacion ? 'Depósito de ACS junto a la caldera antigua' : 'Caldera antigua desmontada / hueco',
+    // El generador antiguo, ya retirado. Solo si había alguno: sin calefacción
+    // previa no hay nada que desmontar. Y si lo que había NO era una caldera
+    // (radiadores eléctricos, acumuladores…), no se le puede pedir "la caldera
+    // vieja" a quien nunca tuvo una.
+    if (sel.hayCaldera) push({ key: 'FOTO_CALDERA_DESMONTADA', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO,
+           label: sel.hibridacion ? 'Depósito de ACS junto a la caldera antigua'
+                 : sel.calderaEsCombustion ? 'Caldera antigua desmontada / hueco'
+                 : 'Equipo de calefacción antiguo retirado',
            help: sel.hibridacion
                ? 'En una hibridación la caldera antigua se conserva. Haz una foto del nuevo depósito de agua caliente junto a la caldera que se mantiene.'
-               : 'La caldera vieja ya retirada, o el hueco que ha quedado en la pared tras quitarla.' });
+               : sel.calderaEsCombustion
+                   ? 'La caldera vieja ya retirada, o el hueco que ha quedado en la pared tras quitarla.'
+                   : 'El equipo antiguo ya desmontado, o el hueco que ha dejado en la pared.' });
     if (want('FOTO_VENTANAS_DESPUES', sel.reforma.ventanas)) push({ key: 'FOTO_VENTANAS_DESPUES', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Ventanas nuevas (después)', help: 'Las ventanas nuevas ya instaladas.' });
     if (want('FOTO_CUBIERTA_DESPUES', sel.reforma.cubierta)) push({ key: 'FOTO_CUBIERTA_DESPUES', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Cubierta terminada', help: 'La cubierta o tejado ya terminado tras la obra.' });
     if (want('FOTO_FACHADA_DESPUES', sel.reforma.paredes))  push({ key: 'FOTO_FACHADA_DESPUES', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Aislamiento de fachada terminado', help: 'La fachada ya aislada y terminada.' });
@@ -557,6 +662,27 @@ function buildDocChecklist(datosCalculo = {}) {
 
     // Nombre en lenguaje de cliente, junto al técnico (no lo sustituye).
     conLabelCliente(podados);
+    // Excepciones que la tabla plana (por clave de slot) no puede expresar, porque
+    // dependen de QUÉ hay instalado. Van después de la tabla, pisándola.
+    const reetiquetar = (key, label, help) => {
+        const s = podados.find(x => x.key === key);
+        if (s) { s.labelCliente = label; if (help) s.helpCliente = help; }
+    };
+    // El ACS inicial se nombra por el aparato que hay (termo, butano, solar…). La
+    // tabla LABEL_CLIENTE es plana por slot y no puede expresarlo, así que va aquí.
+    if (ACS_INICIAL_LABEL[sel.acsInicialTipo]) {
+        const t = ACS_INICIAL_LABEL[sel.acsInicialTipo];
+        reetiquetar('FOTO_ACS_ANTES', t.cliente, t.helpCliente);
+    }
+    if (!sel.calderaEsCombustion) {
+        // Calefacción eléctrica: no hay caldera, y llamarla así confunde.
+        reetiquetar('FOTO_CALDERA_ANTES', 'Cómo calientas hoy la casa',
+            'Los radiadores eléctricos, los acumuladores o los aparatos de aire que usas ahora. Si son varios iguales, con uno basta.');
+        reetiquetar('FOTO_PLACA_CALDERA_ANTES', 'La pegatina del aparato de calefacción',
+            'La etiqueta con letras y números que lleva pegada. Acércate hasta que se lean.');
+        reetiquetar('FOTO_CALDERA_DESMONTADA', 'El aparato viejo, ya retirado',
+            'El equipo antiguo ya quitado, o el hueco que ha dejado en la pared.');
+    }
     // En una HIBRIDACIÓN la caldera antigua NO se desmonta: se conserva y trabaja
     // en paralelo. Decirle ahí "La caldera vieja, ya quitada" le pediría una foto
     // de algo que no va a pasar. El texto técnico ya lo contempla; aquí hay que

@@ -171,6 +171,41 @@ export const getClientCaeRate = (expediente) => {
     return { rate, explicit, defaultRate };
 };
 
+/**
+ * ¿El Convenio de Cesión se firma ANTES de terminar la obra?
+ *
+ * REGLA — el convenio PREVIO se firma mientras no haya facturas emitidas. Con
+ * factura ya emitida la actuación está ejecutada y el convenio puede hablar de
+ * algo hecho; sin ella, todo lo que describe está PREVISTO y así hay que
+ * redactarlo (OPCIÓN 2 del modelo oficial del convenio CAE, Orden TED/815/2023,
+ * art. 11). Firmar el texto de obra terminada antes de la obra afirma como
+ * ejecutado lo que aún no existe.
+ *
+ * El admin lo decide en el popup de generación y esa decisión se guarda en
+ * `documentacion.anexo_cesion_obra_finalizada`, que MANDA sobre la detección
+ * automática: puede haber una factura suelta subida por el cliente y una obra
+ * aún sin cerrar, o al revés.
+ */
+export const hayFacturasEmitidas = (expediente) =>
+    Array.isArray(expediente?.documentacion?.facturas) && expediente.documentacion.facturas.length > 0;
+
+export const esCesionPrevia = (expediente) => {
+    const override = expediente?.documentacion?.anexo_cesion_obra_finalizada;
+    if (override === true) return false;
+    if (override === false) return true;
+    return !hayFacturasEmitidas(expediente);
+};
+
+/**
+ * ¿Tenemos IBAN del cliente? Sin él el convenio NO deja el hueco en blanco: dice
+ * que el ingreso irá a la cuenta que el Cedente aporte. Un IBAN a medias
+ * (placeholder con guiones bajos) es lo mismo que no tenerlo.
+ */
+export const tieneCuentaBancaria = (cliente) => {
+    const iban = String(cliente?.numero_cuenta || '').replace(/\s+/g, '');
+    return !!iban && !iban.includes('_') && iban.length >= 15;
+};
+
 export const ANEXO_I_TEXTS = {
     TITULO_PRINCIPAL: "ANEXO I DECLARACIÓN RESPONSABLE FORMALIZADA POR EL PROPIETARIO INICIAL DEL AHORRO REFERIDA A LA SOLICITUD Y/U OBTENCIÓN DE AYUDAS O SUBVENCIONES PÚBLICAS PARA LA MISMA ACTUACIÓN DE AHORRO DE ENERGÍA",
     NOMBRE_ACTUACION_FIXED: "Sustitución caldera existente por bomba de calor (aerotermia)",
@@ -251,31 +286,31 @@ export const ANEXO_CESION_CSS = `
 .conv-expte-label { font-size: 7.5px; color: rgba(255,255,255,0.35); font-weight: 600; letter-spacing: 1.5px; text-transform: uppercase; }
 .conv-expte-num { font-size: 11px; color: rgba(255,255,255,0.85); font-weight: 700; letter-spacing: 0.3px; }
 .conv-logo-img { height: 20px; width: auto; filter: invert(1) brightness(10); position: relative; z-index: 1; }
-.conv-body { flex: 1; padding: 24px 36px 16px; display: flex; flex-direction: column; overflow: hidden; }
+.conv-body { flex: 1; padding: 18px 36px 16px; display: flex; flex-direction: column; overflow: hidden; }
 .conv-title {
     text-align: center;
     font-size: 14px; font-weight: 800; color: #08090C;
     line-height: 1.45; letter-spacing: 0.5px;
-    margin-bottom: 16px;
-    padding: 12px 24px;
+    margin-bottom: 10px;
+    padding: 10px 24px;
     background: linear-gradient(135deg, #FFF3E0, #FFF8ED);
     border-left: 4px solid #FF6D00;
     border-radius: 0 6px 6px 0;
 }
-.conv-dateline { text-align: right; font-size: 11px; color: #737373; font-style: italic; margin-bottom: 12px; }
+.conv-dateline { text-align: right; font-size: 11px; color: #737373; font-style: italic; margin-bottom: 8px; }
 .conv-subtitle {
     display: flex; align-items: center; gap: 10px;
-    margin: 14px 0 10px;
+    margin: 10px 0 8px;
     font-size: 11px; font-weight: 800; color: #08090C;
     letter-spacing: 2.5px; text-transform: uppercase;
 }
 .conv-subtitle::before, .conv-subtitle::after { content: ''; flex: 1; height: 1px; background: #E5E5E5; }
-.conv-p { font-size: 11px; line-height: 1.65; color: #404040; margin-bottom: 10px; text-align: justify; }
+.conv-p { font-size: 11px; line-height: 1.5; color: #404040; margin-bottom: 7px; text-align: justify; }
 .conv-p strong, .conv-p b { color: #171717; font-weight: 700; }
-.conv-cl { margin-bottom: 10px; }
-.conv-cl p { font-size: 11px; line-height: 1.65; color: #404040; text-align: justify; margin-bottom: 4px; }
+.conv-cl { margin-bottom: 7px; }
+.conv-cl p { font-size: 11px; line-height: 1.5; color: #404040; text-align: justify; margin-bottom: 4px; }
 .conv-cl p strong, .conv-cl p b { color: #171717; font-weight: 700; }
-.conv-cl li { font-size: 11px; line-height: 1.65; color: #404040; margin-left: 20px; margin-bottom: 2px; }
+.conv-cl li { font-size: 11px; line-height: 1.5; color: #404040; margin-left: 20px; margin-bottom: 2px; }
 .conv-cuenta {
     background: #F8F8F8; border: 1px solid #E0E0E0;
     border-left: 4px solid #FF6D00; border-radius: 0 5px 5px 0;
@@ -476,7 +511,16 @@ export const buildAnexoIHtml = (expediente, results, states = {}, isForPdf = tru
     return content;
 };
 
-export const buildAnexoCesionHtml = (expediente, results) => {
+/**
+ * Convenio de Cesión de Ahorros (CAE).
+ *
+ * `opts.previo` fuerza la redacción: true = actuación PREVISTA (obra sin
+ * terminar), false = actuación EJECUTADA. Si no se pasa, la decide
+ * `esCesionPrevia(expediente)`. El documento, el nombre de fichero y el slot
+ * son los MISMOS en los dos casos: lo que cambia es el tiempo verbal.
+ */
+export const buildAnexoCesionHtml = (expediente, results, opts = {}) => {
+    const previo = opts.previo !== undefined ? !!opts.previo : esCesionPrevia(expediente);
     const op = expediente.oportunidades || {};
     const cliente = expediente.clientes || {};
     const inst = expediente.instalacion || {};
@@ -496,6 +540,7 @@ export const buildAnexoCesionHtml = (expediente, results) => {
     const telCedente = cliente.tlf || cliente.telefono || '___________';
     const emailCedente = cliente.email || '___________';
     const numCuenta = cliente.numero_cuenta || '___________________________';
+    const hayCuenta = tieneCuentaBancaria(cliente);
     const aeRaw = results?.savingsKwh || 0;
     const aeKwh = Math.round(aeRaw).toLocaleString('es-ES', { useGrouping: true });
     const caeVolStr = (aeRaw / 1000).toLocaleString('es-ES', { minimumFractionDigits: 3, maximumFractionDigits: 3 }).replace(',', '.');
@@ -506,6 +551,18 @@ export const buildAnexoCesionHtml = (expediente, results) => {
     const beneficioStr = beneficioRaw ? Math.round(beneficioRaw).toLocaleString('es-ES', { useGrouping: true }) : '___________';
     // Coste de gestión del expediente CAE que asume el Cedente. Si es 0 (toggle
     // "Descuento Certificados" activo), BROKERGY lo asume íntegramente.
+    //
+    // REGLA — sin deducción, el convenio NO dice NADA del coste de gestión. Antes
+    // el párrafo se reescribía como reclamo ("la gestión es completamente
+    // gratuita, BROKERGY corre con estos costes"): esto es un contrato que lee el
+    // verificador, y ahí no pinta nada una oferta comercial que además le mete al
+    // Cedente en la cabeza un coste que en su caso no existe. Sin deducción, el
+    // importe íntegro de la cláusula cuarta es lo que se debe, que es el
+    // comportamiento por defecto de cualquier contrato: el silencio es correcto.
+    //
+    // Además el párrafo se afirmaba en falso siempre que faltaba el dato: un
+    // expediente sin CEE llega aquí sin `caeMaintenanceCost` y prometía gratuidad
+    // sin haberla comprobado.
     const certCost = results?.caeMaintenanceCost ?? 0;
     const certCostStr = Math.round(certCost).toLocaleString('es-ES', { useGrouping: true });
     // Localización de la INSTALACIÓN (Catastro), independiente del domicilio del
@@ -539,6 +596,49 @@ export const buildAnexoCesionHtml = (expediente, results) => {
         ? 'La vida útil de la actuación de eficiencia energética recogida en la cláusula 1 de este convenio es de 15 años para bombas de calor aire-agua y de 25 años para la sustitución de ventanas e instalación de aislamiento térmico.'
         : 'La vida útil de la actuación de eficiencia energética recogida en la cláusula 1 de este convenio es de 15 años.';
 
+    // ── Redacción según el estado de la obra ─────────────────────────────────
+    // Es el MISMO convenio: lo que cambia es el tiempo verbal y el carácter del
+    // ahorro. En los DOS el ahorro se llama estimado —lo fija la ficha, no un
+    // contador—; el previo añade además la salvedad de que la cesión se mantiene
+    // íntegra si el verificado sale distinto, porque ahí no hay ni obra hecha.
+    const expPrimero = previo
+        ? `<strong>Primero.</strong> Que el Cedente tiene previsto llevar a cabo la actuación de eficiencia energética estandarizada consistente en la <em>"${descripcionActuacion}"</em>, y como resultado de la misma espera obtener unos ahorros de energía estimados en <strong>${aeKwh} kWh/año</strong>, conforme al Real Decreto 36/2023, de 24 de enero, por el que se establece un sistema de Certificados de Ahorro Energético (CAE).`
+        : `<strong>Primero.</strong> Que como resultado de la actuación de eficiencia energética estandarizada llevada a cabo por el Cedente, consistente en la <em>"${descripcionActuacion}"</em>, se ha estimado un ahorro de <strong>${aeKwh} kWh/año</strong>, conforme al Real Decreto 36/2023, de 24 de enero, por el que se establece un sistema de Certificados de Ahorro Energético (CAE).`;
+
+    const clPrimera = previo
+        ? `El Cedente autoriza al Cesionario, en exclusiva, a gestionar en su nombre los ahorros energéticos que se generarán al llevar a cabo la actuación de eficiencia energética descrita como <em>"${descripcionActuacion}"</em>.`
+        : `El Cedente autoriza al Cesionario, en exclusiva, a gestionar en su nombre los ahorros energéticos generados por la actuación de eficiencia energética descrita como <em>"${descripcionActuacion}"</em>.`;
+
+    const clSegundaValidez = previo ? 'donde se ejecute' : 'donde se ha ejecutado';
+    const clSegundaLugar   = previo ? 'La actuación va a llevarse a cabo' : 'La actuación se ha llevado a cabo';
+
+    const clTercera = previo
+        ? `El ahorro anual de energía previsto será de <strong>${aeKwh} kWh/año</strong>, siendo el mismo estimado, y permitirá obtener teóricamente <strong>${caeVolStr} CAEs</strong> en el sistema de Certificados de Ahorro Energético. Si el ahorro finalmente verificado resultase distinto del previsto, se mantiene íntegra la cesión del mismo al Cesionario.`
+        : `El ahorro anual de energía estimado será de <strong>${aeKwh} kWh/año</strong>, permitiendo obtener teóricamente <strong>${caeVolStr} CAEs</strong> en el sistema de Certificados de Ahorro Energético.`;
+
+    const clCuarta = previo
+        ? `Las partes acuerdan fijar el valor del incentivo económico por participación en un importe de <strong>${rateMWhStr} €/MWh</strong>, correspondiente a los ahorros estimados del primer año generados por la actuación, lo que supone, en conjunto, un importe estimado de <strong>${beneficioStr} €</strong>, que se ajustará al ahorro finalmente verificado sin variar el precio unitario acordado.`
+        : `Las partes acuerdan fijar el valor del incentivo económico por participación en un importe de <strong>${rateMWhStr} €/MWh</strong>, correspondiente a los ahorros estimados del primer año generados por la actuación, lo que supone, en conjunto, la suma de <strong>${beneficioStr} €</strong>.`;
+
+    const bloqueCoste = certCost > 0
+        ? `<p class="conv-p">El Cedente recibirá el importe final tras deducir del monto establecido en la cláusula cuarta la cantidad de <strong>${certCostStr} €</strong>, en concepto de los costes de gestión técnica y administrativa necesarios para la tramitación del expediente CAE.</p>`
+        : '';
+
+    // Sin IBAN el convenio no deja un hueco: dice de dónde saldrá la cuenta. La
+    // acreditación de titularidad se exige SIEMPRE, se tenga o no el número.
+    const bloqueCuenta = hayCuenta
+        ? `<p class="conv-p">El CEDENTE recibirá el pago mediante transferencia bancaria a la siguiente cuenta de su titularidad, que deberá acreditar mediante el correspondiente justificante de titularidad emitido por la entidad bancaria:</p>
+            <div class="conv-cuenta">${numCuenta}</div>`
+        : `<p class="conv-p">El CEDENTE recibirá el pago mediante transferencia bancaria al número de cuenta bancaria que él mismo aporte al Cesionario a tal efecto. En todo caso, el Cedente deberá acreditar la titularidad de dicha cuenta mediante el correspondiente justificante de titularidad emitido por la entidad bancaria, requisito sin el cual no podrá efectuarse el pago.</p>`;
+
+    const clVidaUtilCompromiso = previo
+        ? 'Cedente y Cesionario se comprometen a que la medida generadora de ahorro, una vez ejecutada, se mantenga activa durante todo el tiempo de vida útil de la misma.'
+        : 'Cedente y Cesionario se comprometen a mantener activa la medida generadora de ahorro durante todo el tiempo de vida útil de la misma.';
+
+    const clDeclaracion = previo
+        ? 'El Cedente se compromete a que, una vez firmado el presente convenio, no suscribirá convenios por los ahorros de energía previstos o generados por la misma actuación. Además, el Cedente declara que dichos ahorros energéticos no están comprometidos con ninguna otra entidad o acuerdo previo.'
+        : 'El Cedente se compromete a que, una vez firmado el presente convenio, no suscribirá convenios por los ahorros de energía generados por la misma actuación. Además, el Cedente declara que los ahorros energéticos objeto de este convenio no están comprometidos con ninguna otra entidad o acuerdo previo.';
+
     const hdr = `
         <div class="conv-hdr">
           <div class="conv-hdr-left">
@@ -549,7 +649,7 @@ export const buildAnexoCesionHtml = (expediente, results) => {
         </div>`;
     const footer = (pg) => `
         <div class="conv-footer">
-          <span class="conv-footer-v">V3 – 16/06/2025</span>
+          <span class="conv-footer-v">V4 – 12/08/2026 · ${previo ? 'Actuación prevista' : 'Actuación ejecutada'}</span>
           <span class="conv-footer-b">BROKERGY</span>
           <span class="conv-footer-pg">${pg}</span>
         </div>`;
@@ -568,23 +668,23 @@ export const buildAnexoCesionHtml = (expediente, results) => {
             <p class="conv-p">De otra parte, Dª/D. FRANCISCO JAVIER MOYA LÓPEZ mayor de edad, con documento de identificación 06282551D, actuando en nombre y representación de la entidad SOLUCIONES SOSTENIBLES PARA EFICIENCIA ENERGÉTICA, SL (<strong>BROKERGY</strong>), con código de identificación NIF B19350222 y domicilio a efectos de notificaciones en C/ Don Sergio, 12 – 1ºL de 13700 Tomelloso (Ciudad Real), en adelante el <strong>Cesionario</strong>.</p>
             <p class="conv-p"><strong>Las partes se reconocen mutua y recíprocamente la capacidad legal necesaria para otorgar este convenio y, a sus efectos, exponen lo siguiente:</strong></p>
             <div class="conv-subtitle">EXPONEN</div>
-            <p class="conv-p"><strong>Primero.</strong> Que como resultado de la actuación de eficiencia energética estandarizada llevada a cabo por el Cedente, consistente en la <em>"${descripcionActuacion}"</em>, se ha estimado un ahorro de <strong>${aeKwh} kWh/año</strong>, conforme al Real Decreto 36/2023, de 24 de enero, por el que se establece un sistema de Certificados de Ahorro Energético (CAE).</p>
+            <p class="conv-p">${expPrimero}</p>
             <p class="conv-p"><strong>Segundo.</strong> Que el Cedente desea participar en la valorización de dichos ahorros, autorizando al Cesionario para su gestión técnica y administrativa ante los organismos competentes, sin que ello constituya cesión onerosa ni transmisión patrimonial.</p>
             <p class="conv-p">Tercero. Que el Cesionario realiza la agrupación de actuaciones de eficiencia de diferentes particulares para alcanzar los umbrales requeridos por la normativa vigente para la emisión de CAEs, y ofrece a los participantes un incentivo económico por su participación.</p>
             <p class="conv-p">Por lo tanto, ambas partes acuerdan suscribir el presente convenio con sujeción a las siguientes:</p>
             <div class="conv-subtitle">CLÁUSULAS</div>
             <div class="conv-cl">
-              <p><strong>Primera. Objeto y exclusividad.</strong> El Cedente autoriza al Cesionario, en exclusiva, a gestionar en su nombre los ahorros energéticos generados por la actuación de eficiencia energética descrita como <em>"${descripcionActuacion}"</em>. Esta autorización se realiza a efectos de agrupación con otras actuaciones y tramitación ante los organismos competentes para la emisión de CAEs.</p>
+              <p><strong>Primera. Objeto y exclusividad.</strong> ${clPrimera} Esta autorización se realiza a efectos de agrupación con otras actuaciones y tramitación ante los organismos competentes para la emisión de CAEs.</p>
             </div>
             <div class="conv-cl">
-              <p><strong>Segunda. Localización geográfica de la instalación o instalaciones</strong><br>La cesión de los ahorros de energía prevista en el presente convenio sólo será válida en territorio español, donde se ha ejecutado la actuación de eficiencia energética.</p>
-              <p>La actuación se ha llevado a cabo en la localidad de <strong>${municipioAct}</strong>, provincia de <strong>${provinciaAct}</strong> de la Comunidad Autónoma de <strong>${ccaa}</strong>, siendo la referencia catastral de su ubicación <strong>${refCatastral}</strong> y sus coordenadas UTM${husoSuffix} X: <strong>${coordX}</strong> Y: <strong>${coordY}</strong></p>
+              <p><strong>Segunda. Localización geográfica de la instalación o instalaciones</strong><br>La cesión de los ahorros de energía prevista en el presente convenio sólo será válida en territorio español, ${clSegundaValidez} la actuación de eficiencia energética.</p>
+              <p>${clSegundaLugar} en la localidad de <strong>${municipioAct}</strong>, provincia de <strong>${provinciaAct}</strong> de la Comunidad Autónoma de <strong>${ccaa}</strong>, siendo la referencia catastral de su ubicación <strong>${refCatastral}</strong> y sus coordenadas UTM${husoSuffix} X: <strong>${coordX}</strong> Y: <strong>${coordY}</strong></p>
             </div>
             <div class="conv-cl">
-              <p><strong>Tercera. Ahorro anual de energía</strong><br>El ahorro anual de energía efectivo será de <strong>${aeKwh} kWh/año</strong>, permitiendo obtener teóricamente <strong>${caeVolStr} CAEs</strong> en el sistema de Certificados de Ahorro Energético.</p>
+              <p><strong>Tercera. Ahorro anual de energía</strong><br>${clTercera}</p>
             </div>
             <div class="conv-cl">
-              <p><strong>Cuarta. Tipo de contraprestación</strong><br>Las partes acuerdan fijar el valor del incentivo económico por participación en un importe de <strong>${rateMWhStr} €/MWh</strong>, correspondiente a los ahorros del primer año generados por la actuación que supone, en junto, la suma de <strong>${beneficioStr} €</strong>.</p>
+              <p><strong>Cuarta. Tipo de contraprestación</strong><br>${clCuarta}</p>
             </div>
             <div class="conv-cl">
               <p><strong>Quinta. Forma de pago de la contraprestación</strong><br>El Cesionario pagará al Cedente el importe bruto acordado en la cláusula cuarta en el plazo máximo de sesenta (60) días contados desde la fecha en la que el Órgano Territorial emita a nombre del Sujeto Obligado, comprador de los CAEs asociados a los ahorros cedidos a través de este convenio.</p>
@@ -597,14 +697,10 @@ export const buildAnexoCesionHtml = (expediente, results) => {
         <div class="conv-page">
           ${hdr}
           <div class="conv-body">
-            <p class="conv-p">${certCost > 0
-                ? `El Cedente recibirá el importe final tras deducir del monto establecido en la cláusula cuarta la cantidad de <strong>${certCostStr} €</strong>, en concepto de los costes de gestión técnica y administrativa necesarios para la tramitación del expediente CAE.`
-                : `El Cedente recibirá el importe íntegro establecido en la cláusula cuarta, sin ningún tipo de deducción. La gestión y tramitación del expediente CAE es <strong>completamente gratuita</strong> para el Cedente: BROKERGY corre con la totalidad de estos costes y el Cedente no tendrá que abonarle ninguna cantidad.`
-            }</p>
-            <p class="conv-p">El CEDENTE recibirá el pago mediante transferencia bancaria a la siguiente cuenta de su titularidad:</p>
-            <div class="conv-cuenta">${numCuenta}</div>
+            ${bloqueCoste}
+            ${bloqueCuenta}
             <div class="conv-cl">
-              <p><strong>Sexta. Vida útil de la actuación de eficiencia energética</strong><br>Cedente y Cesionario se comprometen a mantener activa la medida generadora de ahorro durante todo el tiempo de vida útil de la misma.</p>
+              <p><strong>Sexta. Vida útil de la actuación de eficiencia energética</strong><br>${clVidaUtilCompromiso}</p>
               <p>En caso de que por causa imputable a una actuación del CEDENTE se anulase o invalidase el CAE, este estará obligado a devolver la contraprestación recibida por parte del CESIONARIO, en el plazo máximo de tres (3) días desde que esto se produzca.</p>
               <p>${vidaUtilTexto}</p>
             </div>
@@ -613,7 +709,7 @@ export const buildAnexoCesionHtml = (expediente, results) => {
               <p>En todo caso, el Cedente se compromete a informar al Cesionario de todas las ayudas públicas que finalmente obtenga para, o con motivo de, la ejecución de la actuación, incluso si estas ayudas se conceden con posterioridad a la firma de este convenio.</p>
             </div>
             <div class="conv-cl">
-              <p><strong>Octava. Declaración responsable</strong><br>El Cedente se compromete a que, una vez firmado el presente convenio, no suscribirá convenios por los ahorros de energía generados por la misma actuación. Además, el Cedente declara que los ahorros energéticos objeto de este convenio no están comprometidos con ninguna otra entidad o acuerdo previo.</p>
+              <p><strong>Octava. Declaración responsable</strong><br>${clDeclaracion}</p>
             </div>
             <div class="conv-cl">
               <p><strong>Novena. Notificaciones</strong><br>Todas las comunicaciones y notificaciones que deban realizarse las partes en virtud de este CONTRATO deberán efectuarse por escrito, por cualquier medio que deje constancia de su contenido, y la debida recepción por el destinatario.</p>

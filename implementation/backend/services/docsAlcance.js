@@ -116,6 +116,13 @@ function alcanceFromExpediente(exp, opp) {
         esSustitucionCaldera: esSustitucionCaldera(ficha),
         cee_inicial_registrado: !!ceeIniRegistrado,
         acs: acsEnAlcance(exp ? inst : null),
+        // ¿El agua caliente ACTUAL la da la MISMA caldera de calefacción?
+        // OJO: `misma_caldera_acs` se siembra a `true` en TODO expediente nuevo
+        // (expedienteService) sin mirar lo que contestó el cliente, así que un
+        // `true` NO es una declaración y no puede apagar ninguna foto. Un `false`
+        // sí lo es: alguien movió el toggle en Instalación a propósito. Por eso
+        // solo se propaga el false.
+        acs_misma_caldera: inst.misma_caldera_acs === false ? false : null,
         emisor: familiaEmisor(inst.tipo_emisor),
         piscina: inst.piscina?.activa === true ? true : (exp ? false : null),
         envolvente: envolventeDeclarada(doc.envolvente || e.envolvente),

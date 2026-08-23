@@ -8,14 +8,16 @@
  * poca soltura digital es la diferencia entre subir bien a la primera o entrar
  * en una ronda de WhatsApp.
  *
- * Son PICTOGRAMAS en SVG, no fotos: dibujados aquí, sin peso que descargar en
- * una conexión móvil, escalables y con los colores del tema. Una foto real de
- * una instalación de un cliente no se puede usar sin su permiso (regla del
- * escaparate) y además cada casa es distinta; el dibujo enseña el ENCUADRE, que
- * es justo lo que se hace mal.
+ * Enseña la FOTO DE EJEMPLO de `public/tutorial/` cuando la hay (mapa
+ * `SLOT_FOTO`) y, si no, un PICTOGRAMA SVG dibujado aquí mismo. El pictograma
+ * no pesa nada en una conexión móvil y sirve de red: un apartado sin foto nunca
+ * se queda sin ilustración.
+ *
+ * Las fotos son de MUESTRA, nunca de la instalación de un cliente real: usar
+ * esas exigiría su permiso (misma regla que el escaparate).
  */
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 
 const A = '#F59E0B';   // ámbar de marca
 const L = 'rgba(255,255,255,0.28)';
@@ -165,7 +167,97 @@ function pictoDe(key = '') {
     return 'foto';
 }
 
+/**
+ * FOTO DE EJEMPLO real. Vive en `public/tutorial/<nombre>.jpg`.
+ *
+ * El mapa es EXPLÍCITO por slot y no por familia aproximada: "la cubierta antes"
+ * y "la cubierta terminada" son la misma familia y fotos opuestas, y enseñar la
+ * equivocada es peor que no enseñar ninguna. Un slot que no esté aquí cae al
+ * pictograma, así que añadir una foto nueva es añadir una línea.
+ *
+ * Las fotos vienen SIN su titular incrustado (se recorta al prepararlas): el
+ * título ya lo pone la app en lenguaje de cliente, y verlo dos veces —una en
+ * llano y otra en jerga— es justo la confusión que se está quitando. Lo que sí
+ * conservan es el ENCUADRE verde y el distintivo, que es lo que enseña el qué.
+ */
+const SLOT_FOTO = {
+    // Estado inicial
+    FOTO_CALDERA_ANTES:          'caldera',
+    FOTO_PLACA_CALDERA_ANTES:    'placa_caldera',
+    FOTO_FACHADA_PRINCIPAL:      'fachada',
+    FOTO_FACHADA_ANTES:          'fachada',
+    FOTO_PATIOS_INTERIORES:      'patios',
+    DOC_CEE_EXISTENTE:           'cee',
+    FOTO_CUBIERTA_ANTES:         'cubierta',
+    FOTO_VENTANAS_ANTES:         'ventana',
+    // Obra terminada
+    FOTO_UNIDAD_EXTERIOR:        'unidad_exterior',
+    FOTO_UNIDAD_EXTERIOR_PLACA:  'placa_aerotermia',
+    FOTO_UNIDAD_INTERIOR:        'unidad_interior',
+    FOTO_UNIDAD_INTERIOR_PLACA:  'placa_aerotermia',
+    FOTO_ACS_DEPOSITO:           'unidad_interior',
+    FOTO_ACS_ANTES:              'unidad_interior',
+    FOTO_CALDERA_DESMONTADA:     'hueco',
+    FOTO_ARMARIO_SUELO_RADIANTE: 'suelo_radiante',
+    FOTO_CUBIERTA_DESPUES:       'cubierta_despues',
+    FOTO_FACHADA_DESPUES:        'fachada_despues',
+    FOTO_VENTANAS_DESPUES:       'vivienda_despues',
+    // La bomba de calor de piscina se ve como cualquier unidad exterior.
+    FOTO_PISCINA_BDC:            'unidad_exterior',
+};
+
+/**
+ * Apartados que NO llevan ilustración cuando no hay foto real: los DOCUMENTOS
+ * (factura, presupuesto, planos, RITE), los vídeos y el cajón de "Otros".
+ *
+ * Una factura se entiende a la perfección con su título; un dibujo de "una hoja
+ * con rayas" no añade nada que el texto no diga ya, y en un móvil ocupa media
+ * pantalla que debería estar viendo el botón. El pictograma se gana su sitio
+ * cuando enseña un ENCUADRE que se hace mal (la pegatina de cerca, el armario
+ * abierto); en un papel no hay encuadre que enseñar.
+ *
+ * No afecta a los que SÍ tienen foto real: `DOC_CEE_EXISTENTE` enseña la
+ * etiqueta energética porque ahí el problema es que el cliente no sabe qué papel
+ * es (`SLOT_FOTO` manda sobre esta lista).
+ */
+const SIN_ILUSTRACION = /^(DOC_|VIDEO_|OTROS)/;
+
+/** ¿Este apartado pinta algo encima del título? Lo consulta el paso guiado para
+ *  no reservar el hueco de la imagen cuando no va a haber nada. */
+export function tieneIlustracion(slotKey) {
+    if (SLOT_FOTO[slotKey]) return true;
+    return !SIN_ILUSTRACION.test(String(slotKey || ''));
+}
+
+function SlotFoto({ nombre, onFail }) {
+    return (
+        <img
+            src={`/tutorial/${nombre}.jpg`}
+            alt=""
+            onError={onFail}
+            className="w-full h-full object-cover"
+        />
+    );
+}
+
 export function SlotIlustracion({ slotKey, className = '' }) {
+    const foto = SLOT_FOTO[slotKey] || null;
+    const [sinFoto, setSinFoto] = useState(false);
+    useEffect(() => { setSinFoto(false); }, [foto]);
+
+    if (foto && !sinFoto) {
+        return (
+            <figure className={`relative overflow-hidden rounded-2xl border border-white/10 bg-black/20 ${className}`}>
+                <SlotFoto nombre={foto} onFail={() => setSinFoto(true)} />
+                {/* Que quede claro que es un EJEMPLO y no algo ya subido: sin esto,
+                    más de uno da por hecho que la foto ya está puesta y pasa de largo. */}
+                <figcaption className="absolute top-2 left-2 rounded-lg bg-black/70 px-2 py-1 text-[10px] font-black uppercase tracking-wider text-white/90 backdrop-blur-sm">
+                    Ejemplo
+                </figcaption>
+            </figure>
+        );
+    }
+    if (!tieneIlustracion(slotKey)) return null;
     return (
         <div className={`text-white/70 ${className}`} aria-hidden="true">
             {pictos[pictoDe(slotKey)]}

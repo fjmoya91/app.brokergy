@@ -14,7 +14,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import { prepararImagenParaSubir } from '../../utils/imageResize';
-import { SlotIlustracion } from './SlotIlustracion';
+import { SlotIlustracion, tieneIlustracion } from './SlotIlustracion';
 
 const ESTADO_UI = {
     pendiente: { ring: 'border-white/10 bg-white/[0.03]', chip: null },
@@ -124,6 +124,9 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
     const [tab, setTab] = useState(roleFase || 'ANTES');
     const [busySlot, setBusySlot] = useState(null);
     const [uploadPct, setUploadPct] = useState({}); // % de subida por slot
+    // Subida MÚLTIPLE: los ficheros van de uno en uno, así que un % suelto vuelve a
+    // cero en cada foto y parece que se ha atascado. Esto dice por cuál va.
+    const [uploadN, setUploadN] = useState({});     // { slot: { hecho, total } }
     const [slotError, setSlotError] = useState({});
     const [lightbox, setLightbox] = useState(null);
     const [lbConfirmDelete, setLbConfirmDelete] = useState(false); // confirmación de borrado en lightbox
@@ -153,6 +156,19 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
     // solo, porque quien lo apaga es justo quien prefiere la lista.
     const [guiado, setGuiado] = useState(true);
     const [saltados, setSaltados] = useState(() => new Set()); // apartados aplazados con "ahora no"
+    // Paso elegido A MANO con Anterior/Siguiente. Mientras vale null manda el
+    // recorrido automático (el primer pendiente), que es lo que quiere el 95 % del
+    // tiempo; en cuanto el cliente navega, manda su elección.
+    const [pasoKey, setPasoKey] = useState(null);
+    // Fase forzada a mano ('ANTES'|'DESPUES'|null). Solo la usa quien llega con la
+    // obra ya hecha y quiere adelantarse; null = manda el orden natural.
+    const [faseManual, setFaseManual] = useState(null);
+    // Acuse de recibo tras subir: sin él, la tarjeta cambia sola al paso siguiente
+    // y no queda ninguna señal de que la foto haya llegado. Quien no se maneja
+    // vuelve a subirla "por si acaso".
+    const [flash, setFlash] = useState(null);
+    // Confirmación de "quitar esta foto" en el recorrido guiado (nombre del fichero).
+    const [quitarConfirm, setQuitarConfirm] = useState(null);
     const [conceptPanel, setConceptPanel] = useState(false); // panel "Añadir apartado" abierto
     const [conceptBusy, setConceptBusy] = useState(null);    // concept.id en proceso de habilitar/quitar
     const [conceptError, setConceptError] = useState(null);  // error al cambiar un apartado
@@ -252,6 +268,14 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
         /* eslint-disable-next-line */
     }, [mode, idOrUuid, tokenProp]);
 
+    // El acuse de recibo ("✓ Recibida") se retira solo: es una confirmación, no un
+    // estado. Si se quedara fijo, al siguiente paso parecería que habla de ÉL.
+    useEffect(() => {
+        if (!flash) return;
+        const t = setTimeout(() => setFlash(null), 3200);
+        return () => clearTimeout(t);
+    }, [flash]);
+
     // Visor: reset del zoom al abrir/cambiar de foto.
     useEffect(() => { setLbZoom(1); setLbOrigin('50% 50%'); }, [lightbox]);
     // Visor: rueda del ratón para hacer zoom hacia el cursor. Listener NO pasivo
@@ -295,8 +319,10 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
         let ok = true;
         setBusySlot(slot.key);
         setSlotError(prev => ({ ...prev, [slot.key]: null }));
+        if (files.length > 1) setUploadN(prev => ({ ...prev, [slot.key]: { hecho: 0, total: files.length } }));
         try {
             for (let i = 0; i < files.length; i++) {
+                if (files.length > 1) setUploadN(prev => ({ ...prev, [slot.key]: { hecho: i, total: files.length } }));
                 // Foto de móvil = 5-12 MB. Se reduce antes de subirla salvo en los
                 // slots de PLACA (`fullRes`), donde hay que poder leer el nº de serie.
                 // Aquí importa el doble: el cliente suele subir con datos móviles.
@@ -338,6 +364,13 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
         } finally {
             setBusySlot(null);
             setUploadPct(prev => ({ ...prev, [slot.key]: undefined }));
+            setUploadN(prev => ({ ...prev, [slot.key]: undefined }));
+        }
+        if (ok) {
+            // Acuse visible y vuelta al recorrido automático: el apartado deja de
+            // estar pendiente, así que el siguiente aparece solo.
+            setFlash({ key: slot.key, n: files.length });
+            setPasoKey(null);
         }
         return ok;
     };
@@ -581,18 +614,32 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
     const cliDone = Math.max(0, cliTotal - cliPendientes.length);
     const cliPct = cliTotal > 0 ? Math.round((cliDone / cliTotal) * 100) : 100;
 
-    // Las dos fases NO se mezclan en una sola lista, aunque no haya pestañas.
-    // Pedirle hoy la "placa de la unidad exterior" a quien todavía no ha empezado
-    // la obra es darle una tarea imposible, y once tareas imposibles hacen que
-    // deje de mirar la lista entera. Se enseñan las dos, pero la que no toca va
-    // detrás y dice cuándo toca.
+    // ── EL ORDEN DE UNA REFORMA: PRIMERO LO VIEJO, DESPUÉS LO NUEVO ─────────
+    // Una obra se documenta en dos actos y NO se pueden mezclar: primero lo que se
+    // va a sustituir (la caldera vieja y su placa, las ventanas que se cambian, la
+    // cubierta antes de tocarla) y solo después lo instalado.
+    //
+    // No es una preferencia de orden, es la única secuencia posible: la foto de la
+    // caldera vieja hay que hacerla ANTES de desmontarla, y una vez fuera ya no se
+    // puede recuperar — el expediente se queda sin el estado inicial y sin nada que
+    // justifique el ahorro. Pedirle la placa de la aerotermia nueva a quien todavía
+    // no ha fotografiado lo viejo es, además, pedirle lo imposible.
+    //
+    // Por eso la fase activa NO se decide por si ya hay alguna foto del "después"
+    // (era el fallo: una sola foto del después adelantaba la fase entera y dejaba
+    // el "antes" pendiente en un bloque al final de la pantalla). Se decide por si
+    // queda algo pendiente del "antes".
     const obraEnMarcha = !!(finObra || info.fin_obra)
         || cliVisibles.some(s => s.fase === 'DESPUES' && slotDone(s));
     const pendAntes = cliPendientes.filter(s => s.fase === 'ANTES');
     const pendDespues = cliPendientes.filter(s => s.fase === 'DESPUES');
-    // Bloque activo = donde está el trabajo de verdad ahora mismo.
-    const cliAhora = obraEnMarcha ? pendDespues : pendAntes;
-    const cliLuego = obraEnMarcha ? pendAntes : pendDespues;
+    // `faseManual` es la salida para quien llega con la obra YA TERMINADA y quiere
+    // subirlo todo de una sentada: sigue siendo A y luego B, pero puede adelantarse
+    // a B sin tener que ir aplazando apartado por apartado.
+    const faseActiva = faseManual
+        || (pendAntes.some(s => !saltados.has(s.key)) ? 'ANTES' : 'DESPUES');
+    const cliAhora = faseActiva === 'DESPUES' ? pendDespues : pendAntes;
+    const cliLuego = faseActiva === 'DESPUES' ? pendAntes : pendDespues;
     const cliObligatorias = cliAhora.filter(s => s.required).length;
     // ── Modo guiado: la COLA ────────────────────────────────────────────────
     // Se enseña siempre el PRIMER pendiente. Al subirlo deja de estar pendiente y
@@ -601,13 +648,42 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
     // acaba apartando todos, la cola vuelve a empezar en vez de quedarse vacía —
     // aplazar no puede convertirse en "ya no me lo pides nunca".
     const colaGuiada = cliAhora.filter(s => !saltados.has(s.key));
-    const pasoSlot = colaGuiada[0] || cliAhora[0] || null;
+
+    // RECORRIDO COMPLETO de la fase activa: lo pendiente Y lo ya enviado, en el
+    // orden natural del checklist (no el de urgencia). Es lo que permite volver
+    // atrás a mirar la foto que se subió antes — sin esto, un apartado resuelto
+    // desaparecía de la pantalla y no había forma de volver a verlo.
+    const recorrido = cliVisibles.filter(s => s.fase === faseActiva && !s.existing && !s.waived);
+    // Progreso DE ESTA FASE, no global: mezclar "Paso 3 de 6" con una barra que
+    // mide las dos fases juntas no dice nada. Cada acto tiene su propia cuenta.
+    const faseDone = recorrido.filter(s => !necesitaAccion(s)).length;
+    const fasePct = recorrido.length ? Math.round((faseDone / recorrido.length) * 100) : 100;
+    // ¿Se acaba de cerrar la fase A? (para anunciar el paso a la B)
+    const antesCerrado = faseActiva === 'DESPUES'
+        && cliVisibles.some(s => s.fase === 'ANTES' && !s.existing && !s.waived)
+        && pendAntes.length === 0;
+
+    // Qué se enseña: lo que el cliente haya elegido con Anterior/Siguiente y, si
+    // no ha elegido nada, el primer pendiente por urgencia (lo rechazado primero).
+    const pasoSlot = (pasoKey && recorrido.find(s => s.key === pasoKey))
+        || colaGuiada[0] || cliAhora[0] || null;
+    const pasoIdx = pasoSlot ? recorrido.findIndex(s => s.key === pasoSlot.key) : -1;
     const enGuiado = clientView && guiado && !!pasoSlot;
 
-    const tituloLuego = obraEnMarcha
+    /** Mueve el recorrido. `salta` aparta el actual para que el automático no vuelva a él. */
+    const irA = (idx, salta = false) => {
+        if (salta && pasoSlot) setSaltados(prev => new Set(prev).add(pasoSlot.key));
+        const destino = recorrido[idx];
+        setPasoKey(destino ? destino.key : null);
+        setFlash(null);
+    };
+
+    // El bloque de la fase que NO toca. Lo manda `faseActiva`, no `obraEnMarcha`:
+    // si el bloque activo es el "antes", lo de después es "para cuando termines".
+    const tituloLuego = faseActiva === 'DESPUES'
         ? 'Del estado anterior a la obra'
         : 'Para cuando termine la obra';
-    const ayudaLuego = obraEnMarcha
+    const ayudaLuego = faseActiva === 'DESPUES'
         ? 'Quedó pendiente de antes de empezar. Si ya no puedes hacerlo, dínoslo y lo resolvemos por otra vía.'
         : 'No hace falta que lo hagas ahora: te lo dejamos aquí para cuando la instalación esté terminada.';
 
@@ -638,6 +714,16 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
     const textoDe = (slot) => (clientView
         ? { label: slot.labelCliente || slot.label, help: slot.helpCliente || slot.help }
         : { label: slot.label, help: slot.help });
+
+    // Qué pone el botón MIENTRAS sube. Con varias fotos, el porcentaje suelto
+    // vuelve a cero en cada una y da la sensación de que se ha colgado; decir
+    // "3 de 7" es lo que deja esperar tranquilo.
+    const textoSubiendo = (slot) => {
+        const n = uploadN[slot.key];
+        const pct = uploadPct[slot.key];
+        if (n && n.total > 1) return `Subiendo ${Math.min(n.hecho + 1, n.total)} de ${n.total}…`;
+        return pct != null ? `Subiendo… ${pct}%` : 'Subiendo…';
+    };
 
     // Texto del botón de subida.
     //
@@ -847,9 +933,7 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
                     {!slot.existing && (
                         <div className={clientView && !done ? 'w-full' : 'shrink-0'}>
                             <label className={`block cursor-pointer rounded-xl font-black uppercase tracking-widest transition-all text-center ${clientView && !done ? 'w-full py-3.5 text-xs' : 'px-4 py-2.5 text-[11px]'} ${busy ? 'bg-white/10 text-white/40' : done ? 'bg-white/[0.06] text-white/70 hover:bg-white/[0.1] border border-white/10' : 'bg-gradient-to-r from-amber-500 to-amber-400 text-black shadow-lg shadow-amber-500/20'}`}>
-                                {busy
-                                    ? (uploadPct[slot.key] != null ? `${uploadPct[slot.key]}%` : '…')
-                                    : uploadCta(slot, done)}
+                                {busy ? textoSubiendo(slot) : uploadCta(slot, done)}
                                 <input type="file" accept={slot.accept}
                                     {...(slot.multiple ? { multiple: true } : {})}
                                     disabled={busy}
@@ -893,35 +977,95 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
                 const txt = textoDe(pasoSlot);
                 const busy = busySlot === pasoSlot.key;
                 const yaTiene = (pasoSlot.items || []).length;
-                const paso = Math.min(cliDone + 1, cliTotal);
+                const paso = pasoIdx >= 0 ? pasoIdx + 1 : Math.min(cliDone + 1, cliTotal);
+                const yaEnviado = !necesitaAccion(pasoSlot);
                 return (
                     <div>
                         {/* Cabecera: dónde estoy y cuánto queda */}
-                        <div className="flex items-center justify-between gap-3 mb-3">
-                            <span className="text-[11px] font-black uppercase tracking-widest text-white/45">
-                                Paso {paso} de {cliTotal}
+                        {/* Qué ACTO se está documentando. Sin este rótulo, "Paso 3 de 6"
+                            no dice si son las fotos de lo viejo o las de lo nuevo, que es
+                            lo primero que hay que saber para hacerlas bien. */}
+                        <div className="flex items-center justify-between gap-3 mb-2">
+                            <span className={`text-[11px] font-black uppercase tracking-widest ${faseActiva === 'ANTES' ? 'text-amber-300/90' : 'text-emerald-300/90'}`}>
+                                {faseActiva === 'ANTES' ? '① Antes de la obra' : '② La instalación nueva'}
                             </span>
                             <button onClick={() => setGuiado(false)}
-                                className="text-[11px] font-bold text-amber-400/80 hover:text-amber-300 underline underline-offset-2">
-                                Ver todos los apartados
+                                className="text-[11px] font-bold text-white/45 hover:text-white/80 underline underline-offset-2">
+                                Ver todos
                             </button>
                         </div>
-                        <div className="h-2 rounded-full bg-white/10 overflow-hidden mb-5">
-                            <div className="h-full rounded-full bg-gradient-to-r from-amber-500 to-emerald-400 transition-all duration-500"
-                                style={{ width: `${cliPct}%` }} />
+                        <div className="flex items-center gap-3 mb-4">
+                            <div className="h-2 flex-1 rounded-full bg-white/10 overflow-hidden">
+                                <div className={`h-full rounded-full transition-all duration-500 ${faseActiva === 'ANTES' ? 'bg-gradient-to-r from-amber-500 to-amber-300' : 'bg-gradient-to-r from-emerald-500 to-emerald-300'}`}
+                                    style={{ width: `${fasePct}%` }} />
+                            </div>
+                            <span className="shrink-0 text-[11px] font-black uppercase tracking-widest text-white/40">
+                                {paso}/{recorrido.length}
+                            </span>
                         </div>
 
-                        <div className={`rounded-3xl border-2 p-5 md:p-6 ${pasoSlot.estado === 'rechazada' ? 'border-red-400/40 bg-red-400/[0.06]' : 'border-amber-400/30 bg-amber-400/[0.04]'}`}>
+                        {/* Se acaba de cerrar el primer acto: se anuncia, no se salta en
+                            silencio. Es el hito que le dice que lo suyo va bien. */}
+                        {antesCerrado && !flash && (
+                            <div className="mb-3 rounded-2xl border border-emerald-400/30 bg-emerald-400/[0.08] px-4 py-3 text-center">
+                                <p className="text-emerald-300 font-black text-sm">✓ Ya tenemos todo lo de antes de la obra</p>
+                                <p className="mt-1 text-white/50 text-xs">Ahora las fotos de la instalación nueva, ya terminada.</p>
+                            </div>
+                        )}
+
+                        {flash && (
+                            <div className="mb-3 flex items-center justify-center gap-2 rounded-2xl border border-emerald-400/40 bg-emerald-400/[0.12] py-3 text-emerald-300 font-black text-sm">
+                                <span className="text-lg leading-none">✓</span>
+                                {flash.n > 1 ? `${flash.n} fotos recibidas` : 'Recibida, gracias'}
+                            </div>
+                        )}
+
+                        <div
+                            onDragOver={(e) => { e.preventDefault(); if (!busy && dragOver !== pasoSlot.key) setDragOver(pasoSlot.key); }}
+                            onDragEnter={(e) => { e.preventDefault(); if (!busy) setDragOver(pasoSlot.key); }}
+                            onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setDragOver(null); }}
+                            onDrop={(e) => {
+                                e.preventDefault(); setDragOver(null);
+                                if (!busy && e.dataTransfer.files?.length) requestUpload(pasoSlot, e.dataTransfer.files);
+                            }}
+                            className={`relative rounded-3xl border-2 p-5 md:p-6 transition-all ${dragOver === pasoSlot.key ? 'border-amber-400 bg-amber-400/[0.12] shadow-[0_0_36px_rgba(251,191,36,0.3)]' : pasoSlot.estado === 'rechazada' ? 'border-red-400/40 bg-red-400/[0.06]' : yaEnviado ? 'border-emerald-400/35 bg-emerald-400/[0.05]' : 'border-amber-400/30 bg-amber-400/[0.04]'}`}>
+                            {dragOver === pasoSlot.key && (
+                                <div className="absolute inset-0 z-10 flex items-center justify-center rounded-3xl bg-black/50 backdrop-blur-[2px] pointer-events-none">
+                                    <span className="text-amber-300 font-black text-sm uppercase tracking-widest">📥 Suelta aquí las fotos</span>
+                                </div>
+                            )}
                             {pasoSlot.estado === 'rechazada' && (
                                 <p className="mb-4 text-center text-xs font-black uppercase tracking-widest text-red-300">
                                     ⚠️ Hay que repetir esta foto
                                 </p>
                             )}
+                            {/* Apartado ya resuelto al que se ha vuelto con "Anterior".
+                                Se dice claramente que NO hay nada que hacer aquí: si no,
+                                se vuelve a subir la misma foto por si acaso. */}
+                            {yaEnviado && pasoSlot.estado !== 'rechazada' && (
+                                <p className="mb-4 text-center text-xs font-black uppercase tracking-widest text-emerald-300">
+                                    ✓ Ya nos la has enviado
+                                </p>
+                            )}
 
-                            {/* El dibujo enseña el ENCUADRE, que es lo que se hace mal */}
-                            <div className="w-40 h-32 md:w-48 md:h-36 mx-auto mb-4">
-                                <SlotIlustracion slotKey={pasoSlot.key} />
-                            </div>
+                            {/* Qué se enseña arriba: si el apartado YA tiene foto, la SUYA
+                                —es a lo que ha vuelto a mirar—; si no, el ejemplo, que
+                                enseña el encuadre. A todo el ancho: en un móvil, una
+                                miniatura de 160 px no deja ver si la pegatina se lee. */}
+                            {yaTiene > 0 ? (
+                                <button
+                                    onClick={() => { const it = pasoSlot.items[0]; setLbConfirmDelete(false); setLightbox({ slot: pasoSlot, item: it, localUrl: it.localUrl, driveId: it.driveId, thumb: it.thumb, label: txt.label }); }}
+                                    className="relative mb-4 aspect-[7/6] w-full max-w-sm mx-auto block overflow-hidden rounded-2xl border-2 border-emerald-400/40">
+                                    <DriveImg localUrl={pasoSlot.items[0].localUrl} proxySrc={thumbProxy(pasoSlot.items[0].driveId, 800)} driveId={pasoSlot.items[0].driveId} thumb={pasoSlot.items[0].thumb} size={800} fit="cover" />
+                                    <span className="absolute bottom-2 right-2 rounded-lg bg-black/70 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-white/90 backdrop-blur-sm">
+                                        🔍 Ver en grande
+                                    </span>
+                                </button>
+                            ) : tieneIlustracion(pasoSlot.key) ? (
+                                <div className="mb-4 aspect-[7/6] w-full max-w-sm mx-auto">
+                                    <SlotIlustracion slotKey={pasoSlot.key} className="w-full h-full" />
+                                </div>
+                            ) : null}
 
                             <h2 className="text-center text-xl md:text-2xl font-black text-white leading-tight">{txt.label}</h2>
                             {txt.help && <p className="mt-2.5 text-center text-sm text-white/55 leading-relaxed">{txt.help}</p>}
@@ -932,21 +1076,46 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
                             ))}
 
                             {/* Lo ya subido a ESTE apartado, por si añade más */}
-                            {yaTiene > 0 && (
-                                <div className="mt-4 flex justify-center gap-2">
-                                    {(pasoSlot.items || []).slice(0, 4).map((it, n) => (
-                                        <div key={n} className="relative w-12 h-12 rounded-lg overflow-hidden border border-white/15">
+                            {/* Quitar la foto que acaba de ver y no le convence. Solo las que
+                                están PENDIENTES DE REVISIÓN: una ya validada forma parte del
+                                expediente y no se toca desde aquí. Volver atrás a mirar y no
+                                poder corregir es media función; sin esto, el cliente sube la
+                                buena encima y nos deja las dos, y hay que adivinar cuál vale. */}
+                            {yaTiene > 0 && (pasoSlot.items[0].estado || 'subida') === 'subida' && !busy && (
+                                quitarConfirm === pasoSlot.items[0].name ? (
+                                    <div className="mt-3 flex items-center justify-center gap-2">
+                                        <button onClick={async () => { setQuitarConfirm(null); await deleteItem(pasoSlot, pasoSlot.items[0]); }}
+                                            className="px-4 py-2 rounded-xl bg-red-500/20 border border-red-400/40 text-red-300 text-[11px] font-black uppercase tracking-widest hover:bg-red-500/30 transition-all">
+                                            Sí, quitarla
+                                        </button>
+                                        <button onClick={() => setQuitarConfirm(null)}
+                                            className="px-4 py-2 rounded-xl border border-white/15 text-white/50 text-[11px] font-black uppercase tracking-widest hover:text-white/80 transition-all">
+                                            No, dejarla
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <button onClick={() => setQuitarConfirm(pasoSlot.items[0].name)}
+                                        className="mt-3 mx-auto block text-[11px] font-bold text-white/35 hover:text-red-300 transition-colors underline underline-offset-2">
+                                        Esta foto no vale · quitarla
+                                    </button>
+                                )
+                            )}
+
+                            {yaTiene > 1 && (
+                                <div className="mt-4 flex flex-wrap justify-center gap-2">
+                                    {(pasoSlot.items || []).slice(1, 6).map((it, n) => (
+                                        <button key={n}
+                                            onClick={() => { setLbConfirmDelete(false); setLightbox({ slot: pasoSlot, item: it, localUrl: it.localUrl, driveId: it.driveId, thumb: it.thumb, label: txt.label }); }}
+                                            className="relative w-14 h-14 rounded-lg overflow-hidden border border-white/15">
                                             <DriveImg localUrl={it.localUrl} proxySrc={thumbProxy(it.driveId, 200)} driveId={it.driveId} thumb={it.thumb} size={200} fit="cover" />
-                                        </div>
+                                        </button>
                                     ))}
-                                    {yaTiene > 4 && <div className="w-12 h-12 rounded-lg border border-white/15 flex items-center justify-center text-[11px] font-black text-white/50">+{yaTiene - 4}</div>}
+                                    {yaTiene > 6 && <div className="w-14 h-14 rounded-lg border border-white/15 flex items-center justify-center text-[11px] font-black text-white/50">+{yaTiene - 6}</div>}
                                 </div>
                             )}
 
-                            <label className={`mt-5 block cursor-pointer rounded-2xl py-4 text-center font-black uppercase tracking-widest text-sm transition-all ${busy ? 'bg-white/10 text-white/40' : 'bg-gradient-to-r from-amber-500 to-amber-400 text-black shadow-lg shadow-amber-500/25'}`}>
-                                {busy
-                                    ? (uploadPct[pasoSlot.key] != null ? `Subiendo… ${uploadPct[pasoSlot.key]}%` : 'Subiendo…')
-                                    : uploadCta(pasoSlot, false)}
+                            <label className={`mt-5 block cursor-pointer rounded-2xl py-4 text-center font-black uppercase tracking-widest text-sm transition-all ${busy ? 'bg-white/10 text-white/40' : yaEnviado ? 'border border-white/15 bg-white/[0.06] text-white/70 hover:bg-white/[0.1]' : 'bg-gradient-to-r from-amber-500 to-amber-400 text-black shadow-lg shadow-amber-500/25'}`}>
+                                {busy ? textoSubiendo(pasoSlot) : uploadCta(pasoSlot, yaEnviado)}
                                 <input type="file" accept={pasoSlot.accept}
                                     {...(pasoSlot.multiple ? { multiple: true } : {})}
                                     disabled={busy}
@@ -954,18 +1123,52 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
                                     className="hidden" />
                             </label>
                             {pasoSlot.multiple && !busy && (
-                                <p className="mt-2 text-center text-[11px] text-white/35">Puedes elegir varias a la vez</p>
+                                <p className="mt-2 text-center text-[11px] text-white/35">
+                                    Puedes elegir varias a la vez
+                                    {/* El arrastrar y soltar solo existe con raton: en un movil
+                                        no hay de donde arrastrar y mencionarlo solo confunde. */}
+                                    <span className="hidden md:inline"> · o arrástralas aquí</span>
+                                </p>
                             )}
                             {slotError[pasoSlot.key] && <p className="mt-3 text-center text-red-400 text-xs">{slotError[pasoSlot.key]}</p>}
 
-                            {/* Aplazar. Nunca "omitir": no desaparece, vuelve al final. */}
-                            {!busy && cliAhora.length > 1 && (
-                                <button onClick={() => setSaltados(prev => new Set(prev).add(pasoSlot.key))}
-                                    className="mt-4 w-full py-2.5 text-xs font-bold uppercase tracking-widest text-white/40 hover:text-white/70 transition-colors">
-                                    Ahora no · pasar al siguiente
-                                </button>
+                            {/* Navegación del recorrido. "Siguiente" sobre un apartado aún
+                                pendiente lo APLAZA (vuelve más tarde), nunca lo omite; por
+                                eso lo dice con esas palabras y no con un "saltar". */}
+                            {!busy && recorrido.length > 1 && (
+                                <div className="mt-4 flex items-center gap-2">
+                                    <button
+                                        onClick={() => irA(pasoIdx - 1)}
+                                        disabled={pasoIdx <= 0}
+                                        className="flex-1 py-3 rounded-xl border border-white/10 text-xs font-bold uppercase tracking-widest text-white/50 hover:text-white/85 hover:border-white/25 transition-all disabled:opacity-25 disabled:hover:text-white/50 disabled:hover:border-white/10">
+                                        ‹ Anterior
+                                    </button>
+                                    <button
+                                        onClick={() => irA(pasoIdx + 1, !yaEnviado)}
+                                        disabled={pasoIdx < 0 || pasoIdx >= recorrido.length - 1}
+                                        className="flex-1 py-3 rounded-xl border border-white/10 text-xs font-bold uppercase tracking-widest text-white/50 hover:text-white/85 hover:border-white/25 transition-all disabled:opacity-25 disabled:hover:text-white/50 disabled:hover:border-white/10">
+                                        {yaEnviado ? 'Siguiente ›' : 'Ahora no ›'}
+                                    </button>
+                                </div>
                             )}
                         </div>
+
+                        {/* Adelantarse al segundo acto. Existe porque hay quien llega con
+                            la obra YA TERMINADA y quiere subirlo todo de una sentada; sin
+                            esto tendría que aplazar apartado por apartado. No rompe el
+                            orden: lo de antes sigue pendiente y se le dice. */}
+                        {faseActiva === 'ANTES' && pendDespues.length > 0 && (
+                            <button onClick={() => { setFaseManual('DESPUES'); setPasoKey(null); }}
+                                className="mt-4 w-full py-3 rounded-2xl border border-white/10 text-[11px] font-bold uppercase tracking-widest text-white/40 hover:text-white/75 hover:border-white/25 transition-all">
+                                ¿La obra ya está hecha? · Subir también lo nuevo
+                            </button>
+                        )}
+                        {faseActiva === 'DESPUES' && pendAntes.length > 0 && (
+                            <button onClick={() => { setFaseManual('ANTES'); setPasoKey(null); }}
+                                className="mt-4 w-full py-3 rounded-2xl border border-amber-400/25 bg-amber-400/[0.05] text-[11px] font-bold uppercase tracking-widest text-amber-300/80 hover:bg-amber-400/[0.12] transition-all">
+                                ‹ Te falta {pendAntes.length === 1 ? 'una foto' : `${pendAntes.length} fotos`} de antes de la obra
+                            </button>
+                        )}
 
                         {/* Lo que ya nos ha mandado: tranquiliza sin distraer */}
                         {cliHechos.filter(s => !s.existing).length > 0 && (

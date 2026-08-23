@@ -369,6 +369,39 @@ con ella el SCOP declarado— es `instalacion.tipo_emisor`, que ya viaja al CIFO
 nada al expediente y sí una casilla más. `conceptsFromInstalacion` dejó de emitir el concepto
 `emisores`. Sigue en `ADDABLE_CONCEPTS` por si un verificador la reclama.
 
+**REGLA — el GENERADOR de calor actual se documenta SIEMPRE, arda o no.** `hayCaldera` preguntaba
+"¿hay caldera de COMBUSTIÓN?" y, si no la había, el expediente se quedaba sin **ninguna** foto del
+estado inicial. Medido en 26RES080_OP54 (radiadores eléctricos + termo): no se le pedía una sola
+foto de lo que se iba a sustituir, que es justo lo que justifica el ahorro de un RES080. Ahora solo
+se calla si la vivienda declara que NO tiene calefacción, y `calderaEsCombustion` decide **cómo se
+llama**, no si se pide: con calefacción eléctrica el apartado es "Sistema de calefacción actual"
+("Cómo calientas hoy la casa" para el cliente) y el del DESPUÉS, "Equipo antiguo retirado" — pedirle
+"la caldera vieja ya quitada" a quien nunca tuvo caldera es pedirle una foto imposible.
+
+**REGLA — el ACS inicial se pide según QUÉ APARATO calienta hoy el agua.** Lo dice el paso 5 del
+funnel (`boiler_acs_type`): con **`misma_caldera` NO se pide foto** — la calienta la propia caldera y
+esa foto ya está pedida más arriba; con `no_tengo` tampoco. Con **otro aparato** (termo · butano ·
+solar · gas · gasóleo) sí, y **se le llama por su nombre**: "Tu termo eléctrico actual", no "Sistema
+de ACS actual", que no significa nada fuera de una oficina (tabla `ACS_INICIAL_LABEL`). En altas por
+CALCULADORA, sin funnel, se deduce de que `boilerAcsType` difiera de `boilerHeatingType`
+(`tipoAcsDesdeInputs`).
+⚠️ `instalacion.misma_caldera_acs` **solo cuenta cuando vale `false`**: `expedienteService` lo siembra
+a `true` en todo expediente nuevo sin mirar lo que contestó el cliente, así que un `true` no es una
+declaración y no puede apagar la foto — un `false` sí, porque alguien movió el toggle a propósito.
+
+**REGLA — el ACS INICIAL no es lo mismo que "se cambia el ACS".** `changeAcs` dice si la ACTUACIÓN
+toca el ACS; `acsInicial` dice si hay que documentar el que YA HABÍA. En un **RES080** el ahorro se
+justifica comparando antes/después y el ACS entra en esa tabla de emisiones (en 26RES080_OP54:
+7,91 → 7,59 kg CO₂/m²), así que el termo existente se fotografía aunque la obra no lo sustituya. En
+una ficha de sustitución de caldera sigue mandando la regla 12.b: ACS fuera de alcance → no se pide.
+El **depósito nuevo** (`FOTO_ACS_DEPOSITO`, fase DESPUÉS) solo se pide si `changeAcs`.
+
+**REGLA — lo que define la ACTUACIÓN va PRIMERO; el contexto, detrás.** Fachada de la calle, patios,
+vídeo, planos, CEE previo y presupuesto son material para que el certificador levante el CEE: van al
+final. Iban delante, y en un RES080 de cubierta la foto del tejado caía en el **paso 7 de 8**, detrás
+de cuatro cosas opcionales — parecía que no se pedía. El orden del `push` en `buildDocChecklist` ES
+el orden de la pantalla (`byTier` solo reordena por estado y conserva el índice original).
+
 **REGLA — un apartado de OTRO emisor se retira (`SLOT_EMISOR` / `emisorDesencaja`).** Cada familia
 de emisor tiene su foto y son excluyentes: suelo radiante → armario de colectores; radiadores → ya
 no se pide; aire-aire (splits/conductos de un RES080) → ninguna, porque esa foto ya es la de la
@@ -399,11 +432,42 @@ entero) conserva pestañas, densidad y validación. El cliente ve otra cosa:
   empezado la obra es darle una tarea imposible, y once tareas imposibles hacen que deje de mirar
   la lista. La fase activa (`obraEnMarcha`) va primera; la otra, detrás y diciendo cuándo toca.
 - **Modo GUIADO por defecto: UN apartado en pantalla cada vez.** Siete tarjetas iguales producen
-  parálisis en quien no se maneja — coge lo primero que entiende y hace solo eso. El recorrido
-  enseña siempre el primer pendiente; al subirlo, el siguiente aparece solo (no hay índice que se
-  desajuste cuando la lista cambia bajo los pies). **"Ahora no" APLAZA, no omite**: vuelve al final,
-  y si acaba apartando todos la cola vuelve a empezar. Salida siempre visible con "Ver todos los
-  apartados", y desde la lista se vuelve con "Guíame paso a paso".
+  parálisis en quien no se maneja — coge lo primero que entiende y hace solo eso. Salida siempre
+  visible con "Ver todos los apartados", y desde la lista se vuelve con "Guíame paso a paso".
+- **El recorrido lo componen TODOS los apartados de la fase activa, no solo los pendientes**
+  (`recorrido`), para poder **volver atrás a ver la foto que ya se subió**. Antes, al subirla el
+  apartado desaparecía de la cola y no había forma de volver a mirarla. Sobre un apartado ya
+  resuelto la tarjeta enseña **su foto** en vez del ejemplo (pulsable → visor), lo dice
+  ("✓ Ya nos la has enviado") y el botón pasa a "+ Añadir más".
+- **La navegación tiene DOS mandos y una prioridad.** `pasoKey` es lo que el cliente elige con
+  Anterior/Siguiente; mientras vale `null` manda el automático, que enseña el primer pendiente **por
+  urgencia** (lo rechazado primero) y no por orden de lista. Al subir con éxito se vuelve a `null`:
+  el apartado deja de estar pendiente y el siguiente aparece solo, sin índices que se desajusten.
+  **"Siguiente" sobre algo aún pendiente APLAZA** (`saltados`), nunca omite: vuelve al final, y si
+  se apartan todos la cola vuelve a empezar.
+- **Acuse de recibo tras subir** ("✓ Recibida, gracias", 3,2 s). Sin él la tarjeta cambia sola al
+  paso siguiente y no queda señal de que la foto haya llegado: quien no se maneja la vuelve a subir
+  por si acaso, y nos llegan duplicados.
+- **El cliente puede QUITAR una foto suya**, pero solo mientras está `subida` (pendiente de
+  revisión): una ya validada forma parte del expediente. Es la pareja de "volver atrás" — mirar y no
+  poder corregir es media función, y sin esto sube la buena encima y hay que adivinar cuál vale.
+  Confirmación en dos pasos.
+- **Un DOCUMENTO no lleva ilustración** (`SIN_ILUSTRACION`: `DOC_`, `VIDEO_`, `OTROS`). Una factura
+  se entiende con su título; un dibujo de "una hoja con rayas" no añade nada y en un móvil ocupa
+  media pantalla que debería estar viendo el botón. El pictograma se gana su sitio cuando enseña un
+  ENCUADRE que se hace mal (la pegatina de cerca, el armario abierto); en un papel no hay encuadre.
+  Excepción: `DOC_CEE_EXISTENTE` sí enseña la etiqueta energética, porque ahí el problema es que el
+  cliente no sabe QUÉ PAPEL es — `SLOT_FOTO` manda sobre esa lista.
+- **Cada paso lleva una FOTO DE EJEMPLO**, marcada "EJEMPLO" en una esquina (sin ese distintivo
+  más de uno la toma por algo ya subido y pasa de largo). Viven en `frontend/public/tutorial/`
+  (ver su `LEEME.md`) y el mapa es **EXPLÍCITO por slot** (`SLOT_FOTO`), no por familia: "la
+  cubierta antes" y "la cubierta terminada" son la misma familia y fotos opuestas, y enseñar la
+  contraria es peor que no enseñar ninguna. Un slot sin foto cae al pictograma SVG, que se queda
+  como red de seguridad. **Se recorta el titular incrustado** de la imagen original: la app ya pone
+  el título en lenguaje de cliente y, en un móvil de 375 px, esa franja se renderiza a ~7 px. Lo que
+  se conserva es el encuadre verde y el distintivo, que es lo que enseña qué tiene que salir.
+  Las originales quedan en `frontend/tutorial-originales/`, **fuera del sitio web y de git**
+  (28 MB en PNG → 1,6 MB en JPEG servido).
 - **Cada paso lleva un DIBUJO del encuadre** ([SlotIlustracion.jsx](implementation/frontend/src/features/docs/SlotIlustracion.jsx)):
   pictogramas SVG, no fotos. La causa nº 1 de foto rechazada es que no se lee el nº de serie de la
   pegatina, y el texto solo no lo arreglaba. Son SVG porque no pesan en una conexión móvil, se
@@ -421,6 +485,12 @@ pide la vista con `audience: 'cliente'` y esos apartados **no se le enseñan** �
 documento (el CEE final lo emite NUESTRO certificador) y solo alargaban la pantalla del móvil. El
 **admin los conserva** (los usa para archivar material suelto), y un apartado prescindible que YA
 tenga ficheros no se oculta nunca.
+
+**Arrastrar y soltar en el paso guiado** (PC): la tarjeta entera es zona de suelta y admite varios
+ficheros. La pista "o arrástralas aquí" va en `hidden md:inline` — en un móvil no hay de dónde
+arrastrar y mencionarlo solo confunde. Con varios ficheros el botón dice **"Subiendo 3 de 7…"**,
+no un porcentaje: las subidas van de una en una y un % que vuelve a cero en cada foto parece que
+se ha colgado.
 
 **El botón NUNCA dice "Hacer foto"**: al pulsar, el móvil ofrece cámara *y* galería, y muchas de
 esas fotos ya están hechas. Va en PLURAL cuando el apartado admite varias (`slot.multiple`) y lleva
@@ -1012,6 +1082,65 @@ emisiones.
 `EfficiencyTable` acepta `categories` (por defecto las 3 de siempre, sin cambios). Los rótulos van
 EXPLÍCITOS por fila porque los dos métodos no comparten redacción: uno habla de usos y el otro de
 vectores. `CATEGORIES_SIMPLIFICADO` es la fuente única de las dos filas nuevas.
+
+---
+
+## Convenio de Cesión — se firma ANTES de terminar la obra (2026-08-12)
+
+El convenio tiene ahora **dos redacciones del mismo documento** (mismo fichero, mismo nombre,
+mismo slot `anexo_cesion_*`, misma caja de firma): actuación **PREVISTA** y actuación
+**EJECUTADA**. Lo decide `previo` en `buildAnexoCesionHtml(expediente, results, { previo })`;
+sin ese parámetro manda `esCesionPrevia(expediente)`, en
+[docGenerators.js](implementation/frontend/src/features/expedientes/utils/docGenerators.js).
+
+**REGLA — mientras no haya facturas, el convenio va en FUTURO.** El texto de obra ejecutada
+afirma que la actuación *se ha llevado a cabo* y que el ahorro *se ha estimado* sobre algo hecho.
+Firmado antes de la obra, el cliente declara como pasado lo que no ha ocurrido. El previo dice lo
+mismo en futuro (modelo oficial del convenio CAE, Orden TED/815/2023 art. 11, OPCIÓN 2) y añade
+las dos salvaguardas que ese momento exige: el ahorro es **estimado** y, si el verificado sale
+distinto, la cesión se mantiene íntegra; y el importe **se ajusta al ahorro verificado sin variar
+el precio unitario**.
+
+**REGLA — SIEMPRE se habla de ahorro ESTIMADO, también con la obra terminada.** Lo fija la ficha,
+no un contador: la cláusula tercera decía "ahorro anual efectivo" y comprometía un número que el
+verificador todavía puede mover.
+
+**REGLA — sin IBAN el convenio NO deja un hueco.** Con cuenta se imprime como hasta ahora; sin
+ella el texto dice que el ingreso irá a la que el Cedente aporte. **La titularidad se acredita con
+justificante en los dos casos.** Por eso la falta de IBAN deja de bloquear el envío
+(`anexoBlockers` en `EnviarAnexosModal`) y de contar como dato faltante (`validateExpediente`)
+cuando el convenio es previo: es justo el supuesto para el que existe.
+
+**REGLA — con "Descuento Certificados" activo, el convenio NO dice NADA del coste de gestión.**
+Ni la deducción ni su negación: el párrafo entero desaparece. Antes se reescribía como reclamo
+("la gestión es completamente gratuita, BROKERGY corre con estos costes") — esto es un contrato
+que lee el verificador, y ahí no pinta una oferta comercial que además le mete al Cedente en la
+cabeza un coste que en su caso no existe. Sin deducción, lo que se debe es el importe íntegro de
+la cláusula cuarta, que ya es el comportamiento por defecto de cualquier contrato. De paso se
+quita una afirmación que salía en falso: un expediente sin CEE llega sin `caeMaintenanceCost` y
+prometía gratuidad sin haberla comprobado.
+
+**El popup manda sobre la detección.** Generar abre `CesionObraGate` (DocumentacionModule), que
+propone la respuesta según haya facturas registradas y guarda la elegida en
+`documentacion.anexo_cesion_obra_finalizada`. Se persiste porque **el envío vuelve a generar el
+PDF**: sin guardarla, se revisa un texto en pantalla y se manda el otro. Al modal se le pasa
+además `previo` explícito — la decisión acaba de guardarse y el `expediente` de la vista va un
+refetch por detrás. `onRequestSend` viaja con `overrides.cesion` (mismo mecanismo que el Anexo I)
+para que se envíe exactamente el HTML revisado.
+
+**REGLA — el contenido cabe en DOS páginas y eso se COMPRUEBA.** `.conv-page` es una caja fija con
+`overflow:hidden`: lo que no cabe no descoloca nada, **desaparece** — y como los hijos de
+`.conv-body` son flex-items que se encogen, el `scrollHeight` del contenedor ni siquiera lo
+delata. El documento V3 iba con 2px de holgura, así que el texto nuevo obligó a apretar el
+interlineado (1,65 → 1,5) y los márgenes de título/subtítulos. Tras cualquier retoque del texto:
+
+```bash
+node implementation/backend/scripts/check_anexo_cesion_2pag.mjs
+```
+
+**El `padding-bottom` de `.conv-body` y todo `.conv-sign*` NO se tocan**: el recuadro de firma del
+Cesionario es una caja FIJA en coordenadas de PDF (`SIGN_BOXES.anexo_cesion_cesionario`) y está
+anclada al borde inferior de la página 2. Verificado: la caja cae en el mismo píxel que antes.
 
 ---
 

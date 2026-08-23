@@ -1,6 +1,6 @@
 import React, { useRef, useState, useCallback, useEffect } from 'react';
 import axios from 'axios';
-import { buildAnexoCesionHtml, buildAnexoIHtml, getDualMessage, getClientCaeRate, ANEXO_CESION_CSS } from '../utils/docGenerators';
+import { buildAnexoCesionHtml, buildAnexoIHtml, getDualMessage, getClientCaeRate, esCesionPrevia, ANEXO_CESION_CSS } from '../utils/docGenerators';
 import { useAuth } from '../../../context/AuthContext';
 import AppConfirm from '../../../components/AppConfirm';
 import FirmarConCertificadoModal from './FirmarConCertificadoModal';
@@ -9,7 +9,14 @@ import { postEmail } from '../../../utils/emailFallback';
 
 const LOGO_URL  = '/logo_brokergy_dark.png';
 
-export function AnexoCesionModal({ isOpen, onClose, expediente, results, onSaveDrive, onRequestSend }) {
+/**
+ * `previo` (opcional) fuerza la redacción del convenio: true = la obra aún no ha
+ * terminado (actuación PREVISTA), false = obra ejecutada. Lo elige el popup de
+ * generación; si no llega, se resuelve desde el expediente. Se pasa explícito
+ * porque la decisión acaba de guardarse y el `expediente` de la vista puede ir
+ * todavía un refetch por detrás.
+ */
+export function AnexoCesionModal({ isOpen, onClose, expediente, results, onSaveDrive, onRequestSend, previo }) {
     const { user } = useAuth();
     const containerRef = useRef(null);
     const [scale, setScale] = useState(1);
@@ -42,6 +49,9 @@ export function AnexoCesionModal({ isOpen, onClose, expediente, results, onSaveD
 
     if (!isOpen || !expediente) return null;
 
+    const esPrevio = previo !== undefined ? !!previo : esCesionPrevia(expediente);
+    const docOpts  = { previo: esPrevio };
+
     const op      = expediente.oportunidades || {};
     const cliente = expediente.clientes || {};
     const inst    = expediente.instalacion || {};
@@ -66,7 +76,7 @@ export function AnexoCesionModal({ isOpen, onClose, expediente, results, onSaveD
     const handleDownload = async () => {
         setGenerating(true);
         try {
-            const html = buildAnexoCesionHtml(expediente, results);
+            const html = buildAnexoCesionHtml(expediente, results, docOpts);
             const { data } = await axios.post('/api/pdf/generate', { html }, { timeout: 60000 });
             if (!data.pdf) throw new Error('Error al generar el PDF');
             
@@ -101,7 +111,7 @@ export function AnexoCesionModal({ isOpen, onClose, expediente, results, onSaveD
                 const { data } = await axios.get(`/api/expedientes/${expediente.id}/documento-b64/anexo_cesion_signed_link`);
                 pdfB64 = data.pdf;
             } else {
-                const html = buildAnexoCesionHtml(expediente, results);
+                const html = buildAnexoCesionHtml(expediente, results, docOpts);
                 const { data } = await axios.post('/api/pdf/generate', { html }, { timeout: 60000 });
                 pdfB64 = data.pdf;
             }
@@ -142,7 +152,7 @@ export function AnexoCesionModal({ isOpen, onClose, expediente, results, onSaveD
         }
         setSavingDrive(true);
         try {
-            const html = buildAnexoCesionHtml(expediente, results);
+            const html = buildAnexoCesionHtml(expediente, results, docOpts);
             const fileName = `${numexpte} - Anexo Cesion ahorro`;
             await axios.post('/api/pdf/save-to-drive', {
                 html, 
@@ -181,7 +191,7 @@ export function AnexoCesionModal({ isOpen, onClose, expediente, results, onSaveD
             setSendingEmail(true);
             try {
                 const summaryData = { id: numexpte, docType: sendDual ? 'Anexo de Cesion y Anexo I' : 'Anexo de Cesion', userName: [cliente.nombre_razon_social, cliente.apellidos].filter(Boolean).join(' ') };
-                const htmlCesion = buildAnexoCesionHtml(expediente, results);
+                const htmlCesion = buildAnexoCesionHtml(expediente, results, docOpts);
                 const firstName = (cliente.nombre_razon_social || '').split(/\s+/)[0];
                 const docs = [{ html: htmlCesion, fileName: `${numexpte}_Anexo_Cesion.pdf` }];
                 let customMessage = null;
@@ -254,7 +264,7 @@ export function AnexoCesionModal({ isOpen, onClose, expediente, results, onSaveD
                     return;
                 }
                 const firstName = (cliente.nombre_razon_social || '').split(/\s+/)[0];
-                const htmlCesion = buildAnexoCesionHtml(expediente, results);
+                const htmlCesion = buildAnexoCesionHtml(expediente, results, docOpts);
                 if (sendDual) {
                     const htmlAnexoI = buildAnexoIHtml(expediente, results);
                     const caption = getDualMessage(firstName, beneficioStr, numexpte);
@@ -322,7 +332,12 @@ export function AnexoCesionModal({ isOpen, onClose, expediente, results, onSaveD
                             </button>
                             <div className="border-l border-white/10 pl-3">
                                 <h2 className="text-sm font-black text-white tracking-wider uppercase">Convenio Cesión CAE</h2>
-                                <p className="text-white/30 text-xs mt-0.5">{numexpte} · 2 páginas</p>
+                                <p className="text-white/30 text-xs mt-0.5">
+                                    {numexpte} · 2 páginas ·{' '}
+                                    <span className={esPrevio ? 'text-amber-400/80' : 'text-emerald-400/80'}>
+                                        {esPrevio ? 'obra prevista' : 'obra ejecutada'}
+                                    </span>
+                                </p>
                             </div>
                         </div>
                         <div className="flex items-center gap-3">
@@ -337,7 +352,7 @@ export function AnexoCesionModal({ isOpen, onClose, expediente, results, onSaveD
                             )}
                             {onRequestSend ? (
                                 <button
-                                    onClick={() => onRequestSend({ docs: ['cesion'] })}
+                                    onClick={() => onRequestSend({ docs: ['cesion'], overrides: { cesion: buildAnexoCesionHtml(expediente, results, docOpts) } })}
                                     disabled={generating || savingDrive}
                                     title="Enviar al cliente o al instalador (Email / WhatsApp)"
                                     className="flex items-center gap-2 px-4 py-2 rounded-xl border border-white/10 text-white/80 text-xs font-black uppercase tracking-wider hover:text-white hover:border-brand/40 hover:bg-brand/5 transition-all active:scale-95 disabled:opacity-30 shrink-0"
@@ -388,7 +403,7 @@ export function AnexoCesionModal({ isOpen, onClose, expediente, results, onSaveD
                         <div style={{ transform: `scale(${scale})`, transformOrigin: 'top center', width: 794, margin: '0 auto' }}>
                             <div 
                                 className="conv-wrap" 
-                                dangerouslySetInnerHTML={{ __html: buildAnexoCesionHtml(expediente, results) }}
+                                dangerouslySetInnerHTML={{ __html: buildAnexoCesionHtml(expediente, results, docOpts) }}
                             />
                         </div>
                     </div>

@@ -3,7 +3,7 @@ import axios from 'axios';
 import confetti from 'canvas-confetti';
 import { useModal } from '../../../context/ModalContext';
 import { postEmail } from '../../../utils/emailFallback';
-import { buildAnexoIHtml, buildAnexoCesionHtml, getDualMessage, getClientCaeRate, buildInstalacionAddress } from '../utils/docGenerators';
+import { buildAnexoIHtml, buildAnexoCesionHtml, getDualMessage, getClientCaeRate, buildInstalacionAddress, esCesionPrevia, tieneCuentaBancaria } from '../utils/docGenerators';
 import { clienteContacts, instaladorContacts, phoneValid } from '../utils/docContacts';
 import { unidadesSinSerie, countUnidades } from '../logic/aerotermiaUnits';
 
@@ -87,7 +87,11 @@ function anexoBlockers(expediente) {
             series.push(nAcs > 1 ? `nº de serie ud. interior/ACS (equipo ${n})` : 'nº de serie de la unidad interior (ACS)');
         }
     }
-    const ibanOk = !!(cli.numero_cuenta && !String(cli.numero_cuenta).includes('_'));
+    // El IBAN solo bloquea el convenio de OBRA EJECUTADA. El convenio PREVIO se
+    // firma antes de que haya facturas y su propio texto dice que el ingreso irá
+    // a la cuenta que el Cedente aporte, acreditando la titularidad: firmado sin
+    // IBAN es válido, así que bloquearlo impediría el flujo para el que existe.
+    const ibanOk = tieneCuentaBancaria(cli) || esCesionPrevia(expediente);
     return {
         anexo1: series.length ? `Falta ${series.join(', ')}` : null,
         cesion: ibanOk ? null : 'Falta el nº de cuenta (IBAN) del cliente',
@@ -298,7 +302,7 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
     // ── Validación blanda (datos incompletos) ────────────────────────────────
     const rc = opInputs.rc || cli.referencia_catastral || inst.ref_catastral;
     const missingAnexoI = (!rc || String(rc).includes('___')) ? ['Referencia Catastral'] : [];
-    const hasIban = !!(cli.numero_cuenta && !String(cli.numero_cuenta).includes('_'));
+    const hasIban = tieneCuentaBancaria(cli) || esCesionPrevia(expediente);
     const hasUtms = !!(inst.coord_x && inst.coord_y && !String(inst.coord_x).includes('_'));
     // El municipio de la instalación es motivo de rechazo si sale en blanco en el
     // Anexo. Con misma_direccion se toma del cliente; comprobamos el valor EFECTIVO.
@@ -414,7 +418,8 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
             const html = (overrides && overrides.anexo1) ? overrides.anexo1 : buildAnexoIHtml(expediente, results, {}, true);
             return { key: 'anexo1', label: 'Anexo I', fileName: `${numexpte}${DOC_DEFS.anexo1.file}`, html };
         }
-        return { key: 'cesion', label: 'Anexo de Cesión', fileName: `${numexpte}${DOC_DEFS.cesion.file}`, html: buildAnexoCesionHtml(expediente, results) };
+        const html = (overrides && overrides.cesion) ? overrides.cesion : buildAnexoCesionHtml(expediente, results);
+        return { key: 'cesion', label: 'Anexo de Cesión', fileName: `${numexpte}${DOC_DEFS.cesion.file}`, html };
     });
 
     // ── Orquestador de envío ─────────────────────────────────────────────────
