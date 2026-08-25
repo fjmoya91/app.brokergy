@@ -101,7 +101,7 @@ router.get('/expediente/:uuid', async (req, res) => {
         // Expediente vinculado a la oportunidad
         const { data: exp } = await supabase
             .from('expedientes')
-            .select('id, numero_expediente, cliente_id, documentacion, cee, instalacion, lote_id')
+            .select('id, numero_expediente, cliente_id, estado, documentacion, cee, instalacion, lote_id')
             .eq('oportunidad_id', uuid)
             .order('created_at', { ascending: false })
             .limit(1)
@@ -151,7 +151,17 @@ router.get('/expediente/:uuid', async (req, res) => {
             },
             requerimiento,
             queFalta: portal.clientPendings(lc?.campos_pendientes),
-            documentos: portal.buildDocumentos(exp, { ceeIniOk: lc?.cee_ini_registro_ok, ceeFinOk: lc?.cee_fin_registro_ok }),
+            // Los CERTIFICADOS no se entregan hasta 'DOC. COMPLETA': `documentos`
+            // es lo descargable y `documentosBloqueados` lo que ya existe pero
+            // aún no se suelta (el portal lo enseña con candado y explicación).
+            ...(() => {
+                const d = portal.buildDocumentos(exp, {
+                    ceeIniOk: lc?.cee_ini_registro_ok,
+                    ceeFinOk: lc?.cee_fin_registro_ok,
+                    estado: exp.estado,
+                });
+                return { documentos: d.lista, documentosBloqueados: d.bloqueados };
+            })(),
             upload: { uuid, token },
         });
     } catch (e) {
@@ -181,12 +191,20 @@ router.get('/doc/:uuid/:docKey', async (req, res) => {
 
         const { data: exp } = await supabase
             .from('expedientes')
-            .select('documentacion, cee')
+            .select('estado, documentacion, cee')
             .eq('oportunidad_id', uuid)
             .order('created_at', { ascending: false })
             .limit(1)
             .maybeSingle();
         if (!exp) return res.status(404).end();
+
+        // El candado se repite AQUÍ, no solo al listar: la URL de descarga es
+        // adivinable (`/doc/:uuid/cee_inicial`) y quien la tenga de un expediente
+        // ya completo podría probarla en otro. Sin esto, ocultar el botón sería
+        // decoración.
+        if (portal.esCertificado(docKey) && !portal.certificadosLiberados(exp.estado)) {
+            return res.status(409).json({ error: 'Este certificado estará disponible cuando la documentación del expediente esté completa.' });
+        }
 
         const resolved = portal.resolveDocLink(exp, docKey);
         if (!resolved) return res.status(404).json({ error: 'Documento no disponible.' });

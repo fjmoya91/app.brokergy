@@ -82,6 +82,10 @@ export function MiExpedienteView({ uuid, token }) {
     const estado = info?.estado || {};
     const req = info?.requerimiento || {};
     const documentos = info?.documentos || [];
+    // Certificados que YA existen pero aún no se entregan (hasta 'DOC. COMPLETA').
+    // Se enseñan en gris con candado: saber que su certificado está hecho es la
+    // mitad de lo que el cliente viene a mirar.
+    const documentosBloqueados = info?.documentosBloqueados || [];
     const queFalta = info?.queFalta || [];
     const hitoIndex = estado.hitoIndex || 1;
 
@@ -201,7 +205,7 @@ export function MiExpedienteView({ uuid, token }) {
                         </div>
                         <div className="p-5">
                             {panel === 'docs' && (
-                                documentos.length === 0 ? (
+                                documentos.length === 0 && documentosBloqueados.length === 0 ? (
                                     <p className="text-white/40 text-sm">Aún no hay documentos disponibles para descargar. Aparecerán aquí a medida que tu expediente avance.</p>
                                 ) : (
                                     <ul className="space-y-2">
@@ -212,6 +216,17 @@ export function MiExpedienteView({ uuid, token }) {
                                                     <span className="flex items-center gap-2">📄 {d.label}</span>
                                                     <span className="text-brand">↓</span>
                                                 </a>
+                                            </li>
+                                        ))}
+                                        {documentosBloqueados.map(d => (
+                                            <li key={d.key}>
+                                                {/* Sin enlace: no es un botón desactivado, es que aún no
+                                                    se entrega. Y se dice CUÁNDO, o el candado solo genera
+                                                    una llamada preguntando por qué. */}
+                                                <div className="flex items-center justify-between bg-bkg-elevated/50 border border-white/[0.06] rounded-xl px-4 py-3 text-white/40 text-sm">
+                                                    <span className="flex items-center gap-2">🔒 {d.label}</span>
+                                                    <span className="text-[11px] text-white/30">Listo · te lo entregamos al completar el expediente</span>
+                                                </div>
                                             </li>
                                         ))}
                                     </ul>

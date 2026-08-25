@@ -6,6 +6,15 @@ import { useAuth } from '../../../context/AuthContext';
 import { CertificadorResumenModal } from './CertificadorResumenModal';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
+// Iniciales para el avatar cuando la empresa no tiene logo. Dos letras (las de
+// las dos primeras palabras) se leen como un monograma; una sola letra suelta en
+// un círculo de 56 px parece un marcador de posición sin rellenar.
+function iniciales(nombre) {
+    const partes = (nombre || '').trim().split(/\s+/).filter(Boolean);
+    if (!partes.length) return '?';
+    return (partes[0][0] + (partes[1]?.[0] || '')).toUpperCase();
+}
+
 function normalize(s) {
     return (s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
 }
@@ -329,7 +338,10 @@ function DireccionEdit({ values, onChange }) {
 }
 
 // ─── Modal principal ─────────────────────────────────────────────────────────
-export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp, onUpdated, onCreated, onNavigate }) {
+// `onSignOut` solo llega cuando esta ficha se abre como MI PERFIL (desde el menú
+// de la cuenta del sidebar). Ahí es donde el partner busca su usuario, así que
+// ahí tiene que estar la salida; en la ficha de OTRO prescriptor no pinta nada.
+export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp, onUpdated, onCreated, onNavigate, onSignOut }) {
     const { user } = useAuth();
     const isAdmin = user?.rol?.toUpperCase() === 'ADMIN';
     // Las notas internas las ve y edita el equipo (ADMIN o TRABAJADOR), no el partner.
@@ -859,9 +871,12 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
 
     return (
         <div className="fixed inset-0 z-[300] flex items-start justify-center p-4 bg-black/75 backdrop-blur-md animate-fade-in overflow-y-auto">
-            {/* En PC el formulario es de 2 columnas: con 42rem los campos quedaban
-                estrechos y la ficha muy larga. En lg se ensancha a 64rem. */}
-            <div className="bg-bkg-deep border border-white/[0.08] rounded-2xl w-full max-w-2xl lg:max-w-5xl my-8 shadow-2xl">
+            {/* El ancho lo manda el MODO, no la pantalla. EDITANDO el formulario es
+                de 2 columnas y con 42rem los campos quedaban estrechos, así que en
+                lg se ensancha a 64rem. LEYENDO son pares etiqueta/valor cortos: a
+                64rem cada dato flotaba en media pantalla vacía y la ficha parecía
+                un formulario sin terminar. 48rem es lo que necesita para respirar. */}
+            <div className={`bg-bkg-deep border border-white/[0.08] rounded-2xl w-full max-w-2xl my-8 shadow-2xl ${editing || isCreating ? 'lg:max-w-5xl' : 'lg:max-w-3xl'}`}>
 
                 {/* Header PEGAJOSO: guardar/cancelar y cerrar van arriba a la derecha y
                     siguen a la vista al bajar por el formulario (es largo). Por eso el
@@ -873,19 +888,19 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                         <div
                             onClick={editing ? () => logoInputRef.current?.click() : undefined}
                             title={editing ? 'Cambiar logotipo' : undefined}
-                            className={`w-14 h-14 rounded-xl border overflow-hidden shrink-0 relative group ${editing ? 'cursor-pointer border-brand/40' : 'border-white/10'}`}
+                            className={`w-14 h-14 rounded-full border overflow-hidden shrink-0 relative group ${editing ? 'cursor-pointer border-brand/40' : 'border-white/10'}`}
                         >
                             {(editing ? form.logo_empresa : null) || (!isCreating && p?.logo_empresa) ? (
                                 <img src={editing ? (form.logo_empresa || p?.logo_empresa) : p?.logo_empresa}
                                     alt="logo" className="w-full h-full object-contain p-1 bg-white/5" />
                             ) : (
-                                <div className="w-full h-full bg-gradient-to-br from-cyan-500/20 to-cyan-500/5 flex items-center justify-center">
+                                <div className="w-full h-full bg-gradient-to-br from-brand/25 to-brand-700/10 flex items-center justify-center">
                                     {isCreating ? (
-                                        <svg className="w-5 h-5 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <svg className="w-5 h-5 text-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" />
                                         </svg>
                                     ) : (
-                                        <span className="text-cyan-400 font-black text-sm">{displayName.charAt(0).toUpperCase()}</span>
+                                        <span className="text-brand font-black text-base">{iniciales(displayName)}</span>
                                     )}
                                 </div>
                             )}
@@ -968,7 +983,10 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                     </div>
                   </div>
 
-                    <div className="flex items-center gap-2 flex-wrap mt-4">
+                    {/* `empty:hidden`: sin acciones (p. ej. un partner mirando una
+                        ficha que no puede editar) esta fila mide 0 px, pero su
+                        `mt-4` dejaba una franja muerta bajo el nombre. */}
+                    <div className="flex items-center gap-2 flex-wrap mt-4 empty:hidden empty:mt-0">
                         {saved && (
                             <span className="text-xs text-emerald-400 font-black uppercase tracking-widest animate-fade-in">
                                 ✓ Guardado
@@ -1038,6 +1056,16 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
                                 </svg>
                                 Editar
+                            </button>
+                        )}
+                        {!isCreating && !editing && onSignOut && (
+                            <button onClick={() => { onClose?.(); onSignOut(); }}
+                                title="Cerrar sesión"
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-xs font-black uppercase tracking-widest hover:bg-red-500/20 transition-all">
+                                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                                </svg>
+                                Cerrar sesión
                             </button>
                         )}
                     </div>

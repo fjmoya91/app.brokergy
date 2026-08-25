@@ -803,7 +803,10 @@ router.get('/:id', enforceAuth, async (req, res) => {
             throw error;
         }
 
-        res.json(data);
+        // Mismo criterio que el listado: las notas son INTERNAS. Importa desde que
+        // el partner entra por aquí para ver SU ficha ("Mi perfil" del menú de la
+        // cuenta pide /prescriptores/:id, no el listado).
+        res.json(stripNotasSiNoEsInterno(data, req));
     } catch (err) {
         console.error('Error GET prescriptor by ID:', err);
         res.status(500).json({ error: 'Error al recuperar el prescriptor' });

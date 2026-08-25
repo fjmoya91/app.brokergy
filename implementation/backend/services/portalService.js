@@ -23,6 +23,7 @@ function round0(n) {
 //    MISMA lógica que el admin (computeExpedienteFinancialsNode → calculation.js).
 // ---------------------------------------------------------------------------
 const { computeExpedienteFinancialsNode } = require('./expedienteFinancialsNode');
+const { rankEstado } = require('../utils/expedienteEstados');
 
 async function buildClientMoney(op, exp) {
     const r = op?.datos_calculo?.result || {};
@@ -138,15 +139,39 @@ function buildRequerimiento(documentacion) {
 // Al cliente solo se le ofrecen documentos TERMINADOS: certificados registrados,
 // anexos FIRMADOS (no borradores), y certificados finales. Nunca ficheros de
 // trabajo (xml/cex) ni borradores sin firma.
+// `certificado: true` = documento que NO se entrega hasta que el expediente esté
+// documentalmente COMPLETO. Ver `certificadosLiberados()`.
 const DOC_MAP = {
-    cee_inicial:       { label: 'Certificado energético inicial', cee: 'inicial' },
-    cee_final:         { label: 'Certificado energético final',   cee: 'final' },
+    cee_inicial:       { label: 'Certificado energético inicial', cee: 'inicial', certificado: true },
+    cee_final:         { label: 'Certificado energético final',   cee: 'final',   certificado: true },
     anexo_i:           { label: 'Anexo I firmado',                fields: ['anexo_i_signed_link'] },
     cesion:            { label: 'Anexo de Cesión de Ahorros',     fields: ['anexo_cesion_signed_link'] },
-    cifo:              { label: 'Certificado CIFO',               fields: ['cert_cifo_signed_link'] },
-    rite:              { label: 'Certificado RITE',               fields: ['cert_rite_signed_link', 'cert_rite_drive_link'] },
+    cifo:              { label: 'Certificado CIFO',               fields: ['cert_cifo_signed_link'], certificado: true },
+    rite:              { label: 'Certificado RITE',               fields: ['cert_rite_signed_link', 'cert_rite_drive_link'], certificado: true },
     anexo_fotografico: { label: 'Anexo Fotográfico',              fields: ['anexo_fotografico_signed_link'] },
 };
+
+/**
+ * ¿Puede el cliente DESCARGARSE ya los certificados?
+ *
+ * Solo desde 'DOC. COMPLETA' en adelante. Los certificados (CEE inicial y final,
+ * CIFO y RITE) son el entregable del expediente: mientras la documentación no
+ * esté completa, siguen siendo material de trabajo —un CEE puede rechazarse y
+ * volver a emitirse, y el CIFO se anula y se regenera cada vez que se corrige un
+ * dato (regla 24)—. Entregarlos antes reparte por ahí versiones que luego no son
+ * las buenas, y el cliente se queda con un papel que ya no vale.
+ *
+ * Lo que el cliente FIRMA (Anexo I, Cesión, Anexo Fotográfico) y sus propias
+ * facturas NO se bloquean: son suyos y ya los tiene.
+ *
+ * Manda `expedientes.estado` —la columna del desplegable de la app—, comparada
+ * por el orden canónico de `expedienteEstados`. Un estado desconocido o nulo
+ * BLOQUEA: ante la duda, no se entrega.
+ */
+function certificadosLiberados(estado) {
+    const r = rankEstado(estado);
+    return r >= 0 && r >= rankEstado('DOC. COMPLETA');
+}
 
 /** Extrae un ID de fichero de Drive de un enlace/valor. Null si no parece Drive. */
 function extractDriveId(v) {
@@ -201,24 +226,40 @@ function resolveDocLink(exp, docKey) {
  * Lista [{ key, label }] de documentos DISPONIBLES. El CEE solo aparece cuando
  * está REGISTRADO (flags.ceeIniOk/ceeFinOk de la vista de lifecycle), no cuando
  * solo existe el .cex de trabajo.
+ *
+ * Los CERTIFICADOS, además, solo se entregan a partir de 'DOC. COMPLETA'
+ * (`certificadosLiberados`). Existiendo pero bloqueados salen aparte, en
+ * `bloqueados`: al cliente se le DICE que su certificado ya está y cuándo lo
+ * tendrá. Callarlo haría que lo pidiera por WhatsApp, que es justo el trabajo
+ * que el portal ahorra.
  */
 function buildDocumentos(exp, flags = {}) {
-    const out = [];
+    const lista = [];
+    const bloqueados = [];
+    const liberados = certificadosLiberados(flags.estado);
     for (const key of Object.keys(DOC_MAP)) {
         if (key === 'cee_inicial' && !flags.ceeIniOk) continue;
         if (key === 'cee_final' && !flags.ceeFinOk) continue;
-        if (resolveDocLink(exp, key)) out.push({ key, label: DOC_MAP[key].label });
+        if (!resolveDocLink(exp, key)) continue;
+        if (DOC_MAP[key].certificado && !liberados) {
+            bloqueados.push({ key, label: DOC_MAP[key].label });
+            continue;
+        }
+        lista.push({ key, label: DOC_MAP[key].label });
     }
+    // Las facturas son del propio cliente: nunca se bloquean.
     const facturas = Array.isArray(exp?.documentacion?.facturas) ? exp.documentacion.facturas : [];
     facturas.forEach((f, i) => {
         if (f && (f.drive_id || f.drive_link)) {
-            out.push({ key: `factura_${i}`, label: facturas.length > 1 ? `Factura ${i + 1}` : 'Factura' });
+            lista.push({ key: `factura_${i}`, label: facturas.length > 1 ? `Factura ${i + 1}` : 'Factura' });
         }
     });
-    return out;
+    return { lista, bloqueados };
 }
 
 module.exports = {
+    certificadosLiberados,
+    esCertificado: (docKey) => !!DOC_MAP[docKey]?.certificado,
     normalizeDni,
     buildClientMoney,
     mapEstadoToHito,

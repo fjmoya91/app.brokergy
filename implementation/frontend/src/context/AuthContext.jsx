@@ -188,10 +188,46 @@ export const AuthProvider = ({ children }) => {
       return supabase.auth.signInWithPassword({ email, password });
   };
 
-  const signOut = () => {
+  // Cerrar sesión NUNCA puede quedarse a medias.
+  //
+  // Antes esto era `return supabase.auth.signOut()` a secas, y ahí estaba el
+  // fallo: si esa llamada falla —token ya caducado (el servidor responde
+  // `session_not_found`), sin red, o el backend de Auth caído— supabase-js
+  // rechaza la promesa y, según el caso, NO limpia su propio almacenamiento.
+  // Como el estado de React solo se vaciaba al recibir el evento SIGNED_OUT,
+  // que en ese escenario no llega, la app se quedaba exactamente igual: pulsas
+  // "Cerrar sesión" y no pasa nada.
+  //
+  // Ahora la llamada al servidor es lo ÚNICO que puede fallar; la salida local
+  // (token de axios, caché de perfil, claves `sb-*` de supabase y estado de
+  // React) se ejecuta pase lo que pase. En el peor caso el refresh token sigue
+  // vivo en el servidor unas horas, pero en ESTE navegador la sesión se ha ido,
+  // que es lo que el usuario ha pedido.
+  const signOut = async () => {
       hasRichProfile.current = false;
       setCachedProfile(null);
-      return supabase.auth.signOut();
+      try {
+          await supabase.auth.signOut();
+      } catch (e) {
+          console.warn('signOut remoto falló, se cierra la sesión en local:', e?.message || e);
+          // `scope: 'local'` no llama al servidor: solo borra la sesión de este
+          // navegador. Es el plan B cuando el logout remoto no es posible.
+          try { await supabase.auth.signOut({ scope: 'local' }); } catch (_) { /* seguimos */ }
+      } finally {
+          try {
+              Object.keys(localStorage)
+                  .filter(k => k.startsWith('sb-') && k.includes('auth'))
+                  .forEach(k => localStorage.removeItem(k));
+          } catch (_) { /* almacenamiento no disponible: nada que limpiar */ }
+          setAxiosAuth(null);
+          setSession(null);
+          setUser(null);
+          setLoading(false);
+          // Deep-links (?tab=, ?exp=, ?cee=) apuntan a pantallas de la sesión que
+          // se acaba de cerrar: si no se limpian, al volver a entrar la app abre
+          // el expediente del usuario anterior.
+          try { window.history.replaceState({}, '', window.location.pathname); } catch (_) {}
+      }
   };
 
   const resetPassword = (email) => {

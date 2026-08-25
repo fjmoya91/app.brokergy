@@ -79,7 +79,7 @@ const ROL_BADGE = {
 
 // ─── Modal principal ───────────────────────────────────────────────────────────
 export function AdminProfileModal({ isOpen, onClose }) {
-    const { user, session, refreshProfile } = useAuth();
+    const { user, session, refreshProfile, signOut } = useAuth();
     // Perfil completo de la tabla `usuarios` (lo expone /me en businessProfile)
     const perfil = user?.businessProfile || {};
 
@@ -277,6 +277,20 @@ export function AdminProfileModal({ isOpen, onClose }) {
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
                                 </svg>
                                 Editar
+                            </button>
+                        )}
+                        {/* Cerrar sesión también AQUÍ: esta ficha es donde se acaba
+                            cuando uno busca "su usuario", y quedarse mirando sus
+                            propios datos sin ver la salida es justo lo que pasaba. */}
+                        {!editing && (
+                            <button
+                                onClick={() => { onClose?.(); signOut(); }}
+                                title={`Cerrar sesión${user?.email ? ` (${user.email})` : ''}`}
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-xs font-black uppercase tracking-widest hover:bg-red-500/20 transition-all">
+                                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                                </svg>
+                                Cerrar sesión
                             </button>
                         )}
                         <button onClick={onClose} className="p-2 text-white/30 hover:text-white transition-colors rounded-lg hover:bg-white/5">
