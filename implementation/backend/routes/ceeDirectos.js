@@ -149,10 +149,16 @@ router.get('/', internalOnly, async (req, res) => {
         const mapCli = Object.fromEntries((clientes || []).map(c => [c.id_cliente, c]));
         const mapPre = Object.fromEntries((presc || []).map(p => [p.id_empresa, p]));
 
+        // Mismo criterio que en el detalle: al técnico no se le dice quién nos
+        // contrata, tampoco en el listado.
+        const verPartner = isStaff(req);
         const filas = data.map(r => ({
             ...r,
+            prescriptor_id: verPartner ? r.prescriptor_id : undefined,
             cliente_nombre: nombreCliente(mapCli[r.cliente_id]),
-            prescriptor_nombre: mapPre[r.prescriptor_id]?.razon_social || mapPre[r.prescriptor_id]?.acronimo || null,
+            prescriptor_nombre: verPartner
+                ? (mapPre[r.prescriptor_id]?.razon_social || mapPre[r.prescriptor_id]?.acronimo || null)
+                : undefined,
             certificador_nombre: mapPre[r.cee_certificador]?.razon_social || mapPre[r.cee_certificador]?.acronimo || null,
             fase_activa: estados.faseActiva(r),
             responsable: estados.responsable(r)
@@ -289,7 +295,18 @@ router.get('/:id', internalOnly, async (req, res) => {
             // Ni el enlace de la carpeta RAÍZ, que contiene presupuestos y facturas.
             // Sus carpetas le llegan en el encargo, una a una.
             drive_folder_id: isStaff(req) ? row.drive_folder_id : undefined,
-            drive_folder_link: isStaff(req) ? row.drive_folder_link : undefined
+            drive_folder_link: isStaff(req) ? row.drive_folder_link : undefined,
+            // ⚠️ Ni QUIÉN NOS CONTRATA. El trabajo del técnico es el certificado
+            // del inmueble; que detrás haya una empresa encargándonos volumen es
+            // información comercial NUESTRA. Se quita en el servidor y no solo
+            // escondiendo la pastilla: lo que no sale de aquí no se puede leer
+            // abriendo las herramientas del navegador.
+            prescriptor: isStaff(req) ? row.prescriptor : undefined,
+            prescriptor_id: isStaff(req) ? row.prescriptor_id : undefined,
+            // Las NOTAS son internas de verdad: en 2026CEE_54 llevan lo que le
+            // cobramos al cliente y lo que costaron las tasas. El rótulo decía
+            // "internas" pero el campo viajaba entero a quien preguntara.
+            notas: isStaff(req) ? row.notas : undefined
         });
     } catch (err) {
         console.error('[cee-directos detalle]', err.message);
@@ -1210,9 +1227,15 @@ router.get('/:id/trazabilidad', internalOnly, async (req, res) => {
 
         hitos.sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
 
+        // El técnico ve SU proceso, no la trastienda: las entradas de COBRO dicen
+        // cuándo se cobró y las de CLIENTE, qué se le entregó. Nada de eso es
+        // asunto suyo, y el panel de trazabilidad se lo estaba enseñando entero.
+        const historialVisible = (row.documentacion?.historial || [])
+            .filter(h => isStaff(req) || ['CERTIFICADOR', 'CEE'].includes(String(h.tipo || '').toUpperCase()));
+
         res.json({
             hitos,
-            historial: (row.documentacion?.historial || []).slice().reverse(),
+            historial: historialVisible.slice().reverse(),
             esperandoAcuse: !!cee.ack_token,
             respuesta: cee.ack_respuesta || null,
             rechazos: cee.rechazos || []

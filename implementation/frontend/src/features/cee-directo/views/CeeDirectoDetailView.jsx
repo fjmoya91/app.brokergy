@@ -239,7 +239,11 @@ export function CeeDirectoDetailView({ id, onBack }) {
                         <div className="text-white/85 text-sm font-bold uppercase tracking-wide mt-1">{expediente.nombre}</div>
                         {cliente && (
                             <div className="text-white/40 text-xs mt-0.5">
-                                {[`${cliente.nombre_razon_social || ''} ${cliente.apellidos || ''}`.trim(), cliente.dni, cliente.tlf].filter(Boolean).join(' · ')}
+                                {/* El EMAIL entra en la cabecera: es por donde el técnico
+                                    manda el borrador y pide los datos que le faltan, y
+                                    estaba obligando a desplegar la pastilla para copiarlo. */}
+                                {[`${cliente.nombre_razon_social || ''} ${cliente.apellidos || ''}`.trim(),
+                                  cliente.dni, cliente.tlf || cliente.telefono, cliente.email].filter(Boolean).join(' · ')}
                             </div>
                         )}
                         {direccion && <div className="text-white/25 text-[11px] mt-0.5 uppercase tracking-wide">{direccion}</div>}
@@ -330,9 +334,13 @@ export function CeeDirectoDetailView({ id, onBack }) {
                     expediente={expediente}
                     prescriptor={expediente.prescriptor}
                     puedeEditar={isStaff}
+                    esEquipo={isStaff}
                     onEditar={() => setShowDatos(true)}
-                    onAbrirCliente={expediente.cliente_id ? () => setShowCliente(true) : undefined}
-                    onAbrirPartner={expediente.prescriptor ? () => setShowPartner(true) : undefined}
+                    // El técnico CONSULTA, no edita: la pastilla ya le da nombre, DNI,
+                    // teléfono, email y domicilio. "Abrir su ficha" lleva al modal de
+                    // cliente, que sí deja editar, así que solo se le ofrece al equipo.
+                    onAbrirCliente={isStaff && expediente.cliente_id ? () => setShowCliente(true) : undefined}
+                    onAbrirPartner={isStaff && expediente.prescriptor ? () => setShowPartner(true) : undefined}
                 />
             </div>
 

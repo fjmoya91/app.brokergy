@@ -189,7 +189,7 @@ export function CeeDirectosView({ initialSelectedId = null, onClearInitialSelect
                         <table className="w-full">
                             <thead>
                                 <tr className="bg-white/[0.02] border-b border-white/[0.06]">
-                                    {['Expediente', 'Cliente', 'Prescriptor', 'Técnico', 'Estado', 'Parado', ''].map((h, i) => (
+                                    {['Expediente', isStaff ? 'Cliente' : 'Titular', ...(isStaff ? ['Prescriptor'] : []), 'Técnico', 'Estado', 'Parado', ''].map((h, i) => (
                                         <th key={i} className="px-4 py-3 text-left text-[9px] font-black uppercase tracking-widest text-white/30">{h}</th>
                                     ))}
                                 </tr>
@@ -217,7 +217,10 @@ export function CeeDirectosView({ initialSelectedId = null, onClearInitialSelect
                                                 {r.cliente_nombre || <span className="text-white/20">—</span>}
                                                 {r.municipio && <div className="text-white/25 text-[11px] mt-0.5">{r.municipio}</div>}
                                             </td>
-                                            <td className="px-4 py-3 text-xs text-white/45">{r.prescriptor_nombre || <span className="text-white/20">Directo</span>}</td>
+                                            {/* Quién nos lo trae es asunto del equipo. */}
+                                            {isStaff && (
+                                                <td className="px-4 py-3 text-xs text-white/45">{r.prescriptor_nombre || <span className="text-white/20">Directo</span>}</td>
+                                            )}
                                             <td className="px-4 py-3 text-xs text-white/45">{r.certificador_nombre || <span className="text-white/20">Sin asignar</span>}</td>
                                             <td className="px-4 py-3">
                                                 <Pastilla className={COLOR_ESTADO(r.estado)}>{r.estado}</Pastilla>
@@ -273,7 +276,7 @@ export function CeeDirectosView({ initialSelectedId = null, onClearInitialSelect
 
                                     <div className="mt-2 text-[11px] text-white/30">
                                         {r.certificador_nombre || 'Sin técnico asignado'}
-                                        {r.prescriptor_nombre ? ` · ${r.prescriptor_nombre}` : ''}
+                                        {isStaff && r.prescriptor_nombre ? ` · ${r.prescriptor_nombre}` : ''}
                                     </div>
                                 </div>
                             );

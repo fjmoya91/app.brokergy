@@ -106,7 +106,13 @@ const Dato = ({ etiqueta, valor, href }) => {
     );
 };
 
-export function ResumenDatos({ expediente, prescriptor, onEditar, onAbrirCliente, onAbrirPartner, puedeEditar = true }) {
+/**
+ * `esEquipo` — quién está mirando. Para el TÉCNICO cambian dos cosas:
+ *  · no ve la pastilla del partner (no tiene por qué saber quién nos contrata), y
+ *  · al cliente se le llama **titular de la vivienda**, que es lo que significa
+ *    para su trabajo: el nombre que va en el certificado.
+ */
+export function ResumenDatos({ expediente, prescriptor, onEditar, onAbrirCliente, onAbrirPartner, puedeEditar = true, esEquipo = true }) {
     const cliente = expediente.cliente;
     const nombreCliente = cliente
         ? `${cliente.nombre_razon_social || ''} ${cliente.apellidos || ''}`.trim()
@@ -121,8 +127,11 @@ export function ResumenDatos({ expediente, prescriptor, onEditar, onAbrirCliente
             {/* CLIENTE — el primero: es quien va en el certificado y sin él no se
                 le puede encargar nada al técnico. */}
             {nombreCliente ? (
-                <Pastilla icono={ICONOS.cliente} texto={nombreCliente} detalle={`Cliente: ${nombreCliente}`}>
-                    <div className="text-[10px] font-black uppercase tracking-widest text-white/30 mb-2">Cliente</div>
+                <Pastilla icono={ICONOS.cliente} texto={nombreCliente}
+                    detalle={`${esEquipo ? 'Cliente' : 'Titular de la vivienda'}: ${nombreCliente}`}>
+                    <div className="text-[10px] font-black uppercase tracking-widest text-white/30 mb-2">
+                        {esEquipo ? 'Cliente' : 'Titular de la vivienda'}
+                    </div>
                     <div className="text-sm font-bold text-white mb-2">{nombreCliente}</div>
                     <Dato etiqueta="DNI" valor={cliente.dni} />
                     <Dato etiqueta="Teléfono" valor={tlf} href={tlf ? `tel:${String(tlf).replace(/\s/g, '')}` : null} />
@@ -141,8 +150,9 @@ export function ResumenDatos({ expediente, prescriptor, onEditar, onAbrirCliente
                     onClick={puedeEditar ? onEditar : undefined} />
             )}
 
-            {/* PARTNER — quién nos lo trae. Informativo, así que va en gris. */}
-            {nombrePartner ? (
+            {/* PARTNER — quién nos lo trae. Solo para el EQUIPO: al técnico ni se
+                le pinta ni le llega del servidor. */}
+            {esEquipo && (nombrePartner ? (
                 <Pastilla icono={ICONOS.partner} texto={prescriptor.acronimo || nombrePartner} detalle={nombrePartner}>
                     <div className="text-[10px] font-black uppercase tracking-widest text-white/30 mb-2">Nos lo trae</div>
                     <div className="text-sm font-bold text-white mb-2">{nombrePartner}</div>
@@ -160,7 +170,7 @@ export function ResumenDatos({ expediente, prescriptor, onEditar, onAbrirCliente
             ) : (
                 <Pastilla icono={ICONOS.partner} texto="Directo" detalle="Nadie nos lo trae: es un encargo directo"
                     onClick={puedeEditar ? onEditar : undefined} />
-            )}
+            ))}
 
             {/* DÓNDE ESTÁ — el técnico no puede visitar sin dirección, así que su
                 ausencia se anuncia en ámbar en vez de callarse. */}
