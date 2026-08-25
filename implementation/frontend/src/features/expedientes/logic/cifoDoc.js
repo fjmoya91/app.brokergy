@@ -105,6 +105,22 @@ const DESIGN_SHARED = `
     .cmp tr:last-child td { border-bottom: none; }
     .just tr:last-child td { border-bottom: none; }
     .doc-foot { margin-top: auto; padding-top: 10px; border-top: 1px solid #ECECE4; display: flex; justify-content: space-between; font-size: 10.5px; color: #9A9A92; font-weight: 500; }
+
+    /* El recuadro de "Firma y sello" va ANCLADO al borde inferior de su hoja.
+       El sello de la firma electrónica se estampa en coordenadas FIJAS de PDF
+       (SIGN_BOXES.cifo_res060, y=926…1006px de los 1123 de la hoja), pero el
+       recuadro DIBUJADO iba donde lo dejara el texto de encima: medido, flotaba
+       entre y=907 (RES060, empresa de nombre corto) e y=923 (RES093 / TER100 /
+       empresa de nombre largo), 16px de deriva contra una holgura de 12. Basta
+       una línea más en la razón social o el domicilio del instalador para que el
+       sello se salga del recuadro. Anclado, cae siempre en el mismo sitio.
+       El separador .doc-spacer se come el hueco sobrante ANTES de que lo hagan
+       los margin-top:auto (flex-grow reparte primero), así que el pie sigue
+       abajo sin repartirse el espacio con el recuadro.
+       Los 29px son la distancia exacta que sitúa el recuadro en y=922…1026,
+       centrado sobre el sello: NO se tocan sin recalcular SIGN_BOXES. */
+    .doc-spacer { flex: 1 1 auto; min-height: 0; }
+    .doc-sign-bottom { margin-bottom: 29px; }
 `;
 
 // CSS de PANTALLA (preview del modal). El modal lo inyecta en un <style> aparte.
@@ -509,7 +525,10 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
     const footer = `<div class="doc-foot"><span>Certificado de Instalación · CIFO</span><span>PAGE_X_OF_Y · Expte ${numexpte}</span></div>`;
     const obsBox = (inner, mt = '16px') => `<div style="margin-top:${mt};padding:14px 18px;background:#FBF6EE;border:1px solid #F1E4CF;border-radius:14px;font-size:10.5px;line-height:1.5;color:#6b5a3e;">${inner}</div>`;
     const rowsBox = (inner) => `<div style="border:1px solid #E9E9E1;border-radius:16px;overflow:hidden;font-size:12.5px;">${inner}</div>`;
-    const kv = (label, value, last = false) => `<div style="display:grid;grid-template-columns:34% 66%;"><div style="padding:7px 16px;background:#F7F7F1;color:#6E6E66;font-weight:600;${last ? '' : 'border-bottom:1px solid #ECECE4;'}">${label}</div><div style="padding:7px 16px;font-weight:600;${last ? '' : 'border-bottom:1px solid #ECECE4;'}">${value}</div></div>`;
+    // Padding vertical 6px (no 7): la hoja 1 lleva 14 filas de éstas y con 7px se
+    // pasaba de largo en RES093 y TER100, cuyo nombre oficial de ficha ocupa una
+    // línea más. 14 filas × 2px son los 28px que faltaban. Ver check_cifo_paginas.
+    const kv = (label, value, last = false) => `<div style="display:grid;grid-template-columns:34% 66%;"><div style="padding:6px 16px;background:#F7F7F1;color:#6E6E66;font-weight:600;${last ? '' : 'border-bottom:1px solid #ECECE4;'}">${label}</div><div style="padding:6px 16px;font-weight:600;${last ? '' : 'border-bottom:1px solid #ECECE4;'}">${value}</div></div>`;
     const cmpHead = (col1 = 'Comparativa', ex = 'Existente', nu = 'Nueva') => `<thead><tr>
         <th style="text-align:left;padding:8px 16px;background:#1A1A1A;color:#fff;font-weight:700;font-size:11px;letter-spacing:1px;text-transform:uppercase;width:34%;">${col1}</th>
         <th style="text-align:left;padding:8px 16px;background:#33332F;color:#C9C9C4;font-weight:700;font-size:11px;letter-spacing:1px;text-transform:uppercase;">${ex}</th>
@@ -661,8 +680,13 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
         <div class="doc-page">
             ${pageHeader}
             <h2 style="font-weight:800;font-size:19px;letter-spacing:-.3px;margin:12px 0 3px;">Certificado de instalación</h2>
-            <p style="margin:0;font-size:13px;color:#6E6E66;font-weight:500;">Ficha ${cifoLabel} · ${actuacionNombre}</p>
 
+            ${/* Las fechas de inicio y fin van DENTRO de este bloque, no en un
+                  apartado "Hitos de la actuación" aparte: son dos filas, y su
+                  encabezado propio costaba 44px en la hoja más apretada del
+                  documento (ver check_cifo_paginas.mjs). Identifican la
+                  actuación igual que la dirección o la referencia catastral, y
+                  las filas siguen rotuladas una por una. */''}
             ${sectionTitle('Identificación de la actuación de ahorro de energía')}
             ${rowsBox(`
                 ${kv('Nombre de la actuación', actuacionNombre)}
@@ -671,7 +695,9 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
                 ${kv('Dirección postal', locFullDir)}
                 ${kv('Referencia catastral', locRefCat)}
                 ${kv('Coordenadas UTM', `X: ${locUtmX} · Y: ${locUtmY}`)}
-                ${kv('Facturas asociadas', facturasList, true)}
+                ${kv('Facturas asociadas', facturasList)}
+                ${kv('Fecha de inicio de la actuación', fechaInicio)}
+                ${kv('Fecha de fin de la actuación', fechaFin, true)}
             `)}
 
             ${sectionTitle('Propietario inicial del ahorro')}
@@ -686,12 +712,6 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
                 ${kv('Correo electrónico', cli.email || '—', true)}
             `)}
 
-            ${sectionTitle('Hitos de la actuación', '12px')}
-            <div style="border:1px solid #E9E9E1;border-radius:16px;overflow:hidden;font-size:12.5px;">
-                <div style="display:grid;grid-template-columns:34% 66%;border-bottom:1px solid #ECECE4;"><div style="padding:6px 16px;background:#F7F7F1;color:#6E6E66;font-weight:600;">Fecha de inicio</div><div style="padding:6px 16px;font-weight:700;">${fechaInicio}</div></div>
-                <div style="display:grid;grid-template-columns:34% 66%;"><div style="padding:6px 16px;background:#F7F7F1;color:#6E6E66;font-weight:600;">Fecha de fin</div><div style="padding:6px 16px;font-weight:700;">${fechaFin}</div></div>
-            </div>
-
             ${sectionTitle('Datos de la empresa instaladora', '12px')}
             ${rowsBox(`
                 ${kv('Razón social', empNombre)}
@@ -700,8 +720,14 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
                 ${kv('Cargo firmante', empCargo, true)}
             `)}
 
-            ${sectionTitle('Firma y sello', '12px')}
-            <div style="border:2px solid #1A1A1A;border-radius:16px;padding:12px 18px;min-height:104px;display:flex;flex-direction:column;break-inside:avoid;">
+            <div class="doc-spacer"></div>
+            ${/* Sin encabezado "FIRMA Y SELLO": el propio recuadro se rotula por
+                  dentro y en mayúsculas, y el encabezado costaba 44px en la hoja
+                  más justa del documento. Con la razón social, el domicilio del
+                  instalador y el nombre oficial de la ficha RES093 largos a la
+                  vez, esos 44px eran la diferencia entre caber y sacar una hoja
+                  en blanco de más. */''}
+            <div class="doc-sign-bottom" style="border:2px solid #1A1A1A;border-radius:16px;padding:12px 18px;min-height:104px;display:flex;flex-direction:column;break-inside:avoid;">
                 <div style="font-weight:800;font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:#6E6E66;">Espacio reservado para firma electrónica</div>
                 <div style="flex:1;"></div>
                 <div style="border-top:1px solid #ECECE4;padding-top:10px;font-size:12.5px;font-weight:700;color:#1A1A1A;">${empResponsable} <span style="font-weight:600;color:#6E6E66;">· ${empCargo}</span></div>
@@ -710,7 +736,26 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
         </div>
     `);
 
-    // PÁGINA 2 (VARIABLE): Calefacción + ACS + variables + Donde
+    // PÁGINA 2 — DATOS DE LA INSTALACIÓN: calefacción + ACS + piscina.
+    //
+    // Iban aquí también los valores de las variables y el listado "Donde", y no
+    // cabían. Medido con `scripts/check_cifo_paginas.mjs` sobre una hoja de
+    // 1123px con 125px de padding (998px útiles): el caso más simple —RES060 con
+    // UN equipo— pedía 971px, o sea 27px de holgura; RES093 ya se pasaba 10px y
+    // un RES060 con 3 bombas en cascada, 89px (26RES060_146). En el VISOR no se
+    // ve porque `.doc-page` es `min-height` sin tope y la caja crece; en el PDF
+    // la hoja son 297mm fijos, así que Chrome parte por donde toque y el pie,
+    // que va en `position:absolute`, se imprime en la hoja siguiente.
+    //
+    // El corte NO es condicional a propósito. Con 27px de holgura, el único caso
+    // que "cabía" lo hacía de milagro: un modelo de caldera una línea más largo
+    // se lo come. Una hoja por sección siempre cabe, y lo que la engorda (la
+    // cascada: una fila más y un nº de serie por unidad, en calefacción y otra
+    // vez en ACS) deja de importar.
+    //
+    // ⚠️ El recuadro de firma del instalador está anclado a la página 2 del PDF
+    // (`SIGN_BOXES.cifo_res060`), que es la anterior a ésta: partir aquí no lo
+    // mueve. Cualquier página que se añada ANTES sí habría que reflejarla allí.
     pages.push(`
         <div class="doc-page">
             ${pageHeader}
@@ -768,18 +813,35 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
                 : `<div style="border:1px solid #E9E9E1;border-radius:16px;padding:18px;text-align:center;font-size:13px;color:#6E6E66;font-weight:700;">No se actúa sobre el ACS · No aplica</div>`
             }
 
-            ${tienePiscina ? `
-            ${sectionTitle('Datos de la instalación de calentamiento de agua de piscina', '14px')}
-            ${cmpBox(cmpHead(), `
-                ${cmpRow('Tipo de equipo', calExTipo, 'Bomba de calor para calentamiento de piscina')}
-                ${cmpRow('Marca', calExMarca, pisNuMarca)}
-                ${cmpRow('Modelo', calExMod, pisNuMod)}
-                ${cmpRow('Fuente de energía', calExComb, 'Electricidad')}
-                ${cmpRow('Nº serie equipo de piscina', calExSerie, pisNuSerie)}
-                ${cmpRow('SCOP<sub>pwh</sub> / Rendimiento', etaStr, scopPoolStr)}
-            `)}` : ''}
+            ${footer}
+        </div>
+    `);
 
-            ${subLabel('Valores de las variables para el ahorro de energía', '#6E6E66', '12px')}
+    // La PISCINA (solo TER100) encabeza la página siguiente, no ésta. Es el
+    // tercer servicio y su tabla ocupa 268px: en un terciario con la cascada
+    // cubriendo calefacción y ACS a la vez —los nº de serie se listan DOS
+    // veces— la hoja de instalación se pasaba 132px con 5 equipos. Donde cae
+    // no descoloca nada: es justo encima de la tabla en la que aparece su
+    // D_CAP y su SCOP_pwh.
+    const piscinaBlock = tienePiscina ? `
+        ${sectionTitle('Datos de la instalación de calentamiento de agua de piscina', '16px')}
+        ${cmpBox(cmpHead(), `
+            ${cmpRow('Tipo de equipo', calExTipo, 'Bomba de calor para calentamiento de piscina')}
+            ${cmpRow('Marca', calExMarca, pisNuMarca)}
+            ${cmpRow('Modelo', calExMod, pisNuMod)}
+            ${cmpRow('Fuente de energía', calExComb, 'Electricidad')}
+            ${cmpRow('Nº serie equipo de piscina', calExSerie, pisNuSerie)}
+            ${cmpRow('SCOP<sub>pwh</sub> / Rendimiento', etaStr, scopPoolStr)}
+        `)}` : '';
+
+    // PÁGINA 3 — VALORES DE LAS VARIABLES + su leyenda. Las dos cosas van juntas
+    // y en este orden: "Donde" es la leyenda de la tabla de arriba, y separarlas
+    // obliga al verificador a pasar página para saber qué es cada símbolo.
+    pages.push(`
+        <div class="doc-page">
+            ${pageHeader}
+            ${piscinaBlock}
+            ${subLabel('Valores de las variables para el ahorro de energía', '#6E6E66', tienePiscina ? '18px' : '16px')}
             ${varTableBox}
             ${desgloseTer100Box}
 

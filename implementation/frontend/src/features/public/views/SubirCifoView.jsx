@@ -341,7 +341,11 @@ export function SubirCifoView({ expedienteId }) {
                     title={`Firmar Certificado CIFO · ${info?.numero_expediente || ''}`}
                     rubricImageUrl={null}
                     initialPage={2}
-                    signatureAnchor={['firma y sello@2', 'firma y sello', 'espacio reservado para firma']}
+                    /* Respaldo por si algún día no se pasa `fixedBox` (que tiene
+                       prioridad). El CIFO ya no lleva encabezado "Firma y sello"
+                       —el recuadro se rotula por dentro—, así que buscar ese
+                       texto no encontraría nada. */
+                    signatureAnchor={['espacio reservado para firma']}
                     fixedBox={SIGN_BOXES.cifo_res060}
                     onClose={() => { setSignOpen(false); setSignPdfB64(null); }}
                     onSigned={handleSigned}

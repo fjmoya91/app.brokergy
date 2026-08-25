@@ -1213,6 +1213,59 @@ del Anexo y de la solicitud). Además:
 
 ---
 
+## El CIFO en PDF — las hojas son FIJAS y hay que medirlas (2026-08-25)
+
+En el VISOR no se nota nada: `.doc-page` es `min-height:1123px` **sin tope**, así que la caja crece
+y todo se ve. En el PDF la hoja son 297mm fijos, el pie va `position:absolute` y
+`page-break-after:always` corta por el borde: lo que sobra se parte a mitad de fila y el pie sale en
+la hoja equivocada. **Un desborde de 1px saca una hoja casi en blanco.** Por eso mirar la vista
+previa NO es comprobarlo.
+
+```bash
+node implementation/backend/scripts/check_cifo_paginas.mjs
+```
+
+Mide con Puppeteer las 12 combinaciones (cascada de 1 a 5, ACS con el mismo equipo, sin ACS, las
+tres fichas, piscina, textos largos) y falla si alguna hoja se pasa. Sirve las tipografías desde
+`frontend/public/fonts` interceptando las peticiones: **con la de respaldo mediría de menos** y
+daría por bueno algo que en producción se corta. **Tras cualquier retoque del CIFO, pasarlo.**
+
+**REGLA — una hoja por bloque; el corte NO es condicional.** Los datos de la instalación y los
+valores de las variables iban en la MISMA hoja y no cabían: medido sobre 998px útiles, el caso más
+simple (RES060, un equipo) pedía 971 —27px de holgura—, RES093 ya se pasaba 10px y un RES060 con 3
+bombas en cascada, 89 (26RES060_146, que es como se detectó). Partir solo "cuando haga falta" habría
+dejado vivo justo el caso que cabía de milagro: un modelo de caldera una línea más largo se lo come.
+Lo que engorda esa hoja es la **cascada** —una fila más y un nº de serie por unidad, en calefacción
+y otra vez en ACS si el equipo es el mismo—, y así deja de importar.
+
+**REGLA — la PISCINA encabeza la hoja de variables, no la de instalación.** Solo existe en TER100 y
+su tabla ocupa 268px: en un terciario con la cascada cubriendo calefacción y ACS a la vez, la hoja
+de instalación se pasaba 132px con 5 equipos. Cae justo encima de la tabla donde salen su D_CAP y su
+SCOP_pwh, así que no descoloca la lectura.
+
+**REGLA — el recuadro de "Firma y sello" va ANCLADO al borde inferior** (`.doc-spacer` +
+`.doc-sign-bottom`), como el del Convenio de Cesión. El sello se estampa en coordenadas FIJAS de PDF
+(`SIGN_BOXES.cifo_res060`, y=926…1006 de los 1123 de la hoja) pero el recuadro DIBUJADO iba donde lo
+dejara el texto de encima: medido, flotaba entre y=907 y y=923 según la ficha y el largo de la razón
+social, con 12px de holgura. Ahora cae siempre en 921…1025. **Los 29px de `.doc-sign-bottom` no se
+tocan sin recalcular `SIGN_BOXES`**, y el separador tiene que ser `flex:1` y no un `margin-top:auto`
+— dos márgenes automáticos (el suyo y el del pie) se reparten el hueco y el recuadro queda a media
+hoja; `flex-grow` reparte primero y deja el pie abajo.
+
+⚠️ El anclaje por TEXTO de `SubirCifoView` (`signatureAnchor`) apuntaba a "firma y sello", un
+encabezado que ya no existe —el recuadro se rotula por dentro—. No rompió la firma porque `fixedBox`
+tiene prioridad en `FirmarConCertificadoModal`, pero si alguna vez se quita ese `fixedBox` hay que
+revisar el ancla.
+
+La hoja 1 también iba al ras (RES093 y TER100 se pasaban 1-2px, y con los textos largos reales, 16).
+Se le quitaron el subtítulo que repetía literalmente las dos filas de debajo, el encabezado "Hitos de
+la actuación" (sus dos fechas van ahora dentro de "Identificación de la actuación", rotuladas igual)
+y el encabezado "Firma y sello". El `kv` bajó de 7px a 6px de padding vertical: son 14 filas en esa
+hoja. Holguras actuales: **+43px en el peor caso** y +73 en la hoja de variables de un TER100 con
+piscina.
+
+---
+
 ## El módulo CEE del expediente, en el MÓVIL — asignar técnico (2026-08-21)
 
 La pestaña CEE se abre desde el teléfono para hacer UNA cosa: ver cómo va el certificado y
@@ -1255,6 +1308,412 @@ Los rótulos de 7 px suben a 10 px y todos los controles llegan a los 44 px de o
 (medidos: 8 botones se quedaban entre 20 y 39 px).
 
 ---
+
+## CEE directos — el segundo negocio (2026-08-24)
+
+Certificados de eficiencia energética que nos contratan **SUELTOS**: compraventa,
+alquiler, obra particular. **No hay ficha, ni ahorro, ni CAE, ni lote, ni CIFO.**
+Nos contratan el certificado y ahí se acaba.
+
+Pestaña propia (**CEE directos**), tabla propia (`cee_directos`), rutas propias
+(`/api/cee-directos`) — pero **dentro de la misma app y el mismo despliegue**.
+
+**REGLA — NO va en `expedientes`.** Esa tabla exige `oportunidad_id NOT NULL`, así
+que meterlo ahí obligaría a fabricar una oportunidad sintética por encargo, y esas
+contaminan el embudo del cuadro de mando, `v_expedientes_lifecycle`, los lotes, el
+radar del parte diario, el MCP y las skills: ~15 consultas que habría que filtrar
+una a una. Un proyecto SEPARADO tampoco: tendría que duplicar auth, el OAuth de
+Drive, clientes, certificadores y el envío de email — y la sesión de WhatsApp es un
+**singleton atado a un teléfono**, que dos procesos no pueden compartir.
+
+### Lo que se comparte, IMPORTADO y no copiado
+
+| Qué | Cómo |
+|---|---|
+| `CeeModule` / `CeeDocumentsGrid` | props `apiBase` (por defecto `/api/expedientes`) y `secciones` |
+| Página de subida del técnico (`SubirCeeView`) | prop `endpoint` (por defecto `cee-upload`) |
+| Slots del CEE y su detección por sufijo | `CEE_SLOTS` y `matchSlot`, exportados de `ceeUploadService` |
+| Drive, email, WhatsApp, `seguimientoTracking`, `buildCertClienteData` | tal cual |
+
+**REGLA — un endpoint nuevo del módulo CEE se declara en LAS DOS rutas**
+(`expedientes.js` y `ceeDirectos.js`). El módulo llama a `${apiBase}/${id}/…` sin
+saber en qué negocio está: si solo se añade en una, el botón queda muerto en la otra.
+
+**REGLA — el gemelo se ESCRIBE, no se bifurca.** `ceeDirectoUploadService` no es un
+`if (esCeeDirecto)` dentro de `ceeUploadService`: aquel resuelve la carpeta leyendo
+`oportunidades.datos_calculo`, escribe en `expedientes` y dispara
+`expedienteFolderSync`, que mueve la carpeta entre las 13 carpetas de estado del CAE.
+Meter las dos realidades en la misma función convierte el camino que está en
+producción en el sitio donde se rompe lo nuevo, y al revés.
+
+### Numeración — `{AAAA}CEE_{n}`
+
+Año a **CUATRO** dígitos (no como el CAE) y correlativo **GLOBAL**: no se reinicia en
+enero (2025CEE_44 → 2026CEE_45). El siguiente sale de
+`cee_directo_siguiente_correlativo()`, que **bloquea la tabla**: dos altas leyendo
+`MAX+1` desde Node sacarían el mismo número.
+
+En modo manual, un número ya usado **se bloquea** y se dice quién lo tiene, avisando
+en el propio formulario y no al pulsar "Crear". El histórico arrastra un `2025CEE_18`
+**duplicado** (Alfredo Castellanos y Vasil Marinov), así que el índice único es
+**PARCIAL** (`WHERE NOT duplicado_historico`): protege todo lo demás sin obligar a
+renumerar el expediente de nadie.
+
+### Alcance: ÚNICO o DOBLE
+
+Se pregunta al crear. **'UNICO' no se llama "inicial"**: en una compraventa no hay un
+después, y esa palabra hace buscar un certificado que no va a llegar. El módulo pinta
+UNA fase (`secciones={['inicial']}`), la carpeta se llama `1. CEE` y el fichero,
+`{nº} – CEE.xml`. Se amplía a DOBLE desde la ficha: entonces `1. CEE` se renombra a
+`1. CEE INICIAL` y aparece `2. CEE FINAL`. Nunca al revés — quitar la fase final de un
+encargo con un CEE ya emitido esconde un certificado real.
+
+### Estados
+
+Los MISMOS 8 subestados de seguimiento del CAE (`PTE_ENVIO_CERT … REGISTRADO`), con
+sus timestamps paralelos. La diferencia: aquí `estado` **se DERIVA** de los subestados
+([utils/ceeDirectoEstados.js](implementation/backend/utils/ceeDirectoEstados.js),
+`deriveEstado`) y no se acepta del navegador. En el CAE lo escriben seis sitios y hubo
+que inventar `avanzarEstado()` para que ninguno lo hiciera retroceder; aquí no puede
+haber una pastilla que diga una cosa y un módulo que diga otra.
+
+### Drive
+
+`26. CERTIF. EFICIENCIA ENER / 1. PRODUCCION` (`1iaDiUXHZUpcw45ZCDzbKimj1fcoSOcID`),
+**misma cuenta OAuth que el CAE** — no hace falta credencial nueva. Carpeta
+`{nº} - {NOMBRE DEL CLIENTE}` + las cuatro subcarpetas de `2026CEE_53`, con la de CEE
+FINAL solo si el encargo la necesita. **La carpeta NO se mueve nunca**: no hay
+carpetas por estado, así que `ceeDirectoFolders.js` no tiene mapa ni sincronizador.
+La creación es idempotente: si ya existe una con ese nombre (hecha a mano antes de dar
+el alta, que es lo habitual) se ADOPTA en vez de crear una segunda.
+
+### La entrega al cliente se dispara SOLA
+
+Condición doble, y las dos mitades llegan en desorden — unas veces se cobra y
+días después el certificador sube el registro, otras al revés:
+
+```
+cobrado + justificante de REGISTRO subido + PDF firmado subido
+```
+
+Por eso **no hay un único disparador**: la comprobación es una sola función
+([ceeDirectoEntrega.js](implementation/backend/services/ceeDirectoEntrega.js)) y
+la llaman los TRES sitios donde puede completarse la condición — marcar cobrado,
+el PUT que pone la fase en REGISTRADO, y la subida del registro desde el enlace
+público del certificador. **Quien llegue el segundo es el que envía.**
+
+**REGLA — solo se le mandan DOS ficheros: el PDF firmado y el justificante de
+registro.** El `.xml` y el `.cex` son ficheros de trabajo del certificador que el
+cliente no puede abrir, y la etiqueta ya va dentro del propio certificado.
+Mandarle los cinco hace que no sepa cuál de ellos es "su papel".
+
+**REGLA — la idempotencia se comprueba ANTES que nada.** Los dos disparadores
+pueden coincidir en el mismo minuto (marcar cobrado justo cuando entra el
+registro) y el cliente recibiría el certificado dos veces. El sello va en
+`documentacion.entrega_cliente[fase]` y es **por FASE**: en un encargo doble se
+entrega el inicial y meses después el final, así que un sello único daría el
+segundo por hecho. Se escribe con la RPC de MERGE.
+
+**REGLA — los adjuntos se vuelven a comprobar al descargarlos.** `estado()` los ve
+en Drive, pero entre la comprobación y la descarga alguien puede haberlos movido:
+un email de entrega SIN el certificado deja al cliente esperando algo que ya
+consta como enviado. Si no bajan los dos, no sale nada.
+
+**En WhatsApp el texto va PRIMERO y aparte**, y cada PDF detrás con una etiqueta
+corta ("certificado firmado", "justificante de registro"). Un mensaje largo como
+caption de un adjunto hace que mucha gente no llegue a abrir el fichero.
+
+**En LOCAL hay que apagarlo**: `CEE_ENTREGA_AUTO=false` en el `.env`. Si no,
+marcar como cobrado un expediente cualquiera mientras se prueba manda un WhatsApp
+y un email REALES al cliente REAL. El botón manual de la ficha sigue funcionando
+con la variable apagada —ahí hay una persona decidiendo, que es justo lo que le
+falta al automático— y el panel **dice en pantalla** que el automático está
+apagado: sin ese aviso uno marca cobrado, no pasa nada, y piensa que está roto.
+
+El panel de la ficha (`EntregaCliente.jsx`) enseña **qué falta en lenguaje de
+tarea** ("Subir el PDF del CEE firmado"), no un booleano: el automático no puede
+explicarse solo. `GET /:id/entrega` usa la MISMA función que el envío, así que la
+pantalla no puede decir que está listo mientras el backend dice que no.
+
+### El cliente es el de siempre, y desde su ficha se llega al CEE
+
+**REGLA — el cliente de un CEE directo se da de alta en `clientes`, como todos.**
+No hay una tabla de clientes paralela: es el mismo del CAE, con el mismo buscador
+y el mismo formulario de alta (`ClientePicker`, fuente única del alta y de la
+ficha). Un cliente puede tener a la vez oportunidades, expedientes CAE y CEE
+sueltos.
+
+En la ficha del cliente aparecen **en su propio bloque**, no mezclados con los
+expedientes CAE: son otro negocio y otra numeración, y verlos en la misma lista
+haría creer que a ese cliente se le está tramitando un bono. Sale de
+`cee_directos_vinculados` en `GET /api/clientes/:id` — staff only, mismo criterio
+que los expedientes.
+
+Se navega en los DOS sentidos: desde la ficha del cliente al CEE (`?cee=<id>`) y
+desde el CEE a la ficha del cliente (la tarjeta del cliente abre
+`ClienteDetailModal`, igual que en el expediente CAE). Tener solo uno de los dos
+obliga a salir del expediente para mirar un teléfono.
+
+⚠️ El deep-link es **`?cee=`**, no `?exp=`: son dos tablas distintas y el mismo
+UUID no vale en las dos. Lo consume `App.jsx` y lo abre `CeeDirectosView` vía
+`initialSelectedId`. Es el enlace que llevan los mensajes al certificador, así
+que si se rompe, los avisos ya enviados dejan de abrir nada.
+
+### Quién es el CLIENTE y quién el PARTNER
+
+**REGLA — el que va en el certificado es el CLIENTE, y punto.** Cuando nos
+contrata una empresa pero la vivienda es de un particular, el modelo NO es
+inventarse un "titular": es el de siempre en toda la app —**la empresa es el
+PARTNER** que trae el encargo (`prescriptor_id`) y **el particular es el CLIENTE**
+(`cliente_id`).
+
+Medido en 2026CEE_54: nos lo trae ATERSOL (partner, INSTALADOR) y el CEE se emite
+a nombre de Vicente Gavidia (cliente). Hubo una versión con un campo `titular`
+aparte; se retiró —columna incluida— porque tener DOS campos contestando a "quién
+va en el certificado" es una contradicción esperando a ocurrir.
+
+**La base de clientes es LA MISMA que la del CAE.** Un cliente puede tener a la
+vez oportunidades, expedientes CAE y CEE sueltos. Se da de alta desde Clientes o
+desde el propio formulario del CEE, y **se edita sin salir de él** (`ClientePicker`
+→ "Editar" abre `ClienteDetailModal`): si para corregir un teléfono hay que irse a
+otra pestaña, se pierde lo que estabas haciendo y casi nadie vuelve.
+
+### El formulario se guarda solo, y eso tiene una trampa
+
+`DatosExpediente` **autoguarda** con un freno de 900 ms. El freno no es estética:
+cambiar el nombre RENOMBRA la carpeta de Drive, y guardar a cada tecla dispararía
+una llamada a Google por letra.
+
+⚠️ **REGLA — el guardián del autoguardado compara VALORES, no "¿es el primer
+render?".** La primera versión usaba una bandera de "ya monté" y al abrir el
+2026CEE_54 se autoguardó sola y **le borró el `prescriptor_id`**. Dos causas, y
+las dos las mata comparar contra lo último persistido:
+
+1. el efecto se re-lanza cuando cambia la identidad de `onGuardado`, y el padre lo
+   pasa como flecha en línea (nuevo objeto en cada render), así que la bandera se
+   saltaba en la segunda pasada;
+2. y como al guardar se refresca el expediente, el padre re-renderiza y vuelve a
+   cambiar `onGuardado`: **bucle de guardados**.
+
+Por eso `persistido` guarda el JSON de lo que consta escrito y el efecto sale sin
+hacer nada si el formulario coincide, y `onGuardado` viaja por `useRef` para que su
+identidad no entre en las dependencias. Verificado: **cero PUT al abrir la ficha**,
+**un solo PUT** al teclear cinco letras seguidas.
+
+### La ficha del CEE es UNA LÍNEA de datos, no un formulario
+
+La pantalla del expediente trata de UNA cosa: el certificado. El cliente, el
+partner y la dirección son datos de referencia —se escriben una vez y luego solo
+se consultan—, pero en formulario abierto se comían media pantalla y empujaban el
+módulo CEE, que es a lo que se entra, por debajo del pliegue. Medido: el módulo
+empezaba a ~700 px del borde; ahora, a **217**.
+
+`ResumenDatos` los resume en una cinta de pastillas: cada una dice lo justo para
+saber si está bien y se despliega si quieres el detalle (con el teléfono y el
+email pulsables, que es para lo que se abre). Editar abre `DatosExpedienteModal`,
+que **monta el MISMO formulario** —no una copia— con su autoguardado.
+
+**REGLA — lo que FALTA se ve sin desplegar nada.** Una pastilla en ámbar diciendo
+"Falta la dirección" es la mitad del valor de la cinta: es lo que impide
+encargarle el CEE al técnico, y esconderlo detrás de un clic sería cambiar
+espacio por despistes.
+
+**REGLA — el estado del autoguardado SUBE al contenedor** (`onEstado`). Sin botón
+de Guardar, ese "Guardando… / ✓ Guardado" es la única señal de que lo escrito ha
+llegado; al meter el formulario en el modal se quedó escondido dentro y hubo que
+subirlo a la cabecera. Un autoguardado sin acuse no se distingue de no guardar.
+
+En móvil los desplegables son **hoja inferior a lo ancho**, no popover anclado:
+280 px colgando de una pastilla en una pantalla de 375 se sale o queda ilegible.
+
+⚠️ **Gotcha**: `prescriptores` NO tiene columna `telefono` — es `tlf`. Pedirla en
+un `select` hacía fallar la consulta ENTERA y el partner llegaba como `null`, así
+que la ficha decía "Directo" en un expediente que sí lo tenía.
+
+### La dirección se ELIGE, no se teclea
+
+**REGLA — comunidad, provincia y municipio van por SELECTOR en cascada.** Es lo
+que impide que el mismo municipio acabe escrito de siete maneras y luego no case
+con nada. A mano solo se escriben el **código postal** y la **calle**.
+
+Fuente única: [components/DireccionEdit.jsx](implementation/frontend/src/components/DireccionEdit.jsx),
+que lo comparten la ficha de cliente y el expediente de CEE directo. Vivía dentro
+de `ClienteDetailModal`; se sacó al necesitarlo la segunda pantalla, porque con
+dos copias la dirección del cliente y la del inmueble se normalizarían distinto y
+dejarían de casar. Sus siete efectos de normalización no sobran: los datos llegan
+de la BD en MAYÚSCULAS, del Catastro con la provincia pegada al municipio, y a
+veces solo hay un CP del que deducir provincia y comunidad.
+
+⚠️ **Gotcha corregido**: al elegir la opción vacía de un `<select>`, `opt.text` es
+el RÓTULO del desplegable. Sin guarda, vaciar la provincia guardaba
+`"— Selecciona provincia —"` como provincia. Afectaba también a la ficha de
+cliente.
+
+### La dirección se trae del Catastro, y se puede corregir
+
+Botón **"Traer"** junto a la referencia catastral: consulta `/api/catastro/search`
+y reparte la respuesta en calle / CP / municipio / provincia.
+
+**REGLA — rellena y se aparta: todo queda EDITABLE.** El Catastro escribe la vía
+como la tiene registrada ("AV BARBER (DE) 26"), que a menudo no es como se escribe
+la dirección de verdad, y **el piso y la puerta no los da nunca**. Por eso se avisa
+en pantalla de que hay que comprobarla, en vez de bloquear los campos.
+
+El troceo de la cadena es **fuente única** en
+[utils/direccionCatastral.js](implementation/frontend/src/utils/direccionCatastral.js)
+(`parseCatastroAddressFull`). Vivía dentro de `ClienteDetailModal`; se sacó al
+necesitarlo la segunda pantalla, porque con dos copias la misma dirección se
+rellena distinto según por dónde entres. Sin código postal no reparte nada: vuelca
+la cadena entera en la calle y lo dice, antes que inventarse el municipio.
+
+### Qué ve el certificador — y qué NO
+
+**REGLA — al certificador NUNCA se le manda el enlace de la carpeta RAÍZ.** Dentro
+está `3. PRESUPUESTO Y FACTURAS`, y en Drive **los permisos se HEREDAN**: compartir
+la raíz es enseñarle lo que le cobramos al cliente y lo que nos cuesta la obra. El
+encargo comparte y enlaza **subcarpeta a subcarpeta**: la de SU fase y
+`4. DOCUMENTACIÓN PARA CEE`, nada más
+(`ceeDirectoFolders.compartirConCertificador`). La de la fase que aún no se le ha
+encargado tampoco: `2. CEE FINAL` se comparte el día que se le encarga el final.
+
+Se refuerza en tres capas, porque una sola se olvida:
+1. El mensaje del encargo lleva los enlaces concretos, no el de la raíz.
+2. `GET /:id` **borra `drive_folder_id` y `drive_folder_link`** de la respuesta
+   cuando quien pregunta no es staff.
+3. La ficha no pinta el botón "📁 Carpeta" para el técnico.
+
+**REGLA — un fichero que cae en presupuestos o facturas NO se hace público.** Los
+subidos desde la app se marcan "cualquiera con el enlace" para que la
+previsualización funcione sin estar logueado en la cuenta de Brokergy; ahí no,
+porque un enlace público es un fichero que sale de la app en cuanto alguien copia
+una URL (`ceeDirectoFolders.puedeHacersePublico`).
+
+### El candado de cobro
+
+`cobrado` (solo ADMIN). El cliente ve el estado y sube documentación desde el primer
+día, pero **no descarga el certificado hasta que se marque**. Se comprueba también en
+`POST /:id/resend-cee-notifications`: es el otro camino por el que el certificado
+puede salir de la app, y un candado que solo vive en el portal se salta sin querer
+pulsando "enviar" desde el panel.
+
+### El histórico importado
+
+`node scripts/importar_cee_directos.js` (simulación) / `--execute`. Trae las 55
+carpetas con `origen='HISTORICO'`.
+
+**REGLA — de un histórico solo se afirma lo que tiene JUSTIFICANTE.** La primera
+versión deducía "PRESENTADO" de que hubiera un `.cex` en la carpeta, y doce encargos
+cerrados en 2024 y 2025 entraban en la app como "PENDIENTE REVISIÓN": una cola de
+trabajo inventada. Un `.cex` prueba que el certificado existe, no que esté esperando a
+nadie. Solo se sella REGISTRADO, y lo demás queda en `PTE_ENVIO_CERT` que, junto a la
+marca de histórico, se lee como "viene del Drive antiguo y no lo hemos clasificado".
+El número se conserva TAL CUAL lo escribe la carpeta —los doce primeros llevan cero
+(`2024CEE_01`)— para que el expediente no se llame distinto que su carpeta.
+
+### Fuentes únicas
+
+| Qué | Dónde |
+|---|---|
+| Estados y de quién es la pelota | [utils/ceeDirectoEstados.js](implementation/backend/utils/ceeDirectoEstados.js) |
+| Carga, guardado, historial, numeración | [services/ceeDirectoService.js](implementation/backend/services/ceeDirectoService.js) |
+| Carpetas de Drive | [services/ceeDirectoFolders.js](implementation/backend/services/ceeDirectoFolders.js) |
+| Subida del CEE por el técnico | [services/ceeDirectoUploadService.js](implementation/backend/services/ceeDirectoUploadService.js) |
+| Rutas | [routes/ceeDirectos.js](implementation/backend/routes/ceeDirectos.js) + `/cee-directo-upload` en `routes/public.js` |
+| Esquema | `scripts/cee_directos_schema.sql` |
+
+---
+
+---
+
+## Versiones de la PROPUESTA (2026-08-25)
+
+Enviar una propuesta **no dejaba copia de nada**: el PDF se generaba al vuelo para
+WhatsApp, el email lo rasterizaba el backend desde el HTML, y `html_propuesta` se
+SOBRESCRIBÍA en cada envío. Con dos envíos (precio corregido, alcance ampliado) no
+había forma de saber qué documento tenía el cliente delante ni cuál aceptó.
+
+Fuente única: [propuestaVersiones.js](implementation/backend/services/propuestaVersiones.js).
+Rutas en `oportunidades.js` (`/:id/propuesta/versiones · /version · /version/:v · /borrador`),
+RPC en `scripts/propuesta_versiones.sql`.
+
+**REGLA — la versión sube cuando la propuesta SALE, no cuando se guarda.** El botón
+"Guardar en Drive" de la vista previa deja un BORRADOR de nombre fijo que se reemplaza
+a sí mismo y NO consume número. Si contara, el contador dejaría de significar "lo que
+ha visto el cliente", que es lo único que hace falta saber cuando alguien pregunta por
+qué propuesta va la conversación. De paso arregla que cada pulsación dejara **otra
+copia con el mismo nombre** (Drive lo admite): la carpeta acumulaba PDFs
+indistinguibles entre sí.
+
+**REGLA — se archiva EXACTAMENTE el PDF que se envía.** Se genera UNA vez, se archiva
+en `0. PROPUESTAS` como `Propuesta_{expte}_v{N}.pdf`, y ese mismo buffer viaja al email
+(`pdfBase64`, que `send-proposal` ya aceptaba) y a WhatsApp. Antes cada canal
+rasterizaba su propio HTML —el del email lleva otro envoltorio—, así que **el adjunto
+del correo y el de WhatsApp ni siquiera eran el mismo documento**. Si el PDF no se
+puede preparar, **no se envía nada**: mismo criterio que el CIFO (regla 24).
+
+**REGLA — el número lo asigna la BD.** `propuesta_version_add` calcula MAX+1 dentro del
+UPDATE, que bloquea la fila; un MAX+1 leído desde Node daría el mismo número a dos
+envíos simultáneos. `propuesta_version_merge` sella después (enlace de Drive, resultado
+por canal, aceptación) con MERGE `||`, nunca reemplazo: esos tres datos llegan en
+momentos distintos y separados por días.
+
+**REGLA — en BD solo metadatos y el enlace (regla 21).** `html_propuesta` pesa **353 KB
+de media y hasta 1,35 MB** (medido el 2026-08-25 sobre las 364 oportunidades), y
+`datos_calculo` ya llega a 5,3 MB en el peor caso: guardar el HTML de cada versión
+repetiría la caída de julio. El histórico son PDFs en Drive.
+
+**REGLA — la marca va IMPRESA en el documento, no solo en el nombre del fichero.** El
+nombre del adjunto se pierde en cuanto el cliente lo abre; dos PDFs con cifras
+distintas encima de la mesa siguen siendo indistinguibles sin ella. Va en la portada
+("Propuesta Nº … · Versión 2" + "Esta versión anula y sustituye a las anteriores") y en
+el pie de cada página. **La v1 no se marca**: un documento que solo ha salido una vez no
+tiene con qué confundirse. `marcaVersion` entra en las dependencias del `useLayoutEffect`
+que ajusta la portada — llega por fetch DESPUÉS de que el ajuste haya convergido, y sin
+rearmarlo la línea extra desbordaría por debajo del pie negro.
+
+**REGLA — qué versión aceptó el cliente se SELLA.** El enlace público es el mismo
+siempre, así que quien recibió la v1 y entra hoy ve la v2 y la acepta sin saberlo. Se
+graba `propuesta_version` en la entrada de aceptación del historial **y** `aceptada_at`
+en la propia versión (las dos caras: el listado de versiones se lee sin el historial
+delante). Y se le **dice en pantalla** antes de firmar: "Estás aceptando la versión 2…".
+
+**El aviso de reenvío va ANTES de pulsar**, con a quién y cuándo se envió la anterior:
+es el dato que cambia lo que le escribes en el mensaje. Y el historial pasa a decir
+"📄 Propuesta v2 enviada por email + whatsapp a Cliente, Instalador · Cambios respecto a
+la anterior: inversión 12.400 € → 11.900 €" — antes solo decía "ENVIADA", sin
+destinatario ni canal, así que no servía para reconstruir la conversación. Los importes
+(`inversion`, `caeBonus`, `irpfDeduction`, `totalAyuda`) se sellan por versión para poder
+decir qué cambió sin recalcular ni rasterizar nada.
+
+---
+
+## El menú lateral (2026-08-24)
+
+Con la pestaña de CEE directos el menú pasó a **diez entradas** y dejó de caber:
+medido, el `<aside>` ocupaba los 918 px de la pantalla y su contenido pedía 1035.
+Como nada tenía `overflow`, los 117 px sobrantes —el perfil y el botón de Salir—
+se **cortaban sin forma de llegar a ellos**.
+
+**REGLA — el que scrollea es el `<nav>`, no el `<aside>`.** Lleva `flex-1 min-h-0
+overflow-y-auto`; el `min-h-0` es imprescindible, porque sin él un hijo `flex-1`
+no puede encoger y sigue empujando el pie fuera de la vista aunque le pongas
+`overflow`. Cabecera y pie van `shrink-0`: son lo único que nunca debe moverse.
+
+**El sitio salía de la cabecera y del pie, no de quitar pestañas**: el logo
+ocupaba 176 px (el 19 % de la pantalla) y el pie 197. Ahora 112 y 168, y por
+debajo de 820 px de alto el logo encoge solo (`[@media(max-height:820px)]`) —
+cada píxel de logo en un portátil es una pestaña que se va detrás del scroll.
+
+**Las entradas son una LISTA DECLARATIVA, no diez botones copiados.** Cuando eran
+copias había que tocarlas una a una y la última (CEE directos) nació ya distinta
+de sus hermanas. Se agrupan por para-qué sirven —lo del día · Cartera · Fichas ·
+Ajustes— y **los rótulos solo salen si el menú es largo** (>6 entradas): a un
+partner con tres opciones, tres cabeceras le estorban. Plegado no hay rótulos,
+pero se conserva la separación entre grupos: es lo que hace reconocible la forma
+del menú de un vistazo.
+
+⚠️ **WhatsApp sigue FUERA del `<nav>`**, entre las pestañas y el perfil, con su
+color de estado (regla 13). No moverlo ahí dentro.
 
 ## Reglas Críticas — No Romper
 
@@ -1301,6 +1760,7 @@ Los rótulos de 7 px suben a 10 px y todos los controles llegan a los 44 px de o
     sella solo `mergeDocumentacion` al cambiar el enlace, que es lo que además levanta el bloqueo del
     rechazo.
     ⚠️ `cert_cifo_*` es el mismo slot para dos documentos distintos: el **CIFO** lo firma el INSTALADOR (enlace bloqueable) y el **Certificado RES080** lo firma Brokergy y solo se ENTREGA al cliente. `DOC_REGENERABLE` lo distingue por `isReforma`.
+25. **La PROPUESTA se versiona al ENVIARLA, nunca al guardarla**: cada envío archiva su PDF en `0. PROPUESTAS` como `Propuesta_{expte}_v{N}.pdf`, imprime la marca DENTRO del documento y sella qué versión aceptó el cliente. Fuente única: [propuestaVersiones.js](implementation/backend/services/propuestaVersiones.js) — no volver a generar el PDF de la propuesta por separado en cada canal (el del email y el de WhatsApp acababan siendo documentos distintos), ni guardar el HTML de una versión en el JSONB (353 KB de media, regla 21). Ver "Versiones de la PROPUESTA".
 
 ---
 
