@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { ChatWhatsappVinculo } from './ChatWhatsappVinculo';
 import { readPhaseTime, fmtDate, humanDays, STALE_CLASSES } from '../logic/seguimientoTime';
 
 const STATUS_CONFIG = {
@@ -38,7 +39,10 @@ const STATUS_CONFIG = {
     }
 };
 
-export function SeguimientoModule({ expediente, onSave, saving }) {
+// `readOnly` ya llegaba desde la vista (readOnly={isCertificador}) pero no se
+// recogía. Importa ahora: el certificador no tiene por qué ver ni tocar a qué
+// chat de WhatsApp escribe el cliente.
+export function SeguimientoModule({ expediente, onSave, saving, readOnly = false }) {
     const [local, setLocal] = useState({
         cee_inicial: 'ASIGNADO',
         cee_final: 'ASIGNADO',
@@ -212,6 +216,12 @@ export function SeguimientoModule({ expediente, onSave, saving }) {
                     })}
                  </div>
             </div>
+
+            {/* Qué chat de WhatsApp habla de esta obra. Va en Seguimiento porque
+                es donde vive la comunicación con el cliente y el certificador, no
+                en Instalación (que son datos técnicos) ni en la cabecera (que ya
+                está llena). Solo lo ve el staff: la ruta es staffOnly. */}
+            {!readOnly && <ChatWhatsappVinculo expediente={expediente} />}
         </div>
     );
 }

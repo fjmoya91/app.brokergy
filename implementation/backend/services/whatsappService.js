@@ -102,6 +102,32 @@ function pruneRateWindow() {
     while (sentTimestamps.length && sentTimestamps[0] < cutoff) sentTimestamps.shift();
 }
 
+// ── Suscriptores a los mensajes ENTRANTES ────────────────────────────────────
+// Se registran una vez al arrancar y sobreviven a las reconexiones: `init()`
+// crea un `client` nuevo y vuelve a enganchar el listener sobre esta misma
+// lista, así que el bot no tiene que re-suscribirse cada vez que se cae Chrome.
+const messageHandlers = new Set();
+
+/** Suscribe un handler a los mensajes entrantes. Devuelve cómo darse de baja. */
+function onMessage(handler) {
+    if (typeof handler !== 'function') throw new Error('onMessage requiere una función');
+    messageHandlers.add(handler);
+    return () => messageHandlers.delete(handler);
+}
+
+/**
+ * Cliente crudo de whatsapp-web.js, o null si no está listo.
+ *
+ * Se expone SOLO para lo que este servicio no cubre y depende de la sesión
+ * viva: leer etiquetas (`getLabels`, `getChatsByLabelId`) y releer un chat
+ * (`fetchMessages`). Para ENVIAR hay que seguir usando `sendText`/`sendMedia`,
+ * que son los que pasan por la cola, el rate-limit y los retardos humanos:
+ * enviar por el cliente crudo se salta las tres cosas.
+ */
+function getClient() {
+    return isReady() ? client : null;
+}
+
 async function waitForRateSlot() {
     // eslint-disable-next-line no-constant-condition
     while (true) {
@@ -587,6 +613,25 @@ async function init() {
         startPolling();
     });
 
+    // ── ENTRADA ──────────────────────────────────────────────────────────
+    // Hasta 2026-08-25 este servicio era solo de SALIDA. El listener no hace
+    // trabajo aquí: se lo pasa a quien se haya suscrito con `onMessage()` (hoy,
+    // el bot de WhatsApp). Cuelga del bucle de eventos de la sesión que usa
+    // TODA la app, así que ningún suscriptor puede tumbarlo: cada uno va en su
+    // try/catch y sus rechazos se tragan aquí.
+    client.on('message', (msg) => {
+        for (const handler of messageHandlers) {
+            try {
+                const r = handler(msg);
+                if (r && typeof r.catch === 'function') {
+                    r.catch(e => console.error('[wwa] handler de mensaje entrante:', e.message));
+                }
+            } catch (e) {
+                console.error('[wwa] handler de mensaje entrante:', e.message);
+            }
+        }
+    });
+
     client.on('disconnected', (reason) => {
         clearInitTimeout();
         console.warn('[wwa] Desconectado:', reason);
@@ -893,6 +938,9 @@ module.exports = {
     sendMedia,
     getGroups,
     normalizePhone,
+    onMessage,
+    getClient,
+    isReady,
     _config: CONFIG,
 };
 

@@ -111,6 +111,22 @@ try {
     }).catch(err => {
         console.error('[server] WhatsApp: Error en arranque automático:', err.message);
     });
+
+    // Bot de respuestas automáticas a los chats etiquetados. Se arranca aquí y
+    // no dentro del `ready` de WhatsApp porque tiene que suscribirse UNA vez:
+    // el listener se re-engancha solo en cada reconexión, y su barrido no hace
+    // nada mientras la sesión no esté lista. Nace apagado salvo que
+    // BOT_WHATSAPP_ENABLED=true (en LOCAL escribiría a clientes REALES).
+    //
+    // Try/catch PROPIO: si el bot no carga, WhatsApp sigue perfectamente vivo y
+    // hay que decirlo así. Compartiendo el catch de fuera, un fallo del bot se
+    // anunciaba como "WhatsApp no disponible" y mandaba a buscar la avería al
+    // sitio equivocado.
+    try {
+        require('./services/botWhatsapp').start();
+    } catch (e) {
+        console.warn('[server] Bot de WhatsApp no disponible:', e.message);
+    }
 } catch (err) {
     console.warn('[server] WhatsApp no disponible o error al cargar: ', err.message);
 }

@@ -6,6 +6,7 @@ import { normalize, PROV_CCAA, PROV_NOMBRE, CCAA_LIST, getProvCodByNombre, parse
 // Los campos de dirección (y la cascada CCAA/provincia/municipio) son fuente
 // única en components/DireccionEdit: los comparte con el expediente de CEE.
 import { FieldView, FieldInput, Input, SelectEl, DireccionEdit } from '../../../components/DireccionEdit';
+import { WhatsappEtiquetas } from '../../../components/WhatsappEtiquetas';
 
 // Helpers de dirección catastral: fuente única en utils/direccionCatastral.js
 // ─── Sub-componentes ────────────────────────────────────────────────────────
@@ -733,6 +734,20 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
                                 </div>
                                 )}
                             </div>
+
+                            {/* Etiquetas de WhatsApp del contacto. Van en la ficha del
+                                CLIENTE y no en el expediente porque son del CHAT: el mismo
+                                teléfono es el mismo chat aunque tenga tres obras. Y aquí es
+                                donde se mira el teléfono, que es justo lo que identifica ese
+                                chat. Solo se pinta si hay número. */}
+                            {!isCertificador && (cliente.tlf || cliente.persona_contacto_tlf) && (
+                                <div className="pt-4 border-t border-white/[0.04]">
+                                    <WhatsappEtiquetas
+                                        telefono={cliente.tlf || cliente.persona_contacto_tlf}
+                                        puedeEditar={isAdmin}
+                                    />
+                                </div>
+                            )}
 
                             <div className="text-[10px] text-white/20 font-bold uppercase tracking-widest pt-2 border-t border-white/[0.04]">
                                 Alta: {new Date(cliente.created_at).toLocaleDateString('es-ES', { year: 'numeric', month: 'long', day: 'numeric' })}

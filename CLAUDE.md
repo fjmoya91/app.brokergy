@@ -1948,6 +1948,158 @@ chat donde unas veces contesta una persona y otras el asistente esa línea es lo
 único constante. `asegurarFirma()` limpia las variantes y pone la buena; al
 prompt se le dice **que no firme**.
 
+### De QUÉ obra habla — `botVinculos` + tabla `whatsapp_chat_expediente`
+
+El teléfono dice QUIÉN escribe; no dice DE QUÉ. Medido el 2026-08-25 sobre
+expedientes vivos: **219 de 257 teléfonos (85 %) resuelven a una sola obra**,
+así que con los clientes el problema casi no existe. Pero el peor caso son **33
+obras vivas en el mismo chat** (un instalador), y son justo los que más
+escriben.
+
+Tres procedencias, de más a menos fiable:
+
+| Origen | Qué es | Vigencia |
+|---|---|---|
+| `manual` | Lo ha fijado una persona desde la ficha | no caduca |
+| `conversacion` | El propio cliente ha dicho de qué obra habla | 8 h |
+| `envio` | Le hemos escrito nosotros desde ese expediente | 72 h |
+
+**REGLA — con un INSTALADOR, la pista de ENVÍO no decide.** Que le mandáramos un
+aviso el martes desde una obra no dice por cuál de sus treinta pregunta hoy: se
+le pregunta, que es lo que haría cualquiera. Sí valen las otras dos —lo fijado a
+mano es una decisión tomada, y lo que él mismo acaba de decir es la respuesta
+literal a esa pregunta—. Lo controla `elegir(..., { permitirEnvio })`, que
+`botContexto` pone a `rol === 'cliente'`.
+
+**REGLA — una obra elegida entre varias se ANUNCIA.** El dossier lleva
+`elegidoPor` y `otrosAsuntos`, y el prompt obliga a empezar con "Sobre la obra
+de X:" y a ofrecer el cambio. Una suposición que no se anuncia es una suposición
+que el cliente no puede corregir: se le contesta por la obra equivocada y no se
+entera ninguno de los dos.
+
+**REGLA — cuando el cliente aclara de qué obra habla, se APRENDE y se vuelve a
+pensar EN LA MISMA VUELTA.** El cerebro devuelve `asunto_elegido` (el número
+entre corchetes del dossier), se siembra el vínculo y se rehace la respuesta. Si
+no, a "la de Tomelloso, ¿qué me falta?" habría que contestarle "vale, ¿y qué
+necesitas?" y hacerle repetir la pregunta que acaba de hacer.
+
+**REGLA — el vínculo se siembra SOLO, desde los envíos que la app ya hace.**
+`botVinculos.sembrarEnDiferido(tlf, oportunidadId)` en los avisos del expediente
+y en "solicitar lo que falta". Va en `setImmediate` y **nunca lanza**: el aviso
+al cliente es el trabajo, el vínculo es una comodidad.
+
+Es una TABLA y no un campo en `expedientes` porque la relación es N:M en los dos
+sentidos: un chat habla de varias obras (el instalador) y una obra puede tener
+dos chats (el titular y el instalador). Un campo obligaría a elegir uno.
+
+Rutas para la ficha (staffOnly): `GET/POST /api/expedientes/:id/whatsapp-chats`
+y `DELETE .../:telefono`. Esquema en `scripts/bot_whatsapp_vinculos.sql`; test
+en `scripts/test_bot_vinculos.js`.
+
+**En la app va en SEGUIMIENTO**, al final
+([ChatWhatsappVinculo.jsx](implementation/frontend/src/features/expedientes/components/ChatWhatsappVinculo.jsx)):
+ahí es donde vive la comunicación con el cliente y el certificador, no en
+Instalación (datos técnicos) ni en la cabecera (ya llena). Oculto al
+certificador (`readOnly`), que no tiene por qué ver a qué número se le escribe.
+
+**REGLA — los contactos se ELIGEN, no se teclean.** El `GET` devuelve además los
+teléfonos que ya constan en el expediente (cliente, instalador y sus personas de
+contacto, vía `resolveSolicitudContacto`) y se ofrecen como botones. Teclear un
+móvil a mano es la forma más fácil de vincular el chat equivocado, y los buenos
+ya están en la ficha. El campo manual se queda para el caso en que quien escribe
+sea un número que no consta.
+
+**REGLA — las tres procedencias se distinguen en pantalla** (Fijado · Aprendido ·
+Automático). Una es una decisión y las otras dos son una conjetura con fecha de
+caducidad: presentarlas igual haría creer que el bot tiene una certeza que no
+tiene. Y **el botón de quitar va en las tres**, también en la automática: una
+pista que apunta a la obra equivocada es justo lo que hay que poder borrar sin
+esperar a que caduque.
+
+⚠️ La validación del teléfono estaba SOLO en el navegador y el backend tragaba
+`"123"` como chatId. `aChatId` aplica ahora el mismo criterio que
+`whatsappService.normalizePhone` (9 dígitos → +34; con prefijo, 10-15) y devuelve
+`null` si no cuela; la ruta lo traduce a **400**, no a 500 — un teléfono mal
+tecleado no es una avería. `soltar()` NO valida, a propósito: hay que poder
+borrar precisamente lo que se guardó mal.
+
+⚠️ **La cuota de Gemini es el cuello de botella real.** Con la key en plan
+gratuito el límite salta a las ~20 peticiones seguidas. Un 429 **NO escala**
+—sería mandarle al cliente un "te contesta un compañero" porque hemos pedido
+demasiado rápido—: se reprograma el mensaje y **se corta el barrido entero**,
+porque los siguientes chocarían con la misma cuota.
+
+### Etiquetas de WhatsApp desde la app — [whatsappLabels.js](implementation/backend/services/whatsappLabels.js)
+
+Las etiquetas son de WhatsApp, no del bot: organizan la cartera (Pagado, EN
+CURSO, RES080, SAT…) y una de ellas, además, enciende el asistente. Se gestionan
+desde la **ficha del cliente**
+([WhatsappEtiquetas.jsx](implementation/frontend/src/components/WhatsappEtiquetas.jsx)),
+porque son del CHAT: el mismo teléfono es el mismo chat aunque tenga tres obras,
+y es en la ficha del cliente donde se mira el teléfono.
+
+Rutas: `GET /api/whatsapp/etiquetas` · `GET|PUT /api/whatsapp/etiquetas/:telefono`.
+
+**REGLA — se guarda la lista COMPLETA, no la que cambia.** La operación de
+WhatsApp es "deja el chat con exactamente estas etiquetas"; mandar solo una le
+borraría al chat todas las demás, que son de otra persona y de otro trabajo.
+
+**REGLA — se puede etiquetar SIN haber escrito nunca.** Una etiqueta se pone
+sobre un chat, y dar de alta a un cliente y clasificarlo antes de hablar con él
+es el caso normal. `asegurarChat()` usa `findOrCreateLatestChat`, lo mismo que
+hace WhatsApp al abrir una conversación desde la agenda: **no se envía nada ni se
+notifica al cliente**, solo aparece el chat vacío en la lista del móvil. Solo lo
+hace el PUT: abrir una ficha (GET) no puede crear conversaciones.
+
+**REGLA — el número se comprueba contra WhatsApp** (`queryWidExists`), nunca se
+compone el id a mano. Etiquetar un id inventado **no da error**: no hace nada,
+que es peor que fallar.
+
+### Lo que WhatsApp rompió, y hay que saber (2026-08-25)
+
+**⚠️ `getLabels()` de whatsapp-web.js NO FUNCIONA.** Todas las vías de la
+librería (`client.getLabels`, `chat.getLabels`, `chat.changeLabels`,
+`getChatsByLabelId`) pasan por `getLabelModel()`, que hace `label.serialize()` y
+lee `label.hexColor`. WhatsApp cambió ese modelo y sale un error minificado que
+literalmente pone `"r"`. Medido contra una cuenta Business con **16 etiquetas**:
+la colección se lee perfectamente y lo que revienta es serializarla. Por eso
+`whatsappLabels` lee `WAWebCollections` directamente. Es deuda a propósito:
+cuando la librería publique el arreglo, se puede tirar. Lo mismo con
+`fetchMessages()`, que dejaba `humanoHaIntervenido` devolviendo siempre null —
+o sea, **la protección de no pisar a un compañero estaba muerta y no se notaba**.
+
+**⚠️ Los chats ya no se llaman como el número: `@lid`.** WhatsApp está migrando
+de `34612345678@c.us` a identificadores opacos (`71159068520593@lid`). Dos
+consecuencias, las dos medidas:
+- Escuchar solo `@c.us` deja al bot **sordo** con los chats migrados, y sin
+  rastro de que ha pasado nada.
+- **Al `@lid` no se le puede ENVIAR**: la cola agotaba los 5 reintentos con otro
+  error minificado ("t") mientras el mismo texto al número salía a la primera.
+  `destinoDe(fila)` manda siempre al teléfono. El `@lid` sirve para RECONOCER
+  quién escribe, no para contestarle.
+`getContactLidAndPhone` resuelve lid ↔ teléfono y se cachea de por vida del
+proceso (un lid no cambia de dueño).
+
+**⚠️ Las colecciones de WhatsApp Web tardan en cargar tras el `ready`.** Durante
+los primeros segundos `Label.getModelsArray()` devuelve una lista VACÍA aunque la
+cuenta tenga 16 etiquetas. Dar por buena esa respuesta grababa un "esta cuenta no
+tiene etiquetas" para toda la sesión: el bot no contestaba a nadie y el log
+afirmaba algo falso. La comprobación de arranque **no se marca como hecha hasta
+que la respuesta es concluyente**, y una lista vacía se reintenta.
+
+**⚠️ `requireAuth` NO exige sesión.** Si no hay token pone `req.user = null` y
+deja pasar — sirve para SABER quién eres, no para exigirlo. Comprobado el
+25/08/2026: unas rutas nuevas montadas con `requireAuth` servían las 16 etiquetas
+de la cuenta a un `curl` sin cabeceras. Para cualquier cosa interna, `staffOnly`
+o `adminOnly`. La regla 6 ("todas las rutas usan requireAuth o enforceAuth") se
+lee mal si no se sabe esto.
+
+**⚠️ `sendText()` ENCOLA, no envía.** Devuelve `{ok:true}` mucho antes de que
+WhatsApp haya entregado nada, así que un RESPONDIDO en la bandeja del bot no
+distingue "contestado" de "encolado y fallido" — el 25/08/2026 se dio por
+entregada una respuesta que había muerto tras 5 reintentos. Se guarda el
+`cola_id` en el contexto para poder contrastarlo con `whatsapp_queue`.
+
 ### Escalado
 
 `ESCALAR` cuando: lo pide el cliente, pregunta por dinero o plazos, se queja,

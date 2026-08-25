@@ -18,6 +18,7 @@ const { resolveInstaladorFirmante } = require('../utils/instaladorFirmante');
 const emailService = require('../services/emailService');
 const whatsappService = require('../services/whatsappService');
 const reformaUploadService = require('../services/reformaUploadService');
+const botVinculos = require('../services/botVinculos');
 const docsAlcance = require('../services/docsAlcance');
 const revisionPendienteNotifier = require('../services/revisionPendienteNotifier');
 const recordatorios = require('../services/recordatorios');
@@ -357,6 +358,10 @@ async function notifyCeeInicialRegistrado(expediente, filters = {}) {
         if (chFilter.includes('whatsapp')) {
             if (targets.includes('CLIENTE') && cliPhone) {
                 channels.whatsapp.push('cliente');
+                // Cada aviso que ya se manda le enseña al bot de WhatsApp de qué
+                // obra habla este chat. Es la pista más débil de las tres y la
+                // más abundante: no cuesta nada y va en diferido.
+                botVinculos.sembrarEnDiferido(cliPhone, expediente.oportunidad_id);
                 whatsappService.sendText(cliPhone, clientMsg)
                     .catch(e => console.error(`${tag} WhatsApp Cliente:`, e.message));
             } else if (targets.includes('CLIENTE') && !cliPhone) {
@@ -372,6 +377,7 @@ async function notifyCeeInicialRegistrado(expediente, filters = {}) {
 
             if (targets.includes('PARTNER') && partnerPhone) {
                 channels.whatsapp.push('partner');
+                botVinculos.sembrarEnDiferido(partnerPhone, expediente.oportunidad_id);
                 whatsappService.sendText(partnerPhone, partnerMsg)
                     .catch(e => console.error(`${tag} WhatsApp Partner:`, e.message));
             }
@@ -1415,6 +1421,7 @@ router.post('/:id/solicitar-faltantes', internalKeyOrAuth, async (req, res) => {
 
         if (channels.includes('whatsapp')) {
             if (!tlf) return res.status(400).json({ error: 'No hay teléfono para enviar el WhatsApp. Indica uno.' });
+            botVinculos.sembrarEnDiferido(tlf, exp.oportunidad_id);
             try { await whatsappService.sendText(tlf, mensaje); sent.push('WhatsApp'); }
             catch (e) { console.warn('[solicitar-faltantes] WA:', e.message); sent.push('WhatsApp (encolado)'); }
         }
@@ -6628,6 +6635,128 @@ router.patch('/:id/prioridad', enforceAuth, async (req, res) => {
         res.json({ ok: true, prioridad });
     } catch (err) {
         res.status(500).json({ error: err.message });
+    }
+});
+
+// ─── CHATS DE WHATSAPP VINCULADOS A ESTE EXPEDIENTE ──────────────────────────
+//
+// El bot resuelve por teléfono, y eso basta para el 85 % de los casos. Falla
+// con quien tiene varias obras a la vez — un instalador puede tener 38 vivas en
+// el mismo chat—, y ahí hace falta poder decirle a mano de cuál se trata.
+//
+// La fuente de verdad es `botVinculos`; aquí solo se expone para la ficha.
+// staffOnly: es información de contacto, no lleva importes.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Oportunidad de un expediente (la tabla de vínculos cuelga de ella, porque el
+ *  expediente puede no existir todavía cuando la propuesta está sin aceptar). */
+async function oportunidadDeExpediente(expedienteId) {
+    const { data, error } = await supabase.from('expedientes')
+        .select('oportunidad_id').eq('id', expedienteId).maybeSingle();
+    if (error || !data) return null;
+    return data.oportunidad_id || null;
+}
+
+/**
+ * Teléfonos que ya constan en el expediente, para poder ELEGIR en vez de
+ * teclear. Teclear un móvil a mano es la forma más fácil de vincular el chat
+ * equivocado, y ya tenemos los buenos en la ficha del cliente y del instalador.
+ */
+async function contactosConocidos(exp) {
+    const [cliente, instalador] = await Promise.all([
+        resolveSolicitudContacto(exp, 'CLIENTE'),
+        resolveSolicitudContacto(exp, 'INSTALADOR'),
+    ]);
+    const out = [];
+    const push = (nombre, tlf, papel) => {
+        const t = String(tlf || '').replace(/\D/g, '');
+        if (t.length < 9) return;
+        if (out.some(c => c.telefono.slice(-9) === t.slice(-9))) return;   // ya está
+        out.push({ nombre: nombre || papel, telefono: t, papel });
+    };
+    push(cliente?.nombre, cliente?.tlf, 'Cliente');
+    push(instalador?.nombre, instalador?.tlf, 'Instalador');
+    // Las personas de contacto del instalador: en muchas empresas quien escribe
+    // por WhatsApp no es el número de la ficha, sino el del jefe de obra.
+    for (const c of instalador?.contactos || []) push(c.nombre, c.tlf, 'Contacto del instalador');
+    return out;
+}
+
+// GET /api/expedientes/:id/whatsapp-chats
+router.get('/:id/whatsapp-chats', staffOnly, async (req, res) => {
+    try {
+        const { data: exp } = await supabase.from('expedientes')
+            .select('id, oportunidad_id, cliente_id').eq('id', req.params.id).maybeSingle();
+        if (!exp?.oportunidad_id) return res.status(404).json({ error: 'Expediente no encontrado' });
+        const [chats, contactos] = await Promise.all([
+            botVinculos.chatsDe(exp.oportunidad_id),
+            contactosConocidos(exp),
+        ]);
+        res.json({ oportunidad_id: exp.oportunidad_id, chats, contactos });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// POST /api/expedientes/:id/whatsapp-chats  { telefono, nota? }
+// Fija a mano el chat de esta obra. Gana a cualquier pista automática.
+router.post('/:id/whatsapp-chats', staffOnly, async (req, res) => {
+    try {
+        const { telefono, nota } = req.body || {};
+        if (!telefono) return res.status(400).json({ error: 'Falta el teléfono' });
+        const oppId = await oportunidadDeExpediente(req.params.id);
+        if (!oppId) return res.status(404).json({ error: 'Expediente no encontrado' });
+        const out = await botVinculos.fijar(telefono, oppId, nota || null);
+        res.json({ ok: true, ...out, chats: await botVinculos.chatsDe(oppId) });
+    } catch (e) {
+        res.status(e.datoInvalido ? 400 : 500).json({ error: e.message });
+    }
+});
+
+// POST /api/expedientes/:id/whatsapp-chats/:telefono/etiqueta  { quitar? }
+//
+// Pone (o quita) la etiqueta del bot en el chat de WhatsApp de ese número, sin
+// salir de la app. Es la mitad que faltaba: hasta ahora había que asignar el
+// chat aquí y luego ir al WhatsApp del móvil a etiquetarlo, y el segundo paso
+// se olvida — el síntoma es "lo tengo asignado y no contesta".
+//
+// adminOnly: encender el bot en un chat es decidir que a ese cliente le va a
+// responder una máquina en nombre de BROKERGY.
+router.post('/:id/whatsapp-chats/:telefono/etiqueta', adminOnly, async (req, res) => {
+    try {
+        const bot = require('../services/botWhatsapp');
+        const quitar = req.body?.quitar === true;
+        const chatId = await bot.chatIdDeTelefono(req.params.telefono);
+        const out = await bot.cambiarEtiquetaDelChat(chatId, { quitar });
+        res.json({ ok: true, chat_id: chatId, ...out });
+    } catch (e) {
+        // Casi todos los fallos aquí son de dato o de estado (no hay chat, no
+        // es Business, WhatsApp desconectado), no averías del servidor: el
+        // mensaje ya viene escrito para que lo lea una persona.
+        res.status(400).json({ error: e.message });
+    }
+});
+
+// GET /api/expedientes/:id/whatsapp-chats/:telefono/etiqueta → ¿está etiquetado?
+router.get('/:id/whatsapp-chats/:telefono/etiqueta', staffOnly, async (req, res) => {
+    try {
+        const bot = require('../services/botWhatsapp');
+        const chatId = await bot.chatIdDeTelefono(req.params.telefono);
+        res.json({ chat_id: chatId, etiquetado: await bot.estaEtiquetado(chatId) });
+    } catch (e) {
+        res.status(400).json({ error: e.message });
+    }
+});
+
+// DELETE /api/expedientes/:id/whatsapp-chats/:telefono
+router.delete('/:id/whatsapp-chats/:telefono', staffOnly, async (req, res) => {
+    try {
+        const oppId = await oportunidadDeExpediente(req.params.id);
+        if (!oppId) return res.status(404).json({ error: 'Expediente no encontrado' });
+        await botVinculos.soltar(req.params.telefono, oppId);
+        res.json({ ok: true, chats: await botVinculos.chatsDe(oppId) });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
     }
 });
 
