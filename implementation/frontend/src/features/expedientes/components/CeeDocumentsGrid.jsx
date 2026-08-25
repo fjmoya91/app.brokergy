@@ -174,6 +174,13 @@ function UploadItem({
 }
 
 export function CeeDocumentsGrid({
+    // Ver la nota de `apiBase` en CeeModule: por defecto, el expediente CAE.
+    apiBase = '/api/expedientes',
+    // Fases que se pintan. Un expediente CAE tiene siempre las dos (aunque la
+    // final esté vacía), pero a un CEE contratado suelto para una compraventa se
+    // le encarga UN certificado: enseñarle una segunda fila con toda su fila de
+    // casillas es prometer un documento que nadie va a emitir.
+    secciones = ['inicial', 'final'],
     expediente,
     certName,
     ceeFiles,
@@ -265,7 +272,7 @@ export function CeeDocumentsGrid({
         if (!key || !expediente?.id) return;
         setValidatingCee(key);
         try {
-            await axios.post(`/api/expedientes/${expediente.id}/documentos/validar-cee`, { field: key });
+            await axios.post(`${apiBase}/${expediente.id}/documentos/validar-cee`, { field: key });
             onManualUpdate?.({ docs_validados: { ...ceeDocsValidados, [key]: new Date().toISOString() } });
             setManaging(null);
         } catch (err) {
@@ -382,11 +389,11 @@ export function CeeDocumentsGrid({
         setCertApproveLinks(null);
         setCertClienteMissing([]);
         if (expediente?.id) {
-            axios.get(`/api/expedientes/${expediente.id}/approve-cee-links?phase=${certNotifyModal.section}`)
+            axios.get(`${apiBase}/${expediente.id}/approve-cee-links?phase=${certNotifyModal.section}`)
                 .then(r => setCertApproveLinks(r.data))
                 .catch(() => setCertApproveLinks(null));
             // Avisar de los datos del cliente que el certificador NO recibirá.
-            axios.get(`/api/expedientes/${expediente.id}/cert-cliente-data`)
+            axios.get(`${apiBase}/${expediente.id}/cert-cliente-data`)
                 .then(r => setCertClienteMissing(r.data?.missing || []))
                 .catch(() => setCertClienteMissing([]));
         }
@@ -631,7 +638,7 @@ export function CeeDocumentsGrid({
 
         (async () => {
             try {
-                await axios.post(`/api/expedientes/${expediente.id}/documents/make-public`, {
+                await axios.post(`${apiBase}/${expediente.id}/documents/make-public`, {
                     driveLink: managing.link
                 });
                 console.log('[auto-make-public] OK', managing.link);
@@ -644,7 +651,7 @@ export function CeeDocumentsGrid({
                 if (status === 404) {
                     try {
                         console.log('[auto-make-public] Reparando links del expediente…');
-                        const { data: repair } = await axios.post(`/api/expedientes/${expediente.id}/documents/repair-cee-links`);
+                        const { data: repair } = await axios.post(`${apiBase}/${expediente.id}/documents/repair-cee-links`);
                         console.log('[repair-cee-links] OK', repair);
                         const repaired = repair?.repaired || {};
                         // Actualizar ceeFiles localmente con los links nuevos
@@ -685,7 +692,7 @@ export function CeeDocumentsGrid({
         let cancelled = false;
         (async () => {
             try {
-                const { data } = await axios.get(`/api/expedientes/${expediente.id}/documents/scan-cee`);
+                const { data } = await axios.get(`${apiBase}/${expediente.id}/documents/scan-cee`);
                 if (cancelled || !data) return;
 
                 // .xml y .cex encontrados en Drive que NO han pasado por el slot. No se
@@ -744,7 +751,7 @@ export function CeeDocumentsGrid({
         try {
             const phase = section === 'final' ? 'final' : 'inicial';
             const [{ data }, waRes] = await Promise.all([
-                axios.post(`/api/expedientes/${expediente.id}/resend-cee-notifications`, { phase, preview: true }),
+                axios.post(`${apiBase}/${expediente.id}/resend-cee-notifications`, { phase, preview: true }),
                 axios.get('/api/whatsapp/status').catch(() => null),
             ]);
             if (data?.preview) setResendMessages(data.preview);
@@ -770,7 +777,7 @@ export function CeeDocumentsGrid({
             // Overrides editados en la preview (solo afectan al texto de WhatsApp).
             const overrides = {};
             resendTargets.forEach(t => { if (resendMessages[t]) overrides[t] = resendMessages[t]; });
-            const res = await axios.post(`/api/expedientes/${expediente.id}/resend-cee-notifications`, {
+            const res = await axios.post(`${apiBase}/${expediente.id}/resend-cee-notifications`, {
                 phase,
                 targets: resendTargets,
                 channels: resendChannels,
@@ -877,7 +884,7 @@ export function CeeDocumentsGrid({
 
                 const base64 = await base64Promise;
 
-                const { data } = await axios.post(`/api/expedientes/${expediente.id}/documents/upload`, {
+                const { data } = await axios.post(`${apiBase}/${expediente.id}/documents/upload`, {
                     base64,
                     fileName: targetName,
                     mimeType: file.type,
@@ -995,7 +1002,7 @@ export function CeeDocumentsGrid({
         // 2. Borrar cada uno en Drive (best-effort; si falla, lo notificamos pero seguimos)
         for (const link of current) {
             try {
-                await axios.delete(`/api/expedientes/${expediente.id}/documents/file`, {
+                await axios.delete(`${apiBase}/${expediente.id}/documents/file`, {
                     data: { driveLink: link }
                 });
             } catch (err) {
@@ -1050,7 +1057,7 @@ export function CeeDocumentsGrid({
             // Si se seleccionan ambos, mandamos 'AMBOS', de lo contrario el específico
             const targetParam = selectedTargets.length === 2 ? 'AMBOS' : selectedTargets[0];
 
-            await axios.post(`/api/expedientes/${expId}/notify-registration`, {
+            await axios.post(`${apiBase}/${expId}/notify-registration`, {
                 target: targetParam,
                 type: notifyModal.type,
                 channels: selectedChannels,
@@ -1086,7 +1093,7 @@ export function CeeDocumentsGrid({
             <div className="absolute top-0 right-0 w-80 h-80 bg-brand/5 blur-[100px] rounded-full -translate-y-1/2 translate-x-1/2 pointer-events-none" />
             
             <div className="relative z-10 flex flex-col gap-12 max-md:gap-8">
-                {['inicial', 'final'].map((section) => {
+                {secciones.map((section) => {
                     const showSlot = (slotId) => {
                         const slot = DOCUMENT_SLOTS.find(s => s.id === slotId);
                         return (
@@ -1139,7 +1146,7 @@ export function CeeDocumentsGrid({
                                 <div className="flex flex-col max-md:min-w-0 max-md:flex-1">
                                     <div className="flex items-center gap-3 mb-2 max-md:flex-wrap max-md:gap-2">
                                         <h4 className="text-[14px] font-black uppercase text-white tracking-[0.2em] leading-tight">
-                                            CEE {section === 'inicial' ? 'Inicial' : 'Final'}
+                                            CEE {secciones.length === 1 ? '' : (section === 'inicial' ? 'Inicial' : 'Final')}
                                         </h4>
                                         {(() => {
                                             const phaseLabel = section === 'inicial' ? 'INICIAL' : 'FINAL';
@@ -1642,7 +1649,7 @@ export function CeeDocumentsGrid({
                                             <button
                                                 onClick={async () => {
                                                     try {
-                                                        await axios.post(`/api/expedientes/${expediente.id}/documents/make-public`, { driveLink: managing.link });
+                                                        await axios.post(`${apiBase}/${expediente.id}/documents/make-public`, { driveLink: managing.link });
                                                         showAlert('Permisos actualizados. Recargando vista del archivo…', 'Acceso reparado', 'success');
                                                         // Forzar recarga del iframe alterando el link (mismo valor, fuerza React a re-renderizar)
                                                         setManaging(m => ({ ...m, link: m.link + (m.link.includes('?') ? '&' : '?') + '_r=' + Date.now() }));

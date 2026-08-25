@@ -18,6 +18,7 @@ import { ExpedientesView } from './features/expedientes/views/ExpedientesView';
 import { LotesView } from './features/lotes/views/LotesView';
 import { DashboardView } from './features/dashboard/views/DashboardView';
 import { SeguimientoView } from './features/seguimiento/views/SeguimientoView';
+import { CeeDirectosView } from './features/cee-directo/views/CeeDirectosView';
 import { ResetPasswordView } from './features/auth/views/ResetPasswordView';
 import { AceptarPropuestaView } from './features/public/views/AceptarPropuestaView';
 import { CertAckView } from './features/public/views/CertAckView';
@@ -99,6 +100,15 @@ function App() {
     return params.get('exp') || null;
   });
 
+  // Deep-link a un CEE contratado suelto: `?cee=<id>`. Es el enlace que llevan los
+  // mensajes al certificador y los avisos del equipo, y el que abre la ficha desde
+  // el cliente. Va aparte de `?exp=` a proposito: son dos tablas distintas y el
+  // mismo UUID no vale en las dos.
+  const [initialCeeDirecto] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('cee') || null;
+  });
+
   // Deep-link de FIRMA: ?exp=<id>&firmar=cesion abre el expediente y lanza ya el
   // popup de Autofirma sobre el documento indicado (hoy la contrafirma del Anexo de
   // Cesión, desde el aviso de "falta tu firma"). Se consume una sola vez.
@@ -171,6 +181,20 @@ function App() {
     return null;
   });
 
+  // Subida del CEE registrado de un CEE contratado SUELTO:
+  // /subir-cee-directo/:id?token=&phase=  (gemelo de /subir-cee/ para el CAE)
+  const [ceeDirectoUploadData] = useState(() => {
+    const path = window.location.pathname;
+    if (path.startsWith('/subir-cee-directo/')) {
+      const id = path.split('/subir-cee-directo/')[1]?.split('/')[0] || null;
+      const sp = new URLSearchParams(window.location.search);
+      const token = sp.get('token');
+      const phase = sp.get('phase') === 'final' ? 'final' : 'inicial';
+      if (id && token) return { expedienteId: id, token, phase };
+    }
+    return null;
+  });
+
   // Firma de anexos por el cliente: /firmar-anexos/:expedienteId
   const [firmarAnexosId] = useState(() => {
     const path = window.location.pathname;
@@ -216,12 +240,15 @@ function App() {
   //    La pestaña activa vive en la URL (?tab=), igual que el expediente abierto
   //    (?exp=), para que al RECARGAR la página sigamos donde estábamos. Un efecto
   //    más abajo mantiene la URL sincronizada con el estado.
-  const TABS_VALIDAS = ['dashboard', 'seguimiento', 'oportunidades', 'expedientes', 'clientes', 'prescriptores', 'lotes', 'aerotermia', 'usuarios', 'whatsapp'];
+  const TABS_VALIDAS = ['dashboard', 'seguimiento', 'oportunidades', 'expedientes', 'cee-directos', 'clientes', 'prescriptores', 'lotes', 'aerotermia', 'usuarios', 'whatsapp'];
   // Sin ?tab= no sabemos aún el rol (el usuario carga después), así que arrancamos
   // en 'dashboard' y el efecto de abajo redirige a quien no deba verlo. Al revés
   // —arrancar en oportunidades y saltar al panel— provocaría un parpadeo de vista.
   const [activeTab, setActiveTab] = useState(() => {
     if (initialExpediente) return 'expedientes';
+    // Se lee de la URL y no de `initialCeeDirecto`: ese estado se declara mas
+    // abajo y aqui todavia no existe.
+    if (new URLSearchParams(window.location.search).get('cee')) return 'cee-directos';
     const tab = new URLSearchParams(window.location.search).get('tab');
     if (TABS_VALIDAS.includes(tab)) return tab;
     // En el MÓVIL se entra a despachar, no a mirar indicadores: el cuadro de mando
@@ -237,7 +264,11 @@ function App() {
   // Ajustar pestaña inicial cuando el usuario carga
   useEffect(() => {
     const { isAdmin, isCertificador, isStaff } = getRoleFlags(user);
-    if (isCertificador && activeTab !== 'expedientes') {
+    // El certificador entra a su cartera. Antes se le mandaba SIEMPRE a
+    // Expedientes, lo que hacía imposible abrir ninguna otra pestaña; ahora los
+    // CEE contratados sueltos también se le asignan, así que 'cee-directos' es
+    // un destino legítimo y se respeta si es donde está.
+    if (isCertificador && activeTab !== 'expedientes' && activeTab !== 'cee-directos') {
       setActiveTab('expedientes');
     }
     // El cuadro de mando es SOLO ADMIN: agrega los importes y el margen de toda
@@ -647,6 +678,9 @@ function App() {
   // reporta de vuelta; es el que se refleja en la URL. Van separados porque el detalle
   // vive dentro de ExpedientesView, no aquí.
   const [pendingRestoreExp, setPendingRestoreExp] = useState(initialExpediente);
+  // Gemelo de `pendingRestoreExp` para los CEE directos: el detalle vive dentro de
+  // CeeDirectosView, no aqui, asi que se le pasa cual abrir y se limpia al hacerlo.
+  const [pendingCeeDirecto, setPendingCeeDirecto] = useState(initialCeeDirecto);
   // Documento a firmar nada más abrir el expediente (?firmar=). Se limpia en cuanto
   // el detalle lo consume, para que no vuelva a saltar al navegar a otro expediente.
   const [pendingFirmarDoc, setPendingFirmarDoc] = useState(initialFirmarDoc);
@@ -876,8 +910,8 @@ function App() {
 
   // Rutas públicas con su propio layout full-bleed → sin red decorativa y
   // sin padding del contenedor padre (el componente cubre 100% del viewport).
-  const isPublicRoute = !!(landingRoute || reformaDocsData || firmaOportunidadId || certAckData || cifoUploadId || riteUploadId || ceeUploadData || firmarAnexosId || firmarLoteId || portalRoute);
-  const isLoggedDashboard = user && !firmaOportunidadId && !resetToken && !certAckData && !cifoUploadId && !riteUploadId && !ceeUploadData && !firmarAnexosId && !reformaDocsData && !landingRoute && !portalRoute;
+  const isPublicRoute = !!(landingRoute || reformaDocsData || firmaOportunidadId || certAckData || cifoUploadId || riteUploadId || ceeUploadData || ceeDirectoUploadData || firmarAnexosId || firmarLoteId || portalRoute);
+  const isLoggedDashboard = user && !firmaOportunidadId && !resetToken && !certAckData && !cifoUploadId && !riteUploadId && !ceeUploadData && !ceeDirectoUploadData && !firmarAnexosId && !reformaDocsData && !landingRoute && !portalRoute;
   const wrapperPadding = (isLoggedDashboard || isPublicRoute) ? 'p-0' : 'px-4 py-8';
   const wrapperHeight = isLoggedDashboard ? 'h-screen overflow-hidden' : '';
 
@@ -907,6 +941,13 @@ function App() {
           <SubirRiteView expedienteId={riteUploadId} />
         ) : ceeUploadData ? (
           <SubirCeeView expedienteId={ceeUploadData.expedienteId} token={ceeUploadData.token} phase={ceeUploadData.phase} />
+        ) : ceeDirectoUploadData ? (
+          <SubirCeeView
+            expedienteId={ceeDirectoUploadData.expedienteId}
+            token={ceeDirectoUploadData.token}
+            phase={ceeDirectoUploadData.phase}
+            endpoint="cee-directo-upload"
+          />
         ) : firmarAnexosId ? (
           <FirmarAnexosView expedienteId={firmarAnexosId} />
         ) : firmarLoteId ? (
@@ -1007,6 +1048,12 @@ function App() {
                 initialEstados={pendingExpEstados}
                 onClearInitialEstados={() => setPendingExpEstados(null)}
                 initialPrioridad={initialExpPrioridad}
+              />
+            ) : step === 'ADMIN' && activeTab === 'cee-directos' ? (
+              <CeeDirectosView
+                key={`ceedir-${navNonce}`}
+                initialSelectedId={pendingCeeDirecto}
+                onClearInitialSelection={() => setPendingCeeDirecto(null)}
               />
             ) : step === 'ADMIN' && activeTab === 'lotes' && isStaffUser ? (
               <LotesView key={`lotes-${navNonce}`} onNavigate={handleNavigate} />

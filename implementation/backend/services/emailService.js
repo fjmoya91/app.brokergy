@@ -427,10 +427,14 @@ const sendProposalEmail = async ({ to, userName, pdfBuffer, tableImageBase64, su
         ? `Propuesta cliente ${summaryData.clienteName || ''} [Exp. ${summaryData.id}] — Brokergy`
         : `Propuesta Bono Energético CAE — Brokergy (${summaryData.id})`;
 
-    // Si tenemos imagen de la tabla, la adjuntamos como CID
+    // El nombre del adjunto lleva la VERSIÓN cuando hay más de una, y es el
+    // mismo con el que sale por WhatsApp: dos ficheros idénticos de nombre y
+    // distintos de contenido en la bandeja del cliente son indistinguibles.
+    // (La marca va además impresa dentro del documento — el nombre del fichero
+    // se pierde en cuanto lo abre.)
     const attachments = [
         {
-            filename: `Propuesta_Brokergy_${summaryData.id}.pdf`,
+            filename: `Propuesta_Brokergy_${summaryData.id}${summaryData.version > 1 ? `_v${summaryData.version}` : ''}.pdf`,
             content: pdfBuffer
         }
     ];
@@ -773,6 +777,99 @@ const sendCertificadorNotificationEmail = async ({
     const text = customMessage
         ? `${customMessage}\n\n${linksText}\n\nBROKERGY · Ingeniería Energética`
         : `${urgentText}Hola ${certName}!\n\nTe asignamos el expediente ${expedienteNum}.\n\n${clienteText}${isReforma ? `Ahorro mínimo esperado: ${ahorroObjetivo ? Math.round(ahorroObjetivo) + ' kWh/año' : 'Consultar propuesta'}` : `Demanda mínima esperada: ${demandaPerM2 ? demandaPerM2.toFixed(1).replace('.', ',') + ' kWh/m²·año' : 'Consultar propuesta'}${superficieRef ? `\nSuperficie mínima: ${superficieRef.toLocaleString('es-ES', { maximumFractionDigits: 2 })} m²` : ''}`}\n\n${adminMsgText}${linksText}\n\nBROKERGY · Ingeniería Energética`;
+
+    return sendMail({ to, subject, html, text });
+};
+
+/**
+ * Encargo de un CEE contratado SUELTO (tabla cee_directos).
+ *
+ * Misma plantilla de marca que el encargo del CAE —`brandEmailShell`, la misma
+ * píldora, la misma ficha de cliente (`clienteDataRows`) y los mismos botones—
+ * porque al certificador le llegan los dos y dos diseños distintos le hacen
+ * dudar de cuál es el bueno.
+ *
+ * Lo que NO lleva, y es a propósito:
+ *  · La "Directriz Técnica" con la demanda o el ahorro mínimo. Eso existe en el
+ *    CAE porque el certificado tiene que sostener una propuesta comercial ya
+ *    presentada al cliente; en un CEE suelto no hay ahorro que cuadrar y darle
+ *    un objetivo sería pedirle que fuerce un resultado.
+ *  · El botón de "Portal": no hay portal en este negocio.
+ *
+ * Y lo que lleva de más: UN BOTÓN POR CARPETA compartida. Al técnico se le
+ * comparten solo la de su fase y la de documentación — nunca la raíz, que
+ * contiene presupuestos y facturas.
+ */
+const sendCeeDirectoEncargoEmail = async ({
+    to, certName, expedienteNum, clienteName, clienteData,
+    faseLabel,              // 'CEE', 'CEE INICIAL' o 'CEE FINAL'
+    alcanceLabel,           // 'Un solo certificado' | 'Inicial y final'
+    carpetas = [],          // [{ nombre, link }]
+    expedienteLink = null,  // deep-link ?cee=<id>
+    priority = 'normal',
+    adminMessage = null,
+    customMessage = null,
+}) => {
+    const clienteUpper = (clienteName || '').toUpperCase().trim();
+    const isUrgent = priority === 'urgent';
+    const fase = (faseLabel || 'CEE').toUpperCase();
+    const subject = `${isUrgent ? '🚨 URGENTE — ' : ''}“${expedienteNum} ENCARGO ${fase}${clienteUpper ? ` – “${clienteUpper}”` : ''}`;
+
+    const introBlockHtml = customMessage
+        ? emailP(escapeHtml(customMessage), { pre: true, mb: 16 })
+        : (
+            emailP(`Hola ${escapeHtml(certName || 'técnico')}!`, { size: 19, bold: true, mb: 6 }) +
+            emailP(`Te encargamos el <strong style="color:${BRAND.orangeDark};">${escapeHtml(fase)}</strong> del expediente <strong style="color:${BRAND.orangeDark};">${escapeHtml(expedienteNum)}</strong>${clienteName ? ` del cliente <strong>${escapeHtml(clienteName)}</strong>` : ''}.`, { color: BRAND.muted, mb: 16 }) +
+            emailP('Abajo tienes la ficha del inmueble y las carpetas con la documentación. Sube ahí el certificado cuando lo tengas.', { color: BRAND.muted, mb: 22 })
+        );
+
+    const alcanceHtml = alcanceLabel ? emailBox(
+        emailP('📐 Alcance del encargo', { size: 11, bold: true, color: BRAND.orangeDark, mb: 6 }) +
+        emailP(escapeHtml(alcanceLabel), { size: 14, color: BRAND.muted, mb: 0 }),
+        { bg: BRAND.orangeTint, border: BRAND.orange, mb: 22 }
+    ) : '';
+
+    const clienteInfoHtml = clienteData ? emailBox(
+        emailP('📋 Datos del inmueble y del cliente', { size: 11, bold: true, color: BRAND.muted, mb: 12 }) +
+        emailDataTable(clienteDataRows(clienteData)),
+        { mb: 22 }
+    ) : '';
+
+    const adminMessageHtml = (adminMessage && !customMessage) ? emailBox(
+        emailP('💬 Mensaje de Brokergy', { size: 11, bold: true, color: BRAND.orangeDark, mb: 8 }) +
+        emailP(escapeHtml(adminMessage), { size: 14, pre: true, mb: 0 }),
+        { bg: BRAND.orangeTint, border: BRAND.orange, mb: 22 }
+    ) : '';
+
+    const botonesHtml = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0">` +
+        (expedienteLink ? `<tr><td align="center" style="padding-bottom:12px;">${emailButton(expedienteLink, '🔗 Abrir el expediente', BRAND.orange)}</td></tr>` : '') +
+        carpetas.map(c => `<tr><td align="center" style="padding-bottom:12px;">${emailOutlineButton(c.link, `📁 ${escapeHtml(c.nombre)}`)}</td></tr>`).join('') +
+        `</table>` +
+        (carpetas.length ? emailP('Tienes acceso a esas carpetas con el enlace. Sube ahí el certificado emitido.', { size: 12, color: BRAND.muted, center: true, mb: 0 }) : '');
+
+    const html = brandEmailShell({
+        preheader: `Encargo de ${fase} del expediente ${expedienteNum}.`,
+        title: 'Encargo de Certificado',
+        pill: isUrgent ? PILL.warning('Encargo urgente', '🚨') : PILL.neutral('Nuevo encargo', '📩'),
+        contentHtml:
+            introBlockHtml + alcanceHtml + clienteInfoHtml + adminMessageHtml +
+            emailHeading('Accesos directos:', { size: 14 }) +
+            botonesHtml +
+            `<div style="height:20px;line-height:20px;font-size:0;">&nbsp;</div>` +
+            emailP('Ante cualquier duda, contacta con Brokergy antes de emitir el certificado.', { size: 13, color: BRAND.muted, center: true, mb: 0 }),
+        footerNote: `<a href="https://brokergy.es" style="color:${BRAND.greenDark};text-decoration:none;">brokergy.es</a>`,
+    });
+
+    const carpetasText = carpetas.map(c => `${c.nombre}: ${c.link}`).join('\n');
+    const text = customMessage
+        ? `${customMessage}\n\n${carpetasText}\n\nBROKERGY · Ingeniería Energética`
+        : `${isUrgent ? '🚨 URGENTE 🚨\n\n' : ''}Hola ${certName}!\n\n`
+          + `Te encargamos el ${fase} del expediente ${expedienteNum}.\n\n`
+          + `${clienteDataText(clienteData)}`
+          + `${alcanceLabel ? `Alcance: ${alcanceLabel}\n\n` : ''}`
+          + `${adminMessage ? `Mensaje de Brokergy:\n${adminMessage}\n\n` : ''}`
+          + `${expedienteLink ? `Expediente: ${expedienteLink}\n` : ''}${carpetasText}\n\n`
+          + `BROKERGY · Ingeniería Energética`;
 
     return sendMail({ to, subject, html, text });
 };
@@ -1659,6 +1756,7 @@ module.exports = {
     sendAdminNotificationEmail,
     sendCertificadorNotificationEmail,
     sendCertificadorFinalNotificationEmail,
+    sendCeeDirectoEncargoEmail,
     sendCertificadorReminderEmail,
     sendCertificadorUrgentEmail,
     sendReviewRequestEmailToAdmin,

@@ -555,6 +555,175 @@ router.get('/sin-expediente', staffOnly, async (req, res) => {
     }
 });
 
+// ─── Versiones de la PROPUESTA ────────────────────────────────────────────────
+// Fuente única: services/propuestaVersiones.js. Ver allí por qué la versión sube
+// al ENVIAR y no al guardar, y por qué en BD solo van metadatos y el enlace.
+
+const propuestaVersiones = require('../services/propuestaVersiones');
+
+const nombreUsuario = (req) => req.user
+    ? (req.user.rol_nombre === 'ADMIN' ? 'ADMINISTRADOR' : (req.user.acronimo || req.user.razon_social || 'PARTNER'))
+    : 'Sistema';
+
+// Carga la oportunidad con lo justo. NUNCA `datos_calculo` entero en un listado
+// (regla 22), pero aquí es UNA fila y hace falta el histórico + la carpeta.
+async function cargarParaVersion(idLegible) {
+    const { data, error } = await supabase
+        .from('oportunidades')
+        .select('id, id_oportunidad, datos_calculo')
+        .eq('id_oportunidad', idLegible)
+        .maybeSingle();
+    if (error || !data) return null;
+    return data;
+}
+
+// GET /api/oportunidades/:id/propuesta/versiones
+// Lo pide el popup de envío ANTES de mandar nada: con esto avisa de que ya se
+// envió una v1 y sabe qué marca imprimir en el documento.
+router.get('/:id/propuesta/versiones', enforceAuth, async (req, res) => {
+    try {
+        const op = await cargarParaVersion(req.params.id);
+        if (!op) return res.status(404).json({ error: 'Oportunidad no encontrada.' });
+        const versiones = propuestaVersiones.listar(op.datos_calculo);
+        res.json({
+            versiones,
+            siguiente: propuestaVersiones.siguienteVersion(op.datos_calculo),
+            vigente: propuestaVersiones.vigente(op.datos_calculo),
+        });
+    } catch (e) {
+        console.error('[GET /:id/propuesta/versiones]', e.message);
+        res.status(500).json({ error: 'Error del servidor.', message: e.message });
+    }
+});
+
+// POST /api/oportunidades/:id/propuesta/version
+// Reserva número, rasteriza el PDF, lo archiva en "0. PROPUESTAS" y DEVUELVE el
+// PDF para que lo manden los canales. Se llama ANTES de enviar a propósito: lo
+// que se archiva tiene que ser byte a byte lo que recibe el cliente.
+router.post('/:id/propuesta/version', enforceAuth, async (req, res) => {
+    try {
+        const { html, htmlWeb, marcarEnviada, destinatarios, canales, versionImpresa, result, inputs } = req.body || {};
+        if (!html) return res.status(400).json({ error: 'Falta el HTML de la propuesta.' });
+
+        const op = await cargarParaVersion(req.params.id);
+        if (!op) return res.status(404).json({ error: 'Oportunidad no encontrada.' });
+
+        const out = await propuestaVersiones.registrarEnvio({
+            oportunidad: op,
+            html,
+            destinatarios: Array.isArray(destinatarios) ? destinatarios : [],
+            canales: Array.isArray(canales) ? canales : [],
+            usuario: nombreUsuario(req),
+            versionImpresa: Number(versionImpresa) || null,
+            result, inputs,
+        });
+
+        // ENTREGA POR ENLACE (copiar el enlace de aceptación). Sin mensaje que
+        // mandar, nadie pasa por `send-proposal` — que es quien archiva
+        // `html_propuesta`, la vista web que sirve ese enlace. Sin esto, el
+        // enlace que le pasas al cliente responde "Vista no disponible", o le
+        // enseña la propuesta de un envío anterior, que es peor.
+        //
+        // El ESTADO no se toca aquí: lo cambia `PATCH /:id/estado`, que además
+        // mueve la carpeta de Drive (regla 2). Duplicar el UPDATE dejaría la
+        // carpeta en "01. OPORTUNIDADES" con la propuesta ya entregada.
+        if (marcarEnviada && htmlWeb) {
+            const { data: fresca } = await supabase
+                .from('oportunidades').select('datos_calculo').eq('id', op.id).maybeSingle();
+            const base = fresca?.datos_calculo || op.datos_calculo || {};
+            await supabase.from('oportunidades')
+                .update({ datos_calculo: { ...base, html_propuesta: htmlWeb } })
+                .eq('id', op.id);
+        }
+
+        res.json({ success: true, ...out });
+    } catch (e) {
+        console.error('[POST /:id/propuesta/version]', e.message);
+        res.status(500).json({ error: 'No se pudo registrar la versión de la propuesta.', message: e.message });
+    }
+});
+
+// PATCH /api/oportunidades/:id/propuesta/version/:v
+// Sella el resultado real del envío (a quién llegó y por dónde) y deja la
+// entrada legible en el historial. Se llama al TERMINAR de enviar: hasta
+// entonces no se sabe qué canal falló.
+router.patch('/:id/propuesta/version/:v', enforceAuth, async (req, res) => {
+    try {
+        const { envios, cambios } = req.body || {};
+        const v = Number(req.params.v);
+        if (!v) return res.status(400).json({ error: 'Versión no válida.' });
+
+        const op = await cargarParaVersion(req.params.id);
+        if (!op) return res.status(404).json({ error: 'Oportunidad no encontrada.' });
+
+        const lista = Array.isArray(envios) ? envios : [];
+        await propuestaVersiones.merge(op.id, v, { envios: lista });
+
+        // Entrada de historial: quién recibió qué versión y por dónde. Antes el
+        // historial solo decía "ENVIADA", sin destinatario ni canal, así que no
+        // servía para reconstruir la conversación con el cliente.
+        const ok = lista.filter(e => e.status === 'ok' || e.ok);
+        if (ok.length) {
+            const dest = [...new Set(ok.map(e => e.text || e.destinatario).filter(Boolean))].join(', ');
+            const canalesOk = [...new Set(ok.map(e => e.channel || e.canal).filter(Boolean))];
+            const cana = canalesOk.join(' + ');
+            // La entrega por ENLACE no es un envío y no puede contarse como tal:
+            // no sabemos si llegó ni a quién se lo pasó. Se dice lo que de verdad
+            // consta — que se copió el enlace — para que quien lea el historial
+            // dentro de tres meses no busque un correo que nunca existió.
+            const soloEnlace = canalesOk.length === 1 && canalesOk[0] === 'enlace';
+            const texto = (soloEnlace
+                ? `🔗 Propuesta v${v} entregada por enlace (copiado para pasárselo al cliente a mano)`
+                : `📄 Propuesta v${v} enviada por ${cana || 'email'} a ${dest || 'destinatario'}`)
+                + (cambios ? ` · Cambios respecto a la anterior: ${cambios}` : '');
+            const dc = op.datos_calculo || {};
+            const hist = dc.historial || [];
+            hist.push({
+                id: `${Date.now()}_propuesta_v${v}`,
+                tipo: 'comentario',
+                texto,
+                fecha: new Date().toISOString(),
+                usuario: nombreUsuario(req),
+            });
+            // El MERGE de la versión ya escribió por RPC; aquí solo se toca
+            // `historial`, y se relee para no pisar lo que acaba de sellarse.
+            const { data: fresca } = await supabase
+                .from('oportunidades').select('datos_calculo').eq('id', op.id).maybeSingle();
+            const base = fresca?.datos_calculo || dc;
+            await supabase.from('oportunidades')
+                .update({ datos_calculo: { ...base, historial: hist } })
+                .eq('id', op.id);
+        }
+
+        res.json({ success: true });
+    } catch (e) {
+        console.error('[PATCH /:id/propuesta/version/:v]', e.message);
+        res.status(500).json({ error: 'Error del servidor.', message: e.message });
+    }
+});
+
+// POST /api/oportunidades/:id/propuesta/borrador
+// El botón "Guardar en Drive" de la vista previa. NO consume número de versión:
+// el contador tiene que seguir significando "lo que ha visto el cliente".
+// Se reemplaza a sí mismo (antes cada pulsación dejaba otra copia con el mismo
+// nombre, y Drive lo permite: quedaban PDFs indistinguibles en la carpeta).
+router.post('/:id/propuesta/borrador', enforceAuth, async (req, res) => {
+    try {
+        const { html } = req.body || {};
+        if (!html) return res.status(400).json({ error: 'Falta el HTML de la propuesta.' });
+
+        const op = await cargarParaVersion(req.params.id);
+        if (!op) return res.status(404).json({ error: 'Oportunidad no encontrada.' });
+
+        const archivo = await propuestaVersiones.guardarBorrador({ oportunidad: op, html });
+        if (!archivo) return res.status(500).json({ error: 'No se pudo guardar el borrador en Drive.' });
+        res.json({ success: true, ...archivo, subcarpeta: propuestaVersiones.SUBCARPETA });
+    } catch (e) {
+        console.error('[POST /:id/propuesta/borrador]', e.message);
+        res.status(500).json({ error: 'No se pudo guardar el borrador en Drive.', message: e.message });
+    }
+});
+
 // Añadir un comentario (POST /api/oportunidades/:id/comentarios)
 router.post('/:id/comentarios', requireAuth, async (req, res) => {
     const { id } = req.params;

@@ -43,6 +43,29 @@ qué se va a ejecutar de verdad.
 `brokergylocal_setup.reg` se mantiene como respaldo, pero solo sirve si el repo está
 exactamente en `C:\Proyectos\app.brokergy`. Usa el `.cmd`.
 
+## Si el botón abre "Documentos" en vez de la carpeta
+
+Es el **mismo problema del navegador cacheado**, con otra cara. El handler viejo hacía
+`Start-Process explorer.exe $ruta` **sin comillas**, y `explorer.exe` trata la **coma**
+como separador de argumentos: con una carpeta como
+`26RES080_OP47 - CALLE NUESTRA SEÑORA DE LOS OLMOS, 6` la ruta se parte por la mitad, deja
+de existir y el Explorador se abre en su carpeta por defecto — **Documentos**. Por eso
+falla solo en los expedientes cuyo nombre lleva coma y los demás abren bien: no es que el
+enlace de ese expediente esté mal, es que ese es el único que destapa el fallo.
+
+El `.vbs` actual sí entrecomilla (`explorer.exe "<ruta>"`) y con coma abre correctamente
+(verificado el 25/08/2026 sobre esa misma carpeta). Así que si lo ves, lo que corre no es
+el `.vbs`:
+
+```bash
+powershell -ExecutionPolicy Bypass -File tools/windows/verificar-carpeta-local.ps1
+```
+
+El verificador ya no se conforma con mirar la asociación: además busca en el log **Windows
+PowerShell** las ejecuciones del handler viejo y lista los navegadores **más antiguos que
+la fecha de registro del protocolo**, con su PID. Si sale algo, cierra del todo ese
+navegador (la ventana de la app **BROKERGY** incluida) y vuelve a abrirlo.
+
 ## Por qué el handler es un `.vbs` y NO PowerShell
 
 Es la razón de ser de todo este montaje, así que no se toca:

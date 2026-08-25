@@ -14,7 +14,7 @@ const SLOT_HINTS = {
     etiqueta: 'Etiqueta energética (PDF).',
 };
 
-function SlotRow({ slot, phase, expedienteId, token, onUploaded }) {
+function SlotRow({ slot, phase, expedienteId, token, onUploaded, endpoint }) {
     const ref = useRef();
     const [dragging, setDragging] = useState(false);
     const [uploading, setUploading] = useState(false);
@@ -29,7 +29,7 @@ function SlotRow({ slot, phase, expedienteId, token, onUploaded }) {
             const form = new FormData();
             form.append('file', file);
             const { data } = await axios.post(
-                `${API_URL}/cee-upload/${expedienteId}/${slot.id}?token=${encodeURIComponent(token)}&phase=${phase}`,
+                `${API_URL}/${endpoint}/${expedienteId}/${slot.id}?token=${encodeURIComponent(token)}&phase=${phase}`,
                 form,
                 { headers: { 'Content-Type': 'multipart/form-data' } }
             );
@@ -92,13 +92,18 @@ function SlotRow({ slot, phase, expedienteId, token, onUploaded }) {
     );
 }
 
-export function SubirCeeView({ expedienteId, token, phase }) {
+// `endpoint` — de qué negocio es el CEE que sube el técnico. Por defecto el
+// expediente CAE de siempre ('cee-upload'); los CEE contratados sueltos usan
+// 'cee-directo-upload', que hace lo mismo sobre su propia tabla. La página es la
+// misma a propósito: el certificador sube exactamente los mismos cinco ficheros
+// y no tiene por qué aprenderse dos pantallas.
+export function SubirCeeView({ expedienteId, token, phase, endpoint = 'cee-upload' }) {
     const [info, setInfo] = useState(null);
     const [loadError, setLoadError] = useState(null);
     const [justRegistered, setJustRegistered] = useState(false);
 
     const loadInfo = useCallback(() => {
-        return axios.get(`${API_URL}/cee-upload/${expedienteId}?token=${encodeURIComponent(token)}&phase=${phase}`)
+        return axios.get(`${API_URL}/${endpoint}/${expedienteId}?token=${encodeURIComponent(token)}&phase=${phase}`)
             .then(r => setInfo(r.data))
             .catch(() => setLoadError('El enlace no es válido o ha caducado.'));
     }, [expedienteId, token, phase]);
@@ -181,7 +186,7 @@ export function SubirCeeView({ expedienteId, token, phase }) {
                         </p>
 
                         {info.slots.map(slot => (
-                            <SlotRow key={slot.id} slot={slot} phase={info.phase}
+                            <SlotRow key={slot.id} slot={slot} phase={info.phase} endpoint={endpoint}
                                 expedienteId={expedienteId} token={token} onUploaded={handleUploaded} />
                         ))}
                     </div>

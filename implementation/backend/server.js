@@ -90,6 +90,10 @@ app.use('/api/acciones', require('./routes/acciones'));
 // El mismo parte, dentro de la app (con sesión de staff): cola de trabajo por bloque
 // y por destinatario + envío en bloque. Gemelo INTERNO de /api/acciones.
 app.use('/api/seguimiento', require('./routes/seguimiento'));
+// CEE contratados SUELTOS (fuera del negocio CAE): tabla `cee_directos`, carpetas
+// en "26. CERTIF. EFICIENCIA ENER / 1. PRODUCCION". Rutas propias a propósito —
+// no comparten tabla ni handlers con /api/expedientes.
+app.use('/api/cee-directos', require('./routes/ceeDirectos'));
 
 // WhatsApp (opcional): cargar e inicializar de forma automática al arrancar
 try {

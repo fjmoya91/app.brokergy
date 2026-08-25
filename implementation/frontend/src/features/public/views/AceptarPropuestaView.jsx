@@ -204,14 +204,23 @@ export function AceptarPropuestaView({ idOportunidad }) {
     // CEE aportado: si el cliente entregó un CEE inicial, la firma le deja elegir usarlo o hacer uno nuevo.
     const [ceeAportado, setCeeAportado] = useState(false);
     const [ceeChoice, setCeeChoice] = useState(''); // '' | 'aportado' | 'nuevo'
+    // Qué versión de la propuesta sirve HOY este enlace, y cuál se firmó si ya
+    // está aceptada. El enlace no cambia al reenviar una revisión: sin decirlo,
+    // el cliente firma un documento distinto del que recibió en su día.
+    const [versionProp, setVersionProp] = useState({ v: null, fecha: null, aceptada: null });
 
     useEffect(() => {
         const fetchCliente = async () => {
             try {
                 const res = await axios.get(`${API_URL}/cliente/${idOportunidad}`);
-                const { estado, numero_expediente, id_oportunidad: readableId, tiene_instalador, fecha_aceptacion, aceptado_por, cee_aportado, cee_decision, ...rest } = res.data;
+                // Los campos de VERSIÓN se sacan del `rest` a propósito: `rest`
+                // alimenta `formData`, que es lo que se manda al aceptar, y no
+                // pintan nada en ese formulario.
+                const { estado, numero_expediente, id_oportunidad: readableId, tiene_instalador, fecha_aceptacion, aceptado_por, cee_aportado, cee_decision,
+                        propuesta_version, propuesta_version_fecha, propuesta_version_aceptada, ...rest } = res.data;
 
                 setFormData(prev => ({ ...prev, ...rest }));
+                setVersionProp({ v: propuesta_version, fecha: propuesta_version_fecha, aceptada: propuesta_version_aceptada });
                 setCeeAportado(!!cee_aportado);
                 if (cee_decision) setCeeChoice(cee_decision === 'usar_cee_aportado' ? 'aportado' : 'nuevo');
                 if (readableId) setDisplayId(readableId);
@@ -586,6 +595,16 @@ export function AceptarPropuestaView({ idOportunidad }) {
                                     <p className="text-white/40 text-xs font-bold uppercase tracking-widest">
                                         Expediente: <span className="text-white/60">{displayId}</span>
                                     </p>
+                                    {/* Qué documento se está aceptando. Solo a partir de la
+                                        segunda: una propuesta que solo ha salido una vez no
+                                        tiene con qué confundirse, y decirlo sobra. */}
+                                    {versionProp.v > 1 && (
+                                        <p className="mt-3 inline-block rounded-lg border border-amber-400/25 bg-amber-400/[0.07] px-3 py-2 text-[12px] text-amber-200/90">
+                                            Estás aceptando la <strong>versión {versionProp.v}</strong> de la propuesta
+                                            {versionProp.fecha ? `, del ${new Date(versionProp.fecha).toLocaleDateString('es-ES', { day: '2-digit', month: 'long', year: 'numeric' })}` : ''}.
+                                            <span className="block text-amber-200/60 mt-0.5">Sustituye a las anteriores que te hayamos enviado.</span>
+                                        </p>
+                                    )}
                                 </div>
 
                                 {error && (

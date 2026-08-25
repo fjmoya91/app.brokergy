@@ -148,6 +148,21 @@ router.get('/:id', enforceAuth, async (req, res) => {
             }
         }
 
+        // CEE contratados sueltos del cliente. Mismo criterio que los expedientes:
+        // son internos de Brokergy y solo los ve el equipo. Se listan aparte y no
+        // mezclados con los CAE porque son otro negocio y otra numeracion: verlos
+        // en la misma lista haria pensar que a un cliente con un CEE suelto se le
+        // esta tramitando un bono.
+        let ceeDirectos = [];
+        if (isStaff(req)) {
+            const { data: cees } = await supabase
+                .from('cee_directos')
+                .select('id, numero_expediente, nombre, estado, alcance, created_at')
+                .eq('cliente_id', req.params.id)
+                .order('correlativo', { ascending: false });
+            ceeDirectos = cees || [];
+        }
+
         // Máscara de seguridad para no-staff (partners)
         if (!isStaff(req)) {
             data.numero_cuenta = data.numero_cuenta ? '**** **** **** ****' : null;
@@ -156,7 +171,8 @@ router.get('/:id', enforceAuth, async (req, res) => {
         res.json({ 
             ...data, 
             oportunidades_vinculadas: ops || [],
-            expedientes_vinculados: exps || []
+            expedientes_vinculados: exps || [],
+            cee_directos_vinculados: ceeDirectos
         });
     } catch (err) {
         console.error('Error GET cliente:', err);

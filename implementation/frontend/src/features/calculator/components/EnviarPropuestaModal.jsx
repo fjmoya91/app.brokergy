@@ -66,6 +66,10 @@ export function EnviarPropuestaModal({
     getEmailHtml,               // () => html (para el PDF del email)
     buildSummaryData,           // (mode, name) => summaryData (plantilla email)
     expedienteId,               // id_oportunidad (para marcar ENVIADA)
+    versionInfo,                // { versiones[], siguiente, vigente } — lo carga el padre
+    onVersionRegistrada,        // (entrada) => void — refresca la marca del documento
+    proposalResult,             // result de la calculadora (importes que se sellan por versión)
+    proposalInputs,             // inputs (inversión)
     onSent,                     // (results) => void  (opcional)
     ceeComparisonAvailable = false, // el cliente aportó CEE → ofrecer la variante comparativa
     includeCee = false,             // controlado por el padre (ProposalModal): toggle comparativa CEE
@@ -192,21 +196,54 @@ export function EnviarPropuestaModal({
         setSendPhase('sending');
         setBusy(true);
 
-        // WhatsApp: generar el PDF UNA sola vez (se reutiliza para todos los destinatarios).
-        let waPdf = null, waGenError = null;
+        // ── El PDF se genera UNA vez y se ARCHIVA antes de salir ────────────
+        // Se registra la versión primero para que lo que queda guardado sea
+        // byte a byte lo que recibe el cliente. Antes cada canal rasterizaba su
+        // propio HTML (el del email lleva otro envoltorio), así que el adjunto
+        // del correo y el de WhatsApp ni siquiera eran el mismo documento.
+        let pdfBase64 = null, pdfGenError = null, versionOut = null;
         const baseFileName = (expedienteId || numexpte || 'Propuesta').toString().replace(/[^a-zA-Z0-9_\-]/g, '_');
-        const filename = `Propuesta_Brokergy_${baseFileName}.pdf`;
-        if (doWa) {
-            try {
+        let filename = `Propuesta_Brokergy_${baseFileName}.pdf`;
+        try {
+            if (expedienteId) {
+                const reg = await axios.post(`/api/oportunidades/${expedienteId}/propuesta/version`, {
+                    html: getPdfHtml(),
+                    destinatarios: selectedContacts.map(c => ({ modo: c.mode, label: c.label, email: c.email, telefono: c.phone })),
+                    canales: [doEmail && 'email', doWa && 'whatsapp'].filter(Boolean),
+                    versionImpresa: versionInfo?.siguiente || 1,
+                    result: proposalResult || null,
+                    inputs: proposalInputs || null,
+                }, { timeout: 120000 });
+                versionOut = reg.data || null;
+                pdfBase64 = versionOut?.pdfBase64 || null;
+                if (versionOut?.fileName) filename = versionOut.fileName;
+            } else {
+                // Simulación sin guardar: no hay oportunidad que versionar, pero
+                // el PDF sigue haciendo falta para poder enviarlo.
                 const gen = await axios.post('/api/pdf/generate', { html: getPdfHtml() }, { timeout: 90000 });
-                if (!gen.data?.pdf) throw new Error(gen.data?.message || 'No se pudo generar el PDF');
-                waPdf = gen.data.pdf;
-            } catch (err) { waPdf = null; waGenError = err.response?.data?.message || err.response?.data?.error || err.message; }
+                pdfBase64 = gen.data?.pdf || null;
+            }
+            if (!pdfBase64) throw new Error('No se pudo generar el PDF de la propuesta');
+        } catch (err) {
+            pdfBase64 = null;
+            pdfGenError = err.response?.data?.message || err.response?.data?.error || err.message;
         }
+        const waPdf = pdfBase64, waGenError = pdfGenError;
 
         const emailHtml = doEmail ? getEmailHtml() : null;
         const out = [];
         let clienteOk = false;
+
+        // Sin PDF no sale nada. Mandar una propuesta que no queda archivada es
+        // justo el agujero que este flujo cierra: mismo criterio que el CIFO,
+        // donde un fallo al guardar el borrador aborta el envío.
+        if (!pdfBase64) {
+            setSendResults([]);
+            setStatus({ ok: false, text: `No se pudo preparar el PDF de la propuesta: ${pdfGenError || 'error desconocido'}. No se ha enviado nada.` });
+            setSendPhase('done');
+            setBusy(false);
+            return;
+        }
 
         // Mensaje POR destinatario: el principal usa el texto editado en la caja;
         // el resto regenera el suyo (cliente recibe el de cliente, partner el de
@@ -224,10 +261,17 @@ export function EnviarPropuestaModal({
             if (doEmail && c.email) {
                 try {
                     await postEmail('/api/pdf/send-proposal', {
+                        // `html` sigue yendo: alimenta la vista web pública y el
+                        // paso a ENVIADA. El ADJUNTO, en cambio, es el PDF ya
+                        // archivado — el mismo que va por WhatsApp.
                         html: emailHtml,
+                        pdfBase64,
                         to: c.email,
                         userName: c.label,
-                        summaryData: buildSummaryData ? buildSummaryData(c.mode, c.label) : { id: numexpte },
+                        summaryData: {
+                            ...(buildSummaryData ? buildSummaryData(c.mode, c.label) : { id: numexpte }),
+                            version: versionOut?.version || null,
+                        },
                         customMessage: msg,
                     }, undefined, { timeout: 90000 });   // 3º arg = showConfirm; el config va en el 4º
                     out.push({ channel: 'email', status: 'ok', text: `${c.label} → ${c.email}` });
@@ -259,6 +303,22 @@ export function EnviarPropuestaModal({
 
         const anyOk = out.some(r => r.status === 'ok');
 
+        // Sellar en la versión a quién llegó de verdad y por dónde. Hasta aquí
+        // no se sabía: el registro se crea ANTES de enviar (para archivar el PDF
+        // exacto) y algún canal puede fallar. También deja la línea legible en
+        // el historial, que antes solo decía "ENVIADA" sin destinatario ni canal.
+        if (versionOut?.version && expedienteId) {
+            try {
+                await axios.patch(`/api/oportunidades/${expedienteId}/propuesta/version/${versionOut.version}`, {
+                    envios: out,
+                    cambios: versionOut.cambios || '',
+                });
+            } catch (e) { /* no romper el envío por el sellado */ }
+            if (onVersionRegistrada) {
+                onVersionRegistrada({ v: versionOut.version, fecha: new Date().toISOString(), drive_link: versionOut.driveLink || null, envios: out });
+            }
+        }
+
         // Marcar la oportunidad como ENVIADA si la propuesta llegó al cliente.
         if (clienteOk && expedienteId) {
             try { await axios.patch(`/api/oportunidades/${expedienteId}/estado`, { nuevo_estado: 'ENVIADA' }); } catch (e) { /* no romper */ }
@@ -279,6 +339,18 @@ export function EnviarPropuestaModal({
 
     const sending = busy && sendPhase === 'sending';
 
+    // ── Aviso de reenvío ────────────────────────────────────────────────────
+    // Se dice a QUIÉN y CUÁNDO se envió la última, no solo "ya se envió": el
+    // dato que hace falta antes de escribir el mensaje es si la persona que
+    // tienes delante es la misma que ya la recibió.
+    const avisoVersion = (() => {
+        const v = versionInfo?.vigente;
+        if (!v?.v) return null;
+        const fecha = v.fecha ? new Date(v.fecha).toLocaleDateString('es-ES', { day: '2-digit', month: 'long', year: 'numeric' }) : null;
+        const quien = [...new Set((v.destinatarios || []).map(d => d.label).filter(Boolean))].join(', ');
+        return `La versión ${v.v} se envió${fecha ? ` el ${fecha}` : ''}${quien ? ` a ${quien}` : ''}.`;
+    })();
+
     return (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
             <div className="bg-[#0F1013] border border-white/[0.07] rounded-2xl shadow-2xl w-full max-w-lg md:max-w-3xl overflow-hidden animate-in fade-in zoom-in duration-200">
@@ -293,6 +365,19 @@ export function EnviarPropuestaModal({
                 </div>
 
                 <div className="px-6 py-5 space-y-5 max-h-[74vh] overflow-y-auto custom-scrollbar">
+                    {/* Aviso de REENVÍO — antes de pulsar, no después. Saber que
+                        el cliente ya tiene una propuesta encima de la mesa cambia
+                        lo que se le escribe en el mensaje. */}
+                    {avisoVersion && (
+                        <div className="rounded-xl border border-amber-400/25 bg-amber-400/[0.07] px-4 py-3">
+                            <p className="text-[11px] font-black uppercase tracking-widest text-amber-300/90">Esto es un reenvío</p>
+                            <p className="text-[12px] text-white/70 mt-1 leading-relaxed">{avisoVersion}</p>
+                            <p className="text-[11px] text-white/45 mt-1.5">
+                                Saldrá como <strong className="text-white/70">versión {versionInfo?.siguiente}</strong>, marcada en el propio documento y archivada en Drive.
+                            </p>
+                        </div>
+                    )}
+
                     {/* Destinatarios */}
                     <div>
                         <label className="block text-[9px] font-black text-white/30 uppercase tracking-[0.2em] mb-2">Destinatarios</label>

@@ -178,7 +178,18 @@ function normalizeCombKey(val) {
 }
 
 // ─── Componente Principal ─────────────────────────────────────────────────────
-export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving, certificadores = [], onAutoStatus, onEditCliente }) {
+// `apiBase` — de qué negocio es este CEE. Por defecto, el expediente CAE de
+// siempre (`/api/expedientes`), así que TODO lo existente sigue igual sin tocar
+// una sola llamada. La pestaña de CEE contratados sueltos monta este mismo
+// módulo con `/api/cee-directos`, que expone los mismos endpoints sobre su
+// propia tabla. Es lo ÚNICO que separa a los dos: el módulo no sabe —ni le hace
+// falta— en cuál de los dos negocios está.
+// `msgCtx` — de qué negocio es este expediente, para los mensajes al técnico:
+// { deepLink: 'exp'|'cee', cae: true|false, faseLabel }. Sin él manda el CAE, que
+// es el comportamiento de siempre. Importa porque `?exp=` y `?cee=` son TABLAS
+// distintas: mandar el enlace equivocado le abre al técnico una pestaña donde su
+// expediente no existe.
+export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving, certificadores = [], onAutoStatus, onEditCliente, apiBase = '/api/expedientes', secciones = ['inicial', 'final'], msgCtx = {} }) {
     const isReforma = expediente?.oportunidades?.ficha === 'RES080' || expediente?.cee?.is_reforma;
 
     const [local, setLocal] = useState(() => {
@@ -313,7 +324,7 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
         const diff = Math.abs(iniValue - finValue);
         const pct = iniValue > 0 ? Math.round((diff / iniValue) * 1000) / 10 : 0;
         try {
-            await axios.post(`/api/expedientes/${expediente.id}/incidencias`, {
+            await axios.post(`${apiBase}/${expediente.id}/incidencias`, {
                 texto: `${MARCA_INC_DEMANDA} La demanda de calefacción del CEE FINAL no coincide con la del INICIAL: `
                     + `${iniValue.toLocaleString('es-ES')} kWh/año en el inicial frente a ${finValue.toLocaleString('es-ES')} kWh/año en el final `
                     + `(${diff.toLocaleString('es-ES')} kWh/año, ${pct} %). `
@@ -434,13 +445,23 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
         reader.readAsText(file, 'UTF-8');
     };
 
-    // Cambio de certificador: si es distinto del ya guardado, abre el popup de
-    // notificación (asignar + avisar) en vez de guardar directamente.
+    // Cambio de certificador: si se ELIGE uno, abre el popup de notificación
+    // (asignar + avisar) en vez de guardar a secas.
+    //
+    // ⚠️ El popup se abre SIEMPRE que se elija un técnico, aunque sea el mismo que
+    // ya constaba. Antes se comparaba con `savedCertId` y eso rompía el caso más
+    // común de todos: se le asigna a A, A no puede, se pone "sin asignar" y se
+    // vuelve a A —o se pasa a B y luego se vuelve a A—. Como `savedCertId` seguía
+    // valiendo A, no saltaba el popup y NADIE se enteraba del encargo. Reasignar
+    // es justo cuando hay que avisar, no cuando hay que callarse.
+    //
+    // Quitar el técnico (dejarlo sin asignar) sí guarda directo: no hay a quién
+    // escribir.
     const handleCertificadorChange = (v) => {
         const newCertId = v || null;
         const nextLocal = { ...local, certificador_id: newCertId };
         setLocal(nextLocal);
-        if (newCertId && newCertId !== savedCertId.current) {
+        if (newCertId) {
             const certObj = certificadores.find(c => String(c.id_empresa) === String(newCertId));
             const certName = certObj ? (certObj.razon_social || certObj.acronimo) : '';
             setShowCertPopup(true);
@@ -449,13 +470,43 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
             setCertAdminMessage('');
             setCertChannels(['email']);
             // Previsualización editable del mensaje de encargo (igual que el popup de la campana).
-            setCertAssignMessage(buildCertDefaultMessage('standard', 'inicial', certName, clienteNombre, numExp, ceeFolderLink, expedienteId));
+            setCertAssignMessage(buildCertDefaultMessage('standard', 'inicial', certName, clienteNombre, numExp, ceeFolderLink, expedienteId, { ctx: msgCtx }));
         } else {
             onSave({ cee: nextLocal });
         }
     };
 
+    /**
+     * Cierra el popup del certificador.
+     *
+     * Si se cierra SIN confirmar (la X, "Cerrar", o pulsando fuera), hay que
+     * DESHACER la elección: el desplegable ya muestra al técnico nuevo pero no se
+     * ha guardado nada, así que la pantalla estaría diciendo que el expediente es
+     * de alguien a quien nadie ha asignado. Se vuelve al que consta en el
+     * expediente, que es la única fuente fiable — el `ref` puede quedarse viejo
+     * tras un refetch.
+     */
+    const cerrarCertPopup = (confirmado = false) => {
+        if (!confirmado) {
+            const guardado = expediente?.cee?.certificador_id || null;
+            if ((local.certificador_id || null) !== guardado) {
+                setLocal(p => ({ ...p, certificador_id: guardado }));
+            }
+        }
+        setShowCertPopup(false);
+        setCertNotifResult(null);
+    };
+
     const handleCertConfirm = async (notify) => {
+        // ⚠️ QUIÉN ESTABA ANTES, capturado AQUÍ y no en el backend.
+        //
+        // Justo debajo se hace un `onSave` que ya persiste el certificador nuevo,
+        // así que para cuando la petición de notificación llega al servidor, el
+        // expediente guardado YA tiene al nuevo y el backend no puede saber que ha
+        // habido un cambio. Medido: reasignar a otro técnico dejaba la fase en
+        // "encargo enviado" apuntando a quien no había recibido nada.
+        const certAnteriorAlCambio = expediente?.cee?.certificador_id || null;
+
         // Persistir el resto del CEE (XML, fechas, ACS, etc) — el backend del endpoint
         // se encargará de persistir cert_id, dar acceso Drive y enviar el email si aplica.
         try {
@@ -506,8 +557,9 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
 
         setCertNotifLoading(true);
         try {
-            const { data } = await axios.post(`/api/expedientes/${expediente.id}/notify-certificador`, {
+            const { data } = await axios.post(`${apiBase}/${expediente.id}/notify-certificador`, {
                 certificador_id: local.certificador_id,
+                certificador_anterior: certAnteriorAlCambio,
                 sendEmail: wantsEmail,
                 sendWhatsApp: wantsWA,
                 phase: 'initial',
@@ -568,7 +620,7 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
         setApproveLinks(null);
         // Cargar los enlaces reales (descarga + subida) para mostrarlos en el preview.
         if (expediente?.id) {
-            axios.get(`/api/expedientes/${expediente.id}/approve-cee-links?phase=${section}`)
+            axios.get(`${apiBase}/${expediente.id}/approve-cee-links?phase=${section}`)
                 .then(r => setApproveLinks(r.data))
                 .catch(() => setApproveLinks(null));
         }
@@ -595,7 +647,7 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
     // devuelve la respuesta para que el grid muestre el estado real por canal.
     const submitApprove = async (phase, channels, customMessage, attachFiles = false) => {
         if (!expediente?.id) throw new Error('Expediente no disponible');
-        const { data } = await axios.post(`/api/expedientes/${expediente.id}/approve-cee`, {
+        const { data } = await axios.post(`${apiBase}/${expediente.id}/approve-cee`, {
             phase,
             sendEmail: channels.includes('email'),
             sendWhatsApp: channels.includes('whatsapp'),
@@ -611,7 +663,7 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
         if (!expediente?.id || !approvePendingPhase) return;
         setApproveLoading(true);
         try {
-            const { data } = await axios.post(`/api/expedientes/${expediente.id}/approve-cee`, {
+            const { data } = await axios.post(`${apiBase}/${expediente.id}/approve-cee`, {
                 phase: approvePendingPhase,
                 sendEmail: approveChannels.includes('email'),
                 sendWhatsApp: approveChannels.includes('whatsapp'),
@@ -840,6 +892,8 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
     const renderRes060 = () => (
         <div className="space-y-8">
             <CeeDocumentsGrid
+                apiBase={apiBase}
+                secciones={secciones}
                 expediente={expediente}
                 onEditCliente={onEditCliente}
                 certName={selectedCertName}
@@ -878,7 +932,7 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                         return;
                     }
                     try {
-                        const { data } = await axios.post(`/api/expedientes/${expediente.id}/notify-certificador`, {
+                        const { data } = await axios.post(`${apiBase}/${expediente.id}/notify-certificador`, {
                             certificador_id: local.certificador_id,
                             sendEmail: channels.includes('email'),
                             sendWhatsApp: channels.includes('whatsapp'),
@@ -908,7 +962,7 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                 }}
                 onNotifyReview={async (phase, opts = {}) => {
                     try {
-                        await axios.post(`/api/expedientes/${expediente.id}/notify-review`, {
+                        await axios.post(`${apiBase}/${expediente.id}/notify-review`, {
                             phase,
                             priority: opts.priority || 'normal',
                             techMessage: opts.techMessage || null,
@@ -944,6 +998,7 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                         <svg className="w-3.5 h-3.5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
                         CEE inicial
                     </button>
+                    {secciones.includes('final') && (
                     <button
                         type="button"
                         onClick={() => setCeeLoadTarget('final')}
@@ -952,6 +1007,7 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                         <svg className="w-3.5 h-3.5 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
                         CEE final
                     </button>
+                    )}
                 </div>
             </div>
         </div>
@@ -960,6 +1016,8 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
     const renderRes080 = () => (
         <div className="space-y-8">
             <CeeDocumentsGrid
+                apiBase={apiBase}
+                secciones={secciones}
                 expediente={expediente}
                 onEditCliente={onEditCliente}
                 certName={selectedCertName}
@@ -998,7 +1056,7 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                         return;
                     }
                     try {
-                        const { data } = await axios.post(`/api/expedientes/${expediente.id}/notify-certificador`, {
+                        const { data } = await axios.post(`${apiBase}/${expediente.id}/notify-certificador`, {
                             certificador_id: local.certificador_id,
                             sendEmail: channels.includes('email'),
                             sendWhatsApp: channels.includes('whatsapp'),
@@ -1028,7 +1086,7 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                 }}
                 onNotifyReview={async (phase, opts = {}) => {
                     try {
-                        await axios.post(`/api/expedientes/${expediente.id}/notify-review`, {
+                        await axios.post(`${apiBase}/${expediente.id}/notify-review`, {
                             phase,
                             priority: opts.priority || 'normal',
                             techMessage: opts.techMessage || null,
@@ -1080,6 +1138,7 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                             <svg className="w-3.5 h-3.5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
                             CEE inicial
                         </button>
+                        {secciones.includes('final') && (
                         <button
                             type="button"
                             onClick={() => setCeeLoadTarget('final')}
@@ -1088,6 +1147,7 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                             <svg className="w-3.5 h-3.5 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
                             CEE final
                         </button>
+                        )}
                     </div>
                 </div>
             )}
@@ -1382,7 +1442,7 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
 
             {/* ─── Popup de notificación al certificador ─────────────────── */}
             {showCertPopup && (
-                <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/70 backdrop-blur-sm animate-fade-in p-4 max-md:items-end max-md:p-0" onClick={() => { if (!certNotifLoading) setShowCertPopup(false); }}>
+                <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/70 backdrop-blur-sm animate-fade-in p-4 max-md:items-end max-md:p-0" onClick={() => { if (!certNotifLoading) cerrarCertPopup(!!certNotifResult); }}>
                     {/* En móvil es una hoja inferior: cabecera fija con el técnico al que
                         asignas, UN solo eje de scroll y los dos botones pegados abajo
                         respetando el área segura. Con el popup centrado, el teclado al
@@ -1398,7 +1458,7 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                                     )}
                                 </div>
                                 <p className={`text-sm font-bold ${certNotifResult.type === 'ok' ? 'text-emerald-400' : 'text-red-400'}`}>{certNotifResult.text}</p>
-                                <button onClick={() => setShowCertPopup(false)} className="mt-4 px-6 py-2 bg-white/5 border border-white/10 rounded-xl text-white/60 text-xs font-black uppercase hover:text-white transition-all">Cerrar</button>
+                                <button onClick={() => cerrarCertPopup(true)} className="mt-4 px-6 py-2 bg-white/5 border border-white/10 rounded-xl text-white/60 text-xs font-black uppercase hover:text-white transition-all">Cerrar</button>
                             </div>
                         ) : (
                             <>

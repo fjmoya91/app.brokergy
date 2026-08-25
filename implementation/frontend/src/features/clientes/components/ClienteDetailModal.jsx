@@ -2,302 +2,13 @@ import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { useAuth } from '../../../context/AuthContext';
 import { JustificanteUploader } from '../../expedientes/components/JustificanteUploader';
+import { normalize, PROV_CCAA, PROV_NOMBRE, CCAA_LIST, getProvCodByNombre, parseCatastroAddressFull } from '../../../utils/direccionCatastral';
+// Los campos de dirección (y la cascada CCAA/provincia/municipio) son fuente
+// única en components/DireccionEdit: los comparte con el expediente de CEE.
+import { FieldView, FieldInput, Input, SelectEl, DireccionEdit } from '../../../components/DireccionEdit';
 
-// ─── Helpers ───────────────────────────────────────────────────────────────
-function normalize(s) {
-    return (s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
-}
-
-const PROV_CCAA = {
-    '04':'ANDALUCÍA','11':'ANDALUCÍA','14':'ANDALUCÍA','18':'ANDALUCÍA',
-    '21':'ANDALUCÍA','23':'ANDALUCÍA','29':'ANDALUCÍA','41':'ANDALUCÍA',
-    '22':'ARAGÓN','44':'ARAGÓN','50':'ARAGÓN',
-    '33':'ASTURIAS','07':'ISLAS BALEARES','35':'CANARIAS','38':'CANARIAS',
-    '39':'CANTABRIA','02':'CASTILLA-LA MANCHA','13':'CASTILLA-LA MANCHA',
-    '16':'CASTILLA-LA MANCHA','19':'CASTILLA-LA MANCHA','45':'CASTILLA-LA MANCHA',
-    '05':'CASTILLA Y LEÓN','09':'CASTILLA Y LEÓN','24':'CASTILLA Y LEÓN',
-    '34':'CASTILLA Y LEÓN','37':'CASTILLA Y LEÓN','40':'CASTILLA Y LEÓN',
-    '42':'CASTILLA Y LEÓN','47':'CASTILLA Y LEÓN','49':'CASTILLA Y LEÓN',
-    '08':'CATALUÑA','17':'CATALUÑA','25':'CATALUÑA','43':'CATALUÑA',
-    '51':'CEUTA','03':'COMUNIDAD VALENCIANA','12':'COMUNIDAD VALENCIANA','46':'COMUNIDAD VALENCIANA',
-    '06':'EXTREMADURA','10':'EXTREMADURA','15':'GALICIA','27':'GALICIA','32':'GALICIA','36':'GALICIA',
-    '26':'LA RIOJA','28':'COMUNIDAD DE MADRID','52':'MELILLA','30':'REGIÓN DE MURCIA',
-    '31':'NAVARRA','01':'PAÍS VASCO','20':'PAÍS VASCO','48':'PAÍS VASCO',
-};
-
-const PROV_NOMBRE = {
-    '01':'ÁLAVA','02':'ALBACETE','03':'ALICANTE','04':'ALMERÍA','05':'ÁVILA',
-    '06':'BADAJOZ','07':'BALEARES','08':'BARCELONA','09':'BURGOS','10':'CÁCERES',
-    '11':'CÁDIZ','12':'CASTELLÓN','13':'CIUDAD REAL','14':'CÓRDOBA','15':'A CORUÑA',
-    '16':'CUENCA','17':'GIRONA','18':'GRANADA','19':'GUADALAJARA','20':'GUIPÚZCOA',
-    '21':'HUELVA','22':'HUESCA','23':'JAÉN','24':'LEÓN','25':'LLEIDA',
-    '26':'LA RIOJA','27':'LUGO','28':'MADRID','29':'MÁLAGA','30':'MURCIA',
-    '31':'NAVARRA','32':'OURENSE','33':'ASTURIAS','34':'PALENCIA','35':'LAS PALMAS',
-    '36':'PONTEVEDRA','37':'SALAMANCA','38':'S.C. DE TENERIFE','39':'CANTABRIA',
-    '40':'SEGOVIA','41':'SEVILLA','42':'SORIA','43':'TARRAGONA','44':'TERUEL',
-    '45':'TOLEDO','46':'VALENCIA','47':'VALLADOLID','48':'VIZCAYA','49':'ZAMORA',
-    '50':'ZARAGOZA','51':'CEUTA','52':'MELILLA',
-};
-
-const CCAA_LIST = Object.values(PROV_CCAA).filter((v, i, a) => a.indexOf(v) === i).sort((a, b) => a.localeCompare(b, 'es'));
-
-// Obtener código de provincia a partir del nombre
-function getProvCodByNombre(nombre) {
-    if (!nombre) return '';
-    const norm = normalize(nombre);
-    return Object.entries(PROV_NOMBRE).find(([, n]) => normalize(n) === norm)?.[0] || '';
-}
-
-// Provincias ordenadas por longitud desc para matchear las largas primero
-const PROV_NOMBRE_SORTED = Object.entries(PROV_NOMBRE).sort((a, b) => b[1].length - a[1].length);
-
-/**
- * Parsea una dirección catastral tipo "CL EDUARDO NUÑEZ 5 13300 VALDEPEÑAS (CIUDAD REAL)"
- * en sus partes estructuradas: calle, CP, municipio, provincia, CCAA.
- * Devuelve null si no encuentra un CP (no se puede inferir nada fiable).
- */
-function parseCatastroAddressFull(address) {
-    if (!address) return null;
-    const str = String(address).trim().replace(/[()]/g, ' ').replace(/\s+/g, ' ');
-    const cpMatch = str.match(/\b(\d{5})\b/);
-    if (!cpMatch) return null;
-
-    const cp = cpMatch[0];
-    const cpIdx = str.indexOf(cp);
-    const calle = str.substring(0, cpIdx).trim();
-    let municipioRaw = str.substring(cpIdx + 5).trim();
-
-    let provCode = '';
-    let provNombre = '';
-    let ccaa = '';
-
-    for (const [cod, nombre] of PROV_NOMBRE_SORTED) {
-        if (normalize(municipioRaw).endsWith(normalize(nombre))) {
-            provCode = cod;
-            provNombre = nombre;
-            ccaa = PROV_CCAA[cod] || '';
-            const provWords = nombre.split(' ');
-            const muniWords = municipioRaw.split(' ');
-            if (muniWords.length > provWords.length) {
-                municipioRaw = muniWords.slice(0, -provWords.length).join(' ');
-            }
-            break;
-        }
-    }
-
-    // Fallback: derivar provincia del CP
-    if (!provNombre && cp.length >= 2) {
-        const cpProvCode = cp.substring(0, 2);
-        if (PROV_NOMBRE[cpProvCode]) {
-            provCode = cpProvCode;
-            provNombre = PROV_NOMBRE[cpProvCode];
-            ccaa = PROV_CCAA[cpProvCode] || '';
-        }
-    }
-
-    return {
-        direccion: calle,
-        codigo_postal: cp,
-        municipioHint: municipioRaw.trim(),
-        provincia: provNombre,
-        provincia_cod: provCode,
-        ccaa,
-    };
-}
-
+// Helpers de dirección catastral: fuente única en utils/direccionCatastral.js
 // ─── Sub-componentes ────────────────────────────────────────────────────────
-function FieldView({ label, value, valueClassName = '' }) {
-    if (!value) return null;
-    return (
-        <div>
-            <p className="text-[10px] uppercase tracking-widest font-black text-white/30 mb-0.5">{label}</p>
-            <p className={`text-sm text-white font-medium ${valueClassName}`}>{value}</p>
-        </div>
-    );
-}
-
-function FieldInput({ label, required, children }) {
-    return (
-        <div>
-            <label className="block text-[10px] uppercase tracking-widest font-black text-white/40 mb-1.5">
-                {label}{required && <span className="text-brand ml-0.5">*</span>}
-            </label>
-            {children}
-        </div>
-    );
-}
-
-function Input({ className = '', uppercase = false, onChange, ...props }) {
-    const handleChange = uppercase && onChange
-        ? (e) => { e.target.value = e.target.value.toUpperCase(); onChange(e); }
-        : onChange;
-    return (
-        <input
-            className={`w-full bg-bkg-surface border border-white/[0.08] rounded-xl px-3 py-2.5 text-white text-sm placeholder:text-white/20 focus:outline-none focus:ring-2 focus:ring-brand/40 focus:border-brand/40 transition-all ${uppercase ? 'uppercase' : ''} ${className}`}
-            onChange={handleChange}
-            {...props}
-        />
-    );
-}
-
-function SelectEl({ className = '', children, ...props }) {
-    return (
-        <select
-            className={`w-full bg-bkg-surface border border-white/[0.08] rounded-xl px-3 py-2.5 text-white text-sm focus:outline-none focus:ring-2 focus:ring-brand/40 focus:border-brand/40 transition-all ${className}`}
-            {...props}
-        >
-            {children}
-        </select>
-    );
-}
-
-// ─── Sección dirección editable ─────────────────────────────────────────────
-function DireccionEdit({ values, onChange, autoMunicipioHint, onParseFromDireccion, hasCatastroData = false, catastroDireccion = null }) {
-    const [provincias, setProvincias] = useState([]);
-    const [municipios, setMunicipios] = useState([]);
-    const [loadingProv, setLoadingProv] = useState(false);
-    const [loadingMuni, setLoadingMuni] = useState(false);
-
-    // 1. Normalizar CCAA al cargar (viniendo de DB puede ser uppercase)
-    useEffect(() => {
-        if (!values.ccaa) return;
-        const matched = CCAA_LIST.find(c => normalize(c) === normalize(values.ccaa));
-        if (matched && matched !== values.ccaa) {
-            onChange({ ccaa: matched });
-        }
-    }, [values.ccaa]);
-
-    // 2. Normalizar Provincia cuando cargue la lista
-    useEffect(() => {
-        if (loadingProv || provincias.length === 0 || !values.provincia_cod) return;
-        const matchedProv = provincias.find(p => p.cod === values.provincia_cod);
-        if (matchedProv && matchedProv.nombre !== values.provincia) {
-            onChange({ provincia: matchedProv.nombre });
-        }
-    }, [provincias, loadingProv, values.provincia_cod]);
-
-    // 3. Normalizar Municipio cuando cargue la lista
-    useEffect(() => {
-        if (loadingMuni || municipios.length === 0 || !values.municipio) return;
-        if (!municipios.includes(values.municipio)) {
-            const normTarget = normalize(values.municipio);
-            const match = municipios.find(m => normalize(m) === normTarget)
-                || municipios.find(m => normalize(m).includes(normTarget))
-                || municipios.find(m => normTarget.includes(normalize(m)));
-            if (match && match !== values.municipio) {
-                onChange({ municipio: match });
-            }
-        }
-    }, [municipios, loadingMuni]);
-
-    // 3b. Auto-seleccionar municipio cuando la lista cargue tras un parseo catastral
-    useEffect(() => {
-        if (!autoMunicipioHint || loadingMuni || municipios.length === 0) return;
-        if (values.municipio) return;
-        const hintNorm = normalize(autoMunicipioHint);
-        const found = municipios.find(m => normalize(m) === hintNorm)
-            || municipios.find(m => normalize(m).includes(hintNorm))
-            || municipios.find(m => hintNorm.includes(normalize(m)));
-        if (found) onChange({ municipio: found });
-    }, [municipios, loadingMuni, autoMunicipioHint]);
-
-    // 4. Derivar ccaa del código postal si no viene del cliente
-    useEffect(() => {
-        if (!values.ccaa && values.codigo_postal && values.codigo_postal.length >= 2) {
-            const cpProvCode = values.codigo_postal.substring(0, 2);
-            const provNombre = PROV_NOMBRE[cpProvCode];
-            const ccaaName = PROV_CCAA[cpProvCode];
-            if (provNombre && ccaaName) {
-                const matchedCCAA = CCAA_LIST.find(c => normalize(c) === normalize(ccaaName)) || ccaaName;
-                onChange({ ccaa: matchedCCAA, provincia: provNombre, provincia_cod: cpProvCode });
-            }
-        }
-    }, []);
-
-    // 5. Cargar provincias cuando cambia CCAA
-    useEffect(() => {
-        if (!values.ccaa) { setProvincias([]); setMunicipios([]); return; }
-        setLoadingProv(true);
-        axios.get('/api/geo/provincias', { params: { ccaa: values.ccaa } })
-            .then(r => setProvincias(r.data))
-            .catch(() => setProvincias([]))
-            .finally(() => setLoadingProv(false));
-    }, [values.ccaa]);
-
-    // 6. Cargar municipios cuando cambia provincia_cod
-    useEffect(() => {
-        if (!values.provincia_cod) { setMunicipios([]); return; }
-        setLoadingMuni(true);
-        axios.get('/api/geo/municipios', { params: { codprov: values.provincia_cod } })
-            .then(r => setMunicipios(r.data))
-            .catch(() => setMunicipios([]))
-            .finally(() => setLoadingMuni(false));
-    }, [values.provincia_cod]);
-
-    // 7. Si ya tenemos provincia (del cliente existente) y no hay código, derivarlo
-    useEffect(() => {
-        if (!values.provincia_cod && values.provincia) {
-            const cod = getProvCodByNombre(values.provincia);
-            if (cod) {
-                const ccaa = values.ccaa || PROV_CCAA[cod] || '';
-                onChange({ provincia_cod: cod, ccaa });
-            }
-        }
-    }, [values.provincia]);
-
-    return (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <FieldInput label="CCAA">
-                <SelectEl value={values.ccaa || ''} onChange={e => onChange({ ccaa: e.target.value, provincia: '', provincia_cod: '', municipio: '' })}>
-                    <option value="">— Selecciona CCAA —</option>
-                    {CCAA_LIST.map(c => <option key={c} value={c}>{c}</option>)}
-                </SelectEl>
-            </FieldInput>
-            <FieldInput label="Provincia">
-                <SelectEl value={values.provincia_cod || ''} disabled={!values.ccaa || loadingProv}
-                    onChange={e => { const opt = e.target.options[e.target.selectedIndex]; onChange({ provincia: opt.text, provincia_cod: opt.value, municipio: '' }); }}>
-                    <option value="">{loadingProv ? 'Cargando...' : '— Selecciona provincia —'}</option>
-                    {provincias.map(p => <option key={p.cod} value={p.cod}>{p.nombre}</option>)}
-                </SelectEl>
-            </FieldInput>
-            <FieldInput label="Municipio">
-                <SelectEl value={values.municipio || ''} disabled={!values.provincia_cod || loadingMuni}
-                    onChange={e => onChange({ municipio: e.target.value })}>
-                    <option value="">{loadingMuni ? 'Cargando...' : '— Selecciona municipio —'}</option>
-                    {municipios.map(m => <option key={m} value={m}>{m}</option>)}
-                </SelectEl>
-            </FieldInput>
-            <FieldInput label="Código Postal">
-                <Input placeholder="28001" value={values.codigo_postal || ''} maxLength={5}
-                    onChange={e => onChange({ codigo_postal: e.target.value })} />
-            </FieldInput>
-            <div className="sm:col-span-2">
-                <FieldInput label="Dirección">
-                    <div className="flex gap-2">
-                        <Input placeholder="CALLE, NÚMERO, PISO..." uppercase value={values.direccion || ''}
-                            onChange={e => onChange({ direccion: e.target.value })} />
-                        {onParseFromDireccion && (
-                            <button
-                                type="button"
-                                onClick={onParseFromDireccion}
-                                disabled={!values.direccion && !hasCatastroData}
-                                title={
-                                    hasCatastroData && !values.direccion
-                                        ? (catastroDireccion ? `Usar la dirección del expediente: ${catastroDireccion}` : 'Usar los datos del expediente')
-                                        : 'Rellenar CCAA / Provincia / Municipio / CP a partir de la dirección catastral'
-                                }
-                                className="shrink-0 px-3 py-2.5 rounded-xl border border-brand/30 bg-brand/10 text-brand text-[10px] font-black uppercase tracking-widest hover:bg-brand/20 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
-                            >
-                                Usar Catastro
-                            </button>
-                        )}
-                    </div>
-                </FieldInput>
-            </div>
-        </div>
-    );
-}
-
 // ─── Modal principal ────────────────────────────────────────────────────────
 export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clienteId, onUpdated, onOpenOportunidad, onOpenExpediente, expedienteId, oportunidadId, onClienteSwapped, catastroData = null, justificanteLink = null }) {
     const { user } = useAuth();
@@ -986,6 +697,39 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
                                     ) : (
                                         <p className="text-[10px] text-white/20 font-bold uppercase py-2">Sin expedientes</p>
                                     )}
+                                </div>
+                                )}
+
+                                {/* CEE contratados SUELTOS. Van en su propio bloque y no
+                                    mezclados con los expedientes CAE: son otro negocio y
+                                    otra numeracion, y verlos en la misma lista haria creer
+                                    que a este cliente se le esta tramitando un bono. */}
+                                {isAdmin && cliente.cee_directos_vinculados?.length > 0 && (
+                                <div className="space-y-2">
+                                    <p className="text-[10px] uppercase tracking-[0.2em] font-black text-white/30">CEE directos</p>
+                                    {cliente.cee_directos_vinculados.map(cee => (
+                                        <div key={cee.id}
+                                            onClick={() => {
+                                                onClose?.();
+                                                window.location.assign(`/?cee=${encodeURIComponent(cee.id)}`);
+                                            }}
+                                            className="flex items-center justify-between p-3 bg-cyan-500/5 rounded-xl border border-cyan-500/10 transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer hover:border-cyan-500/30 hover:bg-cyan-500/10">
+                                            <div className="min-w-0">
+                                                <span className="text-xs font-mono font-black text-cyan-400">{cee.numero_expediente}</span>
+                                                <p className="text-[10px] text-cyan-400/40 uppercase tracking-widest font-bold truncate">
+                                                    {cee.nombre}
+                                                </p>
+                                            </div>
+                                            <div className="text-right shrink-0 ml-2">
+                                                <span className="text-[9px] font-black uppercase tracking-tight text-cyan-400/40 block mb-0.5">
+                                                    {cee.estado}
+                                                </span>
+                                                <span className="text-[9px] text-cyan-400/20">
+                                                    {new Date(cee.created_at).toLocaleDateString('es-ES')}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    ))}
                                 </div>
                                 )}
                             </div>

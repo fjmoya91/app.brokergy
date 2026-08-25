@@ -174,6 +174,12 @@ router.get('/cliente/:id', async (req, res) => {
         const historial = opp.datos_calculo?.historial || [];
         const acceptanceEntry = historial.find(h => h.tipo === 'cambio_estado' && h.estado === 'ACEPTADA');
 
+        // Versión de la propuesta que este enlace está sirviendo. El enlace es
+        // el mismo siempre, así que quien recibió la v1 y entra hoy ve la v2:
+        // hay que decírselo antes de que firme, no después.
+        const { vigente: versionVigente } = require('../services/propuestaVersiones');
+        const vProp = versionVigente(opp.datos_calculo);
+
         const useContact = foundCliente?.notificaciones_contacto_activas;
         
         return res.json({
@@ -190,6 +196,11 @@ router.get('/cliente/:id', async (req, res) => {
             tiene_instalador: true,
             fecha_aceptacion: acceptanceEntry?.fecha || null,
             aceptado_por: acceptanceEntry?.usuario || null,
+            propuesta_version: vProp?.v || null,
+            propuesta_version_fecha: vProp?.fecha || null,
+            // Qué versión firmó, si ya está aceptada. Puede ser ANTERIOR a la
+            // vigente: se le reenvió una revisión después de aceptar.
+            propuesta_version_aceptada: acceptanceEntry?.propuesta_version || null,
             // El cliente aportó un CEE inicial → la firma ofrecerá elegir usarlo o hacer uno nuevo.
             cee_aportado: !!(opp.datos_calculo?.cee_previo || opp.datos_calculo?.inputs?.cee_previo),
             cee_decision: opp.datos_calculo?.cee_decision || null,
@@ -328,6 +339,13 @@ router.post('/aceptar/:id', upload.single('justificante'), async (req, res) => {
             ? { fecha_prevista_inicio: fechaInicio, fecha_prevista_fin: fechaFin }
             : null;
 
+        // QUÉ VERSIÓN de la propuesta está aceptando. El enlace público sirve
+        // siempre la vigente, así que un cliente que recibió la v1 y entra hoy
+        // acepta la v2 sin saberlo. Sin este sello, después no hay forma de
+        // saber sobre qué documento dio su conformidad.
+        const propuestaVersiones = require('../services/propuestaVersiones');
+        const vAceptada = propuestaVersiones.vigente(opp.datos_calculo)?.v || null;
+
         if (prevEstado !== 'ACEPTADA') {
             const clienteNombre = [formFields.nombre_razon_social, formFields.apellidos].filter(Boolean).join(' ');
             const newHistorial = [...currentHistorial, {
@@ -336,6 +354,7 @@ router.post('/aceptar/:id', upload.single('justificante'), async (req, res) => {
                 estado: 'ACEPTADA',
                 fecha: new Date().toISOString(),
                 usuario: `Firma Cliente (${clienteNombre})`,
+                ...(vAceptada ? { propuesta_version: vAceptada } : {}),
                 ...(ceeDecision ? { cee_decision: ceeDecision } : {})
             }];
 
@@ -344,7 +363,11 @@ router.post('/aceptar/:id', upload.single('justificante'), async (req, res) => {
                 .update({ datos_calculo: newData })
                 .eq('id_oportunidad', id);
             opp.datos_calculo = newData; // reflejar para createExpediente
-            console.log(`[Public] Oportunidad ${id} marcada como ACEPTADA${ceeDecision ? ` (CEE: ${ceeDecision})` : ''}${fechaInicio ? ` (inicio obra: ${fechaInicio})` : ''}`);
+            // Sello en la propia versión (RPC de MERGE): el historial dice
+            // "aceptó la v2" y la v2 dice "fue aceptada". Las dos caras hacen
+            // falta — el listado de versiones se lee sin el historial delante.
+            try { await propuestaVersiones.sellarAceptacion(opp, { aceptadoPor: `Firma Cliente (${clienteNombre})` }); } catch (_) { }
+            console.log(`[Public] Oportunidad ${id} marcada como ACEPTADA${vAceptada ? ` (propuesta v${vAceptada})` : ''}${ceeDecision ? ` (CEE: ${ceeDecision})` : ''}${fechaInicio ? ` (inicio obra: ${fechaInicio})` : ''}`);
         } else if ((ceeDecision && opp.datos_calculo?.cee_decision !== ceeDecision) || fechasPrevistas) {
             // Re-aceptación, cambio de decisión CEE o fechas nuevas cuando ya estaba ACEPTADA.
             const newData = { ...(opp.datos_calculo || {}), ...(ceeDecision ? { cee_decision: ceeDecision } : {}), ...(fechasPrevistas || {}) };
@@ -1093,6 +1116,141 @@ router.post('/cee-upload/:expedienteId/:slot', uploadDocsSingle, async (req, res
         res.json({ success: true, slot, link: uploaded.link, name: uploaded.fileName, registrado });
     } catch (e) {
         console.error('[cee-upload POST]', e.message);
+        res.status(500).json({ error: e.message || 'Error interno al subir el archivo' });
+    }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Subida del CEE registrado — CEE contratados SUELTOS (tabla cee_directos)
+// ---------------------------------------------------------------------------
+// Gemelo de /cee-upload de arriba. Existe porque el visto bueno de un CEE
+// directo manda al certificador el enlace `/subir-cee-directo/:id`, y sin estas
+// dos rutas ese enlace sería un 404 en el móvil del técnico. La página que lo
+// pinta es la MISMA (SubirCeeView), montada con otro endpoint.
+//
+// La firma HMAC lleva un prefijo distinto al del CAE ('cee-directo-upload:'):
+// los dos ids son UUID, y sin esa separación una firma válida en un negocio
+// abriría la puerta del otro.
+// ═══════════════════════════════════════════════════════════════════════════
+
+// GET /api/public/cee-directo-upload/:id?token=&phase=inicial|final
+router.get('/cee-directo-upload/:id', async (req, res) => {
+    try {
+        const ceeDirectoUploads = require('../services/ceeDirectoUploadService');
+        const svcCeeDirecto = require('../services/ceeDirectoService');
+        const { id } = req.params;
+        const { token, phase } = req.query;
+        const ph = phase === 'final' ? 'final' : 'inicial';
+        if (!ceeDirectoUploads.uploadSignatureValid(id, ph, token)) {
+            return res.status(403).json({ error: 'Enlace inválido o caducado.' });
+        }
+
+        const row = await svcCeeDirecto.cargar(id);
+        if (!row) return res.status(404).json({ error: 'Expediente no encontrado' });
+
+        const current = await ceeDirectoUploads.scanSection(row, ph);
+        const cli = row.cliente;
+
+        res.json({
+            numero_expediente: row.numero_expediente,
+            phase: ph,
+            // En un encargo de un solo certificado no se le llama "inicial": el
+            // técnico no tiene que preguntarse dónde está el final.
+            phaseLabel: ceeDirectoUploads.sectionLabel(row, ph) === 'CEE' ? 'CEE' : (ph === 'final' ? 'CEE Final' : 'CEE Inicial'),
+            cliente: cli ? `${cli.nombre_razon_social || ''} ${cli.apellidos || ''}`.trim() : '',
+            registrado: (row.seguimiento?.[ph === 'final' ? 'cee_final' : 'cee_inicial']) === 'REGISTRADO',
+            slots: ceeDirectoUploads.CEE_SLOTS.map(sl => ({
+                id: sl.id, label: sl.label, accept: sl.accept, current: current[sl.id] || null
+            })),
+        });
+    } catch (e) {
+        console.error('[cee-directo-upload GET]', e.message);
+        res.status(500).json({ error: 'Error interno' });
+    }
+});
+
+// POST /api/public/cee-directo-upload/:id/:slot?token=&phase=
+router.post('/cee-directo-upload/:id/:slot', uploadDocsSingle, async (req, res) => {
+    try {
+        const ceeDirectoUploads = require('../services/ceeDirectoUploadService');
+        const svcCeeDirecto = require('../services/ceeDirectoService');
+        const { id, slot } = req.params;
+        const { token, phase } = req.query;
+        const ph = phase === 'final' ? 'final' : 'inicial';
+        if (!ceeDirectoUploads.uploadSignatureValid(id, ph, token)) {
+            return res.status(403).json({ error: 'Enlace inválido o caducado.' });
+        }
+        if (!req.file || !req.file.buffer?.length) {
+            return res.status(400).json({ error: 'No se ha recibido ningún archivo' });
+        }
+        if (!ceeDirectoUploads.CEE_SLOTS.find(sl => sl.id === slot)) {
+            return res.status(400).json({ error: 'Tipo de documento no válido' });
+        }
+
+        const row = await svcCeeDirecto.cargar(id, { conRelaciones: false });
+        if (!row) return res.status(404).json({ error: 'Expediente no encontrado' });
+        if (!row.drive_folder_id) return res.status(400).json({ error: 'El expediente no tiene carpeta de Drive' });
+
+        const subido = await ceeDirectoUploads.uploadFile(row, ph, slot, req.file.buffer, req.file.mimetype);
+
+        const sectionK = ph === 'final' ? 'final' : 'inicial';
+        const cee = row.cee || {};
+        const ceeFiles = cee.cee_files || {};
+        ceeFiles[sectionK] = { ...(ceeFiles[sectionK] || {}), [slot]: subido.link };
+        cee.cee_files = ceeFiles;
+        // Fichero nuevo ⇒ la validación anterior del slot deja de valer y vuelve a
+        // ámbar, igual que al subirlo desde la app.
+        const patch = { cee: invalidarValidacionCee(cee, sectionK, slot) };
+
+        // El justificante de REGISTRO es el hito: cierra la fase. Se sella aquí y
+        // no en un segundo paso porque el técnico no vuelve a entrar.
+        let registrado = false;
+        const key = ph === 'final' ? 'cee_final' : 'cee_inicial';
+        if (slot === 'registro' && row.seguimiento?.[key] !== 'REGISTRADO') {
+            patch.seguimiento = { ...(row.seguimiento || {}), [key]: 'REGISTRADO' };
+            patch.documentacion = {
+                ...(row.documentacion || {}),
+                [`fecha_registro_${key}`]: new Date().toISOString().slice(0, 10)
+            };
+            registrado = true;
+        }
+
+        await svcCeeDirecto.guardar(row.id, patch, { seguimientoPrev: row.seguimiento });
+
+        if (registrado) {
+            // Otra de las dos mitades de la condición de entrega: el certificador
+            // acaba de subir el justificante. Si el expediente ya estaba cobrado,
+            // el cliente recibe su certificado sin que nadie tenga que acordarse.
+            require('../services/ceeDirectoEntrega')
+                .intentarEntregaAsync(row.id, ph, 'registro subido por el certificador');
+
+            await svcCeeDirecto.anotarHistorial(row.id, {
+                tipo: 'CEE',
+                texto: `${(ph === 'final' ? 'CEE FINAL' : 'CEE INICIAL')} REGISTRADO — JUSTIFICANTE SUBIDO POR EL CERTIFICADOR`,
+                usuario: null
+            });
+            // Aviso al equipo: registrado el certificado, lo siguiente es cobrarlo
+            // y entregárselo al cliente. Best-effort, fuera de la respuesta: el
+            // técnico ya ha subido el fichero y no puede quedarse esperando.
+            setImmediate(async () => {
+                try {
+                    const wa = process.env.WHATSAPP_ADMIN_CHAT;
+                    const texto = `✅ ${row.numero_expediente} — ${ph === 'final' ? 'CEE FINAL' : 'CEE'} REGISTRADO por el certificador.`;
+                    if (wa) await require('../services/whatsappService').sendText(wa, texto);
+                    if (process.env.ADMIN_EMAIL) {
+                        await require('../services/emailService').sendMail({
+                            to: process.env.ADMIN_EMAIL,
+                            subject: `${row.numero_expediente} — CEE registrado`,
+                            text: texto, html: `<p>${texto}</p>`
+                        });
+                    }
+                } catch (e) { console.error('[cee-directo-upload aviso]', e.message); }
+            });
+        }
+
+        res.json({ success: true, slot, link: subido.link, name: subido.fileName, registrado });
+    } catch (e) {
+        console.error('[cee-directo-upload POST]', e.message);
         res.status(500).json({ error: e.message || 'Error interno al subir el archivo' });
     }
 });

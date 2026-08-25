@@ -463,6 +463,8 @@ export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }
     const [uploadLink, setUploadLink] = useState(null);
     const [generating, setGenerating] = useState(false);
     const [savingToDrive, setSavingToDrive] = useState(false);
+    const [copiedLink, setCopiedLink] = useState(null);   // null | 'ok' | 'registrado' | 'sin-registrar' | 'fail'
+    const [registrandoEnlace, setRegistrandoEnlace] = useState(false);
     const [scale, setScale] = useState(1);
     // Zoom MANUAL, solo para la previsualización en móvil. La escala automática hace
     // que la A4 (794px) quepa en la pantalla, pero en un móvil de 375px eso es un 42%:
@@ -569,6 +571,25 @@ export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }
     const [includeCeeComp, setIncludeCeeComp] = useState(true); // incluir la comparativa CEE en PDF + mensaje
     const [emailSelections, setEmailSelections] = useState(new Set());
     const [manualContact, setManualContact] = useState({ name: '', phone: '', email: '' });
+
+    // ── Versión de la propuesta ─────────────────────────────────────────────
+    // La marca va IMPRESA en el documento, no solo en el nombre del fichero: el
+    // nombre del adjunto se pierde en cuanto el cliente lo abre, y dos PDFs con
+    // cifras distintas encima de la mesa son indistinguibles sin ella. La v1 no
+    // se marca — un documento que solo ha salido una vez no necesita disclaimer.
+    const [versionInfo, setVersionInfo] = useState(null);   // { versiones, siguiente, vigente }
+    useEffect(() => {
+        if (!isOpen || !inputs?.id_oportunidad) { setVersionInfo(null); return; }
+        let vivo = true;
+        axios.get(`/api/oportunidades/${inputs.id_oportunidad}/propuesta/versiones`)
+            .then(r => { if (vivo) setVersionInfo(r.data || null); })
+            .catch(() => { if (vivo) setVersionInfo(null); });
+        return () => { vivo = false; };
+    }, [isOpen, inputs?.id_oportunidad]);
+
+    // La que se imprimirá si se envía ahora mismo.
+    const versionActual = versionInfo?.siguiente || 1;
+    const marcaVersion = versionActual > 1 ? `Versión ${versionActual}` : null;
 
 
     // ── A QUIÉN nos dirigimos dentro de un partner/instalador ────────────────
@@ -784,9 +805,12 @@ export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }
 
     // Vuelta a reposo cuando cambia lo que ocupa la portada, para no arrastrar el
     // ajuste calculado para otra propuesta.
+    // `marcaVersion` entra en las dependencias porque llega por fetch, DESPUÉS
+    // de que el ajuste haya convergido: añade una línea a la cabecera y sin
+    // rearmar el cálculo la portada se desbordaría por debajo del pie negro.
     useLayoutEffect(() => {
         setFit({ pass: 0, compact: false, vars: null, reposo: null });
-    }, [isOpen, includeCeeComp, cobrand]);
+    }, [isOpen, includeCeeComp, cobrand, marcaVersion]);
 
     // Huecos que se estiran o encogen, en orden de aparición. `encoge` es la
     // fracción del valor de reposo que se puede quitar; `estira`, los píxeles
@@ -2227,6 +2251,95 @@ info@brokergy.es · 623 926 179`;
 
 
 
+    // ── Copiar el enlace de aceptación ──────────────────────────────────────
+    // El acuse va EN EL PROPIO BOTÓN y no en un popup: es una acción de un
+    // segundo, y un modal para decir "copiado" obliga a cerrarlo antes de poder
+    // pegar el enlace donde ibas.
+    //
+    // `navigator.clipboard` no existe fuera de contexto seguro (http:// que no
+    // sea localhost), así que hay un plan B con textarea + execCommand: sin él
+    // el botón se queda mudo y parece roto en vez de haber fallado.
+    const handleCopySignUrl = async () => {
+        const url = `${APP_URL}/firma/${urlId}`;
+        let ok = false;
+        try {
+            await navigator.clipboard.writeText(url);
+            ok = true;
+        } catch {
+            try {
+                const ta = document.createElement('textarea');
+                ta.value = url;
+                ta.style.position = 'fixed';
+                ta.style.opacity = '0';
+                document.body.appendChild(ta);
+                ta.select();
+                ok = document.execCommand('copy');
+                document.body.removeChild(ta);
+            } catch { ok = false; }
+        }
+        setCopiedLink(ok ? 'ok' : 'fail');
+        if (!ok) {
+            // Si no se pudo copiar, se enseña el enlace para poder copiarlo a
+            // mano: quedarse sin el enlace Y sin poder verlo es lo peor posible.
+            showAlert(`No se ha podido copiar automáticamente. Este es el enlace:\n\n${url}`, 'Copia el enlace a mano', 'warning');
+            setTimeout(() => setCopiedLink(null), 2600);
+            return;
+        }
+
+        // ── Copiar el enlace ES ENTREGAR la propuesta ───────────────────────
+        // Lo que hay al otro lado es el formulario de aceptación: en cuanto el
+        // cliente lo firma, la oportunidad pasa a ACEPTADA y nace el expediente.
+        // Si copiar no dejara rastro, tendríamos una propuesta aceptada de la
+        // que no existe copia, la oportunidad habría saltado de "PTE ENVIAR" a
+        // ACEPTADA sin pasar por ENVIADA, y el enlace serviría una vista web
+        // vieja o ninguna. Así que hace lo mismo que un envío salvo mandar el
+        // mensaje: archiva su versión, guarda la vista web y pasa a ENVIADA.
+        //
+        // Va DESPUÉS de copiar y sin bloquear: `navigator.clipboard` necesita el
+        // gesto del usuario, y esperar a la red antes de escribir el portapapeles
+        // lo pierde en algunos navegadores.
+        if (!inputs?.id_oportunidad) return;
+        setRegistrandoEnlace(true);
+        try {
+            const reg = await axios.post(`/api/oportunidades/${inputs.id_oportunidad}/propuesta/version`, {
+                html: getProposalPdfHtml(),
+                htmlWeb: getProposalEmailHtml(),
+                marcarEnviada: true,
+                destinatarios: [],
+                canales: ['enlace'],
+                versionImpresa: versionActual,
+                result,
+                inputs,
+            }, { timeout: 120000 });
+
+            const v = reg.data?.version;
+            if (v) {
+                await axios.patch(`/api/oportunidades/${inputs.id_oportunidad}/propuesta/version/${v}`, {
+                    envios: [{ channel: 'enlace', status: 'ok', text: 'enlace copiado' }],
+                    cambios: reg.data?.cambios || '',
+                }).catch(() => { });
+                // Mismo camino que el envío: es la ruta que además mueve la
+                // carpeta de Drive al estado que toca.
+                await axios.patch(`/api/oportunidades/${inputs.id_oportunidad}/estado`, { nuevo_estado: 'ENVIADA' }).catch(() => { });
+                setVersionInfo(prev => ({
+                    ...(prev || {}),
+                    versiones: [...(prev?.versiones || []), { v, fecha: new Date().toISOString(), canales: ['enlace'] }],
+                    vigente: { v, fecha: new Date().toISOString(), canales: ['enlace'] },
+                    siguiente: v + 1,
+                }));
+                setCopiedLink('registrado');
+            }
+        } catch (e) {
+            // El enlace YA está en el portapapeles: el fallo del registro no
+            // puede presentarse como si no se hubiera copiado.
+            setCopiedLink('sin-registrar');
+            console.error('[propuesta] no se pudo registrar la entrega por enlace:', e.message);
+        } finally {
+            setRegistrandoEnlace(false);
+            setTimeout(() => setCopiedLink(null), 4000);
+        }
+    };
+
     const handleSaveToDrive = async () => {
         if (!inputs.id_oportunidad || !inputs.drive_folder_id) {
             const confirmed = await showConfirm(
@@ -2262,15 +2375,19 @@ info@brokergy.es · 623 926 179`;
                 </html>
             `;
 
-            const fileName = `Propuesta_${inputs.id_oportunidad}_${inputs.referenciaCliente || 'Cliente'}.pdf`;
-            const response = await axios.post('/api/pdf/save-to-drive', {
-                html: fullHtml,
-                folderId: inputs.drive_folder_id,
-                fileName: fileName
-            }, { timeout: 90000 });
+            // BORRADOR, no versión: guardar no es enviar, y el contador de
+            // versiones tiene que seguir significando "lo que ha visto el
+            // cliente". Se reemplaza a sí mismo — antes cada pulsación dejaba
+            // otra copia con el mismo nombre (Drive lo permite) y en la carpeta
+            // quedaban PDFs indistinguibles entre sí.
+            const response = await axios.post(
+                `/api/oportunidades/${inputs.id_oportunidad}/propuesta/borrador`,
+                { html: fullHtml },
+                { timeout: 90000 }
+            );
 
             if (response.data.success) {
-                showAlert("La propuesta ha sido generada y guardada correctamente en la carpeta de Drive del cliente.", "Guardado en Drive", "success");
+                showAlert(`La propuesta se ha guardado como borrador en "${response.data.subcarpeta}" dentro de la carpeta del cliente. Reemplaza al borrador anterior: las versiones enviadas se archivan aparte al enviarlas.`, "Guardado en Drive", "success");
             } else {
                 throw new Error(response.data.message || "Respuesta fallida del servidor");
             }
@@ -2324,6 +2441,54 @@ info@brokergy.es · 623 926 179`;
                                 </svg>
                                 <span className="text-[10px] font-black uppercase tracking-wider whitespace-nowrap max-md:hidden">Opción CEE</span>
                             </button>
+                        )}
+
+                        {/* Botón COPIAR ENLACE DE ACEPTACIÓN */}
+                        {/* El MISMO enlace que va dentro del mensaje de envío
+                            (`signUrlPlain`), para pasárselo al cliente por donde
+                            estés hablando con él sin mandarle el mensaje entero.
+                            No sustituye al envío: ese sella la versión y marca la
+                            oportunidad como ENVIADA — copiar el enlace no hace ni
+                            una cosa ni la otra.
+
+                            ADMIN-only, igual que el botón de ENVIAR de esta misma
+                            barra: pasarle el enlace al cliente es ponerle la
+                            propuesta en la mano, así que no puede tener menos
+                            control que mandársela por correo. */}
+                        {user?.rol === 'ADMIN' && (
+                        <button
+                            onClick={handleCopySignUrl}
+                            disabled={registrandoEnlace}
+                            title="Copiar el enlace de aceptación para pasárselo al cliente. Queda registrado como entrega: archiva su versión y marca la oportunidad como ENVIADA."
+                            className={`h-12 px-3 flex items-center gap-2 rounded-2xl border transition-all shrink-0 active:scale-95 ${
+                                copiedLink === 'ok' || copiedLink === 'registrado' ? 'text-green-400 border-green-400/40 bg-green-400/10'
+                                : copiedLink === 'fail' ? 'text-red-400 border-red-400/40 bg-red-400/10'
+                                : copiedLink === 'sin-registrar' ? 'text-amber-400 border-amber-400/40 bg-amber-400/10'
+                                : 'text-white/40 border-transparent hover:text-brand hover:bg-white/5 hover:border-white/10'}`}
+                        >
+                            {registrandoEnlace ? (
+                                <div className="w-5 h-5 border-2 border-brand/20 border-t-brand rounded-full animate-spin" />
+                            ) : (copiedLink === 'ok' || copiedLink === 'registrado') ? (
+                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                </svg>
+                            ) : (
+                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.6}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M13.828 10.172a4 4 0 010 5.656l-3 3a4 4 0 01-5.656-5.656l1.5-1.5M10.172 13.828a4 4 0 010-5.656l3-3a4 4 0 015.656 5.656l-1.5 1.5" />
+                                </svg>
+                            )}
+                            {/* El acuse dice si además quedó REGISTRADO: el enlace
+                                lleva a la aceptación, así que saber que la entrega
+                                consta es tan importante como saber que se copió. */}
+                            <span className="text-[10px] font-black uppercase tracking-wider whitespace-nowrap max-md:hidden">
+                                {registrandoEnlace ? 'Registrando…'
+                                    : copiedLink === 'registrado' ? `¡Copiado! · v${versionInfo?.vigente?.v || ''} registrada`
+                                    : copiedLink === 'ok' ? '¡Copiado!'
+                                    : copiedLink === 'sin-registrar' ? 'Copiado · sin registrar'
+                                    : copiedLink === 'fail' ? 'No se pudo'
+                                    : 'Copiar enlace'}
+                            </span>
+                        </button>
                         )}
 
                         {/* Botón AÑADIR ANEXOS */}
@@ -2438,8 +2603,9 @@ info@brokergy.es · 623 926 179`;
                                         <div className="prop-bar-tag">Ingeniería energética</div>
                                     </div>
                                     <div className="prop-bar-meta">
-                                        <span className="prop-bar-num">Propuesta Nº {displayId}</span><br />
+                                        <span className="prop-bar-num">Propuesta Nº {displayId}{marcaVersion ? ` · ${marcaVersion}` : ''}</span><br />
                                         Fecha: {formattedDate} · Oferta válida hasta: {formattedValidDate}
+                                        {marcaVersion && <><br /><span style={{ fontWeight: 700 }}>Esta versión anula y sustituye a las anteriores</span></>}
                                     </div>
                                 </div>
 
@@ -2664,7 +2830,7 @@ info@brokergy.es · 623 926 179`;
                             <div className="prop-page">
                                 <div className="prop-bar prop-bar-slim">
                                     <div className="prop-bar-logo">BROKER<span>GY</span></div>
-                                    <div className="prop-bar-page">Propuesta Nº {displayId} · Página 2</div>
+                                    <div className="prop-bar-page">Propuesta Nº {displayId}{marcaVersion ? ` · v${versionActual}` : ''} · Página 2</div>
                                 </div>
                                 <div className="prop-pb" style={{ paddingTop: '18px' }}>
                                     <div className="prop-stag"><span className="prop-sn">2</span><span className="prop-st">Bono Energético CAE</span></div>
@@ -2762,7 +2928,7 @@ info@brokergy.es · 623 926 179`;
                             <div className="prop-page">
                                 <div className="prop-bar prop-bar-slim">
                                     <div className="prop-bar-logo">BROKER<span>GY</span></div>
-                                    <div className="prop-bar-page">Propuesta Nº {displayId} · Página 3</div>
+                                    <div className="prop-bar-page">Propuesta Nº {displayId}{marcaVersion ? ` · v${versionActual}` : ''} · Página 3</div>
                                 </div>
                                 <div className="prop-pb" style={{ paddingTop: '30px' }}>
                                     <div className="prop-stag"><span className="prop-sn">5</span><span className="prop-st">Documentación</span></div>
@@ -2864,7 +3030,7 @@ info@brokergy.es · 623 926 179`;
                             <div className="prop-page">
                                 <div className="prop-bar prop-bar-slim">
                                     <div className="prop-bar-logo">BROKER<span>GY</span></div>
-                                    <div className="prop-bar-page">Propuesta Nº {displayId} · Página 4</div>
+                                    <div className="prop-bar-page">Propuesta Nº {displayId}{marcaVersion ? ` · v${versionActual}` : ''} · Página 4</div>
                                 </div>
                                 <div className="prop-pb" style={{ paddingTop: '20px' }}>
                                     <div className="prop-stag"><span className="prop-sn">6</span><span className="prop-st">Condiciones</span></div>
@@ -3243,6 +3409,15 @@ info@brokergy.es · 623 926 179`;
                 getEmailHtml={getProposalEmailHtml}
                 buildSummaryData={buildPropSummaryData}
                 expedienteId={inputs?.id_oportunidad}
+                versionInfo={versionInfo}
+                onVersionRegistrada={(info) => setVersionInfo(prev => ({
+                    ...(prev || {}),
+                    versiones: [...(prev?.versiones || []), info],
+                    vigente: info,
+                    siguiente: (info?.v || 0) + 1,
+                }))}
+                proposalResult={result}
+                proposalInputs={inputs}
                 ceeComparisonAvailable={!!ceeComparison}
                 includeCee={includeCeeComp}
                 onIncludeCeeChange={setIncludeCeeComp}

@@ -264,6 +264,10 @@ async function markCeeRegistradoFromUpload(exp, phase) {
 
 module.exports = {
     CEE_SLOTS,
+    // Exportado para que el gemelo de los CEE contratados sueltos
+    // (ceeDirectoUploadService) reconozca los ficheros por el MISMO criterio.
+    // Si un día cambia el sufijo de un slot, cambia en los dos sitios a la vez.
+    matchSlot,
     normalizePhase,
     sectionLabel,
     sectionKey,

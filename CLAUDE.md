@@ -1500,6 +1500,48 @@ hacer nada si el formulario coincide, y `onGuardado` viaja por `useRef` para que
 identidad no entre en las dependencias. Verificado: **cero PUT al abrir la ficha**,
 **un solo PUT** al teclear cinco letras seguidas.
 
+### Asignar y REASIGNAR certificador
+
+Tres fallos medidos el 25/08 sobre 2026CEE_54, los tres del mismo sitio:
+
+**REGLA — "Solo asignar" NO manda nada.** El popup manda `sendEmail` /
+`sendWhatsApp`; la ruta leía `channels` y, al no venir, caía en `['email']` por
+defecto: pulsar "Solo asignar" le enviaba el encargo al técnico igual. Ahora se
+admiten las dos formas y, **si no viene ninguna, no sale nada**. Compartir las
+carpetas sí se hace siempre —se avise o no—, o un "solo asignar" dejaría el
+expediente asignado y sin acceso.
+
+**REGLA — el popup se abre SIEMPRE que se ELIGE un técnico**, aunque sea el mismo
+que ya constaba. Se comparaba con `savedCertId` y eso rompía el caso más común:
+se asigna a A, A no puede, se pone "sin asignar" y se vuelve a A —o se pasa a B y
+luego se vuelve a A—. Como el `ref` seguía valiendo A, no saltaba el popup y nadie
+se enteraba del encargo. Quitar el técnico sí guarda directo: no hay a quién
+escribir. Y **cerrar el popup sin confirmar DESHACE la elección**, o el
+desplegable enseñaría un técnico que no está guardado.
+
+**REGLA — al cambiar de técnico, la fase vuelve a "pendiente de encargar".**
+`ASIGNADO` significa *encargo enviado*; si el destinatario cambia, ese avance
+describe la situación del anterior. Se resetea solo si aún no hay nada entregado
+(por debajo de `PRESENTADO`): un certificado ya emitido existe, lo haya hecho
+quien lo haya hecho. Se suelta también `*_last_contacto_at`, o el parte diario
+silenciaría el aviso al nuevo durante toda la ventana de reinsistencia.
+
+⚠️ **Quién era el técnico ANTERIOR lo manda el FRONTEND** (`certificador_anterior`),
+no lo deduce el backend. Justo antes de notificar, el módulo hace un `onSave` que
+ya persiste el técnico nuevo, así que para cuando llega la petición
+`row.cee.certificador_id` es el NUEVO y comparar contra él no detecta el cambio
+jamás.
+
+⚠️ **`guardar()` FUNDE `seguimiento`**, así que un `delete` sobre el parche no
+borra la clave: el sello viejo sobrevivía intacto. Para soltar una clave hay que
+ponerla a `null`.
+
+**REGLA — los textos al técnico saben de qué negocio son** (`msgCtx`). El enlace
+es `?cee=` y no `?exp=` —son dos tablas y el mismo UUID no vale en las dos—, y del
+texto desaparece lo que aquí no existe: obra, portal del cliente, plazos del
+programa de ayudas. Se vio en un email real que mandaba al técnico a una pestaña
+donde su expediente no estaba.
+
 ### La ficha del CEE es UNA LÍNEA de datos, no un formulario
 
 La pantalla del expediente trata de UNA cosa: el certificado. El cliente, el
@@ -1677,6 +1719,30 @@ graba `propuesta_version` en la entrada de aceptación del historial **y** `acep
 en la propia versión (las dos caras: el listado de versiones se lee sin el historial
 delante). Y se le **dice en pantalla** antes de firmar: "Estás aceptando la versión 2…".
 
+**REGLA — copiar el enlace de aceptación ES ENTREGAR la propuesta, y cuenta como tal.**
+El botón de la barra de la vista previa da el MISMO `{APP_URL}/firma/{uuid}` que va dentro
+del mensaje de envío, para pasárselo al cliente por donde estés hablando con él. Al otro
+lado está el formulario de aceptación: en cuanto lo firma, la oportunidad pasa a ACEPTADA
+y nace el expediente. Si copiar no dejara rastro tendríamos **una propuesta aceptada de la
+que no existe copia**, la oportunidad habría saltado de PTE ENVIAR a ACEPTADA sin pasar por
+ENVIADA (y sin mover su carpeta de Drive), y el enlace serviría una vista web vieja o
+ninguna — `html_propuesta` solo lo escribe `send-proposal`, por el que aquí no pasa nadie.
+
+Así que copiar hace lo mismo que un envío **salvo mandar el mensaje**: registra su versión
+(archiva el PDF), guarda `htmlWeb` como `html_propuesta` y pasa a ENVIADA. El estado lo
+cambia `PATCH /:id/estado` desde el front, **no la ruta de versión**: es la que además
+sincroniza la carpeta de Drive (regla 2). En el historial se dice lo que de verdad consta
+—"🔗 entregada por enlace"—, nunca "enviada": no sabemos si llegó ni a quién se lo pasó, y
+quien lea eso dentro de tres meses no debe buscar un correo que nunca existió.
+
+Se copia PRIMERO y se registra después, sin bloquear: `navigator.clipboard` necesita el
+gesto del usuario y esperar a la red antes de escribir el portapapeles lo pierde en algunos
+navegadores. Si el registro falla, el acuse dice "Copiado · sin registrar" — el enlace ya
+está en el portapapeles y no puede presentarse como si no se hubiera copiado. ADMIN-only,
+igual que el botón de enviar de esa misma barra: pasar el enlace es poner la propuesta en
+manos del cliente y no puede tener menos control que mandarla. El acuse va en el propio
+botón, no en un popup que habría que cerrar antes de poder pegar.
+
 **El aviso de reenvío va ANTES de pulsar**, con a quién y cuándo se envió la anterior:
 es el dato que cambia lo que le escribes en el mensaje. Y el historial pasa a decir
 "📄 Propuesta v2 enviada por email + whatsapp a Cliente, Instalador · Cambios respecto a
@@ -1714,6 +1780,31 @@ del menú de un vistazo.
 
 ⚠️ **WhatsApp sigue FUERA del `<nav>`**, entre las pestañas y el perfil, con su
 color de estado (regla 13). No moverlo ahí dentro.
+
+### Cerrar sesión — el menú de la cuenta (2026-08-25)
+
+Cerrar sesión vivía SOLO en un botón al fondo del sidebar, que es justo lo que se
+salía de la pantalla cuando el menú no cabía. Y aunque quepa, el fondo de una
+barra lateral no es donde nadie lo busca: en cualquier app se pulsa el AVATAR.
+
+- **Fuente única**: [UserMenu.jsx](implementation/frontend/src/components/layout/UserMenu.jsx),
+  abierto desde los DOS avatares — el bloque de perfil del pie del sidebar (que
+  ya no abre la ficha de golpe: abre el menú, y el icono es un chevron, no un
+  lápiz) y el avatar de la barra superior del móvil, donde antes había que abrir
+  el cajón y bajar hasta el fondo. En móvil es **hoja inferior**, no popover.
+- El botón rojo del pie **se conserva** y pasa a decir "Cerrar sesión": es la
+  salida de un clic. También hay uno en "Mi perfil" (`AdminProfileModal`, y la
+  ficha del partner cuando llega con `onSignOut`), que es donde se acaba cuando
+  uno busca su usuario.
+
+**REGLA — `signOut` limpia la sesión local PASE LO QUE PASE.** Era
+`return supabase.auth.signOut()` a pelo: si esa llamada falla —token ya caducado
+(`session_not_found`), sin red, Auth caído—, supabase-js rechaza y no siempre
+limpia su almacenamiento; como el estado de React solo se vaciaba con el evento
+`SIGNED_OUT`, que entonces no llega, **pulsar el botón no hacía nada**. Ahora el
+`finally` borra el token de axios, la caché de perfil, las claves `sb-*` y el
+estado, y limpia el deep-link de la URL (`?tab=`, `?exp=`, `?cee=`) para que la
+siguiente sesión no aterrice en el expediente del anterior.
 
 ## Reglas Críticas — No Romper
 
