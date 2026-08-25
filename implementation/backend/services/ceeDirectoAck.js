@@ -26,7 +26,19 @@ function nuevoToken(id, certId) {
         .digest('hex').slice(0, 32);
 }
 
-const enlaceAck = (id, token) => `${APP_BASE}/cee-ack/${id}?token=${token}`;
+// DOS enlaces, no uno.
+//
+// `?r=si` acepta al abrirse, exactamente como el "Aceptar encargo" del CAE — al
+// técnico le llegan los dos tipos de encargo y no puede tener que aprender dos
+// procesos. `?r=no` abre la misma página pero pidiendo confirmación: rechazar le
+// retira del expediente, y eso no lo puede provocar un pulgar despistado.
+const enlaceAck = (id, token, respuesta) =>
+    `${APP_BASE}/cee-ack/${id}?token=${token}${respuesta ? `&r=${respuesta}` : ''}`;
+
+const enlacesAck = (id, token) => ({
+    aceptar:  enlaceAck(id, token, 'si'),
+    rechazar: enlaceAck(id, token, 'no'),
+});
 
 /**
  * Lo que la página pública necesita para pintarse, y la validación del token.
@@ -169,4 +181,4 @@ async function sugerirCertificadores(row, limite = 5) {
         .slice(0, limite);
 }
 
-module.exports = { nuevoToken, enlaceAck, leer, responder, sugerirCertificadores };
+module.exports = { nuevoToken, enlaceAck, enlacesAck, leer, responder, sugerirCertificadores };

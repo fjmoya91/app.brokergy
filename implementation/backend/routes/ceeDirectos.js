@@ -645,7 +645,7 @@ router.post('/:id/notify-certificador', staffOnly, async (req, res) => {
         cee.ack_respuesta = null;
         cee.ack_respuesta_at = null;
         cee.ack_enviado_at = new Date().toISOString();
-        const ackLink = ack.enlaceAck(row.id, ackToken);
+        const acuse = ack.enlacesAck(row.id, ackToken);
         const bloqueCarpetas = compartidas.map(c => `📁 ${c.nombre}:\n${c.link}`).join('\n\n');
 
         const cuerpo = (req.body?.customMessage || '').trim()
@@ -681,7 +681,7 @@ router.post('/:id/notify-certificador', staffOnly, async (req, res) => {
                         : 'Un solo certificado',
                     carpetas: compartidas,
                     expedienteLink: enlaceApp(row.id),
-                    ackLink,
+                    acuse,
                     priority: req.body?.priority === 'urgent' ? 'urgent' : 'normal',
                     adminMessage: (req.body?.adminMessage || '').trim() || null,
                     // El texto editado en el popup SUSTITUYE al saludo y a la
@@ -695,8 +695,11 @@ router.post('/:id/notify-certificador', staffOnly, async (req, res) => {
 
         if (canales.includes('whatsapp')) {
             try {
+                // En WhatsApp los dos enlaces van etiquetados y en líneas
+                // distintas: un enlace suelto que "acepta al pulsarlo" sin decir
+                // cuál es cuál es una trampa.
                 await whatsappService.sendText(telefonoDe(cert),
-                    `${cuerpo}\n\n✅ Confirma si lo coges (o dinos que no puedes):\n${ackLink}`);
+                    `${cuerpo}\n\n✅ Me encargo:\n${acuse.aceptar}\n\n🚫 No puedo cogerlo:\n${acuse.rechazar}`);
                 enviados.push('whatsapp');
             } catch (e) { errores.push(`whatsapp: ${e.message}`); }
         }

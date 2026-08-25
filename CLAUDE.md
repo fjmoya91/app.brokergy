@@ -1507,16 +1507,26 @@ El CAE solo tiene "aceptar" (`cert-ack`). Aquí hacen falta las dos respuestas, 
 pudiera se sabía llamándole por teléfono a los diez días, con el expediente
 parado y nadie enterado.
 
-El encargo lleva el botón **"✅ Lo cojo / No puedo"** —el PRIMERO, y en verde: si
-queda debajo de las carpetas, se abre la carpeta y nadie contesta— que abre
-`/cee-ack/:id?token=`, página pública porque el técnico no tiene por qué estar
-logueado para decir que no puede.
+**REGLA — el gesto es el MISMO que en el CAE.** Al certificador le llegan los dos
+tipos de encargo y no puede tener que aprender dos procesos. En el CAE
+(`CertAckView`) el enlace "Aceptar encargo" **acepta al abrirse**, sin preguntar
+nada, y a los 2,5 s te deja dentro del expediente. Aquí igual: el email lleva
+**"✅ Acepto el encargo"** en verde (`?r=si`, acepta sola y redirige a
+`/?cee=<id>`) y **"No puedo cogerlo"** discreto debajo (`?r=no`).
 
-**REGLA — aceptar es un clic; RECHAZAR pide confirmación.** Un toque de más
-aceptando no hace daño; rechazando retira al técnico y devuelve el expediente a
-la cola, y un pulgar despistado en la bandeja de entrada no puede provocar eso.
-Al rechazar se ofrece decir por qué: es el dato que sirve para no volver a
-proponérselo.
+La primera versión ponía UN botón "Lo cojo / No puedo" que abría una página a
+preguntar. Sobraba: al abrir el correo ya has decidido, y esa pantalla de más es
+justo lo que hacía el proceso distinto del CAE.
+
+**REGLA — aceptar es automático; RECHAZAR nunca.** Aceptar de más no rompe nada
+(sigues siendo el técnico); rechazar te retira del expediente y lo devuelve a la
+cola, así que un pulgar despistado sobre el enlace equivocado no puede
+provocarlo. La pantalla de rechazo pide confirmación, ofrece motivo y lleva
+salida ("me he equivocado, sí me encargo").
+
+**No se puede resolver DENTRO del email**: los clientes de correo no ejecutan
+JavaScript y Gmail elimina los formularios, así que lo único pulsable es un
+enlace. Es la misma razón por la que el CAE abre una página.
 
 **REGLA — al rechazar se RETIRA el certificador** (`cee.certificador_id = null`) y
 la fase vuelve a `PTE_ENVIO_CERT`. Si se quedara puesto, la ficha seguiría
@@ -1884,6 +1894,48 @@ certificador, la entrega de los CEE directos).
   "se desactivaron los mensajes temporales") por el MISMO evento y con el cuerpo
   vacío. Con una lista negra, cualquier tipo nuevo de Meta despertaría al bot
   para contestar a un mensaje que el cliente no ha escrito.
+- **Sin lista blanca de chats, el bot NO ARRANCA** (salvo `BOT_WHATSAPP_TODOS=true`).
+  Salir del modo prueba tiene que ser una decisión escrita, no lo que pasa por
+  descuido al poner `enabled=true`.
+
+### El camino de entrada no puede colgarse — `scripts/test_bot_robustez.js`
+
+Un mensaje entrante desemboca en llamadas a Puppeteer, y ese Chrome es el mismo
+del que depende TODA la app para enviar.
+
+**REGLA — NINGUNA llamada al cliente crudo va sin plazo** (`conPlazo`,
+`BOT_WHATSAPP_PLAZO_WA_MS`). Una promesa que no resuelve nunca deja `barriendo`
+en `true` y **el bot muere en silencio**: ni contesta ni avisa. Con plazo, lo
+peor que pasa es que el mensaje se reintente en el barrido siguiente. Hay además
+un cinturón (`BARRIDO_MAX_MS`) que libera el cerrojo si un barrido se eterniza.
+
+**REGLA — se pregunta la etiqueta POR CHAT, nunca listando la etiqueta entera.**
+`getChatsByLabelId` acaba en `Promise.all(chatIds.map(getChatById))`: hidrata un
+objeto `Chat` completo por cada chat etiquetado, o sea 50 evaluaciones en
+Puppeteer por consulta. `getChatLabels(chatId)` es UNA, y solo del chat que
+acaba de escribir. La lista completa queda para el panel, bajo petición.
+Se cachea con **TTL asimétrico**: 5 min el positivo (una etiqueta rara vez se
+quita) y 60 s el negativo, que es el que decide cuánto tardas en ver efecto tras
+etiquetar un chat — con 5 minutos parece que no funciona y acabas reiniciando el
+backend para nada.
+
+**REGLA — las consultas simultáneas se de-duplican** (`consultasEnVuelo`). Tres
+mensajes seguidos del mismo cliente son el caso NORMAL, no el raro: sin esto,
+disparan tres consultas idénticas a Puppeteer a la vez.
+
+**REGLA — `encolar` va con CANDADO por chat.** Es un leer-y-luego-escribir, y
+los mensajes que hay que agrupar son justamente los que llegan a la vez: dos que
+entren en el mismo instante leen los dos "no hay fila abierta", insertan los dos
+y **el cliente recibe dos respuestas a la misma pregunta**. Basta un candado en
+memoria porque la sesión de WhatsApp es un singleton atado a un teléfono. El
+barrido lo refuerza despachando **una fila por chat y vuelta**.
+
+**REGLA — un fallo de lectura NO es un "no está etiquetado".** Si la sesión se
+cae, `estaEtiquetado` devuelve `false` (ante la duda, callar) pero deja
+`etiquetaCache.error` puesto, y `despachar` lo usa para NO descartar el mensaje:
+se reintenta cuando WhatsApp vuelva. Y si ni siquiera se puede escalar (Supabase
+o WhatsApp caídos), la fila se cierra como DESCARTADO en vez de reintentarse
+cada 30 s para siempre.
 
 **REGLA — "no está etiquetado" y "no he podido comprobarlo" no son lo mismo.**
 Si la sesión se cae entre el barrido y la comprobación, la lista de chats viene

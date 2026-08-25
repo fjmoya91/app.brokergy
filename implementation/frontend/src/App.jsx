@@ -188,8 +188,12 @@ function App() {
     const path = window.location.pathname;
     if (path.startsWith('/cee-ack/')) {
       const id = path.split('/cee-ack/')[1]?.split('/')[0] || null;
-      const token = new URLSearchParams(window.location.search).get('token');
-      if (id && token) return { id, token };
+      const sp = new URLSearchParams(window.location.search);
+      const token = sp.get('token');
+      // `r=si` acepta al abrirse (el gesto de siempre del CAE); `r=no` abre la
+      // pantalla de confirmación. Sin `r`, se pregunta.
+      const respuestaInicial = sp.get('r') === 'si' ? 'si' : sp.get('r') === 'no' ? 'no' : null;
+      if (id && token) return { id, token, respuestaInicial };
     }
     return null;
   });
@@ -966,7 +970,7 @@ function App() {
         ) : ceeUploadData ? (
           <SubirCeeView expedienteId={ceeUploadData.expedienteId} token={ceeUploadData.token} phase={ceeUploadData.phase} />
         ) : ceeAckData ? (
-          <CeeAckView id={ceeAckData.id} token={ceeAckData.token} />
+          <CeeAckView id={ceeAckData.id} token={ceeAckData.token} respuestaInicial={ceeAckData.respuestaInicial} />
         ) : ceeDirectoUploadData ? (
           <SubirCeeView
             expedienteId={ceeDirectoUploadData.expedienteId}

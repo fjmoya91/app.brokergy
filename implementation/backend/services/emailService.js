@@ -806,7 +806,7 @@ const sendCeeDirectoEncargoEmail = async ({
     alcanceLabel,           // 'Un solo certificado' | 'Inicial y final'
     carpetas = [],          // [{ nombre, link }]
     expedienteLink = null,  // deep-link ?cee=<id>
-    ackLink = null,         // página donde contesta: lo cojo / no puedo
+    acuse = null,           // { aceptar, rechazar } — los dos enlaces del acuse
     priority = 'normal',
     adminMessage = null,
     customMessage = null,
@@ -842,11 +842,16 @@ const sendCeeDirectoEncargoEmail = async ({
         { bg: BRAND.orangeTint, border: BRAND.orange, mb: 22 }
     ) : '';
 
-    // El acuse va PRIMERO y en verde: es la única acción que le pedimos ahora
-    // mismo. Si queda debajo de las carpetas, se abre la carpeta y nadie contesta,
-    // que es exactamente lo que pasaba antes de que existiera este botón.
+    // El acuse va PRIMERO: es la única acción que le pedimos ahora mismo. Si
+    // queda debajo de las carpetas, se abre la carpeta y nadie contesta.
+    //
+    // DOS botones y no uno: "Acepto el encargo" en verde —el gesto de siempre del
+    // CAE, que acepta al pulsarlo— y "No puedo" discreto al lado. Con un solo
+    // botón de "lo cojo / no puedo" hay que abrir una página para decidir algo
+    // que ya estaba decidido al abrir el correo.
     const botonesHtml = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0">` +
-        (ackLink ? `<tr><td align="center" style="padding-bottom:12px;">${emailButton(ackLink, '✅ Lo cojo / No puedo')}</td></tr>` : '') +
+        (acuse?.aceptar ? `<tr><td align="center" style="padding-bottom:10px;">${emailButton(acuse.aceptar, '✅ Acepto el encargo')}</td></tr>` : '') +
+        (acuse?.rechazar ? `<tr><td align="center" style="padding-bottom:16px;"><a href="${acuse.rechazar}" style="color:${BRAND.muted};font-size:12px;text-decoration:underline;">No puedo cogerlo</a></td></tr>` : '') +
         (expedienteLink ? `<tr><td align="center" style="padding-bottom:12px;">${emailButton(expedienteLink, '🔗 Abrir el expediente', BRAND.orange)}</td></tr>` : '') +
         carpetas.map(c => `<tr><td align="center" style="padding-bottom:12px;">${emailOutlineButton(c.link, `📁 ${escapeHtml(c.nombre)}`)}</td></tr>`).join('') +
         `</table>` +
@@ -866,7 +871,9 @@ const sendCeeDirectoEncargoEmail = async ({
     });
 
     const carpetasText = carpetas.map(c => `${c.nombre}: ${c.link}`).join('\n');
-    const ackText = ackLink ? `Confirma si lo coges (o dinos que no puedes): ${ackLink}\n\n` : '';
+    const ackText = acuse?.aceptar
+        ? `Acepto el encargo: ${acuse.aceptar}\nNo puedo cogerlo: ${acuse.rechazar}\n\n`
+        : '';
     const text = customMessage
         ? `${customMessage}\n\n${carpetasText}\n\nBROKERGY · Ingeniería Energética`
         : `${isUrgent ? '🚨 URGENTE 🚨\n\n' : ''}Hola ${certName}!\n\n`
