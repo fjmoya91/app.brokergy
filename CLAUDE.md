@@ -2100,6 +2100,40 @@ distingue "contestado" de "encolado y fallido" — el 25/08/2026 se dio por
 entregada una respuesta que había muerto tras 5 reintentos. Se guarda el
 `cola_id` en el contexto para poder contrastarlo con `whatsapp_queue`.
 
+### Lo que llega con el backend PARADO — `recuperarPerdidos()`
+
+El listener de WhatsApp solo existe mientras el proceso está vivo. Los mensajes
+que entran durante un reinicio —y **hay uno en CADA deploy**— llegan al móvil
+pero no pasan por la app: no queda ni rastro, y el cliente espera una respuesta
+que nadie sabe que debe. Medido el 25/08/2026 durante las pruebas: un mensaje
+real se perdió así.
+
+Al arrancar se repasan los chats etiquetados y se recoge lo que quedó sin
+atender. Con freno, porque despertar de golpe conversaciones viejas es peor que
+el problema que se arregla:
+
+- Solo mensajes de las últimas `BOT_RECUPERAR_HORAS` (6).
+- **Solo si nadie contestó después** — se recorre el historial hacia atrás hasta
+  el último mensaje NUESTRO; lo que haya después es lo que quedó colgando.
+- Solo si no está ya registrado (se compara por FECHA, no por texto: el cliente
+  repite y el texto es frágil).
+- Tope de `BOT_RECUPERAR_MAX_CHATS` (25).
+
+**Purga**: `whatsapp_bot_mensajes` se limpia de lo que pase de `BOT_PURGA_DIAS`
+(120), cada 12 h. **Lo PENDIENTE no se borra nunca aunque sea viejo**: si algo
+lleva meses atascado ahí, borrarlo es esconder el problema.
+
+### Coste medido (2026-08-25)
+
+- **En reposo**: UNA consulta cada 30 s con índice parcial. El índice de
+  teléfonos es perezoso —solo se construye al llegar un mensaje—, así que sin
+  tráfico el bot no consulta nada más.
+- **Por mensaje**: `datos_calculo` pesa **86 KB de media** (5,3 MB el peor caso).
+  Con el tope de 40 respuestas/día son ~6 MB diarios de egress. No compensa
+  optimizarlo pidiendo subcampos: el riesgo de que falte uno y el checklist
+  salga mal en silencio supera el ahorro.
+- **Tamaño**: las dos tablas nuevas ocupan 176 KB sobre una base de 106 MB.
+
 ### Escalado
 
 `ESCALAR` cuando: lo pide el cliente, pregunta por dinero o plazos, se queja,
