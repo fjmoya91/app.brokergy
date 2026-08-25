@@ -346,7 +346,7 @@ export function DashboardLayout({ children, activeTab, onTabChange }) {
                 {/* ====== USER PROFILE AT BOTTOM ====== */}
                 {/* `shrink-0`: el pie es lo último que puede encogerse. Antes, sin
                     scroll en el nav, era justo lo que se salía de la pantalla. */}
-                <div className="relative z-10 p-3 mt-auto space-y-2 shrink-0">
+                <div className={`relative z-10 p-3 mt-auto shrink-0 flex gap-2 ${isSidebarCollapsed ? 'flex-col items-center' : 'items-center'}`}>
                     {(() => {
                         const avatarUrl = user?.avatar_url;
                         return (
@@ -361,7 +361,7 @@ export function DashboardLayout({ children, activeTab, onTabChange }) {
                         aria-haspopup="menu"
                         aria-expanded={userMenu === 'sidebar'}
                         title="Mi cuenta"
-                        className={`w-full text-left border border-white/[0.06] bg-bkg-surface rounded-2xl p-3 shadow-lg cursor-pointer hover:border-brand/30 hover:bg-bkg-hover transition-all group ${isSidebarCollapsed ? 'flex items-center justify-center px-0' : ''}`}>
+                        className={`text-left border border-white/[0.06] bg-bkg-surface rounded-2xl p-3 shadow-lg cursor-pointer hover:border-brand/30 hover:bg-bkg-hover transition-all group ${isSidebarCollapsed ? 'w-full flex items-center justify-center px-0' : 'flex-1 min-w-0'}`}>
                         {!isSidebarCollapsed && (
                             <>
                                 <div className="text-[10px] text-white/40 uppercase font-black tracking-[0.2em] mb-1.5 flex items-center justify-between">
@@ -413,25 +413,16 @@ export function DashboardLayout({ children, activeTab, onTabChange }) {
                     </button>
                         );
                     })()}
+                    <ThemeToggle collapsed className="flex-shrink-0" />
 
-                    {/* Cerrar sesión + selector de tema día/noche en la misma fila.
-                        Se conserva ADEMÁS del menú de la cuenta: es la salida de un
-                        solo clic y el menú es la que se busca por costumbre. Se
-                        llama por su nombre —"Salir" también es salir de una
-                        pantalla— y dice de qué cuenta se sale. */}
-                    <div className={`flex gap-2 ${isSidebarCollapsed ? 'flex-col items-center' : 'items-center'}`}>
-                        <button
-                            onClick={signOut}
-                            title={`Cerrar sesión${user?.email ? ` (${user.email})` : ''}`}
-                            className={`flex items-center gap-3 px-4 py-3 rounded-xl bg-[#1A0E12]/50 hover:bg-[#1A0E12] border border-red-500/10 hover:border-red-500/30 text-red-500 group transition-all ${isSidebarCollapsed ? 'w-full justify-center px-0' : 'flex-1 justify-start'}`}
-                        >
-                            <svg className="w-5 h-5 transition-transform group-hover:-translate-x-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-                            </svg>
-                            {!isSidebarCollapsed && <span className="font-bold uppercase tracking-wider text-[11px]">Cerrar sesión</span>}
-                        </button>
-                        <ThemeToggle collapsed className="flex-shrink-0" />
-                    </div>
+                    {/* Aquí ya NO hay botón de "Cerrar sesión".
+                        Con el menú de la cuenta encima, eran tres accesos a lo
+                        mismo en cien píxeles (el bloque de arriba lo abre, y el
+                        menú vuelve a ofrecerlo) — y el menú, que se despliega
+                        hacia arriba, tapaba el botón mientras estaba abierto.
+                        La salida vive donde se busca: en el avatar. El selector
+                        de tema se queda porque es de un clic y se usa a diario;
+                        dentro del menú costaría dos. */}
                 </div>
             </aside>
 
