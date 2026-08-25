@@ -48,7 +48,7 @@ const Pastilla = ({ children, className = '' }) => (
     </span>
 );
 
-export function CeeDirectosView({ initialSelectedId = null, onClearInitialSelection }) {
+export function CeeDirectosView({ initialSelectedId = null, onClearInitialSelection, onOpenChange }) {
     const { user } = useAuth();
     const rol = (user?.rol || user?.rol_nombre || '').toUpperCase();
     const isStaff = rol === 'ADMIN' || rol === 'TRABAJADOR';
@@ -88,6 +88,10 @@ export function CeeDirectosView({ initialSelectedId = null, onClearInitialSelect
         onClearInitialSelection?.();
     }, [initialSelectedId, onClearInitialSelection]);
 
+    // Se le dice al contenedor cuál está abierto: es quien escribe la URL. El
+    // detalle vive aquí dentro, no en App, así que allí no hay forma de saberlo.
+    useEffect(() => { onOpenChange?.(seleccionado); }, [seleccionado, onOpenChange]);
+
     useEffect(() => {
         if (!isStaff) return;
         axios.get('/api/prescriptores').then(r => setPrescriptores(r.data || [])).catch(() => setPrescriptores([]));
@@ -116,7 +120,10 @@ export function CeeDirectosView({ initialSelectedId = null, onClearInitialSelect
     }
 
     return (
-        <div className="pb-16">
+        // `px-6 sm:px-10` es el mismo margen que la lista de expedientes CAE. Sin
+        // el, el titulo salia pegado al borde y por debajo del boton de plegar el
+        // menu, que flota justo ahi.
+        <div className="px-6 sm:px-10 pt-4 pb-16">
             {/* ── Cabecera ───────────────────────────────────────────────── */}
             <div className="flex flex-wrap items-start justify-between gap-4 mb-6">
                 <div>

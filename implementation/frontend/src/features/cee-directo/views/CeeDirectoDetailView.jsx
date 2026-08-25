@@ -5,6 +5,7 @@ import { useAuth } from '../../../context/AuthContext';
 import { EntregaCliente } from '../components/EntregaCliente';
 import { DatosExpedienteModal } from '../components/DatosExpedienteModal';
 import { ResumenDatos } from '../components/ResumenDatos';
+import { Trazabilidad } from '../components/Trazabilidad';
 import { PrescriptorDetailModal } from '../../admin/views/PrescriptorDetailModal';
 import { ClienteDetailModal } from '../../clientes/components/ClienteDetailModal';
 
@@ -174,11 +175,11 @@ export function CeeDirectoDetailView({ id, onBack }) {
     };
 
     if (loading) {
-        return <div className="p-8 text-center text-white/30 text-xs font-black uppercase tracking-widest">Cargando…</div>;
+        return <div className="px-6 sm:px-10 py-12 text-center text-white/30 text-xs font-black uppercase tracking-widest">Cargando…</div>;
     }
     if (!expediente) {
         return (
-            <div className="p-8 text-center">
+            <div className="px-6 sm:px-10 py-12 text-center">
                 <p className="text-red-400 text-sm">{error || 'Expediente no encontrado.'}</p>
                 <button onClick={onBack} className="mt-4 text-[11px] font-black uppercase tracking-widest text-white/40 hover:text-white">← Volver</button>
             </div>
@@ -190,7 +191,9 @@ export function CeeDirectoDetailView({ id, onBack }) {
     const direccion = [expediente.direccion, expediente.municipio, expediente.provincia].filter(Boolean).join(', ');
 
     return (
-        <div className="pb-16">
+        // Mismo margen que el resto de vistas: sin el, el numero de expediente
+        // aparecia pegado al borde y solapado con el boton de plegar el menu.
+        <div className="px-6 sm:px-10 pt-4 pb-16">
             {/* ── Cabecera ───────────────────────────────────────────────── */}
             <div className="mb-6">
                 <button onClick={onBack} className="text-[11px] font-black uppercase tracking-widest text-white/35 hover:text-white transition-colors mb-3">
@@ -397,6 +400,8 @@ export function CeeDirectoDetailView({ id, onBack }) {
                     onAutoStatus={handleAutoStatus}
                 />
             </div>
+
+            <Trazabilidad id={expediente.id} refrescar={expediente.updated_at} />
 
             {/* La entrega va DESPUÉS del módulo: es lo último que ocurre, y ponerla
                 arriba invitaría a pulsarla antes de tener el registro subido. */}

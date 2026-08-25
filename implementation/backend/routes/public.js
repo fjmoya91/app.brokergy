@@ -1121,6 +1121,100 @@ router.post('/cee-upload/:expedienteId/:slot', uploadDocsSingle, async (req, res
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
+// ACUSE DEL ENCARGO — CEE contratados sueltos
+// ---------------------------------------------------------------------------
+// El técnico contesta desde el email o el WhatsApp: lo cojo / no puedo. Sin esto
+// solo se sabía llamándole por teléfono a los diez días, con el expediente
+// parado y nadie enterado.
+//
+// Es PÚBLICA a propósito (el técnico no tiene por qué estar logueado para decir
+// que no puede) y va protegida por el token de un solo uso de `cee.ack_token`.
+// ═══════════════════════════════════════════════════════════════════════════
+
+// GET /api/public/cee-ack/:id?token=  → datos para pintar la página
+router.get('/cee-ack/:id', async (req, res) => {
+    try {
+        const ceeAck = require('../services/ceeDirectoAck');
+        const r = await ceeAck.leer(req.params.id, req.query.token);
+        if (!r.ok) {
+            return res.status(r.motivo === 'YA_CONTESTADO' ? 409 : 403).json({
+                error: r.motivo === 'YA_CONTESTADO'
+                    ? 'Ya nos diste tu respuesta a este encargo. Gracias.'
+                    : 'Este enlace ya no es válido. Puede que se haya enviado un encargo más reciente.',
+                motivo: r.motivo
+            });
+        }
+        res.json(r.datos);
+    } catch (e) {
+        console.error('[cee-ack GET]', e.message);
+        res.status(500).json({ error: 'Error interno' });
+    }
+});
+
+// POST /api/public/cee-ack/:id  { token, respuesta: 'acepta'|'rechaza', motivo? }
+router.post('/cee-ack/:id', async (req, res) => {
+    try {
+        const ceeAck = require('../services/ceeDirectoAck');
+        const { token, respuesta, motivo } = req.body || {};
+        if (respuesta !== 'acepta' && respuesta !== 'rechaza') {
+            return res.status(400).json({ error: 'Respuesta no válida' });
+        }
+
+        const r = await ceeAck.responder(req.params.id, token, { respuesta, motivo });
+        if (!r.ok) {
+            return res.status(r.motivo === 'YA_CONTESTADO' ? 409 : 403).json({
+                error: r.motivo === 'YA_CONTESTADO'
+                    ? 'Ya nos diste tu respuesta a este encargo. Gracias.'
+                    : 'Este enlace ya no es válido.',
+                motivo: r.motivo
+            });
+        }
+
+        // El aviso al equipo va FUERA de la respuesta: el técnico ya ha contestado
+        // y no puede quedarse esperando a que salga un WhatsApp.
+        setImmediate(async () => {
+            try {
+                const svcCee = require('../services/ceeDirectoService');
+                const row = await svcCee.cargar(req.params.id);
+                const num = row?.numero_expediente || req.params.id;
+                const APP = process.env.FRONTEND_URL || 'https://app.brokergy.es';
+                const enlace = `${APP}/?cee=${row.id}`;
+
+                let texto;
+                if (r.respuesta === 'acepta') {
+                    texto = `✅ *${r.certNombre}* ha ACEPTADO el encargo de ${num}.\n\n${enlace}`;
+                } else {
+                    // Al rechazo se le acompañan candidatos: el aviso sirve para
+                    // decidir, no solo para enterarse. Sin ellos hay que entrar,
+                    // abrir el desplegable y acordarse de a quién no ofrecérselo.
+                    const sug = await require('../services/ceeDirectoAck').sugerirCertificadores(row, 3);
+                    const lista = sug.length
+                        ? `\n\nPuedes probar con:\n${sug.map(c => `· ${c.razon_social || c.acronimo}${c.abiertos ? ` (${c.abiertos} abiertos)` : ' (sin carga)'}`).join('\n')}`
+                        : '';
+                    texto = `⚠️ *${r.certNombre}* NO puede coger ${num}.\n\nEl expediente vuelve a *pendiente de encargar* y se le ha retirado como técnico.${lista}\n\nReasígnalo aquí:\n${enlace}`;
+                }
+
+                const wa = process.env.WHATSAPP_ADMIN_CHAT;
+                if (wa) await require('../services/whatsappService').sendText(wa, texto);
+                if (process.env.ADMIN_EMAIL) {
+                    await require('../services/emailService').sendMail({
+                        to: process.env.ADMIN_EMAIL,
+                        subject: `${num} — ${r.respuesta === 'acepta' ? 'encargo aceptado' : 'el técnico NO puede'}`,
+                        text: texto.replace(/\*/g, ''),
+                        html: `<pre style="font-family:inherit;white-space:pre-wrap">${texto.replace(/\*/g, '')}</pre>`
+                    });
+                }
+            } catch (e) { console.error('[cee-ack aviso]', e.message); }
+        });
+
+        res.json({ ok: true, respuesta: r.respuesta });
+    } catch (e) {
+        console.error('[cee-ack POST]', e.message);
+        res.status(500).json({ error: 'Error interno' });
+    }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
 // Subida del CEE registrado — CEE contratados SUELTOS (tabla cee_directos)
 // ---------------------------------------------------------------------------
 // Gemelo de /cee-upload de arriba. Existe porque el visto bueno de un CEE

@@ -806,6 +806,7 @@ const sendCeeDirectoEncargoEmail = async ({
     alcanceLabel,           // 'Un solo certificado' | 'Inicial y final'
     carpetas = [],          // [{ nombre, link }]
     expedienteLink = null,  // deep-link ?cee=<id>
+    ackLink = null,         // página donde contesta: lo cojo / no puedo
     priority = 'normal',
     adminMessage = null,
     customMessage = null,
@@ -841,7 +842,11 @@ const sendCeeDirectoEncargoEmail = async ({
         { bg: BRAND.orangeTint, border: BRAND.orange, mb: 22 }
     ) : '';
 
+    // El acuse va PRIMERO y en verde: es la única acción que le pedimos ahora
+    // mismo. Si queda debajo de las carpetas, se abre la carpeta y nadie contesta,
+    // que es exactamente lo que pasaba antes de que existiera este botón.
     const botonesHtml = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0">` +
+        (ackLink ? `<tr><td align="center" style="padding-bottom:12px;">${emailButton(ackLink, '✅ Lo cojo / No puedo')}</td></tr>` : '') +
         (expedienteLink ? `<tr><td align="center" style="padding-bottom:12px;">${emailButton(expedienteLink, '🔗 Abrir el expediente', BRAND.orange)}</td></tr>` : '') +
         carpetas.map(c => `<tr><td align="center" style="padding-bottom:12px;">${emailOutlineButton(c.link, `📁 ${escapeHtml(c.nombre)}`)}</td></tr>`).join('') +
         `</table>` +
@@ -861,6 +866,7 @@ const sendCeeDirectoEncargoEmail = async ({
     });
 
     const carpetasText = carpetas.map(c => `${c.nombre}: ${c.link}`).join('\n');
+    const ackText = ackLink ? `Confirma si lo coges (o dinos que no puedes): ${ackLink}\n\n` : '';
     const text = customMessage
         ? `${customMessage}\n\n${carpetasText}\n\nBROKERGY · Ingeniería Energética`
         : `${isUrgent ? '🚨 URGENTE 🚨\n\n' : ''}Hola ${certName}!\n\n`
@@ -868,7 +874,7 @@ const sendCeeDirectoEncargoEmail = async ({
           + `${clienteDataText(clienteData)}`
           + `${alcanceLabel ? `Alcance: ${alcanceLabel}\n\n` : ''}`
           + `${adminMessage ? `Mensaje de Brokergy:\n${adminMessage}\n\n` : ''}`
-          + `${expedienteLink ? `Expediente: ${expedienteLink}\n` : ''}${carpetasText}\n\n`
+          + `${ackText}${expedienteLink ? `Expediente: ${expedienteLink}\n` : ''}${carpetasText}\n\n`
           + `BROKERGY · Ingeniería Energética`;
 
     return sendMail({ to, subject, html, text });

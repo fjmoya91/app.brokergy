@@ -1500,6 +1500,53 @@ hacer nada si el formulario coincide, y `onGuardado` viaja por `useRef` para que
 identidad no entre en las dependencias. Verificado: **cero PUT al abrir la ficha**,
 **un solo PUT** al teclear cinco letras seguidas.
 
+### El técnico ACUSA el encargo: lo cojo / no puedo
+
+El CAE solo tiene "aceptar" (`cert-ack`). Aquí hacen falta las dos respuestas, y
+**la de rechazo es la que más valor tiene**: hasta ahora, que un técnico no
+pudiera se sabía llamándole por teléfono a los diez días, con el expediente
+parado y nadie enterado.
+
+El encargo lleva el botón **"✅ Lo cojo / No puedo"** —el PRIMERO, y en verde: si
+queda debajo de las carpetas, se abre la carpeta y nadie contesta— que abre
+`/cee-ack/:id?token=`, página pública porque el técnico no tiene por qué estar
+logueado para decir que no puede.
+
+**REGLA — aceptar es un clic; RECHAZAR pide confirmación.** Un toque de más
+aceptando no hace daño; rechazando retira al técnico y devuelve el expediente a
+la cola, y un pulgar despistado en la bandeja de entrada no puede provocar eso.
+Al rechazar se ofrece decir por qué: es el dato que sirve para no volver a
+proponérselo.
+
+**REGLA — al rechazar se RETIRA el certificador** (`cee.certificador_id = null`) y
+la fase vuelve a `PTE_ENVIO_CERT`. Si se quedara puesto, la ficha seguiría
+enseñando como responsable a quien acaba de decir que no. Queda anotado en
+`cee.rechazos[]` con quién, por qué y cuándo.
+
+**El token es de UN SOLO USO** (`cee.ack_token`) y se regenera en cada encargo:
+el enlace de un encargo viejo —o el del técnico al que ya se le retiró— deja de
+valer solo. Pulsar dos veces responde *"ya nos lo dijiste"*, no un error que haga
+pensar que la respuesta no llegó.
+
+**El aviso del rechazo lleva CANDIDATOS**, no solo la noticia:
+`sugerirCertificadores()` excluye a los que ya dijeron que no a ESE expediente y
+ordena por quién tiene menos trabajo abierto. Sin eso hay que entrar, abrir el
+desplegable y acordarse de a quién no ofrecérselo.
+
+### Seguimiento del encargo — qué pasó y cuándo
+
+`GET /:id/trazabilidad` + el panel `Trazabilidad` en la ficha: enviado, aceptado,
+rechazado, último contacto y los saltos de subestado, con su fecha.
+
+**REGLA — sale de los sellos que YA se escriben** (`cee.ack_*`,
+`seguimiento.*_ts`) y del historial. No hay tabla de bitácora aparte a propósito:
+una bitácora paralela se desincroniza de lo que de verdad ocurrió en cuanto una
+escritura falla, y entonces miente con toda la autoridad de un registro.
+
+Se enseñan los TRES últimos hitos y el resto a demanda —una lista de veinte
+líneas vuelve a ser el muro que quitamos de la ficha—, y aparte las pastillas de
+**"ya han dicho que no"**, que es la mitad del valor de registrar un rechazo.
+
 ### Asignar y REASIGNAR certificador
 
 Tres fallos medidos el 25/08 sobre 2026CEE_54, los tres del mismo sitio:
@@ -1753,6 +1800,149 @@ decir qué cambió sin recalcular ni rasterizar nada.
 
 ---
 
+## Bot de WhatsApp — contesta a los chats ETIQUETADOS (2026-08-25)
+
+Un asistente que responde por la MISMA sesión de WhatsApp del VPS con la que ya
+salen los avisos de la app, y **solo en los chats que lleven la etiqueta**
+`MOIA` (`BOT_WHATSAPP_ETIQUETA`). Contesta a lo que más se pregunta: **qué
+documentación hay que aportar** y **cuál es el siguiente paso**. Todo lo demás
+lo escala a una persona.
+
+### Las tres piezas, y por qué están separadas
+
+| Fichero | Responde a |
+|---|---|
+| [botPrompt.js](implementation/backend/services/botPrompt.js) | **QUÉ** contesta — el META PROMPT + el dossier redactado |
+| [botContexto.js](implementation/backend/services/botContexto.js) | **CON QUÉ** contesta — teléfono → expediente → qué falta → enlaces |
+| [botWhatsapp.js](implementation/backend/services/botWhatsapp.js) | **CUÁNDO** contesta — etiqueta, horario, agrupación, frenos |
+| [botCerebro.js](implementation/backend/services/botCerebro.js) | La llamada a Gemini con `responseSchema` (gemelo del OCR) |
+
+El prompt vive en su propio fichero porque **no es código**: es la formación del
+asistente y se va a retocar diez veces más que la mecánica. Quien cambie lo que
+dice toca `botPrompt`; quien cambie cuándo habla, `botWhatsapp`.
+
+**REGLA — el prompt describe el PROCESO; los DATOS vienen del dossier.** Un
+proceso escrito en el prompt envejece con el negocio; un dato metido en el
+prompt nace mintiendo. "Qué falta" sale de `buildChecklistData` —el MISMO
+barrido que ve el admin— y de `v_expedientes_lifecycle`; los enlaces, de
+`ensureUploadLink`. Si el bot calculara su propia versión de lo que falta, le
+diría al cliente algo distinto de lo que dice la app.
+
+**REGLA — el bot NO habla de dinero.** Ni el bono, ni la inversión, ni cuándo se
+cobra. El dossier ni siquiera lleva importes, así que la regla no depende solo
+de que el modelo obedezca: no tiene el dato. Se redacta el dossier a mano en vez
+de volcarle el expediente en JSON justamente por esto — un `JSON.stringify`
+metería un importe en el prompt el día que alguien añada un campo, sin que nadie
+tocara la regla.
+
+**REGLA — al cliente se le nombran las cosas en LENGUAJE DE CASA.** Las
+etiquetas del barrido las escribió un ingeniero ("Placa de la unidad interior /
+DEPOSITO ACS") y con ellas casan el Anexo Fotográfico y el CIFO, así que no se
+tocan; el bot las traduce con `labelCliente` (tabla `LABEL_CLIENTE` de
+`reformaUploadService`, fuente única), y así le nombra las fotos **igual que la
+pantalla a la que lo manda**.
+
+**REGLA — las dos FASES no se mezclan, igual que en `DocsManager`.** Con el CEE
+inicial sin registrar la obra ni siquiera puede empezar: pedirle la foto de la
+máquina nueva instalada es pedirle una foto imposible, y una lista de tareas
+imposibles hace que deje de mirar la lista entera. `fase_activa` parte los
+pendientes en *ahora* / *más adelante*, y lo que es del instalador se separa de
+lo que es del cliente.
+
+**REGLA — con VARIOS asuntos abiertos, se PREGUNTA.** Un teléfono puede resolver
+a varios clientes (medido: uno figura en 5 fichas) y un instalador tiene
+decenas. Contestar por el primero es contestar por el equivocado la mitad de las
+veces, así que el dossier viaja marcado `ambiguo` y el bot pide la dirección o
+el titular antes de decir nada concreto.
+
+### Los frenos — y por qué son innegociables
+
+No es la API oficial: es la cuenta REAL pilotada por un Chrome. Si se bloquea,
+**se cae con ella todo lo automático** (el parte diario, los encargos al
+certificador, la entrega de los CEE directos).
+
+- **Etiqueta** + `BOT_WHATSAPP_CHATS_PRUEBA` (lista blanca, para la fase de
+  pruebas: se comprueba ADEMÁS de la etiqueta).
+- **Horario 08:00-20:00 Madrid.** Fuera de él no contesta —un mensaje automático
+  a las 23:40 delata al bot y además nadie puede recoger un escalado a esa
+  hora—, pero **el mensaje no se pierde**: se guarda con `responder_after` en la
+  próxima apertura. Por eso hay tabla y no un buffer en memoria como
+  `uploadNotifier`: un reinicio nocturno se comería la pregunta.
+  El horario se calcula **siempre contra el huso**, nunca con `getHours()`: el
+  servidor va en UTC y España cambia de hora dos veces al año.
+- **Ventana de silencio de 25 s.** El cliente manda "Buenas tardes" · la
+  pregunta · "Gracias" en el mismo minuto (caso real): se agrupa en UNA fila y
+  se responde una vez. Contestar al primero es contestar a un saludo.
+- **Si un HUMANO ha escrito, el bot calla.** Los mensajes del bot también son
+  `fromMe`, así que se distinguen por el TEXTO: lo que manda queda registrado, y
+  un `fromMe` que no case con ninguna respuesta suya de las últimas 24 h es de
+  una persona. Un `fromMe` posterior a la llegada del mensaje = alguien se
+  adelantó → se descarta.
+- **Tope diario** (`BOT_WHATSAPP_MAX_DIA`, 40) y **apagado por defecto**.
+- **LISTA BLANCA de tipos de mensaje.** WhatsApp emite sus propias
+  notificaciones de sistema (`e2e_notification`, `notification_template`,
+  "se desactivaron los mensajes temporales") por el MISMO evento y con el cuerpo
+  vacío. Con una lista negra, cualquier tipo nuevo de Meta despertaría al bot
+  para contestar a un mensaje que el cliente no ha escrito.
+
+**REGLA — "no está etiquetado" y "no he podido comprobarlo" no son lo mismo.**
+Si la sesión se cae entre el barrido y la comprobación, la lista de chats viene
+vacía; descartar ahí tiraría la pregunta de un cliente que sí estaba etiquetado.
+Con `etiquetaCache.error` puesto, se espera al siguiente barrido.
+
+**REGLA — la FIRMA la pone el código, no el modelo.** Aunque el prompt la pida,
+la escribe distinta cada vez (con guion, sin negrita, en dos renglones), y en un
+chat donde unas veces contesta una persona y otras el asistente esa línea es lo
+único constante. `asegurarFirma()` limpia las variantes y pone la buena; al
+prompt se le dice **que no firme**.
+
+### Escalado
+
+`ESCALAR` cuando: lo pide el cliente, pregunta por dinero o plazos, se queja,
+manda una foto o un documento, quiere cambiar algo, o el dossier no da la
+respuesta. Al cliente se le contesta SIEMPRE algo (dejarlo mudo mientras avisamos
+por dentro es lo mismo que ignorarlo: él no ve nuestro aviso) y al staff le llega
+WhatsApp (`WHATSAPP_ADMIN_CHAT`) + email (`ADMIN_EMAIL`) con lo que ha escrito y
+el `wa.me` para responderle.
+
+**Al escalar NO se promete canal ni plazo**: no se sabe quién lo va a coger ni
+cuándo. Aunque el cliente pida que le llamen, se dice "se lo paso a un
+compañero", nunca "te llamará".
+
+Un fallo del modelo o de la red **también escala**: es lo que pasaría si el bot
+no existiera, y así ninguna pregunta se queda sin contestar ni se reintenta en
+bucle.
+
+### Cómo se prueba SIN gastar mensajes
+
+```bash
+node implementation/backend/scripts/probar_bot_whatsapp.js 615492728
+```
+
+Construye el dossier de un teléfono real y pide la respuesta, **sin tocar
+WhatsApp ni escribir en la bandeja**. Con `VER_DOSSIER=1` enseña el dossier, que
+es lo primero que hay que mirar cuando una respuesta no convence: casi siempre
+el problema no es cómo redacta, sino que le falta el dato. La misma prueba está
+en `POST /api/whatsapp/bot/simular` (adminOnly).
+
+### Rutas y esquema
+
+```
+GET  /api/whatsapp/bot/status             → activo, etiqueta, chats, contadores de hoy
+GET  /api/whatsapp/bot/mensajes           → el log de conversaciones
+POST /api/whatsapp/bot/refrescar-etiqueta → releer la etiqueta al momento
+POST /api/whatsapp/bot/simular            → probar una respuesta sin enviarla
+```
+
+Tabla `whatsapp_bot_mensajes` (`scripts/bot_whatsapp_schema.sql`, RLS deny-all).
+El log completo —pregunta, respuesta y con qué contexto— es innegociable: aquí
+una máquina le habla a clientes reales en nombre de BROKERGY.
+
+⚠️ **En LOCAL déjalo apagado** (`BOT_WHATSAPP_ENABLED=false`, que es el valor por
+defecto). Encendido responde a CLIENTES REALES, igual que `CEE_ENTREGA_AUTO`.
+
+---
+
 ## El menú lateral (2026-08-24)
 
 Con la pestaña de CEE directos el menú pasó a **diez entradas** y dejó de caber:
@@ -1852,6 +2042,8 @@ siguiente sesión no aterrice en el expediente del anterior.
     rechazo.
     ⚠️ `cert_cifo_*` es el mismo slot para dos documentos distintos: el **CIFO** lo firma el INSTALADOR (enlace bloqueable) y el **Certificado RES080** lo firma Brokergy y solo se ENTREGA al cliente. `DOC_REGENERABLE` lo distingue por `isReforma`.
 25. **La PROPUESTA se versiona al ENVIARLA, nunca al guardarla**: cada envío archiva su PDF en `0. PROPUESTAS` como `Propuesta_{expte}_v{N}.pdf`, imprime la marca DENTRO del documento y sella qué versión aceptó el cliente. Fuente única: [propuestaVersiones.js](implementation/backend/services/propuestaVersiones.js) — no volver a generar el PDF de la propuesta por separado en cada canal (el del email y el de WhatsApp acababan siendo documentos distintos), ni guardar el HTML de una versión en el JSONB (353 KB de media, regla 21). Ver "Versiones de la PROPUESTA".
+
+26. **El bot de WhatsApp solo habla en los chats ETIQUETADOS, en horario y sin tocar dinero**: contesta por la sesión real del VPS, así que sus frenos (etiqueta + lista blanca, 08:00-20:00 Madrid, ventana de silencio, silencio si escribe un humano, tope diario, apagado por defecto) protegen la cuenta de la que dependen TODOS los envíos automáticos. Los datos salen del dossier (`botContexto`, que reusa `buildChecklistData` y `ensureUploadLink`), nunca del prompt; los importes no viajan al dossier. Fuente única del texto: [botPrompt.js](implementation/backend/services/botPrompt.js). Ver "Bot de WhatsApp".
 
 ---
 

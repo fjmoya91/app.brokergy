@@ -23,6 +23,7 @@ const svc = require('../services/ceeDirectoService');
 const folders = require('../services/ceeDirectoFolders');
 const uploads = require('../services/ceeDirectoUploadService');
 const estados = require('../utils/ceeDirectoEstados');
+const ack = require('../services/ceeDirectoAck');
 const entrega = require('../services/ceeDirectoEntrega');
 
 const APP_BASE = process.env.FRONTEND_URL || 'https://app.brokergy.es';
@@ -634,6 +635,17 @@ router.post('/:id/notify-certificador', staffOnly, async (req, res) => {
         // Ficha con la que el técnico tiene que trabajar: a quién llamar y dónde
         // está el inmueble. Sale de la misma función que el aviso de "qué falta".
         const { data: ficha } = fichaCliente(row);
+
+        // Token de acuse, de UN SOLO USO. Se regenera en cada encargo, así que el
+        // enlace de un encargo viejo —o el del técnico al que ya se le retiró—
+        // deja de valer solo, sin tener que ir a invalidarlo a ningún sitio.
+        const ackToken = ack.nuevoToken(row.id, certId);
+        cee.ack_token = ackToken;
+        cee.ack_phase = phase;
+        cee.ack_respuesta = null;
+        cee.ack_respuesta_at = null;
+        cee.ack_enviado_at = new Date().toISOString();
+        const ackLink = ack.enlaceAck(row.id, ackToken);
         const bloqueCarpetas = compartidas.map(c => `📁 ${c.nombre}:\n${c.link}`).join('\n\n');
 
         const cuerpo = (req.body?.customMessage || '').trim()
@@ -669,6 +681,7 @@ router.post('/:id/notify-certificador', staffOnly, async (req, res) => {
                         : 'Un solo certificado',
                     carpetas: compartidas,
                     expedienteLink: enlaceApp(row.id),
+                    ackLink,
                     priority: req.body?.priority === 'urgent' ? 'urgent' : 'normal',
                     adminMessage: (req.body?.adminMessage || '').trim() || null,
                     // El texto editado en el popup SUSTITUYE al saludo y a la
@@ -682,7 +695,8 @@ router.post('/:id/notify-certificador', staffOnly, async (req, res) => {
 
         if (canales.includes('whatsapp')) {
             try {
-                await whatsappService.sendText(telefonoDe(cert), cuerpo);
+                await whatsappService.sendText(telefonoDe(cert),
+                    `${cuerpo}\n\n✅ Confirma si lo coges (o dinos que no puedes):\n${ackLink}`);
                 enviados.push('whatsapp');
             } catch (e) { errores.push(`whatsapp: ${e.message}`); }
         }
@@ -1140,6 +1154,68 @@ router.post('/:id/incidencias', staffOnly, async (req, res) => {
         res.status(201).json({ ok: true, incidencias });
     } catch (err) {
         console.error('[cee-directos incidencias]', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ─── GET /:id/certificadores-sugeridos ──────────────────────────────────────
+// A quién proponer cuando un técnico dice que no puede. Excluye a los que ya
+// rechazaron ESTE expediente y ordena por quién tiene menos trabajo abierto.
+router.get('/:id/certificadores-sugeridos', staffOnly, async (req, res) => {
+    try {
+        const row = await svc.cargar(req.params.id);
+        if (!row) return res.status(404).json({ error: 'Expediente no encontrado' });
+        res.json({
+            sugeridos: await ack.sugerirCertificadores(row),
+            rechazos: row.cee?.rechazos || []
+        });
+    } catch (err) {
+        console.error('[cee-directos sugeridos]', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ─── GET /:id/trazabilidad ── Qué ha pasado con este encargo ────────────────
+// Enviado, aceptado, rechazado y cuándo. Sale de los sellos que ya se escriben
+// (`cee.ack_*`, `seguimiento.*_ts`) y del historial: no hay una tabla aparte que
+// pueda desincronizarse de lo que de verdad ocurrió.
+router.get('/:id/trazabilidad', internalOnly, async (req, res) => {
+    try {
+        const row = await svc.cargar(req.params.id);
+        if (!row) return res.status(404).json({ error: 'Expediente no encontrado' });
+        if (!puedeVer(req, row)) return res.status(403).json({ error: 'Acceso denegado' });
+
+        const cee = row.cee || {};
+        const seg = row.seguimiento || {};
+        const hitos = [];
+
+        const push = (fecha, tipo, texto) => { if (fecha) hitos.push({ fecha, tipo, texto }); };
+
+        push(cee.ack_enviado_at, 'enviado', `Encargo enviado a ${row.certificador?.razon_social || row.certificador?.acronimo || 'el técnico'}`);
+        push(cee.ack_aceptado_at, 'aceptado', 'El técnico aceptó el encargo');
+        for (const r of (cee.rechazos || [])) {
+            push(r.fecha, 'rechazado', `${r.nombre || 'El técnico'} no pudo cogerlo${r.motivo ? ` — ${r.motivo}` : ''}`);
+        }
+        for (const [k, etiqueta] of [['cee_inicial', 'CEE inicial'], ['cee_final', 'CEE final']]) {
+            const ts = seg[`${k}_ts`] || {};
+            for (const [sub, fecha] of Object.entries(ts)) {
+                push(fecha, 'estado', `${etiqueta}: ${sub.replace(/_/g, ' ').toLowerCase()}`);
+            }
+        }
+        push(seg.cee_inicial_last_contacto_at, 'contacto', 'Último contacto con el técnico (CEE inicial)');
+        push(seg.cee_final_last_contacto_at, 'contacto', 'Último contacto con el técnico (CEE final)');
+
+        hitos.sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
+
+        res.json({
+            hitos,
+            historial: (row.documentacion?.historial || []).slice().reverse(),
+            esperandoAcuse: !!cee.ack_token,
+            respuesta: cee.ack_respuesta || null,
+            rechazos: cee.rechazos || []
+        });
+    } catch (err) {
+        console.error('[cee-directos trazabilidad]', err.message);
         res.status(500).json({ error: err.message });
     }
 });

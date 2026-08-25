@@ -22,6 +22,7 @@ import { CeeDirectosView } from './features/cee-directo/views/CeeDirectosView';
 import { ResetPasswordView } from './features/auth/views/ResetPasswordView';
 import { AceptarPropuestaView } from './features/public/views/AceptarPropuestaView';
 import { CertAckView } from './features/public/views/CertAckView';
+import { CeeAckView } from './features/public/views/CeeAckView';
 import { SubirCifoView } from './features/public/views/SubirCifoView';
 import { SubirRiteView } from './features/public/views/SubirRiteView';
 import { SubirCeeView } from './features/public/views/SubirCeeView';
@@ -177,6 +178,18 @@ function App() {
       const token = sp.get('token');
       const phase = sp.get('phase') === 'final' ? 'final' : 'inicial';
       if (expedienteId && token) return { expedienteId, token, phase };
+    }
+    return null;
+  });
+
+  // Acuse del encargo de un CEE contratado suelto: /cee-ack/:id?token=
+  // El técnico contesta desde el email o el WhatsApp, sin estar logueado.
+  const [ceeAckData] = useState(() => {
+    const path = window.location.pathname;
+    if (path.startsWith('/cee-ack/')) {
+      const id = path.split('/cee-ack/')[1]?.split('/')[0] || null;
+      const token = new URLSearchParams(window.location.search).get('token');
+      if (id && token) return { id, token };
     }
     return null;
   });
@@ -681,6 +694,10 @@ function App() {
   // Gemelo de `pendingRestoreExp` para los CEE directos: el detalle vive dentro de
   // CeeDirectosView, no aqui, asi que se le pasa cual abrir y se limpia al hacerlo.
   const [pendingCeeDirecto, setPendingCeeDirecto] = useState(initialCeeDirecto);
+  // Gemelo de `openExpedienteId` para los CEE directos: cuál está abierto AHORA.
+  // Es lo que mantiene `?cee=` en la barra de direcciones mientras lo miras, para
+  // que recargar no te devuelva al listado y el enlace se pueda pegar en un chat.
+  const [openCeeDirecto, setOpenCeeDirecto] = useState(initialCeeDirecto);
   // Documento a firmar nada más abrir el expediente (?firmar=). Se limpia en cuanto
   // el detalle lo consume, para que no vuelva a saltar al navegar a otro expediente.
   const [pendingFirmarDoc, setPendingFirmarDoc] = useState(initialFirmarDoc);
@@ -715,6 +732,10 @@ function App() {
     // pestaña (deep-link del cuadro de mando); una vez consumidos no deben
     // quedar pegados en la barra de direcciones en cada cambio de pestaña.
     p.delete('exp'); p.delete('op'); p.delete('tab');
+    // `cee` se limpia SIEMPRE y solo lo repone la pestaña de CEE directos: si no,
+    // el parámetro se quedaba pegado en la URL al cambiar de pestaña y la
+    // siguiente recarga reabría un expediente que ya no venía a cuento.
+    p.delete('cee');
     p.delete('estados'); p.delete('opestado'); p.delete('prioridad');
     // 'firmar' es una orden de un solo uso (abrir el popup de firma): en cuanto se
     // ha leído no debe quedarse pegado en la barra de direcciones.
@@ -722,6 +743,9 @@ function App() {
     if (openExpedienteId && activeTab === 'expedientes') {
       p.set('tab', 'expedientes');
       p.set('exp', openExpedienteId);
+    } else if (openCeeDirecto && activeTab === 'cee-directos') {
+      p.set('tab', 'cee-directos');
+      p.set('cee', openCeeDirecto);
     } else if (openOportunidadId) {
       p.set('op', openOportunidadId);
     } else if (activeTab) {
@@ -910,8 +934,8 @@ function App() {
 
   // Rutas públicas con su propio layout full-bleed → sin red decorativa y
   // sin padding del contenedor padre (el componente cubre 100% del viewport).
-  const isPublicRoute = !!(landingRoute || reformaDocsData || firmaOportunidadId || certAckData || cifoUploadId || riteUploadId || ceeUploadData || ceeDirectoUploadData || firmarAnexosId || firmarLoteId || portalRoute);
-  const isLoggedDashboard = user && !firmaOportunidadId && !resetToken && !certAckData && !cifoUploadId && !riteUploadId && !ceeUploadData && !ceeDirectoUploadData && !firmarAnexosId && !reformaDocsData && !landingRoute && !portalRoute;
+  const isPublicRoute = !!(landingRoute || reformaDocsData || firmaOportunidadId || certAckData || cifoUploadId || riteUploadId || ceeUploadData || ceeDirectoUploadData || ceeAckData || firmarAnexosId || firmarLoteId || portalRoute);
+  const isLoggedDashboard = user && !firmaOportunidadId && !resetToken && !certAckData && !cifoUploadId && !riteUploadId && !ceeUploadData && !ceeDirectoUploadData && !ceeAckData && !firmarAnexosId && !reformaDocsData && !landingRoute && !portalRoute;
   const wrapperPadding = (isLoggedDashboard || isPublicRoute) ? 'p-0' : 'px-4 py-8';
   const wrapperHeight = isLoggedDashboard ? 'h-screen overflow-hidden' : '';
 
@@ -941,6 +965,8 @@ function App() {
           <SubirRiteView expedienteId={riteUploadId} />
         ) : ceeUploadData ? (
           <SubirCeeView expedienteId={ceeUploadData.expedienteId} token={ceeUploadData.token} phase={ceeUploadData.phase} />
+        ) : ceeAckData ? (
+          <CeeAckView id={ceeAckData.id} token={ceeAckData.token} />
         ) : ceeDirectoUploadData ? (
           <SubirCeeView
             expedienteId={ceeDirectoUploadData.expedienteId}
@@ -984,13 +1010,18 @@ function App() {
               if (tab === 'usuarios' && !isAdmin) return;      // gestión de usuarios: solo ADMIN
               if (tab === 'lotes' && !isStaff) return;         // operativa interna: ADMIN + TRABAJADOR
               if (tab === 'prescriptores' && !isStaff && uRole !== 'DISTRIBUIDOR') return;
-              if (isCertificador && tab !== 'expedientes') return;
+              // El certificador tiene DOS carteras: los expedientes CAE y los CEE
+              // contratados sueltos. Antes esta guarda le ignoraba el clic en
+              // cualquier otra pestaña, así que el enlace del encargo le llevaba al
+              // CEE una vez y después no tenía manera de volver a entrar.
+              if (isCertificador && tab !== 'expedientes' && tab !== 'cee-directos') return;
               
               setActiveTab(tab);
               setStep('ADMIN'); // Volver a la lista al cambiar de pestaña
               setSelectedClientId(null); // Limpiar seleccion previa
               setPendingRestoreExp(null); // Cancelar restauración pendiente
               setOpenExpedienteId(null); // Al cambiar de pestaña ya no hay expediente abierto
+              setOpenCeeDirecto(null);   // ídem para los CEE directos
               setReturnToExpediente(null); // Limpiar retorno si cambia manualmente
               setNavNonce(prev => prev + 1); // Incrementar nonce para forzar reset de vista si se pulsa de nuevo
             }}
@@ -1054,6 +1085,7 @@ function App() {
                 key={`ceedir-${navNonce}`}
                 initialSelectedId={pendingCeeDirecto}
                 onClearInitialSelection={() => setPendingCeeDirecto(null)}
+                onOpenChange={setOpenCeeDirecto}
               />
             ) : step === 'ADMIN' && activeTab === 'lotes' && isStaffUser ? (
               <LotesView key={`lotes-${navNonce}`} onNavigate={handleNavigate} />
