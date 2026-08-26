@@ -3,7 +3,7 @@ import axios from 'axios';
 import confetti from 'canvas-confetti';
 import { useAuth } from '../../../context/AuthContext';
 import { BOILER_EFFICIENCIES } from '../../calculator/logic/calculation';
-import { buildInstalacionAddress, empresaInstaladora } from '../utils/docGenerators';
+import { buildInstalacionAddress, empresaInstaladora, empresasActuacion } from '../utils/docGenerators';
 import { calcCifo } from '../logic/calcCifo';
 import { EMITTER_OPTIONS, emitterScopContext } from '../logic/cifoDoc';
 import { formatMarcas, formatModelos, formatSeries, countUnidades, tipoEquipoNuevoLabel, esTermoElectrico } from '../logic/aerotermiaUnits';
@@ -19,7 +19,7 @@ import {
 import AnexoPaginasModal from './AnexoPaginasModal';
 // La página de capturas del CE3X NO se duplica aquí: vive en res080Doc.js, que es
 // lo que usa el backend para generar el mismo certificado server-side.
-import { buildCe3xPages, buildJustificacionAhorroPages } from '../logic/res080Doc';
+import { buildCe3xPages, buildJustificacionAhorroPages, buildEmpresasBox } from '../logic/res080Doc';
 import { postEmail } from '../../../utils/emailFallback';
 
 // ─── CONSTANTES Y ESTILOS ────────────────────────────────────────────────────
@@ -231,8 +231,10 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, r
         director_entidad: 'Soluciones Sostenibles para Eficiencia Energética, SL',
         director_titulacion: 'Graduado en ingeniería industrial',
         director_email: 'franciscojavier.moya@brokergy.es',
-        director_tlf: '695615330',
+        director_tlf: '623926179',
         empresa_responsable: '',
+        ejecutora_nombre: '',
+        ejecutora_cif: '',
         marco_nuevo_material: 'PVC',
         marco_nuevo_marca: 'CORTIZO',
         marco_nuevo_modelo: 'A 70',
@@ -276,6 +278,9 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, r
             // Búsqueda robusta de empresa instaladora. Si el instalador asignado no
             // está habilitado en Industria, la que firma es la habilitada delegada.
             const pres = empresaInstaladora(expediente);
+            // Empresa que EJECUTA y factura: si el asignado no está habilitado en
+            // Industria, `pres` (arriba) es la que firma por él y ésta es la otra.
+            const { ejecutora } = empresasActuacion(expediente);
             const empName = pres.razon_social || 
                            pres.nombre || 
                            op.datos_calculo?.inputs?.partner_name ||
@@ -346,7 +351,9 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, r
                 permeabilidad_nueva: numStr(env.permeabilidad_nueva) || editableRef.current.permeabilidad_nueva,
                 empresa_responsable: empName.toUpperCase(),
                 empresa_cif: empCif.toUpperCase(),
-                empresa_domicilio: empAddr.toUpperCase()
+                empresa_domicilio: empAddr.toUpperCase(),
+                ejecutora_nombre: (ejecutora.razon_social || ejecutora.nombre || '').toUpperCase(),
+                ejecutora_cif: (ejecutora.cif || ejecutora.nif || '').toUpperCase(),
             };
 
             // Volcar a ref para persistencia (usado en PDF y edicion)
@@ -1059,6 +1066,11 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, r
     // Determinar si se sustituyen ventanas (Prioridad: Detección automática > flag manual)
     const seSustituyen = changedHuecos.length > 0 || env.sustituye_ventanas === true;
 
+    // Las DOS empresas de la actuación: la que ejecuta y factura, y la habilitada
+    // que firma por ella cuando no está dada de alta en Industria. Con una sola
+    // empresa `delegado` es false y el apartado se imprime como siempre.
+    const empresas = empresasActuacion(expediente);
+
     // ⚠️ ESPEJO: la maquetación de este generateHtml está replicada en
     // features/expedientes/logic/res080Doc.js (buildRes080Html), que el BACKEND
     // usa para generar el RES080 server-side (skill de Cowork / tool MCP generar_cifo)
@@ -1103,6 +1115,12 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, r
         const cmpRow = (label, ex, nu) => `<tr><td style="padding:6px 16px;background:#FAFAF6;color:#4a4a44;font-weight:600;">${label}</td><td style="padding:6px 16px;color:#7a7a72;">${ex}</td><td style="padding:6px 16px;background:#F3F8E6;font-weight:700;">${nu}</td></tr>`;
         const cmpGroup = (t) => `<tr><td colspan="3" style="padding:7px 16px;background:#EFEFE8;font-weight:700;font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:#6E6E66;">${t}</td></tr>`;
         const cmpBox = (headHtml, bodyRows) => `<div style="border-radius:16px;overflow:hidden;border:1px solid #E9E9E1;"><table class="cmp" style="width:100%;border-collapse:collapse;font-size:12.5px;">${headHtml}<tbody>${bodyRows}</tbody></table></div>`;
+
+        // Las llamadas (1)(2)(3) están en las tablas de la hoja anterior y las notas,
+        // en la de las empresas: la hoja de la instalación no puede con las dos
+        // cosas y la cascada (ver check_res080_paginas.mjs). Sin esta línea, el
+        // verificador busca en esa hoja unas notas que están en la siguiente.
+        const notasRemision = `<p style="margin:12px 2px 0;font-size:11px;color:#6E6E66;">Las observaciones <sup>(1)</sup> <sup>(2)</sup>${acsSeActua || acsTermoFuera ? ' <sup>(3)</sup>' : ''} se recogen en la página siguiente.</p>`;
 
         // PÁGINA 0: PORTADA (No se numera)
         pages.push(`
@@ -1222,7 +1240,8 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, r
                         </div>
                     </div>
                 </div>
-                ${footer}
+                ${notasRemision}
+            ${footer}
             </div>
         `);
 
@@ -1271,12 +1290,20 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, r
                     </div>`
                     : `<div style="border:1px solid #E9E9E1;border-radius:16px;padding:28px;text-align:center;font-size:13px;color:#6E6E66;font-weight:700;">No se actúa sobre el ACS · No aplica</div>`}
 
-                ${subLabel('Empresa instaladora', '#6E6E66', '20px')}
-                ${rowsBox(`
-                    ${kv('Nombre o razón social', eb('empresa_responsable'))}
-                    ${kv('CIF / NIF', eb('empresa_cif'))}
-                    ${kv('Domicilio', eb('empresa_domicilio'), true)}
-                `)}
+                ${footer}
+            </div>
+        `);
+
+        // PÁGINA: EMPRESAS RESPONSABLES + OBSERVACIONES. Iban al final de la hoja
+        // anterior y no cabían con la cascada (ver res080Doc.js y
+        // scripts/check_res080_paginas.mjs). ESPEJO de res080Doc.js: el corte
+        // tiene que ser el mismo en el visor y en el PDF que se archiva.
+        pages.push(`
+            <div class="doc-page">
+                ${pageHeader}
+                ${sectionTitle(empresas.delegado ? 'Empresas responsables de la actuación' : 'Empresa instaladora', '20px')}
+                ${empresas.delegado ? `<p style="margin:0 0 10px 20px;font-size:12.5px;color:#4a4a44;">La empresa que ejecuta y factura la obra no es la que responde ante Industria de la instalación térmica. Constan las dos.</p>` : ''}
+                ${buildEmpresasBox({ delegado: empresas.delegado, empresas, eb, kv, rowsBox, cmpBox, cmpHead })}
 
                 ${obsBox(`
                     <p style="margin:0 0 5px;"><b>(1)</b> El rendimiento estacional de la caldera existente es el que consta en el Certificado de Eficiencia Energética Inicial, determinado por el programa oficial CE3X en función de su tipología, antigüedad y aislamiento.</p>
@@ -1285,6 +1312,7 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, r
                     ${(acsEsTermo || acsTermoFuera) ? `<p style="margin:0 0 5px;"><b>(3)</b> El equipo de ACS produce el agua caliente por efecto Joule (resistencia eléctrica): su rendimiento es 1 por definición y no procede el cálculo de un rendimiento estacional (SCOP).</p>` : ''}
                     <p style="margin:0;">La duración indicativa de la actuación (Di) es de 15 años según Recomendación (UE) 2019/1658. Se adjuntan las fichas técnicas de los nuevos equipos instalados.</p>
                 `)}
+
                 ${footer}
             </div>
         `);

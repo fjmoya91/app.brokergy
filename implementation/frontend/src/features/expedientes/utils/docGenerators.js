@@ -88,6 +88,85 @@ export const PROVINCE_CODE_TO_CCAA = {
 export const empresaInstaladora = (expediente) =>
     (expediente && (expediente.prescriptores_firmante || expediente.prescriptores)) || {};
 
+/**
+ * LAS DOS EMPRESAS de la actuación, cuando no son la misma.
+ *
+ * Quien EJECUTA la obra y emite las facturas no siempre está habilitado en
+ * Industria. Cuando no lo está, la instalación térmica se ejecuta bajo la
+ * responsabilidad de otra empresa que sí lo está (`instalador_rite_id`), y es
+ * esa la que firma la Memoria RITE, el Certificado de Instalación Térmica y el
+ * CIFO. El documento tiene entonces DOS empresas distintas, y el verificador
+ * necesita ver las dos: si solo consta la habilitada, su NIF no casa con el de
+ * las facturas del expediente y la actuación queda sin explicar.
+ *
+ * ⚠️ Cuando son la misma, `delegado` es false y el documento imprime UN solo
+ * bloque, exactamente como hasta ahora. La segunda empresa no se inventa.
+ *
+ * @returns {{ delegado: boolean, ejecutora: object, habilitada: object }}
+ *   - `ejecutora`  → la que ejecuta y factura (instalador asignado).
+ *   - `habilitada` → la que responde ante Industria y firma (= `ejecutora` si
+ *                    no hay delegación).
+ */
+export const empresasActuacion = (expediente) => {
+    const exp = expediente || {};
+    const ejecutora = exp.prescriptores || {};
+    const firmante = exp.prescriptores_firmante || null;
+    // El backend solo entrega `prescriptores_firmante` cuando la delegación es
+    // EFECTIVA (ver backend/utils/instaladorFirmante.js); la comparación de ids
+    // es el cinturón por si algún llamante lo rellena siempre.
+    const delegado = !!(firmante && firmante.id_empresa !== ejecutora.id_empresa);
+    return { delegado, ejecutora, habilitada: delegado ? firmante : ejecutora };
+};
+
+/**
+ * Rótulos de columna y TEXTO LEGAL del apartado de la empresa instaladora.
+ * Fuente única: lo imprimen el Certificado RES080 y el CIFO, y el verificador los
+ * compara entre sí.
+ *
+ * El párrafo es el que carga con los datos que no van en la tabla —el NIF, el nº
+ * del registro de empresas instaladoras y quién responde de qué—, así que se
+ * escribe en los DOS casos: con dos empresas explica el reparto (sin esa frase,
+ * dos empresas en el mismo apartado se leen como un error de la app) y con una
+ * sola deja constancia de que quien ejecuta es también quien firma, y con qué nº
+ * RITE lo hace.
+ *
+ * Devuelve '' cuando no se puede afirmar la habilitación: sin nº de empresa RITE
+ * el documento no puede decir que la empresa está inscrita en ese registro.
+ */
+export const EMPRESAS_COL_EJECUTA = 'Ejecuta la obra · emite las facturas';
+export const EMPRESAS_COL_HABILITADA = 'Habilitada RITE · firma la instalación';
+
+const nombreEmpresa = (p) => (p && (p.razon_social || p.nombre)) || '—';
+const nifEmpresa = (p) => (p && (p.cif || p.nif)) || '';
+
+export const notaDelegacionRite = ({ delegado, ejecutora, habilitada }) => {
+    const eNom = nombreEmpresa(ejecutora), hNom = nombreEmpresa(habilitada);
+    const eCif = nifEmpresa(ejecutora), hCif = nifEmpresa(habilitada);
+    const rite = (habilitada && habilitada.numero_carnet_rite) || '';
+    const registro = `empresa habilitada en el registro de empresas instaladoras${rite ? ` con el nº ${rite}` : ''}`;
+    if (!delegado) {
+        if (!rite) return '';
+        return `La obra la ejecuta y factura <b>${eNom}</b>${eCif ? ` (${eCif})` : ''}, ${registro}, `
+            + 'que es también quien suscribe el certificado de la instalación y la documentación '
+            + 'exigida por el RITE.';
+    }
+    return `La obra la ejecuta y factura <b>${eNom}</b>${eCif ? ` (${eCif})` : ''}. `
+        + `La instalación térmica se ejecuta bajo la responsabilidad de <b>${hNom}</b>${hCif ? ` (${hCif})` : ''}, `
+        + `${registro}, que suscribe el certificado de la instalación y la documentación exigida por el RITE.`;
+};
+
+/** Domicilio de una ficha de empresa en una línea. `sep` separa calle y localidad. */
+export const domicilioEmpresa = (pres, sep = ',') => {
+    const p = pres || {};
+    const calle = p.direccion || '';
+    const loc = `${p.codigo_postal || p.cp || ''} ${p.municipio || ''}`.trim();
+    const prov = p.provincia ? `(${p.provincia})` : '';
+    const cola = [loc, prov].filter(Boolean).join(' ');
+    if (!calle && !cola) return '';
+    if (!calle) return cola;
+    return cola ? `${calle}${sep} ${cola}` : calle;
+};
+
 export const buildInstalacionAddress = (expediente) => {
     const exp = expediente || {};
     const op = exp.oportunidades || {};

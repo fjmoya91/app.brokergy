@@ -20,7 +20,8 @@
 // about:blank, las rutas relativas no cargan).
 // ============================================================================
 import { BOILER_EFFICIENCIES, calculateHybridization, resolveHybridInputs, HYBRID_METHODS } from '../../calculator/logic/calculation.js';
-import { buildInstalacionAddress, empresaInstaladora } from '../utils/docGenerators.js';
+import { buildInstalacionAddress, empresaInstaladora, empresasActuacion,
+    notaDelegacionRite } from '../utils/docGenerators.js';
 import { calcCifo } from './calcCifo.js';
 import { formatMarcas, formatModelos, formatSeries, countUnidades, tipoEquipoNuevo, tipoEquipoNuevoLabel, esTermoElectrico, datosAcumulador, EQUIPO_NUEVO } from './aerotermiaUnits.js';
 import { resolveDacs, ACS_METHOD } from './demandaAcs.js';
@@ -198,6 +199,9 @@ export function deriveCifoData({ expediente, results }) {
     // Empresa instaladora del certificado: el instalador habilitado que firma si
     // el asignado no lo está (ver `empresaInstaladora`).
     const pres = empresaInstaladora(exp);
+    // Las DOS empresas cuando quien ejecuta y factura no es quien firma ante
+    // Industria. Con `delegado` en false son la misma y el apartado no cambia.
+    const empresas = empresasActuacion(exp);
 
     const zoneStr = (op.datos_calculo?.zona || 'D3').toUpperCase();
     const zoneLabel = [
@@ -346,6 +350,9 @@ export function deriveCifoData({ expediente, results }) {
     const empEmail  = pres.email || '';
     const empTlf    = pres.tlf || '';
     const empResponsable = [pres.nombre_responsable, pres.apellidos_responsable].filter(Boolean).join(' ') || empNombre;
+    const empRite   = pres.numero_carnet_rite || '—';
+    const ejeNombre = empresas.ejecutora.razon_social || empresas.ejecutora.nombre || '—';
+    const ejeCif    = empresas.ejecutora.cif || empresas.ejecutora.nif || '—';
     const emiLabel  = EMITTER_OPTIONS.find(o => o.value === inst.tipo_emisor)?.label || '—';
     const metodoCal = inst.aerotermia_cal?.metodo_scop || 'ficha';
     const metodoAcs = inst.aerotermia_acs?.metodo_scop || 'ficha';
@@ -459,6 +466,7 @@ export function deriveCifoData({ expediente, results }) {
         metodoCal, metodoAcs, emiLabel,
         // empresa instaladora
         empNombre, empCif, empDir, empCp, empMun, empProv, empCargo, empEmail, empTlf, empResponsable,
+        empRite, empresas, ejeNombre, ejeCif,
         // hibridación (RES093)
         cbStr, pDesignKwStr, coveragePct, coveragePctStr, thZone, pbdcKw, pbdcKwStr, demandaAnualKwhStr, appliedCovStr,
         hybridMethod, pCalderaKwStr, refPowerKwStr, pDesignWStr, pEspecificaStr, pEspecificaNum, climateSeason,
@@ -492,6 +500,7 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
         acsTermoFuera, acsFueraMarca, acsFueraMod, acsFueraSerie,
         metodoCal, metodoAcs, emiLabel,
         empNombre, empCif, empDir, empCp, empMun, empProv, empCargo, empEmail, empTlf, empResponsable,
+        empRite, empresas, ejeNombre, ejeCif,
         cbStr, pDesignKwStr, coveragePct, coveragePctStr, thZone, pbdcKwStr, demandaAnualKwhStr, appliedCovStr,
         hybridMethod, pCalderaKwStr, refPowerKwStr, pDesignWStr, pEspecificaStr, pEspecificaNum, climateSeason,
     } = data;
@@ -633,6 +642,26 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
             <span style="flex:none;font-weight:700;font-size:12px;color:#1A1A1A;white-space:nowrap;">${d.val}</span>
         </div>`).join('')}</div>`;
 
+    // Apartado de la empresa instaladora cuando quien EJECUTA y factura no es
+    // quien firma ante Industria. No es una tabla a dos columnas ni un segundo
+    // bloque: la hoja 1 es la más apretada del documento —+43px de holgura en el
+    // peor caso medido (ver check_cifo_paginas.mjs)— y cualquiera de las dos
+    // opciones la desbordaba. Cabe porque mantiene CUATRO filas: el nº de
+    // empresa RITE viaja con la razón social y la fila "Cargo firmante" deja el
+    // sitio a la ejecutora (el cargo ya va impreso dentro del recuadro de firma,
+    // al pie de esta misma hoja).
+    const empresasRows = !empresas.delegado ? `
+                ${kv('Razón social', empNombre)}
+                ${kv('NIF / CIF', empCif)}
+                ${kv('Domicilio', `${empDir} · ${empCp} ${empMun} (${empProv})`)}
+                ${kv('Cargo firmante', empCargo, true)}
+    ` : `
+                ${kv('Razón social', `${empNombre}${empRite && empRite !== '—' ? ` · Empresa habilitada RITE nº ${empRite}` : ''}`)}
+                ${kv('NIF / CIF', empCif)}
+                ${kv('Domicilio', `${empDir} · ${empCp} ${empMun} (${empProv})`)}
+                ${kv('Ejecuta y factura la obra', `${ejeNombre} · NIF ${ejeCif}`, true)}
+    `;
+
     // PÁGINA 0: PORTADA
     pages.push(`
         <div class="doc-page" style="padding:0;display:block;background:#111110;overflow:hidden;">
@@ -712,13 +741,13 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
                 ${kv('Correo electrónico', cli.email || '—', true)}
             `)}
 
+            ${/* La empresa que factura y la que firma ante Industria pueden no
+                  ser la misma. Cuando no lo son, las DOS constan aquí: si solo
+                  constara la habilitada, su NIF no casaría con el de las
+                  facturas del expediente y el verificador no podría cerrar la
+                  trazabilidad entre la obra facturada y el certificado RITE. */''}
             ${sectionTitle('Datos de la empresa instaladora', '12px')}
-            ${rowsBox(`
-                ${kv('Razón social', empNombre)}
-                ${kv('NIF / CIF', empCif)}
-                ${kv('Domicilio', `${empDir} · ${empCp} ${empMun} (${empProv})`)}
-                ${kv('Cargo firmante', empCargo, true)}
-            `)}
+            ${rowsBox(empresasRows)}
 
             <div class="doc-spacer"></div>
             ${/* Sin encabezado "FIRMA Y SELLO": el propio recuadro se rotula por
@@ -812,6 +841,13 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
                 </div>`
                 : `<div style="border:1px solid #E9E9E1;border-radius:16px;padding:18px;text-align:center;font-size:13px;color:#6E6E66;font-weight:700;">No se actúa sobre el ACS · No aplica</div>`
             }
+
+            ${/* La nota de responsabilidad va AQUÍ y no junto a los datos de la
+                  empresa: la hoja 1 es la más apretada del documento y no le
+                  caben tres renglones más (check_cifo_paginas.mjs). Cierra el
+                  apartado que describe la instalación ejecutada, que es
+                  justamente de lo que responde cada una de las dos empresas. */''}
+            ${empresas.delegado ? `<div style="margin-top:9px;border:1px solid #E9E9E1;border-radius:14px;padding:10px 14px;font-size:10.5px;color:#6E6E66;line-height:1.45;">${notaDelegacionRite(empresas)}</div>` : ''}
 
             ${footer}
         </div>

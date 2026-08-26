@@ -18,7 +18,8 @@
 // huecos/opacos, no hace falta.
 // ============================================================================
 import { BOILER_EFFICIENCIES } from '../../calculator/logic/calculation.js';
-import { buildInstalacionAddress, empresaInstaladora } from '../utils/docGenerators.js';
+import { buildInstalacionAddress, empresaInstaladora, empresasActuacion,
+    EMPRESAS_COL_EJECUTA, EMPRESAS_COL_HABILITADA, notaDelegacionRite } from '../utils/docGenerators.js';
 import { calcCifo } from './calcCifo.js';
 import { EMITTER_OPTIONS, emitterScopContext } from './cifoDoc.js';
 import { formatMarcas, formatModelos, formatSeries, countUnidades, tipoEquipoNuevoLabel, esTermoElectrico, esAcumuladorAcs, datosAcumulador } from './aerotermiaUnits.js';
@@ -152,8 +153,10 @@ export const RES080_FIELD_DEFAULTS = {
     director_entidad: 'Soluciones Sostenibles para Eficiencia Energética, SL',
     director_titulacion: 'Graduado en ingeniería industrial',
     director_email: 'franciscojavier.moya@brokergy.es',
-    director_tlf: '695615330',
+    director_tlf: '623926179',
     empresa_responsable: '',
+    ejecutora_nombre: '',
+    ejecutora_cif: '',
     marco_nuevo_material: 'PVC',
     marco_nuevo_marca: 'CORTIZO',
     marco_nuevo_modelo: 'A 70',
@@ -199,6 +202,11 @@ export function deriveRes080Data({ expediente, results, parseHuecosFromXml }) {
     // Empresa instaladora del certificado: el instalador habilitado que firma si
     // el asignado no lo está (ver `empresaInstaladora`).
     const pres = empresaInstaladora(exp);
+    // Las DOS empresas cuando no son la misma: la que ejecuta y factura y la
+    // habilitada que responde ante Industria. Con `delegado` en false esto es
+    // la misma ficha dos veces y el documento imprime un solo bloque.
+    const empresas = empresasActuacion(exp);
+    const { delegado: delegadoRite, ejecutora } = empresas;
     const tieneAcs = inst.cambio_acs !== false;
 
     // ── fields (línea base: defaults + initialFields sembrados de env) ──
@@ -207,6 +215,8 @@ export function deriveRes080Data({ expediente, results, parseHuecosFromXml }) {
     const empAddr = pres.direccion
         ? `${pres.direccion}, ${pres.codigo_postal || pres.cp || ''} ${pres.municipio || ''} (${pres.provincia || ''})`.replace(/,  \(\)/, '').replace(/^, /, '')
         : (op.datos_calculo?.inputs?.partner_address || '');
+    const ejeName = ejecutora.razon_social || ejecutora.nombre || '';
+    const ejeCif = ejecutora.cif || ejecutora.nif || '';
     const cifoDates = calcCifo(doc);
     const D = RES080_FIELD_DEFAULTS;
     const initialFields = {
@@ -242,6 +252,8 @@ export function deriveRes080Data({ expediente, results, parseHuecosFromXml }) {
         empresa_responsable: empName.toUpperCase(),
         empresa_cif: empCif.toUpperCase(),
         empresa_domicilio: empAddr.toUpperCase(),
+        ejecutora_nombre: ejeName.toUpperCase(),
+        ejecutora_cif: ejeCif.toUpperCase(),
     };
     const fields = { ...D, ...initialFields };
 
@@ -363,7 +375,7 @@ export function deriveRes080Data({ expediente, results, parseHuecosFromXml }) {
         calExBrand, calExMod, calExSerie, calExTipoEq, calExFuel, calNuBrand, calNuMod, calNuScop, calNuSerieOut, calNuUds,
         acsSeActua, acsExBrand, acsExMod, acsExSerie, acsExTipoEq, acsExFuel, acsNuBrand, acsNuMod, acsNuScop, acsNuSerie, acsNuUds,
         acsEsTermo, acsNuTipoEq, acsTermoFuera, acsNuScopStr,
-        sameAero, tieneAcs,
+        sameAero, tieneAcs, delegadoRite, empresas,
         zoneStr, zoneLabel, scopCalRaw, scopCalStr, scopAcsRaw, scopAcsStr, emiLabel, metodoCal, metodoAcs,
         changedHuecos, changedOpacos, seSustituyen,
     };
@@ -373,6 +385,52 @@ const formatNum = (val) => {
     if (!val && val !== 0) return '0';
     return Math.round(val).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.');
 };
+
+// ============================================================================
+// buildEmpresasBox — apartado "Empresa instaladora" del certificado.
+//
+// FUENTE ÚNICA de este bloque: lo usan este builder (el PDF que se archiva y el
+// que genera el backend) y CertificadoRes080Modal, que mantiene su propia copia
+// del resto del documento — mismo patrón que buildCe3xPages.
+//
+// Con UNA sola empresa imprime el bloque de siempre (tres filas). Cuando quien
+// ejecuta y factura no está habilitado en Industria y firma otra por él, imprime
+// las DOS en columnas: si solo constara la habilitada, su NIF no casaría con el
+// de las facturas del expediente y el verificador no podría cerrar la
+// trazabilidad. Los campos siguen siendo editables en el visor.
+// ============================================================================
+export function buildEmpresasBox({ delegado, empresas, eb, kv, rowsBox, cmpBox, cmpHead }) {
+    const nota = notaDelegacionRite(empresas || {});
+    // El párrafo carga con el NIF, el nº del registro de empresas instaladoras y
+    // quién responde de qué, así que la tabla se queda con lo que identifica a
+    // cada empresa. El domicilio y el nº RITE en columnas estrechas eran dos
+    // bloques de texto envuelto que repetían lo que el párrafo ya dice mejor.
+    const notaBox = nota
+        ? `<div style="margin-top:8px;border:1px solid #E9E9E1;border-radius:14px;padding:11px 16px;font-size:11px;color:#6E6E66;line-height:1.5;">${nota}</div>`
+        : '';
+    if (!delegado) {
+        return `
+        ${rowsBox(`
+            ${kv('Nombre o razón social', eb('empresa_responsable'))}
+            ${kv('CIF / NIF', eb('empresa_cif'))}
+            ${kv('Domicilio', eb('empresa_domicilio'), true)}
+        `)}
+        ${notaBox}`;
+    }
+    // Fila propia y no `cmpRow`: ahí la columna del medio es la situación
+    // ANTERIOR y va en gris tenue. Aquí las dos empresas son actuales y la que
+    // factura no puede leerse como algo superado.
+    const row = (label, a, b) => `<tr>
+        <td style="padding:6px 16px;background:#FAFAF6;color:#4a4a44;font-weight:600;">${label}</td>
+        <td style="padding:6px 16px;font-weight:600;">${a}</td>
+        <td style="padding:6px 16px;background:#F3F8E6;font-weight:700;">${b}</td></tr>`;
+    return `
+        ${cmpBox(cmpHead('Empresa', EMPRESAS_COL_EJECUTA, EMPRESAS_COL_HABILITADA), `
+            ${row('Nombre o razón social', eb('ejecutora_nombre'), eb('empresa_responsable'))}
+            ${row('CIF / NIF', eb('ejecutora_cif'), eb('empresa_cif'))}
+        `)}
+        ${notaBox}`;
+}
 
 // ============================================================================
 // buildCe3xPages — páginas de CAPTURAS DEL CE3X de la actuación de ventanas.
@@ -694,7 +752,7 @@ export function buildRes080Html({ data, appUrl, attachments = [], isForPdf = tru
         calExBrand, calExMod, calExSerie, calExTipoEq, calExFuel, calNuBrand, calNuMod, calNuScop, calNuSerieOut, calNuUds,
         acsSeActua, acsExBrand, acsExMod, acsExSerie, acsExTipoEq, acsExFuel, acsNuBrand, acsNuMod, acsNuScop, acsNuSerie, acsNuUds,
         acsEsTermo, acsNuTipoEq, acsTermoFuera, acsNuScopStr,
-        sameAero, tieneAcs,
+        sameAero, tieneAcs, delegadoRite, empresas,
         zoneStr, zoneLabel, scopCalRaw, scopCalStr, scopAcsRaw, scopAcsStr, emiLabel, metodoCal, metodoAcs,
         changedHuecos, changedOpacos, seSustituyen,
     } = data;
@@ -735,6 +793,12 @@ export function buildRes080Html({ data, appUrl, attachments = [], isForPdf = tru
     const cmpRow = (label, ex, nu) => `<tr><td style="padding:6px 16px;background:#FAFAF6;color:#4a4a44;font-weight:600;">${label}</td><td style="padding:6px 16px;color:#7a7a72;">${ex}</td><td style="padding:6px 16px;background:#F3F8E6;font-weight:700;">${nu}</td></tr>`;
     const cmpGroup = (t) => `<tr><td colspan="3" style="padding:7px 16px;background:#EFEFE8;font-weight:700;font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:#6E6E66;">${t}</td></tr>`;
     const cmpBox = (headHtml, bodyRows) => `<div style="border-radius:16px;overflow:hidden;border:1px solid #E9E9E1;"><table class="cmp" style="width:100%;border-collapse:collapse;font-size:12.5px;">${headHtml}<tbody>${bodyRows}</tbody></table></div>`;
+
+    // Las llamadas (1)(2)(3) están en las tablas de la hoja anterior y las notas,
+    // en la de las empresas: la hoja de la instalación no puede con las dos cosas
+    // y la cascada (ver check_res080_paginas.mjs). Sin esta línea, el verificador
+    // busca en esa hoja unas notas que están en la siguiente.
+    const notasRemision = `<p style="margin:12px 2px 0;font-size:11px;color:#6E6E66;">Las observaciones <sup>(1)</sup> <sup>(2)</sup>${acsSeActua || acsTermoFuera ? ' <sup>(3)</sup>' : ''} se recogen en la página siguiente.</p>`;
 
     // PÁGINA 0: PORTADA
     pages.push(`
@@ -903,13 +967,33 @@ export function buildRes080Html({ data, appUrl, attachments = [], isForPdf = tru
                 </div>`
                 : `<div style="border:1px solid #E9E9E1;border-radius:16px;padding:28px;text-align:center;font-size:13px;color:#6E6E66;font-weight:700;">No se actúa sobre el ACS · No aplica</div>`}
 
-            ${subLabel('Empresa instaladora', '#6E6E66', '20px')}
-            ${rowsBox(`
-                ${kv('Nombre o razón social', eb('empresa_responsable'))}
-                ${kv('CIF / NIF', eb('empresa_cif'))}
-                ${kv('Domicilio', eb('empresa_domicilio'), true)}
-            `)}
+            ${notasRemision}
+            ${footer}
+        </div>
+    `);
 
+    // PÁGINA: EMPRESAS RESPONSABLES + OBSERVACIONES.
+    //
+    // Iban al final de la hoja anterior y NO cabían. Medido con
+    // `scripts/check_res080_paginas.mjs` sobre la hoja de 1123px: con UN equipo
+    // quedaban 36px de holgura, pero con 3 bombas en cascada la hoja se pasaba
+    // 110px y con 5, 140 — los nº de serie se listan uno por línea, y otra vez
+    // en la tabla de ACS. En el VISOR no se ve porque `.doc-page` es
+    // `min-height` sin tope y la caja crece; en el PDF la hoja son 297mm fijos y
+    // Chrome parte por donde toque, así que la tabla salía cortada a mitad de
+    // fila. El corte NO es condicional, por lo mismo que en el CIFO: partir solo
+    // "cuando haga falta" deja vivo justo el caso que cabía de milagro.
+    //
+    // ⚠️ El recuadro de firma del certificado se ancla al texto "fdo." acotado a
+    // la PÁGINA 2 del PDF (`signatureAnchor: ['fdo.@2']`, CertificadoRes080Modal),
+    // que es la de datos generales — anterior a ésta. Cualquier página que se
+    // añada ANTES de aquélla sí habría que reflejarla allí.
+    pages.push(`
+        <div class="doc-page">
+            ${pageHeader}
+            ${sectionTitle(delegadoRite ? 'Empresas responsables de la actuación' : 'Empresa instaladora', '20px')}
+            ${delegadoRite ? `<p style="margin:0 0 10px 20px;font-size:12.5px;color:#4a4a44;">La empresa que ejecuta y factura la obra no es la que responde ante Industria de la instalación térmica. Constan las dos.</p>` : ''}
+            ${buildEmpresasBox({ delegado: delegadoRite, empresas, eb, kv, rowsBox, cmpBox, cmpHead })}
             ${obsBox(`
                 <p style="margin:0 0 5px;"><b>(1)</b> El rendimiento estacional de la caldera existente es el que consta en el Certificado de Eficiencia Energética Inicial, determinado por el programa oficial CE3X en función de su tipología, antigüedad y aislamiento.</p>
                 <p style="margin:0 0 5px;"><b>(2)</b> Según ficha técnica del fabricante y/o cálculos realizados según anexos III y IV de la ficha RES060 de la Orden TED/845/2023, de 18 de julio.</p>
@@ -917,6 +1001,7 @@ export function buildRes080Html({ data, appUrl, attachments = [], isForPdf = tru
                 ${(acsEsTermo || acsTermoFuera) ? `<p style="margin:0 0 5px;"><b>(3)</b> El equipo de ACS produce el agua caliente por efecto Joule (resistencia eléctrica): su rendimiento es 1 por definición y no procede el cálculo de un rendimiento estacional (SCOP).</p>` : ''}
                 <p style="margin:0;">La duración indicativa de la actuación (Di) es de 15 años según Recomendación (UE) 2019/1658. Se adjuntan las fichas técnicas de los nuevos equipos instalados.</p>
             `)}
+
             ${footer}
         </div>
     `);

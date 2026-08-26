@@ -2234,6 +2234,59 @@ limpia su almacenamiento; como el estado de React solo se vaciaba con el evento
 estado, y limpia el deep-link de la URL (`?tab=`, `?exp=`, `?cee=`) para que la
 siguiente sesión no aterrice en el expediente del anterior.
 
+## Quién EJECUTA la obra y quién FIRMA ante Industria (2026-08-26)
+
+Un instalador no habilitado en Industria delega la firma en otra empresa
+(`prescriptores.instalador_rite_id`, ver `utils/instaladorFirmante.js`). Hasta ahora los
+documentos salían solo a nombre del firmante, y entonces **el NIF del certificado no casaba
+con el de las facturas del expediente**: quien las emite es el instalador asignado. Medido en
+26RES080_62 — factura FELIX DIAZ GALVEZ (03892673S), firma OSCAR REDONDO MARTIN (52977772D,
+RITE 08-B-D20-46001724).
+
+**REGLA — cuando son DOS empresas, las dos constan; cuando es una, solo una.** La segunda no se
+inventa: `empresasActuacion(exp)` en
+[docGenerators.js](implementation/frontend/src/features/expedientes/utils/docGenerators.js)
+devuelve `{ delegado, ejecutora, habilitada }` y `delegado` solo es true con delegación efectiva
+(el backend únicamente entrega `prescriptores_firmante` en ese caso). Los rótulos de columna y el
+texto de responsabilidad son **fuente única** ahí mismo (`EMPRESAS_COL_*`, `notaDelegacionRite`):
+el verificador compara el CIFO con el certificado RES080 y no pueden decirlo distinto.
+
+| Documento | Cómo lo imprime |
+|---|---|
+| **Certificado RES080** | Apartado propio: tabla a dos columnas con razón social y CIF/NIF, y debajo el párrafo. `buildEmpresasBox` en [res080Doc.js](implementation/frontend/src/features/expedientes/logic/res080Doc.js), compartido con `CertificadoRes080Modal` |
+| **CIFO (RES060/093/TER100)** | Las mismas cuatro filas de siempre: el nº RITE viaja con la razón social y la fila "Cargo firmante" deja el sitio a "Ejecuta y factura la obra". La nota va al pie de la hoja de la instalación |
+
+**REGLA — el PÁRRAFO se escribe también cuando hay UNA sola empresa**, con su nº RITE: es lo que
+deja constancia de que quien ejecuta es además quien firma y con qué inscripción. Por eso el
+domicilio y el nº RITE salieron de la tabla del RES080 —en columnas estrechas eran dos bloques de
+texto envuelto que repetían lo que el párrafo dice mejor— y ahí quedan solo razón social y NIF.
+`notaDelegacionRite` devuelve **''** si no consta el nº de empresa RITE: el documento no puede
+afirmar una inscripción que no tiene a la vista. (El CIFO sigue imprimiendo el párrafo solo con
+delegación; su hoja 1 no da para más.)
+
+**REGLA — en el CIFO el bloque NO puede crecer.** La hoja 1 es la más apretada del documento
+(+43px de holgura en el peor caso medido) y ahí está anclado el recuadro de firma. Una tabla a
+dos columnas la desbordaba 58px, y con un segundo bloque, 163. Por eso son cuatro filas y el
+cargo del firmante se lee dentro del propio recuadro de firma, al pie de esa hoja.
+
+**REGLA — el certificado RES080 tiene su propio medidor**, `scripts/check_res080_paginas.mjs`,
+gemelo del del CIFO. Al escribirlo se descubrió que la hoja de la instalación **ya desbordaba
+antes de este cambio**: con 3 bombas en cascada se pasaba 110px y con 5, 140 (los nº de serie se
+listan uno por línea, y otra vez en la tabla de ACS). Se partió en dos hojas —instalación ·
+empresas + observaciones— con el mismo criterio que el CIFO: el corte NO es condicional. Las
+llamadas (1)(2)(3) quedan en la hoja anterior, así que ésta lleva una línea que remite a la
+siguiente. Pasar los DOS medidores tras cualquier retoque:
+
+```bash
+node implementation/backend/scripts/check_res080_paginas.mjs
+```
+
+⚠️ La Memoria RITE y el Certificado de Instalación Térmica (microservicio Python) siguen saliendo
+SOLO a nombre del firmante: ahí es correcto, son documentos que se presentan ante Industria y de
+los que responde la empresa habilitada.
+
+---
+
 ## Reglas Críticas — No Romper
 
 1. **Drive**: La creación de carpetas es **no bloqueante**. **REGLA DE ORO:** Los enlaces a Drive (`drive_folder_link`) solo se muestran en el frontend si `user.rol === 'ADMIN'`.
@@ -2280,6 +2333,8 @@ siguiente sesión no aterrice en el expediente del anterior.
     rechazo.
     ⚠️ `cert_cifo_*` es el mismo slot para dos documentos distintos: el **CIFO** lo firma el INSTALADOR (enlace bloqueable) y el **Certificado RES080** lo firma Brokergy y solo se ENTREGA al cliente. `DOC_REGENERABLE` lo distingue por `isReforma`.
 25. **La PROPUESTA se versiona al ENVIARLA, nunca al guardarla**: cada envío archiva su PDF en `0. PROPUESTAS` como `Propuesta_{expte}_v{N}.pdf`, imprime la marca DENTRO del documento y sella qué versión aceptó el cliente. Fuente única: [propuestaVersiones.js](implementation/backend/services/propuestaVersiones.js) — no volver a generar el PDF de la propuesta por separado en cada canal (el del email y el de WhatsApp acababan siendo documentos distintos), ni guardar el HTML de una versión en el JSONB (353 KB de media, regla 21). Ver "Versiones de la PROPUESTA".
+
+26.b **El CIFO y el certificado RES080 identifican a las DOS empresas cuando no son la misma**: la que EJECUTA y factura (instalador asignado) y la HABILITADA que firma ante Industria (`instalador_rite_id`). Sin las dos, el NIF del certificado no casa con el de las facturas del expediente. Fuente única de la decisión y del texto: `empresasActuacion` / `notaDelegacionRite` en [docGenerators.js](implementation/frontend/src/features/expedientes/utils/docGenerators.js). Con una sola empresa el documento no cambia. Los dos documentos tienen hojas de alto FIJO: tras tocarlos, pasar `check_cifo_paginas.mjs` **y** `check_res080_paginas.mjs`. Ver "Quién EJECUTA la obra y quién FIRMA ante Industria".
 
 26. **El bot de WhatsApp solo habla en los chats ETIQUETADOS, en horario y sin tocar dinero**: contesta por la sesión real del VPS, así que sus frenos (etiqueta + lista blanca, 08:00-20:00 Madrid, ventana de silencio, silencio si escribe un humano, tope diario, apagado por defecto) protegen la cuenta de la que dependen TODOS los envíos automáticos. Los datos salen del dossier (`botContexto`, que reusa `buildChecklistData` y `ensureUploadLink`), nunca del prompt; los importes no viajan al dossier. Fuente única del texto: [botPrompt.js](implementation/backend/services/botPrompt.js). Ver "Bot de WhatsApp".
 

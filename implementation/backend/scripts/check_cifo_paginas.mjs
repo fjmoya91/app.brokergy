@@ -95,6 +95,28 @@ const cascada = (n, { mismaAcs = false } = {}) => {
     return e;
 };
 
+/**
+ * El instalador que factura no está habilitado en Industria y firma otra por él:
+ * la hoja 1 imprime entonces las DOS empresas (tabla + nota de responsabilidad)
+ * en vez del bloque de una sola. Es lo que más engorda esa hoja, así que se mide
+ * con la razón social y el domicilio más largos que hemos visto.
+ */
+const conDelegacion = (e, { largos = false } = {}) => {
+    e.prescriptores = { ...e.prescriptores, id_empresa: 'aaaa-1111', tiene_carnet_rite: false };
+    e.prescriptores_firmante = largos ? {
+        id_empresa: 'bbbb-2222', tiene_carnet_rite: true,
+        razon_social: 'MONTAJES E INSTALACIONES TÉRMICAS DEL GUADIANA SOCIEDAD LIMITADA UNIPERSONAL',
+        cif: 'B45998877', numero_carnet_rite: '08-B-D20-46001724',
+        direccion: 'CALLE DE LA INDUSTRIA Y EL COMERCIO, 118, POLÍGONO SANTA MARÍA DE BENQUERENCIA',
+        codigo_postal: '45007', municipio: 'Toledo', provincia: 'Toledo',
+    } : {
+        id_empresa: 'bbbb-2222', tiene_carnet_rite: true,
+        razon_social: 'OSCAR REDONDO MARTIN', cif: '52977772D',
+        numero_carnet_rite: '08-B-D20-46001724', provincia: 'Toledo',
+    };
+    return e;
+};
+
 const casos = [
     ['RES060 · 1 equipo (caso normal)', cascada(1)],
     ['RES060 · 2 en cascada', cascada(2)],
@@ -127,6 +149,22 @@ const casos = [
             nombre_responsable: 'FRANCISCO JAVIER', apellidos_responsable: 'MOYA LÓPEZ DE LA TORRE' };
         return e;
     })()],
+    // ── Dos empresas: la que ejecuta y factura + la habilitada que firma ──
+    ['RES060 · 2 empresas (26RES080_62)', conDelegacion(cascada(1))],
+    ['RES060 · 5 en cascada · 2 empresas', conDelegacion(cascada(5))],
+    ['RES093 · textos largos · 2 empresas (peor caso hoja 1)', (() => {
+        const e = base('26RES093_9');
+        e.clientes = { ...e.clientes,
+            nombre_razon_social: 'COMUNIDAD DE PROPIETARIOS EDIFICIO RESIDENCIAL LOS OLIVOS DE LA VEGA',
+            apellidos: '', direccion: 'AVENIDA DE LA CONSTITUCIÓN ESPAÑOLA DE 1978, 142, PORTAL 3, 4º B',
+            email: 'administracion.fincas.losolivosdelavega@correoelectronicomuylargo.es' };
+        e.prescriptores = {
+            razon_social: 'INSTALACIONES Y MANTENIMIENTOS ELECTROMECÁNICOS DEL CAMPO DE CALATRAVA S.L.U.',
+            cif: 'B13123123', direccion: 'POLÍGONO INDUSTRIAL LA VEGA, CALLE DE LOS ARTESANOS PARCELA 27, NAVE 4',
+            codigo_postal: '13700', municipio: 'Villanueva de los Infantes del Campo', provincia: 'Ciudad Real',
+            nombre_responsable: 'FRANCISCO JAVIER', apellidos_responsable: 'MOYA LÓPEZ DE LA TORRE' };
+        return conDelegacion(e, { largos: true });
+    })()],
     ['TER100 · 3 en cascada + piscina', (() => {
         const e = base('26TER100_9');
         e.instalacion.aerotermia_cal = aero(3);
@@ -138,6 +176,17 @@ const casos = [
     // Peor caso de la hoja 2: TER100 con la cascada repetida en ACS (mismo
     // equipo para los dos servicios ⇒ los nº de serie se listan DOS veces) y
     // además la tabla de piscina. Es el techo de lo que puede crecer esa hoja.
+    // Peor caso de la hoja 2 CON delegación: ahí va la nota de responsabilidad
+    // de las dos empresas, debajo de la cascada repetida en ACS.
+    ['TER100 · 5 en cascada · ACS mismo eq. · piscina · 2 empresas', (() => {
+        const e = base('26TER100_9');
+        e.instalacion.aerotermia_cal = aero(5);
+        e.instalacion.misma_aerotermia_acs = true;
+        e.instalacion.piscina = { activa: true, demanda_kwh: 18000, scop: 4.2,
+            equipo: { marca: 'SIME', modelo: 'POOL HP 90', numero_serie: 'PL0099213' } };
+        e.cee.acs_method = 'manual'; e.cee.dacs_manual = 48000;
+        return conDelegacion(e, { largos: true });
+    })()],
     ['TER100 · 5 en cascada · ACS mismo eq. · piscina', (() => {
         const e = base('26TER100_9');
         e.instalacion.aerotermia_cal = aero(5);
