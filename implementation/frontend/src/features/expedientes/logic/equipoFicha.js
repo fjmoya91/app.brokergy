@@ -16,7 +16,7 @@
 //
 // Módulo JS PURO (sin React ni axios): el modal solo lo pinta.
 // ============================================================================
-import { resolverCe3x } from './ce3xFinal.js';
+import { resolverCe3x, buildMedidaMejora } from './ce3xFinal.js';
 import { BOILER_EFFICIENCIES } from '../../calculator/logic/calculation.js';
 import {
     getUnidades, modeloUnidad, tipoEquipoNuevo, datosAcumulador, EQUIPO_NUEVO,
@@ -25,6 +25,11 @@ import {
 const num2 = (v) => (Number(v) || 0).toFixed(2).replace('.', ',');
 const pct = (v) => `${Math.round((Number(v) || 0) * 100)} %`;
 const kw = (v) => (Number(v) > 0 ? `${String(Number(v)).replace('.', ',')} kW` : null);
+
+/** "el SCOP y el SEER" — para decir en una línea qué falta del párrafo. */
+const enumerarFaltan = (arr) => (arr.length <= 1
+    ? (arr[0] || '')
+    : `${arr.slice(0, -1).join(', ')} y ${arr[arr.length - 1]}`);
 
 /** Campo de la ficha. `valor` a null = el expediente no lo tiene (se pinta como falta). */
 const F = (label, valor, extra = {}) => ({ label, valor: valor || null, ...extra });
@@ -129,6 +134,29 @@ export function buildEquipoFicha(exp, { modelos = {} } = {}) {
         subtitulo: 'Lo que hay que escribir en el programa, tal cual.',
         campos: ce3xCampos,
     });
+
+    // ── 1.b El párrafo del conjunto de medidas de mejora ─────────────────────
+    // Es el único campo de CE3X que se REDACTA en vez de teclear un valor, y por
+    // eso era donde se colaban la marca de otro expediente o un SCOP de más. Va
+    // aquí, detrás de las casillas y delante de los equipos, porque se rellena en
+    // esa misma pantalla del programa.
+    const medida = buildMedidaMejora(exp, { modelos });
+    if (medida) {
+        secciones.push({
+            id: 'medida',
+            titulo: 'Conjunto de medidas de mejora',
+            subtitulo: medida.aviso
+                || 'El texto del campo "Características", redactado con los datos del expediente.',
+            avisa: !!medida.aviso,
+            full: true,
+            campos: [F('Características', medida.texto, {
+                parrafo: true,
+                nota: medida.faltan.length
+                    ? `⚠ Falta ${enumerarFaltan(medida.faltan)} en el expediente: donde va "___" hay que completarlo antes de pegarlo.`
+                    : null,
+            })],
+        });
+    }
 
     // ── 2. Equipos instalados, unidad a unidad ───────────────────────────────
     const unidadesCal = getUnidades(inst.aerotermia_cal);

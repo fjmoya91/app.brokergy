@@ -170,8 +170,8 @@ export const RES080_FIELD_DEFAULTS = {
     permeabilidad_nueva: '3',
     // Rótulos de las capturas CE3X de la actuación de ventanas. Son editables
     // porque el hueco capturado cambia de una obra a otra.
-    ce3x_titulo_antes: 'DETALLE VENTANA y PUERTA COCINA CE3X ANTES',
-    ce3x_titulo_despues: 'DETALLE VENTANA y PUERTA COCINA CE3X DESPUÉS',
+    ce3x_titulo_antes: 'DETALLE HUECOS CE3X ANTES',
+    ce3x_titulo_despues: 'DETALLE HUECOS CE3X DESPUÉS',
 };
 
 const toDdMmYyyy = (val) => {

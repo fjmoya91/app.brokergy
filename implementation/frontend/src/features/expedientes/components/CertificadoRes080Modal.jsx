@@ -247,8 +247,8 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, r
         cristal_nuevo_g: '0,43',
         permeabilidad_nueva: '3',
         // Rótulos de las capturas CE3X (espejo de RES080_FIELD_DEFAULTS).
-        ce3x_titulo_antes: 'DETALLE VENTANA y PUERTA COCINA CE3X ANTES',
-        ce3x_titulo_despues: 'DETALLE VENTANA y PUERTA COCINA CE3X DESPUÉS',
+        ce3x_titulo_antes: 'DETALLE HUECOS CE3X ANTES',
+        ce3x_titulo_despues: 'DETALLE HUECOS CE3X DESPUÉS',
     });
 
     const [editableData, setEditableData] = useState({});

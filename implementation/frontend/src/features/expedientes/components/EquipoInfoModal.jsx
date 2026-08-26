@@ -51,9 +51,13 @@ function Campo({ campo, onCopy, copiado, onGuardar }) {
                         No consta en el expediente
                     </div>
                 ) : (
+                    // El párrafo del conjunto de medidas es prosa de varias líneas: con
+                    // el interlineado de un valor suelto se lee como un muro y no se
+                    // repasa antes de copiarlo, que es justo cuando se cazan las erratas.
                     <div className={`text-white mt-0.5 break-words ${
-                        campo.mono ? 'font-mono text-[13px] tracking-wide' : 'text-[13px]'
-                    } ${campo.destacado ? 'font-black text-brand' : 'font-semibold'}`}>
+                        campo.parrafo ? 'text-[13px] leading-relaxed font-normal'
+                                      : campo.mono ? 'font-mono text-[13px] tracking-wide' : 'text-[13px]'
+                    } ${campo.destacado ? 'font-black text-brand' : campo.parrafo ? '' : 'font-semibold'}`}>
                         {campo.valor}
                     </div>
                 )}
@@ -199,9 +203,9 @@ export function EquipoInfoModal({ isOpen, onClose, expediente }) {
                                 <h4 className="text-[11px] font-black uppercase tracking-widest text-brand">{sec.titulo}</h4>
                             </div>
                             {sec.subtitulo && (
-                                <p className="text-[10.5px] text-white/40 mb-2 leading-relaxed">{sec.subtitulo}</p>
+                                <p className={`text-[10.5px] mb-2 leading-relaxed ${sec.avisa ? 'text-amber-400/90 font-semibold' : 'text-white/40'}`}>{sec.subtitulo}</p>
                             )}
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                            <div className={`grid grid-cols-1 gap-1.5 ${sec.full ? '' : 'sm:grid-cols-2'}`}>
                                 {sec.campos.map((c, i) => (
                                     <Campo key={`${sec.id}_${i}`} campo={c}
                                            copiado={copiado === `${sec.id}_${i}`}

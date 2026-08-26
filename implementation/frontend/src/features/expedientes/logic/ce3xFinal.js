@@ -64,13 +64,13 @@ const aPorcentaje = (v) => Math.round((Number(v) || 0) * 100);
  * equipos en los CEE que venimos presentando: el verificador y el técnico los
  * reconocen por ese formato.
  */
-function nombreEquipo(aero, prefijo = 'AEROTERMIA ') {
+function nombreEquipo(aero, prefijo = 'AEROTERMIA ', { udExterior = true } = {}) {
     const grupos = [];
     for (const u of getUnidades(aero)) {
         const label = [
             u?.marca,
             u?.modelo,
-            u?.modelo_ud_exterior ? `(${u.modelo_ud_exterior})` : '',
+            udExterior && u?.modelo_ud_exterior ? `(${u.modelo_ud_exterior})` : '',
         ].filter(Boolean).join(' ').trim() || modeloUnidad(u);
         if (!label) continue;
         const g = grupos.find(x => x.label === label);
@@ -249,6 +249,11 @@ export function resolverCe3x(exp, { modelos = {} } = {}) {
         coberturaBdc, repartoValido, pctCal,
         tipoEquipo: tipoEquipoCe3x({ conAcs: acsEnMismoEquipo, conFrio }),
         nombre: nombreEquipo(cal, prefijoNombre),
+        // El mismo nombre SIN la unidad exterior entre paréntesis. La casilla
+        // "Nombre" de CE3X la lleva (identifica la máquina); una frase corrida, no:
+        // "AEROTERMIA SH MASTER 14 (MASTER 14)" se lee como una errata.
+        nombreCorto: nombreEquipo(cal, prefijoNombre, { udExterior: false }),
+        nUnidades: countUnidades(cal),
         series: formatSeries(cal, { dash: '', sep: ' / ' }),
         seriesAcs: formatSeries(inst.aerotermia_acs, { dash: '', sep: ' / ' }),
     };
@@ -371,4 +376,148 @@ export function buildCe3xFinal(exp, { modelos = {} } = {}) {
     }
 
     return { bloque: L.join('\n'), faltantes, hibridacion: hib };
+}
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+// CONJUNTO DE MEDIDAS DE MEJORA — el párrafo de "Características" de CE3X.
+// ─────────────────────────────────────────────────────────────────────────────
+// En CE3X, además de las casillas del equipo, hay que ESCRIBIR A MANO un párrafo
+// que describe la actuación ("Sustitución de la caldera existente de gasóleo por
+// una AEROTERMIA … con SCOP de 4,58 …"). Se redactaba a pelo en cada certificado,
+// que es donde se cuelan la marca de otro expediente o un SCOP de más.
+//
+// Sale de `resolverCe3x`, igual que el resto del popup: es la MISMA verdad que se
+// le manda al certificador por WhatsApp, redactada en prosa.
+//
+// REGLA — lo que no consta se deja como hueco VISIBLE (`___`), nunca se calla ni
+// se rellena con un valor plausible. Un párrafo al que le falta el SCOP y no lo
+// dice se pega en el certificado tal cual.
+// ═════════════════════════════════════════════════════════════════════════════
+
+/** Une "a", "b" y "c" en "a, b y c". */
+const enumerar = (arr) => (arr.length <= 1
+    ? (arr[0] || '')
+    : `${arr.slice(0, -1).join(', ')} y ${arr[arr.length - 1]}`);
+
+/**
+ * Combustible del generador que se retira, en lenguaje de frase.
+ * Manda el EXPEDIENTE (`rendimiento_id`, que es lo que declara el CIFO); si ahí
+ * no consta, se recurre al vector energético del CEE inicial, que es un dato
+ * medido y no una conjetura. Si no hay ninguno de los dos, se omite: la frase
+ * funciona igual sin él y no vamos a decidir nosotros con qué ardía.
+ */
+function combustibleAntiguo(inst, exp) {
+    const id = String(inst?.caldera_antigua_cal?.rendimiento_id || '');
+    if (/^gas_/.test(id)) return 'gas';
+    if (/^oil_/.test(id)) return 'gasóleo';
+    if (/^solid_/.test(id)) return 'combustible sólido';
+    if (id === 'electric') return null;                 // ya se llama "caldera eléctrica"
+
+    const v = String(exp?.cee?.cee_inicial?.combustibleCalefaccion || '');
+    if (/gasoleo|gasóleo|gasoil|diesel/i.test(v)) return 'gasóleo';
+    if (/gas natural/i.test(v)) return 'gas natural';
+    if (/glp|butano|propano/i.test(v)) return 'GLP';
+    if (/biomasa|pelet/i.test(v)) return 'biomasa';
+    if (/carb[oó]n/i.test(v)) return 'carbón';
+    return null;
+}
+
+/** Cómo se llama en la frase lo que había antes. `null` si no consta nada. */
+function generadorAntiguo(inst, exp) {
+    const c = inst?.caldera_antigua_cal || {};
+    const tipo = String(c.tipo_equipo || 'Caldera');
+    const hayAlgo = !!(c.marca || c.modelo || (c.rendimiento_id && c.rendimiento_id !== 'default')
+        || exp?.cee?.cee_inicial?.combustibleCalefaccion);
+    if (!hayAlgo) return null;
+
+    if (/termo/i.test(tipo))  return { art: 'el', nombre: 'termo eléctrico', comb: null };
+    if (/bomba/i.test(tipo))  return { art: 'la', nombre: 'bomba de calor', comb: null };
+    if (/otro/i.test(tipo))   return { art: 'el', nombre: 'equipo', comb: combustibleAntiguo(inst, exp) };
+    if (c.rendimiento_id === 'electric') return { art: 'la', nombre: 'caldera eléctrica', comb: null };
+    return { art: 'la', nombre: 'caldera', comb: combustibleAntiguo(inst, exp) };
+}
+
+/**
+ * Párrafo de "Características" del conjunto de medidas de mejora.
+ *
+ * @returns {{ texto: string, faltan: string[], aviso: string|null }|null}
+ *          null si el expediente no declara equipo nuevo (no se inventa nada).
+ */
+export function buildMedidaMejora(exp, { modelos = {} } = {}) {
+    const d = resolverCe3x(exp, { modelos });
+    if (!d) return null;
+
+    const inst = exp?.instalacion || {};
+    const faltan = [];
+    const hueco = (falta) => { faltan.push(falta); return '___'; };
+
+    // ── Qué equipo entra ─────────────────────────────────────────────────────
+    const equipo = d.nombreCorto || 'el equipo nuevo';
+    // Con dos unidades, "una AEROTERMIA X (×2)" es una contradicción gramatical y
+    // además esconde lo que más mira el verificador: que son varias en cascada.
+    const entra = d.nUnidades > 1
+        ? `${d.nUnidades} equipos en cascada de ${equipo}`
+        : `una ${equipo}`;
+
+    // ── Qué pasa con lo que había ────────────────────────────────────────────
+    const viejo = generadorAntiguo(inst, exp);
+    const viejoTxt = viejo
+        ? `${viejo.art} ${viejo.nombre} existente${viejo.comb ? ` de ${viejo.comb}` : ''}`
+        : null;
+    let apertura;
+    if (d.hibridacion && viejoTxt) {
+        // En una hibridación la caldera NO se retira: escribir "sustitución" sería
+        // decirle al verificador lo contrario de lo que declara el propio CIFO.
+        apertura = `Instalación de ${entra} en apoyo a ${viejoTxt}, que se mantiene en servicio (sistema híbrido),`;
+    } else if (viejoTxt) {
+        apertura = `Sustitución de ${viejoTxt} por ${entra}`;
+    } else {
+        apertura = `Instalación de ${entra}`;
+    }
+
+    // ── Para qué sirve y con qué rendimiento ─────────────────────────────────
+    const usos = [];
+    const rends = [];
+    if (inst.cambio_calefaccion !== false) {
+        usos.push('calefacción');
+        rends.push(`SCOP de ${d.scopCal > 0 ? num2(d.scopCal) : hueco('el SCOP de calefacción')}`);
+    }
+    if (d.conFrio) {
+        usos.push('refrigeración');
+        rends.push(`SEER de ${d.seer > 0 ? num2(d.seer) : hueco('el SEER')}`);
+    }
+    if (d.acsEnMismoEquipo) {
+        usos.push('ACS');
+        rends.push(`SCOPdhw de ${d.scopAcs > 0 ? num2(d.scopAcs) : hueco('el SCOP dhw')}`);
+    }
+
+    let texto = apertura;
+    if (usos.length) texto += ` para uso de ${enumerar(usos)} con ${enumerar(rends)}`;
+
+    // ── El ACS, cuando lo resuelve otro aparato ──────────────────────────────
+    if (d.acsAparte) {
+        const acs = inst.aerotermia_acs;
+        if (d.acsTipo === EQUIPO_NUEVO.TERMO) {
+            const n = [acs?.marca, acs?.modelo].filter(Boolean).join(' ');
+            texto += ` y un termo eléctrico para ACS${n ? ` ${n}` : ''} con rendimiento del 100 %`;
+        } else {
+            const n = nombreEquipo(acs, '', { udExterior: false });
+            texto += ` y una bomba de calor para ACS${n ? ` ${n}` : ''}`
+                + ` con SCOPdhw de ${d.scopAcs > 0 ? num2(d.scopAcs) : hueco('el SCOP dhw')}`;
+        }
+    }
+    if (d.litros > 0) texto += `, con acumulación de ${d.litros} litros`;
+
+    // ── Aviso: en un RES080 la actuación no es solo el generador ─────────────
+    // El párrafo describe el CAMBIO DE EQUIPO. Si además hay obra de envolvente,
+    // el conjunto de medidas la incluye y este texto se queda corto: se dice, en
+    // vez de dejar que se pegue tal cual y falte media actuación.
+    const env = exp?.documentacion?.envolvente;
+    const hayEnvolvente = Array.isArray(env) ? env.length > 0 : !!(env && Object.keys(env).length);
+    const aviso = hayEnvolvente
+        ? 'El expediente también declara actuación sobre la envolvente: añádela al párrafo, aquí solo va el cambio de equipo.'
+        : null;
+
+    return { texto: `${texto.trim()}.`, faltan, aviso };
 }
