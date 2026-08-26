@@ -85,7 +85,7 @@ function mensaje(row, fase) {
     const faseLabel = estados.nombreFase(row, uploads.normalizePhase(fase));
     const nombre = nombreCliente(row.cliente);
     const pila = nombre ? ` ${nombre.split(/\s+/)[0]}` : '';
-    return `¡Hola${pila}! 👋\n\n`
+    return `¡Hola${pila}!\n\n`
         + `Ya tienes tu *${faseLabel}* registrado (expediente ${row.numero_expediente}).\n\n`
         + `Te adjuntamos el certificado firmado y el justificante de registro. `
         + `Guárdalos: son los documentos que te van a pedir.\n\n`

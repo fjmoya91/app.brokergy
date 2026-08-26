@@ -94,7 +94,7 @@ const haceDias = (dias) => (dias != null && dias > 0) ? `hace ${dias} día${dias
 // Saludo: en urgente sustituye al "¡Hola X!" por el aviso con alarma.
 const saludo = (tecnico, tono) => tono === 'urgent'
     ? `🚨*¡Urgente ${tecnico}!* 🚨`
-    : `¡Hola ${tecnico}! 👋`;
+    : `¡Hola ${tecnico}!`;
 
 /**
  * Cuerpo del mensaje al certificador para un par (espera, tono).
@@ -160,11 +160,11 @@ export function buildCertEncargoMessage(fase, certName, clienteNombre, numExp, c
     const esCae = ctx.cae !== false;
     const body = fase === 'final'
         ? (esCae
-            ? `¡Hola ${tecnico}! 👋\n\nYa puedes presentar el CEE Final del expediente ${numExp}${cli}.\n\nToda la documentación de obra (facturas, memorias de instalación y fotos de fin de obra) ya está disponible en la carpeta compartida.${bloque}\n\n¡Gracias!`
-            : `¡Hola ${tecnico}! 👋\n\nTe encargamos el CEE Final del expediente ${numExp}${cli}.\n\nTienes la documentación en las carpetas compartidas.${bloque}\n\n¡Gracias!`)
+            ? `¡Hola ${tecnico}!\n\nYa puedes presentar el CEE Final del expediente ${numExp}${cli}.\n\nToda la documentación de obra (facturas, memorias de instalación y fotos de fin de obra) ya está disponible en la carpeta compartida.${bloque}\n\n¡Gracias!`
+            : `¡Hola ${tecnico}!\n\nTe encargamos el CEE Final del expediente ${numExp}${cli}.\n\nTienes la documentación en las carpetas compartidas.${bloque}\n\n¡Gracias!`)
         : (esCae
-            ? `¡Hola ${tecnico}! 👋\n\nTe hemos asignado el expediente ${numExp}${cli} para la emisión del CEE Inicial.\n\nTienes toda la documentación del cliente en la carpeta compartida y en el portal.\n\n¡Gracias!`
-            : `¡Hola ${tecnico}! 👋\n\nTe encargamos el ${ctx.faseLabel || 'CEE'} del expediente ${numExp}${cli}.\n\nTienes la documentación en las carpetas compartidas.\n\n¡Gracias!`);
+            ? `¡Hola ${tecnico}!\n\nTe hemos asignado el expediente ${numExp}${cli} para la emisión del CEE Inicial.\n\nTienes toda la documentación del cliente en la carpeta compartida y en el portal.\n\n¡Gracias!`
+            : `¡Hola ${tecnico}!\n\nTe encargamos el ${ctx.faseLabel || 'CEE'} del expediente ${numExp}${cli}.\n\nTienes la documentación en las carpetas compartidas.\n\n¡Gracias!`);
     return body + expedienteLine(expedienteId, ctx) + carpetaLine(ceeFolderLink);
 }
 
@@ -179,7 +179,7 @@ export function buildCertApproveMessage(section, certName, clienteNombre, numExp
     // los añade el backend automáticamente al final del mensaje (approve-cee).
     const body = priority === 'urgent'
         ? `🚨*¡Urgente ${tecnico}!* 🚨\n\nHemos revisado el ${fase} del expediente ${numExp}${cli} y tiene nuestro visto bueno. Ya puedes proceder a registrarlo en Industria.\n\n🚨 Te pedimos que lo priorices: necesitamos el registro con carácter URGENTE para poder cumplir con los plazos del programa de ayudas.\n\nAbajo tienes el enlace para descargar los archivos y, una vez presentado, para subir el CEE registrado (etiqueta + justificante).\n\n¡Muchas gracias!`
-        : `¡Hola ${tecnico}! 👋\n\nHemos revisado el ${fase} del expediente ${numExp}${cli} y tiene nuestro visto bueno. Ya puedes proceder a registrarlo en Industria.\n\nAbajo tienes el enlace para descargar los archivos y, una vez presentado, para subir el CEE registrado (etiqueta + justificante).\n\n¡Gracias!`;
+        : `¡Hola ${tecnico}!\n\nHemos revisado el ${fase} del expediente ${numExp}${cli} y tiene nuestro visto bueno. Ya puedes proceder a registrarlo en Industria.\n\nAbajo tienes el enlace para descargar los archivos y, una vez presentado, para subir el CEE registrado (etiqueta + justificante).\n\n¡Gracias!`;
     return body + expedienteLine(expedienteId, ctx);
 }
 

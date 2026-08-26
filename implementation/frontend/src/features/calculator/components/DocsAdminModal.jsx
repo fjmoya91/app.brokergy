@@ -58,7 +58,7 @@ export function DocsAdminModal({ isOpen, onClose, idOportunidad }) {
     }, [info]);
 
     const buildDefaultMessage = () =>
-`Hola 👋
+`Hola
 
 Para continuar con el expediente *${info?.id_oportunidad || ''}* aún nos falta algo de documentación. Puedes subirla fácilmente desde el móvil en este enlace:
 

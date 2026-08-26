@@ -220,7 +220,7 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
         const docsLabel = both
             ? 'el *Anexo I (Declaración Responsable)* y el *Anexo de Cesión de Ahorros*'
             : (docKeys[0] === 'anexo1' ? 'el *Anexo I (Declaración Responsable)*' : 'el *Anexo de Cesión de Ahorros*');
-        return `¡Hola${saludo ? ` ${saludo}` : ''}! 👋\n\n`
+        return `¡Hola${saludo ? ` ${saludo}` : ''}!\n\n`
             + `Desde *Brokergy* os hacemos llegar ${docsLabel} del expediente *${numexpte}*${clienteNombre ? ` (cliente: *${clienteNombre}*)` : ''}.\n\n`
             + `Por favor, hacedlos llegar al titular para su firma o gestionad la recogida de firma según corresponda.\n\n`
             + `Ambos pueden firmarse de forma *electrónica* (con certificado digital) o *manuscrita* (con nombre, apellidos y DNI a mano + foto del DNI por ambas caras).\n\n`
@@ -396,7 +396,7 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
         const phone = cliContacts[0]?.phone || cli.tlf || cli.telefono || '';
         const tienePhone = phoneValid(phone);
         const faltanTxt = datosFaltan.length ? ` (${datosFaltan.join(', ')})` : '';
-        const msg = `¡Hola ${firstName}! 👋\n\nPara poder tramitar tu ayuda del expediente *${numexpte}* necesitamos que completes unos datos${faltanTxt} y, si procede, subas el justificante de titularidad bancaria. Es muy rápido, desde aquí:\n${firmaUrl}\n\nGracias 🙌\n*Brokergy*`;
+        const msg = `¡Hola ${firstName}!\n\nPara poder tramitar tu ayuda del expediente *${numexpte}* necesitamos que completes unos datos${faltanTxt} y, si procede, subas el justificante de titularidad bancaria. Es muy rápido, desde aquí:\n${firmaUrl}\n\nGracias 🙌\n*Brokergy*`;
         let copied = false;
         try { await navigator.clipboard.writeText(firmaUrl); copied = true; } catch (e) { copied = false; }
         if (tienePhone && waReady) {

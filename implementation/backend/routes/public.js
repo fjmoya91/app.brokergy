@@ -440,7 +440,7 @@ router.post('/aceptar/:id', upload.single('justificante'), async (req, res) => {
             // 4. WhatsApp cliente
             if (formFields.telefono) {
                 const whatsappMsg =
-`¡Hola *${formFields.nombre_razon_social}*! 👋
+`¡Hola *${formFields.nombre_razon_social}*!
 
 Hemos recibido correctamente la aceptación de tu propuesta. *¡Muchas gracias por confiar en Brokergy!*
 

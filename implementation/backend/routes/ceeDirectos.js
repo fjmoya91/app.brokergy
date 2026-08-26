@@ -666,7 +666,7 @@ router.post('/:id/notify-certificador', staffOnly, async (req, res) => {
         const bloqueCarpetas = compartidas.map(c => `📁 ${c.nombre}:\n${c.link}`).join('\n\n');
 
         const cuerpo = (req.body?.customMessage || '').trim()
-            || `¡Hola ${cert.razon_social || cert.acronimo || 'técnico'}! 👋\n\n`
+            || `¡Hola ${cert.razon_social || cert.acronimo || 'técnico'}!\n\n`
              + `Te encargamos el ${faseLabel} del expediente ${row.numero_expediente}.\n\n`
              + `👤 ${ficha.nombre || '(cliente sin nombre)'}${ficha.dni ? ` · ${ficha.dni}` : ''}\n`
              + `${ficha.tlf ? `📞 ${ficha.tlf}\n` : ''}`
@@ -772,7 +772,7 @@ router.post('/:id/approve-cee', staffOnly, async (req, res) => {
         const subirLink = `${APP_BASE}/subir-cee-directo/${row.id}?token=${token}&phase=${phase}`;
 
         const base = (req.body?.customMessage || '').trim()
-            || `¡Hola ${cert.razon_social || cert.acronimo || 'técnico'}! 👋\n\n`
+            || `¡Hola ${cert.razon_social || cert.acronimo || 'técnico'}!\n\n`
              + `Hemos revisado el ${faseLabel} del expediente ${row.numero_expediente}`
              + `${nombreCliente(row.cliente) ? ` (${nombreCliente(row.cliente)})` : ''} y tiene nuestro visto bueno. `
              + `Ya puedes registrarlo.\n\n¡Gracias!\nBROKERGY · Ingeniería Energética`;
@@ -1096,7 +1096,7 @@ router.post('/:id/resend-cee-notifications', staffOnly, async (req, res) => {
         // Texto editado en la preview. Viaja en `overrides.CLIENTE`, igual que en el
         // CAE, para que lo que se revisa en pantalla sea exactamente lo que sale.
         const cuerpo = String(req.body?.overrides?.CLIENTE || req.body?.customMessage || '').trim()
-            || `¡Hola${nombreCliente(row.cliente) ? ` ${nombreCliente(row.cliente)}` : ''}! 👋\n\n`
+            || `¡Hola${nombreCliente(row.cliente) ? ` ${nombreCliente(row.cliente)}` : ''}!\n\n`
              + `Ya tienes listo tu ${faseLabel} (expediente ${row.numero_expediente}).\n\n`
              + `Te lo adjuntamos en este mensaje.\n\n`
              + `¡Gracias por confiar en nosotros!\nBROKERGY · Ingeniería Energética`;

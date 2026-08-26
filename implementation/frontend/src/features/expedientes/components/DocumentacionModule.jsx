@@ -1260,7 +1260,7 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
         const cliR = expediente?.clientes || {};
         const clienteNombre = [cliR.nombre_razon_social, cliR.apellidos].filter(Boolean).join(' ').trim();
         const uploadLink = `${window.location.origin}/subir-rite/${expediente?.id}`;
-        return `¡Hola! 👋\n\n`
+        return `¡Hola!\n\n`
             + `Desde *Brokergy* os lo ponemos fácil 🚀\n\n`
             + `Para agilizar la legalización térmica del expediente *${expediente?.numero_expediente || ''}*${clienteNombre ? ` (${clienteNombre})` : ''} os adjuntamos, ya preparados con los datos del proyecto:\n\n`
             + `📄 *Memoria Técnica RITE* (Word) — prácticamente rellena: revisar y firmar.\n`

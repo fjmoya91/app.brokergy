@@ -1363,7 +1363,7 @@ async function notifyRechazo({ opp, slotLabel, motivo, subidoPor }) {
         const phone = t.tlf, email = t.email;
 
         const msg =
-`Hola${nombre ? ` *${nombre}*` : ''} 👋
+`Hola${nombre ? ` *${nombre}*` : ''}
 
 Revisando la documentación del expediente *${opp.id_oportunidad}* hemos visto que una foto no nos sirve y necesitamos que la repitas:
 
@@ -1409,7 +1409,7 @@ async function sendReformaUploadNotifications({ contacto, idOportunidad, uploadL
     // WhatsApp cliente
     if (contacto?.tlf) {
         const msg =
-`¡Hola *${nombre}*! 👋
+`¡Hola *${nombre}*!
 
 Gracias por tu interés en las ayudas de Brokergy. Hemos registrado tu solicitud con la referencia *${idOportunidad}*.
 

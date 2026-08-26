@@ -115,7 +115,7 @@ function buildWhatsAppMessage({
     const lines = [];
 
     // ── Intro ──
-    lines.push(`¡Hola ${fn}! 👋`);
+    lines.push(`¡Hola ${fn}!`);
     lines.push('');
 
     if (type === 'suave') {
@@ -240,7 +240,7 @@ function buildProposalPdfHtml({
     </div>
 
     <!-- Título -->
-    <h1 style="font-size:24px;font-weight:900;margin:34px 0 6px;">Hola, ${fn} 👋</h1>
+    <h1 style="font-size:24px;font-weight:900;margin:34px 0 6px;">Hola, ${fn}</h1>
     <p style="font-size:15px;color:#475569;margin:0 0 28px;">Esta es tu estimación de ayudas para ${prod}.</p>
 
     <!-- Cifras clave -->

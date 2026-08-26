@@ -885,7 +885,7 @@ router.patch('/:id/estado', requireAuth, async (req, res) => {
                     const adminMsg =
 `*${id} – ACEPTACIÓN DE EXPEDIENTE*
 
-¡Hola BROKERGY! 👋
+¡Hola BROKERGY!
 Se ha marcado como ACEPTADA la oportunidad por *${usuarioName}*:
 
 *Cliente:* ${client?.nombre_razon_social || op.referencia_cliente || 'S/N'} ${client?.apellidos || ''}

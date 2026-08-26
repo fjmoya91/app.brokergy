@@ -662,7 +662,7 @@ const sendAdminNotificationEmail = async ({ numeroExpediente, clientName, addres
         title: 'Aceptación de expediente',
         pill: PILL.success('Expediente aceptado'),
         contentHtml:
-            emailP('¡Hola BROKERGY! 👋', { size: 16, mb: 20 }) +
+            emailP('¡Hola BROKERGY!', { size: 16, mb: 20 }) +
             emailP(`El cliente <strong>${escapeHtml(clientName || 'S/N')}</strong> ha firmado y aceptado la propuesta desde el portal público. Se ha generado un nuevo expediente automáticamente.`, { color: BRAND.muted, mb: 22 }) +
             emailBox(emailDataTable([
                 ['Expediente', `<span style="color:${BRAND.orangeDark};">${escapeHtml(numeroExpediente || 'PENDIENTE')}</span>`],
@@ -981,12 +981,12 @@ const sendCertificadorReminderEmail = async ({
         ? emailP(escapeHtml(customMessage), { pre: true, mb: 16 })
         : esRegistro
             ? (
-                emailP(`¡Hola ${escapeHtml(certName || 'técnico')}! 👋`, { size: 19, bold: true, mb: 6 }) +
+                emailP(`¡Hola ${escapeHtml(certName || 'técnico')}!`, { size: 19, bold: true, mb: 6 }) +
                 emailP(`El certificado del expediente <strong>${escapeHtml(expedienteNum)}</strong>${clienteName ? ` de <strong>${escapeHtml(clienteName)}</strong>` : ''} tiene nuestro <strong>visto bueno</strong> y sigue pendiente de <strong>registrar en Industria</strong>.`, { color: BRAND.muted, mb: 16 }) +
                 emailP('En cuanto lo presentes, súbenos la etiqueta energética y el justificante de registro para poder continuar con el expediente.', { color: BRAND.muted, mb: 22 })
             )
             : (
-                emailP(`¡Hola ${escapeHtml(certName || 'técnico')}! 👋`, { size: 19, bold: true, mb: 6 }) +
+                emailP(`¡Hola ${escapeHtml(certName || 'técnico')}!`, { size: 19, bold: true, mb: 6 }) +
                 emailP(`Te escribimos para recordarte que tienes pendiente el encargo del expediente <strong>${escapeHtml(expedienteNum)}</strong>${clienteName ? ` de <strong>${escapeHtml(clienteName)}</strong>` : ''}.`, { color: BRAND.muted, mb: 16 }) +
                 emailP('¿Podrías darnos una estimación de fecha de entrega? Nos ayudaría mucho para la planificación.', { color: BRAND.muted, mb: 22 })
             );
@@ -1485,7 +1485,7 @@ const sendCertificadorApproveNotification = async (to, certName, numExp, phaseLa
     const bodyParagraphs = bodyText
         // El *negrita* de WhatsApp se convierte a <b> para que no salgan asteriscos sueltos.
         ? emailP(escapeHtml(bodyText).replace(/\*([^*\n]+)\*/g, '<b>$1</b>'), { pre: true, mb: 22 })
-        : emailP(isUrgent ? `🚨<strong>¡Urgente ${escapeHtml(firstName)}!</strong> 🚨` : `¡Hola ${escapeHtml(firstName)}! 👋`) +
+        : emailP(isUrgent ? `🚨<strong>¡Urgente ${escapeHtml(firstName)}!</strong> 🚨` : `¡Hola ${escapeHtml(firstName)}!`) +
           emailP(`Hemos revisado el <strong>${phaseLabel}</strong> del expediente <strong>${numExp}</strong> y tiene nuestro visto bueno. Ya puedes proceder a registrarlo en Industria.`) +
           (isUrgent ? emailP('🚨 Te pedimos que lo <strong>priorices</strong>: necesitamos el registro con carácter <strong>URGENTE</strong> para poder cumplir con los plazos del programa de ayudas.') : '') +
           emailP('¡Gracias!', { mb: 22 });
@@ -1552,7 +1552,7 @@ const sendCeeInicialRegistradoClientEmail = async (to, clientName, numExp, porta
         title: 'Certificado presentado',
         pill: PILL.success('Certificado presentado'),
         contentHtml:
-            emailP(`¡Hola <strong>${escapeHtml(clientName)}</strong>! 👋`, { mb: 15 }) +
+            emailP(`¡Hola <strong>${escapeHtml(clientName)}</strong>!`, { mb: 15 }) +
             emailP(`Te escribimos para comunicarte que ya ha sido presentado el Certificado de Eficiencia Energética INICIAL de tu expediente <strong>${escapeHtml(numExp)}</strong>.`, { color: BRAND.muted, mb: 22 }) +
             emailBox(emailP('Desde este momento ya se pueden emitir facturas y pagos.', { bold: true, color: BRAND.greenDark, mb: 0 }), { bg: BRAND.greenTint, border: BRAND.green, mb: 22 }) +
             emailP('📸 <strong>Recuerda hacerle fotografías a todo:</strong>', { mb: 8 }) +

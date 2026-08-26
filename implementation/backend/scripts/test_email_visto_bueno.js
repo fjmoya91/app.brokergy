@@ -16,7 +16,7 @@ const to = process.argv[2] || 'franciscojavier.moya.s2e2@gmail.com';
         'https://app.brokergy.es/?exp=07b333b6-9d3b-4002-8f4f-470dcfe6c61e',
         null,
         null,
-        '¡Hola Francisco! 👋\n\nHemos revisado el CEE Inicial del expediente 26RES060_159 (David Cobos Pérez) y tiene nuestro visto bueno. Ya puedes proceder a registrarlo en Industria.\n\n¡Gracias!\n\n🔗 Abre el expediente:\nhttps://app.brokergy.es/?exp=07b333b6-9d3b-4002-8f4f-470dcfe6c61e',
+        '¡Hola Francisco!\n\nHemos revisado el CEE Inicial del expediente 26RES060_159 (David Cobos Pérez) y tiene nuestro visto bueno. Ya puedes proceder a registrarlo en Industria.\n\n¡Gracias!\n\n🔗 Abre el expediente:\nhttps://app.brokergy.es/?exp=07b333b6-9d3b-4002-8f4f-470dcfe6c61e',
         {
             presentFolderLink: 'https://drive.google.com/drive/folders/1UE8W6AXVdwcqzh6QgQxId7qE3WLyJ09A',
             ceeUploadLink: 'https://app.brokergy.es/subir-cee/07b333b6-9d3b-4002-8f4f-470dcfe6c61e?token=abc&phase=inicial'
