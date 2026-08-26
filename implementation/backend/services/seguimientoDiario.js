@@ -1,6 +1,6 @@
 // ─── seguimientoDiario — el parte diario de expedientes atascados ─────────────
 //
-// UN solo mensaje al día (WhatsApp + email) con todo lo que lleva parado más de la
+// UN solo mensaje al día (WhatsApp + email) con todo lo que espera a alguien: lo que
 // cuenta, y en cada línea el enlace que lo desbloquea. Sustituye al aviso suelto de
 // "CEE pendientes de revisión", que ahora es uno de sus bloques.
 //
@@ -53,7 +53,9 @@ const ubicacion = (f) => {
     return [dir, repetido ? null : mun].filter(Boolean).join(', ') || f.cliente_nombre || '—';
 };
 
-const espera = (f) => (f.sin_fecha ? 'sin fecha' : `${f.dias} día${f.dias === 1 ? '' : 's'}`);
+// "0 días" se lee como si el dato faltara. El bloque de revisión ya no espera a que
+// pase un día (umbral 0), así que en el parte aparecen entregas de HOY.
+const espera = (f) => (f.sin_fecha ? 'sin fecha' : f.dias === 0 ? 'hoy' : `${f.dias} día${f.dias === 1 ? '' : 's'}`);
 
 const linkExpediente = (f) => `${FRONTEND()}/?exp=${encodeURIComponent(f.numero_expediente || '')}`;
 
@@ -90,7 +92,7 @@ function construirWa(grupos, total, urlParte) {
     return `📋 *PARTE DE SEGUIMIENTO*
 _${new Intl.DateTimeFormat('es-ES', { dateStyle: 'full', timeZone: 'Europe/Madrid' }).format(new Date())}_
 
-*${total}* expediente${total === 1 ? '' : 's'} parado${total === 1 ? '' : 's'} por encima de su plazo:
+*${total}* expediente${total === 1 ? '' : 's'} esperando a alguien:
 
 ${resumen}
 ${accionables.length ? `
@@ -142,7 +144,7 @@ function construirHtml(grupos, total, urlParte) {
           <p style="margin:4px 0 0;color:#fff;opacity:.9;font-size:12px">${escapar(new Intl.DateTimeFormat('es-ES', { dateStyle: 'full', timeZone: 'Europe/Madrid' }).format(new Date()))}</p>
         </div>
         <div style="padding:24px;background:#fff;color:#222;">
-          <p style="margin:0 0 12px"><strong>${total}</strong> expediente${total === 1 ? '' : 's'} ${total === 1 ? 'está parado' : 'están parados'} por encima de su plazo.</p>
+          <p style="margin:0 0 12px"><strong>${total}</strong> expediente${total === 1 ? '' : 's'} ${total === 1 ? 'está esperando' : 'están esperando'} a alguien.</p>
           <ul style="margin:0 0 8px;padding-left:18px;font-size:13px;color:#334155">${indice}</ul>
           <p style="background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:12px;margin:16px 0;font-size:13px">
             Los botones naranjas <strong>preparan el mensaje</strong> al certificador, al cliente o al instalador:
@@ -209,7 +211,7 @@ async function comprobarYAvisar({ force = false } = {}) {
             // Buzón SECUNDARIO: los avisos internos no gastan la cuota del buzón con el
             // que se escribe a clientes e instaladores.
             from: process.env.ALERT_EMAIL_FROM || emailService.getFallbackSender() || undefined,
-            subject: `📋 Parte de seguimiento — ${parte.total} expediente${parte.total === 1 ? '' : 's'} parado${parte.total === 1 ? '' : 's'}`,
+            subject: `📋 Parte de seguimiento — ${parte.total} expediente${parte.total === 1 ? '' : 's'} pendiente${parte.total === 1 ? '' : 's'}`,
             html: parte.html,
             text: parte.wa,
         });

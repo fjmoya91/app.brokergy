@@ -14,7 +14,11 @@
  * (`GET /api/expedientes/alertas/revision-pendiente` y su `/enviar`). Delegan.
  */
 
-const DIAS_UMBRAL = Number(process.env.REVISION_ALERTA_DIAS || 2);
+// El umbral lo manda el RADAR, que es quien decide qué entra en el bloque REVISION
+// (hoy: 0 días, ver allí el porqué). Repetir aquí un `|| 2` hacía que esta ruta
+// contestara con un criterio distinto del que enseña la pestaña Seguimiento — dos
+// superficies afirmando cosas contrarias sobre los mismos expedientes.
+const DIAS_UMBRAL = require('./seguimientoRadar').BLOQUES.REVISION.dias;
 
 /**
  * CEE entregados por el certificador y pendientes de revisión desde hace más de

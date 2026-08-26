@@ -48,6 +48,11 @@ const TONO = {
 const tono = (b) => TONO[b] || TONO.SIN_ENCARGAR;
 
 // La antigüedad se lee por el color, sin comparar números.
+// El bloque de revisión ya no espera a que pase un día (umbral 0), así que aquí
+// aparecen entregas de HOY. "0 d" se lee como si faltara el dato; "hoy" dice lo que
+// es y de paso distingue lo que acaba de entrar de lo que lleva semanas.
+const textoDias = (d, sinFecha) => (sinFecha ? '—' : d === 0 ? 'hoy' : `${d} d`);
+
 const colorDias = (d, sinFecha) =>
     sinFecha ? 'text-white/30' : d > 60 ? 'text-red-400' : d > 30 ? 'text-orange-400' : d > 14 ? 'text-amber-400' : 'text-white/45';
 
@@ -156,7 +161,7 @@ export function SeguimientoView() {
                     <p className="text-[11px] sm:text-xs text-white/35 leading-tight mt-0.5">
                         {hechos > 0
                             ? <span className="text-emerald-400 font-bold">{hechos} despachado{hechos === 1 ? '' : 's'} en esta sesión</span>
-                            : 'Lo que lleva parado más de la cuenta'}
+                            : 'Lo que te toca a ti y lo que llevas esperando de otros'}
                     </p>
                 </div>
                 <BotonIcono onClick={cargar} titulo="Volver a escanear">
@@ -315,7 +320,7 @@ function TarjetaGrupo({ g, onAbrir }) {
                         </div>
                         <div className="text-[11px] text-white/35 mt-0.5">{ROL_TXT[g.destinatario?.tipo] || ''}</div>
                     </div>
-                    <span className={`shrink-0 text-[11px] font-black tabular-nums ${colorDias(g.dias)}`}>{g.dias} d</span>
+                    <span className={`shrink-0 text-[11px] font-black tabular-nums ${colorDias(g.dias)}`}>{textoDias(g.dias)}</span>
                 </div>
 
                 <div className={`text-[12px] font-bold ${t.txt} mt-2.5 leading-snug`}>{g.etiqueta}</div>
@@ -373,7 +378,7 @@ function BloqueDiagnostico({ b, abierto, onToggle }) {
                                     <span className="block text-[10px] text-white/25 truncate">{f.cliente_nombre || f.municipio || '—'}</span>
                                 </span>
                                 <span className={`text-[11px] font-black tabular-nums shrink-0 ${colorDias(f.dias, f.sin_fecha)}`}>
-                                    {f.sin_fecha ? '—' : `${f.dias} d`}
+                                    {textoDias(f.dias, f.sin_fecha)}
                                 </span>
                             </a>
                         ))}

@@ -38,8 +38,17 @@ const BLOQUES = {
         nota: 'El enlace de firma está BLOQUEADO hasta que se reenvíe el documento corregido.',
     },
     REVISION: {
+        // SIN UMBRAL (0 días) a propósito, y es el único bloque así. Los demás
+        // detectan algo PARADO —hay que esperar para saber que lo está—; éste no
+        // espera nada de nadie: el CEE ya está entregado y lo único que falta es
+        // que lo mires TÚ. Con 2 días, un CEE entregado esta mañana no aparecía al
+        // pulsar "volver a escanear" y la pantalla parecía rota (medido el
+        // 26/08/2026 con 26RES060_175, entregado a las 09:24, y 26RES060_156).
+        // Vale para las dos superficies: la pestaña Seguimiento y el parte diario,
+        // que va a nuestro propio chat — no es dar la lata a nadie, es la cola de
+        // trabajo del día. Se puede volver a poner con REVISION_ALERTA_DIAS.
         orden: 2, emoji: '🔴', titulo: 'CEE entregados y pendientes de TU revisión',
-        dias: num(process.env.REVISION_ALERTA_DIAS, 2), reinsistir: null,
+        dias: num(process.env.REVISION_ALERTA_DIAS, 0), reinsistir: null,
         nota: 'El certificador te los factura al entregarlos, no al revisarlos.',
     },
     OBRA_SIN_CERRAR: {
