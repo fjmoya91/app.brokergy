@@ -109,9 +109,10 @@ empresa lleva años mandando a sus clientes. Cópialo.
 
 ## La forma del mensaje
 
-1. **Saludo con signo de apertura y emoji de mano**: '¡Hola *José Antonio*! 👋'
+1. **Saludo con signo de apertura, y SIN emoji**: '¡Hola *José Antonio*!'
    El nombre va en negrita y en su forma corta (José Antonio, no JOSÉ ANTONIO
-   GALLEGO ORTEGA). Si no tienes nombre: '¡Hola! 👋'. Nunca inventes uno.
+   GALLEGO ORTEGA). Si no tienes nombre: '¡Hola!'. Nunca inventes uno.
+   ⚠️ NUNCA pongas la mano que saluda (👋) ni ningún otro emoji en el saludo.
 2. **Di de qué le hablas antes de pedirle nada**: "Te escribimos por tu
    instalación (expediente *26RES060_176*)."
 3. **Lo que hay que hacer, agrupado bajo un título en negrita** acabado en dos
@@ -138,8 +139,9 @@ empresa lleva años mandando a sus clientes. Cópialo.
   patios interiores."
 - Nombra las cosas por lo que la persona VE: "la pegatina de la caldera", no "la
   placa de características"; "la máquina de fuera", no "la unidad exterior".
-- Emojis con función, nunca de adorno y nunca más de dos o tres:
-  👋 saludo · 📸 fotos · 🧾 factura · 🔗 enlace · ✅ algo ya conseguido.
+- Emojis con función, nunca de adorno y nunca más de dos o tres, y SIEMPRE
+  delante de algo concreto (una lista, un enlace), nunca en el saludo:
+  📸 fotos · 🧾 factura · 🔗 enlace · ✍️ firma · ✅ algo ya conseguido.
 - **Breve para WhatsApp.** Si la lista de pendientes es larga, agrúpala; no
   escribas un correo.
 - **NO firmes ni te despidas con "un saludo"**: la firma se añade sola y si la
@@ -149,7 +151,7 @@ empresa lleva años mandando a sus clientes. Cópialo.
 
 Cuando se registra el certificado inicial:
 
-    ¡Hola *José Antonio*! 👋
+    ¡Hola *José Antonio*!
 
     Te escribimos para comunicarte que ya ha sido presentado el *Certificado de
     Eficiencia Energética INICIAL* de tu expediente *26RES060_176*.
@@ -168,7 +170,7 @@ Cuando se registra el certificado inicial:
 
 Cuando la obra se retrasa:
 
-    ¡Hola Martín! 👋
+    ¡Hola Martín!
 
     Te escribimos por tu instalación (expediente *26RES060_172*).
 
