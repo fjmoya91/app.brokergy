@@ -5,6 +5,9 @@ import { PROVINCE_CODE_TO_CCAA, PROVINCE_CODE_TO_NAME } from '../utils/docGenera
 import { withScopAplicado, cloneAero, potenciaTotal, countUnidades, scopPropioUnidad1, scopAplicado, tipoEquipoNuevo, datosAcumulador, EQUIPO_NUEVO, RENDIMIENTO_JOULE } from '../logic/aerotermiaUnits';
 import { EMITTER_OPTIONS, getEmitterTemp } from '../logic/cifoDoc';
 import { esTer100 } from '../logic/ter100';
+import { useAuth } from '../../../context/AuthContext';
+import { getRoleFlags } from '../../../utils/roleFlags';
+import { PrescriptorDetailModal } from '../../admin/views/PrescriptorDetailModal';
 
 // Lista de emisores: fuente única en logic/cifoDoc.js (la misma que imprimen el
 // CIFO y el RES080). Las unidades AIRE-AIRE (splits / conductos) solo se ofrecen
@@ -1316,6 +1319,12 @@ function SearchableSelect({ value, onChange, options, label, placeholder = '— 
 
 // ─── Componente Principal ─────────────────────────────────────────────────────
 export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, readOnly = false }) {
+    const { user } = useAuth();
+    // La ficha del instalador lleva dinero (precio de referencia, comisiones) y
+    // acceso al portal: se abre desde aquí SOLO para ADMIN, igual que en la Red de
+    // Prescriptores. Ver "project_expedientes_internos_rbac".
+    const { isAdmin } = getRoleFlags(user);
+    const [showInstaladorFicha, setShowInstaladorFicha] = useState(false);
     const [marcas, setMarcas] = useState([]);
     const [modelosPorMarca, setModelosPorMarca] = useState({});
     const [prescriptores, setPrescriptores] = useState([]);
@@ -1649,6 +1658,10 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
             logo: i.logo_empresa || null,
             acronimo: i.acronimo || null,
         }));
+
+    // El instalador asignado, tal cual viene de /api/prescriptores — es el mismo
+    // objeto que la Red de Prescriptores le pasa al modal de ficha.
+    const instaladorSel = prescriptores.find(i => i.id_empresa === local.instalador_id) || null;
 
     // 1. Extraer demanda con precisión técnica (Prioridad CEE Final > Oportunidad)
     const ceeFinal = expediente?.cee?.cee_final || {};
@@ -2074,7 +2087,25 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
                         <h4 className="text-xs font-black text-white uppercase tracking-widest">Empresa Instaladora Asignada</h4>
                     </div>
                     <div>
-                        <label className="block text-xs text-white/40 uppercase tracking-wider mb-1 font-bold">Seleccionar Instalador</label>
+                        <div className="flex items-center justify-between gap-2 mb-1">
+                            <label className="block text-xs text-white/40 uppercase tracking-wider font-bold">Seleccionar Instalador</label>
+                            {/* Atajo a la MISMA ficha de la Red de Prescriptores: desde el
+                                expediente se mira el teléfono o se corrige un dato del
+                                instalador constantemente, y salir a otra pestaña hace
+                                perder lo que estabas haciendo. Solo ADMIN: la ficha lleva
+                                precio de referencia, comisiones y acceso al portal. */}
+                            {isAdmin && instaladorSel && (
+                                <button
+                                    type="button"
+                                    onClick={() => setShowInstaladorFicha(true)}
+                                    className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-brand hover:text-white bg-brand/10 hover:bg-brand/20 border border-brand/20 rounded-lg px-2.5 py-1.5 transition-colors"
+                                    title="Ver y editar la ficha del instalador"
+                                >
+                                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                                    Ver ficha
+                                </button>
+                            )}
+                        </div>
                         <SearchableSelect
                             value={local.instalador_id || ''}
                             onChange={v => setLocal(p => ({ ...p, instalador_id: v || null }))}
@@ -2090,7 +2121,7 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
                         que firma por él (se configura en su ficha de la Red de
                         Prescriptores). Se avisa aquí para que no sorprenda en el PDF. */}
                     {(() => {
-                        const sel = prescriptores.find(i => i.id_empresa === local.instalador_id);
+                        const sel = instaladorSel;
                         if (!sel || sel.tiene_carnet_rite) return null;
                         const firmante = prescriptores.find(i => i.id_empresa === sel.instalador_rite_id);
                         return (
@@ -2108,6 +2139,23 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
                             </div>
                         );
                     })()}
+
+                    {/* La MISMA ficha de la Red de Prescriptores, no una copia: lo que se
+                        edita aquí (teléfono, carnet RITE, instalador firmante) es lo que
+                        leen la Memoria RITE y el CIFO. Al guardar se refresca la lista
+                        local para que el aviso de arriba deje de mentir al instante. */}
+                    {showInstaladorFicha && isAdmin && instaladorSel && (
+                        <PrescriptorDetailModal
+                            isOpen={true}
+                            prescriptor={instaladorSel}
+                            onClose={() => setShowInstaladorFicha(false)}
+                            onUpdated={(updated) => {
+                                setPrescriptores(prev => prev.map(i =>
+                                    i.id_empresa === updated.id_empresa ? { ...i, ...updated } : i
+                                ));
+                            }}
+                        />
+                    )}
                 </div>
             </div>
 
