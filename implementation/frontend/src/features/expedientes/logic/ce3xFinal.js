@@ -64,7 +64,7 @@ const aPorcentaje = (v) => Math.round((Number(v) || 0) * 100);
  * equipos en los CEE que venimos presentando: el verificador y el técnico los
  * reconocen por ese formato.
  */
-function nombreEquipo(aero, prefijo = 'AEROTERMIA ', { udExterior = true } = {}) {
+function nombreEquipo(aero, prefijo = 'AEROTERMIA ', { udExterior = true, conteo = true } = {}) {
     const grupos = [];
     for (const u of getUnidades(aero)) {
         const label = [
@@ -78,7 +78,13 @@ function nombreEquipo(aero, prefijo = 'AEROTERMIA ', { udExterior = true } = {})
         else grupos.push({ label, n: 1 });
     }
     if (!grupos.length) return '';
-    return prefijo + grupos.map(g => (g.n > 1 ? `${g.label} (×${g.n})` : g.label)).join(' + ');
+    // El "(×N)" se calla cuando la frase ya dice cuántas son ("2 equipos en cascada
+    // de AEROTERMIA X (×2)" repite el número), pero solo si hay UN modelo: con dos
+    // distintos, ese ×N es lo único que dice cuántas hay de cada uno.
+    const unSoloModelo = grupos.length === 1;
+    return prefijo + grupos
+        .map(g => (g.n > 1 && (conteo || !unSoloModelo) ? `${g.label} (×${g.n})` : g.label))
+        .join(' + ');
 }
 
 /**
@@ -252,7 +258,7 @@ export function resolverCe3x(exp, { modelos = {} } = {}) {
         // El mismo nombre SIN la unidad exterior entre paréntesis. La casilla
         // "Nombre" de CE3X la lleva (identifica la máquina); una frase corrida, no:
         // "AEROTERMIA SH MASTER 14 (MASTER 14)" se lee como una errata.
-        nombreCorto: nombreEquipo(cal, prefijoNombre, { udExterior: false }),
+        nombreCorto: nombreEquipo(cal, prefijoNombre, { udExterior: false, conteo: false }),
         nUnidades: countUnidades(cal),
         series: formatSeries(cal, { dash: '', sep: ' / ' }),
         seriesAcs: formatSeries(inst.aerotermia_acs, { dash: '', sep: ' / ' }),
@@ -453,7 +459,7 @@ export function buildMedidaMejora(exp, { modelos = {} } = {}) {
     const hueco = (falta) => { faltan.push(falta); return '___'; };
 
     // ── Qué equipo entra ─────────────────────────────────────────────────────
-    const equipo = d.nombreCorto || 'el equipo nuevo';
+    const equipo = d.nombreCorto || hueco('la marca y el modelo del equipo');
     // Con dos unidades, "una AEROTERMIA X (×2)" es una contradicción gramatical y
     // además esconde lo que más mira el verificador: que son varias en cascada.
     const entra = d.nUnidades > 1
@@ -499,15 +505,17 @@ export function buildMedidaMejora(exp, { modelos = {} } = {}) {
     if (d.acsAparte) {
         const acs = inst.aerotermia_acs;
         if (d.acsTipo === EQUIPO_NUEVO.TERMO) {
-            const n = [acs?.marca, acs?.modelo].filter(Boolean).join(' ');
-            texto += ` y un termo eléctrico para ACS${n ? ` ${n}` : ''} con rendimiento del 100 %`;
+            const n = [acs?.marca, acs?.modelo].filter(Boolean).join(' ')
+                || hueco('la marca y el modelo del termo de ACS');
+            texto += ` y un termo eléctrico para ACS ${n} con rendimiento del 100 %`;
         } else {
-            const n = nombreEquipo(acs, '', { udExterior: false });
-            texto += ` y una bomba de calor para ACS${n ? ` ${n}` : ''}`
+            const n = nombreEquipo(acs, '', { udExterior: false, conteo: false })
+                || hueco('la marca y el modelo del equipo de ACS');
+            texto += ` y una bomba de calor para ACS ${n}`
                 + ` con SCOPdhw de ${d.scopAcs > 0 ? num2(d.scopAcs) : hueco('el SCOP dhw')}`;
         }
     }
-    if (d.litros > 0) texto += `, con acumulación de ${d.litros} litros`;
+    if (d.litros > 0) texto += `, con acumulación de ${String(d.litros).replace('.', ',')} litros`;
 
     // ── Aviso: en un RES080 la actuación no es solo el generador ─────────────
     // El párrafo describe el CAMBIO DE EQUIPO. Si además hay obra de envolvente,
