@@ -864,9 +864,36 @@ router.post('/:id/notify-registration', internalOnly, async (req, res) => {
         if (!row) return res.status(404).json({ error: 'Expediente no encontrado' });
         if (!puedeVer(req, row)) return res.status(403).json({ error: 'Acceso denegado' });
 
-        const phase = req.body?.phase === 'final' ? 'final' : 'inicial';
+        // ⚠️ La rejilla manda `type` (es el nombre que usa la ruta del CAE) y las
+        // demás superficies mandan `phase`. Leyendo solo `phase`, una llamada
+        // desde la rejilla caía siempre en 'inicial': registrar el CEE FINAL
+        // marcaba como registrado el INICIAL, que es la fase equivocada.
+        const phase = [req.body?.phase, req.body?.type].includes('final') ? 'final' : 'inicial';
         const key = phase === 'final' ? 'cee_final' : 'cee_inicial';
         const faseLabel = estados.nombreFase(row, phase);
+
+        // REGLA — no se da un CEE por REGISTRADO sin el justificante.
+        //
+        // REGISTRADO es terminal y, en la fase final, es lo que pone el expediente
+        // en FINALIZADO: a partir de ahí deja de salir en la cola de trabajo. Los
+        // demás caminos que lo marcan lo hacen porque acaban de recibir el
+        // justificante —la casilla REGISTRO de la rejilla y el enlace público del
+        // técnico—, así que la prueba viaja con el gesto. Este popup es el único
+        // sitio donde una persona lo AFIRMA sin aportar nada, y ahí es donde el
+        // expediente se puede dar por cerrado sin que exista el papel.
+        //
+        // Solo se comprueba al ENTRAR en REGISTRADO: los ya sellados —los 17
+        // importados del histórico, cuyo justificante está en la carpeta pero con
+        // los nombres de la época manual— no se tocan ni se vuelven a validar.
+        if (row.seguimiento?.[key] !== 'REGISTRADO') {
+            const enCarpeta = await uploads.scanSection(row, phase);
+            if (!enCarpeta.registro) {
+                return res.status(422).json({
+                    error: `Falta el justificante de registro del ${faseLabel}. Súbelo a la casilla REGISTRO de la rejilla: `
+                        + 'es lo que marca la fase como registrada, y sin él el expediente se daría por terminado sin la prueba.'
+                });
+            }
+        }
 
         const seguimiento = { ...(row.seguimiento || {}), [key]: 'REGISTRADO' };
         const patch = { seguimiento };

@@ -1084,7 +1084,12 @@ export function CeeDocumentsGrid({
             setNotifyModal(null);
         } catch (err) {
             console.error('Notify error:', err);
-            showAlert('No se pudieron enviar las comunicaciones seleccionadas.', 'Error de Envío', 'error');
+            // Si el servidor explica QUÉ pasa, se enseña eso. El mensaje genérico
+            // tapaba motivos accionables —"falta el justificante de registro"— y
+            // dejaba al usuario delante de un "no se pudieron enviar" sin saber
+            // qué corregir.
+            showAlert(err.response?.data?.error || 'No se pudieron enviar las comunicaciones seleccionadas.',
+                'Error de Envío', 'error');
         } finally {
             setSendingNotify(false);
         }
