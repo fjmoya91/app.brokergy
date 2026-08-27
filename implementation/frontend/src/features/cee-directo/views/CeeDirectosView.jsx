@@ -100,7 +100,12 @@ export function CeeDirectosView({ initialSelectedId = null, onClearInitialSelect
     const visibles = useMemo(() => {
         const palabras = norm(busqueda).split(/\s+/).filter(Boolean);
         return filas.filter(r => {
-            if (!verFinalizados && r.estado === 'FINALIZADO') return false;
+            // REGLA — una BÚSQUEDA explícita atraviesa el filtro de finalizados.
+            // Ocultarlos por defecto está bien: el listado es una cola de trabajo.
+            // Pero teclear un número de expediente y leer "nada que coincida" es
+            // decir que no existe algo que sí existe, y manda a buscarlo a la base
+            // de datos. La pastilla ya dice FINALIZADO, así que no hay confusión.
+            if (!verFinalizados && !palabras.length && r.estado === 'FINALIZADO') return false;
             if (filtroPrescriptor && String(r.prescriptor_id) !== filtroPrescriptor) return false;
             if (!palabras.length) return true;
             const heno = norm([r.numero_expediente, r.nombre, r.cliente_nombre, r.municipio, r.certificador_nombre, r.prescriptor_nombre].filter(Boolean).join(' '));

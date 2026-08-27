@@ -133,10 +133,23 @@ async function guardar(id, patch, { seguimientoPrev = null } = {}) {
 
     // El estado NO se acepta del cliente: se deriva. Es lo que garantiza que la
     // pastilla del listado y el subestado del módulo no puedan contradecirse.
-    const paraDerivar = {
-        alcance: patch.alcance || actual.alcance,
-        seguimiento: update.seguimiento || actual.seguimiento
-    };
+    //
+    // ⚠️ El atajo de `seguimientoPrev` ahorra releer el seguimiento, pero NO trae
+    // el ALCANCE — y sin él `deriveEstado` da por hecho que el encargo es de UN
+    // solo certificado, así que en cuanto el CEE inicial queda REGISTRADO lo sella
+    // FINALIZADO. Medido en 2025CEE_43: encargo DOBLE con el CEE final todavía en
+    // revisión, marcado FINALIZADO y desaparecido del listado, que oculta los
+    // finalizados. Lo pagaban los SIETE sitios que pasan el atajo, o sea todos.
+    //
+    // Se lee si no lo tenemos: es una columna, y un guardado es un gesto del
+    // usuario, no un bucle. Pedirle el alcance a cada llamante sería otra cosa
+    // más que olvidar, y este fallo nació justo de eso.
+    let alcance = patch.alcance || actual.alcance;
+    if (!alcance) {
+        alcance = await supabase.from(TABLA).select('alcance').eq('id', id)
+            .maybeSingle().then(r => r.data?.alcance || null);
+    }
+    const paraDerivar = { alcance, seguimiento: update.seguimiento || actual.seguimiento };
     update.estado = estados.deriveEstado(paraDerivar);
     update.updated_at = new Date().toISOString();
     delete update.id;
