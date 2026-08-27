@@ -167,13 +167,20 @@ async function getSectionAttachments(ceeDirecto, phase) {
  * El guion es el LARGO (–), como en el CAE: cambiarlo dejaría huérfanos los
  * ficheros ya subidos, porque el versionado busca por nombre exacto.
  */
-async function uploadFile(ceeDirecto, phase, slotId, buffer, mimeType) {
+async function uploadFile(ceeDirecto, phase, slotId, buffer, mimeType, opts = {}) {
     const slotDef = CEE_SLOTS.find(s => s.id === slotId);
-    if (!slotDef) throw new Error('Slot no válido');
+    // El cajón "OTROS" de la rejilla es MÚLTIPLE y no tiene sufijo canónico: ahí
+    // caben varios ficheros, y un nombre fijo haría que cada subida archivara la
+    // anterior en OLD. Conserva su nombre y solo se le antepone el expediente,
+    // igual que en el CAE. `nombreLibre` es el nombre ORIGINAL del fichero: el
+    // prefijo lo pone este servicio, nunca quien llama.
+    if (!slotDef && !opts.nombreLibre) throw new Error('Slot no válido');
     const { id: targetFolderId } = await ensureSectionFolder(ceeDirecto, phase);
     if (!targetFolderId) throw new Error('El expediente no tiene carpeta de Drive');
 
-    const fileName = `${ceeDirecto.numero_expediente} – ${sectionLabel(ceeDirecto, phase)}${slotDef.suffix}`;
+    const fileName = slotDef
+        ? `${ceeDirecto.numero_expediente} – ${sectionLabel(ceeDirecto, phase)}${slotDef.suffix}`
+        : `${ceeDirecto.numero_expediente} – ${driveService.sanitizeWindowsSegment(String(opts.nombreLibre).trim())}`;
 
     const existingId = await driveService.findFileByName(targetFolderId, fileName);
     if (existingId) {
@@ -191,6 +198,9 @@ async function uploadFile(ceeDirecto, phase, slotId, buffer, mimeType) {
 
 module.exports = {
     CEE_SLOTS,
+    // Reexportado del CAE: la ruta de la app deduce con él a qué slot iba un
+    // fichero cuando el navegador no lo dice.
+    matchSlot,
     normalizePhase,
     sectionLabel,
     uploadSignature,

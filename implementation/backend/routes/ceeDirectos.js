@@ -906,9 +906,25 @@ router.post('/:id/notify-registration', internalOnly, async (req, res) => {
 // ════════════════════════════════════════════════════════════════════════════
 
 // ─── POST /:id/documents/upload ─────────────────────────────────────────────
+//
+// REGLA — la carpeta de destino la decide el SERVIDOR, no el navegador.
+//
+// `CeeDocumentsGrid` es un componente COMPARTIDO con el CAE y escribía la ruta a
+// mano: `["1. CEE", "CEE FINAL"]`, que es la estructura del CAE. Aquí la sección
+// cuelga directamente de la raíz (`2. CEE FINAL`), así que el .cex de 2025CEE_43
+// acabó en una `1. CEE/CEE FINAL` que la subida creó al vuelo — un sitio donde
+// `scanSection` no mira y que no se comparte con nadie.
+//
+// Se resuelve con `uploads.uploadFile`, el MISMO camino que usa el enlace público
+// del técnico: carpeta de la fase según el alcance, renombrado canónico y
+// versionado a OLD. Así las dos superficies no pueden divergir.
+//
+// La fase y el slot se DEDUCEN si no vienen: un navegador con la versión anterior
+// cargada sigue mandando la ruta del CAE, y el nombre canónico que ya aplica
+// (`… – CEE FINAL.cex`) basta para saber a qué sección y a qué slot iba.
 router.post('/:id/documents/upload', internalOnly, async (req, res) => {
     try {
-        const { base64, fileName, mimeType, subfolders = [] } = req.body || {};
+        const { base64, fileName, mimeType, subfolders = [], section, slotId, originalName } = req.body || {};
         if (!base64 || !String(base64).trim() || !fileName) {
             return res.status(400).json({ error: 'base64 y fileName son obligatorios' });
         }
@@ -919,6 +935,30 @@ router.post('/:id/documents/upload', internalOnly, async (req, res) => {
             return res.status(400).json({ error: 'El expediente todavía no tiene carpeta de Drive' });
         }
 
+        const rutaCae = subfolders.map(s => String(s).toUpperCase()).join('/');
+        const fase = section
+            || (rutaCae.includes('CEE FINAL') ? 'final'
+                : rutaCae.includes('CEE INICIAL') || rutaCae.includes('1. CEE') ? 'inicial'
+                : null);
+
+        if (fase) {
+            const slot = uploads.CEE_SLOTS.find(s => s.id === slotId)?.id || uploads.matchSlot(fileName);
+            try {
+                const subido = await uploads.uploadFile(
+                    row, fase, slot, Buffer.from(base64, 'base64'), mimeType,
+                    // Sin slot reconocible es el cajón "OTROS": conserva su nombre.
+                    // El original si el navegador lo manda; si no, se le quita al
+                    // renombrado el prefijo del expediente para no doblarlo.
+                    slot ? {} : { nombreLibre: originalName || fileName.replace(/^\S+\s+–\s+/, '') }
+                );
+                return res.json({ drive_link: subido.link, drive_id: subido.id, fileName: subido.fileName });
+            } catch (e) {
+                return res.status(502).json({ error: `Error al subir el archivo a Drive: ${e.message}` });
+            }
+        }
+
+        // Escape para cualquier destino que NO sea una sección de CEE (hoy no lo
+        // usa nadie; la rejilla siempre sube a una fase).
         let currentFolderId = row.drive_folder_id;
         for (const sub of subfolders) {
             currentFolderId = await driveService.getOrCreateSubfolder(currentFolderId, sub);
